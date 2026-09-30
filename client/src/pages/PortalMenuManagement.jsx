@@ -9,135 +9,343 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { ChevronRight, ChevronDown, Plus, Pencil, Trash2, GripVertical, Users, Shield, Menu, Calendar, CreditCard, Ticket, Wallet, ShoppingCart, History, Sparkles, FileText, Briefcase, Settings, BookOpen, Building, HelpCircle, BarChart3, FileEdit, AtSign, FolderTree, Trophy, MousePointer2, Mail, Download, Check, ChevronsUpDown } from "lucide-react";
+import { ChevronRight, ChevronDown, Plus, Pencil, Trash2, GripVertical, Users, Shield, Menu, Calendar, CreditCard, Ticket, Wallet, ShoppingCart, History, Sparkles, FileText, Briefcase, Settings, BookOpen, Building, HelpCircle, BarChart3, FileEdit, AtSign, FolderTree, Trophy, MousePointer2, Mail, Download, Check, ChevronsUpDown, Newspaper, PenLine, Home, Globe, Folder, Image, MessageSquare, Bell, Star, Heart, Eye, Link, ExternalLink, Tag, Award, Bookmark, Clock, Search, Phone, MapPin, Video, Music, Camera, Mic, Headphones, Tv, Radio, Rss, Share2, Gift, Zap, Target, Flag, Layers, Grid, List, Layout, Monitor, Smartphone, Tablet, Laptop, Server, Database, Cloud, Lock, Key, UserCheck, UserPlus, UserMinus, Users2, MessageCircle, Send, Inbox, Archive } from "lucide-react";
 import { toast } from "sonner";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/components/ui/command";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
+import { ROLE_ACCESS_MAP } from "@/lib/roleAccessMap";
+import {
+  getCustomObjectIdFromPortalListUrl,
+  getCustomObjectPortalRoleAccessId,
+  getPortalMenuFallbackFeatureId,
+  getPortalMenuLinkType,
+  loadViewableCustomObjectPortalDestinations,
+  PORTAL_MENU_LINK_TYPES,
+  validatePortalMenuDestination,
+} from "@/lib/portalMenuLinks";
+
+// Build grouped role access options by module for better organization (sorted alphabetically)
+const staticRoleAccessOptions = (() => {
+  const groups = [];
+  const allKeys = new Set();
+  for (const module of ROLE_ACCESS_MAP) {
+    const items = [];
+    items.push({ value: module.id, label: module.label, type: 'module' });
+    allKeys.add(module.id);
+    for (const page of module.pages) {
+      items.push({ value: page.id, label: page.label, type: 'page' });
+      allKeys.add(page.id);
+      if (page.features) {
+        for (const feature of page.features) {
+          items.push({ value: feature.id, label: feature.label, type: 'feature', parentPage: page.label });
+          allKeys.add(feature.id);
+        }
+      }
+    }
+    groups.push({ module: module.label, icon: module.icon, items });
+  }
+  groups.sort((a, b) => a.module.localeCompare(b.module));
+  return { groups, allKeys };
+})();
 
 const availableIcons = {
   Menu, Calendar, CreditCard, Ticket, Wallet, ShoppingCart, History, Sparkles, FileText, Briefcase, Settings, 
-  BookOpen, Building, HelpCircle, Users, Shield, BarChart3, FileEdit, AtSign, FolderTree, Trophy, MousePointer2, Mail, Download
+  BookOpen, Building, HelpCircle, Users, Shield, BarChart3, FileEdit, AtSign, FolderTree, Trophy, MousePointer2, Mail, Download,
+  Newspaper, PenLine, Home, Globe, Folder, Image, MessageSquare, Bell, Star, Heart, Eye, Link, ExternalLink, Tag, 
+  Award, Bookmark, Clock, Search, Phone, MapPin, Video, Music, Camera, Mic, Headphones, Tv, Radio, Rss, Share2, Gift, 
+  Zap, Target, Flag, Layers, Grid, List, Layout, Monitor, Smartphone, Tablet, Laptop, Server, Database, Cloud, Lock, Key,
+  UserCheck, UserPlus, UserMinus, Users2, MessageCircle, Send, Inbox, Archive
 };
 
-const availablePages = [
-  { value: "_none", label: "No Page (Parent Menu)" },
-  ...([
-    { value: "AdminSetup", label: "Admin Setup" },
-    { value: "Articles", label: "Articles" },
-    { value: "ArticleManagement", label: "Article Management" },
-    { value: "ArticlesSettings", label: "Articles Settings" },
-    { value: "ArticleEditor", label: "Article Editor" },
-    { value: "ArticleView", label: "Article View" },
-    { value: "AwardManagement", label: "Award Management" },
-    { value: "Balances", label: "Balances" },
-    { value: "Bookings", label: "Bookings" },
-    { value: "BorderRadiusSettings", label: "Border Radius Settings" },
-    { value: "ButtonElements", label: "Button Elements" },
-    { value: "ButtonStyleManagement", label: "Button Styles" },
-    { value: "BuyProgramTickets", label: "Buy Program Tickets" },
-    { value: "CategoryManagement", label: "Category Management" },
-    { value: "Dashboard", label: "Dashboard" },
-    { value: "DataExport", label: "Data Export" },
-    { value: "DiscountCodeManagement", label: "Discount Code Management" },
-    { value: "DynamicPage", label: "Dynamic Page" },
-    { value: "EventDetails", label: "Event Details" },
-    { value: "Events", label: "Events" },
-    { value: "EventSettings", label: "Event Settings" },
-    { value: "FileManagement", label: "File Management" },
-    { value: "FloaterManagement", label: "Floater Management" },
-    { value: "FormBuilder", label: "Form Builder" },
-    { value: "FormManagement", label: "Form Management" },
-    { value: "FormSubmissions", label: "Form Submissions" },
-    { value: "FormView", label: "Form View" },
-    { value: "GuestWriterManagement", label: "Guest Writer Management" },
-    { value: "History", label: "History" },
-    { value: "Home", label: "Home" },
-    { value: "IEditPageEditor", label: "Page Editor" },
-    { value: "IEditPageManagement", label: "Page Builder - Pages" },
-    { value: "IEditTemplateManagement", label: "Page Builder - Templates" },
-    { value: "InstalledFonts", label: "Installed Fonts" },
-    { value: "JobBoard", label: "Job Board" },
-    { value: "JobBoardSettings", label: "Job Board Settings" },
-    { value: "JobDetails", label: "Job Details" },
-    { value: "JobPostingManagement", label: "Job Posting Management" },
-    { value: "JobPostSuccess", label: "Job Post Success" },
-    { value: "MemberDirectory", label: "Member Directory" },
-    { value: "MemberDirectorySettings", label: "Member Directory Settings" },
-    { value: "MemberGroupAssignmentReport", label: "Member Group Assignment Report" },
-    { value: "MemberGroupGuestManagement", label: "Member Group Guest Management" },
-    { value: "MemberGroupManagement", label: "Member Group Management" },
-    { value: "MemberHandleManagement", label: "Member Handle Management" },
-    { value: "MemberRoleAssignment", label: "Member Role Assignment" },
-    { value: "MyArticles", label: "My Articles" },
-    { value: "MyJobPostings", label: "My Job Postings" },
-    { value: "MyNews", label: "My News" },
-    { value: "MyTickets", label: "My Tickets" },
-    { value: "NavigationManagement", label: "Navigation Items" },
-    { value: "News", label: "News" },
-    { value: "NewsEditor", label: "News Editor" },
-    { value: "NewsSettings", label: "News Settings" },
-    { value: "NewsView", label: "News View" },
-    { value: "OrganisationDirectory", label: "Organisation Directory" },
-    { value: "OrganisationDirectorySettings", label: "Organisation Directory Settings" },
-    { value: "PageBannerManagement", label: "Page Banners" },
-    { value: "PortalMenuManagement", label: "Portal Menu Management" },
-    { value: "PortalNavigationManagement", label: "Portal Navigation Management" },
-    { value: "PostJob", label: "Post Job" },
-    { value: "Preferences", label: "Preferences" },
-    { value: "PublicAbout", label: "Public - About" },
-    { value: "PublicArticles", label: "Public - Articles" },
-    { value: "PublicContact", label: "Public - Contact" },
-    { value: "PublicEvents", label: "Public - Events" },
-    { value: "PublicNews", label: "Public - News" },
-    { value: "PublicResources", label: "Public - Resources" },
-    { value: "Resources", label: "Resources" },
-    { value: "ResourceManagement", label: "Resource Management" },
-    { value: "ResourceSettings", label: "Resource Settings" },
-    { value: "RoleManagement", label: "Role Management" },
-    { value: "SiteMap", label: "Site Map" },
-    { value: "Support", label: "Support" },
-    { value: "SupportManagement", label: "Support Management" },
-    { value: "TagManagement", label: "Tag Management" },
-    { value: "Team", label: "Team" },
-    { value: "TeamInviteSettings", label: "Team Invite Settings" },
-    { value: "TeamEngagementReport", label: "Team Engagement Report" },
-    { value: "TeamMemberManagement", label: "Team Member Management" },
-    { value: "TicketSalesAnalytics", label: "Ticket Sales Analytics" },
-    { value: "TourManagement", label: "Tour Management" },
-    { value: "UnpackedInternationalEmployability", label: "Unpacked International Employability" },
-    { value: "ViewPage", label: "View Page" },
-    { value: "WallOfFameManagement", label: "Wall of Fame" }
-  ].sort((a, b) => a.label.localeCompare(b.label)))
+// Pages whose Role Access ID should default to a specific RBAC key when selected.
+const PAGE_DEFAULT_FEATURES = {
+  EventBudgetReport: "events.event-budget-report",
+  OrganisationEngagementReport: "reports.org-engagement",
+  OrganisationGroups: "crm.organisation-groups",
+  CPDCertificateTemplates: "cpd.certificate-templates",
+  CpdPoints: "cpd.member_cpd",
+};
+
+const builtInPages = [
+  { value: "AdminSetup", label: "Admin Setup" },
+  { value: "Articles", label: "Articles" },
+  { value: "ArticlesSettings", label: "Articles Settings" },
+  { value: "ArticleEditor", label: "Article Editor" },
+  { value: "ArticleView", label: "Article View" },
+  { value: "AwardManagement", label: "Award Management" },
+  { value: "BadgeManagement", label: "Badge Management" },
+  { value: "Balances", label: "Balances" },
+  { value: "Bookings", label: "Bookings" },
+  { value: "booking-agents", label: "Booking Agents" },
+  { value: "BorderRadiusSettings", label: "Border Radius Settings" },
+  { value: "BriefManagement", label: "Brief Management" },
+  { value: "ButtonElements", label: "Button Elements" },
+  { value: "ButtonStyleManagement", label: "Button Styles" },
+  { value: "BuyProgramTickets", label: "Buy Program Tickets" },
+  { value: "CancellationRequests", label: "Cancellation Requests" },
+  { value: "CardDeckManagement", label: "Card Deck Management" },
+  { value: "CategoryManagement", label: "Category Management" },
+  { value: "CommunicationsManagement", label: "Communications Management" },
+  { value: "CPDCertificateTemplates", label: "CPD Certificate Templates" },
+  { value: "CustomFieldsAdmin", label: "Custom Fields Admin" },
+  { value: "MemberGroupClassificationReport", label: "Group Classification Report" },
+  { value: "Dashboard", label: "Dashboard" },
+  { value: "DataExport", label: "Data Export" },
+  { value: "CustomObjectsAdmin", label: "Data Studio" },
+  { value: "DirectDebitAdmin", label: "Direct Debit Console" },
+  { value: "DiscountCodeManagement", label: "Discount Code Management" },
+  { value: "DynamicDirectoryManagement", label: "Dynamic Directory Management" },
+  { value: "DynamicPage", label: "Dynamic Page" },
+  { value: "EmailCampaignEdit", label: "Email Campaign Editor" },
+  { value: "EmailTemplateManagement", label: "Email Templates" },
+  { value: "EmailPlaceholders", label: "Email Placeholders Reference" },
+  { value: "EventCheckIn", label: "Event Check-In Scanner" },
+  { value: "EventCheckInDashboard", label: "Event Check-In Dashboard" },
+  { value: "EventDetails", label: "Event Details" },
+  { value: "EventBudgetReport", label: "Event Budget Report" },
+  { value: "EventRegistrationReport", label: "Event Registration Report" },
+  { value: "Events", label: "Events" },
+  { value: "EventSettings", label: "Event Settings" },
+  { value: "FileManagement", label: "File Management" },
+  { value: "FloaterManagement", label: "Floater Management" },
+  { value: "Forum", label: "Forum" },
+  { value: "ForumManagement", label: "Forum Management" },
+  { value: "FundraisingManagement", label: "Fundraising Management" },
+  { value: "FormBuilder", label: "Form Builder" },
+  { value: "FormManagement", label: "Form Management" },
+  { value: "FormConversionReport", label: "Form Conversion Report" },
+  { value: "FormSettings", label: "Form Settings" },
+  { value: "FormSubmissions", label: "Form Submissions" },
+  { value: "FormView", label: "Form View" },
+  { value: "DueDiligenceDashboard", label: "Due Diligence Dashboard" },
+  { value: "DueDiligenceConfig", label: "Due Diligence Configuration" },
+  { value: "ReviewSubmission", label: "Review Submission" },
+  { value: "GroupEmail", label: "Group Email" },
+  { value: "GroupEvents", label: "Group Events" },
+  { value: "GroupProjects", label: "Group Projects" },
+  { value: "GuestWriterManagement", label: "Guest Writer Management" },
+  { value: "Help", label: "Help Center" },
+  { value: "History", label: "History" },
+  { value: "Home", label: "Home" },
+  { value: "IEditPageEditor", label: "Page Editor" },
+  { value: "IEditPageManagement", label: "Page Builder - Pages" },
+  { value: "IEditTemplateManagement", label: "Page Builder - Templates" },
+  { value: "Inbox", label: "Inbox" },
+  { value: "InstalledFonts", label: "Installed Fonts" },
+  { value: "JobBoard", label: "Job Board" },
+  { value: "JobBoardSettings", label: "Job Board Settings" },
+  { value: "JobDetails", label: "Job Details" },
+  { value: "JobPostingManagement", label: "Job Posting Management" },
+  { value: "JobPostSuccess", label: "Job Post Success" },
+  { value: "MemberDirectory", label: "Member Directory" },
+  { value: "MemberDirectorySettings", label: "Member Directory Settings" },
+  { value: "MemberGroupAssignmentReport", label: "Member Group Assignment Report" },
+  { value: "MemberGroupInviteReport", label: "Member Group Invite Report" },
+  { value: "MemberGroups", label: "Member Group Access" },
+  { value: "MemberGroupGuestManagement", label: "Member Group Guest Management" },
+  { value: "MemberGroupManagement", label: "Member Group Management" },
+  { value: "MemberGroupSettings", label: "Member Group Settings" },
+  { value: "MemberHandleManagement", label: "Member Handle Management" },
+  { value: "MembershipFees", label: "Membership Fees" },
+  { value: "MembershipSettings", label: "Membership Settings" },
+  { value: "MembershipTierManagement", label: "Membership Tier Management" },
+  { value: "MemberRoleAssignment", label: "Member Role Assignment" },
+  { value: "MemberRoleReport", label: "Member Role Report" },
+  { value: "members", label: "Members (CRM)" },
+  { value: "MyBookings", label: "My Bookings" },
+  { value: "CpdPoints", route: "cpdpoints", label: "My CPD Points" },
+  { value: "MyJobPostings", label: "My Job Postings" },
+  { value: "MyOrganisation", label: "My Organisation" },
+  { value: "MyTickets", label: "My Tickets" },
+  { value: "NavigationManagement", label: "Navigation Items" },
+  { value: "News", label: "News" },
+  { value: "ProjectBoards", label: "Project Boards" },
+  { value: "ProjectBoard", label: "Project Board (Single)" },
+  { value: "NewsEditor", label: "News Editor" },
+  { value: "NewsSettings", label: "News Settings" },
+  { value: "NewsView", label: "News View" },
+  { value: "OrganisationDirectory", label: "Organisation Directory" },
+  { value: "OrganisationDirectorySettings", label: "Organisation Directory Settings" },
+  { value: "OrganisationEngagementReport", label: "Organisation Engagement Report" },
+  { value: "OrganisationGroups", label: "Organisation Groups" },
+  { value: "OrganisationPreferences", label: "Organisation Field Permissions" },
+  { value: "MemberPreferences", label: "Member Field Permissions" },
+  { value: "organisations", label: "Organisations (CRM)" },
+  { value: "PageBannerManagement", label: "Page Banners" },
+  { value: "PhotoGalleries", label: "Photo Galleries" },
+  { value: "GalleryDirectory", label: "Gallery Directory" },
+  { value: "PageVisibilitySettings", label: "Page Visibility Settings" },
+  { value: "PortalMenuManagement", label: "Portal Menu Management" },
+  { value: "PortalNavigationManagement", label: "Portal Navigation Management" },
+  { value: "PostJob", label: "Post Job" },
+  { value: "Preferences", label: "User Preferences" },
+  { value: "PreferenceSettings", label: "Preference Settings" },
+  { value: "about-me", label: "About Me" },
+  { value: "PublicAbout", label: "Public - About" },
+  { value: "PublicArticles", label: "Public - Articles" },
+  { value: "PublicContact", label: "Public - Contact" },
+  { value: "PublicEvents", label: "Public - Events" },
+  { value: "PublicNews", label: "Public - News" },
+  { value: "PublicResources", label: "Public - Resources" },
+  { value: "Resources", label: "Resources" },
+  { value: "RedirectManagement", label: "Redirect Management" },
+  { value: "ResourceManagement", label: "Resource Management" },
+  { value: "ResourceSettings", label: "Resource Settings" },
+  { value: "RoleAccessConfigManagement", label: "Role Access Config Management" },
+  { value: "RoleManagement", label: "Role Management" },
+  { value: "SiteMap", label: "Site Map" },
+  { value: "Support", label: "Support" },
+  { value: "SurveyReports", label: "Survey Reports" },
+  { value: "SupportManagement", label: "Support Management" },
+  { value: "TagManagement", label: "Tag Management" },
+  { value: "Team", label: "Team" },
+  { value: "TeamEngagementReport", label: "Team Engagement Report" },
+  { value: "TeamInviteSettings", label: "Team Invite Settings" },
+  { value: "TeamMemberManagement", label: "Team Member Management" },
+  { value: "TeamSettings", label: "Team Settings" },
+  { value: "TicketSalesAnalytics", label: "Ticket Sales Analytics" },
+  { value: "PendingPurchaseOrdersReport", label: "Pending Purchase Orders" },
+  { value: "TourManagement", label: "Tour Management" },
+  { value: "TrainingFundManagement", label: "Training Fund Management" },
+  { value: "UnpackedInternationalEmployability", label: "Unpacked International Employability" },
+  { value: "VolunteerBoard", label: "Volunteer Board" },
+  { value: "VoucherManagement", label: "Voucher Management" },
+  { value: "MonthlyFinanceReport", label: "Monthly Finance Report" },
+  { value: "ViewPage", label: "View Page" },
+  { value: "WallOfFameManagement", label: "Wall of Fame" },
+  { value: "WorkflowManagement", label: "Workflow Management" },
+  { value: "ZoomWebinarProvisioning", label: "Zoom Webinar Management" },
+  { value: "SpeakerManagement", label: "Speaker Management" },
+  { value: "SponsorManagement", label: "Sponsor Management" }
 ];
 
 export default function PortalMenuManagementPage() {
-  const { isAdmin, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [showDialog, setShowDialog] = useState(false);
   const [expandedItems, setExpandedItems] = useState({});
   const [pageSelectOpen, setPageSelectOpen] = useState(false);
+  const [roleAccessOpen, setRoleAccessOpen] = useState(false);
 
   const queryClient = useQueryClient();
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin) {
+      if (isFeatureExcluded('system.portal-menu')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: menuItems = [], isLoading } = useQuery({
     queryKey: ['portal-menu'],
     queryFn: () => base44.entities.PortalMenu.list('display_order'),
     refetchOnMount: false
   });
+
+  // Fetch published IEdit pages from CMS
+  const { data: ieditPages = [] } = useQuery({
+    queryKey: ['iedit-pages-published'],
+    queryFn: async () => {
+      const pages = await base44.entities.IEditPage.filter({ status: 'published' });
+      return pages.map(page => ({ value: page.slug, label: `CMS: ${page.title}` }));
+    },
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
+  // Fetch active dynamic directories
+  const { data: dynamicDirectories = [] } = useQuery({
+    queryKey: ['dynamic-directories-for-nav'],
+    queryFn: async () => {
+      try {
+        const directories = await base44.entities.DynamicDirectory.list({
+          filter: { is_active: true }
+        });
+        return (directories || []).map(dir => ({
+          value: `directory/${dir.slug}`,
+          label: `Directory: ${dir.name}`
+        }));
+      } catch {
+        return [];
+      }
+    },
+    staleTime: 60 * 1000,
+  });
+
+  // The catalogue endpoint already applies the same per-object view grant used
+  // by direct record routes, so only destinations this administrator can open
+  // are offered.
+  const { data: customObjectDestinations = [] } = useQuery({
+    queryKey: ['custom-objects-for-portal-menu'],
+    queryFn: () => loadViewableCustomObjectPortalDestinations(),
+    staleTime: 60 * 1000,
+  });
+
+  const { data: roleAccessItems = [] } = useQuery({
+    queryKey: ['role-access-items-for-menu'],
+    queryFn: async () => {
+      try {
+        return await base44.entities.RoleAccessItem.list();
+      } catch {
+        return [];
+      }
+    },
+    staleTime: 60 * 1000,
+  });
+
+  const groupedRoleAccessOptions = useMemo(() => {
+    const dynamicItems = roleAccessItems.filter(
+      item => item.is_active && !staticRoleAccessOptions.allKeys.has(item.item_key)
+    );
+    const dynamicGroups = [];
+    if (dynamicItems.length > 0) {
+      dynamicGroups.push({
+        module: 'Dynamic Directories',
+        icon: 'FolderTree',
+        items: dynamicItems.map(item => ({
+          value: item.item_key,
+          label: item.label,
+          type: item.item_type || 'page'
+        }))
+      });
+    }
+    if (customObjectDestinations.length > 0) {
+      dynamicGroups.push({
+        module: 'Custom Objects',
+        icon: 'Database',
+        items: customObjectDestinations.map(item => ({
+          value: item.featureId,
+          label: item.label,
+          type: 'page',
+        })),
+      });
+    }
+    return [...staticRoleAccessOptions.groups, ...dynamicGroups].sort((a, b) => a.module.localeCompare(b.module));
+  }, [roleAccessItems, customObjectDestinations]);
+
+  // Combine built-in pages with dynamic CMS, directory and Custom Object pages.
+  const availablePages = useMemo(() => {
+    return [
+      { value: "_none", label: "No Page (Parent Menu)" },
+      ...builtInPages,
+      ...ieditPages,
+      ...dynamicDirectories,
+      ...customObjectDestinations,
+    ].sort((a, b) => {
+      // Keep "_none" at top
+      if (a.value === "_none") return -1;
+      if (b.value === "_none") return 1;
+      return a.label.localeCompare(b.label);
+    });
+  }, [ieditPages, dynamicDirectories, customObjectDestinations]);
 
   const createMutation = useMutation({
     mutationFn: (data) => base44.entities.PortalMenu.create(data),
@@ -195,6 +403,8 @@ export default function PortalMenuManagementPage() {
     setEditingItem({
       title: "",
       url: "",
+      link_type: PORTAL_MENU_LINK_TYPES.INTERNAL,
+      open_in_new_tab: false,
       icon: "Menu",
       feature_id: "",
       section,
@@ -206,29 +416,60 @@ export default function PortalMenuManagementPage() {
   };
 
   const handleEdit = (item) => {
-    setEditingItem({ ...item });
+    setEditingItem({
+      ...item,
+      link_type: getPortalMenuLinkType(item),
+      open_in_new_tab: item.open_in_new_tab === true,
+    });
     setShowDialog(true);
   };
 
   const handleSave = () => {
-    if (!editingItem.title) {
+    const title = editingItem.title?.trim();
+    if (!title) {
       toast.error('Title is required');
       return;
     }
 
-    // Auto-generate feature_id with section prefix
-    let featureId;
-    const section = editingItem.section;
-    if (editingItem.url) {
-      featureId = `page_${section}_${editingItem.url}`;
-    } else {
-      // For parent menus, use title converted to PascalCase
-      featureId = `page_${section}_${editingItem.title.replace(/\s+/g, '')}`;
+    const linkType = getPortalMenuLinkType(editingItem);
+    let url = editingItem.url?.trim() || "";
+    if (linkType === PORTAL_MENU_LINK_TYPES.EXTERNAL) {
+      const hasChildren = editingItem.id
+        ? menuItems.some(item => item.parent_id === editingItem.id)
+        : false;
+      const validation = validatePortalMenuDestination(
+        { ...editingItem, url, link_type: linkType },
+        { hasChildren },
+      );
+      if (!validation.isValid) {
+        toast.error(validation.error);
+        return;
+      }
+      url = validation.url;
+    }
+
+    // Use manually selected feature_id if set, otherwise auto-generate
+    const customObjectId = linkType === PORTAL_MENU_LINK_TYPES.INTERNAL
+      ? getCustomObjectIdFromPortalListUrl(url)
+      : null;
+    let featureId = customObjectId
+      ? getCustomObjectPortalRoleAccessId(customObjectId)
+      : editingItem.feature_id;
+    if (!featureId) {
+      featureId = getPortalMenuFallbackFeatureId({
+        ...editingItem,
+        title,
+        url,
+        link_type: linkType,
+      });
     }
 
     const data = {
-      title: editingItem.title,
-      url: editingItem.url || "",
+      title,
+      url,
+      link_type: linkType,
+      open_in_new_tab: linkType === PORTAL_MENU_LINK_TYPES.EXTERNAL
+        && editingItem.open_in_new_tab === true,
       icon: editingItem.icon,
       feature_id: featureId,
       section: editingItem.section,
@@ -257,56 +498,45 @@ export default function PortalMenuManagementPage() {
   };
 
   const moveItem = async (itemId, direction) => {
-    console.log('=== MOVE ITEM START ===');
-    console.log('Item ID:', itemId, 'Direction:', direction);
-    
     const item = menuItems.find(i => i.id === itemId);
-    if (!item) {
-      console.log('Item not found');
-      return;
-    }
-    console.log('Item found:', item.title, 'Current display_order:', item.display_order);
+    if (!item) return;
 
+    // Normalize parent_id comparison (treat null, undefined, "" as equivalent)
+    const normalizeParentId = (parentId) => parentId || "";
+    const itemParentId = normalizeParentId(item.parent_id);
+
+    // Get siblings within the same section AND parent
     const siblings = menuItems
-      .filter(i => i.section === item.section && i.parent_id === item.parent_id)
-      .sort((a, b) => {
-        // Sort by display_order first, then by created_date if orders are equal
-        if (a.display_order === b.display_order) {
-          return new Date(a.created_date) - new Date(b.created_date);
-        }
-        return a.display_order - b.display_order;
-      });
-    
-    console.log('Siblings:', siblings.map(s => ({ title: s.title, display_order: s.display_order })));
+      .filter(i => i.section === item.section && normalizeParentId(i.parent_id) === itemParentId && i.is_active)
+      .sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
 
     const currentIndex = siblings.findIndex(i => i.id === itemId);
     const newIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-    
-    console.log('Current index:', currentIndex, 'New index:', newIndex);
 
-    if (newIndex < 0 || newIndex >= siblings.length) {
-      console.log('Cannot move - out of bounds');
-      return;
-    }
+    if (newIndex < 0 || newIndex >= siblings.length) return;
 
-    // Remove item from current position and insert at new position
+    // Reorder the array by moving the item to the new position
     const reorderedSiblings = [...siblings];
     const [movedItem] = reorderedSiblings.splice(currentIndex, 1);
     reorderedSiblings.splice(newIndex, 0, movedItem);
 
-    console.log('Reordered siblings:', reorderedSiblings.map(s => s.title));
+    // Use section-scoped base offset to prevent collisions between sections
+    // user section: 0-9999, admin section: 10000-19999
+    // Also add parent-based offset for sub-items
+    const sectionOffset = item.section === 'admin' ? 10000 : 0;
+    const parentOffset = itemParentId ? 5000 : 0; // Sub-items get offset within section
+    const baseOffset = sectionOffset + parentOffset;
 
-    // Update all siblings with new display_order values
-    for (let i = 0; i < reorderedSiblings.length; i++) {
-      console.log('Updating', reorderedSiblings[i].title, 'to display_order:', i);
-      await base44.entities.PortalMenu.update(reorderedSiblings[i].id, {
-        display_order: i
-      });
-    }
+    // Update all siblings with new sequential display_order values (scoped to section)
+    await Promise.all(
+      reorderedSiblings.map((sibling, index) => 
+        base44.entities.PortalMenu.update(sibling.id, { 
+          display_order: baseOffset + index 
+        })
+      )
+    );
 
-    console.log('Invalidating queries...');
     await queryClient.invalidateQueries({ queryKey: ['portal-menu'] });
-    console.log('=== MOVE ITEM END ===');
     toast.success('Menu order updated');
   };
 
@@ -336,7 +566,14 @@ export default function PortalMenuManagementPage() {
           
           <div className="flex-1 min-w-0">
             <div className="font-medium text-slate-900">{item.title}</div>
-            <div className="text-xs text-slate-500">{item.url || '(parent menu)'}</div>
+             <div className="flex items-center gap-2 text-xs text-slate-500">
+               <span className="truncate">{item.url || '(parent menu)'}</span>
+               {getPortalMenuLinkType(item) === PORTAL_MENU_LINK_TYPES.EXTERNAL && (
+                 <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                   External{item.open_in_new_tab ? ' · new tab' : ''}
+                 </Badge>
+               )}
+             </div>
           </div>
 
           {hasChildren && (
@@ -360,7 +597,7 @@ export default function PortalMenuManagementPage() {
             >
               ▼
             </Button>
-            {!isChild && (
+            {!isChild && getPortalMenuLinkType(item) !== PORTAL_MENU_LINK_TYPES.EXTERNAL && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -375,6 +612,7 @@ export default function PortalMenuManagementPage() {
               size="sm"
               onClick={() => handleEdit(item)}
               className="h-8 w-8 p-0"
+              aria-label={`Edit ${item.title}`}
             >
               <Pencil className="w-4 h-4" />
             </Button>
@@ -400,7 +638,7 @@ export default function PortalMenuManagementPage() {
 
   if (!accessChecked) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <Card>
           <CardContent className="p-8 text-center">
             <p className="text-slate-600">Loading...</p>
@@ -412,14 +650,14 @@ export default function PortalMenuManagementPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <div className="text-center">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         <div className="mb-8">
           <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">
@@ -467,7 +705,7 @@ export default function PortalMenuManagementPage() {
             <CardHeader className="border-b border-slate-200">
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-2">
-                  <Shield className="w-5 h-5 text-amber-600" />
+                  <Shield className="w-5 h-5 text-warning" />
                   Admin Navigation
                 </CardTitle>
                 <Button
@@ -515,24 +753,109 @@ export default function PortalMenuManagementPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Page</Label>
+                  <Label>Destination type *</Label>
                   <Select
-                    value={editingItem.url || "_none"}
-                    onValueChange={(value) => setEditingItem({ ...editingItem, url: value === "_none" ? "" : value })}
+                    value={getPortalMenuLinkType(editingItem)}
+                    onValueChange={(value) => setEditingItem({
+                      ...editingItem,
+                      link_type: value,
+                      url: "",
+                      open_in_new_tab: false,
+                    })}
                   >
-                    <SelectTrigger>
-                      <SelectValue placeholder="No Page (Parent Menu)" />
+                    <SelectTrigger data-testid="select-portal-link-type">
+                      <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="max-h-[400px]">
-                      {availablePages.map((page) => (
-                        <SelectItem key={page.value} value={page.value}>
-                          {page.label}
-                        </SelectItem>
-                      ))}
+                    <SelectContent>
+                      <SelectItem value={PORTAL_MENU_LINK_TYPES.INTERNAL}>Internal portal page</SelectItem>
+                      <SelectItem value={PORTAL_MENU_LINK_TYPES.EXTERNAL}>External website</SelectItem>
                     </SelectContent>
                   </Select>
-                  <p className="text-xs text-slate-500">Leave empty if this is a parent menu with sub-items</p>
                 </div>
+
+                {getPortalMenuLinkType(editingItem) === PORTAL_MENU_LINK_TYPES.INTERNAL ? (
+                  <div className="space-y-2">
+                    <Label>Page</Label>
+                    <Select
+                      value={
+                        availablePages.find(page => (page.route || page.value) === editingItem.url)?.value
+                        || editingItem.url
+                        || "_none"
+                      }
+                      onValueChange={(value) => {
+                        const page = availablePages.find(option => option.value === value);
+                        const url = value === "_none" ? "" : (page?.route || value);
+                        const next = { ...editingItem, url };
+                        const selectedDestination = customObjectDestinations.find(page => page.value === url);
+                        if (selectedDestination) {
+                          // This identifier is interpreted against the same
+                          // custom_object_role_permission view grant as direct access.
+                          next.feature_id = selectedDestination.featureId;
+                        }
+                        // Pre-associate the matching RBAC permission when the page has one.
+                        else if (
+                          (value === "CpdPoints"
+                            || value === "OrganisationEngagementReport"
+                            || !editingItem.feature_id)
+                          && PAGE_DEFAULT_FEATURES[value]
+                        ) {
+                          next.feature_id = PAGE_DEFAULT_FEATURES[value];
+                        }
+                        setEditingItem(next);
+                      }}
+                    >
+                      <SelectTrigger data-testid="button-portal-page-select">
+                        <SelectValue placeholder="No Page (Parent Menu)" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-[400px]">
+                        {availablePages.map((page) => (
+                          <SelectItem key={page.value} value={page.value}>
+                            <div className="flex flex-col">
+                              <span>{page.label}</span>
+                              {page.value && page.value !== "_none" && (
+                                <span className="text-xs text-muted-foreground">/{page.value}</span>
+                              )}
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-slate-500">Leave empty if this is a parent menu with sub-items</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="portal-menu-external-url">External URL *</Label>
+                      <Input
+                        id="portal-menu-external-url"
+                        type="url"
+                        value={editingItem.url || ""}
+                        onChange={(e) => setEditingItem({ ...editingItem, url: e.target.value })}
+                        placeholder="https://www.example.com"
+                        data-testid="input-portal-external-url"
+                      />
+                      <p className="text-xs text-slate-500">
+                        Enter the complete address starting with http:// or https://.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-4 rounded-lg border border-slate-200 p-3">
+                      <div>
+                        <Label htmlFor="portal-menu-new-tab">Open in a new tab</Label>
+                        <p className="text-xs text-slate-500">Keeps the member portal open in the current tab.</p>
+                      </div>
+                      <Switch
+                        id="portal-menu-new-tab"
+                        checked={editingItem.open_in_new_tab === true}
+                        onCheckedChange={(checked) => setEditingItem({
+                          ...editingItem,
+                          open_in_new_tab: checked,
+                        })}
+                        data-testid="switch-portal-external-new-tab"
+                      />
+                    </div>
+                  </>
+                )}
 
                 <div className="space-y-2">
                   <Label>Icon *</Label>
@@ -560,13 +883,89 @@ export default function PortalMenuManagementPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Feature ID (Auto-generated)</Label>
-                  <div className="px-3 py-2 bg-slate-100 border border-slate-200 rounded-md text-sm text-slate-600">
-                    {editingItem.url 
-                      ? `page_${editingItem.section}_${editingItem.url}` 
-                      : `page_${editingItem.section}_${editingItem.title.replace(/\s+/g, '')}`}
-                  </div>
-                  <p className="text-xs text-slate-500">Auto-generated from section, URL or title (used for permissions)</p>
+                  <Label>Role Access ID (for permissions)</Label>
+                  <Popover open={roleAccessOpen} onOpenChange={setRoleAccessOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={roleAccessOpen}
+                        className="w-full justify-between font-normal"
+                        data-testid="button-role-access-select"
+                      >
+                        {editingItem.feature_id ? (
+                          <span className="truncate">{editingItem.feature_id}</span>
+                        ) : (
+                          <span className="text-muted-foreground">(Auto-generate from page)</span>
+                        )}
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[400px] p-0" align="start">
+                      <Command shouldFilter={true}>
+                        <CommandInput 
+                          placeholder="Search permissions..." 
+                          data-testid="input-role-access-search"
+                        />
+                        <ScrollArea className="h-[300px]">
+                          <CommandList className="max-h-none">
+                            <CommandEmpty>No permission found.</CommandEmpty>
+                            <CommandGroup>
+                              <CommandItem
+                                value="_auto"
+                                onSelect={() => {
+                                  setEditingItem({ ...editingItem, feature_id: "" });
+                                  setRoleAccessOpen(false);
+                                }}
+                                data-testid="option-role-access-auto"
+                              >
+                                <Check className={cn("mr-2 h-4 w-4", !editingItem.feature_id ? "opacity-100" : "opacity-0")} />
+                                <span className="text-muted-foreground italic">(Auto-generate from page)</span>
+                              </CommandItem>
+                            </CommandGroup>
+                            {groupedRoleAccessOptions.map((group) => (
+                              <CommandGroup key={group.module} heading={group.module}>
+                                {group.items.map((item) => (
+                                  <CommandItem
+                                    key={item.value}
+                                    value={`${group.module} ${item.label} ${item.value}`}
+                                    onSelect={() => {
+                                      setEditingItem({ ...editingItem, feature_id: item.value });
+                                      setRoleAccessOpen(false);
+                                    }}
+                                    data-testid={`option-role-access-${item.value}`}
+                                  >
+                                    <Check className={cn("mr-2 h-4 w-4", editingItem.feature_id === item.value ? "opacity-100" : "opacity-0")} />
+                                    <div className="flex items-center gap-2">
+                                      {item.type === 'module' && (
+                                        <Badge variant="outline" className="text-xs px-1.5 py-0 bg-blue-50 text-blue-700 border-blue-200">Module</Badge>
+                                      )}
+                                      {item.type === 'page' && (
+                                        <Badge variant="outline" className="text-xs px-1.5 py-0 bg-green-50 text-green-700 border-green-200">Page</Badge>
+                                      )}
+                                      {item.type === 'feature' && (
+                                        <Badge variant="outline" className="text-xs px-1.5 py-0 bg-warning/10 text-warning border-warning/30">Feature</Badge>
+                                      )}
+                                      <span>{item.label}</span>
+                                    </div>
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            ))}
+                          </CommandList>
+                        </ScrollArea>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                  <p className="text-xs text-slate-500">
+                    Select a Role Access ID to link this menu item to the permissions system. 
+                    When blocked in Role Management, this item will be hidden.
+                    {editingItem.feature_id && (
+                      <span className="block mt-1 font-medium text-blue-600">
+                        Current: {editingItem.feature_id}
+                      </span>
+                    )}
+                  </p>
                 </div>
 
                 <div className="flex items-center gap-2">

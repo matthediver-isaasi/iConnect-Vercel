@@ -1,0 +1,68 @@
+mathenderson@Mats-MacBook-Air ~ % curl -v -o /dev/null -w "\nHTTP Status: %{http_code}\nRedirect URL: %{redirect_url}\n" \
+  -H "User-Agent: Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)" \
+  "https://www.graduatefutures.org/graduate-futures-awards-2026"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0* Host www.graduatefutures.org:443 was resolved.
+* IPv6: (none)
+* IPv4: 216.150.1.129, 216.150.16.129
+*   Trying 216.150.1.129:443...
+* Connected to www.graduatefutures.org (216.150.1.129) port 443
+* ALPN: curl offers h2,http/1.1
+* (304) (OUT), TLS handshake, Client hello (1):
+} [328 bytes data]
+*  CAfile: /etc/ssl/cert.pem
+*  CApath: none
+* (304) (IN), TLS handshake, Server hello (2):
+{ [122 bytes data]
+* (304) (IN), TLS handshake, Unknown (8):
+{ [19 bytes data]
+* (304) (IN), TLS handshake, Certificate (11):
+{ [2600 bytes data]
+* (304) (IN), TLS handshake, CERT verify (15):
+{ [264 bytes data]
+* (304) (IN), TLS handshake, Finished (20):
+{ [36 bytes data]
+* (304) (OUT), TLS handshake, Finished (20):
+} [36 bytes data]
+* SSL connection using TLSv1.3 / AEAD-CHACHA20-POLY1305-SHA256 / [blank] / UNDEF
+* ALPN: server accepted h2
+* Server certificate:
+*  subject: CN=www.graduatefutures.org
+*  start date: Mar  4 18:00:37 2026 GMT
+*  expire date: Jun  2 18:00:36 2026 GMT
+*  subjectAltName: host "www.graduatefutures.org" matched cert's "www.graduatefutures.org"
+*  issuer: C=US; O=Let's Encrypt; CN=R13
+*  SSL certificate verify ok.
+* using HTTP/2
+* [HTTP/2] [1] OPENED stream for https://www.graduatefutures.org/graduate-futures-awards-2026
+* [HTTP/2] [1] [:method: GET]
+* [HTTP/2] [1] [:scheme: https]
+* [HTTP/2] [1] [:authority: www.graduatefutures.org]
+* [HTTP/2] [1] [:path: /graduate-futures-awards-2026]
+* [HTTP/2] [1] [accept: */*]
+* [HTTP/2] [1] [user-agent: Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)]
+> GET /graduate-futures-awards-2026 HTTP/2
+> Host: www.graduatefutures.org
+> Accept: */*
+> User-Agent: Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)
+> 
+* Request completely sent off
+< HTTP/2 200 
+< cache-control: public, max-age=300
+< content-type: text/html; charset=utf-8
+< date: Tue, 07 Apr 2026 07:40:24 GMT
+< server: Vercel
+< strict-transport-security: max-age=63072000
+< x-content-type-options: nosniff
+< x-frame-options: DENY
+< x-prerendered: true
+< x-vercel-id: cdg1::hp7mm-1775547623480-3c342b78bf3d
+< x-xss-protection: 1; mode=block
+< 
+{ [4735 bytes data]
+100  4807    0  4807    0     0   5568      0 --:--:-- --:--:-- --:--:--  5570
+* Connection #0 to host www.graduatefutures.org left intact
+
+HTTP Status: 200
+Redirect URL: 

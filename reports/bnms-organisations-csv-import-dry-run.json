@@ -1,0 +1,1025 @@
+{
+  "generatedAt": "2026-09-04T10:49:44.592Z",
+  "mode": "dry-run",
+  "tenant": {
+    "id": "ff2df806-b321-4254-b651-3af11fccf1db",
+    "name": "BNMS"
+  },
+  "sourceFile": "attached_assets/Guest_Organisations_DEFINITELY_to_Import_04.09.26_1788518455672.csv",
+  "sourceEncoding": "UTF-8",
+  "exactHeaders": [
+    "Organisation name",
+    "Organisation type",
+    "Country",
+    "Town / city",
+    "BNMS Region"
+  ],
+  "sourceRows": 26,
+  "distinctSourceValues": {
+    "type": 2,
+    "country": 4,
+    "region": 8
+  },
+  "mapping": [
+    {
+      "source": "Organisation name",
+      "destination": "organization.name",
+      "type": "core"
+    },
+    {
+      "source": "Organisation type",
+      "destination": "organisation_type",
+      "liveFieldName": "organisation_type",
+      "fieldId": "fd8dab3a-29ab-41f0-a002-d9cf822c51bf",
+      "type": "dropdown"
+    },
+    {
+      "source": "Country",
+      "destination": "country",
+      "liveFieldName": "org_country",
+      "fieldId": "4f8b5c47-f074-4d15-96fd-0a44f81725eb",
+      "type": "country"
+    },
+    {
+      "source": "Town / city",
+      "destination": "town_city",
+      "liveFieldName": "org_town_city",
+      "fieldId": "aa8a283d-080f-4992-8ab2-afa9e0ec83b0",
+      "type": "text"
+    },
+    {
+      "source": "BNMS Region",
+      "destination": "region",
+      "liveFieldName": "region",
+      "fieldId": "91e58f93-f78f-465e-948b-c4808aecd89c",
+      "type": "dropdown"
+    }
+  ],
+  "aliases": [
+    {
+      "field": "country",
+      "source": "south korea",
+      "destination": "Korea, Republic of"
+    },
+    {
+      "field": "country",
+      "source": "united states",
+      "destination": "United States of America"
+    },
+    {
+      "field": "region",
+      "source": "yorkshire & the humber",
+      "destination": "Yorkshire and the Humber"
+    }
+  ],
+  "blankPolicy": "Blank source values do not delete or overwrite existing destination values.",
+  "totals": {
+    "organizationsCreated": 0,
+    "organizationsUpdated": 0,
+    "organizationsUnchanged": 26,
+    "customCreated": 0,
+    "customUpdated": 0,
+    "customUnchanged": 104,
+    "blankValuesSkipped": 0
+  },
+  "rows": [
+    {
+      "sourceRow": 2,
+      "name": "The Royal College of Radiologists",
+      "organizationId": "a2f5b506-0bb9-4eda-afc5-028cf64af2a1",
+      "action": "unchanged",
+      "custom": [
+        {
+          "field": "organisation_type",
+          "liveFieldName": "organisation_type",
+          "current": "Research or charitable organisation",
+          "desired": "Research or charitable organisation",
+          "action": "unchanged"
+        },
+        {
+          "field": "country",
+          "liveFieldName": "org_country",
+          "current": "United Kingdom",
+          "desired": "United Kingdom",
+          "action": "unchanged"
+        },
+        {
+          "field": "town_city",
+          "liveFieldName": "org_town_city",
+          "current": "London",
+          "desired": "London",
+          "action": "unchanged"
+        },
+        {
+          "field": "region",
+          "liveFieldName": "region",
+          "current": "North Thames",
+          "desired": "North Thames",
+          "action": "unchanged"
+        }
+      ]
+    },
+    {
+      "sourceRow": 3,
+      "name": "IPEM",
+      "organizationId": "481982a8-7939-4823-8a35-636c33a896ef",
+      "action": "unchanged",
+      "custom": [
+        {
+          "field": "organisation_type",
+          "liveFieldName": "organisation_type",
+          "current": "Research or charitable organisation",
+          "desired": "Research or charitable organisation",
+          "action": "unchanged"
+        },
+        {
+          "field": "country",
+          "liveFieldName": "org_country",
+          "current": "United Kingdom",
+          "desired": "United Kingdom",
+          "action": "unchanged"
+        },
+        {
+          "field": "town_city",
+          "liveFieldName": "org_town_city",
+          "current": "York",
+          "desired": "York",
+          "action": "unchanged"
+        },
+        {
+          "field": "region",
+          "liveFieldName": "region",
+          "current": "Yorkshire and the Humber",
+          "desired": "Yorkshire and the Humber",
+          "action": "unchanged"
+        }
+      ]
+    },
+    {
+      "sourceRow": 4,
+      "name": "The Society and College of Radiographers",
+      "organizationId": "d47cf054-e56b-41f7-88aa-de044d2548d4",
+      "action": "unchanged",
+      "custom": [
+        {
+          "field": "organisation_type",
+          "liveFieldName": "organisation_type",
+          "current": "Research or charitable organisation",
+          "desired": "Research or charitable organisation",
+          "action": "unchanged"
+        },
+        {
+          "field": "country",
+          "liveFieldName": "org_country",
+          "current": "United Kingdom",
+          "desired": "United Kingdom",
+          "action": "unchanged"
+        },
+        {
+          "field": "town_city",
+          "liveFieldName": "org_town_city",
+          "current": "London",
+          "desired": "London",
+          "action": "unchanged"
+        },
+        {
+          "field": "region",
+          "liveFieldName": "region",
+          "current": "South Thames",
+          "desired": "South Thames",
+          "action": "unchanged"
+        }
+      ]
+    },
+    {
+      "sourceRow": 5,
+      "name": "Cancer Research UK",
+      "organizationId": "60becd65-8c00-4de9-b19c-baca9584e825",
+      "action": "unchanged",
+      "custom": [
+        {
+          "field": "organisation_type",
+          "liveFieldName": "organisation_type",
+          "current": "Research or charitable organisation",
+          "desired": "Research or charitable organisation",
+          "action": "unchanged"
+        },
+        {
+          "field": "country",
+          "liveFieldName": "org_country",
+          "current": "United Kingdom",
+          "desired": "United Kingdom",
+          "action": "unchanged"
+        },
+        {
+          "field": "town_city",
+          "liveFieldName": "org_town_city",
+          "current": "London",
+          "desired": "London",
+          "action": "unchanged"
+        },
+        {
+          "field": "region",
+          "liveFieldName": "region",
+          "current": "North Thames",
+          "desired": "North Thames",
+          "action": "unchanged"
+        }
+      ]
+    },
+    {
+      "sourceRow": 6,
+      "name": "NIHR",
+      "organizationId": "ed53d3de-2fdc-47a6-823b-e4d70eb6e13a",
+      "action": "unchanged",
+      "custom": [
+        {
+          "field": "organisation_type",
+          "liveFieldName": "organisation_type",
+          "current": "Research or charitable organisation",
+          "desired": "Research or charitable organisation",
+          "action": "unchanged"
+        },
+        {
+          "field": "country",
+          "liveFieldName": "org_country",
+          "current": "United Kingdom",
+          "desired": "United Kingdom",
+          "action": "unchanged"
+        },
+        {
+          "field": "town_city",
+          "liveFieldName": "org_town_city",
+          "current": "Twickenham",
+          "desired": "Twickenham",
+          "action": "unchanged"
+        },
+        {
+          "field": "region",
+          "liveFieldName": "region",
+          "current": "South Thames",
+          "desired": "South Thames",
+          "action": "unchanged"
+        }
+      ]
+    },
+    {
+      "sourceRow": 7,
+      "name": "UKHSA",
+      "organizationId": "fe955c1b-d4ad-4139-b40f-29c387a4994d",
+      "action": "unchanged",
+      "custom": [
+        {
+          "field": "organisation_type",
+          "liveFieldName": "organisation_type",
+          "current": "Research or charitable organisation",
+          "desired": "Research or charitable organisation",
+          "action": "unchanged"
+        },
+        {
+          "field": "country",
+          "liveFieldName": "org_country",
+          "current": "United Kingdom",
+          "desired": "United Kingdom",
+          "action": "unchanged"
+        },
+        {
+          "field": "town_city",
+          "liveFieldName": "org_town_city",
+          "current": "London",
+          "desired": "London",
+          "action": "unchanged"
+        },
+        {
+          "field": "region",
+          "liveFieldName": "region",
+          "current": "North Thames",
+          "desired": "North Thames",
+          "action": "unchanged"
+        }
+      ]
+    },
+    {
+      "sourceRow": 8,
+      "name": "Office for Nuclear Regulation",
+      "organizationId": "9a5a4445-c58b-493d-852e-e7843ac28ac3",
+      "action": "unchanged",
+      "custom": [
+        {
+          "field": "organisation_type",
+          "liveFieldName": "organisation_type",
+          "current": "Research or charitable organisation",
+          "desired": "Research or charitable organisation",
+          "action": "unchanged"
+        },
+        {
+          "field": "country",
+          "liveFieldName": "org_country",
+          "current": "United Kingdom",
+          "desired": "United Kingdom",
+          "action": "unchanged"
+        },
+        {
+          "field": "town_city",
+          "liveFieldName": "org_town_city",
+          "current": "Bootle",
+          "desired": "Bootle",
+          "action": "unchanged"
+        },
+        {
+          "field": "region",
+          "liveFieldName": "region",
+          "current": "North West",
+          "desired": "North West",
+          "action": "unchanged"
+        }
+      ]
+    },
+    {
+      "sourceRow": 9,
+      "name": "Boston Scientific",
+      "organizationId": "9bca3204-abfd-4775-a36b-4e0c01925c96",
+      "action": "unchanged",
+      "custom": [
+        {
+          "field": "organisation_type",
+          "liveFieldName": "organisation_type",
+          "current": "Commercial or industry organisation",
+          "desired": "Commercial or industry organisation",
+          "action": "unchanged"
+        },
+        {
+          "field": "country",
+          "liveFieldName": "org_country",
+          "current": "United Kingdom",
+          "desired": "United Kingdom",
+          "action": "unchanged"
+        },
+        {
+          "field": "town_city",
+          "liveFieldName": "org_town_city",
+          "current": "Hemel Hempstead",
+          "desired": "Hemel Hempstead",
+          "action": "unchanged"
+        },
+        {
+          "field": "region",
+          "liveFieldName": "region",
+          "current": "North Thames",
+          "desired": "North Thames",
+          "action": "unchanged"
+        }
+      ]
+    },
+    {
+      "sourceRow": 10,
+      "name": "Comecer",
+      "organizationId": "0f49c5c6-5929-4dbe-afe7-733d5a34ea27",
+      "action": "unchanged",
+      "custom": [
+        {
+          "field": "organisation_type",
+          "liveFieldName": "organisation_type",
+          "current": "Commercial or industry organisation",
+          "desired": "Commercial or industry organisation",
+          "action": "unchanged"
+        },
+        {
+          "field": "country",
+          "liveFieldName": "org_country",
+          "current": "Italy",
+          "desired": "Italy",
+          "action": "unchanged"
+        },
+        {
+          "field": "town_city",
+          "liveFieldName": "org_town_city",
+          "current": "Castel Bolognese",
+          "desired": "Castel Bolognese",
+          "action": "unchanged"
+        },
+        {
+          "field": "region",
+          "liveFieldName": "region",
+          "current": "Overseas",
+          "desired": "Overseas",
+          "action": "unchanged"
+        }
+      ]
+    },
+    {
+      "sourceRow": 11,
+      "name": "Curium Pharma",
+      "organizationId": "1fbb0bcb-5c4e-445f-85bb-7e472896728a",
+      "action": "unchanged",
+      "custom": [
+        {
+          "field": "organisation_type",
+          "liveFieldName": "organisation_type",
+          "current": "Commercial or industry organisation",
+          "desired": "Commercial or industry organisation",
+          "action": "unchanged"
+        },
+        {
+          "field": "country",
+          "liveFieldName": "org_country",
+          "current": "United Kingdom",
+          "desired": "United Kingdom",
+          "action": "unchanged"
+        },
+        {
+          "field": "town_city",
+          "liveFieldName": "org_town_city",
+          "current": "Portsmouth",
+          "desired": "Portsmouth",
+          "action": "unchanged"
+        },
+        {
+          "field": "region",
+          "liveFieldName": "region",
+          "current": "South East & Wessex",
+          "desired": "South East & Wessex",
+          "action": "unchanged"
+        }
+      ]
+    },
+    {
+      "sourceRow": 12,
+      "name": "Cyclomedica",
+      "organizationId": "8e96fb62-111c-4e49-a284-5105b1d9c4a8",
+      "action": "unchanged",
+      "custom": [
+        {
+          "field": "organisation_type",
+          "liveFieldName": "organisation_type",
+          "current": "Commercial or industry organisation",
+          "desired": "Commercial or industry organisation",
+          "action": "unchanged"
+        },
+        {
+          "field": "country",
+          "liveFieldName": "org_country",
+          "current": "United Kingdom",
+          "desired": "United Kingdom",
+          "action": "unchanged"
+        },
+        {
+          "field": "town_city",
+          "liveFieldName": "org_town_city",
+          "current": "Bristol",
+          "desired": "Bristol",
+          "action": "unchanged"
+        },
+        {
+          "field": "region",
+          "liveFieldName": "region",
+          "current": "South West",
+          "desired": "South West",
+          "action": "unchanged"
+        }
+      ]
+    },
+    {
+      "sourceRow": 13,
+      "name": "GE Healthcare Pharmaceutical Diagnostics",
+      "organizationId": "cd4513a4-6482-4397-b092-71d4f2a26d3b",
+      "action": "unchanged",
+      "custom": [
+        {
+          "field": "organisation_type",
+          "liveFieldName": "organisation_type",
+          "current": "Commercial or industry organisation",
+          "desired": "Commercial or industry organisation",
+          "action": "unchanged"
+        },
+        {
+          "field": "country",
+          "liveFieldName": "org_country",
+          "current": "United Kingdom",
+          "desired": "United Kingdom",
+          "action": "unchanged"
+        },
+        {
+          "field": "town_city",
+          "liveFieldName": "org_town_city",
+          "current": "Chalfont St Giles",
+          "desired": "Chalfont St Giles",
+          "action": "unchanged"
+        },
+        {
+          "field": "region",
+          "liveFieldName": "region",
+          "current": "Oxfordshire, Berkshire & Buckinghamshire",
+          "desired": "Oxfordshire, Berkshire & Buckinghamshire",
+          "action": "unchanged"
+        }
+      ]
+    },
+    {
+      "sourceRow": 14,
+      "name": "Invia Medical Imaging Solutions",
+      "organizationId": "00608218-8a05-4e71-972a-73695f967632",
+      "action": "unchanged",
+      "custom": [
+        {
+          "field": "organisation_type",
+          "liveFieldName": "organisation_type",
+          "current": "Commercial or industry organisation",
+          "desired": "Commercial or industry organisation",
+          "action": "unchanged"
+        },
+        {
+          "field": "country",
+          "liveFieldName": "org_country",
+          "current": "United States",
+          "desired": "United States",
+          "action": "unchanged"
+        },
+        {
+          "field": "town_city",
+          "liveFieldName": "org_town_city",
+          "current": "Ann Arbor",
+          "desired": "Ann Arbor",
+          "action": "unchanged"
+        },
+        {
+          "field": "region",
+          "liveFieldName": "region",
+          "current": "Overseas",
+          "desired": "Overseas",
+          "action": "unchanged"
+        }
+      ]
+    },
+    {
+      "sourceRow": 15,
+      "name": "LabLogic Ltd",
+      "organizationId": "f37762aa-d8f4-49d5-86e0-07fe42b1e046",
+      "action": "unchanged",
+      "custom": [
+        {
+          "field": "organisation_type",
+          "liveFieldName": "organisation_type",
+          "current": "Commercial or industry organisation",
+          "desired": "Commercial or industry organisation",
+          "action": "unchanged"
+        },
+        {
+          "field": "country",
+          "liveFieldName": "org_country",
+          "current": "United Kingdom",
+          "desired": "United Kingdom",
+          "action": "unchanged"
+        },
+        {
+          "field": "town_city",
+          "liveFieldName": "org_town_city",
+          "current": "Sheffield",
+          "desired": "Sheffield",
+          "action": "unchanged"
+        },
+        {
+          "field": "region",
+          "liveFieldName": "region",
+          "current": "Yorkshire and the Humber",
+          "desired": "Yorkshire and the Humber",
+          "action": "unchanged"
+        }
+      ]
+    },
+    {
+      "sourceRow": 16,
+      "name": "Mediso Medical Imaging Systems UK Limited",
+      "organizationId": "85e9fade-4f07-4884-b448-ca69795dee9d",
+      "action": "unchanged",
+      "custom": [
+        {
+          "field": "organisation_type",
+          "liveFieldName": "organisation_type",
+          "current": "Commercial or industry organisation",
+          "desired": "Commercial or industry organisation",
+          "action": "unchanged"
+        },
+        {
+          "field": "country",
+          "liveFieldName": "org_country",
+          "current": "United Kingdom",
+          "desired": "United Kingdom",
+          "action": "unchanged"
+        },
+        {
+          "field": "town_city",
+          "liveFieldName": "org_town_city",
+          "current": "Farnborough",
+          "desired": "Farnborough",
+          "action": "unchanged"
+        },
+        {
+          "field": "region",
+          "liveFieldName": "region",
+          "current": "South East & Wessex",
+          "desired": "South East & Wessex",
+          "action": "unchanged"
+        }
+      ]
+    },
+    {
+      "sourceRow": 17,
+      "name": "Mirada Medical Ltd",
+      "organizationId": "64da1678-d20e-4e06-b665-004fd0461f69",
+      "action": "unchanged",
+      "custom": [
+        {
+          "field": "organisation_type",
+          "liveFieldName": "organisation_type",
+          "current": "Commercial or industry organisation",
+          "desired": "Commercial or industry organisation",
+          "action": "unchanged"
+        },
+        {
+          "field": "country",
+          "liveFieldName": "org_country",
+          "current": "United Kingdom",
+          "desired": "United Kingdom",
+          "action": "unchanged"
+        },
+        {
+          "field": "town_city",
+          "liveFieldName": "org_town_city",
+          "current": "Oxford",
+          "desired": "Oxford",
+          "action": "unchanged"
+        },
+        {
+          "field": "region",
+          "liveFieldName": "region",
+          "current": "Oxfordshire, Berkshire & Buckinghamshire",
+          "desired": "Oxfordshire, Berkshire & Buckinghamshire",
+          "action": "unchanged"
+        }
+      ]
+    },
+    {
+      "sourceRow": 18,
+      "name": "Mirion Medical",
+      "organizationId": "f2549114-11a6-48fa-b12d-62866c35e94c",
+      "action": "unchanged",
+      "custom": [
+        {
+          "field": "organisation_type",
+          "liveFieldName": "organisation_type",
+          "current": "Commercial or industry organisation",
+          "desired": "Commercial or industry organisation",
+          "action": "unchanged"
+        },
+        {
+          "field": "country",
+          "liveFieldName": "org_country",
+          "current": "United Kingdom",
+          "desired": "United Kingdom",
+          "action": "unchanged"
+        },
+        {
+          "field": "town_city",
+          "liveFieldName": "org_town_city",
+          "current": "Farnborough",
+          "desired": "Farnborough",
+          "action": "unchanged"
+        },
+        {
+          "field": "region",
+          "liveFieldName": "region",
+          "current": "South East & Wessex",
+          "desired": "South East & Wessex",
+          "action": "unchanged"
+        }
+      ]
+    },
+    {
+      "sourceRow": 19,
+      "name": "Serac Healthcare Ltd",
+      "organizationId": "ae31790b-861e-4858-bce3-7d05cdfb0a96",
+      "action": "unchanged",
+      "custom": [
+        {
+          "field": "organisation_type",
+          "liveFieldName": "organisation_type",
+          "current": "Commercial or industry organisation",
+          "desired": "Commercial or industry organisation",
+          "action": "unchanged"
+        },
+        {
+          "field": "country",
+          "liveFieldName": "org_country",
+          "current": "United Kingdom",
+          "desired": "United Kingdom",
+          "action": "unchanged"
+        },
+        {
+          "field": "town_city",
+          "liveFieldName": "org_town_city",
+          "current": "London",
+          "desired": "London",
+          "action": "unchanged"
+        },
+        {
+          "field": "region",
+          "liveFieldName": "region",
+          "current": "North Thames",
+          "desired": "North Thames",
+          "action": "unchanged"
+        }
+      ]
+    },
+    {
+      "sourceRow": 20,
+      "name": "Siemens Healthineers",
+      "organizationId": "a21cf287-cf09-46ee-bd31-ac3da88c63e4",
+      "action": "unchanged",
+      "custom": [
+        {
+          "field": "organisation_type",
+          "liveFieldName": "organisation_type",
+          "current": "Commercial or industry organisation",
+          "desired": "Commercial or industry organisation",
+          "action": "unchanged"
+        },
+        {
+          "field": "country",
+          "liveFieldName": "org_country",
+          "current": "United Kingdom",
+          "desired": "United Kingdom",
+          "action": "unchanged"
+        },
+        {
+          "field": "town_city",
+          "liveFieldName": "org_town_city",
+          "current": "Camberley",
+          "desired": "Camberley",
+          "action": "unchanged"
+        },
+        {
+          "field": "region",
+          "liveFieldName": "region",
+          "current": "South East & Wessex",
+          "desired": "South East & Wessex",
+          "action": "unchanged"
+        }
+      ]
+    },
+    {
+      "sourceRow": 21,
+      "name": "Sirtex Medical",
+      "organizationId": "816826f8-c41b-4837-b87f-5223cb0224c4",
+      "action": "unchanged",
+      "custom": [
+        {
+          "field": "organisation_type",
+          "liveFieldName": "organisation_type",
+          "current": "Commercial or industry organisation",
+          "desired": "Commercial or industry organisation",
+          "action": "unchanged"
+        },
+        {
+          "field": "country",
+          "liveFieldName": "org_country",
+          "current": "United Kingdom",
+          "desired": "United Kingdom",
+          "action": "unchanged"
+        },
+        {
+          "field": "town_city",
+          "liveFieldName": "org_town_city",
+          "current": "London",
+          "desired": "London",
+          "action": "unchanged"
+        },
+        {
+          "field": "region",
+          "liveFieldName": "region",
+          "current": "North Thames",
+          "desired": "North Thames",
+          "action": "unchanged"
+        }
+      ]
+    },
+    {
+      "sourceRow": 22,
+      "name": "Southern Scientific Limited",
+      "organizationId": "a012fbbf-0ad9-4011-ac94-b3b835695a5c",
+      "action": "unchanged",
+      "custom": [
+        {
+          "field": "organisation_type",
+          "liveFieldName": "organisation_type",
+          "current": "Commercial or industry organisation",
+          "desired": "Commercial or industry organisation",
+          "action": "unchanged"
+        },
+        {
+          "field": "country",
+          "liveFieldName": "org_country",
+          "current": "United Kingdom",
+          "desired": "United Kingdom",
+          "action": "unchanged"
+        },
+        {
+          "field": "town_city",
+          "liveFieldName": "org_town_city",
+          "current": "Henfield",
+          "desired": "Henfield",
+          "action": "unchanged"
+        },
+        {
+          "field": "region",
+          "liveFieldName": "region",
+          "current": "South East & Wessex",
+          "desired": "South East & Wessex",
+          "action": "unchanged"
+        }
+      ]
+    },
+    {
+      "sourceRow": 23,
+      "name": "Spectrum Dynamics Medical",
+      "organizationId": "1d873eef-3672-4eaf-b322-3814717503a2",
+      "action": "unchanged",
+      "custom": [
+        {
+          "field": "organisation_type",
+          "liveFieldName": "organisation_type",
+          "current": "Commercial or industry organisation",
+          "desired": "Commercial or industry organisation",
+          "action": "unchanged"
+        },
+        {
+          "field": "country",
+          "liveFieldName": "org_country",
+          "current": "United Kingdom",
+          "desired": "United Kingdom",
+          "action": "unchanged"
+        },
+        {
+          "field": "town_city",
+          "liveFieldName": "org_town_city",
+          "current": "London",
+          "desired": "London",
+          "action": "unchanged"
+        },
+        {
+          "field": "region",
+          "liveFieldName": "region",
+          "current": "North Thames",
+          "desired": "North Thames",
+          "action": "unchanged"
+        }
+      ]
+    },
+    {
+      "sourceRow": 24,
+      "name": "Telix",
+      "organizationId": "493e7123-07c0-4622-9a19-1d97d04c76a9",
+      "action": "unchanged",
+      "custom": [
+        {
+          "field": "organisation_type",
+          "liveFieldName": "organisation_type",
+          "current": "Commercial or industry organisation",
+          "desired": "Commercial or industry organisation",
+          "action": "unchanged"
+        },
+        {
+          "field": "country",
+          "liveFieldName": "org_country",
+          "current": "United Kingdom",
+          "desired": "United Kingdom",
+          "action": "unchanged"
+        },
+        {
+          "field": "town_city",
+          "liveFieldName": "org_town_city",
+          "current": "Amersham",
+          "desired": "Amersham",
+          "action": "unchanged"
+        },
+        {
+          "field": "region",
+          "liveFieldName": "region",
+          "current": "Oxfordshire, Berkshire & Buckinghamshire",
+          "desired": "Oxfordshire, Berkshire & Buckinghamshire",
+          "action": "unchanged"
+        }
+      ]
+    },
+    {
+      "sourceRow": 25,
+      "name": "Trasis",
+      "organizationId": "c3063eec-b7f3-4efe-a01a-584b0db71fdd",
+      "action": "unchanged",
+      "custom": [
+        {
+          "field": "organisation_type",
+          "liveFieldName": "organisation_type",
+          "current": "Commercial or industry organisation",
+          "desired": "Commercial or industry organisation",
+          "action": "unchanged"
+        },
+        {
+          "field": "country",
+          "liveFieldName": "org_country",
+          "current": "Belgium",
+          "desired": "Belgium",
+          "action": "unchanged"
+        },
+        {
+          "field": "town_city",
+          "liveFieldName": "org_town_city",
+          "current": "Ans",
+          "desired": "Ans",
+          "action": "unchanged"
+        },
+        {
+          "field": "region",
+          "liveFieldName": "region",
+          "current": "Overseas",
+          "desired": "Overseas",
+          "action": "unchanged"
+        }
+      ]
+    },
+    {
+      "sourceRow": 26,
+      "name": "United Imaging",
+      "organizationId": "f585d264-158e-451a-9979-aaf3d039d6d2",
+      "action": "unchanged",
+      "custom": [
+        {
+          "field": "organisation_type",
+          "liveFieldName": "organisation_type",
+          "current": "Commercial or industry organisation",
+          "desired": "Commercial or industry organisation",
+          "action": "unchanged"
+        },
+        {
+          "field": "country",
+          "liveFieldName": "org_country",
+          "current": "United Kingdom",
+          "desired": "United Kingdom",
+          "action": "unchanged"
+        },
+        {
+          "field": "town_city",
+          "liveFieldName": "org_town_city",
+          "current": "London",
+          "desired": "London",
+          "action": "unchanged"
+        },
+        {
+          "field": "region",
+          "liveFieldName": "region",
+          "current": "South Thames",
+          "desired": "South Thames",
+          "action": "unchanged"
+        }
+      ]
+    },
+    {
+      "sourceRow": 27,
+      "name": "Vertec Scientific Ltd",
+      "organizationId": "61081159-759f-4e42-80ff-d599e8cd5754",
+      "action": "unchanged",
+      "custom": [
+        {
+          "field": "organisation_type",
+          "liveFieldName": "organisation_type",
+          "current": "Commercial or industry organisation",
+          "desired": "Commercial or industry organisation",
+          "action": "unchanged"
+        },
+        {
+          "field": "country",
+          "liveFieldName": "org_country",
+          "current": "United Kingdom",
+          "desired": "United Kingdom",
+          "action": "unchanged"
+        },
+        {
+          "field": "town_city",
+          "liveFieldName": "org_town_city",
+          "current": "Guildford",
+          "desired": "Guildford",
+          "action": "unchanged"
+        },
+        {
+          "field": "region",
+          "liveFieldName": "region",
+          "current": "South East & Wessex",
+          "desired": "South East & Wessex",
+          "action": "unchanged"
+        }
+      ]
+    }
+  ],
+  "applyResult": null,
+  "verification": null
+}

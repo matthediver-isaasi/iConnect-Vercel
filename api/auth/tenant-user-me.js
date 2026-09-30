@@ -1,0 +1,50 @@
+import { getSessionTenantUser } from '../_lib/session.js';
+
+export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  // Prevent the browser and any intermediate cache from storing this response.
+  // The refocus stale-tab check must always hit the network so it reflects the
+  // live session tenant; a cached 200 from the previous org would make the
+  // mismatch comparison see "old === old" and silently skip the lock.
+  res.setHeader('Cache-Control', 'no-store');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  try {
+    const tenantUser = await getSessionTenantUser(req);
+
+    if (!tenantUser) {
+      return res.json({ authenticated: false });
+    }
+
+    res.json({
+      authenticated: true,
+      tenantUser: {
+        id: tenantUser.id,
+        email: tenantUser.email,
+        first_name: tenantUser.first_name,
+        last_name: tenantUser.last_name,
+        role: tenantUser.role,
+        status: tenantUser.status
+      },
+      tenant: tenantUser.tenant ? {
+        ...tenantUser.tenant,
+        // Surface onboarding lifecycle so the dashboard can gate access
+        onboarding_status: tenantUser.tenant.onboarding_status || 'complete',
+        plan_code: tenantUser.tenant.plan_code || 'free',
+      } : null
+    });
+  } catch (error) {
+    console.error('[Tenant Auth] Me error:', error);
+    res.status(500).json({ error: 'Failed to get session' });
+  }
+}

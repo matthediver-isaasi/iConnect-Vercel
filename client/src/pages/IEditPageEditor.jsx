@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { ArrowLeft, Save, Eye, EyeOff, Settings, Plus } from "lucide-react";
+import { ArrowLeft, Save, Eye, EyeOff, Settings, Plus, Monitor, Smartphone } from "lucide-react";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { useNavigate } from "react-router-dom";
@@ -11,12 +11,15 @@ import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import IEditElementPalette from "../components/iedit/IEditElementPalette";
 import IEditElementCard from "../components/iedit/IEditElementCard";
 import IEditElementEditor from "../components/iedit/IEditElementEditor";
+import { ScreenReaderProvider } from "@/contexts/ScreenReaderContext";
 import IEditPageSettings from "../components/iedit/IEditPageSettings";
 import IEditElementRenderer from "../components/iedit/IEditElementRenderer";
+import ElementPreviewWrapper from "../components/iedit/ElementPreviewWrapper";
+import DraggableEditModal from "../components/iedit/DraggableEditModal";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 export default function IEditPageEditorPage() {
-  const { isAdmin, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [pageId, setPageId] = useState(null);
   const [elements, setElements] = useState([]);
@@ -24,19 +27,25 @@ export default function IEditPageEditorPage() {
   const [editingElement, setEditingElement] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
   const [previewMode, setPreviewMode] = useState(false);
+  const [previewViewport, setPreviewViewport] = useState('desktop'); // 'desktop' | 'mobile'
+  
+  const [inlineEditingElement, setInlineEditingElement] = useState(null);
+  const [draftContent, setDraftContent] = useState({});
+  const [draftVariant, setDraftVariant] = useState('default');
+  const [draftSettings, setDraftSettings] = useState({});
 
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin) {
+      if (isFeatureExcluded('site-builder.page-editor')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   // Get pageId from URL
   useEffect(() => {
@@ -54,21 +63,43 @@ export default function IEditPageEditorPage() {
   const { data: page, isLoading: pageLoading } = useQuery({
     queryKey: ['iedit-page', pageId],
     queryFn: async () => {
-      const allPages = await base44.entities.IEditPage.list();
-      return allPages.find(p => p.id === pageId);
+      const result = await base44.entities.IEditPage.list();
+      const pagesArr = Array.isArray(result) ? result : [];
+      return pagesArr.find(p => p.id === pageId);
     },
     enabled: !!pageId
   });
 
+  // Canvas Builder pages must be edited in the Canvas editor — they have
+  // no i_edit_page_element rows and a different data shape. Redirect so
+  // the wrong editor never tries to render them.
+  useEffect(() => {
+    if (page && page.builder_type === 'canvas') {
+      navigate(createPageUrl('CanvasPageEditor') + `?pageId=${page.id}`, { replace: true });
+    }
+  }, [page, navigate]);
+
   // Fetch page elements
   const { data: pageElements = [], isLoading: elementsLoading } = useQuery({
     queryKey: ['iedit-page-elements', pageId],
-    queryFn: () => base44.entities.IEditPageElement.list({ 
-      filter: { page_id: pageId }, 
-      sort: { display_order: 'asc' } 
-    }),
+    queryFn: async () => {
+      const result = await base44.entities.IEditPageElement.list({ 
+        filter: { page_id: pageId }, 
+        sort: { display_order: 'asc' } 
+      });
+      return Array.isArray(result) ? result : [];
+    },
     staleTime: 0,
     enabled: !!pageId
+  });
+
+  // Fetch all pages for "Copy to Page" feature
+  const { data: allPages = [] } = useQuery({
+    queryKey: ['iedit-all-pages'],
+    queryFn: async () => {
+      const result = await base44.entities.IEditPage.list();
+      return Array.isArray(result) ? result : [];
+    }
   });
 
   // Update local state when elements are fetched
@@ -164,6 +195,15 @@ export default function IEditPageEditorPage() {
     setEditingElement(null);
   };
 
+  const handleSaveElementOnly = async (elementId, updates) => {
+    try {
+      await updateElementMutation.mutateAsync({ id: elementId, data: updates });
+      toast.success('Element saved');
+    } catch (error) {
+      toast.error('Failed to save element');
+    }
+  };
+
   // Delete element
   const handleDeleteElement = async (elementId) => {
     if (confirm('Are you sure you want to delete this element?')) {
@@ -185,15 +225,112 @@ export default function IEditPageEditorPage() {
     createElementMutation.mutate(duplicated);
   };
 
+  // Copy element to another page
+  const handleCopyToPage = async (element, targetPageId) => {
+    try {
+      // Get elements from target page to determine display order
+      const targetPageElements = await base44.entities.IEditPageElement.list({ 
+        filter: { page_id: targetPageId } 
+      });
+      
+      const newElement = {
+        page_id: targetPageId,
+        element_type: element.element_type,
+        display_order: targetPageElements.length,
+        content: { ...element.content },
+        style_variant: element.style_variant,
+        settings: { ...element.settings }
+      };
+
+      await base44.entities.IEditPageElement.create(newElement);
+      
+      // Find the target page name for the toast
+      const targetPage = allPages.find(p => p.id === targetPageId);
+      toast.success(`Element copied to "${targetPage?.title || 'page'}"`);
+      
+      // Invalidate target page elements cache
+      queryClient.invalidateQueries({ queryKey: ['iedit-page-elements', targetPageId] });
+    } catch (error) {
+      console.error('Failed to copy element:', error);
+      toast.error('Failed to copy element to page');
+    }
+  };
+
   // Update page settings
   const handleUpdatePageSettings = (updates) => {
     updatePageMutation.mutate({ id: pageId, data: updates });
     setShowSettings(false);
   };
 
+  const handleStartInlineEdit = (element) => {
+    setInlineEditingElement(element);
+    setDraftContent(element.content || {});
+    setDraftVariant(element.style_variant || 'default');
+    setDraftSettings(element.settings || {});
+  };
+
+  const handleInlineEditChange = (updates) => {
+    if (updates.content !== undefined) {
+      setDraftContent(updates.content);
+    }
+    if (updates.style_variant !== undefined) {
+      setDraftVariant(updates.style_variant);
+    }
+    if (updates.settings !== undefined) {
+      setDraftSettings(updates.settings);
+    }
+  };
+
+  const handleSaveInlineEdit = async ({ closeAfterSave = true } = {}) => {
+    if (!inlineEditingElement) return;
+    
+    try {
+      await updateElementMutation.mutateAsync({ 
+        id: inlineEditingElement.id, 
+        data: {
+          content: draftContent,
+          style_variant: draftVariant,
+          settings: draftSettings
+        }
+      });
+      if (closeAfterSave) {
+        setInlineEditingElement(null);
+        setDraftContent({});
+        setDraftVariant('default');
+        setDraftSettings({});
+      }
+      toast.success('Element saved');
+    } catch (error) {
+      toast.error('Failed to save element');
+    }
+  };
+
+  const handleCancelInlineEdit = () => {
+    setInlineEditingElement(null);
+    setDraftContent({});
+    setDraftVariant('default');
+    setDraftSettings({});
+  };
+
+  const elementsWithDraft = useMemo(() => {
+    if (!inlineEditingElement) return elements;
+    
+    return elements.map(el => {
+      if (el.id === inlineEditingElement.id) {
+        return { 
+          ...el, 
+          content: draftContent,
+          style_variant: draftVariant,
+          settings: draftSettings
+        };
+      }
+      return el;
+    });
+  }, [elements, inlineEditingElement, draftContent, draftVariant, draftSettings]);
+
   if (!accessChecked) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <div className="animate-pulse text-slate-600">Loading...</div>
       </div>
     );
@@ -208,6 +345,7 @@ export default function IEditPageEditorPage() {
   }
 
   return (
+    <ScreenReaderProvider optimised={!!page.screen_reader_optimised}>
     <div className="min-h-screen bg-white flex flex-col">
       {/* Top Bar */}
       <div className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-10">
@@ -253,6 +391,30 @@ export default function IEditPageEditorPage() {
               </>
             )}
           </Button>
+          
+          {/* Viewport Toggle - only show in preview mode */}
+          {previewMode && (
+            <div className="flex items-center gap-1 ml-2 p-1 bg-slate-100 rounded-lg">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setPreviewViewport('desktop')}
+                className={`px-3 ${previewViewport === 'desktop' ? 'bg-white shadow-sm' : ''}`}
+                title="Desktop Preview"
+              >
+                <Monitor className="w-4 h-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setPreviewViewport('mobile')}
+                className={`px-3 ${previewViewport === 'mobile' ? 'bg-white shadow-sm' : ''}`}
+                title="Mobile Preview"
+              >
+                <Smartphone className="w-4 h-4" />
+              </Button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -261,7 +423,7 @@ export default function IEditPageEditorPage() {
         <div className="flex-1 overflow-y-auto">
           {previewMode ? (
             /* Preview Mode */
-            <div className="bg-white min-h-full">
+            <div className={`min-h-full ${previewViewport === 'mobile' ? 'bg-slate-200 flex justify-center py-4' : 'bg-white'}`}>
               <style>
                 {`
                   @font-face {
@@ -273,30 +435,46 @@ export default function IEditPageEditorPage() {
                   }
                 `}
               </style>
-              {elements.length === 0 ? (
-                <div className="flex items-center justify-center py-20">
-                  <div className="text-center">
-                    <Eye className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-                    <p className="text-slate-600 mb-2">Preview Empty</p>
-                    <p className="text-sm text-slate-500">Add elements to see the preview</p>
-                    <Button
-                      onClick={() => setPreviewMode(false)}
-                      className="mt-4 bg-blue-600 hover:bg-blue-700"
-                    >
-                      Exit Preview
-                    </Button>
+              {/* Mobile Preview Container */}
+              <div 
+                className={previewViewport === 'mobile' 
+                  ? 'w-[375px] bg-white shadow-xl rounded-lg overflow-hidden border border-slate-300' 
+                  : 'w-full'
+                }
+                style={previewViewport === 'mobile' ? { maxHeight: 'calc(100vh - 120px)', overflowY: 'auto' } : {}}
+              >
+                {elementsWithDraft.length === 0 ? (
+                  <div className="flex items-center justify-center py-20">
+                    <div className="text-center">
+                      <Eye className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                      <p className="text-slate-600 mb-2">Preview Empty</p>
+                      <p className="text-sm text-slate-500">Add elements to see the preview</p>
+                      <Button
+                        onClick={() => setPreviewMode(false)}
+                        className="mt-4 bg-blue-600 hover:bg-blue-700"
+                      >
+                        Exit Preview
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              ) : (
-                elements.map((element) => (
-                  <IEditElementRenderer
-                    key={element.id}
-                    element={element}
-                    memberInfo={null}
-                    organizationInfo={null}
-                  />
-                ))
-              )}
+                ) : (
+                  elementsWithDraft.map((element) => (
+                    <ElementPreviewWrapper
+                      key={element.id}
+                      element={element}
+                      onEdit={handleStartInlineEdit}
+                      isEditing={inlineEditingElement?.id === element.id}
+                    >
+                      <IEditElementRenderer
+                        element={element}
+                        memberInfo={null}
+                        organizationInfo={null}
+                        previewViewport={previewViewport}
+                      />
+                    </ElementPreviewWrapper>
+                  ))
+                )}
+              </div>
             </div>
           ) : (
             /* Edit Mode */
@@ -351,6 +529,9 @@ export default function IEditPageEditorPage() {
                                     onEdit={() => setEditingElement(element)}
                                     onDelete={() => handleDeleteElement(element.id)}
                                     onDuplicate={() => handleDuplicateElement(element)}
+                                    onCopyToPage={handleCopyToPage}
+                                    availablePages={allPages}
+                                    currentPageId={pageId}
                                   />
                                 </div>
                               )}
@@ -382,6 +563,7 @@ export default function IEditPageEditorPage() {
           element={editingElement}
           onClose={() => setEditingElement(null)}
           onSave={(updates) => handleUpdateElement(editingElement.id, updates)}
+          onSaveOnly={(updates) => handleSaveElementOnly(editingElement.id, updates)}
         />
       )}
 
@@ -393,6 +575,22 @@ export default function IEditPageEditorPage() {
           onSave={handleUpdatePageSettings}
         />
       )}
+
+      {/* Inline Edit Modal (for preview mode editing) */}
+      {inlineEditingElement && previewMode && (
+        <DraggableEditModal
+          element={inlineEditingElement}
+          draftContent={draftContent}
+          draftVariant={draftVariant}
+          draftSettings={draftSettings}
+          onChange={handleInlineEditChange}
+          onSave={() => handleSaveInlineEdit({ closeAfterSave: true })}
+          onSaveOnly={() => handleSaveInlineEdit({ closeAfterSave: false })}
+          onClose={handleCancelInlineEdit}
+          EditorComponent={IEditElementEditor}
+        />
+      )}
     </div>
+    </ScreenReaderProvider>
   );
 }

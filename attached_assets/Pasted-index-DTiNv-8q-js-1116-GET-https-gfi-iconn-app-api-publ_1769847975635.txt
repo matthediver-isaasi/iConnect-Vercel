@@ -1,0 +1,75 @@
+index-DTiNv_8q.js:1116  GET https://gfi.iconn.app/api/public/form/d11afd07-df3c-4187-b627-ea8e3a692907?tenant=gfi 404 (Not Found)
+S0e @ index-DTiNv_8q.js:1116
+_fetch @ index-DTiNv_8q.js:1116
+getForm @ index-DTiNv_8q.js:1116
+(anonymous) @ index-DTiNv_8q.js:1471
+await in (anonymous)
+(anonymous) @ index-DTiNv_8q.js:1471
+tS @ index-DTiNv_8q.js:40
+Bx @ index-DTiNv_8q.js:40
+kL @ index-DTiNv_8q.js:40
+Ah @ index-DTiNv_8q.js:38
+$xe @ index-DTiNv_8q.js:40
+ip @ index-DTiNv_8q.js:40
+ZG @ index-DTiNv_8q.js:40
+N @ index-DTiNv_8q.js:25
+P @ index-DTiNv_8q.js:25
+index-DTiNv_8q.js:1471 Failed to fetch newsletter form: Error: Public API Error (404): Form not found or inactive
+    at S0e (index-DTiNv_8q.js:1116:41722)
+    at async index-DTiNv_8q.js:1471:72596
+(anonymous) @ index-DTiNv_8q.js:1471
+await in (anonymous)
+(anonymous) @ index-DTiNv_8q.js:1471
+tS @ index-DTiNv_8q.js:40
+Bx @ index-DTiNv_8q.js:40
+kL @ index-DTiNv_8q.js:40
+Ah @ index-DTiNv_8q.js:38
+$xe @ index-DTiNv_8q.js:40
+ip @ index-DTiNv_8q.js:40
+ZG @ index-DTiNv_8q.js:40
+N @ index-DTiNv_8q.js:25
+P @ index-DTiNv_8q.js:25
+index-DTiNv_8q.js:40 Error: A <Select.Item /> must have a value prop that is not an empty string. This is because the Select value can be set to an empty string to clear the selection and show the placeholder.
+    at index-DTiNv_8q.js:1243:73432
+    at tO (index-DTiNv_8q.js:38:17031)
+    at xL (index-DTiNv_8q.js:40:1575)
+    at rY (index-DTiNv_8q.js:40:46080)
+    at sY (index-DTiNv_8q.js:40:39822)
+    at Oxe (index-DTiNv_8q.js:40:39748)
+    at A1 (index-DTiNv_8q.js:40:39598)
+    at UA (index-DTiNv_8q.js:40:35960)
+    at kL (index-DTiNv_8q.js:40:36765)
+    at Ah (index-DTiNv_8q.js:38:3288)
+AA @ index-DTiNv_8q.js:40
+RG.a.callback @ index-DTiNv_8q.js:40
+oL @ index-DTiNv_8q.js:38
+wL @ index-DTiNv_8q.js:40
+XG @ index-DTiNv_8q.js:40
+Axe @ index-DTiNv_8q.js:40
+$xe @ index-DTiNv_8q.js:40
+ip @ index-DTiNv_8q.js:40
+kL @ index-DTiNv_8q.js:40
+Ah @ index-DTiNv_8q.js:38
+(anonymous) @ index-DTiNv_8q.js:40
+index-DTiNv_8q.js:1243 Uncaught Error: A <Select.Item /> must have a value prop that is not an empty string. This is because the Select value can be set to an empty string to clear the selection and show the placeholder.
+    at index-DTiNv_8q.js:1243:73432
+    at tO (index-DTiNv_8q.js:38:17031)
+    at xL (index-DTiNv_8q.js:40:1575)
+    at rY (index-DTiNv_8q.js:40:46080)
+    at sY (index-DTiNv_8q.js:40:39822)
+    at Oxe (index-DTiNv_8q.js:40:39748)
+    at A1 (index-DTiNv_8q.js:40:39598)
+    at UA (index-DTiNv_8q.js:40:35960)
+    at kL (index-DTiNv_8q.js:40:36765)
+    at Ah (index-DTiNv_8q.js:38:3288)
+(anonymous) @ index-DTiNv_8q.js:1243
+tO @ index-DTiNv_8q.js:38
+xL @ index-DTiNv_8q.js:40
+rY @ index-DTiNv_8q.js:40
+sY @ index-DTiNv_8q.js:40
+Oxe @ index-DTiNv_8q.js:40
+A1 @ index-DTiNv_8q.js:40
+UA @ index-DTiNv_8q.js:40
+kL @ index-DTiNv_8q.js:40
+Ah @ index-DTiNv_8q.js:38
+(anonymous) @ index-DTiNv_8q.js:40

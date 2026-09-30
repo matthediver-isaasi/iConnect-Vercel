@@ -1,0 +1,1117 @@
+# Replit Plan – Non-Member Event Booking, Account Creation and Organisation Matching
+
+## Objective
+
+Update the iConnect event booking flow so that non-members can:
+
+* Purchase event tickets.
+* Request payment by invoice where the event permits this.
+* Automatically have a member/account created.
+* Be linked to an existing organisation where possible.
+* Complete their booking even when their organisation does not yet exist in iConnect.
+* Have any unresolved organisation relationship reviewed and reconciled later by the tenant.
+
+The key requirement is that **organisation matching must never block a legitimate event booking**.
+
+The booking/payment workflow and the CRM organisation reconciliation workflow should therefore be treated as related but separate processes.
+
+---
+
+# 1. Current Problem
+
+At present:
+
+* Events can be booked by non-members.
+* Invoice payment is effectively restricted to existing members.
+* To extend invoice payment to non-members, iConnect needs to create a member record.
+* Members are normally expected to be associated with an existing Organisation record.
+* A non-member may work for an organisation which does not yet exist in iConnect.
+
+We must not force the tenant to manually create or approve an organisation before the user can complete their ticket purchase.
+
+We also do not want the public user to be able to directly create a live Organisation record, as this would lead to:
+
+* Duplicate organisations.
+* Poorly formatted organisation names.
+* Multiple records representing the same organisation.
+* Incorrect organisation relationships.
+* Degraded CRM/reporting quality.
+
+---
+
+# 2. Core Design Principle
+
+Introduce a new concept of a:
+
+**Pending Organisation Affiliation**
+
+A member/account may temporarily exist without a confirmed `organisation_id`.
+
+For example:
+
+```text
+Member
+organisation_id = NULL
+organisation_affiliation_status = pending
+```
+
+The member itself should still be considered a valid active account.
+
+Do not mark the account itself as pending or inactive simply because its organisation relationship has not yet been reconciled.
+
+The organisation relationship should have its own independent status.
+
+Suggested statuses:
+
+```text
+confirmed
+pending
+not_required
+```
+
+---
+
+# 3. Event Booking Flow
+
+Update the public event booking process.
+
+## Step 1 – Identify the purchaser
+
+When the visitor begins registration, continue using the normal email/account identification process.
+
+iConnect should determine whether:
+
+* An existing member/account already exists.
+* A member exists but is not currently linked to an organisation.
+* No member/account exists.
+
+If an account already exists, reuse it rather than creating another account.
+
+If no account exists, allow the registration to continue and create the new member/account as part of the successful booking process.
+
+---
+
+# 4. Organisation Selection
+
+Where the booking requires organisation information, show a searchable organisation selector.
+
+The user should be able to:
+
+* Search existing organisations.
+* Select an existing organisation.
+* Choose:
+
+**My organisation is not listed**
+
+Do not expose inactive organisations unless existing application behaviour already permits this.
+
+The search should preferably support partial/fuzzy matching rather than requiring an exact organisation name.
+
+For example, typing:
+
+```text
+Royal Free
+```
+
+could return:
+
+```text
+Royal Free London NHS Foundation Trust
+```
+
+---
+
+# 5. Existing Organisation Selected
+
+If the user selects an existing organisation:
+
+* Store that organisation against the member.
+* Set the organisation affiliation status to `confirmed`.
+* Continue checkout normally.
+
+Example:
+
+```text
+member.organisation_id = selected organisation
+member.organisation_affiliation_status = confirmed
+```
+
+This should require no manual tenant intervention.
+
+---
+
+# 6. Organisation Not Listed
+
+If the visitor selects:
+
+**My organisation is not listed**
+
+display a small additional form.
+
+Suggested fields:
+
+### Required
+
+* Organisation name
+* Organisation postcode / ZIP code
+* Country
+
+### Recommended
+
+* Organisation website/domain
+* Department
+* Organisation telephone number
+
+Where the user is requesting payment by invoice, separately collect whatever billing/invoice information is required.
+
+Do not create a live Organisation record from these details.
+
+Instead create an `organisation_affiliation_request`.
+
+---
+
+# 7. Organisation Affiliation Request
+
+Create a dedicated record/table for unresolved organisation relationships.
+
+Suggested structure:
+
+```text
+organisation_affiliation_requests
+
+id
+tenant_id
+member_id
+event_registration_id
+order_id
+
+submitted_name
+submitted_postcode
+submitted_country
+submitted_domain
+submitted_department
+submitted_phone
+
+status
+
+suggested_organisation_id
+matched_organisation_id
+
+reviewed_by
+reviewed_at
+created_at
+updated_at
+```
+
+Suggested statuses:
+
+```text
+pending
+matched
+organisation_created
+not_required
+rejected
+```
+
+For a newly-created member awaiting organisation reconciliation:
+
+```text
+member.organisation_id = NULL
+member.organisation_affiliation_status = pending
+```
+
+---
+
+# 8. Booking Must Continue
+
+The existence of a pending organisation affiliation must **not block checkout**.
+
+Once sufficient booking and payment information has been supplied, the system should:
+
+1. Allocate the ticket.
+2. Complete the event registration.
+3. Create/reuse the member account.
+4. Create the order.
+5. Raise or initiate the invoice where appropriate.
+6. Send the normal booking confirmation.
+7. Create the pending organisation affiliation request.
+
+The customer should not need to know that tenant-side organisation reconciliation is required unless there is a business reason to tell them.
+
+---
+
+# 9. Invoice Payment
+
+Update the invoice-payment eligibility logic so that invoice payment does not technically require a confirmed organisation relationship.
+
+Invoice eligibility should instead be driven by event/payment configuration and sufficient billing details.
+
+For example:
+
+```text
+Event allows non-member invoice payments = true
+```
+
+could permit:
+
+```text
+Non-member
++
+valid account/contact details
++
+required invoice information
+=
+invoice payment available
+```
+
+Do not globally enable invoice payment for all non-members.
+
+---
+
+# 10. Event-Level Invoice Setting
+
+Add or extend the event payment configuration with an option such as:
+
+```text
+Allow non-members to pay by invoice
+```
+
+Default:
+
+```text
+false
+```
+
+This allows tenants to decide which events permit this behaviour.
+
+Potential configuration:
+
+```text
+Allow card payment
+Allow member invoice payment
+Allow non-member invoice payment
+```
+
+Existing event behaviour must remain unchanged unless the new option is enabled.
+
+---
+
+# 11. Invoice Billing Snapshot
+
+Do not require invoice generation to read its billing information directly from the eventual Organisation CRM record.
+
+Store the billing information supplied at checkout against the order/invoice transaction as a historical snapshot.
+
+Suggested fields:
+
+```text
+billing_type
+billing_organisation_name
+billing_contact_name
+billing_contact_email
+
+billing_address_line_1
+billing_address_line_2
+billing_address_line_3
+billing_city
+billing_region
+billing_postcode
+billing_country
+
+purchase_order_reference
+```
+
+Use the existing iConnect billing/invoice structures where suitable rather than duplicating fields unnecessarily.
+
+The important principle is:
+
+**Changing an organisation record later must not retrospectively change the billing details associated with a historical transaction.**
+
+---
+
+# 12. Purchase Order / Reference
+
+Where supported by the existing invoicing process, allow the event configuration to determine whether an invoice purchaser must supply:
+
+* Purchase order number.
+* Cost centre.
+* Department.
+* Internal reference.
+
+Do not hardcode these as globally mandatory.
+
+Use the existing custom field/configuration architecture where practical.
+
+---
+
+# 13. Organisation Matching Queue
+
+Create a tenant admin interface for unresolved organisation relationships.
+
+Suggested location:
+
+```text
+CRM → Organisation Matching
+```
+
+or within the existing organisation/member administration area if there is a more suitable existing pattern.
+
+Display pending records with information such as:
+
+```text
+Person
+Email
+Submitted organisation
+Postcode
+Email domain
+Department
+Event
+Order
+Date submitted
+Suggested match
+Status
+```
+
+---
+
+# 14. Admin Actions
+
+For each pending affiliation request provide the following actions.
+
+## A. Link to Existing Organisation
+
+Allow the administrator to search existing organisations and select one.
+
+On confirmation:
+
+```text
+member.organisation_id = selected organisation
+member.organisation_affiliation_status = confirmed
+
+organisation_affiliation_request.status = matched
+organisation_affiliation_request.matched_organisation_id = selected organisation
+```
+
+Retain the original submitted information for audit/history.
+
+---
+
+## B. Create New Organisation
+
+Allow the administrator to create a new Organisation using the information supplied by the attendee.
+
+Pre-populate the organisation creation form with:
+
+* Submitted organisation name.
+* Postcode.
+* Country.
+* Website/domain.
+* Telephone number.
+
+The administrator must be able to edit the details before creating the organisation.
+
+Once created:
+
+* Link the new Organisation to the member.
+* Mark the affiliation request as `organisation_created`.
+* Store the new organisation ID.
+* Mark the member affiliation as confirmed.
+
+---
+
+## C. No Organisation Required
+
+Provide an action for situations such as:
+
+* Independent consultants.
+* Students.
+* Retired professionals.
+* Self-employed individuals.
+* Other legitimate users without an organisation relationship.
+
+Set:
+
+```text
+organisation_affiliation_status = not_required
+```
+
+and close the affiliation request.
+
+Do not create a fake organisation for these users.
+
+---
+
+# 15. Automatic Organisation Match Suggestions
+
+Where practical, automatically suggest possible existing organisation matches.
+
+Matching may consider:
+
+* Organisation name similarity.
+* Postcode.
+* Website domain.
+* Email domain.
+* Existing known aliases if iConnect supports them.
+
+Example:
+
+Submitted:
+
+```text
+Royal Free Hospital
+```
+
+Existing Organisation:
+
+```text
+Royal Free London NHS Foundation Trust
+```
+
+The admin queue might display:
+
+```text
+Suggested match:
+Royal Free London NHS Foundation Trust
+```
+
+but the match must not be automatically committed unless confidence is exceptionally high and there is already a safe matching mechanism in iConnect.
+
+For the initial implementation, a suggested match requiring admin confirmation is preferable.
+
+---
+
+# 16. Duplicate Organisation Protection
+
+Before allowing the administrator to create a new organisation, rerun organisation matching.
+
+If likely duplicates exist, display them prominently.
+
+Example:
+
+```text
+Possible existing organisations:
+
+Royal Free London NHS Foundation Trust
+Royal Free Hospital Charity
+```
+
+The administrator should still be able to intentionally create a new organisation if appropriate.
+
+---
+
+# 17. Do Not Use a Dummy “Pending Organisation”
+
+Do not create a shared Organisation record such as:
+
+```text
+Pending Organisation
+Unknown Organisation
+Unverified Organisation
+```
+
+and attach unresolved members to it.
+
+This would contaminate:
+
+* CRM reporting.
+* Organisation membership counts.
+* Permissions.
+* Segmentation.
+* Communications.
+* Exports.
+* Dynamic table relationships.
+* Any future organisation-based functionality.
+
+The correct model is a nullable confirmed relationship plus a separate pending affiliation request.
+
+---
+
+# 18. Existing Member Without Organisation
+
+The workflow should also support existing members who currently have no organisation.
+
+If they register for an event and provide an organisation:
+
+### Existing organisation selected
+
+Link immediately where existing business rules permit.
+
+### Organisation not listed
+
+Create an affiliation request exactly as for a newly-created member.
+
+Do not create a duplicate member/account.
+
+---
+
+# 19. Existing Member With Organisation
+
+Where an existing member already has an organisation relationship, do not silently overwrite it based solely on an event registration.
+
+If the attendee selects a different organisation, consider this a potential relationship update.
+
+The safest first implementation is to create a review item such as:
+
+```text
+existing organisation:
+Organisation A
+
+submitted organisation:
+Organisation B
+```
+
+The tenant can then decide whether:
+
+* The organisation relationship genuinely changed.
+* The person works for multiple organisations.
+* The submitted organisation is simply the invoice recipient.
+
+Do not replace established CRM relationships automatically.
+
+---
+
+# 20. Member Creation
+
+When a genuine non-member completes a booking, automatically create the normal iConnect member/account required for future access.
+
+Reuse the existing member/account creation services rather than developing a separate event-specific member model.
+
+Ensure:
+
+* Tenant isolation is respected.
+* Existing account duplication rules remain in place.
+* Existing email verification/password setup logic continues to work.
+* The user receives the appropriate account activation/setup communication.
+* Creating an account must not interfere with the ticket confirmation process.
+
+If iConnect currently distinguishes between a user account and a Member CRM entity, preserve that architecture.
+
+---
+
+# 21. Event Booking and Member Creation Transaction Safety
+
+Avoid a situation where:
+
+* Payment succeeds.
+* Ticket allocation succeeds.
+* Member creation fails.
+* Entire registration becomes inconsistent.
+
+Review the current event booking transaction/process and make member creation idempotent.
+
+Where appropriate, use existing transaction and retry patterns.
+
+The same event registration must never create multiple member records if the process is retried.
+
+---
+
+# 22. Member Matching
+
+Before creating a new member, check for an existing tenant member using the normal identity rules.
+
+At minimum this will probably include:
+
+```text
+tenant_id + email address
+```
+
+Use the platform's existing canonical member matching rules rather than introducing event-specific matching logic.
+
+---
+
+# 23. Organisation Relationship Must Not Affect Ticket Ownership
+
+Once the registration is successfully completed:
+
+* The ticket belongs to the attendee/member.
+* Organisation matching can occur later.
+* Changing the eventual Organisation relationship must not change ticket ownership.
+* Organisation review must not cancel or invalidate the booking.
+
+---
+
+# 24. Invoice Must Not Depend on Later Organisation Matching
+
+Similarly:
+
+* An invoice raised at checkout must remain valid.
+* Organisation matching later must not alter the historical invoice automatically.
+* Xero/QuickBooks integration should use the transaction's billing snapshot according to the existing accounting integration design.
+
+If the accounting integration currently requires an iConnect Organisation record, inspect this carefully and adapt it so pending organisation matching does not block invoice creation.
+
+Do not introduce silent placeholder organisations into Xero or QuickBooks merely to satisfy an API requirement.
+
+---
+
+# 25. Notifications to Tenant
+
+Consider generating an admin notification when organisation matching is required.
+
+For example:
+
+```text
+3 event attendees are awaiting organisation matching.
+```
+
+This can initially be implemented through the admin dashboard/notification system rather than email if this matches existing iConnect patterns.
+
+Avoid sending one administrative email for every individual booking if this could generate excessive notifications.
+
+---
+
+# 26. Audit Trail
+
+Record:
+
+* Information originally supplied by the attendee.
+* Date submitted.
+* Suggested matches.
+* Who resolved the affiliation.
+* Resolution date.
+* Existing organisation selected.
+* New organisation created.
+* Any organisation relationship that changed.
+
+Do not delete the affiliation request once resolved.
+
+It should remain available as an audit record.
+
+---
+
+# 27. Permissions
+
+Organisation matching must respect tenant RBAC.
+
+Only users who can currently:
+
+* Edit members.
+* Edit organisations.
+
+or an appropriate new permission should be able to resolve affiliation requests.
+
+Suggested permission if required:
+
+```text
+crm.organisation_matching.manage
+```
+
+Read-only users could potentially view the queue where their CRM permissions permit this.
+
+---
+
+# 28. Tenant Isolation
+
+All queries and relationships must be tenant scoped.
+
+An organisation belonging to Tenant A must never:
+
+* Appear in Tenant B's organisation search.
+* Be suggested as a match.
+* Be linked to a Tenant B member.
+
+This applies to both public registration and admin matching.
+
+---
+
+# 29. Public-Side Security
+
+The public organisation selector must expose only the minimum information necessary to identify organisations.
+
+Do not expose:
+
+* Internal organisation notes.
+* Contacts.
+* Member lists.
+* Financial information.
+* Custom CRM information.
+* Internal identifiers unnecessarily.
+
+Organisation name and perhaps locality/country should normally be sufficient.
+
+---
+
+# 30. Data Model Review
+
+Before creating new columns, inspect the existing architecture for:
+
+* Member ↔ Organisation relationships.
+* Multi-organisation member support.
+* Event attendee records.
+* Event orders.
+* Invoice/billing data.
+* Xero/QuickBooks integration.
+* Account/member creation.
+* Organisation custom fields.
+* Tenant RBAC.
+* Existing status/approval mechanisms.
+
+Reuse existing patterns wherever possible.
+
+Do not create duplicate concepts if equivalent platform functionality already exists.
+
+---
+
+# 31. Potential Multi-Organisation Consideration
+
+iConnect may increasingly encounter people who genuinely belong to more than one organisation.
+
+Do not unnecessarily design this feature around the assumption that a member can only ever belong to one organisation if the current platform already supports multiple relationships or this can be accommodated cleanly.
+
+For this task, preserve the current architecture, but ensure the `organisation_affiliation_request` is not inherently limited to a design that would prevent multiple organisation relationships in future.
+
+---
+
+# 32. Admin Queue Filters
+
+Provide useful filtering within the Organisation Matching screen.
+
+At minimum:
+
+```text
+Status
+Event
+Date range
+Organisation name
+Member/person
+```
+
+Potentially:
+
+```text
+Suggested match available
+No suggested match
+```
+
+Default view should be:
+
+```text
+Pending
+```
+
+---
+
+# 33. Bulk Handling
+
+Do not make bulk organisation creation part of the initial implementation.
+
+However, where multiple pending records have clearly submitted the same organisation, show this to the administrator.
+
+For example:
+
+```text
+ABC Healthcare Ltd
+4 pending affiliations
+```
+
+Once the first organisation has been created or matched, the remaining records should preferably receive that organisation as a suggested match.
+
+---
+
+# 34. UX Requirement
+
+The public user experience should remain simple.
+
+Ideal journey:
+
+```text
+Your organisation
+[ Search organisations... ]
+
+Can't find it?
+[ My organisation isn't listed ]
+```
+
+Then:
+
+```text
+Organisation name
+Postcode
+Country
+Website (optional)
+Department (optional)
+```
+
+Avoid explaining internal CRM reconciliation to the attendee.
+
+From their perspective, they are simply supplying their organisation.
+
+---
+
+# 35. Payment Journey
+
+The final public journey should approximately be:
+
+```text
+Choose ticket
+↓
+Enter attendee/contact details
+↓
+Sign in / existing account detected / new account identified
+↓
+Select organisation
+or
+Enter organisation details
+↓
+Choose payment method
+Card / Invoice where permitted
+↓
+Provide billing details if required
+↓
+Confirm booking
+↓
+Ticket allocated
+↓
+Member/account created or reused
+↓
+Order/payment/invoice created
+↓
+Confirmation sent
+```
+
+In parallel:
+
+```text
+Unknown organisation submitted
+↓
+Organisation affiliation request created
+↓
+Tenant Organisation Matching queue
+↓
+Link existing organisation
+OR
+Create new organisation
+OR
+Mark organisation not required
+↓
+Member CRM relationship updated
+```
+
+---
+
+# 36. Backwards Compatibility
+
+Existing booking behaviour must remain unchanged where:
+
+```text
+Allow non-members to pay by invoice = false
+```
+
+Existing members should continue using existing payment and event registration functionality unless their organisation relationship requires the new workflow.
+
+Do not regress:
+
+* Card payments.
+* Existing invoice payments.
+* Member pricing.
+* Ticket allocations.
+* Event capacity.
+* Waiting lists.
+* Discount codes.
+* Group bookings.
+* Existing registration forms.
+* Existing accounting integrations.
+* Event confirmation communications.
+
+---
+
+# 37. Acceptance Tests
+
+The implementation should be tested against at least the following scenarios.
+
+### Scenario 1
+
+Non-member books by card and selects an existing organisation.
+
+Expected:
+
+* Member created.
+* Organisation linked.
+* Ticket allocated.
+* No matching request created.
+
+### Scenario 2
+
+Non-member books by card and organisation is not listed.
+
+Expected:
+
+* Booking completes.
+* Member created.
+* Ticket allocated.
+* Organisation remains unconfirmed.
+* Affiliation request created.
+
+### Scenario 3
+
+Non-member chooses invoice, event allows non-member invoice payments, existing organisation selected.
+
+Expected:
+
+* Booking completes.
+* Member created.
+* Organisation linked.
+* Invoice process completes normally.
+
+### Scenario 4
+
+Non-member chooses invoice and organisation is not listed.
+
+Expected:
+
+* Booking still completes.
+* Member created.
+* Invoice created from billing snapshot.
+* Ticket allocated.
+* Organisation matching request created.
+
+### Scenario 5
+
+Event does not permit non-member invoice payments.
+
+Expected:
+
+* Invoice payment is not presented to a non-member.
+* Existing behaviour is maintained.
+
+### Scenario 6
+
+Existing member without an organisation selects an existing organisation.
+
+Expected:
+
+* Existing member reused.
+* Organisation linked.
+* No duplicate member created.
+
+### Scenario 7
+
+Existing member without an organisation enters an unknown organisation.
+
+Expected:
+
+* Existing member reused.
+* Booking completes.
+* Affiliation request created.
+
+### Scenario 8
+
+Existing member with Organisation A enters Organisation B.
+
+Expected:
+
+* Do not silently replace Organisation A.
+* Create appropriate review/update workflow.
+
+### Scenario 9
+
+Admin matches a pending affiliation to an existing organisation.
+
+Expected:
+
+* Member linked.
+* Request resolved.
+* Audit information retained.
+
+### Scenario 10
+
+Admin creates a new organisation from a pending request.
+
+Expected:
+
+* Organisation created.
+* Member linked.
+* Request resolved.
+* Submitted information retained.
+
+### Scenario 11
+
+Admin marks organisation as not required.
+
+Expected:
+
+* No organisation created.
+* Member remains valid.
+* Request resolved.
+
+### Scenario 12
+
+Two registrations use the same unknown organisation.
+
+Expected:
+
+* Both bookings complete.
+* Neither creates a public-side live Organisation record.
+* Once an organisation is created/matched, it becomes an obvious match for the second pending record.
+
+### Scenario 13
+
+Booking/member creation operation retries.
+
+Expected:
+
+* No duplicate member.
+* No duplicate ticket.
+* No duplicate affiliation request.
+* No duplicate invoice/order.
+
+---
+
+# 38. Implementation Approach
+
+Before changing code:
+
+1. Inspect the existing event registration flow.
+2. Inspect account/member creation.
+3. Inspect Member ↔ Organisation relationships.
+4. Inspect invoice eligibility rules.
+5. Inspect Xero/QuickBooks invoice generation.
+6. Inspect billing-address storage.
+7. Inspect organisation search APIs.
+8. Inspect tenant/RBAC controls.
+9. Identify existing reusable components and services.
+10. Document any conflicts with this proposed model before replacing established behaviour.
+
+Then implement the smallest architectural change required to support:
+
+```text
+valid member
++
+optional confirmed organisation
++
+optional pending organisation affiliation
+```
+
+rather than rewriting the existing event system.
+
+---
+
+# 39. Core Outcome
+
+After implementation, iConnect must support this situation cleanly:
+
+```text
+A visitor who has never used iConnect before books an event ticket.
+
+They want to pay by invoice.
+
+Their employer is not currently in the tenant's CRM.
+
+They enter their employer and billing information.
+
+The booking completes immediately.
+
+Their ticket is reserved.
+
+Their member/account is created.
+
+The invoice is generated.
+
+The tenant later reviews the submitted employer and either:
+
+- links the member to an existing organisation,
+- creates a new organisation,
+- or confirms that an organisation relationship is not required.
+```
+
+At no point should the tenant's CRM data-quality process unnecessarily prevent a legitimate attendee from completing their event registration.

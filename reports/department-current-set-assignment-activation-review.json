@@ -1,0 +1,277 @@
+{
+  "review_version": 1,
+  "generated_at": "2026-09-17T17:31:54.544Z",
+  "tenantId": "ff2df806-b321-4254-b651-3af11fccf1db",
+  "formId": "8b6f44d3-83f8-449e-9496-b10b1dc28e5f",
+  "dryRun": true,
+  "configTable": "department_current_set_config",
+  "schemaReady": true,
+  "rolloutReadiness": "staged: publish and verify the new API/client Department picker and authentication-reset changes before reviewed configuration apply",
+  "preflightFingerprint": "7701e783472321dd63860e2e9c66ff90f490f013e1f6ac8621ba8a819711215d",
+  "desiredConfigFingerprint": "a38064909cd1e7925e9f14db5ed9fb8f00f505777fd16533884f22cc23aeebff",
+  "rowCounts": {
+    "activeDepartments": 326,
+    "activeWorkforceRows": 8,
+    "activeEquipment": 823,
+    "maximumWorkforceRowsForOneDepartment": 4,
+    "maximumEquipmentRowsForOneDepartment": 36,
+    "workforceRowsWithoutExactlyOneDepartment": 0,
+    "equipmentWithoutExactlyOneDepartment": 0,
+    "equipmentWithoutExactlyOneType": 0,
+    "equipmentWithMultipleModels": 0,
+    "equipmentModelTypeMismatches": 0,
+    "existingEquipmentBlankSerial": 823,
+    "existingEquipmentMissingInstallationYear": 45,
+    "respondentAssignments": {
+      "departmentsWithExactlyOneAssignedRespondent": 176,
+      "departmentsWithoutAssignedRespondent": 142,
+      "departmentsWithMultipleAssignedRespondents": 8,
+      "assignedRespondentEdges": 192,
+      "assignedRespondentsUnavailableOrLoginIneligible": 0
+    }
+  },
+  "form": {
+    "wasAuthenticationRequired": false,
+    "authenticationWillBeRequired": true,
+    "authenticationChange": {
+      "approved": true,
+      "from": false,
+      "to": true,
+      "disclosure": "This currently public form will require sign-in; only an assigned Department Survey respondent can use current-set operations."
+    },
+    "workforceMaximumRowsBefore": 20,
+    "workforceMaximumRowsAfter": 100,
+    "workforceDropdownOptionChanges": [
+      {
+        "field_id": "row_field_1788531041536_lih29",
+        "field_name": "staff_group",
+        "before_options": [
+          "Administrator/Clerical",
+          "Apprentice Clinical Technologist",
+          "Assistant Practitioner",
+          "Clinical Practitioner – Radiographer",
+          "Clinical Practitioner – Technologist",
+          "Clinical Scientist",
+          "HCA/Imaging Assistant",
+          "Nurse",
+          "Physician",
+          "Radiologist"
+        ],
+        "after_options": [
+          "Administrator/Clerical",
+          "Apprentice Clinical Technologist",
+          {
+            "label": "Assistant Practitioner",
+            "value": "Assistant Practitioner "
+          },
+          {
+            "label": "Clinical Practitioner – Radiographer",
+            "value": "Clinical Practitioner – Radiographer "
+          },
+          {
+            "label": "Clinical Practitioner – Technologist",
+            "value": "Clinical Practitioner – Technologist "
+          },
+          "Clinical Scientist",
+          "HCA/Imaging Assistant",
+          "Nurse",
+          "Physician",
+          "Radiologist"
+        ],
+        "canonicalized_existing_values": [
+          {
+            "before_value": "Assistant Practitioner",
+            "after_value": "Assistant Practitioner ",
+            "match": "trailing_whitespace_only"
+          },
+          {
+            "before_value": "Clinical Practitioner – Radiographer",
+            "after_value": "Clinical Practitioner – Radiographer ",
+            "match": "exact_display_label"
+          },
+          {
+            "before_value": "Clinical Practitioner – Technologist",
+            "after_value": "Clinical Practitioner – Technologist ",
+            "match": "exact_display_label"
+          }
+        ],
+        "appended_canonical_values": []
+      },
+      {
+        "field_id": "row_field_1788531109823_jsmok",
+        "field_name": "grade",
+        "before_options": [
+          "Band 1",
+          "Band 2",
+          "Band 3",
+          "Band 4",
+          "Band 5",
+          "Band 6",
+          "Band 7",
+          "Band 8a",
+          "Band 8b",
+          "Band 8c",
+          "Band 8d",
+          "Band 9",
+          "Apprentice"
+        ],
+        "after_options": [
+          "Band 1",
+          "Band 2",
+          "Band 3",
+          "Band 4",
+          "Band 5",
+          "Band 6",
+          "Band 7",
+          "Band 8a",
+          "Band 8b",
+          "Band 8c",
+          "Band 8d",
+          "Band 9",
+          "Apprentice",
+          {
+            "label": "Consultant",
+            "value": "Consultant"
+          },
+          {
+            "label": "Consultant – dual accredited",
+            "value": "Consultant – dual accredited"
+          },
+          {
+            "label": "Registrar/Specialty trainee",
+            "value": "Registrar/Specialty trainee"
+          },
+          {
+            "label": "Fellow",
+            "value": "Fellow "
+          },
+          {
+            "label": "Other medical grade",
+            "value": "Other medical grade"
+          },
+          {
+            "label": "Not applicable",
+            "value": "Not applicable"
+          },
+          {
+            "label": "Radionuclide Radiologist",
+            "value": "Radionuclide Radiologist"
+          }
+        ],
+        "canonicalized_existing_values": [],
+        "appended_canonical_values": [
+          "Consultant",
+          "Consultant – dual accredited",
+          "Registrar/Specialty trainee",
+          "Fellow ",
+          "Other medical grade",
+          "Not applicable",
+          "Radionuclide Radiologist"
+        ]
+      }
+    ],
+    "workforceDropdownOptionsSynchronizedToCanonicalValues": true,
+    "equipmentMaximumRowsBefore": 30,
+    "equipmentMaximumRowsAfter": 100,
+    "datesVerifiedYearOnly": true,
+    "formFieldIdsPreserved": true,
+    "repeatableContainerConstraints": [
+      {
+        "containerId": "field_1788530969408",
+        "min_rows": 0,
+        "first_row_required": null,
+        "required": false,
+        "requiredChildHeaders": []
+      },
+      {
+        "containerId": "field_1789479861104",
+        "min_rows": 0,
+        "first_row_required": null,
+        "required": false,
+        "requiredChildHeaders": [
+          {
+            "id": "row_field_1789639793360_0h7t0",
+            "label": "Serial number or unique identifier",
+            "type": "text"
+          },
+          {
+            "id": "row_field_1789483471565_28vfi",
+            "label": "Installation date",
+            "type": "date"
+          }
+        ]
+      }
+    ],
+    "deliberateEmptyWorkforceAndEquipmentAllowed": true
+  },
+  "directWorkforce": {
+    "relationshipId": "a422da51-6005-4831-a69e-bf284ff6f124",
+    "relationshipKey": "workforce_survey_row_department",
+    "rowNameFieldRequired": false,
+    "importCapacity": {
+      "sourceSha256": "b0c618501cf5af9073d074d6e0474cd772b0978437b3fdab55ff1a66390bf746",
+      "sourceRows": 1242,
+      "sourceDepartments": 136,
+      "maximumSourceRowsForOneDepartment": 58,
+      "maximumExistingRowsForOneDepartment": 4,
+      "maximumProjectedRowsForOneDepartment": 58
+    }
+  },
+  "respondentAssignmentSuitability": {
+    "relationshipId": "0fdede92-efa2-4d84-9b16-df1a88069486",
+    "relationshipFieldKey": "survey_respondent",
+    "departmentsWithExactlyOneAssignedRespondent": 176,
+    "departmentsWithoutAssignedRespondent": 142,
+    "departmentsWithMultipleAssignedRespondents": 8,
+    "assignedRespondentEdges": 192,
+    "assignedRespondentsUnavailableOrLoginIneligible": 0,
+    "handling": "Captured for reviewer action; rollout does not create, remove, or alter Department respondent assignments."
+  },
+  "departmentOrganisationSuitability": {
+    "strictOrganisationParentDefinitions": 1,
+    "strictOrganisationParentDefinitionId": "30ad9dde-4b4e-4991-a7a4-8ef2b6b5138e",
+    "departmentsWithExactlyOneValidOrganisationParent": 324,
+    "departmentsWithoutExactlyOneValidOrganisationParent": 2,
+    "departmentsWithExactlyOneRespondentInSameOrganisation": 158,
+    "departmentsWithOneRespondentUnavailableOrOtherOrganisation": 18,
+    "handling": "Informational only, not an access restriction: explicit Department respondent assignment permits cross-organisation access. Rollout does not alter organisation or respondent assignments."
+  },
+  "dropdownCanonicalCompatibility": {
+    "checked": [
+      "staff_group",
+      "grade",
+      "still_in_service"
+    ],
+    "exactCanonicalOptionSets": true
+  },
+  "existingConfig": "absent",
+  "legacyGraphObservations": {
+    "equipmentWithoutExactlyOneDepartment": 0,
+    "equipmentWithoutExactlyOneType": 0,
+    "equipmentWithMultipleModels": 0,
+    "equipmentModelTypeMismatches": 0,
+    "handling": "Reported only: rollout does not infer, repair, archive, or omit legacy records."
+  },
+  "rollout": {
+    "dataRecordsChanged": false,
+    "preparedWorkforceImportChanged": false,
+    "applyRequiresReviewedFingerprint": true,
+    "backupBeforeWrite": true,
+    "configWrittenOnlyWhenAbsentAndExact": true,
+    "guardedFormAndConfigTransaction": true,
+    "authenticatedWrappersRequiredBeforeConfig": true,
+    "stagedAfterApplicationDeployment": true,
+    "applicationPublishedAcknowledgementRequired": true,
+    "applicationPublishedAcknowledged": false,
+    "applicationPublishScope": "New API/client Department picker and authentication-reset changes must be published and verified before config activation.",
+    "preservesDraftAndPublicationState": true,
+    "automaticPublish": false,
+    "postcheckRequired": true
+  },
+  "outstanding": [
+    "Schema-only migration installation is separate from form/configuration activation. Publish and verify the new API/client Department picker and authentication-reset changes before any --apply --application-published configuration command.",
+    "The separately prepared BNMS workforce CSV import was not read, changed, or executed.",
+    "Because this rollout changes related form/configuration metadata, repeat that import package’s required full destination re-audit and final approval review before any separate import execution.",
+    "Run a signed-in live verification for a respondent flagged true for one Department and false/absent for another after code, migration, and this configuration rollout are deployed."
+  ]
+}

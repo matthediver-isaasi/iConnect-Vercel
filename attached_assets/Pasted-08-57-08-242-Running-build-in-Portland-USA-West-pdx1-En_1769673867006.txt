@@ -1,0 +1,50 @@
+08:57:08.242 Running build in Portland, USA (West) – pdx1 (Enhanced Build Machine)
+08:57:08.242 Build machine configuration: 8 cores, 16 GB
+08:57:08.326 Cloning github.com/matthediver-isaasi/iConnect-Vercel (Branch: multi-a, Commit: c6de7bb)
+08:57:09.878 Cloning completed: 1.552s
+08:57:10.008 Restored build cache from previous deployment (8RbZhDsACpNXcn7AUMEg1dYNk2jm)
+08:57:10.245 Running "vercel build"
+08:57:10.991 Vercel CLI 50.5.2
+08:57:11.839 Running "install" command: `npm install`...
+08:57:15.286 
+08:57:15.287 added 19 packages, changed 7 packages, and audited 675 packages in 3s
+08:57:15.287 
+08:57:15.287 144 packages are looking for funding
+08:57:15.287   run `npm fund` for details
+08:57:15.325 
+08:57:15.325 18 vulnerabilities (3 low, 10 moderate, 5 high)
+08:57:15.325 
+08:57:15.325 To address issues that do not require attention, run:
+08:57:15.325   npm audit fix
+08:57:15.326 
+08:57:15.326 To address all issues (including breaking changes), run:
+08:57:15.326   npm audit fix --force
+08:57:15.326 
+08:57:15.326 Run `npm audit` for details.
+08:57:15.833 [36mvite v5.4.20 [32mbuilding for production...[36m[39m
+08:57:15.883 transforming...
+08:57:29.774 [32m✓[39m 4136 modules transformed.
+08:57:31.798 [1m[33m[plugin:vite:reporter][39m[22m [33m[plugin vite:reporter] 
+08:57:31.799 (!) /vercel/path0/client/src/api/base44Client.js is dynamically imported by /vercel/path0/client/src/components/iedit/TypographyStyleSelector.jsx, /vercel/path0/client/src/components/iedit/elements/IEditButtonBlockElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditCtaButtonElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditFiftyFiftyElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditFiftyFiftyElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditHeroElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditHeroElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditHeroElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditImagePanelElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditImagePanelElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditImagePanelElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditPageHeaderHeroElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditPageHeaderHeroElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditQuoteElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditTwoColumnElement.jsx, /vercel/path0/client/src/components/ui/AGCASButton.jsx but also statically imported by /vercel/path0/client/src/components/MemberDetailView.jsx, /vercel/path0/client/src/components/OrganisationDetailView.jsx, /vercel/path0/client/src/components/analytics/OrganizationTransactionsModal.jsx, /vercel/path0/client/src/components/blog/ArticleComments.jsx, /vercel/path0/client/src/components/blog/ArticleReactions.jsx, /vercel/path0/client/src/components/blog/TagInput.jsx, /vercel/path0/client/src/components/booking/AttendeeList.jsx, /vercel/path0/client/src/components/booking/PaymentOptions.jsx, /vercel/path0/client/src/components/booking/VoucherSelector.jsx, /vercel/path0/client/src/components/events/EventCard.jsx, /vercel/path0/client/src/components/events/EventImageUpload.jsx, /vercel/path0/client/src/components/iedit/IEditElementEditor.jsx, /vercel/path0/client/src/components/iedit/IEditElementPalette.jsx, /vercel/path0/client/src/components/iedit/elements/IEditAccordionElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditBannerCarouselElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditCardDeckElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditEventSpotlightElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditFeaturedJobElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditFormElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditImageElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditLogoGridElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditOrganisationDirectoryElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditResourcesShowcaseElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditShowcaseElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditTableElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditTextOverlayImageElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditWallOfFameElement.jsx, /vercel/path0/client/src/components/layouts/PublicHeader.jsx, /vercel/path0/client/src/components/layouts/PublicLayout.jsx, /vercel/path0/client/src/components/navigation/NextEventCountdown.jsx, /vercel/path0/client/src/components/navigation/SocialIconsConfig.jsx, /vercel/path0/client/src/components/news/NewsTickerBar.jsx, /vercel/path0/client/src/components/tour/PageTour.jsx, /vercel/path0/client/src/components/walloffame/WallOfFameDisplay.jsx, /vercel/path0/client/src/hooks/useDateFormat.js, /vercel/path0/client/src/hooks/useEventTypes.js, /vercel/path0/client/src/hooks/useEventsData.js, /vercel/path0/client/src/hooks/useMemberAccess.js, /vercel/path0/client/src/hooks/useNewsPostData.js, /vercel/path0/client/src/hooks/useOrgDetailLayout.js, /vercel/path0/client/src/hooks/usePendingPurchaseOrders.js, /vercel/path0
+08:57:31.799 [39m
+08:57:31.802 rendering chunks...
+08:57:31.933 computing gzip size...
+08:57:32.054 [2m../dist/public/[22m[32mindex.html                 [39m[1m[2m    2.75 kB[22m[1m[22m[2m │ gzip:     1.01 kB[22m
+08:57:32.054 [2m../dist/public/[22m[2massets/[22m[35mindex-DJAfJSvd.css  [39m[1m[2m  205.42 kB[22m[1m[22m[2m │ gzip:    29.95 kB[22m
+08:57:32.054 [2m../dist/public/[22m[2massets/[22m[36mindex-BAiYDuyY.js   [39m[1m[33m5,980.70 kB[39m[22m[2m │ gzip: 1,363.24 kB[22m
+08:57:32.054 [32m✓ built in 16.20s[39m
+08:57:32.054 [33m
+08:57:32.054 (!) Some chunks are larger than 500 kB after minification. Consider:
+08:57:32.054 - Using dynamic import() to code-split the application
+08:57:32.054 - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+08:57:32.055 - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.[39m
+08:57:32.193 Installing dependencies...
+08:57:32.989 
+08:57:32.989 up to date in 745ms
+08:57:32.989 
+08:57:32.989 144 packages are looking for funding
+08:57:32.989   run `npm fund` for details
+08:58:24.585 Build Completed in /vercel/output [1m]
+08:58:26.268 Deploying outputs...
+08:58:49.682 Deployment completed
+08:58:50.453 Creating build cache...

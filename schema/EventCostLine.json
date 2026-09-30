@@ -1,0 +1,33 @@
+{
+  "name": "EventCostLine",
+  "type": "object",
+  "description": "One itemised actual cost line for an event's Budget tab. Works for both simple events (event) and complex events (complex_event), discriminated by event_kind.",
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "description": "Parent event id — event.id when event_kind='simple', complex_event.id when event_kind='complex'"
+    },
+    "event_kind": {
+      "type": "string",
+      "enum": ["simple", "complex"],
+      "description": "Which event table event_id refers to"
+    },
+    "description": {
+      "type": "string",
+      "description": "Free-text description of the cost"
+    },
+    "cost_type": {
+      "type": "string",
+      "description": "Cost type name from the tenant 'event_cost_types' setting (e.g. Venue hire, Catering)"
+    },
+    "quantity": {
+      "type": "number",
+      "description": "Quantity; line total = quantity * unit_cost"
+    },
+    "unit_cost": {
+      "type": "number",
+      "description": "Cost per unit in the event/tenant currency"
+    }
+  },
+  "required": ["event_id"]
+}

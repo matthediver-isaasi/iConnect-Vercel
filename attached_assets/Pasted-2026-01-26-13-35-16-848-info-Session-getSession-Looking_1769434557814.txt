@@ -1,0 +1,30 @@
+2026-01-26 13:35:16.848 [info] [Session] getSession: Looking up session: 0c34ac9a
+2026-01-26 13:35:17.046 [info] [Session] getSession: Session found, userType: tenant_user
+2026-01-26 13:35:17.047 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"0c34ac9a","userType":"tenant_user","memberId":"b24e022f-adcc-4930-8952-63a34cc16925","preservedTenantUserId":"11ee8b69-e967-45d5-9bfa-dff5a52c4ae6","preservedIdentityId":"545269d1-326b-4fff-90d0-b8a4e0cab9bb"}
+2026-01-26 13:35:17.168 [info] [Session] Attaching preserved admin context to member: {
+  memberId: 'b24e022f-adcc-4930-8952-63a34cc16925',
+  preservedTenantUserId: '11ee8b69-e967-45d5-9bfa-dff5a52c4ae6'
+}
+2026-01-26 13:35:17.168 [info] [Session] Attaching preserved identity to member: {
+  memberId: 'b24e022f-adcc-4930-8952-63a34cc16925',
+  preservedIdentityId: '545269d1-326b-4fff-90d0-b8a4e0cab9bb'
+}
+2026-01-26 13:35:17.289 [info] [Session] getSession: Looking up session: 0c34ac9a
+2026-01-26 13:35:17.409 [info] [Session] getSession: Session found, userType: tenant_user
+2026-01-26 13:35:17.410 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"0c34ac9a","userType":"tenant_user","tenantUserId":"11ee8b69-e967-45d5-9bfa-dff5a52c4ae6","preservedTenantUserId":"11ee8b69-e967-45d5-9bfa-dff5a52c4ae6","memberId":"b24e022f-adcc-4930-8952-63a34cc16925","identityId":"545269d1-326b-4fff-90d0-b8a4e0cab9bb","tenantId":"21296ad6-1350-483a-a90c-1b06ece70501"}
+2026-01-26 13:35:17.410 [info] [Session] Found tenant_user session, continuing with normal handling
+2026-01-26 13:35:17.638 [info] [Session] Verified via unified identity system: mat.the.diver@googlemail.com
+2026-01-26 13:35:17.749 [info] [Session] Elevating role from tenant_user table: owner
+2026-01-26 13:35:17.750 [info] [Session] getSession: Looking up session: 0c34ac9a
+2026-01-26 13:35:17.881 [info] [Session] getSession: Session found, userType: tenant_user
+2026-01-26 13:35:17.882 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"0c34ac9a","userType":"tenant_user","memberId":"b24e022f-adcc-4930-8952-63a34cc16925","preservedTenantUserId":"11ee8b69-e967-45d5-9bfa-dff5a52c4ae6","preservedIdentityId":"545269d1-326b-4fff-90d0-b8a4e0cab9bb"}
+2026-01-26 13:35:18.009 [info] [Session] Attaching preserved admin context to member: {
+  memberId: 'b24e022f-adcc-4930-8952-63a34cc16925',
+  preservedTenantUserId: '11ee8b69-e967-45d5-9bfa-dff5a52c4ae6'
+}
+2026-01-26 13:35:18.009 [info] [Session] Attaching preserved identity to member: {
+  memberId: 'b24e022f-adcc-4930-8952-63a34cc16925',
+  preservedIdentityId: '545269d1-326b-4fff-90d0-b8a4e0cab9bb'
+}
+2026-01-26 13:35:18.010 [error] (node:4) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)

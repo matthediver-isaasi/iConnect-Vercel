@@ -2,7 +2,7 @@ import React from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { User, Users, Link2 } from "lucide-react";
 
-export default function RegistrationModeSelector({ mode, onModeChange, isFeatureExcluded }) {
+export default function RegistrationModeSelector({ mode, onModeChange, isFeatureExcluded, canSelfRegister = true }) {
   const modes = [
     {
       id: 'self',
@@ -19,10 +19,15 @@ export default function RegistrationModeSelector({ mode, onModeChange, isFeature
     }
   ];
 
-  // Filter out modes that are excluded by the user's role
+  // Filter out modes that are excluded by the user's role or ticket restrictions
   const availableModes = modes.filter(modeOption => {
+    // Filter by feature exclusions
     if (modeOption.featureId && isFeatureExcluded) {
-      return !isFeatureExcluded(modeOption.featureId);
+      if (isFeatureExcluded(modeOption.featureId)) return false;
+    }
+    // Filter self-registration based on ticket role restrictions
+    if (modeOption.id === 'self' && !canSelfRegister) {
+      return false;
     }
     return true;
   });

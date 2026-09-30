@@ -1,0 +1,256 @@
+index-C5puhkG_.js:1061 GoTrueClient@sb-zkvgzcruhniduuswbfyh-auth-token:1 (2.84.0) 2026-01-01T17:15:12.800Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+ig @ index-C5puhkG_.js:1061
+vie @ index-C5puhkG_.js:1062
+_initSupabaseAuthClient @ index-C5puhkG_.js:1062
+yie @ index-C5puhkG_.js:1062
+v4 @ index-C5puhkG_.js:1062
+(anonymous) @ index-C5puhkG_.js:2069
+(anonymous) @ index-C5puhkG_.js:1
+(anonymous) @ index-C5puhkG_.js:2495
+index-C5puhkG_.js:1061 GoTrueClient@sb-zkvgzcruhniduuswbfyh-auth-token:2 (2.84.0) 2026-01-01T17:15:12.803Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+ig @ index-C5puhkG_.js:1061
+vie @ index-C5puhkG_.js:1062
+_initSupabaseAuthClient @ index-C5puhkG_.js:1062
+yie @ index-C5puhkG_.js:1062
+v4 @ index-C5puhkG_.js:1062
+(anonymous) @ index-C5puhkG_.js:2444
+(anonymous) @ index-C5puhkG_.js:1
+(anonymous) @ index-C5puhkG_.js:2495
+index-C5puhkG_.js:1365 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-C5puhkG_.js:1365 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-C5puhkG_.js:1365 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-C5puhkG_.js:1365 [Layout] currentPageName: ImportManager currentPortalPageId: null
+index-C5puhkG_.js:1365 [usePendingPurchaseOrders] Query running, memberInfo.id: 48b25075-51da-437f-af20-17836a892bfe
+index-C5puhkG_.js:1365 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-C5puhkG_.js:1365 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-C5puhkG_.js:1365 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-C5puhkG_.js:1365 [Layout] currentPageName: ImportManager currentPortalPageId: null
+index-C5puhkG_.js:1365 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-C5puhkG_.js:1365 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-C5puhkG_.js:1365 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-C5puhkG_.js:1365 [Layout] currentPageName: ImportManager currentPortalPageId: null
+index-C5puhkG_.js:1365 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-C5puhkG_.js:1365 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-C5puhkG_.js:1365 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-C5puhkG_.js:1365 [Layout] currentPageName: ImportManager currentPortalPageId: null
+index-C5puhkG_.js:1365 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-C5puhkG_.js:1365 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-C5puhkG_.js:1365 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-C5puhkG_.js:1365 [Layout] currentPageName: ImportManager currentPortalPageId: null
+index-C5puhkG_.js:1365 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-C5puhkG_.js:1365 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-C5puhkG_.js:1365 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-C5puhkG_.js:1365 [Layout] currentPageName: ImportManager currentPortalPageId: null
+index-C5puhkG_.js:1365 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-C5puhkG_.js:1365 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-C5puhkG_.js:1365 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-C5puhkG_.js:1365 [Layout] currentPageName: ImportManager currentPortalPageId: null
+index-C5puhkG_.js:1365 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-C5puhkG_.js:1365 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-C5puhkG_.js:1365 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-C5puhkG_.js:1365 [Layout] currentPageName: ImportManager currentPortalPageId: null
+index-C5puhkG_.js:1365 [usePendingPurchaseOrders] Fetched bookings count: 2
+index-C5puhkG_.js:1365 [usePendingPurchaseOrders] Pending PO bookings: 0
+index-C5puhkG_.js:1365 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-C5puhkG_.js:1365 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-C5puhkG_.js:1365 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-C5puhkG_.js:1365 [Layout] currentPageName: ImportManager currentPortalPageId: null
+index-C5puhkG_.js:1365 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-C5puhkG_.js:1365 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-C5puhkG_.js:1365 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-C5puhkG_.js:1365 [Layout] currentPageName: ImportManager currentPortalPageId: null
+index-C5puhkG_.js:1365 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-C5puhkG_.js:1365 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-C5puhkG_.js:1365 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-C5puhkG_.js:1365 [Layout] currentPageName: ImportManager currentPortalPageId: null
+index-C5puhkG_.js:1365 [Layout] Server session found: mat@isaasi.co.uk
+index-C5puhkG_.js:1365 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-C5puhkG_.js:1365 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-C5puhkG_.js:1365 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-C5puhkG_.js:1365 [Layout] currentPageName: ImportManager currentPortalPageId: null
+index-C5puhkG_.js:1365 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-C5puhkG_.js:1365 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-C5puhkG_.js:1365 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-C5puhkG_.js:1365 [Layout] currentPageName: ImportManager currentPortalPageId: null
+index-C5puhkG_.js:40 Error: A <Select.Item /> must have a value prop that is not an empty string. This is because the Select value can be set to an empty string to clear the selection and show the placeholder.
+    at index-C5puhkG_.js:1331:87120
+    at tk (index-C5puhkG_.js:38:17018)
+    at H5 (index-C5puhkG_.js:40:1571)
+    at FR (index-C5puhkG_.js:40:46033)
+    at ER (index-C5puhkG_.js:40:39790)
+    at bJ (index-C5puhkG_.js:40:39718)
+    at Bv (index-C5puhkG_.js:40:39570)
+    at j2 (index-C5puhkG_.js:40:35934)
+    at sP (index-C5puhkG_.js:40:36738)
+    at su (index-C5puhkG_.js:38:3279)
+c2 @ index-C5puhkG_.js:40
+a.callback @ index-C5puhkG_.js:40
+I5 @ index-C5puhkG_.js:38
+X5 @ index-C5puhkG_.js:40
+wR @ index-C5puhkG_.js:40
+pJ @ index-C5puhkG_.js:40
+yJ @ index-C5puhkG_.js:40
+_u @ index-C5puhkG_.js:40
+sP @ index-C5puhkG_.js:40
+su @ index-C5puhkG_.js:38
+yJ @ index-C5puhkG_.js:40
+_u @ index-C5puhkG_.js:40
+CR @ index-C5puhkG_.js:40
+N @ index-C5puhkG_.js:25
+S @ index-C5puhkG_.js:25
+index-C5puhkG_.js:40 Error: A <Select.Item /> must have a value prop that is not an empty string. This is because the Select value can be set to an empty string to clear the selection and show the placeholder.
+    at index-C5puhkG_.js:1331:87120
+    at tk (index-C5puhkG_.js:38:17018)
+    at H5 (index-C5puhkG_.js:40:1571)
+    at FR (index-C5puhkG_.js:40:46033)
+    at ER (index-C5puhkG_.js:40:39790)
+    at bJ (index-C5puhkG_.js:40:39718)
+    at Bv (index-C5puhkG_.js:40:39570)
+    at j2 (index-C5puhkG_.js:40:35934)
+    at sP (index-C5puhkG_.js:40:36738)
+    at su (index-C5puhkG_.js:38:3279)
+c2 @ index-C5puhkG_.js:40
+a.callback @ index-C5puhkG_.js:40
+I5 @ index-C5puhkG_.js:38
+X5 @ index-C5puhkG_.js:40
+wR @ index-C5puhkG_.js:40
+pJ @ index-C5puhkG_.js:40
+yJ @ index-C5puhkG_.js:40
+_u @ index-C5puhkG_.js:40
+sP @ index-C5puhkG_.js:40
+su @ index-C5puhkG_.js:38
+yJ @ index-C5puhkG_.js:40
+_u @ index-C5puhkG_.js:40
+CR @ index-C5puhkG_.js:40
+N @ index-C5puhkG_.js:25
+S @ index-C5puhkG_.js:25
+index-C5puhkG_.js:40 Error: A <Select.Item /> must have a value prop that is not an empty string. This is because the Select value can be set to an empty string to clear the selection and show the placeholder.
+    at index-C5puhkG_.js:1331:87120
+    at tk (index-C5puhkG_.js:38:17018)
+    at H5 (index-C5puhkG_.js:40:1571)
+    at FR (index-C5puhkG_.js:40:46033)
+    at ER (index-C5puhkG_.js:40:39790)
+    at bJ (index-C5puhkG_.js:40:39718)
+    at Bv (index-C5puhkG_.js:40:39570)
+    at j2 (index-C5puhkG_.js:40:35934)
+    at sP (index-C5puhkG_.js:40:36738)
+    at su (index-C5puhkG_.js:38:3279)
+c2 @ index-C5puhkG_.js:40
+a.callback @ index-C5puhkG_.js:40
+I5 @ index-C5puhkG_.js:38
+X5 @ index-C5puhkG_.js:40
+wR @ index-C5puhkG_.js:40
+pJ @ index-C5puhkG_.js:40
+yJ @ index-C5puhkG_.js:40
+_u @ index-C5puhkG_.js:40
+sP @ index-C5puhkG_.js:40
+su @ index-C5puhkG_.js:38
+yJ @ index-C5puhkG_.js:40
+_u @ index-C5puhkG_.js:40
+CR @ index-C5puhkG_.js:40
+N @ index-C5puhkG_.js:25
+S @ index-C5puhkG_.js:25
+index-C5puhkG_.js:40 Error: A <Select.Item /> must have a value prop that is not an empty string. This is because the Select value can be set to an empty string to clear the selection and show the placeholder.
+    at index-C5puhkG_.js:1331:87120
+    at tk (index-C5puhkG_.js:38:17018)
+    at H5 (index-C5puhkG_.js:40:1571)
+    at FR (index-C5puhkG_.js:40:46033)
+    at ER (index-C5puhkG_.js:40:39790)
+    at bJ (index-C5puhkG_.js:40:39718)
+    at Bv (index-C5puhkG_.js:40:39570)
+    at j2 (index-C5puhkG_.js:40:35934)
+    at sP (index-C5puhkG_.js:40:36738)
+    at su (index-C5puhkG_.js:38:3279)
+c2 @ index-C5puhkG_.js:40
+a.callback @ index-C5puhkG_.js:40
+I5 @ index-C5puhkG_.js:38
+X5 @ index-C5puhkG_.js:40
+wR @ index-C5puhkG_.js:40
+pJ @ index-C5puhkG_.js:40
+yJ @ index-C5puhkG_.js:40
+_u @ index-C5puhkG_.js:40
+sP @ index-C5puhkG_.js:40
+su @ index-C5puhkG_.js:38
+yJ @ index-C5puhkG_.js:40
+_u @ index-C5puhkG_.js:40
+CR @ index-C5puhkG_.js:40
+N @ index-C5puhkG_.js:25
+S @ index-C5puhkG_.js:25
+index-C5puhkG_.js:40 Error: A <Select.Item /> must have a value prop that is not an empty string. This is because the Select value can be set to an empty string to clear the selection and show the placeholder.
+    at index-C5puhkG_.js:1331:87120
+    at tk (index-C5puhkG_.js:38:17018)
+    at H5 (index-C5puhkG_.js:40:1571)
+    at FR (index-C5puhkG_.js:40:46033)
+    at ER (index-C5puhkG_.js:40:39790)
+    at bJ (index-C5puhkG_.js:40:39718)
+    at Bv (index-C5puhkG_.js:40:39570)
+    at j2 (index-C5puhkG_.js:40:35934)
+    at sP (index-C5puhkG_.js:40:36738)
+    at su (index-C5puhkG_.js:38:3279)
+c2 @ index-C5puhkG_.js:40
+a.callback @ index-C5puhkG_.js:40
+I5 @ index-C5puhkG_.js:38
+X5 @ index-C5puhkG_.js:40
+wR @ index-C5puhkG_.js:40
+pJ @ index-C5puhkG_.js:40
+yJ @ index-C5puhkG_.js:40
+_u @ index-C5puhkG_.js:40
+sP @ index-C5puhkG_.js:40
+su @ index-C5puhkG_.js:38
+yJ @ index-C5puhkG_.js:40
+_u @ index-C5puhkG_.js:40
+CR @ index-C5puhkG_.js:40
+N @ index-C5puhkG_.js:25
+S @ index-C5puhkG_.js:25
+index-C5puhkG_.js:40 Error: A <Select.Item /> must have a value prop that is not an empty string. This is because the Select value can be set to an empty string to clear the selection and show the placeholder.
+    at index-C5puhkG_.js:1331:87120
+    at tk (index-C5puhkG_.js:38:17018)
+    at H5 (index-C5puhkG_.js:40:1571)
+    at FR (index-C5puhkG_.js:40:46033)
+    at ER (index-C5puhkG_.js:40:39790)
+    at bJ (index-C5puhkG_.js:40:39718)
+    at Bv (index-C5puhkG_.js:40:39570)
+    at j2 (index-C5puhkG_.js:40:35934)
+    at sP (index-C5puhkG_.js:40:36738)
+    at su (index-C5puhkG_.js:38:3279)
+c2 @ index-C5puhkG_.js:40
+a.callback @ index-C5puhkG_.js:40
+I5 @ index-C5puhkG_.js:38
+X5 @ index-C5puhkG_.js:40
+wR @ index-C5puhkG_.js:40
+pJ @ index-C5puhkG_.js:40
+yJ @ index-C5puhkG_.js:40
+_u @ index-C5puhkG_.js:40
+sP @ index-C5puhkG_.js:40
+su @ index-C5puhkG_.js:38
+yJ @ index-C5puhkG_.js:40
+_u @ index-C5puhkG_.js:40
+CR @ index-C5puhkG_.js:40
+N @ index-C5puhkG_.js:25
+S @ index-C5puhkG_.js:25
+index-C5puhkG_.js:1331 Uncaught Error: A <Select.Item /> must have a value prop that is not an empty string. This is because the Select value can be set to an empty string to clear the selection and show the placeholder.
+    at index-C5puhkG_.js:1331:87120
+    at tk (index-C5puhkG_.js:38:17018)
+    at H5 (index-C5puhkG_.js:40:1571)
+    at FR (index-C5puhkG_.js:40:46033)
+    at ER (index-C5puhkG_.js:40:39790)
+    at bJ (index-C5puhkG_.js:40:39718)
+    at Bv (index-C5puhkG_.js:40:39570)
+    at j2 (index-C5puhkG_.js:40:35934)
+    at sP (index-C5puhkG_.js:40:36738)
+    at su (index-C5puhkG_.js:38:3279)
+(anonymous) @ index-C5puhkG_.js:1331
+tk @ index-C5puhkG_.js:38
+H5 @ index-C5puhkG_.js:40
+FR @ index-C5puhkG_.js:40
+ER @ index-C5puhkG_.js:40
+bJ @ index-C5puhkG_.js:40
+Bv @ index-C5puhkG_.js:40
+j2 @ index-C5puhkG_.js:40
+sP @ index-C5puhkG_.js:40
+su @ index-C5puhkG_.js:38
+yJ @ index-C5puhkG_.js:40
+_u @ index-C5puhkG_.js:40
+CR @ index-C5puhkG_.js:40
+N @ index-C5puhkG_.js:25
+S @ index-C5puhkG_.js:25

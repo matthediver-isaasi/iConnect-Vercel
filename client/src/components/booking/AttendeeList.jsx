@@ -4,8 +4,9 @@ import { base44 } from "@/api/base44Client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Trash2, Loader2, AlertCircle, CheckCircle2, User, Info } from "lucide-react";
+import AttendeeOptionsSelector from "./AttendeeOptionsSelector";
 
-export default function AttendeeList({ attendees, onUpdate, onRemove, onAdd, memberInfo }) {
+export default function AttendeeList({ attendees, onUpdate, onRemove, onAdd, memberInfo, eventOptions }) {
   const [validating, setValidating] = useState({});
 
   const validateEmail = async (index, email) => {
@@ -67,7 +68,7 @@ export default function AttendeeList({ attendees, onUpdate, onRemove, onAdd, mem
       case 'unregistered_domain_match':
         return 'border-blue-200 bg-blue-50';
       case 'external':
-        return 'border-amber-200 bg-amber-50';
+        return 'border-warning/30 bg-warning/10';
       case 'wrong_organization':
       case 'error':
         return 'border-red-200 bg-red-50';
@@ -87,7 +88,7 @@ export default function AttendeeList({ attendees, onUpdate, onRemove, onAdd, mem
       case 'unregistered_domain_match':
         return <Info className="w-4 h-4 text-blue-600" />;
       case 'external':
-        return <Info className="w-4 h-4 text-amber-600" />;
+        return <Info className="w-4 h-4 text-warning" />;
       case 'wrong_organization':
       case 'error':
         return <AlertCircle className="w-4 h-4 text-red-600" />;
@@ -103,7 +104,7 @@ export default function AttendeeList({ attendees, onUpdate, onRemove, onAdd, mem
       case 'unregistered_domain_match':
         return 'text-blue-700';
       case 'external':
-        return 'text-amber-700';
+        return 'text-warning';
       case 'wrong_organization':
       case 'error':
         return 'text-red-600';
@@ -112,11 +113,23 @@ export default function AttendeeList({ attendees, onUpdate, onRemove, onAdd, mem
     }
   };
 
+  // Only show name input fields if attendee is external type AND name is missing
   const needsManualName = (attendee) => {
-    return !attendee.isSelf && 
-           (attendee.validationStatus === 'unregistered_domain_match' || 
-            attendee.validationStatus === 'external' ||
-            attendee.validationStatus === 'wrong_organization');
+    if (attendee.isSelf) return false;
+    const isExternalType = attendee.validationStatus === 'unregistered_domain_match' || 
+                           attendee.validationStatus === 'external' ||
+                           attendee.validationStatus === 'wrong_organization';
+    // Only need manual entry if name is not already provided
+    return isExternalType && (!attendee.first_name || !attendee.last_name);
+  };
+
+  // Check if attendee has a name to display (external with name already filled)
+  const hasExternalName = (attendee) => {
+    if (attendee.isSelf) return false;
+    const isExternalType = attendee.validationStatus === 'unregistered_domain_match' || 
+                           attendee.validationStatus === 'external' ||
+                           attendee.validationStatus === 'wrong_organization';
+    return isExternalType && attendee.first_name && attendee.last_name;
   };
 
   return (
@@ -149,27 +162,34 @@ export default function AttendeeList({ attendees, onUpdate, onRemove, onAdd, mem
                     placeholder="First Name *"
                     value={attendee.first_name || ''}
                     onChange={(e) => onUpdate(index, 'first_name', e.target.value)}
-                    className="text-sm"
+                    className={`text-sm ${!attendee.first_name ? 'border-red-300 focus:border-red-500' : ''}`}
                     required
                   />
                   <Input
                     placeholder="Last Name *"
                     value={attendee.last_name || ''}
                     onChange={(e) => onUpdate(index, 'last_name', e.target.value)}
-                    className="text-sm"
+                    className={`text-sm ${!attendee.last_name ? 'border-red-300 focus:border-red-500' : ''}`}
                     required
                   />
                 </div>
+                {isMissingRequiredName(attendee) && (
+                  <p className="text-xs text-red-600 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" />
+                    Please enter first and last name to continue
+                  </p>
+                )}
               </div>
             )}
 
             <div className="flex items-center gap-2">
-              {!attendee.isSelf && (
+              {onRemove && (
                 <Button
                   variant="ghost"
                   size="icon"
                   onClick={() => onRemove(index)}
                   className="text-red-600 hover:text-red-700 hover:bg-red-50 h-8 w-8 shrink-0"
+                  data-testid={`button-remove-attendee-${index}`}
                 >
                   <Trash2 className="w-4 h-4" />
                 </Button>
@@ -189,14 +209,32 @@ export default function AttendeeList({ attendees, onUpdate, onRemove, onAdd, mem
                 </div>
               )}
 
+              {hasExternalName(attendee) && (
+                <div className="flex items-center gap-2 text-sm text-warning">
+                  <User className="w-4 h-4" />
+                  <span>{attendee.first_name} {attendee.last_name}</span>
+                </div>
+              )}
+
               {!attendee.isSelf && attendee.validationMessage && 
-               !(attendee.validationStatus === 'registered' && attendee.first_name) && (
+               !(attendee.validationStatus === 'registered' && attendee.first_name) &&
+               !hasExternalName(attendee) && (
                 <p className={`text-xs flex items-start gap-1 flex-1 ${getMessageStyle(attendee.validationStatus)}`}>
                   {getIcon(attendee)}
                   <span className="flex-1">{attendee.validationMessage}</span>
                 </p>
               )}
             </div>
+            <AttendeeOptionsSelector
+              eventOptions={eventOptions}
+              value={attendee}
+              onChange={(next) => {
+                onUpdate(index, 'dietary_selections', next.dietary_selections);
+                onUpdate(index, 'allergy_selections', next.allergy_selections);
+                onUpdate(index, 'accessibility_selections', next.accessibility_selections);
+              }}
+              idPrefix={`attendee-${index}`}
+            />
           </div>
         </div>
       ))}

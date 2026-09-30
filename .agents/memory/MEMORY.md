@@ -1,0 +1,153 @@
+- [Router consistency in client/](router-consistency.md) — app uses react-router-dom; new pages built with wouter look like they navigate but break SPA routing.
+- [Supabase realtime publication](supabase-realtime-publication.md) — realtime subscriptions silently get no events until the table is added to the supabase_realtime publication.
+- [Membership tier scheduling](membership-tier-scheduling.md) — a config is "in effect" by date range, not just effective_to IS NULL; switch-over caps the old config to newStart-1.
+- [base44 new field needs a DB column](base44-new-field-migration.md) — adding a new property to an existing base44 entity requires a migration; the column-per-field table does not auto-create columns.
+- [Canvas rendering and layout](canvas-rendering-layout-index.md) — index of durable rules for V1/V2 geometry, reflow, block rendering, editor behavior, symbols, links, and footers.
+- [Canvas member personalisation](canvas-member-personalisation.md) — display-only TipTap tokens use a fresh viewer snapshot, never cached identity or design-wide replacement.
+- [Per-attendee flag surfaces](attendee-flag-surfaces.md) — a booking boolean (buddy/badge) must be wired through ~8 places across both booking tables; default-true reads as `x !== false` everywhere, not `!!x`.
+- [PostgREST and pagination topics](postgrest-pagination-index.md) — index of durable rules for PostgREST caps, stable ranged pages, bounded exports, large filters, and exact totals.
+- [Membership invoice boundaries](membership-invoice-index.md) — duplicate prevention, override display, add-on lines and PO contracts.
+- [Background worker self-trigger](background-worker-self-trigger.md) — a self-re-triggering chunked worker needs a handoff bypass on its heartbeat lock, or the chain blocks itself and falls back to cron pace.
+- [Reindex concurrency guard](reindex-concurrency-guard.md) — reindex chain uses a fail-open defer-marker (system_settings global row + runId), NOT a hard lock; keep it best-effort or "restart is free" breaks.
+- [Platform manual backup orchestration](platform-manual-backup-orchestration.md) — manual R2 backup completes via a browser loop re-invoking a single-chunk resumable /run endpoint, not server self-chaining (stays within serverless maxDuration).
+- [Workspace DB targets](workspace-db-targets.md) — runtime SUPABASE_URL here == legacy SOURCE (stale); prod/migrations target DEST. Apply feature migrations to DEST only.
+- [Private subsets of a tenant entity](private-subset-of-tenant-entity.md) — client-side hiding of group-private rows isn't access control; add server-side filter on entity list + by-id reads, exempt admins.
+- [Workflow trigger types & scheduled workflows](workflow-trigger-types.md) — trigger_type is free-text (no migration to add one); operator comparison centralized in evaluateConditionOperator; scheduled path has no before-value, date ops are UTC.
+- [Hybrid public/by-slug page registration](hybrid-byslug-page-registration.md) — a new /prefix/:slug hybrid page must be wired in 4 places (_getCurrentPage prefix + Route + PAGES map + Layout hybridPages) or it renders with wrong auth/chrome.
+- [Bearer-token (mobile) API auth](bearer-token-auth.md) — mobile clients send Authorization: Bearer <token>; token IS the unsigned session sid, reuses session table, gated by sess.authMethod==='bearer'; cookie path unchanged.
+- [Campaign send-time resolution & tracked-link entities](campaign-send-time-resolution.md) — campaign recipients are persisted+re-claimed, so booking/QR/scope must resolve at SEND time; tracked hrefs corrupt query strings via &amp; unless decoded before encodeURIComponent. [Event survey assignments](survey-event-assignments.md) covers reusable survey URL tokens, explicit event/assignment selection and delivery-time revalidation.
+- [Group-scoped entity list surfaces](group-scoped-entity-list-surfaces.md) — adding member_group_id to a tenant entity leaks group rows into every tenant-wide list (public + admin) unless each surface excludes them, mirroring group-event visibility.
+- [Member-group resource subcategory links](member-group-resource-subcategories.md) — group.resource_subcategories (name strings) both pull tenant resources into a group AND push group resources tenant-wide; matched per-group, names not globally unique.
+- [Group-event authz body aliasing](group-event-authz-body-aliasing.md) — entity PATCH clear+reassign of sanitizedBody empties the update for tenant admins because authz.body is the SAME object ref; empty update -> PGRST116 -> silent 404.
+- [tenant-branding secondaryBar sanitization](tenant-branding-secondarybar-sanitize.md) — branding PATCH rebuilds header_config.secondaryBar from scratch; new subfields silently dropped unless whitelisted in the sanitizer.
+- [Count-based ticket availability & oversell guard](ticket-capacity-count-based.md) — available_count is a fixed max; derive remaining from confirmed bookings; oversell needs a DB advisory-lock guard, not a stored decrement.
+- [getTenantIdFromSession only checks membership](tenant-session-admin-gate.md) — admin-only /api endpoints must use getTenantContext + hasAdminAccess; getTenantIdFromSession verifies tenant membership only, not admin role.
+- [Redacted group-admin data surfaces](redacted-group-admin-surfaces.md) — give group admins a tenant-wide signal (count/boolean) by branching the RESPONSE not just auth; redact every success branch so other groups private details never leak.
+- [Guest-rendering an auth-only page](guest-public-admin-page.md) — 4 moves: guest endpoint + gate every auth query (watch TDZ) + render-gate admin affordances + loading gate on authResolved to stop "Not Found" flash.
+- [Member inbox unread count](member-inbox-unread-count.md) — inbox "messages" are campaign recipients + sparse state table (no row = unread); badge count is delivered−archived−readNonArchived arithmetic; opening auto-reads so invalidate with exact keys or the body query loops.
+- [Help Center RBAC gating](help-center-rbac.md) — /Help articles gated presentation-only by required_feature + {{feature: KEY}} section markers using canonical roleAccessMap keys; content in scripts/seed-help-articles.mjs.
+- [Help AI Q&A retrieval boundary](help-ai-qa-retrieval-boundary.md) — AI help answers use retrieval AS security: per-chunk feature_gates must mirror the HelpArticleContent DSL exactly, resolved server-side, fail-closed; backfill/embeddings need OpenAI key (Vercel/CI only).
+- [Transactional inbox delivery](transactional-inbox-delivery.md) — /inbox unions two backends (campaign state-table vs transactional co-located-state row); every inbox endpoint must branch on a `source` discriminator or one kind silently disappears.
+- [Canvas AI generation](canvas-ai-index.md) — source fidelity, editing proposals, style references, design-first gates, and retry carry-forward.
+- [Microsite path-prefix surfaces](microsite-prefix-surfaces.md) — rows with microsite_id serve only at /{prefix}/{slug}; page-by-slug, nav, branding, entityMeta, sitemap must all exclude them from the default site.
+- [Serverless chunk time budget](serverless-chunk-time-budget.md) — record-count chunking still 504s when matches drive cost; budget wall-clock per invocation with an exact per-record resume cursor.
+- [Microsite branding overrides](microsite-branding-overrides.md) — a new overridable key needs whitelist + tenant-branding merge + SSR renderHtml + editor card; SSR and the branding endpoint are separate resolution paths.
+- [Typography styles microsite scoping](typography-microsite-scope.md) — a style is scoped to main-site OR one microsite; effective default per style_type = microsite default ?? main-site default; is_default unique per (scope,type) app-level only.
+- [Unchecked supabase inserts hide schema drift](unchecked-supabase-inserts.md) — supabase-js returns {error}, never throws; unchecked side-effect inserts fail silently forever on column drift.
+- [Complex event reminders per-day](complex-reminders-per-day.md) — relative reminders schedule once per calendar day via shared helper; dedupe reuses session_id as the deterministic day-anchor session.
+- [Session Zoom ID conventions](session-zoom-id-conventions.md) — session cols hold EXTERNAL Zoom IDs (event table holds local PKs); saved-session Zoom changes must route through change-zoom, the PATCH strips them.
+- [Billing, import, and evidence topics](billing-import-evidence-index.md) — index of durable rules for CSV imports, accounting/Xero invoices, BNMS reconciliation, and private report recovery.
+- [Member group role name canonicalisation](member-group-role-name-canonicalisation.md) — role names are free text duplicated across ~9 surfaces incl. role-keyed JSONB maps; rename/merge must rewrite all together.
+- [Job posting payment legacy pitfalls](job-posting-payment-legacy.md) — non-member postings have NULL tenant_id; legacy admin-notify filter mass-emails the whole tenant, use is_admin roles + hard cap.
+- [Form and submission topics](form-submission-index.md) — focused index of form, submission, mapping, validation, and payment-entry rules.
+- [Country name resolution & LMIC surfaces](country-name-resolution.md) — stored countries include WB-style names; always resolve via resolveCountryToIso2 (+aliases); LMIC needs element-level pruning on measure AND group-by paths.
+- [Membership payment topics](membership-payment-topics.md) — payment reconciliation, settlement, card plans, direct debit, arrears, and activation.
+- [RBAC map-driven parent resolution](rbac-parent-resolution.md) — parent lookups via map nesting, never dot-prefix; enforcement is a UNION of hardcoded map + role_access_item DB overlay; legacy mapping is generated, never hand-copied.
+- [Widget click-through drilldown](widget-drilldown-clickthrough.md) — big id lists POST in a body (never URL); toggle enforced server-side; Recharts click key via entry.key ?? payload.key ?? name.
+- [Member-driven membership fee tokens](member-fee-tokens.md) — fee tokens carry org_id OR member_id; every consumer must branch (history/invoicing/notes/sim); token DD adopts unpaid workflow rows.
+- [Outlook busy-time handling](outlook-busy-times.md) — Graph calendarview returns naive datetimes in the Prefer tz; never offset-detect via includes('-'); paginate nextLink; flag connection on failure.
+- [Cron email delivery model](speaker-award-notifications.md) — one-off notification emails need lease+delivered timestamp pairs (CAS everywhere) and a retry sweep independent of the parent's done-stamp; a claim is not delivery.
+- [Resource category & subcategory role access](resource-category-role-access.md) — name-level visible-wins hiding via one shared helper; ~6 surfaces must strip access fields + trim hidden names or roles leak.
+- [record_create workflows & custom fields](workflow-record-create-custom-fields.md) — trigger AFTER preference values persist or custom-field conditions see empty; workflow_log status check allows success|partial|failed|skipped.
+- [Event hard-delete vs booking rows](event-delete-booking-detach.md) — bookings survive event deletion detached (event_id NULL + event_name snapshot); surfaces must fall back to booking.event_name.
+- [Static "AI generated" page class](static-page-class.md) — builder_type='ai_static' pages render stored sanitized HTML/CSS read-only; writes only via the store-time sanitize+scope helper, never the entity API.
+- [Wildcard subdomain canonical links](wildcard-subdomain-canonical-links.md) — *.iconn.app is wildcard DNS; tenant-known link builders must use getTenantTrustedBaseUrl, and rebuilt custom domains must pass sanitizeHostname.
+- [Unified directory card-back ordering](directory-back-order.md) — one mixed core+custom order list; resolver duplicated client+server, keep in sync; visibility toggles still gate content.
+- [SECURITY DEFINER RPC grants](security-definer-rpc-grants.md) — new Postgres functions are PUBLIC-executable by default; server-only RPCs must revoke PUBLIC + validate inputs in SQL.
+- [PL/pgSQL output names](plpgsql-output-column-qualification.md) — RETURNS TABLE names are variables; qualify RETURNING and SELECT columns, and test invocation rather than installation alone.
+- [Member membership pause](member-membership-pause.md) — pause blocks access via its own flag (login_enabled never rewritten); GC resume only touches subs pause recorded; all reads 42703-tolerant.
+- [Organisation Group CRM parity](org-group-crm-parity.md) — preference_field.entity_scope is CHECK-constrained; org layout/rules editors take a coreFields prop, rule eval is entity-agnostic.
+- [Per-instalment monthly invoicing](per-instalment-invoicing.md) — mode snapshotted at consent; idempotency via invoice linkage (GC row cols / Stripe unique table); annual paths must call shouldSuppressAnnualInvoice.
+- [GoCardless Drop-in modal](gocardless-dropin.md) — DD start endpoints return flowId+environment; shared GoCardlessDropinFlow wrapper opens modal, onLoadFailure falls back to hosted redirect.
+- [Tenant feed cron fairness](tenant-feed-cron-fairness.md) — time-bounded tenant feed crons need an ordered durable cursor, or the first page silently starves later tenants.
+- [Simple-event timing invariants](simple-event-timing-invariants.md) — enforce timing rules before event-write admin bypasses; training normalizes timing, while public reads suppress stale schedule data.
+- [WordPress option leases](wordpress-option-leases.md) — expiring locks need DB compare-and-swap takeover/renewal and compare-and-delete release; read/delete/add reopens concurrency races.
+- [Preference-field ownership scopes](preference-field-ownership-scopes.md) — adding a new field owner requires API and DB guards on every legacy value table, not just filtering field definitions.
+- [External campaign contacts](external-campaign-contacts.md) — non-member recipients may have no subscriber row; resolve them before shared suppression and treat email_unsubscribe as canonical.
+- [Mail delivery policies](mail-delivery-index.md) — Mailgun tracking TLS, sending-domain authorization, and direct member correspondence boundaries.
+- [Attendance snapshot finalization](attendance-snapshot-finalization.md) — provider reports must publish atomically; idempotency includes bookings, policy, target, intervals, and matches.
+- [Authoritative empty feeds](authoritative-empty-feeds.md) — destructive consumers need confirmed-empty vs load-failure states; never collapse backend errors into [].
+- [Communication consent boundaries](communication-consent-index.md) — category deletion, global/category serialization, and member opt-in eligibility.
+- [Advisory locks through transaction poolers](transaction-pool-advisory-locks.md) — hold an explicit transaction and use xact locks; session locks can leak across pooled backends.
+- [Nullable JSONB migration merges](nullable-jsonb-migration-merges.md) — idempotent config migrations must coalesce nullable JSONB before key checks and object merges.
+- [Directory access and privacy topics](directory-access-privacy-index.md) — scope, eligibility, field visibility, export, file access, and deleted-member history.
+- [Member security and lifecycle topics](member-security-lifecycle-index.md) — tenant-scoped deletion, reset authorization, access revocation, and member-only context.
+- [Controlled composite pending state](controlled-composite-pending-state.md) — queued sibling edits must drive rendering as well as mutations until the parent acknowledges them.
+- [Catalogue event references](catalogue-event-references.md) — derive ticket delegate capacity live; revalidate links on restore, and replace bundle composition atomically.
+- [Deactivating referenced workflow states](workflow-state-deactivation-races.md) — assignment and deactivation must serialize on the same database row; an existence check is raceable.
+- [Immutable child re-parenting](immutable-child-reparenting.md) — child immutability triggers must validate both OLD and NEW parents or updates can move data out of locked snapshots.
+- [Custom Object cardinality migrations](custom-object-cardinality-migrations.md) — widen with a new pinned migration; preserve definition history and global legacy-trigger behavior.
+- [Commercial Event capacity](commercial-event-capacity.md) — unused sale allocations and confirmed delegate rows share one locked capacity equation; reconciliation/cancellation must be atomic.
+- [Quote delivery bearer safety](quote-delivery-bearer-safety.md) — quote links stay inactive until delivery is durably recorded; never persist token-bearing referrers or return broad snapshots publicly.
+- [Commercial sale invoice conversion](commercial-sale-invoice-conversion.md) — invoice only from the accepted quote snapshot; claim per sale/provider and preserve exact accepted arithmetic.
+- [Allocated delegate claim ordering](allocated-delegate-claim-ordering.md) — claim invite entitlement only after booking capacity checks; compensate the whole checkout if a later claim fails.
+- [Mixed-encoding CSV imports](mixed-encoding-csv-imports.md) — preserve valid UTF-8 sequences while decoding isolated Windows-1252 bytes; whole-file fallback can silently create mojibake.
+- [Stripe feature mode for shared payments](stripe-feature-payment-mode.md) — discovery, creation, and confirmation must use one persisted feature when a shared flow serves several products.
+- [Department relationship replacement](department-relationship-replacement.md) — changing a member Organisation may auto-archive Department edges; pre-journal restoration and never hard-delete.
+- [GoCardless account discovery isolation](gocardless-discovery-isolation.md) — account-wide discovery must require tenant-owned credentials; never use platform fallback or live billing mirrors.
+- [GoCardless form origin](gocardless-form-origin.md) — pin original provider context; unknown origins require review, while lookup failures never prove payment failure.
+- [Stripe membership invoice addresses](stripe-membership-invoice-addresses.md) — Stripe form memberships invoice only from immutable payment-time snapshots; missing snapshots fail closed.
+- [Annual membership renewal lifecycle](annual-membership-renewal-lifecycle.md) — annual policy is a dated tier snapshot; next terms always start the day after the prior persisted end, while monthly agreements stay separate.
+- [Editor query lifecycles](editor-query-lifecycle-index.md) — discovery/save-first, pending queries, stable fallbacks, and saved-metadata reconciliation.
+- [Automatic-group source invalidation](automatic-group-source-invalidation.md) — source writes must generation-fence workers; custom values need direct statement triggers to avoid per-row churn.
+- [Legacy transition-row types](legacy-transition-row-types.md) — never materialize whole transition rows on long-lived tables; dropped attributes can break composites only on the real schema.
+- [Gallery visibility and storage](gallery-visibility-storage.md) — gallery public/private transitions must be server-owned and ordered with bucket moves so policy changes cannot leave public objects exposed.
+- [Pinned import identity vs matching](pinned-import-identity-matching.md) — make live-name matching legacy-encoding tolerant without changing historical identity-hash normalization.
+- [Contextual Custom Object creation](contextual-custom-object-create.md) — create a record and initial edges in one RPC; requiredness follows the new record’s source side.
+- [Platform-managed tenant integrations](platform-managed-tenant-integrations.md) — shared secrets stay server-only; tenants store only enablement and receive boolean availability.
+- [Payment quote cache authority](payment-quote-cache-authority.md) — quote keys must include validation-changing answers, not only price inputs, or transient validation errors can stick.
+- [Long-running pinned imports](long-running-pinned-imports.md) — sequential compensated imports may outlive interactive shells; resume idempotently and require a zero-write replay.
+- [Relationship picker graph scopes](relationship-picker-graph-scopes.md) — constrain direct links by intersecting bounded source/target relationship paths; active graph only, fail closed.
+- [Relationship preview config aliases](relationship-preview-config-aliases.md) — compact_preview and legacy compact_preview_fields may coexist; merge and dedupe field IDs across both.
+- [Relationship edge metadata enforcement](relationship-edge-metadata-enforcement.md) — generic edge writes bypass the interactive service; defaults and required/type rules need DB enforcement too.
+- [Relationship multi-select answers](relationship-multiselect-answers.md) — mixed record IDs + Other must be reconciled, validated, and formatted member-by-member.
+- [Merge is not public rollout](merge-vs-public-rollout.md) — custom domains may keep serving an older frontend bundle after source merges; verify the live asset contains the feature.
+- [Event-card attendee count states](event-card-attendee-count-states.md) — attendee actions show a secured number; unresolved/error states must never fall back to the old icon or a false zero.
+- [Speaker award timing lifecycle](speaker-award-timing-lifecycle.md) — badges may award on assignment, but vouchers stay event-start; removals require atomic, provenance-safe reconciliation.
+- [Event CPD badge awards](event-cpd-badge-awards.md) — resolve the attendee, treat ticket rules as whole-config overrides, and isolate grants behind their own transactional outbox.
+- [Event CPD points ledger](event-cpd-points-ledger.md) — points are signed append-only entries; ticket overrides replace the whole rule, and reversals bind to exact evidence.
+- [Entity-pipeline mapping ownership](entity-pipeline-mapping-ownership.md) — enclosing member/org pipeline owns every mapping destination; normalize saved metadata and reject mismatches at side-effect boundaries.
+- [Organisation reference vs mutation](organization-reference-mutation-auth.md) — a persisted tenant-valid selection may link records, but only explicit creation provenance can bypass mutation authorization.
+- [Email design validity](email-design-validity.md) — non-empty generated HTML does not prove unsupported blocks survived; preserve stored HTML when a design cannot be edited safely.
+- [Email column release gate](email-column-release-gate.md) — received-client approval and its CSS-evidence waiver; browser tests alone are not Gmail/Outlook proof.
+- [Transactional preference identity](transactional-preference-boundary.md) — personalization identity is not recipient authority; resolve after the final envelope and footer, separate from campaigns.
+- [Relationship report compatibility](relationship-report-compatibility.md) — saved semantics stay versioned; row-relative counts and native indexed cursors prevent sibling mixing and full-graph sorts.
+- [Tenant-setting first-save races](tenant-setting-first-save-races.md) — update CAS does not serialize first inserts; new singleton settings need database-enforced identity.
+- [Verification boundaries](browser-verification-index.md) — isolated tests vs production checks, browser route contracts, parallel output, and animation-safe assertions.
+- [Provider replay outcomes](provider-replay-outcomes.md) — webhook acknowledgement is not recovery success; conflicts and retryable child outcomes must remain visible.
+- [Payment return navigation](payment-return-navigation.md) — checkout departure/return must share browsing context; relay only to the initiating form instance and preserve ordinary encoded query values.
+- [Due diligence occurrence identity](due-diligence-occurrence-identity.md) — stage-entry identity must survive worker retries without suppressing effects on later stage entries.
+- [PostgREST literal-star searches](postgrest-literal-star-search.md) — LIKE/ILIKE rewrites even escaped stars; literal-text search needs a different operator for that case.
+- [Paid member tier display](member-paid-tier-display.md) — a paid snapshot proves the purchased year, not future pricing; missing member selectors must not be silently inferred.
+- [Due Diligence applicant identity](due-diligence-applicant-identity.md) — form application type selects the name; organisation applicants can also have contact members.
+- [Optional preference metadata](preference-optional-metadata.md) — preserve supplied writability restrictions without assuming optional columns exist.
+- [Repeatable availability domain](repeatable-availability-domain.md) — whole-container emptiness excludes earlier answers but never sibling selections; complete successful results are required.
+- [Member index schema compatibility](member-index-schema-contract.md) — legacy uniqueness breaks generation staging; inspect publication contracts before repairing ON CONFLICT errors.
+- [Chained list column identity](chained-list-column-identity.md) — pin endpoint/display-field meaning; incomplete discovery must not erase saved columns.
+- [Department current-set policy](department-current-set-policy.md) — maintain current records, not annual returns; allow existing missing equipment values but require them for new rows.
+- [Excel report validation](excel-report-validation.md) — valid ZIP/XML can still require Excel recovery; use a maintained writer and verify workbook structure, not just readability.
+- [Custom-domain recovery](custom-domain-recovery.md) — verify hosting and tenant mapping separately; a generic conflict is not permission to transfer an already-correct domain.
+- [Session role readiness](session-role-readiness.md) — verified role reuse must preserve invalidation; missing roles deny access, and late observers must not start refetch/remount loops.
+- [Vercel runtime log access](vercel-runtime-log-access.md) — live log streams cannot establish earlier failures; historical dashboard logs may need separate access.
+- [Renewal reminder quotes](renewal-reminder-payment-links.md) — browser completion and webhook reconciliation must honor the same successor quote; preparation must not send a second email.
+- [Public Invoice / PO intentions](public-invoice-po-intentions.md) — record-only registrations stay outside financial workflows; later attendee membership cannot redefine the purchaser.
+- [Vite lazy import ordering](vite-lazy-import-order.md) — development transforms can expose a lazy declaration TDZ that production builds miss.
+- [Unknown-page fallback authority](unknown-page-fallback.md) — missing routes require independent evidence; renderer gaps, access states and stale tenant settings must not decide redirects.
+- [Storage object absence](storage-object-absence.md) — SDK info errors may drop NoSuchKey; distinguish object absence from provider failure and public cache behavior.
+- [Consent report verification](consent-report-verification.md) — assert individual matrix cells; row-wide text can hide lost stored consent in unavailable categories.
+- [Select native hydration](select-native-hydration.md) — late Radix options can emit empty changes that erase saved selections; sentinel-based clearing must ignore these.
+- [Direct Debit console visibility](direct-debit-console-visibility.md) — console hiding must not change historical billing processing or turn mandate discovery into collection authority.
+- [BNMS upfront membership evidence](bnms-upfront-membership-evidence.md) — operator-attested existing membership is not provider settlement proof or authority to create future commitments.
+- [Async query-builder returns](async-query-builder-return.md) — wrap Supabase builders in objects across async helpers or they execute before callers finish scoping and paging.
+- [Private uploads and checkpoints](private-upload-checkpoints.md) — automatic checkpoints can track uploads before ignore rules; verify the index and inherited shared history separately.
+- [Form applicant authority](form-applicant-authority.md) — bare-ID application links need scoped server-issued authority; drafts and submitted emails never imply ownership.
+- [Validation registration](validation-registration.md) — registering validation may append it to default Run; keep standalone checks without changing application startup.
+- [Widget cache authority](widget-cache-authority.md) — stale/overdue is not active work; unchanged results require request-correlated publication evidence, not old success/pending flags.
+- [Group campaign claims](group-campaign-claims.md) — bind validated delivery snapshots and scheduled-worker selections to the atomic claim; draft status alone is insufficient.
+- [Canvas widget discovery sharing](canvas-widget-discovery-sharing.md) — deduplicate auth-scoped metadata discovery without sharing per-card result or refresh state.
+- [New-member incentive evidence](new-member-incentive-evidence.md) — rollover preserves original entitlement less usage; later pricing cannot establish legacy credit.
+- [Post-booking credit authority](post-booking-credit-authority.md) — use actual reversal evidence; overlapping refund and credit-note legs require durable linkage, never inferred totals.
+- [Annual membership value](annual-membership-value-semantics.md) — recorded net commitments are not settlement; allocate by applied structure, not term or payment dates.
+- [Widget date boundaries](widget-date-boundaries.md) — day-first input support must preserve midnight comparisons, never expand date-only operands to whole days.
+- [Event revenue evidence](event-revenue-basis.md) — booked value differs from cash; historical currency and imported registration evidence boundaries.
+- [PDF browser verification](pdf-browser-verification.md) — fixture layout evidence is separate from unshimmed PDF.js browser compatibility.

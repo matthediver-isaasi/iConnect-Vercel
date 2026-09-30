@@ -1,0 +1,127 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import test from 'node:test';
+
+const renderer = readFileSync(
+  new URL('../components/forms/FormRenderer.jsx', import.meta.url),
+  'utf8',
+);
+const builder = readFileSync(new URL('../pages/FormBuilder.jsx', import.meta.url), 'utf8');
+
+test('builder persists cards and spreadsheet repeatable-row layouts', () => {
+  assert.match(builder, /data-testid=\{`select-repeatable-layout-\$\{field\.id\}`\}/);
+  assert.match(builder, /<SelectItem value=\{REPEATABLE_ROW_LAYOUT_CARDS\}>Cards<\/SelectItem>/);
+  assert.match(builder, /<SelectItem value=\{REPEATABLE_ROW_LAYOUT_SPREADSHEET\}>Spreadsheet<\/SelectItem>/);
+  assert.match(builder, /updates\.layout = REPEATABLE_ROW_LAYOUT_CARDS/);
+});
+
+test('builder preserves spaces while editing the Add button label', () => {
+  assert.match(builder, /const addRowLabelEditorValue = repeatableRowAddLabelEditorValue\(field\)/);
+  assert.match(builder, /value=\{addRowLabelEditorValue\}/);
+  assert.doesNotMatch(builder, /value=\{config\.add_row_label\}/);
+  assert.match(renderer, /\{config\.add_row_label\}/);
+});
+
+test('builder treats repeatable aliases as existing repeatable fields without resetting them', () => {
+  assert.match(
+    builder,
+    /\(isRepeatableRowField\(field\) \? 'repeatable_rows' : field\.type\)/,
+  );
+  assert.match(
+    builder,
+    /value === 'repeatable_rows' && !isRepeatableRowField\(field\)/,
+  );
+  assert.match(
+    builder,
+    /field\.type === 'relationship_dropdown' \|\| isRepeatableRowField\(field\)/,
+  );
+});
+
+test('builder exposes per-column uniqueness and renderer shows duplicate feedback', () => {
+  assert.match(
+    builder,
+    /data-testid=\{`switch-repeatable-child-unique-\$\{child\.id\}`\}/,
+  );
+  assert.match(builder, /Unique across rows/);
+  assert.match(
+    renderer,
+    /error\.code === 'duplicate_child_value'/,
+  );
+  assert.match(
+    renderer,
+    /data-testid=\{`repeatable-duplicate-error-\$\{field\.id\}-\$\{rowIndex\}-\$\{child\.id\}`\}/,
+  );
+  assert.match(renderer, /That value is already used in another row\./);
+  assert.doesNotMatch(renderer, /className="text-xs text-red-600"[\s\S]*?repeatable-duplicate-error/);
+  assert.doesNotMatch(renderer, /role="alert"[\s\S]*?repeatable-duplicate-error/);
+});
+
+test('builder exposes not-listed controls and validates nested labels', () => {
+  assert.match(builder, /repeatable-not-listed-config-\$\{field\.id\}-\$\{child\.id\}/);
+  assert.match(builder, /switch-repeatable-not-listed-\$\{field\.id\}-\$\{child\.id\}/);
+  assert.match(builder, /input-repeatable-not-listed-label-\$\{field\.id\}-\$\{child\.id\}/);
+  assert.match(builder, /function findInvalidNotListedField\(fields\)/);
+  assert.match(builder, /normalizeRepeatableRowField\(field\)\.children\.find/);
+  assert.match(builder, /button-repeatable-dependency-not-listed-\$\{field\.id\}-\$\{child\.id\}/);
+  assert.match(builder, /value: dependency\.value === FORM_NOT_LISTED_VALUE \? '' : FORM_NOT_LISTED_VALUE/);
+});
+
+test('builder exposes the opt-in empty first-column visibility control', () => {
+  assert.match(builder, /repeatableEmptyAvailabilitySupport\(field\)/);
+  assert.match(builder, /hide_when_first_column_empty/);
+  assert.match(builder, /switch-repeatable-hide-empty-\$\{field\.id\}/);
+  assert.match(renderer, /repeatable-empty-container-\$\{field\.id\}/);
+  assert.match(renderer, /RepeatableAvailabilityProbe/);
+});
+
+test('repeatable multi-select not-listed choices respect whole-cell uniqueness', () => {
+  assert.match(renderer, /canToggleNotListedCategory = repeatableSelectionIsAvailable\(nextNotListedCategories\)/);
+  assert.match(renderer, /disabled=\{isFieldDisabled \|\| !canToggleNotListedCategory\}/);
+  assert.match(renderer, /selectionIsAvailable = repeatableSelectionIsAvailable\(nextSelection\)/);
+});
+
+test('unique repeatable dropdowns receive sibling exclusions across option sources', () => {
+  assert.match(renderer, /repeatableSiblingUniqueValues\(rows, child, rowId\)/);
+  assert.match(renderer, /repeatableSiblingUniqueValues=\{siblingUniqueValues\}/);
+  assert.match(renderer, /const effectiveStaticOptions = staticOptions\.filter\(repeatableOptionIsAvailable\)/);
+  assert.match(renderer, /const effectiveOrganisationOptions = organisationOptions\.filter\(/);
+  assert.match(renderer, /const effectiveOrganisationGroupOptions = organisationGroupOptions\.filter\(/);
+  assert.match(renderer, /relationshipOptions\.filter\(/);
+  assert.match(
+    renderer,
+    /relationshipResultIsEmpty[\s\S]*?isConfirmedEmptyRelationshipResult\(\{[\s\S]*?options: rawRelationshipOptions/,
+  );
+  assert.match(renderer, /All available choices are already used in another row/);
+  assert.match(renderer, /repeatableOptionIsAvailable\(country\.name\)/);
+  assert.match(renderer, /repeatableOptionIsAvailable\(option\?\.value \|\| option\)/);
+  assert.match(renderer, /const effectiveCustomFieldOptions = customFieldOptions\.filter/);
+  assert.match(renderer, /isSelectionAllowed=\{repeatableSelectionIsAvailable\}/);
+  assert.match(renderer, /const allowedCountriesSingle = customCountryOptions\.filter/);
+  assert.match(renderer, /disabled=\{!canToggleCountry\(country\)\}/);
+});
+
+test('spreadsheet repeatable rows render one header, aligned rows, and icon-only removal', () => {
+  assert.match(renderer, /data-testid=\{`repeatable-spreadsheet-header-\$\{field\.id\}`\}/);
+  assert.match(renderer, /gridTemplateColumns: `repeat\(\$\{config\.children\.length\}, minmax\(12rem, 1fr\)\) 2\.75rem`/);
+  assert.match(renderer, /config\.children\.map\(child => renderChild\(child, row, rowId, rowIndex, true\)\)/);
+  assert.match(renderer, /<Trash2 className="h-4 w-4" \/>/);
+  assert.doesNotMatch(
+    renderer.match(/\{spreadsheet \? \([\s\S]*?\) : rows\.map/)?.[0] || '',
+    /aria-hidden="true">Row/,
+  );
+});
+
+test('repeatable renderer normalizes missing controlled answers before canonicalization', () => {
+  assert.match(
+    renderer,
+    /const controlledRows = useMemo\(\(\) => \(Array\.isArray\(value\) \? value : \[\]\), \[value\]\)/,
+  );
+  assert.match(renderer, /if \(!initializedRows\.current && controlledRows\.length === 0\)/);
+  assert.match(renderer, /incomingRows\.length !== controlledRows\.length/);
+  assert.doesNotMatch(renderer, /incomingRows\.length !== value\.length/);
+});
+
+test('card mode retains row numbers and the existing remove action', () => {
+  assert.match(renderer, /\) : rows\.map\(\(row, rowIndex\) => \{[\s\S]*?aria-hidden="true">Row \{rowIndex \+ 1\}<\/p>/);
+  assert.match(renderer, /<X className="mr-1 h-4 w-4" \/> Remove/);
+});

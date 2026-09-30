@@ -1,0 +1,1256 @@
+{
+  "slug": "professional-groups",
+  "pageId": "daef4a4b-25bf-49f2-a0b8-e216f8f12ff4",
+  "tenantId": "ff2df806-b321-4254-b651-3af11fccf1db",
+  "capturedAt": "2026-07-04T11:16:02.118Z",
+  "canvas_design": {
+    "root": {
+      "groups": [],
+      "guides": {
+        "vertical": [],
+        "horizontal": []
+      },
+      "sections": [
+        {
+          "id": "root-section",
+          "children": [
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 600,
+                  "w": 1200,
+                  "x": 0,
+                  "y": 0,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqskjjjt-vgek1c",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Events hero",
+              "type": "hero",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-primary, #0f172a)",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 200,
+                "borderRadius": 0,
+                "paddingRight": 200,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "ctas": [
+                  {
+                    "href": "#",
+                    "label": "Join BNMS",
+                    "variant": "tenant:primary-no-icon",
+                    "labelTypographyStyleId": "8e020a66-1192-4266-a566-6d02f6d78a37"
+                  },
+                  {
+                    "href": "#",
+                    "label": "Volunteer with BNMS",
+                    "variant": "tenant:primary-no-icon",
+                    "labelTypographyStyleId": "8e020a66-1192-4266-a566-6d02f6d78a37"
+                  }
+                ],
+                "bgType": "image",
+                "bgColor": "var(--cb-color-primary, #0f172a)",
+                "darkWash": 0.4,
+                "headline": "Professional groups & committees",
+                "alignment": "left",
+                "fullBleed": true,
+                "textColor": "var(--cb-color-on-primary, #ffffff)",
+                "bgImageUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1783073024611-9azmgrl-1781521533393-je73ct0-BNMS26_TRADE_022.jpg",
+                "bgVideoUrl": "",
+                "subheadline": "Connecting professionals, sharing expertise and helping shape the future of nuclear medicine.",
+                "headingLevel": 1,
+                "overlayAngle": 0,
+                "overlayStops": [
+                  {
+                    "color": "#4169e1",
+                    "opacity": 1,
+                    "position": 19
+                  },
+                  {
+                    "color": "#000000",
+                    "opacity": 0,
+                    "position": 98
+                  }
+                ],
+                "overlayStyle": "gradient",
+                "overlayToColor": "",
+                "overlayDirection": "to-right",
+                "overlayFromColor": "#0055ff",
+                "overlayToOpacity": 0,
+                "overlayFromOpacity": 1,
+                "headlineTypographyStyleId": "7c9e9a3f-4c60-4ee9-a8ec-4bd83325f7e5",
+                "subheadlineTypographyStyleId": "8e020a66-1192-4266-a566-6d02f6d78a37"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 408,
+                  "w": 904,
+                  "x": 152,
+                  "y": 880,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqskl8rn-d7dajv",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: left;\"><span style=\"font-size: 20px;\">The British Nuclear Medicine Society brings together healthcare professionals from every discipline within nuclear medicine. Our Professional Groups and Committees provide opportunities to collaborate, share knowledge, influence best practice and support the continued development of the specialty.</span></p><p style=\"text-align: left;\"><span style=\"font-size: 20px;\">Whether your interests lie in clinical practice, education, professional standards, research or scientific innovation, becoming involved is an excellent way to contribute to the profession while developing your own knowledge, leadership skills and professional network.</span></p><p style=\"text-align: left;\"><span style=\"font-size: 20px;\">Many of our groups also help shape BNMS conferences, educational activities, national guidance and future developments across nuclear medicine.</span></p><p style=\"text-align: left;\"></p>",
+                "colorRole": "default",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 950,
+                  "x": 125,
+                  "y": 784,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqskl8rn-eii577",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: center;\">Working together to advance Nuclear Medicine</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 136,
+                  "w": 144,
+                  "x": 528,
+                  "y": 648,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtpcuim-fxt83i",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 50,
+                "fullBleed": false,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-people-line",
+                "iconColor": "#fa8300",
+                "objectFit": "cover",
+                "heightMode": "auto",
+                "heightValue": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 950,
+                  "x": 125,
+                  "y": 1496,
+                  "hidden": false
+                }
+              },
+              "id": "block-mquvhfu1-o4bq33",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: center;\">Explore our Professional Groups &amp; Committees</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 136,
+                  "w": 144,
+                  "x": 528,
+                  "y": 1360,
+                  "hidden": false
+                }
+              },
+              "id": "block-mquvmnnn-9wzx1p",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 50,
+                "fullBleed": false,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-magnifying-glass",
+                "iconColor": "#fa8300",
+                "objectFit": "cover",
+                "heightMode": "auto",
+                "heightValue": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 500,
+                  "w": 390,
+                  "x": 0,
+                  "y": 1608,
+                  "hidden": false
+                }
+              },
+              "id": "block-mquvocxb-uwddmg",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Card",
+              "type": "card",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-surface, #ffffff)",
+                "paddingTop": 0,
+                "borderColor": "var(--cb-color-border, #e2e8f0)",
+                "borderStyle": "solid",
+                "borderWidth": 1,
+                "paddingLeft": 0,
+                "borderRadius": 8,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "body": "<p><span style=\"font-size: 20px;\">Supporting Clinical Scientists working within nuclear medicine through collaboration, education and professional networking.</span></p>",
+                "shadow": "md",
+                "ctaHref": "#",
+                "heading": "Clinical Scientists Group",
+                "ctaAlign": "right",
+                "ctaLabel": "Learn more",
+                "iconSize": 60,
+                "imageAlt": "Image",
+                "imageUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1783073271070-cqt0td8-7.png",
+                "highlight": true,
+                "iconAlign": "left",
+                "iconClass": "",
+                "iconColor": "#fa8300",
+                "ctaEnabled": true,
+                "ctaVariant": "tenant:primary-no-icon",
+                "imageAlign": "center",
+                "headingLevel": 4,
+                "headerSpacing": 30,
+                "imageWidthPct": 100,
+                "contentPadding": 16,
+                "highlightColor": "#F4F7FF",
+                "imageDisplayMode": "inline",
+                "headingTypographyStyleId": "d16866a7-5cab-4854-8576-cb3d92081bc8"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 500,
+                  "w": 390,
+                  "x": 810,
+                  "y": 1608,
+                  "hidden": false
+                }
+              },
+              "id": "block-mquvp6my-8e95p0",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Card",
+              "type": "card",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-surface, #ffffff)",
+                "paddingTop": 0,
+                "borderColor": "var(--cb-color-border, #e2e8f0)",
+                "borderStyle": "solid",
+                "borderWidth": 1,
+                "paddingLeft": 0,
+                "borderRadius": 8,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "body": "<p><span style=\"font-size: 20px;\">Supporting professional development, collaboration and representation for Radiographers, Technologists and Nurses working within nuclear medicine.</span></p>",
+                "shadow": "md",
+                "ctaHref": "#",
+                "heading": "Radiographers, Technologists & Nurses Committee",
+                "ctaAlign": "right",
+                "ctaLabel": "Learn more",
+                "iconSize": 60,
+                "imageAlt": "Image",
+                "imageUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1783073295115-g7tj4n8-10.png",
+                "highlight": true,
+                "iconAlign": "left",
+                "iconClass": "",
+                "iconColor": "#fa8300",
+                "ctaEnabled": true,
+                "ctaVariant": "tenant:primary-no-icon",
+                "imageAlign": "center",
+                "headingLevel": 4,
+                "headerSpacing": 30,
+                "imageWidthPct": 100,
+                "contentPadding": 16,
+                "highlightColor": "#F4F7FF",
+                "imageDisplayMode": "inline",
+                "headingTypographyStyleId": "d16866a7-5cab-4854-8576-cb3d92081bc8"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 500,
+                  "w": 390,
+                  "x": 405,
+                  "y": 1608,
+                  "hidden": false
+                }
+              },
+              "id": "block-mquvp9pd-d3hkpb",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Card",
+              "type": "card",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-surface, #ffffff)",
+                "paddingTop": 0,
+                "borderColor": "var(--cb-color-border, #e2e8f0)",
+                "borderStyle": "solid",
+                "borderWidth": 1,
+                "paddingLeft": 0,
+                "borderRadius": 8,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "body": "<p><span style=\"font-size: 20px;\">Leading the development of professional standards, clinical guidelines, audit and patient information across nuclear medicine.</span></p>",
+                "shadow": "md",
+                "ctaHref": "#",
+                "heading": "Professional Standards Committee",
+                "ctaAlign": "right",
+                "ctaLabel": "Learn more",
+                "iconSize": 60,
+                "imageAlt": "Image",
+                "imageUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1783073283067-mh6sf7i-8.png",
+                "highlight": true,
+                "iconAlign": "left",
+                "iconClass": "",
+                "iconColor": "#fa8300",
+                "ctaEnabled": true,
+                "ctaVariant": "tenant:primary-no-icon",
+                "imageAlign": "center",
+                "headingLevel": 4,
+                "headerSpacing": 30,
+                "imageWidthPct": 100,
+                "contentPadding": 16,
+                "highlightColor": "#F4F7FF",
+                "imageDisplayMode": "inline",
+                "headingTypographyStyleId": "d16866a7-5cab-4854-8576-cb3d92081bc8"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 500,
+                  "w": 390,
+                  "x": 201,
+                  "y": 2136,
+                  "hidden": false
+                }
+              },
+              "id": "block-mquvqr18-4rv7fz",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Card",
+              "type": "card",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-surface, #ffffff)",
+                "paddingTop": 0,
+                "borderColor": "var(--cb-color-border, #e2e8f0)",
+                "borderStyle": "solid",
+                "borderWidth": 1,
+                "paddingLeft": 0,
+                "borderRadius": 8,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "body": "<p><span style=\"font-size: 20px;\">Representing professionals involved in radiopharmacy and radiopharmaceutical sciences while supporting education and scientific development.</span></p>",
+                "shadow": "md",
+                "ctaHref": "#",
+                "heading": "Radiopharmaceurical Sciences Group",
+                "ctaAlign": "right",
+                "ctaLabel": "Learn more",
+                "iconSize": 60,
+                "imageAlt": "Image",
+                "imageUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1783073249971-95jazj1-5.png",
+                "highlight": true,
+                "iconAlign": "left",
+                "iconClass": "",
+                "iconColor": "#fa8300",
+                "ctaEnabled": true,
+                "ctaVariant": "tenant:primary-no-icon",
+                "imageAlign": "center",
+                "headingLevel": 4,
+                "headerSpacing": 30,
+                "imageWidthPct": 100,
+                "contentPadding": 16,
+                "highlightColor": "#F4F7FF",
+                "imageDisplayMode": "inline",
+                "headingTypographyStyleId": "d16866a7-5cab-4854-8576-cb3d92081bc8"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 500,
+                  "w": 390,
+                  "x": 610,
+                  "y": 2136,
+                  "hidden": false
+                }
+              },
+              "id": "block-mquvqzpb-njq9ub",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Card",
+              "type": "card",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-surface, #ffffff)",
+                "paddingTop": 0,
+                "borderColor": "var(--cb-color-border, #e2e8f0)",
+                "borderStyle": "solid",
+                "borderWidth": 1,
+                "paddingLeft": 0,
+                "borderRadius": 8,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "body": "<p><span style=\"font-size: 20px;\">Developing scientific programmes, educational resources and continuing professional development opportunities for the nuclear medicine community.</span></p>",
+                "shadow": "md",
+                "ctaHref": "#",
+                "heading": "Scientific & Education Committee",
+                "ctaAlign": "right",
+                "ctaLabel": "Learn more",
+                "iconSize": 60,
+                "imageAlt": "Image",
+                "imageUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1783073260773-t6vgy94-6.png",
+                "highlight": true,
+                "iconAlign": "left",
+                "iconClass": "",
+                "iconColor": "#fa8300",
+                "ctaEnabled": true,
+                "ctaVariant": "tenant:primary-no-icon",
+                "imageAlign": "center",
+                "headingLevel": 4,
+                "headerSpacing": 30,
+                "imageWidthPct": 100,
+                "contentPadding": 16,
+                "highlightColor": "#F4F7FF",
+                "imageDisplayMode": "inline",
+                "headingTypographyStyleId": "d16866a7-5cab-4854-8576-cb3d92081bc8"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 950,
+                  "x": 125,
+                  "y": 2832,
+                  "hidden": false
+                }
+              },
+              "id": "block-mquvxu4b-vc8fzv",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: center;\">Why get involved?</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 136,
+                  "w": 144,
+                  "x": 528,
+                  "y": 2696,
+                  "hidden": false
+                }
+              },
+              "id": "block-mquvxu4b-v5azap",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 50,
+                "fullBleed": false,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-circle-question",
+                "iconColor": "#fa8300",
+                "objectFit": "cover",
+                "heightMode": "auto",
+                "heightValue": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 380,
+                  "w": 390,
+                  "x": 0,
+                  "y": 2952,
+                  "hidden": false
+                }
+              },
+              "id": "block-mquvz9wc-2l01jx",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Card",
+              "type": "card",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-surface, #ffffff)",
+                "paddingTop": 0,
+                "borderColor": "var(--cb-color-border, #e2e8f0)",
+                "borderStyle": "solid",
+                "borderWidth": 1,
+                "paddingLeft": 0,
+                "borderRadius": 8,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "body": "<p><span style=\"font-size: 20px;\">Contribute your knowledge and experience to help shape the future of nuclear medicine practice.</span></p>",
+                "shadow": "md",
+                "ctaHref": "#",
+                "heading": "Share your expertise",
+                "ctaAlign": "right",
+                "ctaLabel": "Learn more",
+                "iconSize": 60,
+                "imageAlt": "",
+                "imageUrl": "",
+                "highlight": true,
+                "iconAlign": "left",
+                "iconClass": "fa-brands fa-slideshare",
+                "iconColor": "#fa8300",
+                "ctaEnabled": false,
+                "ctaVariant": "tenant:primary-no-icon",
+                "imageAlign": "center",
+                "headingLevel": 4,
+                "headerSpacing": 30,
+                "imageWidthPct": 100,
+                "contentPadding": 16,
+                "highlightColor": "#F4F7FF",
+                "imageDisplayMode": "inline",
+                "headingTypographyStyleId": "d16866a7-5cab-4854-8576-cb3d92081bc8"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 380,
+                  "w": 390,
+                  "x": 405,
+                  "y": 2952,
+                  "hidden": false
+                }
+              },
+              "id": "block-mquvz9wc-vcxber",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Card",
+              "type": "card",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-surface, #ffffff)",
+                "paddingTop": 0,
+                "borderColor": "var(--cb-color-border, #e2e8f0)",
+                "borderStyle": "solid",
+                "borderWidth": 1,
+                "paddingLeft": 0,
+                "borderRadius": 8,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "body": "<p><span style=\"font-size: 20px;\">Build leadership skills, expand your professional network and contribute to education, research and national initiatives.</span></p>",
+                "shadow": "md",
+                "ctaHref": "#",
+                "heading": "Develop professionally",
+                "ctaAlign": "right",
+                "ctaLabel": "Learn more",
+                "iconSize": 60,
+                "imageAlt": "",
+                "imageUrl": "",
+                "highlight": true,
+                "iconAlign": "left",
+                "iconClass": "fa-solid fa-stairs",
+                "iconColor": "#fa8300",
+                "ctaEnabled": false,
+                "ctaVariant": "tenant:primary-no-icon",
+                "imageAlign": "center",
+                "headingLevel": 4,
+                "headerSpacing": 30,
+                "imageWidthPct": 100,
+                "contentPadding": 16,
+                "highlightColor": "#F4F7FF",
+                "imageDisplayMode": "inline",
+                "headingTypographyStyleId": "d16866a7-5cab-4854-8576-cb3d92081bc8"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 380,
+                  "w": 390,
+                  "x": 810,
+                  "y": 2952,
+                  "hidden": false
+                }
+              },
+              "id": "block-mquvz9wc-60d9cj",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Card",
+              "type": "card",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-surface, #ffffff)",
+                "paddingTop": 0,
+                "borderColor": "var(--cb-color-border, #e2e8f0)",
+                "borderStyle": "solid",
+                "borderWidth": 1,
+                "paddingLeft": 0,
+                "borderRadius": 8,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "body": "<p><span style=\"font-size: 20px;\">Work alongside colleagues from across the UK to improve patient care, professional standards and the future of the specialty.</span></p>",
+                "shadow": "md",
+                "ctaHref": "#",
+                "heading": "Support the Nuclear Medicine community",
+                "ctaAlign": "right",
+                "ctaLabel": "Learn more",
+                "iconSize": 60,
+                "imageAlt": "",
+                "imageUrl": "",
+                "highlight": true,
+                "iconAlign": "left",
+                "iconClass": "fa-solid fa-hands-holding-child",
+                "iconColor": "#fa8300",
+                "ctaEnabled": false,
+                "ctaVariant": "tenant:primary-no-icon",
+                "imageAlign": "center",
+                "headingLevel": 4,
+                "headerSpacing": 30,
+                "imageWidthPct": 100,
+                "contentPadding": 16,
+                "highlightColor": "#F4F7FF",
+                "imageDisplayMode": "inline",
+                "headingTypographyStyleId": "d16866a7-5cab-4854-8576-cb3d92081bc8"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 536,
+                  "w": 904,
+                  "x": 148,
+                  "y": 3664,
+                  "hidden": false
+                }
+              },
+              "id": "block-mquw2vjy-snmanf",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 20px;\">Professional Groups and Committees welcome members who are passionate about developing nuclear medicine and supporting the wider professional community.</span></p><p><span style=\"font-size: 20px;\">Opportunities to become involved include:</span></p><ul><li><p><span style=\"font-size: 20px;\">Contributing to professional guidelines.</span></p></li><li><p><span style=\"font-size: 20px;\">Supporting education and training.</span></p></li><li><p><span style=\"font-size: 20px;\">Developing conference programmes.</span></p></li><li><p><span style=\"font-size: 20px;\">Participating in committee activities.</span></p></li><li><p><span style=\"font-size: 20px;\">Supporting research and innovation.</span></p></li><li><p><span style=\"font-size: 20px;\">Sharing specialist expertise.</span></p></li><li><p><span style=\"font-size: 20px;\">Representing your professional discipline.</span></p></li></ul><p><span style=\"font-size: 20px;\">Whether you are early in your career or an experienced practitioner, there are many ways to contribute to the work of BNMS.</span></p><p></p>",
+                "colorRole": "default",
+                "bulletIcon": "fa-solid fa-arrow-right-long",
+                "bulletIconSize": 15,
+                "bulletIconColor": "#fa8300",
+                "bulletIconPadTop": 5,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 950,
+                  "x": 121,
+                  "y": 3568,
+                  "hidden": false
+                }
+              },
+              "id": "block-mquw2vjy-t0sigf",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: center;\">Opportunities to contribute</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 136,
+                  "w": 144,
+                  "x": 528,
+                  "y": 3432,
+                  "hidden": false
+                }
+              },
+              "id": "block-mquw2vjy-fgh5a6",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 50,
+                "fullBleed": false,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-people-line",
+                "iconColor": "#fa8300",
+                "objectFit": "cover",
+                "heightMode": "auto",
+                "heightValue": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 400,
+                  "w": 1200,
+                  "x": 0,
+                  "y": 4232,
+                  "hidden": false
+                }
+              },
+              "id": "block-mquw543o-p5p6dc",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Events hero",
+              "type": "hero",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-primary, #0f172a)",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 200,
+                "borderRadius": 0,
+                "paddingRight": 200,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "ctas": [
+                  {
+                    "href": "#",
+                    "label": "Join BNMS",
+                    "variant": "tenant:primary-no-icon",
+                    "labelTypographyStyleId": "8e020a66-1192-4266-a566-6d02f6d78a37"
+                  },
+                  {
+                    "href": "#",
+                    "label": "Volunteer with BNMS",
+                    "variant": "tenant:primary-no-icon",
+                    "labelTypographyStyleId": "8e020a66-1192-4266-a566-6d02f6d78a37"
+                  }
+                ],
+                "bgType": "image",
+                "bgColor": "var(--cb-color-primary, #0f172a)",
+                "darkWash": 0.4,
+                "headline": "Help shape the future of Nuclear Medicine",
+                "alignment": "left",
+                "fullBleed": true,
+                "textColor": "var(--cb-color-on-primary, #ffffff)",
+                "bgImageUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1783073070259-78h616n-1781524356870-22ihmnw-BNMS26_Sunday060.jpg",
+                "bgVideoUrl": "",
+                "subheadline": "Become part of a professional community committed to advancing education, collaboration and excellence in nuclear medicine.",
+                "bgFocalPoint": {
+                  "x": 54,
+                  "y": 17
+                },
+                "headingLevel": 1,
+                "overlayAngle": 0,
+                "overlayStops": [
+                  {
+                    "color": "#4169e1",
+                    "opacity": 1,
+                    "position": 19
+                  },
+                  {
+                    "color": "#000000",
+                    "opacity": 0,
+                    "position": 98
+                  }
+                ],
+                "overlayStyle": "gradient",
+                "overlayToColor": "",
+                "overlayDirection": "to-right",
+                "overlayFromColor": "#0055ff",
+                "overlayToOpacity": 0,
+                "overlayFromOpacity": 1,
+                "headlineTypographyStyleId": "7c9e9a3f-4c60-4ee9-a8ec-4bd83325f7e5",
+                "subheadlineTypographyStyleId": "8e020a66-1192-4266-a566-6d02f6d78a37"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            }
+          ]
+        }
+      ],
+      "background": null
+    },
+    "version": 1
+  }
+}

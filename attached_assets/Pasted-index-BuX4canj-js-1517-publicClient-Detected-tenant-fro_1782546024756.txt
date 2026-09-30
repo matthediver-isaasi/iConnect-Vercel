@@ -1,0 +1,91 @@
+index-BuX4canj.js:1517 [publicClient] Detected tenant from subdomain: gsf
+index-BuX4canj.js:1602 GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.93.3) 2026-06-27T07:39:38.310Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+K4 @ index-BuX4canj.js:1602
+index-BuX4canj.js:1910 [usePendingPurchaseOrders] memberInfo: null
+index-BuX4canj.js:1910 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BuX4canj.js:1915 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BuX4canj.js:1915 [Layout] currentPageName: CanvasPageEditor currentPortalPageId: null
+index-BuX4canj.js:1910 [usePendingPurchaseOrders] memberInfo: Object
+index-BuX4canj.js:1910 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BuX4canj.js:1915 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BuX4canj.js:1915 [Layout] currentPageName: CanvasPageEditor currentPortalPageId: null
+index-BuX4canj.js:1910 [usePendingPurchaseOrders] Query running, memberInfo.id: 49f0b578-2e2f-46f8-a151-2c4c08cc570c
+index-BuX4canj.js:1910 [usePendingPurchaseOrders] memberInfo: Object
+index-BuX4canj.js:1910 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BuX4canj.js:1915 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BuX4canj.js:1915 [Layout] currentPageName: CanvasPageEditor currentPortalPageId: null
+index-BuX4canj.js:1910 [usePendingPurchaseOrders] memberInfo: Object
+index-BuX4canj.js:1910 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BuX4canj.js:1915 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BuX4canj.js:1915 [Layout] currentPageName: CanvasPageEditor currentPortalPageId: null
+index-BuX4canj.js:1910 [usePendingPurchaseOrders] memberInfo: Object
+index-BuX4canj.js:1910 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BuX4canj.js:1915 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BuX4canj.js:1915 [Layout] currentPageName: CanvasPageEditor currentPortalPageId: null
+index-BuX4canj.js:1910 [usePendingPurchaseOrders] memberInfo: Object
+index-BuX4canj.js:1910 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BuX4canj.js:1915 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BuX4canj.js:1915 [Layout] currentPageName: CanvasPageEditor currentPortalPageId: null
+index-BuX4canj.js:1910 [usePendingPurchaseOrders] memberInfo: Object
+index-BuX4canj.js:1910 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BuX4canj.js:1915 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BuX4canj.js:1915 [Layout] currentPageName: CanvasPageEditor currentPortalPageId: null
+index-BuX4canj.js:1910 [usePendingPurchaseOrders] memberInfo: Object
+index-BuX4canj.js:1910 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BuX4canj.js:1915 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BuX4canj.js:1915 [Layout] currentPageName: CanvasPageEditor currentPortalPageId: null
+index-BuX4canj.js:1910 [usePendingPurchaseOrders] memberInfo: Object
+index-BuX4canj.js:1910 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BuX4canj.js:1915 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BuX4canj.js:1915 [Layout] currentPageName: CanvasPageEditor currentPortalPageId: null
+index-BuX4canj.js:1910 [usePendingPurchaseOrders] memberInfo: Object
+index-BuX4canj.js:1910 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BuX4canj.js:1915 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BuX4canj.js:1915 [Layout] currentPageName: CanvasPageEditor currentPortalPageId: null
+index-BuX4canj.js:1910 [usePendingPurchaseOrders] memberInfo: Object
+index-BuX4canj.js:1910 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BuX4canj.js:1915 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BuX4canj.js:1915 [Layout] currentPageName: CanvasPageEditor currentPortalPageId: null
+index-BuX4canj.js:1910 [usePendingPurchaseOrders] Fetched bookings count: 3
+index-BuX4canj.js:1910 [usePendingPurchaseOrders] Pending PO bookings: 0
+index-BuX4canj.js:1910 [usePendingPurchaseOrders] memberInfo: Object
+index-BuX4canj.js:1910 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BuX4canj.js:1915 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BuX4canj.js:1915 [Layout] currentPageName: CanvasPageEditor currentPortalPageId: null
+index-BuX4canj.js:1910 [usePendingPurchaseOrders] memberInfo: Object
+index-BuX4canj.js:1910 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BuX4canj.js:1915 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BuX4canj.js:1915 [Layout] currentPageName: CanvasPageEditor currentPortalPageId: null
+index-BuX4canj.js:1915 [Layout] Server session found: sharon@onlinem.co.uk
+index-BuX4canj.js:1910 [usePendingPurchaseOrders] memberInfo: Object
+index-BuX4canj.js:1910 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BuX4canj.js:1915 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BuX4canj.js:1915 [Layout] currentPageName: CanvasPageEditor currentPortalPageId: null
+index-BuX4canj.js:1910 [usePendingPurchaseOrders] memberInfo: Object
+index-BuX4canj.js:1910 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BuX4canj.js:1915 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BuX4canj.js:1915 [Layout] currentPageName: CanvasPageEditor currentPortalPageId: null
+/api/canvas-page-audits/43e53e98-8d90-47a9-a123-d2f59d7b993e:1  Failed to load resource: the server responded with a status of 500 ()
+index-BuX4canj.js:41 ReferenceError: def is not defined
+    at Mas (index-BuX4canj.js:4240:13173)
+    at gZ (index-BuX4canj.js:39:17071)
+    at ske (index-BuX4canj.js:41:44253)
+    at ZSe (index-BuX4canj.js:41:39953)
+    at oGe (index-BuX4canj.js:41:39876)
+    at UI (index-BuX4canj.js:41:39725)
+    at RK (index-BuX4canj.js:41:36072)
+    at Mle (index-BuX4canj.js:41:36878)
+    at oj (index-BuX4canj.js:39:3302)
+    at index-BuX4canj.js:41:34389
+wK @ index-BuX4canj.js:41
+index-BuX4canj.js:39 Uncaught ReferenceError: def is not defined
+    at Mas (index-BuX4canj.js:4240:13173)
+    at gZ (index-BuX4canj.js:39:17071)
+    at ske (index-BuX4canj.js:41:44253)
+    at ZSe (index-BuX4canj.js:41:39953)
+    at oGe (index-BuX4canj.js:41:39876)
+    at UI (index-BuX4canj.js:41:39725)
+    at RK (index-BuX4canj.js:41:36072)
+    at Mle (index-BuX4canj.js:41:36878)
+    at oj (index-BuX4canj.js:39:3302)
+    at index-BuX4canj.js:41:34389

@@ -1,0 +1,36 @@
+2026-01-26 17:25:26.691 [info] [Session] getSession: Looking up session: e20497ac
+2026-01-26 17:25:26.879 [info] [Session] getSession: Session found, userType: tenant_user
+2026-01-26 17:25:26.879 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"e20497ac","userType":"tenant_user","memberId":"b24e022f-adcc-4930-8952-63a34cc16925","preservedTenantUserId":"11ee8b69-e967-45d5-9bfa-dff5a52c4ae6","preservedIdentityId":"545269d1-326b-4fff-90d0-b8a4e0cab9bb"}
+2026-01-26 17:25:27.038 [info] [Session] Attaching preserved admin context to member: {
+  memberId: 'b24e022f-adcc-4930-8952-63a34cc16925',
+  preservedTenantUserId: '11ee8b69-e967-45d5-9bfa-dff5a52c4ae6'
+}
+2026-01-26 17:25:27.038 [info] [Session] Attaching preserved identity to member: {
+  memberId: 'b24e022f-adcc-4930-8952-63a34cc16925',
+  preservedIdentityId: '545269d1-326b-4fff-90d0-b8a4e0cab9bb'
+}
+2026-01-26 17:25:27.179 [info] [TenantContext] About to call getSessionTenantUser
+2026-01-26 17:25:27.180 [info] [Session] getSession: Looking up session: e20497ac
+2026-01-26 17:25:27.311 [info] [Session] getSession: Session found, userType: tenant_user
+2026-01-26 17:25:27.311 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"e20497ac","userType":"tenant_user","tenantUserId":"11ee8b69-e967-45d5-9bfa-dff5a52c4ae6","preservedTenantUserId":"11ee8b69-e967-45d5-9bfa-dff5a52c4ae6","memberId":"b24e022f-adcc-4930-8952-63a34cc16925","identityId":"545269d1-326b-4fff-90d0-b8a4e0cab9bb","tenantId":"21296ad6-1350-483a-a90c-1b06ece70501"}
+2026-01-26 17:25:27.311 [info] [Session] Found tenant_user session, continuing with normal handling
+2026-01-26 17:25:27.628 [info] [Session] Verified via unified identity system: mat.the.diver@googlemail.com
+2026-01-26 17:25:27.775 [info] [Session] Elevating role from tenant_user table: owner
+2026-01-26 17:25:27.775 [info] [TenantContext] getSessionTenantUser returned: tenant_user found
+2026-01-26 17:25:27.775 [info] [Session] getSession: Looking up session: e20497ac
+2026-01-26 17:25:27.919 [info] [Session] getSession: Session found, userType: tenant_user
+2026-01-26 17:25:27.919 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"e20497ac","userType":"tenant_user","memberId":"b24e022f-adcc-4930-8952-63a34cc16925","preservedTenantUserId":"11ee8b69-e967-45d5-9bfa-dff5a52c4ae6","preservedIdentityId":"545269d1-326b-4fff-90d0-b8a4e0cab9bb"}
+2026-01-26 17:25:28.056 [info] [Session] Attaching preserved admin context to member: {
+  memberId: 'b24e022f-adcc-4930-8952-63a34cc16925',
+  preservedTenantUserId: '11ee8b69-e967-45d5-9bfa-dff5a52c4ae6'
+}
+2026-01-26 17:25:28.056 [info] [Session] Attaching preserved identity to member: {
+  memberId: 'b24e022f-adcc-4930-8952-63a34cc16925',
+  preservedIdentityId: '545269d1-326b-4fff-90d0-b8a4e0cab9bb'
+}
+2026-01-26 17:25:28.183 [info] [DD Review] First edit check: reviewed_by=null, isFirstEdit=true, first_edit_triggered=false
+2026-01-26 17:25:28.572 [info] [DD Review] Auto-transition check: isFirstEdit=true, form_id=a9ec1559-495a-4705-9da9-d51517be7bb6
+2026-01-26 17:25:28.693 [info] [DD Review] DD Config lookup: on_first_edit_stage=in_review, configError=none
+2026-01-26 17:25:28.693 [info] [DD Review] Target stage: id=in_review, found=true, label=In Review, stageCount=7
+2026-01-26 17:25:28.816 [info] [DD Review] Guard result: error=column form_submission_due_diligence.first_edit_triggered does not exist, rowsUpdated=0
+2026-01-26 17:25:28.816 [info] [DD Review] First edit auto-transition skipped - already triggered

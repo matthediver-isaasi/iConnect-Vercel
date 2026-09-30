@@ -1,0 +1,1906 @@
+{
+  "slug": "corporate-support",
+  "pageId": "7076619b-4f29-4ec7-aff8-75ccc9bccb08",
+  "tenantId": "ff2df806-b321-4254-b651-3af11fccf1db",
+  "capturedAt": "2026-07-04T11:15:58.119Z",
+  "canvas_design": {
+    "root": {
+      "groups": [
+        {
+          "id": "group-mr4ukfvd-npcmj5",
+          "name": "Group 1",
+          "collapsed": false
+        }
+      ],
+      "guides": {
+        "vertical": [],
+        "horizontal": []
+      },
+      "sections": [
+        {
+          "id": "root-section",
+          "children": [
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 600,
+                  "w": 1200,
+                  "x": 0,
+                  "y": 0,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqskjjjt-vgek1c",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Events hero",
+              "type": "hero",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-primary, #0f172a)",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 200,
+                "borderRadius": 0,
+                "paddingRight": 200,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "ctas": [],
+                "bgType": "image",
+                "bgColor": "var(--cb-color-primary, #0f172a)",
+                "darkWash": 0.4,
+                "headline": "Corporate support & sponsorship",
+                "alignment": "left",
+                "fullBleed": true,
+                "textColor": "var(--cb-color-on-primary, #ffffff)",
+                "bgImageUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1783077862905-jkhq4gt-1781520400075-hbjv2zz-BNMS26_Exchange117.jpg",
+                "bgVideoUrl": "",
+                "subheadline": "Partner with BNMS to support education, professional development and the future of nuclear medicine.",
+                "headingLevel": 1,
+                "overlayAngle": 0,
+                "overlayStops": [
+                  {
+                    "color": "#4169e1",
+                    "opacity": 1,
+                    "position": 19
+                  },
+                  {
+                    "color": "#000000",
+                    "opacity": 0,
+                    "position": 98
+                  }
+                ],
+                "overlayStyle": "gradient",
+                "overlayToColor": "",
+                "overlayDirection": "to-right",
+                "overlayFromColor": "#0055ff",
+                "overlayToOpacity": 0,
+                "overlayFromOpacity": 1,
+                "headlineTypographyStyleId": "7c9e9a3f-4c60-4ee9-a8ec-4bd83325f7e5",
+                "subheadlineTypographyStyleId": "8e020a66-1192-4266-a566-6d02f6d78a37"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 296,
+                  "w": 900,
+                  "x": 150,
+                  "y": 880,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqskl8rn-d7dajv",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: left;\"><span style=\"font-size: 20px;\">The British Nuclear Medicine Society works closely with industry partners and organisations that share our commitment to advancing nuclear medicine and improving patient care.</span></p><p style=\"text-align: left;\"><span style=\"font-size: 20px;\">Through sponsorship, educational support and conference partnerships, organisations can help support the professional development of the nuclear medicine community while increasing their visibility within the specialty.</span></p><p style=\"text-align: left;\"></p>",
+                "colorRole": "default",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 950,
+                  "x": 125,
+                  "y": 784,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqskl8rn-eii577",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: center;\">Partnering to advance Nuclear Medicine</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 1280,
+                  "w": 1200,
+                  "x": 0,
+                  "y": 1168,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtocu5g-rowy7x",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Section",
+              "type": "section",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "#F4F7FF",
+                "paddingTop": 24,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 24,
+                "borderRadius": 4,
+                "paddingRight": 24,
+                "paddingBottom": 24
+              },
+              "locked": false,
+              "content": {
+                "bgType": "color",
+                "maxWidth": 0,
+                "fullBleed": true,
+                "bgImageUrl": "",
+                "overlayType": "solid",
+                "overlayAngle": 180,
+                "overlayColor": "#000000",
+                "overlayOpacity": 0.4,
+                "overlayToColor": "#000000",
+                "overlayBlendMode": "normal",
+                "overlayEdgeColor": "#000000",
+                "overlayFromColor": "#000000",
+                "overlayToOpacity": 0,
+                "overlayCenterColor": "#000000",
+                "overlayEdgeOpacity": 0.6,
+                "overlayFromOpacity": 0.6,
+                "overlayCenterOpacity": 0
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 120,
+                  "w": 552,
+                  "x": 0,
+                  "y": 1536,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtocu5g-qr93ig",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<ul><li><p><span style=\"font-size: 20px;\">Support excellence, innovation and professional achievement through a BNMS award or fellowship.</span></p></li></ul><p></p>",
+                "colorRole": "default",
+                "headingAs": "",
+                "bulletIcon": "fa-solid fa-arrow-right",
+                "bulletIconSize": 15,
+                "bulletIconColor": "#fa8300",
+                "bulletIconPadTop": 5,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "c6f2ef1a-0e3e-4823-9ccb-290876da2f98",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": "group-mr4ukfvd-npcmj5",
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 104,
+                  "w": 560,
+                  "x": 632,
+                  "y": 1536,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtocu5g-4xz5f0",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<ul><li><p><span style=\"font-size: 20px;\">Support one of the Society's scientific meetings, educational events or conferences.</span></p></li></ul><p></p>",
+                "colorRole": "default",
+                "headingAs": "",
+                "bulletIcon": "fa-solid fa-arrow-right",
+                "bulletIconSize": 15,
+                "bulletIconColor": "#fa8300",
+                "bulletIconPadTop": 5,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "c6f2ef1a-0e3e-4823-9ccb-290876da2f98",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": "group-mr4ukfvd-npcmj5",
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 56,
+                  "w": 480,
+                  "x": 0,
+                  "y": 1444,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtocu5g-ha3i0k",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 28px;\">Sponsor and award</span></p>",
+                "colorRole": "default",
+                "headingAs": "3",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5adf6d13-1d12-4613-ac55-b4bb1345c168",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": "group-mr4ukfvd-npcmj5",
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 56,
+                  "w": 480,
+                  "x": 632,
+                  "y": 1444,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtocu5g-t9sdey",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 28px;\">Sponsor a meeting</span></p>",
+                "colorRole": "default",
+                "headingAs": "3",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5adf6d13-1d12-4613-ac55-b4bb1345c168",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": "group-mr4ukfvd-npcmj5",
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 136,
+                  "w": 144,
+                  "x": 528,
+                  "y": 648,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtpcuim-fxt83i",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 50,
+                "fullBleed": false,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-hand-holding-hand",
+                "iconColor": "#fa8300",
+                "objectFit": "cover",
+                "heightMode": "auto",
+                "heightValue": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 64,
+                  "w": 48,
+                  "x": 0,
+                  "y": 1384,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtpkzwy-rs66wg",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 30,
+                "fullBleed": false,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-user-pen",
+                "iconColor": "#fa8300",
+                "objectFit": "cover",
+                "heightMode": "auto",
+                "heightValue": null
+              },
+              "groupId": "group-mr4ukfvd-npcmj5",
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 24,
+                  "w": 560,
+                  "x": 0,
+                  "y": 1476,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtpy4bh-8aqqye",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Divider",
+              "type": "divider",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "color": "#fa8300",
+                "lineStyle": "solid",
+                "thickness": 1
+              },
+              "groupId": "group-mr4ukfvd-npcmj5",
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 24,
+                  "w": 560,
+                  "x": 632,
+                  "y": 1476,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtpywzr-ne4zp3",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Divider",
+              "type": "divider",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "color": "#fa8300",
+                "lineStyle": "solid",
+                "thickness": 1
+              },
+              "groupId": "group-mr4ukfvd-npcmj5",
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 64,
+                  "w": 48,
+                  "x": 632,
+                  "y": 1384,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtq3twa-iyijkd",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 30,
+                "fullBleed": false,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-circle-question",
+                "iconColor": "#fa8300",
+                "objectFit": "cover",
+                "heightMode": "auto",
+                "heightValue": null
+              },
+              "groupId": "group-mr4ukfvd-npcmj5",
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 950,
+                  "x": 0,
+                  "y": 1296,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtybquc-6h2nyb",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p>Ways to support BNMS</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": "group-mr4ukfvd-npcmj5",
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 312,
+                  "w": 552,
+                  "x": 0,
+                  "y": 1816,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtyg3ao-3pblt1",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 20px;\">BNMS offers opportunities for organisations to support:</span></p><ul><li><p><span style=\"font-size: 20px;\">Scientific meetings and conferences. </span></p></li><li><p><span style=\"font-size: 20px;\">Educational programmes. </span></p></li><li><p><span style=\"font-size: 20px;\">Awards and fellowships. </span></p></li><li><p><span style=\"font-size: 20px;\">Professional development activities. </span></p></li><li><p><span style=\"font-size: 20px;\">Special projects and initiatives. </span></p></li><li><p><span style=\"font-size: 20px;\">Student and trainee support. </span></p></li></ul><p></p>",
+                "colorRole": "default",
+                "headingAs": "",
+                "bulletIcon": "fa-solid fa-arrow-right",
+                "bulletIconSize": 15,
+                "bulletIconColor": "#fa8300",
+                "bulletIconPadTop": 5,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "c6f2ef1a-0e3e-4823-9ccb-290876da2f98",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": "group-mr4ukfvd-npcmj5",
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 56,
+                  "w": 480,
+                  "x": 0,
+                  "y": 1724,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtyg3ao-f81rn4",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 28px;\">Partnership opportunities</span></p>",
+                "colorRole": "default",
+                "headingAs": "3",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5adf6d13-1d12-4613-ac55-b4bb1345c168",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": "group-mr4ukfvd-npcmj5",
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 64,
+                  "w": 48,
+                  "x": 0,
+                  "y": 1664,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtyg3ao-pjkbfz",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 30,
+                "fullBleed": false,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-user-pen",
+                "iconColor": "#fa8300",
+                "objectFit": "cover",
+                "heightMode": "auto",
+                "heightValue": null
+              },
+              "groupId": "group-mr4ukfvd-npcmj5",
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 24,
+                  "w": 560,
+                  "x": 0,
+                  "y": 1756,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtyg3ao-is53s5",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Divider",
+              "type": "divider",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "color": "#fa8300",
+                "lineStyle": "solid",
+                "thickness": 1
+              },
+              "groupId": "group-mr4ukfvd-npcmj5",
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 950,
+                  "x": 0,
+                  "y": 2168,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtyhxly-jory39",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p>Why partner with BNMS?</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": "group-mr4ukfvd-npcmj5",
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 120,
+                  "w": 552,
+                  "x": 0,
+                  "y": 2408,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtyibaw-y2lqib",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<ul><li><p><span style=\"font-size: 20px;\">Demonstrate your commitment to education, research and professional development.</span></p></li></ul><p></p>",
+                "colorRole": "default",
+                "headingAs": "",
+                "bulletIcon": "fa-solid fa-arrow-right",
+                "bulletIconSize": 15,
+                "bulletIconColor": "#fa8300",
+                "bulletIconPadTop": 5,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "c6f2ef1a-0e3e-4823-9ccb-290876da2f98",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": "group-mr4ukfvd-npcmj5",
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 104,
+                  "w": 560,
+                  "x": 632,
+                  "y": 2408,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtyibaw-ul2dwy",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<ul><li><p><span style=\"font-size: 20px;\">Connect with the multidisciplinary nuclear medicine community across the UK.</span></p></li></ul><p></p>",
+                "colorRole": "default",
+                "headingAs": "",
+                "bulletIcon": "fa-solid fa-arrow-right",
+                "bulletIconSize": 15,
+                "bulletIconColor": "#fa8300",
+                "bulletIconPadTop": 5,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "c6f2ef1a-0e3e-4823-9ccb-290876da2f98",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": "group-mr4ukfvd-npcmj5",
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 56,
+                  "w": 480,
+                  "x": 0,
+                  "y": 2316,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtyibaw-iapyeb",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 28px;\">Support the speciality</span></p>",
+                "colorRole": "default",
+                "headingAs": "3",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5adf6d13-1d12-4613-ac55-b4bb1345c168",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": "group-mr4ukfvd-npcmj5",
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 56,
+                  "w": 480,
+                  "x": 632,
+                  "y": 2316,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtyibaw-j5208g",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 28px;\">Engage the community</span></p>",
+                "colorRole": "default",
+                "headingAs": "3",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5adf6d13-1d12-4613-ac55-b4bb1345c168",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": "group-mr4ukfvd-npcmj5",
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 64,
+                  "w": 48,
+                  "x": 0,
+                  "y": 2256,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtyibaw-s4iph6",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 30,
+                "fullBleed": false,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-user-pen",
+                "iconColor": "#fa8300",
+                "objectFit": "cover",
+                "heightMode": "auto",
+                "heightValue": null
+              },
+              "groupId": "group-mr4ukfvd-npcmj5",
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 24,
+                  "w": 560,
+                  "x": 0,
+                  "y": 2348,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtyibaw-n8a1g1",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Divider",
+              "type": "divider",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "color": "#fa8300",
+                "lineStyle": "solid",
+                "thickness": 1
+              },
+              "groupId": "group-mr4ukfvd-npcmj5",
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 24,
+                  "w": 560,
+                  "x": 632,
+                  "y": 2348,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtyibaw-cnatuj",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Divider",
+              "type": "divider",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "color": "#fa8300",
+                "lineStyle": "solid",
+                "thickness": 1
+              },
+              "groupId": "group-mr4ukfvd-npcmj5",
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 64,
+                  "w": 48,
+                  "x": 632,
+                  "y": 2256,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtyibaw-bh2lj2",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 30,
+                "fullBleed": false,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-circle-question",
+                "iconColor": "#fa8300",
+                "objectFit": "cover",
+                "heightMode": "auto",
+                "heightValue": null
+              },
+              "groupId": "group-mr4ukfvd-npcmj5",
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 168,
+                  "w": 904,
+                  "x": 148,
+                  "y": 2744,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtyk9ef-z5kxi1",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: left;\"><span style=\"font-size: 20px;\">BNMS values long-term relationships with organisations that support the advancement of nuclear medicine.</span></p><p style=\"text-align: left;\"><span style=\"font-size: 20px;\">Partnership opportunities can be tailored to meet both organisational objectives and the Society's charitable aims.</span></p><p style=\"text-align: left;\"></p>",
+                "colorRole": "default",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 950,
+                  "x": 125,
+                  "y": 2648,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtyk9eg-tndi3d",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: center;\">Working together</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 136,
+                  "w": 144,
+                  "x": 528,
+                  "y": 2512,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtyk9eg-qy6mqj",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 50,
+                "fullBleed": false,
+                "iconAlign": "center",
+                "iconClass": "fa-brands fa-nfc-symbol",
+                "iconColor": "#fa8300",
+                "objectFit": "cover",
+                "heightMode": "auto",
+                "heightValue": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 24,
+                  "w": 560,
+                  "x": 320,
+                  "y": 2944,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtyk9eg-cb51yr",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Divider",
+              "type": "divider",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "color": "#fa8300",
+                "lineStyle": "solid",
+                "thickness": 1
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 192,
+                  "w": 904,
+                  "x": 148,
+                  "y": 3216,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtylado-7d8exi",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: left;\"><span style=\"font-size: 20px;\">If you are interested in discussing sponsorship opportunities, award funding or educational partnerships, we would be pleased to hear from you.</span></p><p style=\"text-align: left;\"><span style=\"font-size: 20px;\">T: 0115 671 5705</span></p><p style=\"text-align: left;\"><span style=\"font-size: 20px;\">E: </span><a target=\"_blank\" rel=\"noopener noreferrer\" href=\"mailto:charlotte@bnms.org.uk\"><span style=\"font-size: 20px;\">charlotte@bnms.org.uk</span></a></p><p style=\"text-align: left;\"></p>",
+                "colorRole": "default",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 950,
+                  "x": 125,
+                  "y": 3120,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtylado-6up7uz",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: center;\">Contact us</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 136,
+                  "w": 144,
+                  "x": 528,
+                  "y": 2984,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtylado-26p8vg",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 50,
+                "fullBleed": false,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-at",
+                "iconColor": "#fa8300",
+                "objectFit": "cover",
+                "heightMode": "auto",
+                "heightValue": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 400,
+                  "w": 1200,
+                  "x": 0,
+                  "y": 3448,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtymd5u-epg1cx",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Events hero",
+              "type": "hero",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-primary, #0f172a)",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 200,
+                "borderRadius": 0,
+                "paddingRight": 200,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "ctas": [
+                  {
+                    "href": "#",
+                    "label": "Contact us",
+                    "variant": "tenant:primary-no-icon",
+                    "labelTypographyStyleId": "8e020a66-1192-4266-a566-6d02f6d78a37"
+                  }
+                ],
+                "bgType": "image",
+                "bgColor": "var(--cb-color-primary, #0f172a)",
+                "darkWash": 0.4,
+                "headline": "Become a BNMS partner",
+                "alignment": "left",
+                "fullBleed": true,
+                "textColor": "var(--cb-color-on-primary, #ffffff)",
+                "bgImageUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1783077889935-gv0rblr-machine.jpg",
+                "bgVideoUrl": "",
+                "subheadline": "Help support education, innovation and the future of nuclear medicine.",
+                "headingLevel": 1,
+                "overlayAngle": 0,
+                "overlayStops": [
+                  {
+                    "color": "#4169e1",
+                    "opacity": 1,
+                    "position": 19
+                  },
+                  {
+                    "color": "#000000",
+                    "opacity": 0,
+                    "position": 98
+                  }
+                ],
+                "overlayStyle": "gradient",
+                "overlayToColor": "",
+                "overlayDirection": "to-right",
+                "overlayFromColor": "#0055ff",
+                "overlayToOpacity": 0,
+                "overlayFromOpacity": 1,
+                "headlineTypographyStyleId": "7c9e9a3f-4c60-4ee9-a8ec-4bd83325f7e5",
+                "subheadlineTypographyStyleId": "8e020a66-1192-4266-a566-6d02f6d78a37"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            }
+          ]
+        }
+      ],
+      "background": null
+    },
+    "version": 1
+  }
+}

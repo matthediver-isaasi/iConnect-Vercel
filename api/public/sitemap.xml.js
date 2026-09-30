@@ -1,0 +1,305 @@
+import { supabase } from '../_lib/database.js';
+import {
+  PUBLIC_SIMPLE_EVENT_STATUSES,
+  isImmediateEvent,
+} from '../../shared/eventTiming.js';
+import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import { getArticleUrlConfig } from '../_lib/articleUrlPaths.js';
+import { listActiveMicrosites } from '../_lib/microsites.js';
+
+// Shared resolver (React-free): never emits 'guest' for member-authored
+// articles without a handle — those fall back to the 'member' placeholder,
+// which the public article API resolves by slug.
+import { getArticleUrlParts } from '../../client/src/lib/articleUrlParts.js';
+
+function escapeXml(str) {
+  if (!str) return '';
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function getBaseUrl(req, tenant) {
+  const protocol = 'https';
+  const host = (req.headers['x-forwarded-host'] || req.headers.host || '').split(':')[0];
+  if (tenant.domain) {
+    if (host.startsWith('www.') && !tenant.domain.startsWith('www.')) {
+      return `${protocol}://www.${tenant.domain}`;
+    }
+    return `${protocol}://${tenant.domain}`;
+  }
+  return `${protocol}://${host}`;
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return null;
+  try {
+    const d = new Date(dateStr);
+    return d.toISOString().split('T')[0];
+  } catch {
+    return null;
+  }
+}
+
+export default async function handler(req, res) {
+  res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=3600, s-maxage=3600');
+
+  if (req.method !== 'GET') {
+    return res.status(405).send('<?xml version="1.0" encoding="UTF-8"?><error>Method not allowed</error>');
+  }
+
+  if (!supabase) {
+    return res.status(503).send('<?xml version="1.0" encoding="UTF-8"?><error>Database not configured</error>');
+  }
+
+  try {
+    const tenant = await resolveTenantFromRequest(req);
+
+    if (!tenant) {
+      return res.status(404).send('<?xml version="1.0" encoding="UTF-8"?><error>Tenant not found</error>');
+    }
+
+    console.log(`[Sitemap] Tenant resolved: id=${tenant.id}, slug=${tenant.slug}, name=${tenant.name}`);
+
+    const allowSearchIndexing = tenant.settings?.allow_search_indexing === true;
+    if (!allowSearchIndexing) {
+      console.log(`[Sitemap] Search indexing disabled for tenant ${tenant.slug}`);
+      return res.status(404).send('<?xml version="1.0" encoding="UTF-8"?><error>Sitemap not available</error>');
+    }
+
+    const baseUrl = getBaseUrl(req, tenant);
+    console.log(`[Sitemap] Base URL: ${baseUrl}`);
+    const urls = [];
+
+    urls.push({ loc: baseUrl + '/', changefreq: 'daily', priority: '1.0' });
+    urls.push({ loc: baseUrl + '/Events', changefreq: 'daily', priority: '0.8' });
+    urls.push({ loc: baseUrl + '/News', changefreq: 'daily', priority: '0.7' });
+    urls.push({ loc: baseUrl + '/JobBoard', changefreq: 'daily', priority: '0.7' });
+    urls.push({ loc: baseUrl + '/OrganisationDirectory', changefreq: 'weekly', priority: '0.6' });
+    urls.push({ loc: baseUrl + '/Resources', changefreq: 'daily', priority: '0.7' });
+
+    const articleConfig = await getArticleUrlConfig(supabase, tenant.id);
+    const articlesListPath = articleConfig.canonicalListPath;
+    const articleBasePath = articleConfig.canonicalBasePath;
+
+    urls.push({ loc: baseUrl + articlesListPath, changefreq: 'daily', priority: '0.8' });
+
+    let eventsResult = await supabase
+      .from('event')
+      .select('id, slug, start_date, status')
+      .eq('tenant_id', tenant.id)
+      .in('status', PUBLIC_SIMPLE_EVENT_STATUSES)
+      .is('member_group_id', null)
+      .order('start_date', { ascending: false });
+
+    if (eventsResult.error?.code === '42703') {
+      console.warn('[Sitemap] event.tenant_id not recognised by PostgREST, retrying without tenant filter');
+      eventsResult = await supabase
+        .from('event')
+        .select('id, slug, start_date, status')
+        .in('status', PUBLIC_SIMPLE_EVENT_STATUSES)
+        .is('member_group_id', null)
+        .order('start_date', { ascending: false });
+    }
+
+    const [articlesResult, newsResult, jobsResult, customPagesResult] = await Promise.all([
+      supabase
+        .from('blog_post')
+        .select('id, slug, author_id, guest_writer_id, published_date')
+        .eq('tenant_id', tenant.id)
+        .eq('status', 'published')
+        .order('published_date', { ascending: false }),
+
+      supabase
+        .from('news_post')
+        .select('id, slug, published_date')
+        .eq('tenant_id', tenant.id)
+        .eq('status', 'published')
+        .order('published_date', { ascending: false }),
+
+      supabase
+        .from('job_posting')
+        .select('id, created_date')
+        .eq('tenant_id', tenant.id)
+        .eq('status', 'active')
+        .order('created_date', { ascending: false }),
+
+      supabase
+        .from('i_edit_page')
+        .select('id, slug, title, microsite_id')
+        .eq('tenant_id', tenant.id)
+        .eq('status', 'published')
+        .in('layout_type', ['public', 'hybrid'])
+    ]);
+
+    // Task #2426: legacy-tolerant — if microsite_id doesn't exist yet
+    // (42703), retry the pages query without it.
+    if (customPagesResult.error && customPagesResult.error.code === '42703') {
+      const retry = await supabase
+        .from('i_edit_page')
+        .select('id, slug, title')
+        .eq('tenant_id', tenant.id)
+        .eq('status', 'published')
+        .in('layout_type', ['public', 'hybrid']);
+      customPagesResult.data = retry.data;
+      customPagesResult.error = retry.error;
+    }
+
+    // Task #2426: microsite pages are served at /{prefix}/{slug}, so map
+    // microsite_id -> path_prefix to emit the right URLs below.
+    // Task #2763: also advertise each active microsite's HOME page at the bare
+    // /{prefix} (parity with the pre-renderer, which serves the home page there
+    // and emits /{prefix} as its canonical URL). Fetch the microsite list when
+    // there are microsite pages OR we still need it to emit home URLs.
+    const micrositePrefixById = {};
+    let activeMicrosites = null;
+    if ((customPagesResult.data || []).some((p) => p.microsite_id)) {
+      activeMicrosites = await listActiveMicrosites(supabase, tenant.id);
+      for (const m of activeMicrosites) micrositePrefixById[m.id] = m.path_prefix;
+    }
+
+    if (eventsResult.error) console.error('[Sitemap] Events query error:', JSON.stringify(eventsResult.error));
+    if (articlesResult.error) console.error('[Sitemap] Articles query error:', JSON.stringify(articlesResult.error));
+    if (newsResult.error) console.error('[Sitemap] News query error:', JSON.stringify(newsResult.error));
+    if (jobsResult.error) console.error('[Sitemap] Jobs query error:', JSON.stringify(jobsResult.error));
+    if (customPagesResult.error) console.error('[Sitemap] Pages query error:', JSON.stringify(customPagesResult.error));
+
+    console.log(`[Sitemap] Query results - events: ${eventsResult.data?.length ?? 'null'}, articles: ${articlesResult.data?.length ?? 'null'}, news: ${newsResult.data?.length ?? 'null'}, jobs: ${jobsResult.data?.length ?? 'null'}, pages: ${customPagesResult.data?.length ?? 'null'}`);
+
+    if (eventsResult.data) {
+      for (const event of eventsResult.data) {
+        const path = event.slug
+          ? `/events/${encodeURIComponent(event.slug)}`
+          : `/EventDetails?id=${event.id}`;
+        urls.push({
+          loc: baseUrl + path,
+          lastmod: isImmediateEvent(event) ? null : formatDate(event.start_date),
+          changefreq: 'weekly',
+          priority: '0.7'
+        });
+      }
+    }
+
+    if (articlesResult.data && articlesResult.data.length > 0) {
+      const authorIds = [...new Set(articlesResult.data.filter(a => a.author_id).map(a => a.author_id))];
+      let authorHandles = {};
+
+      if (authorIds.length > 0) {
+        const { data: members } = await supabase
+          .from('member')
+          .select('id, handle')
+          .eq('tenant_id', tenant.id)
+          .in('id', authorIds);
+
+        if (members) {
+          members.forEach(m => {
+            authorHandles[m.id] = m.handle;
+          });
+        }
+      }
+
+      for (const article of articlesResult.data) {
+        const { authorHandle, cleanSlug } = getArticleUrlParts(article, authorHandles);
+        const path = `${articleBasePath}/${encodeURIComponent(authorHandle)}/${encodeURIComponent(cleanSlug)}`;
+        urls.push({
+          loc: baseUrl + path,
+          lastmod: formatDate(article.published_date),
+          changefreq: 'monthly',
+          priority: '0.6'
+        });
+      }
+    }
+
+    if (newsResult.data) {
+      for (const news of newsResult.data) {
+        const path = `/NewsView?slug=${encodeURIComponent(news.slug || news.id)}`;
+        urls.push({
+          loc: baseUrl + path,
+          lastmod: formatDate(news.published_date),
+          changefreq: 'monthly',
+          priority: '0.6'
+        });
+      }
+    }
+
+    if (jobsResult.data) {
+      for (const job of jobsResult.data) {
+        const path = `/JobDetails?id=${job.id}`;
+        urls.push({
+          loc: baseUrl + path,
+          lastmod: formatDate(job.created_date),
+          changefreq: 'weekly',
+          priority: '0.6'
+        });
+      }
+    }
+
+    if (customPagesResult.data) {
+      for (const page of customPagesResult.data) {
+        let path;
+        if (page.microsite_id) {
+          // Microsite pages only appear under their prefix; pages in an
+          // inactive/unknown microsite are not publicly served, skip them.
+          const prefix = micrositePrefixById[page.microsite_id];
+          if (!prefix) continue;
+          path = `/${encodeURIComponent(prefix)}/${encodeURIComponent(page.slug)}`;
+        } else {
+          path = `/${encodeURIComponent(page.slug)}`;
+        }
+        urls.push({
+          loc: baseUrl + path,
+          lastmod: null,
+          changefreq: 'weekly',
+          priority: '0.5'
+        });
+      }
+    }
+
+    // Task #2763: advertise each active microsite's HOME page at the bare
+    // /{prefix} (the pre-renderer serves it there and emits /{prefix} as the
+    // canonical URL). Only microsites that actually have a home page get an
+    // entry. `activeMicrosites` may already be loaded above; fetch it lazily
+    // otherwise (e.g. a microsite whose only public page is its home page).
+    if (activeMicrosites === null) {
+      activeMicrosites = await listActiveMicrosites(supabase, tenant.id);
+    }
+    for (const m of activeMicrosites) {
+      if (!m.home_page_id || !m.path_prefix) continue;
+      urls.push({
+        loc: baseUrl + `/${encodeURIComponent(m.path_prefix)}`,
+        lastmod: null,
+        changefreq: 'weekly',
+        priority: '0.6'
+      });
+    }
+
+    let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
+    xml += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n';
+
+    for (const url of urls) {
+      xml += '  <url>\n';
+      xml += `    <loc>${escapeXml(url.loc)}</loc>\n`;
+      if (url.lastmod) {
+        xml += `    <lastmod>${url.lastmod}</lastmod>\n`;
+      }
+      if (url.changefreq) {
+        xml += `    <changefreq>${url.changefreq}</changefreq>\n`;
+      }
+      if (url.priority) {
+        xml += `    <priority>${url.priority}</priority>\n`;
+      }
+      xml += '  </url>\n';
+    }
+
+    xml += '</urlset>';
+
+    return res.status(200).send(xml);
+  } catch (error) {
+    console.error('[Sitemap] Error:', error);
+    return res.status(500).send('<?xml version="1.0" encoding="UTF-8"?><error>Internal server error</error>');
+  }
+}

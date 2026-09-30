@@ -1,0 +1,46 @@
+{
+  "name": "HelpArticle",
+  "type": "object",
+  "properties": {
+    "slug": {
+      "type": "string",
+      "description": "URL identifier for the article (used in /help/:slug)"
+    },
+    "title": {
+      "type": "string",
+      "description": "Article title"
+    },
+    "category": {
+      "type": "string",
+      "description": "Optional grouping label shown on the Help index"
+    },
+    "summary": {
+      "type": "string",
+      "description": "Short description shown on the Help index"
+    },
+    "body": {
+      "type": "string",
+      "description": "Article content. Supports simple formatting and {{screenshot: Label | optional-url}} placeholders."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["draft", "published"],
+      "default": "draft",
+      "description": "Only published articles are visible in the portal"
+    },
+    "sort_order": {
+      "type": "number",
+      "default": 0,
+      "description": "Order within the Help index"
+    },
+    "required_feature": {
+      "type": "string",
+      "description": "Optional RBAC feature key (e.g. events.browse-events, commerce.balances, user.about-me) the member must be able to access to see this article. Empty/unset means visible to everyone. Gating is presentation-only, mirroring portal navigation."
+    },
+    "generation_instructions": {
+      "type": "string",
+      "description": "Last-used free-text instructions given to the AI when building this article's content, remembered so a later rebuild pre-fills them. Empty/unset means none."
+    }
+  },
+  "required": ["slug", "title"]
+}

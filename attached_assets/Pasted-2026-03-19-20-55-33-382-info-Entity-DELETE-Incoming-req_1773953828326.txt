@@ -1,0 +1,23 @@
+2026-03-19 20:55:33.382 [info] [Entity DELETE] Incoming request: entity="Role", id="822f3731-6efb-47a4-9b45-20e47a75d1ec"
+2026-03-19 20:55:33.384 [info] [TenantResolver] resolveTenantFromRequest called
+2026-03-19 20:55:33.384 [info] [TenantResolver] Params - tenant: undefined domain: undefined
+2026-03-19 20:55:33.384 [info] [TenantResolver] Falling back to host-based resolution, hostname: gfi.dev.iconn.app
+2026-03-19 20:55:33.384 [info] [TenantResolver] resolveTenantFromHost called with: gfi.dev.iconn.app
+2026-03-19 20:55:33.384 [info] [TenantResolver] Cache hit for: gfi.dev.iconn.app
+2026-03-19 20:55:33.384 [info] [TenantContext] About to call getSessionTenantUser
+2026-03-19 20:55:33.385 [info] [Session] getSession: Looking up session: af72b281
+2026-03-19 20:55:33.606 [info] [Session] getSession: Session found, userType: member
+2026-03-19 20:55:33.606 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"af72b281","userType":"member","memberId":"9ac39222-22b8-457e-a5df-dfca45a99eb6","identityId":"dc156a30-ae8d-4aee-b965-b54fe4b17105","tenantId":"fd82da65-aab7-4a5c-85b8-b2febeb2003d"}
+2026-03-19 20:55:33.606 [info] [Session] Found member session with identityId, attempting promotion
+2026-03-19 20:55:33.852 [info] [Session] No tenant_user record found for identity promotion
+2026-03-19 20:55:33.852 [info] [Session] Member session promotion failed
+2026-03-19 20:55:33.852 [info] [TenantContext] getSessionTenantUser returned: null
+2026-03-19 20:55:33.852 [info] [TenantContext] Checking for member session...
+2026-03-19 20:55:33.853 [info] [Session] getSession: Looking up session: af72b281
+2026-03-19 20:55:34.018 [info] [Session] getSession: Session found, userType: member
+2026-03-19 20:55:34.019 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"af72b281","userType":"member","memberId":"9ac39222-22b8-457e-a5df-dfca45a99eb6"}
+2026-03-19 20:55:34.148 [info] [TenantContext] Member found: {
+  memberId: '9ac39222-22b8-457e-a5df-dfca45a99eb6',
+  organizationId: 'ccbbbd4d-12e8-4e9e-b49e-cd29979623ae'
+}
+2026-03-19 20:55:34.148 [info] [TenantContext] Tenant from member: fd82da65-aab7-4a5c-85b8-b2febeb2003d

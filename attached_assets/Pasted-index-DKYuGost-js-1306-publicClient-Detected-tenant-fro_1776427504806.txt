@@ -1,0 +1,248 @@
+index-DKYuGost.js:1306 [publicClient] Detected tenant from subdomain: gfi
+index-DKYuGost.js:1391 GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.93.3) 2026-04-17T12:03:57.787Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+yC @ index-DKYuGost.js:1391
+hze @ index-DKYuGost.js:1392
+_initSupabaseAuthClient @ index-DKYuGost.js:1392
+pze @ index-DKYuGost.js:1392
+wfe @ index-DKYuGost.js:1392
+(anonymous) @ index-DKYuGost.js:2467
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] memberInfo: null
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DKYuGost.js:1699 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DKYuGost.js:1699 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] memberInfo: {id: '9ac39222-22b8-457e-a5df-dfca45a99eb6', email: 'sharon@onlinem.co.uk'}
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DKYuGost.js:1699 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DKYuGost.js:1699 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] Query running, memberInfo.id: 9ac39222-22b8-457e-a5df-dfca45a99eb6
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] memberInfo: {id: '9ac39222-22b8-457e-a5df-dfca45a99eb6', email: 'sharon@onlinem.co.uk'}
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DKYuGost.js:1699 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DKYuGost.js:1699 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-DKYuGost.js:2746 [DynamicPage] slug: blogs
+index-DKYuGost.js:2746 [DynamicPage] dynamicArticleRoute: null
+index-DKYuGost.js:2746 [DynamicPage] mySlug: MyArticles isCustomSlug: false
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] memberInfo: {id: '9ac39222-22b8-457e-a5df-dfca45a99eb6', email: 'sharon@onlinem.co.uk'}
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DKYuGost.js:1699 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DKYuGost.js:1699 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-DKYuGost.js:2746 [DynamicPage] slug: blogs
+index-DKYuGost.js:2746 [DynamicPage] dynamicArticleRoute: null
+index-DKYuGost.js:2746 [DynamicPage] mySlug: MyArticles isCustomSlug: false
+index-DKYuGost.js:1375 WebSocket connection to 'wss://lvmzliemqnieeoruhkik.supabase.co/realtime/v1/websocket?apikey=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx2bXpsaWVtcW5pZWVvcnVoa2lrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc4MDg3MzQsImV4cCI6MjA4MzM4NDczNH0.0Tq4NkOEaJeVr70sXkrqzmVSbtEJVt3zBcBNZpPvBo4&eventsPerSecond=2&vsn=2.0.0' failed: WebSocket is closed before the connection is established.
+disconnect @ index-DKYuGost.js:1375
+removeChannel @ index-DKYuGost.js:1375
+await in removeChannel
+removeChannel @ index-DKYuGost.js:1392
+(anonymous) @ index-DKYuGost.js:1695
+Y6 @ index-DKYuGost.js:40
+sS @ index-DKYuGost.js:40
+dj @ index-DKYuGost.js:40
+OMe @ index-DKYuGost.js:40
+Ub @ index-DKYuGost.js:40
+kQ @ index-DKYuGost.js:40
+ub @ index-DKYuGost.js:38
+(anonymous) @ index-DKYuGost.js:40
+setTimeout
+r @ index-DKYuGost.js:1306
+l @ index-DKYuGost.js:1306
+batch @ index-DKYuGost.js:1306
+cf @ index-DKYuGost.js:1306
+setData @ index-DKYuGost.js:1306
+onSuccess @ index-DKYuGost.js:1306
+m @ index-DKYuGost.js:1306
+Promise.then
+g @ index-DKYuGost.js:1306
+start @ index-DKYuGost.js:1306
+fetch @ index-DKYuGost.js:1306
+D1 @ index-DKYuGost.js:1306
+onSubscribe @ index-DKYuGost.js:1306
+subscribe @ index-DKYuGost.js:1306
+(anonymous) @ index-DKYuGost.js:1306
+bue @ index-DKYuGost.js:38
+kM @ index-DKYuGost.js:40
+dj @ index-DKYuGost.js:40
+(anonymous) @ index-DKYuGost.js:40
+N @ index-DKYuGost.js:25
+T @ index-DKYuGost.js:25
+postMessage
+A @ index-DKYuGost.js:25
+T @ index-DKYuGost.js:25
+postMessage
+A @ index-DKYuGost.js:25
+D @ index-DKYuGost.js:25
+t.unstable_scheduleCallback @ index-DKYuGost.js:25
+nme @ index-DKYuGost.js:40
+su @ index-DKYuGost.js:40
+Nh @ index-DKYuGost.js:40
+AM @ index-DKYuGost.js:40
+PM.render._7.render @ index-DKYuGost.js:40
+(anonymous) @ index-DKYuGost.js:4265
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] memberInfo: {id: '9ac39222-22b8-457e-a5df-dfca45a99eb6', email: 'sharon@onlinem.co.uk'}
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DKYuGost.js:1699 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DKYuGost.js:1699 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-DKYuGost.js:2746 [DynamicPage] slug: blogs
+index-DKYuGost.js:2746 [DynamicPage] dynamicArticleRoute: null
+index-DKYuGost.js:2746 [DynamicPage] mySlug: MyArticles isCustomSlug: false
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] memberInfo: {id: '9ac39222-22b8-457e-a5df-dfca45a99eb6', email: 'sharon@onlinem.co.uk'}
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DKYuGost.js:1699 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DKYuGost.js:1699 [Layout] currentPageName: _DynamicPage currentPortalPageId: portal_articles
+index-DKYuGost.js:2746 [DynamicPage] slug: blogs
+index-DKYuGost.js:2746 [DynamicPage] dynamicArticleRoute: {component: 'Articles', displayName: 'Blogs'}
+index-DKYuGost.js:2746 [DynamicPage] mySlug: myblogs isCustomSlug: true
+index-DKYuGost.js:2746 [DynamicPage] Rendering component: Articles
+index-DKYuGost.js:2493 [useBlogPostRealtime] Setting up realtime subscription for blog_post table
+index-DKYuGost.js:2493 [Articles] Fetching articles, isAuthenticated: false
+index-DKYuGost.js:2493 [Articles] Calling publicClient.listArticles()
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] memberInfo: {id: '9ac39222-22b8-457e-a5df-dfca45a99eb6', email: 'sharon@onlinem.co.uk'}
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DKYuGost.js:1699 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DKYuGost.js:1699 [Layout] currentPageName: _DynamicPage currentPortalPageId: portal_articles
+index-DKYuGost.js:2746 [DynamicPage] slug: blogs
+index-DKYuGost.js:2746 [DynamicPage] dynamicArticleRoute: {component: 'Articles', displayName: 'Blogs'}
+index-DKYuGost.js:2746 [DynamicPage] mySlug: myblogs isCustomSlug: true
+index-DKYuGost.js:2746 [DynamicPage] Rendering component: Articles
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] memberInfo: {id: '9ac39222-22b8-457e-a5df-dfca45a99eb6', email: 'sharon@onlinem.co.uk'}
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DKYuGost.js:1699 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DKYuGost.js:1699 [Layout] currentPageName: _DynamicPage currentPortalPageId: portal_articles
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] memberInfo: {id: '9ac39222-22b8-457e-a5df-dfca45a99eb6', email: 'sharon@onlinem.co.uk'}
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DKYuGost.js:1699 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DKYuGost.js:1699 [Layout] currentPageName: _DynamicPage currentPortalPageId: portal_articles
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] memberInfo: {id: '9ac39222-22b8-457e-a5df-dfca45a99eb6', email: 'sharon@onlinem.co.uk'}
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DKYuGost.js:1699 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DKYuGost.js:1699 [Layout] currentPageName: _DynamicPage currentPortalPageId: portal_articles
+index-DKYuGost.js:2746 [DynamicPage] slug: blogs
+index-DKYuGost.js:2746 [DynamicPage] dynamicArticleRoute: {component: 'Articles', displayName: 'Blogs'}
+index-DKYuGost.js:2746 [DynamicPage] mySlug: myblogs isCustomSlug: true
+index-DKYuGost.js:2746 [DynamicPage] Rendering component: Articles
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] Fetched bookings count: 7
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] Pending PO bookings: 2
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] memberInfo: {id: '9ac39222-22b8-457e-a5df-dfca45a99eb6', email: 'sharon@onlinem.co.uk'}
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-DKYuGost.js:1699 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-DKYuGost.js:1699 [Layout] currentPageName: _DynamicPage currentPortalPageId: portal_articles
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] memberInfo: {id: '9ac39222-22b8-457e-a5df-dfca45a99eb6', email: 'sharon@onlinem.co.uk'}
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-DKYuGost.js:1699 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-DKYuGost.js:1699 [Layout] currentPageName: _DynamicPage currentPortalPageId: portal_articles
+index-DKYuGost.js:2746 [DynamicPage] slug: blogs
+index-DKYuGost.js:2746 [DynamicPage] dynamicArticleRoute: {component: 'Articles', displayName: 'Blogs'}
+index-DKYuGost.js:2746 [DynamicPage] mySlug: myblogs isCustomSlug: true
+index-DKYuGost.js:2746 [DynamicPage] Rendering component: Articles
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] memberInfo: {id: '9ac39222-22b8-457e-a5df-dfca45a99eb6', email: 'sharon@onlinem.co.uk'}
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-DKYuGost.js:1699 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-DKYuGost.js:1699 [Layout] currentPageName: _DynamicPage currentPortalPageId: portal_articles
+index-DKYuGost.js:2746 [DynamicPage] slug: blogs
+index-DKYuGost.js:2746 [DynamicPage] dynamicArticleRoute: {component: 'Articles', displayName: 'Blogs'}
+index-DKYuGost.js:2746 [DynamicPage] mySlug: myblogs isCustomSlug: true
+index-DKYuGost.js:2746 [DynamicPage] Rendering component: Articles
+index-DKYuGost.js:1699 [Layout] Server session found: sharon@onlinem.co.uk
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] memberInfo: {id: '9ac39222-22b8-457e-a5df-dfca45a99eb6', email: 'sharon@onlinem.co.uk'}
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-DKYuGost.js:1699 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-DKYuGost.js:1699 [Layout] currentPageName: _DynamicPage currentPortalPageId: portal_articles
+index-DKYuGost.js:2746 [DynamicPage] slug: blogs
+index-DKYuGost.js:2746 [DynamicPage] dynamicArticleRoute: {component: 'Articles', displayName: 'Blogs'}
+index-DKYuGost.js:2746 [DynamicPage] mySlug: myblogs isCustomSlug: true
+index-DKYuGost.js:2746 [DynamicPage] Rendering component: Articles
+index-DKYuGost.js:2493 [Articles] Fetching articles, isAuthenticated: true
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] memberInfo: {id: '9ac39222-22b8-457e-a5df-dfca45a99eb6', email: 'sharon@onlinem.co.uk'}
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-DKYuGost.js:1699 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-DKYuGost.js:1699 [Layout] currentPageName: _DynamicPage currentPortalPageId: portal_articles
+index-DKYuGost.js:2746 [DynamicPage] slug: blogs
+index-DKYuGost.js:2746 [DynamicPage] dynamicArticleRoute: {component: 'Articles', displayName: 'Blogs'}
+index-DKYuGost.js:2746 [DynamicPage] mySlug: myblogs isCustomSlug: true
+index-DKYuGost.js:2746 [DynamicPage] Rendering component: Articles
+index-DKYuGost.js:2493 [Articles] publicClient.listArticles() returned: {articles: Array(24), authors: {…}, guestWriters: {…}}
+index-DKYuGost.js:2493 [Articles] Authors from API: {008b421a-990e-480d-9393-909ac12f092f: {…}, 286c5909-99b2-4224-ae1c-4338c5dcfa88: {…}, 6cf89630-b4cd-48f3-afeb-1e0f0e93c2d8: {…}, 91f4b186-61d9-4dc0-a85b-7f23ede6639f: {…}, c992d6e4-2a8c-4efa-9add-1c3d93b884a4: {…}}
+index-DKYuGost.js:1699 [Layout] Matched banners for _DynamicPage : 1
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] memberInfo: {id: '9ac39222-22b8-457e-a5df-dfca45a99eb6', email: 'sharon@onlinem.co.uk'}
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-DKYuGost.js:1699 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-DKYuGost.js:1699 [Layout] currentPageName: _DynamicPage currentPortalPageId: portal_articles
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] memberInfo: {id: '9ac39222-22b8-457e-a5df-dfca45a99eb6', email: 'sharon@onlinem.co.uk'}
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-DKYuGost.js:1699 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-DKYuGost.js:1699 [Layout] currentPageName: _DynamicPage currentPortalPageId: portal_articles
+index-DKYuGost.js:2746 [DynamicPage] slug: blogs
+index-DKYuGost.js:2746 [DynamicPage] dynamicArticleRoute: {component: 'Articles', displayName: 'Blogs'}
+index-DKYuGost.js:2746 [DynamicPage] mySlug: myblogs isCustomSlug: true
+index-DKYuGost.js:2746 [DynamicPage] Rendering component: Articles
+index-DKYuGost.js:1306  GET https://gfi.dev.iconn.app/api/public/page/blogs?tenant=gfi 404 (Not Found)
+ODe @ index-DKYuGost.js:1306
+_fetch @ index-DKYuGost.js:1306
+getPage @ index-DKYuGost.js:1306
+queryFn @ index-DKYuGost.js:2746
+i @ index-DKYuGost.js:1306
+g @ index-DKYuGost.js:1306
+start @ index-DKYuGost.js:1306
+fetch @ index-DKYuGost.js:1306
+D1 @ index-DKYuGost.js:1306
+onSubscribe @ index-DKYuGost.js:1306
+subscribe @ index-DKYuGost.js:1306
+(anonymous) @ index-DKYuGost.js:1306
+bue @ index-DKYuGost.js:38
+kM @ index-DKYuGost.js:40
+dj @ index-DKYuGost.js:40
+OMe @ index-DKYuGost.js:40
+Ub @ index-DKYuGost.js:40
+kQ @ index-DKYuGost.js:40
+ub @ index-DKYuGost.js:38
+(anonymous) @ index-DKYuGost.js:40
+setTimeout
+r @ index-DKYuGost.js:1306
+l @ index-DKYuGost.js:1306
+batch @ index-DKYuGost.js:1306
+cf @ index-DKYuGost.js:1306
+setData @ index-DKYuGost.js:1306
+onSuccess @ index-DKYuGost.js:1306
+m @ index-DKYuGost.js:1306
+Promise.then
+g @ index-DKYuGost.js:1306
+start @ index-DKYuGost.js:1306
+fetch @ index-DKYuGost.js:1306
+D1 @ index-DKYuGost.js:1306
+onSubscribe @ index-DKYuGost.js:1306
+subscribe @ index-DKYuGost.js:1306
+(anonymous) @ index-DKYuGost.js:1306
+bue @ index-DKYuGost.js:38
+kM @ index-DKYuGost.js:40
+dj @ index-DKYuGost.js:40
+(anonymous) @ index-DKYuGost.js:40
+N @ index-DKYuGost.js:25
+T @ index-DKYuGost.js:25
+postMessage
+A @ index-DKYuGost.js:25
+T @ index-DKYuGost.js:25
+postMessage
+A @ index-DKYuGost.js:25
+D @ index-DKYuGost.js:25
+t.unstable_scheduleCallback @ index-DKYuGost.js:25
+nme @ index-DKYuGost.js:40
+su @ index-DKYuGost.js:40
+Nh @ index-DKYuGost.js:40
+AM @ index-DKYuGost.js:40
+PM.render._7.render @ index-DKYuGost.js:40
+(anonymous) @ index-DKYuGost.js:4265
+index-DKYuGost.js:2746 [DynamicPage] slug: blogs
+index-DKYuGost.js:2746 [DynamicPage] dynamicArticleRoute: {component: 'Articles', displayName: 'Blogs'}
+index-DKYuGost.js:2746 [DynamicPage] mySlug: myblogs isCustomSlug: true
+index-DKYuGost.js:2746 [DynamicPage] Rendering component: Articles
+index-DKYuGost.js:2493 [ArticleCard] Looking up handle for author_id: 91f4b186-61d9-4dc0-a85b-7f23ede6639f authorHandles keys: [] found: undefined total keys: 0
+index-DKYuGost.js:2493 [ArticleCard] No handle found, using guest default
+index-DKYuGost.js:2493 [Articles] Fetching author data for 5 unique authors
+index-DKYuGost.js:2493 [Articles] authorData built with 5 handles and 20 names
+index-DKYuGost.js:2493 [ArticleCard] Looking up handle for author_id: 91f4b186-61d9-4dc0-a85b-7f23ede6639f authorHandles keys: (5) ['008b421a-990e-480d-9393-909ac12f092f', '286c5909-99b2-4224-ae1c-4338c5dcfa88', 'c992d6e4-2a8c-4efa-9add-1c3d93b884a4', '6cf89630-b4cd-48f3-afeb-1e0f0e93c2d8', '91f4b186-61d9-4dc0-a85b-7f23ede6639f'] found: sarah-nichols total keys: 5
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] memberInfo: {id: '9ac39222-22b8-457e-a5df-dfca45a99eb6', email: 'sharon@onlinem.co.uk'}
+index-DKYuGost.js:1695 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-DKYuGost.js:1699 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-DKYuGost.js:1699 [Layout] currentPageName: _DynamicPage currentPortalPageId: portal_articles
+index-DKYuGost.js:2493 [ArticleCard] Looking up handle for author_id: 91f4b186-61d9-4dc0-a85b-7f23ede6639f authorHandles keys: (5) ['008b421a-990e-480d-9393-909ac12f092f', '286c5909-99b2-4224-ae1c-4338c5dcfa88', 'c992d6e4-2a8c-4efa-9add-1c3d93b884a4', '6cf89630-b4cd-48f3-afeb-1e0f0e93c2d8', '91f4b186-61d9-4dc0-a85b-7f23ede6639f'] found: sarah-nichols total keys: 5
+index-DKYuGost.js:2493 [useBlogPostRealtime] Subscription status: TIMED_OUT

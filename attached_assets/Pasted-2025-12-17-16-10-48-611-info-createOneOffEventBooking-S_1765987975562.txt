@@ -1,0 +1,27 @@
+2025-12-17 16:10:48.611 [info] [createOneOffEventBooking] Starting booking: {
+  eventId: '8c909888-5b71-4261-9635-9c9b6c21925a',
+  memberEmail: 'mat@isaasi.co.uk',
+  ticketsRequired: 1,
+  totalCost: 0,
+  paymentMethod: 'fully_covered',
+  ticketClassId: 'ticket-1765979821510-xo9v2',
+  ticketClassName: 'Standard Ticket',
+  attendeesReceived: 1,
+  attendeesData: '[{"email":"mat@isaasi.co.uk","first_name":"Matt","last_name":"Henderson","isValid":true,"isSelf":true}]',
+  isGuestBooking: false,
+  guestInfo: null
+}
+2025-12-17 16:10:48.760 [info] [createOneOffEventBooking] Member found: 48b25075-51da-437f-af20-17836a892bfe mat@isaasi.co.uk
+2025-12-17 16:10:49.097 [info] [createOneOffEventBooking] About to create bookings for 1 attendees (isGuestBooking: false )
+2025-12-17 16:10:49.097 [info] [createOneOffEventBooking] Processing attendee 1/1: mat@isaasi.co.uk
+2025-12-17 16:10:49.097 [info] [createOneOffEventBooking] Inserting booking: {"event_id":"8c909888-5b71-4261-9635-9c9b6c21925a","member_id":"48b25075-51da-437f-af20-17836a892bfe","organization_id":"55a86410-7f60-4451-a45c-5760d93ccf1a","booking_reference":"OOE-1765987849097-IEIP1","booking_group_reference":"OOE-1765987849097-IEIP1","attendee_email":"mat@isaasi.co.uk","attendee_first_name":"Matt","attendee_last_name":"Henderson","status":"confirmed","payment_method":"fully_covered","ticket_price":0,"total_cost":0,"voucher_amount":0,"training_fund_amount":0,"account_amount":0,"purchase_order_number":"","po_to_follow":false,"stripe_payment_intent_id":null,"is_one_off_event":true,"ticket_class_id":"ticket-1765979821510-xo9v2","ticket_class_name":"Standard Ticket","is_guest_booking":false}
+2025-12-17 16:10:49.238 [info] [createOneOffEventBooking] Booking created: d2aca59c-fb32-4667-8d6f-6586052ab5cc
+2025-12-17 16:10:49.595 [info] [scheduleBookingReminderEmails] Found 2 reminder emails to process
+2025-12-17 16:10:49.595 [info] [scheduleBookingReminderEmails] Event start: 2025-12-18T13:55:00+00:00, now: 2025-12-17T16:10:49.595Z
+2025-12-17 16:10:49.595 [info] [scheduleBookingReminderEmails] Processing email 1/2: id=078dd6b3-be02-4b22-9512-0dbaf9b33d72, timing_type=6_hours_before
+2025-12-17 16:10:49.898 [info] [scheduleBookingReminderEmails] Scheduled 6_hours_before reminder for 2025-12-18T07:55:00.000Z
+2025-12-17 16:10:49.898 [info] [scheduleBookingReminderEmails] Processing email 2/2: id=5b95bf8a-1293-4ec9-8f88-44387e65dc8c, timing_type=30_minutes_before
+2025-12-17 16:10:50.219 [info] [scheduleBookingReminderEmails] Scheduled 30_minutes_before reminder for 2025-12-18T13:25:00.000Z
+2025-12-17 16:10:50.219 [info] [scheduleBookingReminderEmails] Scheduled reminders for booking d2aca59c-fb32-4667-8d6f-6586052ab5cc
+2025-12-17 16:10:50.219 [info] [createOneOffEventBooking] Sending confirmation emails to attendees...
+2025-12-17 16:10:50.369 [info] [sendConfirmationEmailsFromTemplate] No confirmation emails configured for event

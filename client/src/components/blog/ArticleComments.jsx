@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
+import { publicClient } from "@/api/publicClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,18 @@ import { toast } from "sonner";
 import { useArticleCommentRealtime } from "@/hooks/useArticleCommentRealtime";
 import { useCommentReactionRealtime } from "@/hooks/useCommentReactionRealtime";
 
+// Safe date formatting helper to handle corrupted/missing dates
+function formatCommentDate(dateValue) {
+  if (!dateValue) return 'Just now';
+  try {
+    const date = new Date(dateValue);
+    if (isNaN(date.getTime())) return 'Just now';
+    return format(date, 'MMM d, yyyy h:mm a');
+  } catch {
+    return 'Just now';
+  }
+}
+
 export default function ArticleComments({ articleId, memberInfo, showThumbsUp = true, showThumbsDown = true }) {
   const [newComment, setNewComment] = useState("");
   const [publicUserName, setPublicUserName] = useState("");
@@ -19,9 +32,11 @@ export default function ArticleComments({ articleId, memberInfo, showThumbsUp = 
   const [isCheckingContent, setIsCheckingContent] = useState(false);
   
   const queryClient = useQueryClient();
+  const isAuthenticated = !!memberInfo;
   
-  useArticleCommentRealtime(articleId);
-  useCommentReactionRealtime(articleId, userIdentifier);
+  // Only use realtime subscriptions for authenticated users
+  useArticleCommentRealtime(isAuthenticated ? articleId : null);
+  useCommentReactionRealtime(isAuthenticated ? articleId : null, isAuthenticated ? userIdentifier : null);
 
   // Generate or retrieve user identifier for public users
   useEffect(() => {
@@ -38,31 +53,51 @@ export default function ArticleComments({ articleId, memberInfo, showThumbsUp = 
     }
   }, [memberInfo]);
 
-  // Fetch comments for this article
+  // Fetch comments for this article - use public API for unauthenticated users
   const { data: comments = [], isLoading } = useQuery({
-    queryKey: ['article-comments', articleId],
+    queryKey: ['article-comments', articleId, isAuthenticated],
     queryFn: async () => {
-      const allComments = await base44.entities.ArticleComment.list('-created_date');
-      return allComments.filter(comment => comment.article_id === articleId);
+      if (isAuthenticated) {
+        const allComments = await base44.entities.ArticleComment.list('-created_at');
+        return allComments.filter(comment => comment.article_id === articleId);
+      } else {
+        const result = await publicClient.getArticleComments(articleId);
+        // Public API now returns correct column names (content, author_name)
+        return result.comments || [];
+      }
     },
     enabled: !!articleId,
   });
 
-  // Fetch user's reactions
+  // Fetch user's reactions - use public API for unauthenticated users
   const { data: userReactions = [] } = useQuery({
-    queryKey: ['user-reactions', userIdentifier],
+    queryKey: ['user-reactions', userIdentifier, isAuthenticated],
     queryFn: async () => {
       if (!userIdentifier) return [];
-      const allReactions = await base44.entities.CommentReaction.list();
-      return allReactions.filter(reaction => reaction.user_identifier === userIdentifier);
+      if (isAuthenticated) {
+        const allReactions = await base44.entities.CommentReaction.list() || [];
+        return allReactions.filter(reaction => reaction.user_identifier === userIdentifier);
+      } else {
+        const result = await publicClient.getCommentReactionsByUser(userIdentifier);
+        return result.reactions || [];
+      }
     },
     enabled: !!userIdentifier,
   });
 
-  // Add comment mutation
+  // Add comment mutation - use public API for unauthenticated users
   const addCommentMutation = useMutation({
     mutationFn: async (commentData) => {
-      return await base44.entities.ArticleComment.create(commentData);
+      if (isAuthenticated) {
+        return await base44.entities.ArticleComment.create(commentData);
+      } else {
+        const result = await publicClient.postArticleComment(articleId, {
+          content: commentData.content,
+          author_name: commentData.author_name,
+          user_identifier: commentData.user_identifier
+        });
+        return result.comment;
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['article-comments', articleId] });
@@ -75,61 +110,61 @@ export default function ArticleComments({ articleId, memberInfo, showThumbsUp = 
     },
   });
 
-  // Add/remove reaction mutation
+  // Add/remove reaction mutation - use public API for unauthenticated users
   const reactionMutation = useMutation({
     mutationFn: async ({ commentId, reactionType, currentReaction }) => {
-      const comment = comments.find(c => c.id === commentId);
-      if (!comment) throw new Error('Comment not found');
+      if (isAuthenticated) {
+        // Use base44 API for authenticated users
+        const comment = comments.find(c => c.id === commentId);
+        if (!comment) throw new Error('Comment not found');
 
-      // If user already has this reaction, remove it
-      if (currentReaction && currentReaction.reaction_type === reactionType) {
-        await base44.entities.CommentReaction.delete(currentReaction.id);
-        
-        // Decrement count
-        const updateData = reactionType === 'up' 
-          ? { thumbs_up_count: Math.max(0, (comment.thumbs_up_count || 0) - 1) }
-          : { thumbs_down_count: Math.max(0, (comment.thumbs_down_count || 0) - 1) };
-        await base44.entities.ArticleComment.update(commentId, updateData);
-        
-        return { action: 'removed', reactionType };
-      }
+        if (currentReaction && currentReaction.reaction_type === reactionType) {
+          await base44.entities.CommentReaction.delete(currentReaction.id);
+          const updateData = reactionType === 'up' 
+            ? { thumbs_up_count: Math.max(0, (comment.thumbs_up_count || 0) - 1) }
+            : { thumbs_down_count: Math.max(0, (comment.thumbs_down_count || 0) - 1) };
+          await base44.entities.ArticleComment.update(commentId, updateData);
+          return { action: 'removed', reactionType };
+        }
 
-      // If user has opposite reaction, switch it
-      if (currentReaction && currentReaction.reaction_type !== reactionType) {
-        await base44.entities.CommentReaction.update(currentReaction.id, {
-          reaction_type: reactionType
+        if (currentReaction && currentReaction.reaction_type !== reactionType) {
+          await base44.entities.CommentReaction.update(currentReaction.id, {
+            reaction_type: reactionType
+          });
+          const updateData = reactionType === 'up'
+            ? {
+                thumbs_up_count: (comment.thumbs_up_count || 0) + 1,
+                thumbs_down_count: Math.max(0, (comment.thumbs_down_count || 0) - 1)
+              }
+            : {
+                thumbs_down_count: (comment.thumbs_down_count || 0) + 1,
+                thumbs_up_count: Math.max(0, (comment.thumbs_up_count || 0) - 1)
+              };
+          await base44.entities.ArticleComment.update(commentId, updateData);
+          return { action: 'switched', reactionType };
+        }
+
+        await base44.entities.CommentReaction.create({
+          comment_id: commentId,
+          reaction_type: reactionType,
+          user_identifier: userIdentifier,
+          is_member: true
         });
-        
-        // Update counts (decrement old, increment new)
         const updateData = reactionType === 'up'
-          ? {
-              thumbs_up_count: (comment.thumbs_up_count || 0) + 1,
-              thumbs_down_count: Math.max(0, (comment.thumbs_down_count || 0) - 1)
-            }
-          : {
-              thumbs_down_count: (comment.thumbs_down_count || 0) + 1,
-              thumbs_up_count: Math.max(0, (comment.thumbs_up_count || 0) - 1)
-            };
+          ? { thumbs_up_count: (comment.thumbs_up_count || 0) + 1 }
+          : { thumbs_down_count: (comment.thumbs_down_count || 0) + 1 };
         await base44.entities.ArticleComment.update(commentId, updateData);
-        
-        return { action: 'switched', reactionType };
+        return { action: 'added', reactionType };
+      } else {
+        // Use public API for unauthenticated users
+        const result = await publicClient.postCommentReaction({
+          comment_id: commentId,
+          reaction_type: reactionType,
+          user_identifier: userIdentifier,
+          is_member: false
+        });
+        return result;
       }
-
-      // Add new reaction
-      await base44.entities.CommentReaction.create({
-        comment_id: commentId,
-        reaction_type: reactionType,
-        user_identifier: userIdentifier,
-        is_member: !!memberInfo
-      });
-
-      // Increment count
-      const updateData = reactionType === 'up'
-        ? { thumbs_up_count: (comment.thumbs_up_count || 0) + 1 }
-        : { thumbs_down_count: (comment.thumbs_down_count || 0) + 1 };
-      await base44.entities.ArticleComment.update(commentId, updateData);
-
-      return { action: 'added', reactionType };
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['article-comments', articleId] });
@@ -153,59 +188,77 @@ export default function ArticleComments({ articleId, memberInfo, showThumbsUp = 
       return;
     }
 
-    // Step 1: Check content with LLM before saving
     setIsCheckingContent(true);
     
     try {
-      const moderationResult = await base44.integrations.Core.InvokeLLM({
-        prompt: `You are a content moderation system. Analyze the following comment for inappropriate content including profanity, hate speech, sexually explicit material, threats, or harassment. 
+      // Content moderation only for authenticated users (public users skip this for now)
+      if (isAuthenticated) {
+        const moderationResult = await base44.integrations.Core.InvokeLLM({
+          prompt: `You are a content moderation system. Analyze the following comment for inappropriate content including profanity, hate speech, sexually explicit material, threats, or harassment.
 
 Comment to analyze: "${newComment.trim()}"
 
-Respond with your analysis.`,
-        response_json_schema: {
-          type: "object",
-          properties: {
-            is_safe: {
-              type: "boolean",
-              description: "true if content is appropriate, false if it contains inappropriate content"
-            },
-            reason: {
-              type: "string",
-              description: "Brief explanation of why content was flagged (empty if safe)"
+Respond with a JSON object containing exactly two fields:
+- "is_safe": true if the content is appropriate for posting, false if it contains inappropriate content
+- "reason": a brief explanation if flagged, or empty string if safe`,
+          response_json_schema: {
+            type: "object",
+            properties: {
+              is_safe: {
+                type: "boolean",
+                description: "true if content is appropriate, false if it contains inappropriate content"
+              },
+              reason: {
+                type: "string",
+                description: "Brief explanation of why content was flagged (empty if safe)"
+              }
             }
           }
-        }
-      });
+        });
 
-      // Step 2: Check if content is safe
-      if (!moderationResult.is_safe) {
-        setIsCheckingContent(false);
-        toast.error(
-          <>
-            <div className="flex items-start gap-2">
-              <ShieldAlert className="w-5 h-5 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="font-semibold">Comment blocked</p>
-                <p className="text-sm">Your comment contains inappropriate content and cannot be posted. Please revise and try again.</p>
+        const isSafe = typeof moderationResult.is_safe === 'boolean' 
+          ? moderationResult.is_safe 
+          : moderationResult.analysis?.is_safe ?? true;
+        
+        if (!isSafe) {
+          setIsCheckingContent(false);
+          toast.error(
+            <>
+              <div className="flex items-start gap-2">
+                <ShieldAlert className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold">Comment blocked</p>
+                  <p className="text-sm">Your comment contains inappropriate content and cannot be posted. Please revise and try again.</p>
+                </div>
               </div>
-            </div>
-          </>,
-          { duration: 5000 }
-        );
-        return;
+            </>,
+            { duration: 5000 }
+          );
+          return;
+        }
       }
 
-      // Step 3: Content is safe, proceed with posting
-      const commentData = {
-        article_id: articleId,
-        content: newComment.trim(),
-        author_name: memberInfo ? `${memberInfo.first_name} ${memberInfo.last_name}` : publicUserName.trim(),
-        author_member_id: memberInfo?.email || null,
-        is_member: !!memberInfo,
-        thumbs_up_count: 0,
-        thumbs_down_count: 0
-      };
+      // Build comment data based on authentication state
+      let commentData;
+      if (isAuthenticated) {
+        // Authenticated users use base44 schema
+        commentData = {
+          article_id: articleId,
+          content: newComment.trim(),
+          author_name: `${memberInfo.first_name} ${memberInfo.last_name}`,
+          author_member_id: memberInfo.id,
+          is_member: true,
+          thumbs_up_count: 0,
+          thumbs_down_count: 0
+        };
+      } else {
+        // Public users use public API schema (same field names as DB)
+        commentData = {
+          content: newComment.trim(),
+          author_name: publicUserName.trim(),
+          user_identifier: userIdentifier
+        };
+      }
 
       addCommentMutation.mutate(commentData);
       
@@ -336,7 +389,7 @@ Respond with your analysis.`,
                       {comment.is_member ? (
                         <User className="w-5 h-5" />
                       ) : (
-                        comment.author_name.charAt(0).toUpperCase()
+                        (comment.author_name || 'A').charAt(0).toUpperCase()
                       )}
                     </div>
 
@@ -351,7 +404,7 @@ Respond with your analysis.`,
                           </span>
                         )}
                         <span className="text-sm text-slate-500">
-                          • {format(new Date(comment.created_date), 'MMM d, yyyy')}
+                          • {formatCommentDate(comment.created_date || comment.created_at)}
                         </span>
                       </div>
 
@@ -359,6 +412,7 @@ Respond with your analysis.`,
                         {comment.content}
                       </p>
 
+                      {/* Reactions shown for all users */}
                       {(showThumbsUp || showThumbsDown) && (
                         <div className="flex items-center gap-4">
                           {showThumbsUp && (

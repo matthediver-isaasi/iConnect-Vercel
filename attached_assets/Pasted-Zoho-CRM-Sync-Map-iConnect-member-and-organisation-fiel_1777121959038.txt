@@ -1,0 +1,660 @@
+Zoho CRM Sync
+Map iConnect member and organisation fields to Zoho CRM. Records are pushed in real time on create and update.
+
+Connected to Zoho CRM
+Field Mapping
+Sync Log
+Sync Log
+Most recent sync attempts. Failed attempts can be retried. Skipped rows include the reason a record was not written — open the row detail to see what to fix.
+86 of the last 88 inbound webhook calls were skipped — open the row detail to see why and adjust your mapping.
+
+All entities
+
+All directions
+
+All statuses
+
+All actions
+
+When	Direction	Entity	Module	Status	Action	Detail	Actions
+25/04/2026, 14:45:21	inbound	organization
+…	Accounts	skipped	inbound	
+No matching iConnect record (policy=ignore) — zoho_crm_id=815132000006700001 not linked to any iConnect organization; name="testingforgmail" did not match any iConnect organization
+
+25/04/2026, 14:45:20	inbound	organization
+…	Accounts	skipped	inbound	
+No matching iConnect record (policy=ignore) — zoho_crm_id=815132000006245025 not linked to any iConnect organization; name="devmahavir777" did not match any iConnect organization
+
+25/04/2026, 14:45:20	inbound	organization
+…	Accounts	skipped	inbound	
+No matching iConnect record (policy=ignore) — zoho_crm_id=815132000006586001 not linked to any iConnect organization; name="sm2707" did not match any iConnect organization
+
+25/04/2026, 14:45:19	inbound	organization
+…	Accounts	skipped	inbound	
+No matching iConnect record (policy=ignore) — zoho_crm_id=815132000006020001 not linked to any iConnect organization; name="newDev" did not match any iConnect organization
+
+25/04/2026, 14:45:19	inbound	organization
+…	Accounts	skipped	inbound	
+No matching iConnect record (policy=ignore) — zoho_crm_id=815132000005499031 not linked to any iConnect organization; name="newOrgMahavir" did not match any iConnect organization
+
+25/04/2026, 14:45:18	inbound	organization
+…	Accounts	skipped	inbound	
+No matching iConnect record (policy=ignore) — zoho_crm_id=815132000005484001 not linked to any iConnect organization; name="newOrg125" did not match any iConnect organization
+
+25/04/2026, 14:45:17	inbound	organization
+…	Accounts	skipped	inbound	
+No matching iConnect record (policy=ignore) — zoho_crm_id=815132000005419631 not linked to any iConnect organization; name="NewDevOrgEdz1" did not match any iConnect organization
+
+25/04/2026, 14:45:17	inbound	organization
+…	Accounts	skipped	inbound	
+No matching iConnect record (policy=ignore) — zoho_crm_id=815132000005478001 not linked to any iConnect organization; name="NewDevOrgEdz" did not match any iConnect organization
+
+25/04/2026, 14:45:16	inbound	organization
+…	Accounts	skipped	inbound	
+No matching iConnect record (policy=ignore) — zoho_crm_id=815132000003443003 not linked to any iConnect organization; name="Platform newsletter" did not match any iConnect organization
+
+25/04/2026, 14:45:16	inbound	organization
+…	Accounts	skipped	inbound	
+No matching iConnect record (policy=ignore) — zoho_crm_id=815132000001241001 not linked to any iConnect organization; name="London Aid Organisation" did not match any iConnect organization
+
+25/04/2026, 14:42:31	inbound	organization
+9d7ecc63…	Accounts	skipped	inbound	
+Debounced: echo of recent outbound sync
+
+25/04/2026, 14:42:29	outbound	organization
+9d7ecc63…	Accounts	success	one_time_import	
+815132000006866414
+
+25/04/2026, 14:42:28	inbound	organization
+9d7ecc63…	Accounts	success	one_time_import	
+815132000006866414
+
+25/04/2026, 14:42:24	inbound	organization
+26993e62…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:23	inbound	organization
+ae951ca4…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:23	inbound	organization
+a82d274d…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:23	inbound	organization
+6ecb4b9d…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:22	inbound	organization
+3ff8507f…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:22	inbound	organization
+cc881cd5…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:22	inbound	organization
+593ca178…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:21	inbound	organization
+718eb39e…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:21	inbound	organization
+945f7f4c…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:20	inbound	organization
+bc4bbe9d…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:20	inbound	organization
+3ee7ddc9…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:20	inbound	organization
+5fc41397…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:19	inbound	organization
+c3b20162…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:19	inbound	organization
+df03f45c…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:18	inbound	organization
+29296924…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:18	inbound	organization
+5ff8babb…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:17	inbound	organization
+0b1ceb78…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:17	inbound	organization
+03e49170…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:17	inbound	organization
+3aa8e9ed…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:16	inbound	organization
+cbe04c3c…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:16	inbound	organization
+9a494891…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:16	inbound	organization
+2f4df8cb…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:15	inbound	organization
+976adfe1…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:15	inbound	organization
+c88ddeee…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:14	inbound	organization
+eac40ab2…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:14	inbound	organization
+4830b5a0…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:14	inbound	organization
+f22e8498…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:13	inbound	organization
+2354cb56…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:13	inbound	organization
+5b2d1413…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:12	inbound	organization
+67a56764…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:12	inbound	organization
+0a8778dd…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:12	inbound	organization
+7b264711…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:11	inbound	organization
+4e146483…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:11	inbound	organization
+d455d477…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:11	inbound	organization
+541f7b57…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:10	inbound	organization
+5400e9ad…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:10	inbound	organization
+bd93b828…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:09	inbound	organization
+31c451da…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:09	inbound	organization
+2e12f40c…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:09	inbound	organization
+fecd1cf4…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:08	inbound	organization
+6694abe4…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:08	inbound	organization
+7bba1914…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:07	inbound	organization
+26732852…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:07	inbound	organization
+0fe5a7c6…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:07	outbound	organization
+ff874233…	Accounts	failed	one_time_import	
+Push to Zoho threw: Zoho CRM API error: 400 - {"data":[{"code":"INVALID_DATA","details":{"expected_data_type":"website","api_name":"Twitter_X","json_path":"$.data[0].Twitter_X"},"message":"invalid data","status":"error"}]}
+
+
+25/04/2026, 14:42:06	inbound	organization
+ff874233…	Accounts	skipped	one_time_import	
+No-op on iConnect: overwriting differing Zoho values and backfilling Zoho-empty fields with iConnect data
+
+25/04/2026, 14:42:06	outbound	organization
+1fd335e8…	Accounts	failed	one_time_import	
+Push to Zoho threw: Zoho CRM API error: 400 - {"data":[{"code":"INVALID_DATA","details":{"maximum_length":255,"api_name":"Schools_demographic","json_path":"$.data[0].Schools_demographic"},"message":"invalid data","status":"error"}]}
+
+
+25/04/2026, 14:42:05	inbound	organization
+1fd335e8…	Accounts	skipped	one_time_import	
+No-op on iConnect: overwriting differing Zoho values and backfilling Zoho-empty fields with iConnect data
+
+25/04/2026, 14:42:04	outbound	organization
+741ca6f0…	Accounts	failed	one_time_import	
+Push to Zoho threw: Zoho CRM API error: 400 - {"data":[{"code":"INVALID_DATA","details":{"maximum_length":255,"api_name":"Schools_demographic","json_path":"$.data[0].Schools_demographic"},"message":"invalid data","status":"error"}]}
+
+
+25/04/2026, 14:42:04	inbound	organization
+741ca6f0…	Accounts	skipped	one_time_import	
+No-op on iConnect: overwriting differing Zoho values and backfilling Zoho-empty fields with iConnect data
+
+25/04/2026, 14:42:03	inbound	organization
+ac0e1a62…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:03	inbound	organization
+39b2651f…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:03	inbound	organization
+afffb04a…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:42:02	outbound	organization
+3fdde696…	Accounts	failed	one_time_import	
+Push to Zoho threw: Zoho CRM API error: 400 - {"data":[{"code":"INVALID_DATA","details":{"maximum_length":2000,"api_name":"Describe_your_core_program_s","json_path":"$.data[0].Describe_your_core_program_s"},"message":"invalid data","status":"error"}]}
+
+
+25/04/2026, 14:42:01	inbound	organization
+3fdde696…	Accounts	skipped	one_time_import	
+No-op on iConnect: overwriting differing Zoho values and backfilling Zoho-empty fields with iConnect data
+
+25/04/2026, 14:42:01	outbound	organization
+68da75b4…	Accounts	failed	one_time_import	
+Push to Zoho threw: Zoho CRM API error: 400 - {"data":[{"code":"INVALID_DATA","details":{"maximum_length":255,"api_name":"Schools_demographic","json_path":"$.data[0].Schools_demographic"},"message":"invalid data","status":"error"}]}
+
+
+25/04/2026, 14:42:00	inbound	organization
+68da75b4…	Accounts	skipped	one_time_import	
+No-op on iConnect: overwriting differing Zoho values and backfilling Zoho-empty fields with iConnect data
+
+25/04/2026, 14:42:00	inbound	organization
+1b39227b…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:41:59	inbound	organization
+ca292df0…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:41:59	inbound	organization
+ca5194fc…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:41:59	inbound	organization
+7ed9388d…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:41:58	outbound	organization
+bbbffc0d…	Accounts	failed	one_time_import	
+Push to Zoho threw: Zoho CRM API error: 400 - {"data":[{"code":"INVALID_DATA","details":{"maximum_length":255,"api_name":"Schools_demographic","json_path":"$.data[0].Schools_demographic"},"message":"invalid data","status":"error"}]}
+
+
+25/04/2026, 14:41:58	inbound	organization
+bbbffc0d…	Accounts	skipped	one_time_import	
+No-op on iConnect: overwriting differing Zoho values and backfilling Zoho-empty fields with iConnect data
+
+25/04/2026, 14:41:57	outbound	organization
+d2998bb5…	Accounts	failed	one_time_import	
+Push to Zoho threw: Zoho CRM API error: 400 - {"data":[{"code":"INVALID_DATA","details":{"maximum_length":2000,"api_name":"Describe_your_core_program_s","json_path":"$.data[0].Describe_your_core_program_s"},"message":"invalid data","status":"error"}]}
+
+
+25/04/2026, 14:41:56	inbound	organization
+d2998bb5…	Accounts	skipped	one_time_import	
+No-op on iConnect: overwriting differing Zoho values and backfilling Zoho-empty fields with iConnect data
+
+25/04/2026, 14:41:56	outbound	organization
+afe55e13…	Accounts	failed	one_time_import	
+Push to Zoho threw: Zoho CRM API error: 400 - {"data":[{"code":"INVALID_DATA","details":{"maximum_length":255,"api_name":"Schools_demographic","json_path":"$.data[0].Schools_demographic"},"message":"invalid data","status":"error"}]}
+
+
+25/04/2026, 14:41:55	inbound	organization
+afe55e13…	Accounts	skipped	one_time_import	
+No-op on iConnect: overwriting differing Zoho values and backfilling Zoho-empty fields with iConnect data
+
+25/04/2026, 14:41:55	outbound	organization
+d2121f25…	Accounts	failed	one_time_import	
+Push to Zoho threw: Zoho CRM API error: 400 - {"data":[{"code":"INVALID_DATA","details":{"maximum_length":255,"api_name":"Schools_demographic","json_path":"$.data[0].Schools_demographic"},"message":"invalid data","status":"error"}]}
+
+
+25/04/2026, 14:41:54	inbound	organization
+d2121f25…	Accounts	skipped	one_time_import	
+No-op on iConnect: overwriting differing Zoho values and backfilling Zoho-empty fields with iConnect data
+
+25/04/2026, 14:41:54	inbound	organization
+f7e610e3…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:41:53	inbound	organization
+b9916f0f…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:41:53	inbound	organization
+c9adfdb2…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:41:52	inbound	organization
+07e90c30…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:41:52	inbound	organization
+b8e4f8f3…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:41:52	inbound	organization
+1288637a…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:41:51	inbound	organization
+c47e4027…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:41:51	inbound	organization
+637f391e…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:41:51	inbound	organization
+7757fb5d…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:41:50	inbound	organization
+759f2333…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:41:50	inbound	organization
+09628a2b…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:41:50	outbound	organization
+3650509a…	Accounts	failed	one_time_import	
+Push to Zoho threw: Zoho CRM API error: 400 - {"data":[{"code":"INVALID_DATA","details":{"maximum_length":255,"api_name":"Schools_demographic","json_path":"$.data[0].Schools_demographic"},"message":"invalid data","status":"error"}]}
+
+
+25/04/2026, 14:41:49	inbound	organization
+3650509a…	Accounts	skipped	one_time_import	
+No-op on iConnect: overwriting differing Zoho values and backfilling Zoho-empty fields with iConnect data
+
+25/04/2026, 14:41:48	inbound	organization
+f3e28517…	Accounts	skipped	one_time_import	
+No-op: every populated Zoho value already matches iConnect
+
+25/04/2026, 14:41:45	inbound	organization
+26993e62…	Accounts	skipped	inbound	
+Debounced: echo of recent outbound sync
+
+25/04/2026, 14:41:44	outbound	organization
+26993e62…	Accounts	success	one_time_import	
+815132000006866415
+
+25/04/2026, 14:41:43	inbound	organization
+26993e62…	Accounts	success	one_time_import	
+815132000006866415
+
+25/04/2026, 14:41:41	inbound	organization
+ae951ca4…	Accounts	skipped	inbound	
+Debounced: echo of recent outbound sync
+
+Sync log detail
+25/04/2026, 14:42:07
+
+Entity: organization / ff874233-2db8-435d-9140-848a5a3cf96f
+Module: Accounts
+Status: failed
+Zoho record: 815132000010806004
+Error
+Push to Zoho threw: Zoho CRM API error: 400 - {"data":[{"code":"INVALID_DATA","details":{"expected_data_type":"website","api_name":"Twitter_X","json_path":"$.data[0].Twitter_X"},"message":"invalid data","status":"error"}]}
+Request payload
+{
+  "Overview": "ChildFund India works towards ensuring that children from the most marginalized sections of the society become able, confident and responsible adults. For over four decades, they have been committed to addressing critical issues related to children’s holistic development by engaging key stakeholders including families, communities, schools, government and the children themselves. They provide comprehensive support to children through interventions that integrate health, nutrition, gender, education, livelihoods and child protection. Every year ChildFund India helps over 3 million children in providing effective healthcare, education, life skills and livelihood opportunities.",
+  "Twitter_X": "ttps://x.com/ChildFundIndia",
+  "Account_Type": "Vendor",
+  "LinkedIn_URL": "https://in.linkedin.com/company/childfund-india",
+  "Income_quintle": "Poor (less than $2 a day)",
+  "Services_provided": [
+    "Curriculum design and development",
+    "Education technology",
+    "Learning outcomes assessments",
+    "Parent and community engagement",
+    "Remediation support",
+    "School development and improvement",
+    "Teacher development and certification",
+    "Teaching and learning material"
+  ],
+  "Number_of_teachers": "2000",
+  "Primary_stakeholder": "Students",
+  "Charging_for_program": "No",
+  "Type_of_Organisation": "Non-profit",
+  "Organisation_s_vision": "To create an India where children lead a dignified life and achieve their full potential.",
+  "Organisation_s_mission": "Help deprived, excluded and vulnerable children to have the capacity to improve their conditions and gain opportunities to become responsible young adults, parents, leaders, etc., who would bring lasting and positive change in their communities. Promote societies whose individuals and institutions participate in valuing, protecting and advancing the worth and the rights of children. Enrich supporters’ lives through their support of our cause.",
+  "Has_safeguarding_policy": "Yes",
+  "Describe_your_core_program_s": "ChildFund India works across key life stages of children, with Education as our core priority. We strengthen foundational learning through ECCE, FLN, and SEL, while advancing STEM, coding, and girls’ higher education through innovative programs. Alongside education, we support children’s health and nutrition, strengthen community-based child protection systems, and empower youth and families through livelihoods and skilling initiatives. We also provide timely humanitarian response during crises, ensuring children grow up safe, healthy, and prepared for the future.",
+  "Current_No_of_students_impacted": "2070000",
+  "How_many_schools_do_you_work_with": "452",
+  "Registered_to_operate_in_all_countries": "Yes, all of the countries",
+  "Do_you_work_in_partnership_with_government": "Yes",
+  "What_percent_of_students_impacted_are_girls": "40",
+  "What_level_of_schooling_do_your_programs_support": [
+    "Grade 12"
+  ],
+  "Cumulative_number_of_students_impacted_through_you": "20000000"
+}
+Response
+{
+  "backfilled_fields": [
+    {
+      "reason": "iconnect_to_zoho_backfill",
+      "zoho_field": "How_many_schools_do_you_work_with",
+      "zoho_value": null,
+      "iconnect_field": "custom:9cf870e4-6b3b-47d1-9233-a783135130b7",
+      "iconnect_value": "452",
+      "translated_zoho_value": "452"
+    },
+    {
+      "reason": "iconnect_to_zoho_backfill",
+      "zoho_field": "Cumulative_number_of_students_impacted_through_you",
+      "zoho_value": null,
+      "iconnect_field": "custom:3c8cfcd5-c89b-4f8f-9e5a-aee47539d574",
+      "iconnect_value": "20000000",
+      "translated_zoho_value": "20000000"
+    },
+    {
+      "reason": "iconnect_to_zoho_backfill",
+      "zoho_field": "Current_No_of_students_impacted",
+      "zoho_value": null,
+      "iconnect_field": "custom:81fe250c-ae91-477f-80d9-79e24033063d",
+      "iconnect_value": "2070000",
+      "translated_zoho_value": "2070000"
+    },
+    {
+      "reason": "iconnect_to_zoho_backfill",
+      "zoho_field": "What_percent_of_students_impacted_are_girls",
+      "zoho_value": null,
+      "iconnect_field": "custom:45641770-9594-462e-b235-79316a11a1be",
+      "iconnect_value": "40",
+      "translated_zoho_value": "40"
+    },
+    {
+      "reason": "iconnect_to_zoho_backfill",
+      "zoho_field": "Overview",
+      "zoho_value": null,
+      "iconnect_field": "custom:923fc7e2-cdc2-4647-9936-a13228cc47a0",
+      "iconnect_value": "ChildFund India works towards ensuring that children from the most marginalized sections of the society become able, confident and responsible adults. For over four decades, they have been committed to addressing critical issues related to children’s holistic development by engaging key stakeholders including families, communities, schools, government and the children themselves. They provide comprehensive support to children through interventions that integrate health, nutrition, gender, education, livelihoods and child protection. Every year ChildFund India helps over 3 million children in providing effective healthcare, education, life skills and livelihood opportunities.",
+      "translated_zoho_value": "ChildFund India works towards ensuring that children from the most marginalized sections of the society become able, confident and responsible adults. For over four decades, they have been committed to addressing critical issues related to children’s holistic development by engaging key stakeholders including families, communities, schools, government and the children themselves. They provide comprehensive support to children through interventions that integrate health, nutrition, gender, education, livelihoods and child protection. Every year ChildFund India helps over 3 million children in providing effective healthcare, education, life skills and livelihood opportunities."
+    },
+    {
+      "reason": "iconnect_to_zoho_backfill",
+      "zoho_field": "Twitter_X",
+      "zoho_value": null,
+      "iconnect_field": "custom:f1ace6d3-35c3-4c8f-b210-44df7212a81d",
+      "iconnect_value": "ttps://x.com/ChildFundIndia",
+      "translated_zoho_value": "ttps://x.com/ChildFundIndia"
+    },
+    {
+      "reason": "iconnect_to_zoho_backfill",
+      "zoho_field": "LinkedIn_URL",
+      "zoho_value": null,
+      "iconnect_field": "custom:efbe7d1c-c02e-49f3-aa7c-a9c88ead3a84",
+      "iconnect_value": "https://in.linkedin.com/company/childfund-india",
+      "translated_zoho_value": "https://in.linkedin.com/company/childfund-india"
+    },
+    {
+      "reason": "iconnect_to_zoho_backfill",
+      "zoho_field": "Type_of_Organisation",
+      "zoho_value": null,
+      "iconnect_field": "custom:79e723bd-f5ff-43aa-aa62-eec7f5c5c88f",
+      "iconnect_value": "Non-profit",
+      "translated_zoho_value": "Non-profit"
+    },
+    {
+      "reason": "iconnect_to_zoho_backfill",
+      "zoho_field": "Registered_to_operate_in_all_countries",
+      "zoho_value": null,
+      "iconnect_field": "custom:253a166d-1914-4ea0-a214-d3476dc97e14",
+      "iconnect_value": "Yes, all of the countries",
+      "translated_zoho_value": "Yes, all of the countries"
+    },
+    {
+      "reason": "iconnect_to_zoho_backfill",
+      "zoho_field": "Organisation_s_vision",
+      "zoho_value": null,
+      "iconnect_field": "custom:36d0817e-acb7-43f1-8590-531e19886b61",
+      "iconnect_value": "To create an India where children lead a dignified life and achieve their full potential.",
+      "translated_zoho_value": "To create an India where children lead a dignified life and achieve their full potential."
+    },
+    {
+      "reason": "iconnect_to_zoho_backfill",
+      "zoho_field": "Organisation_s_mission",
+      "zoho_value": null,
+      "iconnect_field": "custom:84a15ff1-542a-442c-a8fc-4eb9585505e1",
+      "iconnect_value": "Help deprived, excluded and vulnerable children to have the capacity to improve their conditions and gain opportunities to become responsible young adults, parents, leaders, etc., who would bring lasting and positive change in their communities. Promote societies whose individuals and institutions participate in valuing, protecting and advancing the worth and the rights of children. Enrich supporters’ lives through their support of our cause.",
+      "translated_zoho_value": "Help deprived, excluded and vulnerable children to have the capacity to improve their conditions and gain opportunities to become responsible young adults, parents, leaders, etc., who would bring lasting and positive change in their communities. Promote societies whose individuals and institutions participate in valuing, protecting and advancing the worth and the rights of children. Enrich supporters’ lives through their support of our cause."
+    },
+    {
+      "reason": "iconnect_to_zoho_backfill",
+      "zoho_field": "Describe_your_core_program_s",
+      "zoho_value": null,
+      "iconnect_field": "custom:62a6b407-22c8-43d8-b357-1c4e0bca6538",
+      "iconnect_value": "ChildFund India works across key life stages of children, with Education as our core priority. We strengthen foundational learning through ECCE, FLN, and SEL, while advancing STEM, coding, and girls’ higher education through innovative programs. Alongside education, we support children’s health and nutrition, strengthen community-based child protection systems, and empower youth and families through livelihoods and skilling initiatives. We also provide timely humanitarian response during crises, ensuring children grow up safe, healthy, and prepared for the future.",
+      "translated_zoho_value": "ChildFund India works across key life stages of children, with Education as our core priority. We strengthen foundational learning through ECCE, FLN, and SEL, while advancing STEM, coding, and girls’ higher education through innovative programs. Alongside education, we support children’s health and nutrition, strengthen community-based child protection systems, and empower youth and families through livelihoods and skilling initiatives. We also provide timely humanitarian response during crises, ensuring children grow up safe, healthy, and prepared for the future."
+    },
+    {
+      "reason": "iconnect_to_zoho_backfill",
+      "zoho_field": "Primary_stakeholder",
+      "zoho_value": null,
+      "iconnect_field": "custom:c9a61921-7ca4-446a-a69c-7e0802059d86",
+      "iconnect_value": "Students",
+      "translated_zoho_value": "Students"
+    },
+    {
+      "reason": "iconnect_to_zoho_backfill",
+      "zoho_field": "Charging_for_program",
+      "zoho_value": null,
+      "iconnect_field": "custom:e8df8269-fe35-42bd-9861-c3551850849a",
+      "iconnect_value": "No",
+      "translated_zoho_value": "No"
+    },
+    {
+      "reason": "iconnect_to_zoho_backfill",
+      "zoho_field": "Number_of_teachers",
+      "zoho_value": null,
+      "iconnect_field": "custom:f2435ba9-9e15-4b02-bf47-c1f0aacf8ff6",
+      "iconnect_value": "2000",
+      "translated_zoho_value": "2000"
+    },
+    {
+      "reason": "iconnect_to_zoho_backfill",
+      "zoho_field": "Do_you_work_in_partnership_with_government",
+      "zoho_value": null,
+      "iconnect_field": "custom:d89bc293-99d1-455d-80c3-50efbad06add",
+      "iconnect_value": "Yes",
+      "translated_zoho_value": "Yes"
+    },
+    {
+      "reason": "iconnect_to_zoho_backfill",
+      "zoho_field": "Has_safeguarding_policy",
+      "zoho_value": null,
+      "iconnect_field": "custom:e2c271e7-b650-4438-8302-cf0c0155a1aa",
+      "iconnect_value": "Yes",
+      "translated_zoho_value": "Yes"
+    },
+    {
+      "reason": "iconnect_to_zoho_backfill",
+      "zoho_field": "Income_quintle",
+      "zoho_value": null,
+      "iconnect_field": "custom:680f7943-f602-4da0-86b8-0fa01ac99218",
+      "iconnect_value": "Poor (less than $2 a day)",
+      "translated_zoho_value": "Poor (less than $2 a day)"
+    }
+  ],
+  "overwritten_fields": [
+    {
+      "reason": "iconnect_overwrites_zoho",
+      "zoho_field": "What_level_of_schooling_do_your_programs_support",
+      "zoho_value": [],
+      "iconnect_field": "custom:24dd507a-43b4-45f8-a396-eb4b9b079f1d",
+      "iconnect_value": "[\"Grade 12\"]",
+      "translated_zoho_value": [
+        "Grade 12"
+      ]
+    },
+    {
+      "reason": "iconnect_overwrites_zoho",
+      "zoho_field": "Account_Type",
+      "zoho_value": "Member – Education Support Organisations",
+      "iconnect_field": "custom:7af40750-1543-44e8-8022-0e0e27bc2c5c",
+      "iconnect_value": "ESO",
+      "translated_zoho_value": "Vendor"
+    },
+    {
+      "reason": "iconnect_overwrites_zoho",
+      "zoho_field": "Services_provided",
+      "zoho_value": [],
+      "iconnect_field": "custom:0d27775a-579b-49ac-8b63-9ebdcb2a1ffe",
+      "iconnect_value": "[\"Curriculum design and development\",\"Education technology\",\"Learning outcomes assessments\",\"Parent and community engagement\",\"Remediation support\",\"School development and improvement\",\"Teacher development and certification\",\"Teaching and learning material\"]",
+      "translated_zoho_value": [
+        "Curriculum design and development",
+        "Education technology",
+        "Learning outcomes assessments",
+        "Parent and community engagement",
+        "Remediation support",
+        "School development and improvement",
+        "Teacher development and certification",
+        "Teaching and learning material"
+      ]
+    }
+  ]
+}
+Close

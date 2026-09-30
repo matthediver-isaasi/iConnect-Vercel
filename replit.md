@@ -1,285 +1,5281 @@
-# Overview
+# Membership Management Platform
+A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
 
-This is a membership management platform built with React (Vite) and Express.js. The application manages members, organizations, events, bookings, program tickets, resources, blog posts, and various administrative features. It is currently undergoing a platform migration from Base44 to Replit, maintaining 100% visual and functional parity with the existing application while adapting the backend infrastructure.
+## BNMS alpha import: historical invoices are mandatory
+- The future alpha import must include verified existing historical Xero invoice links for every imported historical GoCardless payment. Missing or ambiguous matches block completion; never skip them silently or describe a provider-only import as complete.
+- Alpha tooling must call `assertHistoricalInvoicesComplete` in `scripts/bnms-dd-beta-invoices.mjs` against the **full** historical-payment set. The gate requires exact history/member/tenant/payment identity coverage and unique invoice/payment identities, not just equal counts.
+- Alpha-specific read-only discovery and held-adoption runners now exist: `scripts/run-bnms-dd-alpha-review.mjs` and `scripts/run-bnms-dd-alpha-adoption.mjs`. The latter requires separately reviewed schema/data hashes; it never releases collections. The user approved the FUTURE held 2026-10-01–2027-09-30 term: unknown prior entitlement stays explicitly unknown and unchanged, not inferred and not a blocker to this separate unpaid future term. Invoice lookup verifies exact payment reference, contact ownership, amount, currency and period; invoice numbers alone are not unique. Preserve immutable source evidence and collection holds. Run discovery through its DEST bootstrap, not the implementation module directly.
 
-The system integrates with Supabase for database operations, Zoho CRM for contact/account management, Zoho Backstage for event management, Stripe for payments, and Xero for invoicing.
+## Embedded GoCardless regression checks
+- `node --test client/src/lib/formEmbedRuntime.test.mjs client/src/components/canvas/blocks/formEmbedResize.test.mjs client/src/components/gocardless/goCardlessDropin*.test.mjs` checks intrinsic sizing, payment reservations, Canvas reflow, and handler/script cleanup.
+- `npx tsx --test client/src/components/gocardless/GoCardlessDropinFlow.test.jsx` checks the mounted wrapper, including StrictMode, failure/retry, delayed load cancellation, and flow replacement.
+- `npx playwright test --config=playwright.task-4517.config.mjs` exercises the real Canvas renderer and embedded form using provider-shaped browser fixtures. Provider requests and all unexpected writes are blocked; it does not verify a live or sandbox mandate. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` if the configured browser is unavailable.
 
-# User Preferences
+## Run & Operate
+- **Outlook OAuth repair:** `20261121_outlook_health_columns_repair.sql` was approved and applied to verified DEST (`lvmzliemqnieeoruhkik`) on 2026-09-23 with `scripts/apply-outlook-health-columns-repair-migration.mjs`. All three health columns and the constraint were verified; six existing connections remain. SOURCE was untouched. No repair migration remains pending; deployed callback/UI rollout and interactive GSF OAuth/status verification remain separate. See `docs/outlook-oauth-repair-verification.md`.
+-   **Run Dev Server:** `npm run dev`
+-   **Startup is application-only:** Run / the default `Project` workflow starts only `Start application`. Regression suites are deliberate separate workflows. The production relationship check is never an automatic validation.
+-   **Testing modes:** see [guides/testing-modes.md](guides/testing-modes.md) for isolated logic tests, disposable PostgreSQL integration tests, and explicitly opted-in read-only production smoke checks. Use guarded `npm test`, `npm run test:form-processing`, or the named `test:*` workflows; raw legacy test examples below do not establish isolation. Credentials never authorize live writes or provider effects.
+-   **Build:** `npm run build` · **Typecheck:** `npm run typecheck` · **Codegen:** `npm run codegen`
+-   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — only works from environments with IPv6 outbound; **not from this Replit workspace** (see "Database connection").
+-   **Member CPD access:** `scripts/seed-member-cpd-role-access.mjs --apply` seeded `cpd.member_cpd` under CPD in verified DEST on 2026-09-21; no schema changes, role-exclusion changes, or automatic portal menu inserts. SOURCE was untouched. Seed replay/preservation tests run with `node scripts/run-isolated-tests.mjs --allow-local-postgres node --test scripts/seed-member-cpd-role-access.test.mjs`. Menu select/save/reopen fixtures run with `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$(command -v chromium) npx playwright test --config=tests/portal-menu-cpd-persistence.config.mjs`; these use mocked data, not authenticated deployed verification.
+-   **Migrations:** every `.sql` in `supabase/migrations/` is idempotent and applied against `DEST_DATABASE_URL` (pooler). Most migrations have a matching `node scripts/apply-*.mjs` runner; check `scripts/` before applying anything by hand.
+-   **Member Group dashboard history:** `20261115_member_group_membership_history.sql` was applied to verified DEST (`lvmzliemqnieeoruhkik`) using `scripts/apply-member-group-membership-history.mjs` on 2026-09-21. Authoritative coverage begins at `2026-09-21 13:26:17.939509+00`; earlier totals are unavailable and baseline memberships are not joins. Post-commit verification found 3,939 baseline intervals and 65 retained groups, with source consistency confirmed. SOURCE was untouched; the runner does not insert a Supabase CLI migration-history row. Historical member filters use current attributes, not historical attribute snapshots. Run isolated database tests with `node scripts/run-isolated-tests.mjs --allow-local-postgres node --test supabase/migrations/memberGroupMembershipHistory.test.mjs`.
+-   **Audience preview/category safety:** `202609200001_delete_communication_category_preserve_campaigns.sql` was explicitly approved and applied to verified DEST on 2026-09-20 using `scripts/apply-delete-communication-category-preserve-campaigns-migration.mjs` (SHA-256 `b0e8c67d6e0227aafd32a8061c18757105152c4ee880d5d18e83a53969d26b48`). This supersedes the SQL file's original pending-approval comment; SOURCE was untouched. All eight columns and both service-role-only functions were checked after commit. The runner does not insert a Supabase CLI migration-history row: use its read-only `--preflight` and actual schema, not history alone. No categories were deleted or campaigns sent. Isolated preview checks: `node scripts/run-isolated-tests.mjs node --test api/audience-lists/preview.test.mjs api/email-campaigns/categoryDeletionSafety.test.mjs`; disposable SQL checks: `node scripts/run-isolated-tests.mjs --allow-local-postgres node --test supabase/migrations/deleteCommunicationCategoryPreserveCampaigns.test.mjs scripts/apply-delete-communication-category-preserve-campaigns-migration.test.mjs`. Browser fixtures use `tests/audience-list-preview.config.mjs`; fixtures are not authenticated deployed verification.
+-   **Public Invoice / PO:** `202607200001_public_invoice_po.sql` must be applied before deploying the matching booking/report code. It is prepared, not live-applied in this implementation. Run `node scripts/apply-public-invoice-po-migration.mjs` for the review hash; its explicit `--apply --review-sha256=<hash>` mode is pinned to DEST with verified TLS. All events remain default-off. Isolated API checks: `node scripts/run-isolated-tests.mjs --shell "node --test api/_lib/publicInvoicePo.test.mjs api/public/public-invoice-po.handlers.test.mjs api/reports/public-invoice-po.test.mjs client/src/lib/publicInvoicePo.test.mjs"`. Disposable PostgreSQL/capacity checks: `node --test supabase/migrations/publicInvoicePoMigration.test.mjs`. Fixture browser checks: `npx playwright test --config=playwright.task4575.config.mjs`.
+-   **One-off scripts (backfills, CSV imports, tenant seeds):** live in `scripts/` (e.g. `recompute-tenant-storage.mjs`, `backfill-*.mjs`, `import-*.mjs`, `seed-*.mjs`). They are idempotent, default to dry-run unless an `--apply` flag is passed, and many are hard-pinned to a single tenant. Read the script header before running; each documents its own flags and scope.
+-   **Inclusive relationship reports:** `node scripts/apply-inclusive-relationship-reports.mjs --apply` installs the V2 paging/count helpers and separate BNMS Organisation department summary using `DEST_DATABASE_URL` only. `node scripts/verify-bnms-organisation-department-summary.mjs` verifies saved preview results read-only; `--reference-only` checks source totals before setup. Existing V1 reports are not upgraded.
+-   **Deleted-member relationship reads:** `20261107_custom_object_relationship_deleted_members.sql` was applied to DEST on 2026-09-18; no member or relationship history was changed. Its destination-pinned runner is `scripts/apply-custom-object-relationship-deleted-members-migration.mjs` (offline dry-run by default; application requires `--apply --review-sha256=<dry-run hash>`). Deploy the matching service code to complete rollout; local fixtures do not establish deployed BNMS record results.
+-   **Storage usage reconcile:** `node scripts/recompute-tenant-storage.mjs [--dry-run] [--tenant=<uuid>]`, or trust the nightly cron at `/api/cron/recompute-tenant-storage` (03:00 UTC, `CRON_SECRET`-guarded).
+-   **Rolling membership commitments:** deploy the `20260919_form_membership_payment_quote.sql`, `20260920_rolling_membership_commitments.sql`, and both `20260921_rolling_*.sql` migrations before enabling the new payment code. They do not reprice subscriptions or automatically backfill legacy records. Review tenant-scoped evidence with `node scripts/recover-rolling-membership-commitments.mjs evidence.json --tenant <uuid>`; only an explicit `--apply` performs locked, evidence-checked recovery. Never use account creation dates or year labels to guess an anniversary.
+-   **Rolling membership verification:** `npm run test:rolling-memberships` uses mocked providers and a disposable local PostgreSQL cluster; `npm run test:rolling-memberships:browser` uses isolated Member Detail route fixtures against the running development app. Neither command makes real charges or sends reminders.
 
-Preferred communication style: Simple, everyday language.
+## Database connection (read this before any DB work from this workspace)
+Post-booking Credits reporting uses `migrations/20260720_booking_reversal_evidence.sql`, applied to verified DEST only on 2026-09-24. The source workspace database was not migrated. Deploy the matching code and cron configuration before relying on capture. Historical evidence recovery is admin/report-authorized: POST `/api/reports/reconcile-booking-credits` with `{source: "booking" | "complex_event_booking", bookingIds: [up to 25 UUIDs], cursor?}`; repeat the returned `nextCursor` until null and inspect `unresolved`. This reads providers and writes reporting evidence only—it never issues refunds or credit notes. Missing or ambiguous historical evidence remains unavailable. The scheduled pending-evidence reconciler runs every five minutes after deployment.
 
-# System Architecture
+There are two Supabase projects this codebase talks to:
 
-## Frontend Architecture
+| Role | What it is | URL secret | Postgres URL secret | Service-role key secret |
+| ---- | ---------- | ---------- | ------------------- | ----------------------- |
+| **Destination (current prod)** | Multi-tenant iConnect DB | `DEST_SUPABASE_URL` (`https://lvmzliemqnieeoruhkik.supabase.co`) | `DEST_DATABASE_URL` | `DEST_SUPABASE_KEY` |
+| **Source (legacy)** | Pre-multi-tenancy single-tenant snapshot, used by migration scripts | `SOURCE_SUPABASE_URL` | `SOURCE_DATABASE_URL` | `SOURCE_SUPABASE_KEY` |
 
-**Technology Stack:**
-- React 18 with TypeScript/JSX
-- Vite as the build tool and development server
-- TanStack Query for server state management
-- shadcn/ui component library built on Radix UI primitives
-- Tailwind CSS for styling with custom design tokens
+**The Supabase direct host (`db.<project>.supabase.co`) is unreachable from this Replit workspace** — it publishes only IPv6 (AAAA) DNS and the Replit container has no IPv6 outbound route, so `psql`, `execute_sql_tool`, `drizzle-kit push`, and any raw `pg`/Drizzle client pointed at the direct host fail with `ENOTFOUND` / `ENETUNREACH`. Those tools work from Vercel functions, the user's laptop, and CI — just not from here against the direct host.
 
-**Design System:**
-The application uses a "new-york" style variant from shadcn/ui with extensive customization. The design system enforces a strict no-modification policy during migration - all UI components, layouts, spacing, and visual treatments must remain pixel-perfect identical to the Base44 version.
+**The Supabase Pooler hostname IS IPv4-reachable from this workspace** (`aws-1-eu-central-1.pooler.supabase.com:5432`, which is what `DEST_DATABASE_URL` already points to). `pg` clients using `DEST_DATABASE_URL` (transaction-pooler mode) work from Replit for read/write queries and DDL such as `CREATE INDEX`. Prefer `@supabase/supabase-js` for ordinary CRUD (REST endpoint is also IPv4-reachable, more ergonomic); reach for `pg` via `DEST_DATABASE_URL` only when you need raw SQL / DDL the REST API can't do.
 
-**Component Organization:**
-- Components aliased via `@/components` path
-- UI primitives in `@/components/ui` (Radix-based)
-- Shared utilities in `@/lib/utils`
-- Hooks in `@/hooks`
+For any DB access from this workspace (scripts, ad-hoc debugging, one-off data fixes), use **`@supabase/supabase-js`** with the service-role key. Working reference: `scripts/debug-tenant.mjs`.
 
-**Routing:**
-Client-side routing handled by the frontend framework. All routes fall through to `index.html` for SPA behavior, with special handling for `/api/*` routes going to the backend.
-
-## Backend Architecture
-
-**Server Framework:**
-- Express.js server with dual entry points:
-  - `server/index-dev.ts` - Development mode with Vite middleware integration
-  - `server/index-prod.ts` - Production mode serving static assets from `dist/public`
-
-**Database Layer:**
-- PostgreSQL database via Neon serverless
-- Drizzle ORM configured but schema defined externally in Supabase
-- Connection string via `DATABASE_URL` environment variable
-- Uses singular table names (e.g., `member`, `organization`, `event`)
-
-**API Design Pattern:**
-The backend provides a generic entity CRUD API that mirrors the Base44 SDK interface:
-- `GET /api/entities/:entity` - List entities with filtering, sorting, pagination
-- `GET /api/entities/:entity/:id` - Get single entity with optional expand
-- `POST /api/entities/:entity` - Create entity
-- `PATCH /api/entities/:entity/:id` - Update entity
-- `DELETE /api/entities/:entity/:id` - Delete entity
-
-This abstraction layer allows frontend code to remain unchanged during migration by providing the same interface the Base44 SDK used, but communicating with Supabase instead.
-
-**Authentication:**
-- Magic link-based authentication system
-- Session management using express-session with MemoryStore (development) or connect-pg-simple (production)
-- Auth endpoints: `/api/auth/me`, `/api/auth/logout`
-- Member verification via email lookup in Supabase
-
-**Function Handlers:**
-Server-side functions accessible via `/api/functions/:functionName` endpoint for operations like:
-- Magic link generation and verification
-- Stripe payment intent creation
-- Booking creation and management
-- Program ticket purchases
-- Event synchronization
-
-## Data Model
-
-**Core Entities:**
-- **Member**: User accounts with roles, organizations, biographies, handles
-- **Organization**: Company/institution accounts with domains, training funds, program ticket balances
-- **Role**: Permission system defining feature access via excluded features list
-- **TeamMember**: Admin/staff accounts separate from members
-
-**Events & Bookings:**
-- **Event**: Synced from Zoho Backstage with program tags, dates, pricing
-- **Booking**: Event registrations with payment methods (voucher, training fund, account, program ticket)
-- **Program**: Event categories with special pricing and offers (BOGO, bulk discounts)
-- **ProgramTicketTransaction**: Purchase/usage history for program tickets
-
-**Content Management:**
-- **BlogPost**: Articles with authors (members or guest writers), categories, tags, reactions
-- **Resource**: Downloadable files, videos, external links with categorization
-- **NewsPost**: News articles (non-member authored)
-- **IEditPage/IEditPageElement**: Dynamic page builder system with element templates
-
-**Configuration:**
-- **NavigationItem**: Dynamic navigation menu configuration for top/main nav
-- **PortalMenu**: Internal portal navigation structure
-- **PageBanner**: Configurable banner images for pages
-- **TourGroup/TourStep**: Interactive guided tours for user onboarding
-- **SystemSettings**: Key-value configuration store
-
-## External Dependencies
-
-**Supabase:**
-- Primary database for all application data
-- Used for CRUD operations via service key on backend
-- Anon key exposed to frontend for specific features (realtime subscriptions)
-- Environment variables: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`
-
-**Zoho CRM:**
-- Contact and account synchronization
-- OAuth-based authentication flow
-- Webhook receivers for real-time updates
-- Token storage in `zoho_token` table with refresh mechanism
-
-**Zoho Backstage:**
-- Event management and ticket sales
-- Bi-directional sync for bookings and cancellations
-- Event data includes program tags, dates, locations, pricing
-- Booking references linked to Backstage ticket types
-
-**Stripe:**
-- Payment processing for program tickets, job postings, and other purchases
-- Payment intent creation via server-side API
-- Webhook handlers for payment confirmation
-- Environment variable: `STRIPE_SECRET_KEY`
-
-**Xero:**
-- Invoice generation for purchases
-- OAuth authentication with token refresh
-- Tenant ID configuration for organization targeting
-- Token storage in `xero_token` table
-
-**File Storage:**
-- File uploads handled via Supabase Storage or Base44 integration layer
-- URLs stored in database for images, documents, videos
-- Support for both public and private file repositories
-
-**Email Delivery:**
-- Magic link authentication emails
-- Notification emails for bookings, cancellations
-- Handled via integration layer (SendEmail function)
-
-## Migration Strategy
-
-The application is transitioning from Base44 (previous platform) to Replit while maintaining zero UI/UX changes:
-
-1. **Frontend Compatibility Layer**: The `base44Client.js` adapter provides the same SDK interface as Base44, proxying requests to the Express backend instead
-2. **Entity Mapping**: Maps Base44 entity names to Supabase singular table names
-3. **API Translation**: Express routes translate between Base44-style requests and Supabase queries
-4. **Environment Configuration**: Secrets management via Replit Secrets for database URLs, API keys, OAuth credentials
-5. **Build Process**: Vite builds to `dist/public` for production deployment
-6. **Routing Configuration**: `vercel.json` configured for Vercel production deployment
-
-## Deployment Architecture
-
-**Development (Replit):**
-- Express.js server with Vite middleware integration
-- Full API functionality including Zoho Backstage sync
-- Hot module replacement for frontend development
-- Server runs on port 5000
-
-**Production (Vercel):**
-- Serverless functions in `/api` directory
-- `api/functions/[functionName].js` - Main function dispatcher (validateMember, createBooking, etc.)
-- `api/entities/[entity]/index.js` - Entity list/create operations
-- `api/entities/[entity]/[id].js` - Entity get/update/delete operations
-- Static frontend served from Vite build output
-
-**Deployment Parity Status (Updated Nov 2024):**
-All critical functions now have parity between Express and Vercel serverless:
-- validateMember with Zoho CRM sync
-- Magic link generation/verification
-- createBooking with program ticket deduction
-- validateColleague with organization validation
-- processProgramTicketPurchase/cancel/reinstate
-- Job posting functions (member and non-member)
-- Discount code application
-- Training fund balance sync
-
-**Table Name Mappings:**
-Entity names map to Supabase table names using singular form:
-- `IEditPage` → `i_edit_page` (note underscore between i and edit)
-- `IEditPageElement` → `i_edit_page_element`
-- `IEditElementTemplate` → `i_edit_element_template`
-- All other entities use snake_case conversion
-
-**Critical Constraints:**
-- No visual or UX modifications permitted
-- All component structures must remain identical
-- Styling and layouts must be pixel-perfect matches
-- Only infrastructure and platform integration changes allowed
-
-**Architecture Pattern for Member/Role Access:**
-React Router's `<Routes>` component doesn't propagate props from parent Layout. All pages requiring member/role data use the centralized `useMemberAccess` hook located at `client/src/hooks/useMemberAccess.js`.
-
-The hook provides:
-- `memberInfo` - Current member data from sessionStorage (reactive to updates)
-- `organizationInfo` - Current organization data from sessionStorage (reactive to updates)
-- `memberRole` - Role data fetched via useQuery
-- `isAdmin` - Boolean indicating if memberRole.is_admin === true
-- `isFeatureExcluded(featureId)` - Function to check if a feature is excluded for the user
-- `isAccessReady` - Boolean indicating if all access data is loaded
-- `reloadMemberInfo()` - Function to refresh member data from API and update state
-- `refreshOrganizationInfo()` - Function to refresh organization data from API and update state
-
-Example usage in pages:
-```javascript
-import { useMemberAccess } from "@/hooks/useMemberAccess";
-
-export default function MyPage() {
-  const { memberInfo, organizationInfo, isAdmin, isAccessReady, reloadMemberInfo } = useMemberAccess();
-  
-  // For admin-only pages, add access control:
-  const [accessChecked, setAccessChecked] = useState(false);
-  
-  useEffect(() => {
-    if (isAccessReady) {
-      if (!isAdmin) {
-        window.location.href = createPageUrl('Events');
-      } else {
-        setAccessChecked(true);
-      }
-    }
-  }, [isAdmin, isAccessReady]);
-  
-  if (!accessChecked) return <LoadingState />;
-  
-  // Rest of component...
-}
+```js
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(
+  process.env.DEST_SUPABASE_URL,
+  process.env.DEST_SUPABASE_KEY
+);
 ```
 
-**Data Freshness & Caching Strategy:**
-The application uses a hybrid approach to ensure data freshness while maintaining good performance:
+Quick one-off from bash (env vars ARE available in the shell):
 
-1. **Global Default (5 seconds)**: React Query is configured with `staleTime: 5000` and `refetchOnMount: true` in `client/src/main.jsx`. This means:
-   - Data is considered fresh for 5 seconds
-   - When returning to a page after 5+ seconds, React Query shows cached data immediately then refetches in the background
-   - Users always see instant page loads with seamless freshness checks
+```bash
+node -e "
+const { createClient } = require('@supabase/supabase-js');
+const sb = createClient(process.env.DEST_SUPABASE_URL, process.env.DEST_SUPABASE_KEY, { auth: { persistSession: false } });
+(async () => {
+  const { data, error } = await sb.from('tenant').select('id, slug, name').limit(5);
+  console.log({ data, error });
+})();
+"
+```
 
-2. **Real-time Content Feeds (staleTime: 0)**: Critical content pages use `staleTime: 0` to always fetch fresh data:
-   - Articles, PublicArticles, MyArticles - main articles feed
-   - News, PublicNews - news listings
-   - Resources, PublicResources - resources feed
-   - Admin management pages (ArticleManagement, ResourceManagement, FormManagement, FloaterManagement, AwardManagement)
-   - Content pages also have Supabase Realtime subscriptions for live updates while on the page
+## Testing
+- **Direct Debit plan totals:** total plans and exact membership-display buckets share console eligibility; operational exceptions are separate overlapping metrics. `node scripts/run-isolated-tests.mjs node --test api/_lib/directDebitMembershipPresentation.test.mjs client/src/pages/DirectDebitAdmin.visibility.test.mjs` and `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$(command -v chromium) npx playwright test --config=playwright.task4687.config.mjs` cover the 249/11 reconciliation and drill-downs. Read-only DEST and exact-host evidence is recorded in `docs/task-4699-dd-plan-total-evidence.md`; authenticated deployed verification remains unavailable. No schema migration is required or applied for this change.
+- **Form role save/copy:** `node scripts/run-isolated-tests.mjs node --import tsx --test api/_lib/formMemberRoleAssignment.test.mjs api/entities/formRoleValidationBoundary.test.mjs client/src/lib/formRoleValidationError.test.mjs client/src/pages/FormBuilder.memberRoleValidation.test.jsx` covers tenant-scoped active roles, inactive legacy fixed roles, field-only saves, lookup failures and unavailable editor selections. Production DEST was inspected read-only on 2026-09-21: form `855009a5-13f9-4f3c-8595-42595c6bf8d1` references missing role `c8e4f12f-6ac3-4be7-9222-1f20bf0e4f8a` only in its inactive legacy fixed setting; both active answer-mapped roles belong to its tenant. No migration or data repair is required or applied. The copy regression is an authorized isolated handler fixture, not a live production insert; no submissions or member side effects were triggered.
+- **Repository vault deletion:** `node scripts/run-isolated-tests.mjs node --import tsx --test api/_lib/fileRepositoryDelete.test.mjs client/src/pages/FileManagement.delete.test.jsx scripts/remove-authorized-gfi-vault-document.test.mjs` covers storage-first deletion, tenant/URL guards, retries, shared references, confirmation and unchanged folder semantics. No schema migration is needed. The authorized GFI CoP Leadership Team Expression of Interest document was removed from DEST `public-assets` on 2026-09-21 using the exact-target Storage API runner `scripts/remove-authorized-gfi-vault-document.mjs`. Authenticated storage and both origin/original vault URLs confirmed object absence; public responses were HTTP 400 with embedded 404/NoSuchKey JSON and cache BYPASS, not document content. Only that pinned object was removed. Source-code implementation still requires normal Vercel deployment; local checks do not prove public rollout.
+- **Mobile header height:** `npm run test:mobile-header-height` checks 64–200px validation, JSON save/reset and microsite inheritance without database access. `npm run test:mobile-header-height:browser` uses intercepted fixtures against the development app for responsive public-header behavior. The tenant setting lives in existing `header_config`; no migration is required. Desktop sizing/shrink and the drawer remain independent.
+- **Secondary organisation assignment retirement:** `node scripts/run-isolated-tests.mjs node --test api/_lib/customObjectService.test.mjs client/src/pages/customObjects/RelatedRecordsPanel.test.mjs` covers permission-aware required-link conflicts. `node scripts/run-isolated-tests.mjs --allow-local-postgres node --test api/_lib/customObjectMigration.integration.test.mjs` verifies archive cascades/history and atomic rollback on a disposable database. `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=$(command -v chromium) npx playwright test --config=tests/secondary-organisation-archive.config.mjs` exercises member-panel confirmation, permissions and refresh using intercepted fixtures only. No new migration is required; existing DEST archive/required-edge triggers were confirmed enabled read-only. Authenticated deployed verification remains separate from these local tests.
+-   **Deleted-member Custom Object relationships:** service regressions run with `node scripts/run-isolated-tests.mjs node --test api/_lib/customObjectService.test.mjs`. SQL and migration safety checks: `node scripts/run-isolated-tests.mjs --allow-local-postgres node --test supabase/migrations/20261107_custom_object_relationship_deleted_members.test.mjs scripts/apply-custom-object-relationship-deleted-members-migration.test.mjs api/_lib/customObjectRelationshipDeletedMembers.postgres.test.mjs`. Browser fixtures: `npx playwright test --config=tests/hide-deleted-member-relationships.config.mjs` against the running application; all application API responses are intercepted, not live data.
+-   **Form payment choices:** `node scripts/run-isolated-tests.mjs node --import tsx --test client/src/components/forms/FormPaymentSubmit.choices.test.jsx client/src/components/forms/FormPaymentSubmit.caching.test.jsx client/src/lib/formPaymentQuote.test.mjs client/src/lib/directDebitConsentSummary.test.mjs` covers neutral choices, validation/disabled/zero-payment gates, provider state and quote contracts. The new choice component tests also run in `npm test`. With the app running, `npx playwright test --config=tests/form-payment-choices.config.mjs` checks hosted and iframe layouts and mocked provider launches; all payment/data requests are intercepted and no real payments, mandates, or submissions are created. Before-state reference: `attached_assets/Screenshot_2026-09-18_at_08.40.49_1789713823649.png`; browser evidence is written to `/tmp/form-payment-choices-results`.
+-   **Form membership invoice completion:** `node --test api/_lib/formMembershipFinalize.behavior.test.mjs api/_lib/formStripeInvoiceSettlement.test.mjs api/_lib/formStripeProviderSettlement.test.mjs api/_lib/formMembershipProgressCas.postgres.test.mjs` exercises invoice creation, provider-company validation, linked-invoice retries, separate settlement, and atomic progress claims using fixtures/temporary PostgreSQL only. It does not repair existing submissions or call live accounting providers.
+-   **AI assistant tests** (registered as the `ai-assistant-tests` validation step, runs automatically on task completion): `node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/aiCompositionRender.test.mjs` — member-AI visibility (security boundary), ranking, indexer, help-chunker, dashboard aggregation/LMIC operators, Canvas auto-height bake guards, `useAutoHeightBake` runtime gates (jsdom), and Canvas auto reading-order suites.
+-   **GoCardless tests:** `node --test api/_lib/gocardless*.test.mjs` — webhook signature/idempotency/status-transition suites, per-tenant credential resolution (tenant_integrations → env fallback, env/token mismatch guards), org DD billing-contact invitations (token format, expiry clamp 1-90 via `dd_invite_expiry_days`, validate/supersede/single-use/revoke, recipient dedupe), Phase 5 renewal decisions (`gocardlessDdRenewals.test.mjs`), and migration invite/funnel (`gocardlessDdMigration.test.mjs`).
+-   **GoCardless sandbox proof:** `node scripts/gocardless-sandbox-proof.mjs [runId]` — billing request + hosted flow creation and idempotent-retry behaviour against the GC sandbox (requires `GOCARDLESS_ACCESS_TOKEN`; refuses to run against live).
+-   **Pending-PO report tests:** `node --test api/_lib/pendingPoInvoice.test.mjs` — PO reference extraction/blacklist and cross-record membership PO propagation helpers.
+-   **Organisation Directory filters:** `npm run test:directory-object-fields` covers schema projections, safe diagnostics, exact source-value selection, permission revocation, and population pagination; `npx playwright test tests/directory-object-fields.smoke.spec.mjs` covers mounted directory controls and card behaviour. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` when using a system Chromium.
+-   **Destination directory verification (read-only):** `node scripts/verify-directory-source-values-destination.mjs` checks the configured BNMS Department Name source against DEST without changing settings or records. `npx playwright test --config=tests/task-4360-destination-harness.config.mjs` renders the local app with fixture sign-in/chrome and real destination-backed directory service responses. This harness is not a deployed-login/authentication test; `scripts/verify-task-4360-preview.mjs` separately supports normal authenticated preview verification with an ephemeral `PLAYWRIGHT_STORAGE_STATE`.
+-   **Repeatable Custom Object source verification (read-only):** `node scripts/verify-form-row-choice-sources.mjs --parent-object=<uuid> --related-object=<uuid> --value-field=<name>` checks record → distinct scalar → filtered record options and submission eligibility against DEST using an in-memory form. It does not save forms, submissions, or catalogue records.
 
-3. **Supabase Realtime Subscriptions**: Implemented for live updates while user is on the page:
-   - `useBlogPostRealtime` - blog_post table changes
-   - `useResourceRealtime` - resource table changes
-   - `useNavigationRealtime` - navigation_item and portal_menu changes
-   - `useArticleCommentRealtime` - article_comment table changes (filtered by articleId for live comment updates)
-   - `useArticleReactionRealtime` - article_reaction table changes (filtered by articleId for live reaction counts)
-   - `useCommentReactionRealtime` - comment_reaction table changes (for live thumbs up/down on comments)
-   - All hooks use a single shared Supabase client from `client/src/api/supabaseClient.js`
+## Env vars (current canonical set)
+Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPABASE_*` names; prefer the `DEST_*` names below for new code.
 
-This approach was chosen because Base44's SDK had multi-minute cache delays that were unacceptable for the client.
+| Var | Purpose |
+| --- | ------- |
+| `DEST_SUPABASE_URL` / `DEST_SUPABASE_KEY` / `DEST_DATABASE_URL` | Destination (prod) Supabase. See "Database connection". |
+| `SOURCE_SUPABASE_URL` / `SOURCE_SUPABASE_KEY` / `SOURCE_DATABASE_URL` | Legacy single-tenant snapshot — only used by migration scripts. |
+| `DATABASE_URL` | Direct host (IPv6 only) — used by Vercel / Drizzle push, not this workspace. |
+| `MAILGUN_API_KEY`, `MAILGUN_REGION` (default `eu`), `MAILGUN_FROM_EMAIL`, `APP_DOMAIN` (default `iconn.app`) | Email sending. `MAILGUN_FROM_EMAIL` is the non-system default From; system emails are pinned to `noreply@mail.${APP_DOMAIN}` regardless. |
+| `STRIPE_SECRET_KEY` | Tenant Stripe AND platform-side paid-plan upgrade Checkout. |
+| `STRIPE_PLAN_WEBHOOK_SECRET` | Verifies `/api/webhooks/stripe-plan` from the platform Stripe account. Configure dashboard to deliver `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
+| `GOCARDLESS_ENVIRONMENT` | `sandbox` (default) or `live`. Platform-level FALLBACK only — tenants connect their own GoCardless account via `tenant_integrations` (`integration_type='gocardless'`, resolved by `api/_lib/gocardlessCredentials.js`). |
+| `GOCARDLESS_ACCESS_TOKEN` | Platform-fallback GoCardless API access token (sandbox tokens start `sandbox_`, live `live_`; env/token mismatch is rejected at call time). |
+| `GOCARDLESS_WEBHOOK_SECRET` | Platform-fallback secret verifying `Webhook-Signature` (HMAC-SHA256 of raw body) on `/api/webhooks/gocardless`. Tenant-connected accounts register the URL with `?tenant=<uuid>` and are verified against their own stored secret. |
+| `GOCARDLESS_REDIRECT_BASE_URL` | Base URL for Billing Request Flow redirect/exit URIs (e.g. `https://iconn.app`). |
+| `GOCARDLESS_CREDITOR_ID` (opt) | Pins billing requests to one creditor on multi-creditor GC accounts. |
+| `GOOGLE_FONTS_API_KEY` | Server-side key for the Google Fonts Developer API. Powers live font search in the `/InstalledFonts` add dialog via `api/public/google-fonts.js`. If unset, the picker falls back to the curated `POPULAR_GOOGLE_FONTS` list. |
+| `XERO_CLIENT_ID` | Xero OAuth. |
+| `QUICKBOOKS_REDIRECT_URI` (opt) | Overrides default `${origin}/api/quickbooks/callback` for stable QBO OAuth redirect. |
+| `BROWSERLESS_API_TOKEN`, `BROWSERLESS_BASE_URL` (opt), `BROWSERLESS_AUDIT_TIMEOUT_MS` (opt) | Accessibility audits via browserless.io. |
+| `VITE_APP_URL` | Frontend-known app URL. |
+| `CAPTCHA_PROVIDER`, `CAPTCHA_SECRET_KEY` (opt) | Self-serve signup captcha (hCaptcha/Turnstile/reCAPTCHA). Bypassed when not production. |
+| `SIGNUP_RATE_IP_PER_HOUR`, `SIGNUP_RATE_EMAIL_PER_DAY` (opt) | Self-serve signup rate limits. |
+| `CRON_SECRET` | Guards all `/api/cron/*` endpoints. |
+| `ICONNECT_HEALTH_CHECK_TOKEN` | Required secret for `/api/health`; Better Stack must send it as the `X-Health-Token` request header. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_RENEWALS_URL` | Optional Better Stack heartbeat URL for membership renewals. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for membership-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_GOCARDLESS_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for GoCardless reconciliation. |
+| `BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for Stripe card-plan reconciliation. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL` | Optional Better Stack heartbeat URL for scheduled workflows. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL` | Optional Better Stack heartbeat URL for scheduled campaigns. |
+| `BETTERSTACK_HEARTBEAT_DATABASE_BACKUP_URL` | Optional Better Stack heartbeat URL for database backup to R2. |
+| `BETTERSTACK_HEARTBEAT_STORAGE_BACKUP_URL` | Optional Better Stack heartbeat URL for storage backup to R2. |
+| `BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for form-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_AUTOMATIC_MEMBERSHIP_PROCESSING_URL` | Optional Better Stack heartbeat URL for automatic membership processing. |
+| `ENABLE_RESET_DEBUG` (opt, `'true'`) | Temporary diagnostic: `/api/auth/request-admin-password-reset` returns a `debug` field (`no_identity`/`no_owner_membership`/`email_failed`/`sent`). Leave unset in normal operation so account existence is not disclosed. |
+| `R2_ACCOUNT_ID` | Cloudflare account ID — builds the R2 endpoint URL (`https://<id>.r2.cloudflarestorage.com`). Set this **or** `R2_ENDPOINT`. Vercel secret. |
+| `R2_ENDPOINT` (opt) | Full R2 endpoint URL override, instead of `R2_ACCOUNT_ID`. |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | R2 API token credentials + target bucket for backups. Vercel secrets. |
+| `DB_BACKUP_SCHEMAS` (opt) | Comma-separated Postgres schemas in the nightly DB dump (default: `public`). Supabase internal schemas (`auth`, `storage`, `realtime`, …) are intentionally excluded — Supabase manages them. |
 
-## Runtime Page Provisioning (CMS Feature)
+### External health monitoring
 
-**Overview:**
-The application supports runtime page/route provisioning - a key CMS capability that replaces Base44's limitation of requiring developer intervention to create new page routes. Admins can now publish pages instantly without code deployment.
+Create a Better Stack HTTP monitor for `GET /api/health`. In the monitor's
+request headers, configure `X-Health-Token` to the same secret held in the
+Vercel `ICONNECT_HEALTH_CHECK_TOKEN` environment variable. The endpoint is
+intentionally unauthorised only by that header and returns no dependency detail
+when the header is missing or invalid.
 
-**How It Works:**
-1. **Catch-All Route**: A `/:slug` route at the end of the router (in `client/src/pages/index.jsx`) catches any URL not matched by explicit routes
-2. **DynamicPage Component**: Located at `client/src/pages/DynamicPage.jsx`, renders IEdit pages based on URL slug
-3. **Publish Toggle**: In IEditPageManagement, admins click "Publish to /{slug}" to make pages live instantly
+The ten `BETTERSTACK_HEARTBEAT_*_URL` variables are independently optional
+and apply only to the ten selected production schedules. The application
+derives Better Stack's `/fail` target from each configured success URL; store
+only the success URL in Vercel Production. See
+`guides/better-stack-cron-heartbeats.md` for the setup matrix and the complete
+30-schedule coverage inventory.
+Set each Vercel value to the matching Better Stack heartbeat URL for only the
+scheduled job you wish to monitor. The job sends a success URL after a clean
+run and Better Stack's `/fail` URL for a failed run; delivery failures never
+change the job's response or retry behaviour.
 
-**Page Status Flow:**
-- `draft` status: Page is not publicly accessible (shows "Page Not Available" message)
-- `published` status: Page is live at `/{slug}` URL
+## Stack & where things live
+-   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS
+-   **Backend:** Express.js (dev) / Vercel serverless functions (prod), PostgreSQL, Drizzle ORM
+-   `/client`: Frontend source (`client/src/design-system` = custom "new-york" shadcn variant)
+-   `/api`: Backend API endpoints (Vercel serverless functions); shared helpers under `api/_lib/`
+-   `/supabase/migrations`: Database migrations (idempotent SQL); `supabase/schema.prisma` is the schema source of truth for Drizzle
+-   `/scripts`: Utility and migration scripts
+-   `client/index.html` + `api/render.js`: SSR for SEO/OG tag injection
 
-**Access Control:**
-- Public pages (`layout_type: 'public'`): Accessible to everyone when published
-- Member pages (`layout_type: 'member'`): Require login when published
+## Architecture decisions
+-   **Multi-tenancy:** Data isolation at GLOBAL / TENANT / ORGANIZATION / MEMBER levels via `tenant_id` and `organization_id`. The shared entity API hard-fails any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Identity:** Unified identity with per-tenant password isolation, Google OAuth, feature-based role management.
+-   **Email sending:** `api/_lib/emailService.js` resolves the sending domain off `tenantId` for tenant→member emails. **System emails** (platform→tenant-owner: admin reset, signup verification, team invite, billing notifications) MUST pass `systemEmail: true` (or use `sendSystemEmail()`); this forces both Mailgun domain AND From identity to `mail.${APP_DOMAIN}` / `noreply@mail.${APP_DOMAIN}`. System reset/verification links must point at `${APP_DOMAIN}/...` not a tenant subdomain.
+-   **Dynamic SEO:** SSR meta-tag injection per-tenant via `api/render.js`; per-page metadata resolved by `api/_lib/entityMeta.js`. Per-entity `seo_title` / `seo_description` / `og_image_url` overrides on events, blog posts, news, campaigns, resources, and directories (UI in `client/src/components/blog/SEOSettings.jsx`). `og:image` URLs on `vault.iconn.app` or `*.supabase.co` are proxied through `/api/og-image`.
+-   **Event deletion:** Multi-step cancellation flow (refunds, reinstatements, Zoom unregistration) before any data purge. Direct deletion of events is deprecated for UI flows.
+-   **Semantic `warning` color:** `--warning` / `--warning-foreground` CSS vars in `client/src/index.css` (both themes, WCAG-AA). Use `text-warning`, `bg-warning`, `<Badge variant="warning">`, `<Alert variant="warning">` instead of raw amber/yellow/orange palette classes.
+-   **Membership invoices:** `organisation_membership_history` / `member_membership_history` carry `payment_status` (`unpaid`/`paid`/`partial`/`voided`) + `paid_at`, separate from the lifecycle `status`. Accounting-sync failures flag the row `accounting_sync_status='failed'` (not swallowed) with a Retry button in `OrgMembershipTab.jsx`. Payment reconciliation cron `/api/cron/reconcile-membership-invoice-payments` (every 3h, `CRON_SECRET`-guarded) queries Xero/QBO and fires workflows on `unpaid -> paid` only. See `api/_lib/membershipPaymentReconciliation.js`, `api/_lib/accountingProvider.js`.
+-   **Tenant storage metering:** `tenant.storage_used_bytes` (BIGINT) drives `checkStorageQuota` (`api/_lib/planQuota.js`) and `/admin/plan-usage`. Maintained incrementally via `addTenantStorageBytes` (`api/_lib/tenantStorageUsage.js`). Can drift (signed-URL claimed size); re-baseline with `scripts/recompute-tenant-storage.mjs` or the nightly cron.
+-   **Paid-plan upgrade flow (`/admin/plan-usage` → Stripe Checkout):** `PlanUsage.jsx` → `api/admin/plan-checkout.js` (tenant-admin RBAC, uses PLATFORM `STRIPE_SECRET_KEY`, NOT tenant's connected Stripe). First-time creates a Checkout Session; existing live sub swaps price in place via `stripe.subscriptions.update` (proration, never a parallel sub). Webhook `api/webhooks/stripe-plan.js` upserts `tenant_subscription` and flips `tenant.plan_code` only when status is `active`/`trialing`; `subscription.deleted` reverts to `free`.
+-   **Self-serve signup & onboarding (`/signup` → wizard):** `signup-start.js` (captcha + rate limits + verification email) → `signup-verify.js` (`provisionTenant`, `free` plan) → 5-step `OnboardingWizard.jsx` → `POST /api/admin/onboarding` runs `api/_lib/onboardingSeeder.js` (branding + tiers + persona seed pack tagged `is_sample=true`). Legacy admins backfilled to `onboarding_status='complete'`.
+-   **Accessibility audits:** Admin page (RBAC `admin.accessibility-audits`) runs axe-core 4.10 via browserless.io for tenant public URLs. Results in `accessibility_audit` / `accessibility_audit_result`; endpoints under `/api/admin/accessibility-audits`; runner `api/_lib/browserlessAxe.js`. v1 limits: ≤10 URLs/run, http(s) only, no credentialed URLs.
+-   **AI Design Studio V1 (Canvas AI Composition):** generation via `api/ai-compositions/generate.js`; prompt-led editing via `api/ai-compositions/edit.js` (propose/accept/reject/undo + conversation history in `ai_composition_conversation`) and `api/ai-compositions/destinations.js` (record-ID link picker — the AI never invents internal URLs). Patch engine `api/_lib/aiCompositionPatch.js`, edit pipeline `api/_lib/aiCompositionEdit.js`. Accept re-applies the STORED proposal server-side against the current document; complete redesigns are saved as alternatives (`is_alternative`); protected-value changes (prices, dates, names) require explicit confirmation. Editor UI in `client/src/components/canvas/blocks/AiCompositionEditPanel.jsx`. V1 scene-graph compositions are now read-only w.r.t. the V2 pivot.
+-   **AI Design Studio V2 (native-code pivot):** V2 compositions are native AI HTML/CSS/SVG packages (document `schemaVersion "2.0"`, `ai_composition.renderer_version=2`), sanitised ONCE server-side at store time by `api/_lib/aiCodePipeline.js` (schema → jsdom+DOMPurify sanitise → manifest cross-check → postcss CSS scoping under `[data-ai-composition="<uuid>"]` → leak check; reject-don't-repair), rendered verbatim by `AiCodeCompositionBlock.jsx`; signed CSP-locked preview + Browserless screenshots via `api/ai-compositions/preview.js` (HMAC keyed by `AIC_PREVIEW_SECRET`/`CRON_SECRET`). **Page bodies:** `compositionType: "page_body"` runs a plan stage (content manifest + creative plan, anti-degenerate checks in `aiCodeGeneration.js`) before code gen; page gates forbid `<header>/<footer>/<nav>` recreation. **Actions** (`data-ai-action` + manifest, `api/_lib/aiCodeActions.js`) resolve server-side to real records — unresolved actions block page publish (409 `AI_UNRESOLVED_ACTIONS`; editor fix-up via `api/ai-compositions/resolve-action.js`). **Slots** (`data-iconnect-slot`, `api/_lib/aiCodeSlots.js`) portal trusted platform blocks into generated markup; never block publish. **Imagery:** the model never writes image URLs — `<img data-ai-asset="<key>">` placeholders declared in the package `assets` manifest, fulfilled server-side (`api/_lib/aiCodeAssets.js`, gpt-image-1 or media library, tenant-owned storage); only unfulfilled `required` assets hard-reject; image swap is a deterministic `replace-image` edit action. V1→V2 rebuild is admin-only via `api/ai-compositions/rebuild-v2.js` (never automatic). **Editing:** `api/ai-compositions/edit-v2.js` (propose/accept/reject/undo); proposals (element-scoped patches via `data-ai-id`, or full revisions saved as alternatives) stored in `ai_composition_conversation` and re-applied against the CURRENT document on accept (`api/_lib/aiCodeEdit.js`); protected values + locked `data-content-key` texts require confirmation; breakpoint-scoped edits must leave other breakpoints' CSS untouched; accepts introducing NEW critical accessibility issues are blocked (422 `AI_VALIDATION_CRITICAL`). Admin-only Composition Inspector via `GET /api/ai-compositions/:id?inspector=1` (404 to non-admins). Full details: `guides/ai-design-studio-v2-pivot.md`.
+-   **Member AI structured Q&A:** the member assistant answers count/aggregate questions from live records via a whitelisted query spec (LLM never writes SQL). Catalog + validation + executors in `api/_lib/memberAiStructured.js`; routing in `api/member-ai/ask.js`. Adding an entity/field: follow `guides/member-ai-structured-qa.md` (visibility mirrors the member browse surfaces; drift guard in `memberAiStructuredSchemaDrift.test.mjs`).
+-   **Dashboard widget result cache:** saved Dashboard and Canvas widgets read last-known-good results from service-only PostgreSQL cache state instead of rerunning every aggregation. `api/dashboard/_lib/resultCache.js` coordinates 15-minute freshness, fenced 90-second leases, bounded retries, fair tenant scheduling, and active-personal-widget prewarming; `/api/cron/refresh-dashboard-widgets` runs every minute under `CRON_SECRET`. Authorization is always checked before cache access, while builder previews and drilldowns remain live. Apply `migrations/dashboard_widget_result_cache.sql` to pinned DEST with `scripts/apply-dashboard-widget-result-cache.mjs` before deploying the cache-dependent API. Full contract and runbook: `guides/dashboard-widget-cache.md`.
 
-**Fallback Handling:**
-- Unknown slugs show a 404 page with "Go Home" link
-- Unpublished pages show "Page Not Available" message
-- Member pages show "Members Only" gate for unauthenticated users
+## Gotchas
+-   **Vercel preview-domain ownership:** Project `vite-migrate-replit-6` serves this repository. Both `dev.iconn.app` and `*.dev.iconn.app` are verified Vercel project domains pinned to the `eventemb2` Git branch; tenant custom-domain actions must never attach, reclaim, or detach `iconn.app` or any of its subdomains.
+-   **`dev.iconn.app` = Vercel preview deployment** built from the `eventemb2` git branch of the same Vercel project as production. Shares the same Supabase. (a) Vercel's Functions → Logs viewer defaults to Production and hides Preview logs — switch the Environment filter to Preview. (b) A fix only reaches `dev.iconn.app` after the commit is on the `eventemb2` branch and that branch's preview build has finished.
+-   **`sendEmail()` never throws.** It catches Mailgun errors and returns `{ success: false, error, status, domain }`. Callers MUST inspect the return value; a bare `try { await sendEmail(...) } catch {}` will falsely report success on 401 / unverified domain / missing key. Canonical pattern: `api/auth/request-admin-password-reset.js`.
+-   **System emails MUST pass `systemEmail: true`** (or use `sendSystemEmail()`). Without it, a tenant with a verified custom sending domain would silently send admin reset / signup / billing emails from the tenant's own brand — wrong identity.
+-   **API hard-fails** any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Workflow `dd_owner` / `dd_owner_email` placeholders** resolve via `resolveDdOwnerForSubmission` (`api/_lib/ddOwner.js`) only when the trigger caller passes `context.formSubmissionId` to `triggerWorkflows`. Without submission context they collapse to empty strings.
+-   **No server-side length validation on `event.summary` / `complex_event.summary`** — relies on client-side `event_summary_max_length` system setting (default 150).
 
-**Key Files:**
-- `client/src/pages/DynamicPage.jsx` - Dynamic page renderer
-- `client/src/pages/IEditPageManagement.jsx` - Admin publish/unpublish UI
-- `client/src/pages/index.jsx` - Router with catch-all route
+## Product
+-   **Core:** Members, Events, Bookings, Resources, Blog.
+-   **Identity:** Unified login, multi-tenant ownership, organization memberships, granular access control.
+-   **Customization:** Page Builder, Custom Forms with conditional logic, Workflow Automation, per-tenant branding.
+-   **Financials:** Stripe membership payments, Xero/QBO invoicing, Fundraising with Gift Aid.
+-   **Comms:** Email templates, campaigns, member preferences.
+-   **Integrations:** WordPress Sync, Zoom (events/sessions), Zoho CRM sync.
+-   **Reporting:** Due Diligence Reports, configurable Member/Org Directories.
+-   **Community:** Tenant-scoped forums, Member Group email campaigns.
 
-**Testing Notes:**
-- Use `/testlogin` page with `mat@isaasi.co.uk` as authentication backdoor for testing admin features
-- Magic link authentication stores member data in sessionStorage key `agcas_member`
+## User preferences
+Preferred communication style: Simple, everyday language.
+
+## Pointers
+-   **React:** `https://react.dev/` · **Tailwind:** `https://tailwindcss.com/docs` · **Drizzle:** `https://orm.drizzle.team/docs/overview`
+-   **Vercel Functions:** `https://vercel.com/docs/functions/overview` · **Supabase:** `https://supabase.com/docs`
+-   **Stripe:** `https://stripe.com/docs/api` · **Mailgun:** `https://documentation.mailgun.com/en/latest/api_reference.html`
+# Membership Management Platform
+A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
+
+## Run & Operate
+-   **Run Dev Server:** `npm run dev`
+-   **Build:** `npm run build` · **Typecheck:** `npm run typecheck` · **Codegen:** `npm run codegen`
+-   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — only works from environments with IPv6 outbound; **not from this Replit workspace** (see "Database connection").
+-   **Migrations:** every `.sql` in `supabase/migrations/` is idempotent and applied against `DEST_DATABASE_URL` (pooler). Most migrations have a matching `node scripts/apply-*.mjs` runner; check `scripts/` before applying anything by hand.
+-   **One-off scripts (backfills, CSV imports, tenant seeds):** live in `scripts/` (e.g. `recompute-tenant-storage.mjs`, `backfill-*.mjs`, `import-*.mjs`, `seed-*.mjs`). They are idempotent, default to dry-run unless an `--apply` flag is passed, and many are hard-pinned to a single tenant. Read the script header before running; each documents its own flags and scope.
+-   **Storage usage reconcile:** `node scripts/recompute-tenant-storage.mjs [--dry-run] [--tenant=<uuid>]`, or trust the nightly cron at `/api/cron/recompute-tenant-storage` (03:00 UTC, `CRON_SECRET`-guarded).
+-   **Dashboard widget cache migration:** `node scripts/apply-dashboard-widget-result-cache.mjs` is offline/hash-only by default. After reviewing that exact SQL, apply only with `--apply --review-sha256=<printed-hash>`; the runner hard-pins DEST project `lvmzliemqnieeoruhkik`, uses verified TLS, and never falls back to SOURCE or the workspace runtime database.
+
+## Database connection (read this before any DB work from this workspace)
+There are two Supabase projects this codebase talks to:
+
+| Role | What it is | URL secret | Postgres URL secret | Service-role key secret |
+| ---- | ---------- | ---------- | ------------------- | ----------------------- |
+| **Destination (current prod)** | Multi-tenant iConnect DB | `DEST_SUPABASE_URL` (`https://lvmzliemqnieeoruhkik.supabase.co`) | `DEST_DATABASE_URL` | `DEST_SUPABASE_KEY` |
+| **Source (legacy)** | Pre-multi-tenancy single-tenant snapshot, used by migration scripts | `SOURCE_SUPABASE_URL` | `SOURCE_DATABASE_URL` | `SOURCE_SUPABASE_KEY` |
+
+**The Supabase direct host (`db.<project>.supabase.co`) is unreachable from this Replit workspace** — it publishes only IPv6 (AAAA) DNS and the Replit container has no IPv6 outbound route, so `psql`, `execute_sql_tool`, `drizzle-kit push`, and any raw `pg`/Drizzle client pointed at the direct host fail with `ENOTFOUND` / `ENETUNREACH`. Those tools work from Vercel functions, the user's laptop, and CI — just not from here against the direct host.
+
+**The Supabase Pooler hostname IS IPv4-reachable from this workspace** (`aws-1-eu-central-1.pooler.supabase.com:5432`, which is what `DEST_DATABASE_URL` already points to). `pg` clients using `DEST_DATABASE_URL` (transaction-pooler mode) work from Replit for read/write queries and DDL such as `CREATE INDEX`. Prefer `@supabase/supabase-js` for ordinary CRUD (REST endpoint is also IPv4-reachable, more ergonomic); reach for `pg` via `DEST_DATABASE_URL` only when you need raw SQL / DDL the REST API can't do.
+
+For any DB access from this workspace (scripts, ad-hoc debugging, one-off data fixes), use **`@supabase/supabase-js`** with the service-role key. Working reference: `scripts/debug-tenant.mjs`.
+
+```js
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(
+  process.env.DEST_SUPABASE_URL,
+  process.env.DEST_SUPABASE_KEY
+);
+```
+
+Quick one-off from bash (env vars ARE available in the shell):
+
+```bash
+node -e "
+const { createClient } = require('@supabase/supabase-js');
+const sb = createClient(process.env.DEST_SUPABASE_URL, process.env.DEST_SUPABASE_KEY, { auth: { persistSession: false } });
+(async () => {
+  const { data, error } = await sb.from('tenant').select('id, slug, name').limit(5);
+  console.log({ data, error });
+})();
+"
+```
+
+## Testing
+-   **AI assistant tests** (registered as the `ai-assistant-tests` validation step, runs automatically on task completion): `node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/aiCompositionRender.test.mjs` — member-AI visibility (security boundary), ranking, indexer, help-chunker, dashboard aggregation/LMIC operators, Canvas auto-height bake guards, `useAutoHeightBake` runtime gates (jsdom), and Canvas auto reading-order suites.
+-   **Dashboard widget cache tests:** `node --test api/dashboard/widgets/cache.test.mjs api/dashboard/widgets/embed.test.mjs` and the isolated-Postgres suite `node --test api/dashboard/_lib/resultCache.postgres.test.mjs`, plus `npx vitest run client/src/components/dashboard/WidgetCard.test.jsx`, cover cache states/claims, fail-closed cron auth, tenant/owner/Canvas boundaries, SQL fencing/fairness, and card refresh state. The task #610 migration was applied to verified DEST, but these tests and that database apply do not prove the public code or production Vercel schedule was deployed; follow `guides/dashboard-widget-cache.md`.
+-   **GoCardless tests:** `node --test api/_lib/gocardless*.test.mjs` — webhook signature/idempotency/status-transition suites, per-tenant credential resolution (tenant_integrations → env fallback, env/token mismatch guards), org DD billing-contact invitations (token format, expiry clamp 1-90 via `dd_invite_expiry_days`, validate/supersede/single-use/revoke, recipient dedupe), Phase 5 renewal decisions (`gocardlessDdRenewals.test.mjs`), and migration invite/funnel (`gocardlessDdMigration.test.mjs`).
+-   **GoCardless sandbox proof:** `node scripts/gocardless-sandbox-proof.mjs [runId]` — billing request + hosted flow creation and idempotent-retry behaviour against the GC sandbox (requires `GOCARDLESS_ACCESS_TOKEN`; refuses to run against live).
+-   **Pending-PO report tests:** `node --test api/_lib/pendingPoInvoice.test.mjs` — PO reference extraction/blacklist and cross-record membership PO propagation helpers.
+
+## Env vars (current canonical set)
+Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPABASE_*` names; prefer the `DEST_*` names below for new code.
+
+| Var | Purpose |
+| --- | ------- |
+| `DEST_SUPABASE_URL` / `DEST_SUPABASE_KEY` / `DEST_DATABASE_URL` | Destination (prod) Supabase. See "Database connection". |
+| `SOURCE_SUPABASE_URL` / `SOURCE_SUPABASE_KEY` / `SOURCE_DATABASE_URL` | Legacy single-tenant snapshot — only used by migration scripts. |
+| `DATABASE_URL` | Direct host (IPv6 only) — used by Vercel / Drizzle push, not this workspace. |
+| `MAILGUN_API_KEY`, `MAILGUN_REGION` (default `eu`), `MAILGUN_FROM_EMAIL`, `APP_DOMAIN` (default `iconn.app`) | Email sending. `MAILGUN_FROM_EMAIL` is the non-system default From; system emails are pinned to `noreply@mail.${APP_DOMAIN}` regardless. |
+| `STRIPE_SECRET_KEY` | Tenant Stripe AND platform-side paid-plan upgrade Checkout. |
+| `STRIPE_PLAN_WEBHOOK_SECRET` | Verifies `/api/webhooks/stripe-plan` from the platform Stripe account. Configure dashboard to deliver `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
+| `GOCARDLESS_ENVIRONMENT` | `sandbox` (default) or `live`. Platform-level FALLBACK only — tenants connect their own GoCardless account via `tenant_integrations` (`integration_type='gocardless'`, resolved by `api/_lib/gocardlessCredentials.js`). |
+| `GOCARDLESS_ACCESS_TOKEN` | Platform-fallback GoCardless API access token (sandbox tokens start `sandbox_`, live `live_`; env/token mismatch is rejected at call time). |
+| `GOCARDLESS_WEBHOOK_SECRET` | Platform-fallback secret verifying `Webhook-Signature` (HMAC-SHA256 of raw body) on `/api/webhooks/gocardless`. Tenant-connected accounts register the URL with `?tenant=<uuid>` and are verified against their own stored secret. |
+| `GOCARDLESS_REDIRECT_BASE_URL` | Base URL for Billing Request Flow redirect/exit URIs (e.g. `https://iconn.app`). |
+| `GOCARDLESS_CREDITOR_ID` (opt) | Pins billing requests to one creditor on multi-creditor GC accounts. |
+| `GOOGLE_FONTS_API_KEY` | Server-side key for the Google Fonts Developer API. Powers live font search in the `/InstalledFonts` add dialog via `api/public/google-fonts.js`. If unset, the picker falls back to the curated `POPULAR_GOOGLE_FONTS` list. |
+| `XERO_CLIENT_ID` | Xero OAuth. |
+| `QUICKBOOKS_REDIRECT_URI` (opt) | Overrides default `${origin}/api/quickbooks/callback` for stable QBO OAuth redirect. |
+| `BROWSERLESS_API_TOKEN`, `BROWSERLESS_BASE_URL` (opt), `BROWSERLESS_AUDIT_TIMEOUT_MS` (opt) | Accessibility audits via browserless.io. |
+| `VITE_APP_URL` | Frontend-known app URL. |
+| `CAPTCHA_PROVIDER`, `CAPTCHA_SECRET_KEY` (opt) | Self-serve signup captcha (hCaptcha/Turnstile/reCAPTCHA). Bypassed when not production. |
+| `SIGNUP_RATE_IP_PER_HOUR`, `SIGNUP_RATE_EMAIL_PER_DAY` (opt) | Self-serve signup rate limits. |
+| `CRON_SECRET` | Guards all `/api/cron/*` endpoints. |
+| `ICONNECT_HEALTH_CHECK_TOKEN` | Required secret for `/api/health`; Better Stack must send it as the `X-Health-Token` request header. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_RENEWALS_URL` | Optional Better Stack heartbeat URL for membership renewals. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for membership-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_GOCARDLESS_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for GoCardless reconciliation. |
+| `BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for Stripe card-plan reconciliation. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL` | Optional Better Stack heartbeat URL for scheduled workflows. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL` | Optional Better Stack heartbeat URL for scheduled campaigns. |
+| `BETTERSTACK_HEARTBEAT_DATABASE_BACKUP_URL` | Optional Better Stack heartbeat URL for database backup to R2. |
+| `BETTERSTACK_HEARTBEAT_STORAGE_BACKUP_URL` | Optional Better Stack heartbeat URL for storage backup to R2. |
+| `BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for form-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_AUTOMATIC_MEMBERSHIP_PROCESSING_URL` | Optional Better Stack heartbeat URL for automatic membership processing. |
+| `ENABLE_RESET_DEBUG` (opt, `'true'`) | Temporary diagnostic: `/api/auth/request-admin-password-reset` returns a `debug` field (`no_identity`/`no_owner_membership`/`email_failed`/`sent`). Leave unset in normal operation so account existence is not disclosed. |
+| `R2_ACCOUNT_ID` | Cloudflare account ID — builds the R2 endpoint URL (`https://<id>.r2.cloudflarestorage.com`). Set this **or** `R2_ENDPOINT`. Vercel secret. |
+| `R2_ENDPOINT` (opt) | Full R2 endpoint URL override, instead of `R2_ACCOUNT_ID`. |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | R2 API token credentials + target bucket for backups. Vercel secrets. |
+| `DB_BACKUP_SCHEMAS` (opt) | Comma-separated Postgres schemas in the nightly DB dump (default: `public`). Supabase internal schemas (`auth`, `storage`, `realtime`, …) are intentionally excluded — Supabase manages them. |
+
+### External health monitoring
+
+Create a Better Stack HTTP monitor for `GET /api/health`. In the monitor's
+request headers, configure `X-Health-Token` to the same secret held in the
+Vercel `ICONNECT_HEALTH_CHECK_TOKEN` environment variable. The endpoint is
+intentionally unauthorised only by that header and returns no dependency detail
+when the header is missing or invalid.
+
+The ten `BETTERSTACK_HEARTBEAT_*_URL` variables are independently optional
+and apply only to the ten selected production schedules. The application
+derives Better Stack's `/fail` target from each configured success URL; store
+only the success URL in Vercel Production. See
+`guides/better-stack-cron-heartbeats.md` for the setup matrix and the complete
+30-schedule coverage inventory.
+Set each Vercel value to the matching Better Stack heartbeat URL for only the
+scheduled job you wish to monitor. The job sends a success URL after a clean
+run and Better Stack's `/fail` URL for a failed run; delivery failures never
+change the job's response or retry behaviour.
+
+## Stack & where things live
+-   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS
+-   **Backend:** Express.js (dev) / Vercel serverless functions (prod), PostgreSQL, Drizzle ORM
+-   `/client`: Frontend source (`client/src/design-system` = custom "new-york" shadcn variant)
+-   `/api`: Backend API endpoints (Vercel serverless functions); shared helpers under `api/_lib/`
+-   `/supabase/migrations`: Database migrations (idempotent SQL); `supabase/schema.prisma` is the schema source of truth for Drizzle
+-   `/scripts`: Utility and migration scripts
+-   `client/index.html` + `api/render.js`: SSR for SEO/OG tag injection
+
+## Architecture decisions
+-   **Multi-tenancy:** Data isolation at GLOBAL / TENANT / ORGANIZATION / MEMBER levels via `tenant_id` and `organization_id`. The shared entity API hard-fails any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Identity:** Unified identity with per-tenant password isolation, Google OAuth, feature-based role management.
+-   **Email sending:** `api/_lib/emailService.js` resolves the sending domain off `tenantId` for tenant→member emails. **System emails** (platform→tenant-owner: admin reset, signup verification, team invite, billing notifications) MUST pass `systemEmail: true` (or use `sendSystemEmail()`); this forces both Mailgun domain AND From identity to `mail.${APP_DOMAIN}` / `noreply@mail.${APP_DOMAIN}`. System reset/verification links must point at `${APP_DOMAIN}/...` not a tenant subdomain.
+-   **Dynamic SEO:** SSR meta-tag injection per-tenant via `api/render.js`; per-page metadata resolved by `api/_lib/entityMeta.js`. Per-entity `seo_title` / `seo_description` / `og_image_url` overrides on events, blog posts, news, campaigns, resources, and directories (UI in `client/src/components/blog/SEOSettings.jsx`). `og:image` URLs on `vault.iconn.app` or `*.supabase.co` are proxied through `/api/og-image`.
+-   **Event deletion:** Multi-step cancellation flow (refunds, reinstatements, Zoom unregistration) before any data purge. Direct deletion of events is deprecated for UI flows.
+-   **Semantic `warning` color:** `--warning` / `--warning-foreground` CSS vars in `client/src/index.css` (both themes, WCAG-AA). Use `text-warning`, `bg-warning`, `<Badge variant="warning">`, `<Alert variant="warning">` instead of raw amber/yellow/orange palette classes.
+-   **Membership invoices:** `organisation_membership_history` / `member_membership_history` carry `payment_status` (`unpaid`/`paid`/`partial`/`voided`) + `paid_at`, separate from the lifecycle `status`. Accounting-sync failures flag the row `accounting_sync_status='failed'` (not swallowed) with a Retry button in `OrgMembershipTab.jsx`. Payment reconciliation cron `/api/cron/reconcile-membership-invoice-payments` (every 3h, `CRON_SECRET`-guarded) queries Xero/QBO and fires workflows on `unpaid -> paid` only. See `api/_lib/membershipPaymentReconciliation.js`, `api/_lib/accountingProvider.js`.
+-   **Tenant storage metering:** `tenant.storage_used_bytes` (BIGINT) drives `checkStorageQuota` (`api/_lib/planQuota.js`) and `/admin/plan-usage`. Maintained incrementally via `addTenantStorageBytes` (`api/_lib/tenantStorageUsage.js`). Can drift (signed-URL claimed size); re-baseline with `scripts/recompute-tenant-storage.mjs` or the nightly cron.
+-   **Paid-plan upgrade flow (`/admin/plan-usage` → Stripe Checkout):** `PlanUsage.jsx` → `api/admin/plan-checkout.js` (tenant-admin RBAC, uses PLATFORM `STRIPE_SECRET_KEY`, NOT tenant's connected Stripe). First-time creates a Checkout Session; existing live sub swaps price in place via `stripe.subscriptions.update` (proration, never a parallel sub). Webhook `api/webhooks/stripe-plan.js` upserts `tenant_subscription` and flips `tenant.plan_code` only when status is `active`/`trialing`; `subscription.deleted` reverts to `free`.
+-   **Self-serve signup & onboarding (`/signup` → wizard):** `signup-start.js` (captcha + rate limits + verification email) → `signup-verify.js` (`provisionTenant`, `free` plan) → 5-step `OnboardingWizard.jsx` → `POST /api/admin/onboarding` runs `api/_lib/onboardingSeeder.js` (branding + tiers + persona seed pack tagged `is_sample=true`). Legacy admins backfilled to `onboarding_status='complete'`.
+-   **Accessibility audits:** Admin page (RBAC `admin.accessibility-audits`) runs axe-core 4.10 via browserless.io for tenant public URLs. Results in `accessibility_audit` / `accessibility_audit_result`; endpoints under `/api/admin/accessibility-audits`; runner `api/_lib/browserlessAxe.js`. v1 limits: ≤10 URLs/run, http(s) only, no credentialed URLs.
+-   **AI Design Studio V1 (Canvas AI Composition):** generation via `api/ai-compositions/generate.js`; prompt-led editing via `api/ai-compositions/edit.js` (propose/accept/reject/undo + conversation history in `ai_composition_conversation`) and `api/ai-compositions/destinations.js` (record-ID link picker — the AI never invents internal URLs). Patch engine `api/_lib/aiCompositionPatch.js`, edit pipeline `api/_lib/aiCompositionEdit.js`. Accept re-applies the STORED proposal server-side against the current document; complete redesigns are saved as alternatives (`is_alternative`); protected-value changes (prices, dates, names) require explicit confirmation. Editor UI in `client/src/components/canvas/blocks/AiCompositionEditPanel.jsx`. V1 scene-graph compositions are now read-only w.r.t. the V2 pivot.
+-   **AI Design Studio V2 (native-code pivot):** V2 compositions are native AI HTML/CSS/SVG packages (document `schemaVersion "2.0"`, `ai_composition.renderer_version=2`), sanitised ONCE server-side at store time by `api/_lib/aiCodePipeline.js` (schema → jsdom+DOMPurify sanitise → manifest cross-check → postcss CSS scoping under `[data-ai-composition="<uuid>"]` → leak check; reject-don't-repair), rendered verbatim by `AiCodeCompositionBlock.jsx`; signed CSP-locked preview + Browserless screenshots via `api/ai-compositions/preview.js` (HMAC keyed by `AIC_PREVIEW_SECRET`/`CRON_SECRET`). **Page bodies:** `compositionType: "page_body"` runs a plan stage (content manifest + creative plan, anti-degenerate checks in `aiCodeGeneration.js`) before code gen; page gates forbid `<header>/<footer>/<nav>` recreation. **Actions** (`data-ai-action` + manifest, `api/_lib/aiCodeActions.js`) resolve server-side to real records — unresolved actions block page publish (409 `AI_UNRESOLVED_ACTIONS`; editor fix-up via `api/ai-compositions/resolve-action.js`). **Slots** (`data-iconnect-slot`, `api/_lib/aiCodeSlots.js`) portal trusted platform blocks into generated markup; never block publish. **Imagery:** the model never writes image URLs — `<img data-ai-asset="<key>">` placeholders declared in the package `assets` manifest, fulfilled server-side (`api/_lib/aiCodeAssets.js`, gpt-image-1 or media library, tenant-owned storage); only unfulfilled `required` assets hard-reject; image swap is a deterministic `replace-image` edit action. V1→V2 rebuild is admin-only via `api/ai-compositions/rebuild-v2.js` (never automatic). **Editing:** `api/ai-compositions/edit-v2.js` (propose/accept/reject/undo); proposals (element-scoped patches via `data-ai-id`, or full revisions saved as alternatives) stored in `ai_composition_conversation` and re-applied against the CURRENT document on accept (`api/_lib/aiCodeEdit.js`); protected values + locked `data-content-key` texts require confirmation; breakpoint-scoped edits must leave other breakpoints' CSS untouched; accepts introducing NEW critical accessibility issues are blocked (422 `AI_VALIDATION_CRITICAL`). Admin-only Composition Inspector via `GET /api/ai-compositions/:id?inspector=1` (404 to non-admins). Full details: `guides/ai-design-studio-v2-pivot.md`.
+-   **Member AI structured Q&A:** the member assistant answers count/aggregate questions from live records via a whitelisted query spec (LLM never writes SQL). Catalog + validation + executors in `api/_lib/memberAiStructured.js`; routing in `api/member-ai/ask.js`. Adding an entity/field: follow `guides/member-ai-structured-qa.md` (visibility mirrors the member browse surfaces; drift guard in `memberAiStructuredSchemaDrift.test.mjs`).
+
+## Gotchas
+-   **Vercel preview-domain ownership:** Project `vite-migrate-replit-6` serves this repository. Both `dev.iconn.app` and `*.dev.iconn.app` are verified Vercel project domains pinned to the `eventemb2` Git branch; tenant custom-domain actions must never attach, reclaim, or detach `iconn.app` or any of its subdomains.
+-   **`dev.iconn.app` = Vercel preview deployment** built from the `eventemb2` git branch of the same Vercel project as production. Shares the same Supabase. (a) Vercel's Functions → Logs viewer defaults to Production and hides Preview logs — switch the Environment filter to Preview. (b) A fix only reaches `dev.iconn.app` after the commit is on the `eventemb2` branch and that branch's preview build has finished.
+-   **`sendEmail()` never throws.** It catches Mailgun errors and returns `{ success: false, error, status, domain }`. Callers MUST inspect the return value; a bare `try { await sendEmail(...) } catch {}` will falsely report success on 401 / unverified domain / missing key. Canonical pattern: `api/auth/request-admin-password-reset.js`.
+-   **System emails MUST pass `systemEmail: true`** (or use `sendSystemEmail()`). Without it, a tenant with a verified custom sending domain would silently send admin reset / signup / billing emails from the tenant's own brand — wrong identity.
+-   **API hard-fails** any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Workflow `dd_owner` / `dd_owner_email` placeholders** resolve via `resolveDdOwnerForSubmission` (`api/_lib/ddOwner.js`) only when the trigger caller passes `context.formSubmissionId` to `triggerWorkflows`. Without submission context they collapse to empty strings.
+-   **No server-side length validation on `event.summary` / `complex_event.summary`** — relies on client-side `event_summary_max_length` system setting (default 150).
+
+## Product
+-   **Core:** Members, Events, Bookings, Resources, Blog.
+-   **Identity:** Unified login, multi-tenant ownership, organization memberships, granular access control.
+-   **Customization:** Page Builder, Custom Forms with conditional logic, Workflow Automation, per-tenant branding.
+-   **Financials:** Stripe membership payments, Xero/QBO invoicing, Fundraising with Gift Aid.
+-   **Comms:** Email templates, campaigns, member preferences.
+-   **Integrations:** WordPress Sync, Zoom (events/sessions), Zoho CRM sync.
+-   **Reporting:** Due Diligence Reports, configurable Member/Org Directories.
+-   **Community:** Tenant-scoped forums, Member Group email campaigns.
+
+## User preferences
+Preferred communication style: Simple, everyday language.
+
+## Pointers
+-   **React:** `https://react.dev/` · **Tailwind:** `https://tailwindcss.com/docs` · **Drizzle:** `https://orm.drizzle.team/docs/overview`
+-   **Vercel Functions:** `https://vercel.com/docs/functions/overview` · **Supabase:** `https://supabase.com/docs`
+-   **Stripe:** `https://stripe.com/docs/api` · **Mailgun:** `https://documentation.mailgun.com/en/latest/api_reference.html`
+# Membership Management Platform
+A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
+
+## Run & Operate
+-   **Run Dev Server:** `npm run dev`
+-   **Build:** `npm run build` · **Typecheck:** `npm run typecheck` · **Codegen:** `npm run codegen`
+-   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — only works from environments with IPv6 outbound; **not from this Replit workspace** (see "Database connection").
+-   **Migrations:** every `.sql` in `supabase/migrations/` is idempotent and applied against `DEST_DATABASE_URL` (pooler). Most migrations have a matching `node scripts/apply-*.mjs` runner; check `scripts/` before applying anything by hand.
+-   **One-off scripts (backfills, CSV imports, tenant seeds):** live in `scripts/` (e.g. `recompute-tenant-storage.mjs`, `backfill-*.mjs`, `import-*.mjs`, `seed-*.mjs`). They are idempotent, default to dry-run unless an `--apply` flag is passed, and many are hard-pinned to a single tenant. Read the script header before running; each documents its own flags and scope.
+-   **Storage usage reconcile:** `node scripts/recompute-tenant-storage.mjs [--dry-run] [--tenant=<uuid>]`, or trust the nightly cron at `/api/cron/recompute-tenant-storage` (03:00 UTC, `CRON_SECRET`-guarded).
+
+## Database connection (read this before any DB work from this workspace)
+There are two Supabase projects this codebase talks to:
+
+| Role | What it is | URL secret | Postgres URL secret | Service-role key secret |
+| ---- | ---------- | ---------- | ------------------- | ----------------------- |
+| **Destination (current prod)** | Multi-tenant iConnect DB | `DEST_SUPABASE_URL` (`https://lvmzliemqnieeoruhkik.supabase.co`) | `DEST_DATABASE_URL` | `DEST_SUPABASE_KEY` |
+| **Source (legacy)** | Pre-multi-tenancy single-tenant snapshot, used by migration scripts | `SOURCE_SUPABASE_URL` | `SOURCE_DATABASE_URL` | `SOURCE_SUPABASE_KEY` |
+
+**The Supabase direct host (`db.<project>.supabase.co`) is unreachable from this Replit workspace** — it publishes only IPv6 (AAAA) DNS and the Replit container has no IPv6 outbound route, so `psql`, `execute_sql_tool`, `drizzle-kit push`, and any raw `pg`/Drizzle client pointed at the direct host fail with `ENOTFOUND` / `ENETUNREACH`. Those tools work from Vercel functions, the user's laptop, and CI — just not from here against the direct host.
+
+**The Supabase Pooler hostname IS IPv4-reachable from this workspace** (`aws-1-eu-central-1.pooler.supabase.com:5432`, which is what `DEST_DATABASE_URL` already points to). `pg` clients using `DEST_DATABASE_URL` (transaction-pooler mode) work from Replit for read/write queries and DDL such as `CREATE INDEX`. Prefer `@supabase/supabase-js` for ordinary CRUD (REST endpoint is also IPv4-reachable, more ergonomic); reach for `pg` via `DEST_DATABASE_URL` only when you need raw SQL / DDL the REST API can't do.
+
+For any DB access from this workspace (scripts, ad-hoc debugging, one-off data fixes), use **`@supabase/supabase-js`** with the service-role key. Working reference: `scripts/debug-tenant.mjs`.
+
+```js
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(
+  process.env.DEST_SUPABASE_URL,
+  process.env.DEST_SUPABASE_KEY
+);
+```
+
+Quick one-off from bash (env vars ARE available in the shell):
+
+```bash
+node -e "
+const { createClient } = require('@supabase/supabase-js');
+const sb = createClient(process.env.DEST_SUPABASE_URL, process.env.DEST_SUPABASE_KEY, { auth: { persistSession: false } });
+(async () => {
+  const { data, error } = await sb.from('tenant').select('id, slug, name').limit(5);
+  console.log({ data, error });
+})();
+"
+```
+
+## Testing
+-   **AI assistant tests** (registered as the `ai-assistant-tests` validation step, runs automatically on task completion): `node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/aiCompositionRender.test.mjs` — member-AI visibility (security boundary), ranking, indexer, help-chunker, dashboard aggregation/LMIC operators, Canvas auto-height bake guards, `useAutoHeightBake` runtime gates (jsdom), and Canvas auto reading-order suites.
+-   **GoCardless tests:** `node --test api/_lib/gocardless*.test.mjs` — webhook signature/idempotency/status-transition suites, per-tenant credential resolution (tenant_integrations → env fallback, env/token mismatch guards), org DD billing-contact invitations (token format, expiry clamp 1-90 via `dd_invite_expiry_days`, validate/supersede/single-use/revoke, recipient dedupe), Phase 5 renewal decisions (`gocardlessDdRenewals.test.mjs`), and migration invite/funnel (`gocardlessDdMigration.test.mjs`).
+-   **GoCardless sandbox proof:** `node scripts/gocardless-sandbox-proof.mjs [runId]` — billing request + hosted flow creation and idempotent-retry behaviour against the GC sandbox (requires `GOCARDLESS_ACCESS_TOKEN`; refuses to run against live).
+-   **Pending-PO report tests:** `node --test api/_lib/pendingPoInvoice.test.mjs` — PO reference extraction/blacklist and cross-record membership PO propagation helpers.
+
+## Env vars (current canonical set)
+Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPABASE_*` names; prefer the `DEST_*` names below for new code.
+
+| Var | Purpose |
+| --- | ------- |
+| `DEST_SUPABASE_URL` / `DEST_SUPABASE_KEY` / `DEST_DATABASE_URL` | Destination (prod) Supabase. See "Database connection". |
+| `SOURCE_SUPABASE_URL` / `SOURCE_SUPABASE_KEY` / `SOURCE_DATABASE_URL` | Legacy single-tenant snapshot — only used by migration scripts. |
+| `DATABASE_URL` | Direct host (IPv6 only) — used by Vercel / Drizzle push, not this workspace. |
+| `MAILGUN_API_KEY`, `MAILGUN_REGION` (default `eu`), `MAILGUN_FROM_EMAIL`, `APP_DOMAIN` (default `iconn.app`) | Email sending. `MAILGUN_FROM_EMAIL` is the non-system default From; system emails are pinned to `noreply@mail.${APP_DOMAIN}` regardless. |
+| `STRIPE_SECRET_KEY` | Tenant Stripe AND platform-side paid-plan upgrade Checkout. |
+| `STRIPE_PLAN_WEBHOOK_SECRET` | Verifies `/api/webhooks/stripe-plan` from the platform Stripe account. Configure dashboard to deliver `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
+| `GOCARDLESS_ENVIRONMENT` | `sandbox` (default) or `live`. Platform-level FALLBACK only — tenants connect their own GoCardless account via `tenant_integrations` (`integration_type='gocardless'`, resolved by `api/_lib/gocardlessCredentials.js`). |
+| `GOCARDLESS_ACCESS_TOKEN` | Platform-fallback GoCardless API access token (sandbox tokens start `sandbox_`, live `live_`; env/token mismatch is rejected at call time). |
+| `GOCARDLESS_WEBHOOK_SECRET` | Platform-fallback secret verifying `Webhook-Signature` (HMAC-SHA256 of raw body) on `/api/webhooks/gocardless`. Tenant-connected accounts register the URL with `?tenant=<uuid>` and are verified against their own stored secret. |
+| `GOCARDLESS_REDIRECT_BASE_URL` | Base URL for Billing Request Flow redirect/exit URIs (e.g. `https://iconn.app`). |
+| `GOCARDLESS_CREDITOR_ID` (opt) | Pins billing requests to one creditor on multi-creditor GC accounts. |
+| `GOOGLE_FONTS_API_KEY` | Server-side key for the Google Fonts Developer API. Powers live font search in the `/InstalledFonts` add dialog via `api/public/google-fonts.js`. If unset, the picker falls back to the curated `POPULAR_GOOGLE_FONTS` list. |
+| `XERO_CLIENT_ID` | Xero OAuth. |
+| `QUICKBOOKS_REDIRECT_URI` (opt) | Overrides default `${origin}/api/quickbooks/callback` for stable QBO OAuth redirect. |
+| `BROWSERLESS_API_TOKEN`, `BROWSERLESS_BASE_URL` (opt), `BROWSERLESS_AUDIT_TIMEOUT_MS` (opt) | Accessibility audits via browserless.io. |
+| `VITE_APP_URL` | Frontend-known app URL. |
+| `CAPTCHA_PROVIDER`, `CAPTCHA_SECRET_KEY` (opt) | Self-serve signup captcha (hCaptcha/Turnstile/reCAPTCHA). Bypassed when not production. |
+| `SIGNUP_RATE_IP_PER_HOUR`, `SIGNUP_RATE_EMAIL_PER_DAY` (opt) | Self-serve signup rate limits. |
+| `CRON_SECRET` | Guards all `/api/cron/*` endpoints. |
+| `ICONNECT_HEALTH_CHECK_TOKEN` | Required secret for `/api/health`; Better Stack must send it as the `X-Health-Token` request header. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_RENEWALS_URL` | Optional Better Stack heartbeat URL for membership renewals. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for membership-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_GOCARDLESS_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for GoCardless reconciliation. |
+| `BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for Stripe card-plan reconciliation. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL` | Optional Better Stack heartbeat URL for scheduled workflows. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL` | Optional Better Stack heartbeat URL for scheduled campaigns. |
+| `BETTERSTACK_HEARTBEAT_DATABASE_BACKUP_URL` | Optional Better Stack heartbeat URL for database backup to R2. |
+| `BETTERSTACK_HEARTBEAT_STORAGE_BACKUP_URL` | Optional Better Stack heartbeat URL for storage backup to R2. |
+| `BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for form-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_AUTOMATIC_MEMBERSHIP_PROCESSING_URL` | Optional Better Stack heartbeat URL for automatic membership processing. |
+| `ENABLE_RESET_DEBUG` (opt, `'true'`) | Temporary diagnostic: `/api/auth/request-admin-password-reset` returns a `debug` field (`no_identity`/`no_owner_membership`/`email_failed`/`sent`). Leave unset in normal operation so account existence is not disclosed. |
+| `R2_ACCOUNT_ID` | Cloudflare account ID — builds the R2 endpoint URL (`https://<id>.r2.cloudflarestorage.com`). Set this **or** `R2_ENDPOINT`. Vercel secret. |
+| `R2_ENDPOINT` (opt) | Full R2 endpoint URL override, instead of `R2_ACCOUNT_ID`. |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | R2 API token credentials + target bucket for backups. Vercel secrets. |
+| `DB_BACKUP_SCHEMAS` (opt) | Comma-separated Postgres schemas in the nightly DB dump (default: `public`). Supabase internal schemas (`auth`, `storage`, `realtime`, …) are intentionally excluded — Supabase manages them. |
+
+### External health monitoring
+
+Create a Better Stack HTTP monitor for `GET /api/health`. In the monitor's
+request headers, configure `X-Health-Token` to the same secret held in the
+Vercel `ICONNECT_HEALTH_CHECK_TOKEN` environment variable. The endpoint is
+intentionally unauthorised only by that header and returns no dependency detail
+when the header is missing or invalid.
+
+The ten `BETTERSTACK_HEARTBEAT_*_URL` variables are independently optional
+and apply only to the ten selected production schedules. The application
+derives Better Stack's `/fail` target from each configured success URL; store
+only the success URL in Vercel Production. See
+`guides/better-stack-cron-heartbeats.md` for the setup matrix and the complete
+30-schedule coverage inventory.
+Set each Vercel value to the matching Better Stack heartbeat URL for only the
+scheduled job you wish to monitor. The job sends a success URL after a clean
+run and Better Stack's `/fail` URL for a failed run; delivery failures never
+change the job's response or retry behaviour.
+
+## Stack & where things live
+-   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS
+-   **Backend:** Express.js (dev) / Vercel serverless functions (prod), PostgreSQL, Drizzle ORM
+-   `/client`: Frontend source (`client/src/design-system` = custom "new-york" shadcn variant)
+-   `/api`: Backend API endpoints (Vercel serverless functions); shared helpers under `api/_lib/`
+-   `/supabase/migrations`: Database migrations (idempotent SQL); `supabase/schema.prisma` is the schema source of truth for Drizzle
+-   `/scripts`: Utility and migration scripts
+-   `client/index.html` + `api/render.js`: SSR for SEO/OG tag injection
+
+## Architecture decisions
+-   **Multi-tenancy:** Data isolation at GLOBAL / TENANT / ORGANIZATION / MEMBER levels via `tenant_id` and `organization_id`. The shared entity API hard-fails any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Identity:** Unified identity with per-tenant password isolation, Google OAuth, feature-based role management.
+-   **Email sending:** `api/_lib/emailService.js` resolves the sending domain off `tenantId` for tenant→member emails. **System emails** (platform→tenant-owner: admin reset, signup verification, team invite, billing notifications) MUST pass `systemEmail: true` (or use `sendSystemEmail()`); this forces both Mailgun domain AND From identity to `mail.${APP_DOMAIN}` / `noreply@mail.${APP_DOMAIN}`. System reset/verification links must point at `${APP_DOMAIN}/...` not a tenant subdomain.
+-   **Dynamic SEO:** SSR meta-tag injection per-tenant via `api/render.js`; per-page metadata resolved by `api/_lib/entityMeta.js`. Per-entity `seo_title` / `seo_description` / `og_image_url` overrides on events, blog posts, news, campaigns, resources, and directories (UI in `client/src/components/blog/SEOSettings.jsx`). `og:image` URLs on `vault.iconn.app` or `*.supabase.co` are proxied through `/api/og-image`.
+-   **Event deletion:** Multi-step cancellation flow (refunds, reinstatements, Zoom unregistration) before any data purge. Direct deletion of events is deprecated for UI flows.
+-   **Semantic `warning` color:** `--warning` / `--warning-foreground` CSS vars in `client/src/index.css` (both themes, WCAG-AA). Use `text-warning`, `bg-warning`, `<Badge variant="warning">`, `<Alert variant="warning">` instead of raw amber/yellow/orange palette classes.
+-   **Membership invoices:** `organisation_membership_history` / `member_membership_history` carry `payment_status` (`unpaid`/`paid`/`partial`/`voided`) + `paid_at`, separate from the lifecycle `status`. Accounting-sync failures flag the row `accounting_sync_status='failed'` (not swallowed) with a Retry button in `OrgMembershipTab.jsx`. Payment reconciliation cron `/api/cron/reconcile-membership-invoice-payments` (every 3h, `CRON_SECRET`-guarded) queries Xero/QBO and fires workflows on `unpaid -> paid` only. See `api/_lib/membershipPaymentReconciliation.js`, `api/_lib/accountingProvider.js`.
+-   **Tenant storage metering:** `tenant.storage_used_bytes` (BIGINT) drives `checkStorageQuota` (`api/_lib/planQuota.js`) and `/admin/plan-usage`. Maintained incrementally via `addTenantStorageBytes` (`api/_lib/tenantStorageUsage.js`). Can drift (signed-URL claimed size); re-baseline with `scripts/recompute-tenant-storage.mjs` or the nightly cron.
+-   **Paid-plan upgrade flow (`/admin/plan-usage` → Stripe Checkout):** `PlanUsage.jsx` → `api/admin/plan-checkout.js` (tenant-admin RBAC, uses PLATFORM `STRIPE_SECRET_KEY`, NOT tenant's connected Stripe). First-time creates a Checkout Session; existing live sub swaps price in place via `stripe.subscriptions.update` (proration, never a parallel sub). Webhook `api/webhooks/stripe-plan.js` upserts `tenant_subscription` and flips `tenant.plan_code` only when status is `active`/`trialing`; `subscription.deleted` reverts to `free`.
+-   **Self-serve signup & onboarding (`/signup` → wizard):** `signup-start.js` (captcha + rate limits + verification email) → `signup-verify.js` (`provisionTenant`, `free` plan) → 5-step `OnboardingWizard.jsx` → `POST /api/admin/onboarding` runs `api/_lib/onboardingSeeder.js` (branding + tiers + persona seed pack tagged `is_sample=true`). Legacy admins backfilled to `onboarding_status='complete'`.
+-   **Accessibility audits:** Admin page (RBAC `admin.accessibility-audits`) runs axe-core 4.10 via browserless.io for tenant public URLs. Results in `accessibility_audit` / `accessibility_audit_result`; endpoints under `/api/admin/accessibility-audits`; runner `api/_lib/browserlessAxe.js`. v1 limits: ≤10 URLs/run, http(s) only, no credentialed URLs.
+-   **AI Design Studio V1 (Canvas AI Composition):** generation via `api/ai-compositions/generate.js`; prompt-led editing via `api/ai-compositions/edit.js` (propose/accept/reject/undo + conversation history in `ai_composition_conversation`) and `api/ai-compositions/destinations.js` (record-ID link picker — the AI never invents internal URLs). Patch engine `api/_lib/aiCompositionPatch.js`, edit pipeline `api/_lib/aiCompositionEdit.js`. Accept re-applies the STORED proposal server-side against the current document; complete redesigns are saved as alternatives (`is_alternative`); protected-value changes (prices, dates, names) require explicit confirmation. Editor UI in `client/src/components/canvas/blocks/AiCompositionEditPanel.jsx`. V1 scene-graph compositions are now read-only w.r.t. the V2 pivot.
+-   **AI Design Studio V2 (native-code pivot):** V2 compositions are native AI HTML/CSS/SVG packages (document `schemaVersion "2.0"`, `ai_composition.renderer_version=2`), sanitised ONCE server-side at store time by `api/_lib/aiCodePipeline.js` (schema → jsdom+DOMPurify sanitise → manifest cross-check → postcss CSS scoping under `[data-ai-composition="<uuid>"]` → leak check; reject-don't-repair), rendered verbatim by `AiCodeCompositionBlock.jsx`; signed CSP-locked preview + Browserless screenshots via `api/ai-compositions/preview.js` (HMAC keyed by `AIC_PREVIEW_SECRET`/`CRON_SECRET`). **Page bodies:** `compositionType: "page_body"` runs a plan stage (content manifest + creative plan, anti-degenerate checks in `aiCodeGeneration.js`) before code gen; page gates forbid `<header>/<footer>/<nav>` recreation. **Actions** (`data-ai-action` + manifest, `api/_lib/aiCodeActions.js`) resolve server-side to real records — unresolved actions block page publish (409 `AI_UNRESOLVED_ACTIONS`; editor fix-up via `api/ai-compositions/resolve-action.js`). **Slots** (`data-iconnect-slot`, `api/_lib/aiCodeSlots.js`) portal trusted platform blocks into generated markup; never block publish. **Imagery:** the model never writes image URLs — `<img data-ai-asset="<key>">` placeholders declared in the package `assets` manifest, fulfilled server-side (`api/_lib/aiCodeAssets.js`, gpt-image-1 or media library, tenant-owned storage); only unfulfilled `required` assets hard-reject; image swap is a deterministic `replace-image` edit action. V1→V2 rebuild is admin-only via `api/ai-compositions/rebuild-v2.js` (never automatic). **Editing:** `api/ai-compositions/edit-v2.js` (propose/accept/reject/undo); proposals (element-scoped patches via `data-ai-id`, or full revisions saved as alternatives) stored in `ai_composition_conversation` and re-applied against the CURRENT document on accept (`api/_lib/aiCodeEdit.js`); protected values + locked `data-content-key` texts require confirmation; breakpoint-scoped edits must leave other breakpoints' CSS untouched; accepts introducing NEW critical accessibility issues are blocked (422 `AI_VALIDATION_CRITICAL`). Admin-only Composition Inspector via `GET /api/ai-compositions/:id?inspector=1` (404 to non-admins). Full details: `guides/ai-design-studio-v2-pivot.md`.
+-   **Member AI structured Q&A:** the member assistant answers count/aggregate questions from live records via a whitelisted query spec (LLM never writes SQL). Catalog + validation + executors in `api/_lib/memberAiStructured.js`; routing in `api/member-ai/ask.js`. Adding an entity/field: follow `guides/member-ai-structured-qa.md` (visibility mirrors the member browse surfaces; drift guard in `memberAiStructuredSchemaDrift.test.mjs`).
+
+## Gotchas
+-   **Vercel preview-domain ownership:** Project `vite-migrate-replit-6` serves this repository. Both `dev.iconn.app` and `*.dev.iconn.app` are verified Vercel project domains pinned to the `eventemb2` Git branch; tenant custom-domain actions must never attach, reclaim, or detach `iconn.app` or any of its subdomains.
+-   **`dev.iconn.app` = Vercel preview deployment** built from the `eventemb2` git branch of the same Vercel project as production. Shares the same Supabase. (a) Vercel's Functions → Logs viewer defaults to Production and hides Preview logs — switch the Environment filter to Preview. (b) A fix only reaches `dev.iconn.app` after the commit is on the `eventemb2` branch and that branch's preview build has finished.
+-   **`sendEmail()` never throws.** It catches Mailgun errors and returns `{ success: false, error, status, domain }`. Callers MUST inspect the return value; a bare `try { await sendEmail(...) } catch {}` will falsely report success on 401 / unverified domain / missing key. Canonical pattern: `api/auth/request-admin-password-reset.js`.
+-   **System emails MUST pass `systemEmail: true`** (or use `sendSystemEmail()`). Without it, a tenant with a verified custom sending domain would silently send admin reset / signup / billing emails from the tenant's own brand — wrong identity.
+-   **API hard-fails** any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Workflow `dd_owner` / `dd_owner_email` placeholders** resolve via `resolveDdOwnerForSubmission` (`api/_lib/ddOwner.js`) only when the trigger caller passes `context.formSubmissionId` to `triggerWorkflows`. Without submission context they collapse to empty strings.
+-   **No server-side length validation on `event.summary` / `complex_event.summary`** — relies on client-side `event_summary_max_length` system setting (default 150).
+
+## Product
+-   **Core:** Members, Events, Bookings, Resources, Blog.
+-   **Identity:** Unified login, multi-tenant ownership, organization memberships, granular access control.
+-   **Customization:** Page Builder, Custom Forms with conditional logic, Workflow Automation, per-tenant branding.
+-   **Financials:** Stripe membership payments, Xero/QBO invoicing, Fundraising with Gift Aid.
+-   **Comms:** Email templates, campaigns, member preferences.
+-   **Integrations:** WordPress Sync, Zoom (events/sessions), Zoho CRM sync.
+-   **Reporting:** Due Diligence Reports, configurable Member/Org Directories.
+-   **Community:** Tenant-scoped forums, Member Group email campaigns.
+
+## User preferences
+Preferred communication style: Simple, everyday language.
+
+## Pointers
+-   **React:** `https://react.dev/` · **Tailwind:** `https://tailwindcss.com/docs` · **Drizzle:** `https://orm.drizzle.team/docs/overview`
+-   **Vercel Functions:** `https://vercel.com/docs/functions/overview` · **Supabase:** `https://supabase.com/docs`
+-   **Stripe:** `https://stripe.com/docs/api` · **Mailgun:** `https://documentation.mailgun.com/en/latest/api_reference.html`
+# Membership Management Platform
+A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
+
+## Run & Operate
+-   **Run Dev Server:** `npm run dev`
+-   **Build:** `npm run build` · **Typecheck:** `npm run typecheck` · **Codegen:** `npm run codegen`
+-   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — only works from environments with IPv6 outbound; **not from this Replit workspace** (see "Database connection").
+-   **Migrations:** every `.sql` in `supabase/migrations/` is idempotent and applied against `DEST_DATABASE_URL` (pooler). Most migrations have a matching `node scripts/apply-*.mjs` runner; check `scripts/` before applying anything by hand.
+-   **One-off scripts (backfills, CSV imports, tenant seeds):** live in `scripts/` (e.g. `recompute-tenant-storage.mjs`, `backfill-*.mjs`, `import-*.mjs`, `seed-*.mjs`). They are idempotent, default to dry-run unless an `--apply` flag is passed, and many are hard-pinned to a single tenant. Read the script header before running; each documents its own flags and scope.
+-   **Storage usage reconcile:** `node scripts/recompute-tenant-storage.mjs [--dry-run] [--tenant=<uuid>]`, or trust the nightly cron at `/api/cron/recompute-tenant-storage` (03:00 UTC, `CRON_SECRET`-guarded).
+
+## Database connection (read this before any DB work from this workspace)
+There are two Supabase projects this codebase talks to:
+
+| Role | What it is | URL secret | Postgres URL secret | Service-role key secret |
+| ---- | ---------- | ---------- | ------------------- | ----------------------- |
+| **Destination (current prod)** | Multi-tenant iConnect DB | `DEST_SUPABASE_URL` (`https://lvmzliemqnieeoruhkik.supabase.co`) | `DEST_DATABASE_URL` | `DEST_SUPABASE_KEY` |
+| **Source (legacy)** | Pre-multi-tenancy single-tenant snapshot, used by migration scripts | `SOURCE_SUPABASE_URL` | `SOURCE_DATABASE_URL` | `SOURCE_SUPABASE_KEY` |
+
+**The Supabase direct host (`db.<project>.supabase.co`) is unreachable from this Replit workspace** — it publishes only IPv6 (AAAA) DNS and the Replit container has no IPv6 outbound route, so `psql`, `execute_sql_tool`, `drizzle-kit push`, and any raw `pg`/Drizzle client pointed at the direct host fail with `ENOTFOUND` / `ENETUNREACH`. Those tools work from Vercel functions, the user's laptop, and CI — just not from here against the direct host.
+
+**The Supabase Pooler hostname IS IPv4-reachable from this workspace** (`aws-1-eu-central-1.pooler.supabase.com:5432`, which is what `DEST_DATABASE_URL` already points to). `pg` clients using `DEST_DATABASE_URL` (transaction-pooler mode) work from Replit for read/write queries and DDL such as `CREATE INDEX`. Prefer `@supabase/supabase-js` for ordinary CRUD (REST endpoint is also IPv4-reachable, more ergonomic); reach for `pg` via `DEST_DATABASE_URL` only when you need raw SQL / DDL the REST API can't do.
+
+For any DB access from this workspace (scripts, ad-hoc debugging, one-off data fixes), use **`@supabase/supabase-js`** with the service-role key. Working reference: `scripts/debug-tenant.mjs`.
+
+```js
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(
+  process.env.DEST_SUPABASE_URL,
+  process.env.DEST_SUPABASE_KEY
+);
+```
+
+Quick one-off from bash (env vars ARE available in the shell):
+
+```bash
+node -e "
+const { createClient } = require('@supabase/supabase-js');
+const sb = createClient(process.env.DEST_SUPABASE_URL, process.env.DEST_SUPABASE_KEY, { auth: { persistSession: false } });
+(async () => {
+  const { data, error } = await sb.from('tenant').select('id, slug, name').limit(5);
+  console.log({ data, error });
+})();
+"
+```
+
+## Testing
+-   **AI assistant tests** (registered as the `ai-assistant-tests` validation step, runs automatically on task completion): `node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/aiCompositionRender.test.mjs` — member-AI visibility (security boundary), ranking, indexer, help-chunker, dashboard aggregation/LMIC operators, Canvas auto-height bake guards, `useAutoHeightBake` runtime gates (jsdom), and Canvas auto reading-order suites.
+-   **GoCardless tests:** `node --test api/_lib/gocardless*.test.mjs` — webhook signature/idempotency/status-transition suites, per-tenant credential resolution (tenant_integrations → env fallback, env/token mismatch guards), org DD billing-contact invitations (token format, expiry clamp 1-90 via `dd_invite_expiry_days`, validate/supersede/single-use/revoke, recipient dedupe), Phase 5 renewal decisions (`gocardlessDdRenewals.test.mjs`), and migration invite/funnel (`gocardlessDdMigration.test.mjs`).
+-   **GoCardless sandbox proof:** `node scripts/gocardless-sandbox-proof.mjs [runId]` — billing request + hosted flow creation and idempotent-retry behaviour against the GC sandbox (requires `GOCARDLESS_ACCESS_TOKEN`; refuses to run against live).
+-   **Pending-PO report tests:** `node --test api/_lib/pendingPoInvoice.test.mjs` — PO reference extraction/blacklist and cross-record membership PO propagation helpers.
+
+## Env vars (current canonical set)
+Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPABASE_*` names; prefer the `DEST_*` names below for new code.
+
+| Var | Purpose |
+| --- | ------- |
+| `DEST_SUPABASE_URL` / `DEST_SUPABASE_KEY` / `DEST_DATABASE_URL` | Destination (prod) Supabase. See "Database connection". |
+| `SOURCE_SUPABASE_URL` / `SOURCE_SUPABASE_KEY` / `SOURCE_DATABASE_URL` | Legacy single-tenant snapshot — only used by migration scripts. |
+| `DATABASE_URL` | Direct host (IPv6 only) — used by Vercel / Drizzle push, not this workspace. |
+| `MAILGUN_API_KEY`, `MAILGUN_REGION` (default `eu`), `MAILGUN_FROM_EMAIL`, `APP_DOMAIN` (default `iconn.app`) | Email sending. `MAILGUN_FROM_EMAIL` is the non-system default From; system emails are pinned to `noreply@mail.${APP_DOMAIN}` regardless. |
+| `STRIPE_SECRET_KEY` | Tenant Stripe AND platform-side paid-plan upgrade Checkout. |
+| `STRIPE_PLAN_WEBHOOK_SECRET` | Verifies `/api/webhooks/stripe-plan` from the platform Stripe account. Configure dashboard to deliver `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
+| `GOCARDLESS_ENVIRONMENT` | `sandbox` (default) or `live`. Platform-level FALLBACK only — tenants connect their own GoCardless account via `tenant_integrations` (`integration_type='gocardless'`, resolved by `api/_lib/gocardlessCredentials.js`). |
+| `GOCARDLESS_ACCESS_TOKEN` | Platform-fallback GoCardless API access token (sandbox tokens start `sandbox_`, live `live_`; env/token mismatch is rejected at call time). |
+| `GOCARDLESS_WEBHOOK_SECRET` | Platform-fallback secret verifying `Webhook-Signature` (HMAC-SHA256 of raw body) on `/api/webhooks/gocardless`. Tenant-connected accounts register the URL with `?tenant=<uuid>` and are verified against their own stored secret. |
+| `GOCARDLESS_REDIRECT_BASE_URL` | Base URL for Billing Request Flow redirect/exit URIs (e.g. `https://iconn.app`). |
+| `GOCARDLESS_CREDITOR_ID` (opt) | Pins billing requests to one creditor on multi-creditor GC accounts. |
+| `GOOGLE_FONTS_API_KEY` | Server-side key for the Google Fonts Developer API. Powers live font search in the `/InstalledFonts` add dialog via `api/public/google-fonts.js`. If unset, the picker falls back to the curated `POPULAR_GOOGLE_FONTS` list. |
+| `XERO_CLIENT_ID` | Xero OAuth. |
+| `QUICKBOOKS_REDIRECT_URI` (opt) | Overrides default `${origin}/api/quickbooks/callback` for stable QBO OAuth redirect. |
+| `BROWSERLESS_API_TOKEN`, `BROWSERLESS_BASE_URL` (opt), `BROWSERLESS_AUDIT_TIMEOUT_MS` (opt) | Accessibility audits via browserless.io. |
+| `VITE_APP_URL` | Frontend-known app URL. |
+| `CAPTCHA_PROVIDER`, `CAPTCHA_SECRET_KEY` (opt) | Self-serve signup captcha (hCaptcha/Turnstile/reCAPTCHA). Bypassed when not production. |
+| `SIGNUP_RATE_IP_PER_HOUR`, `SIGNUP_RATE_EMAIL_PER_DAY` (opt) | Self-serve signup rate limits. |
+| `CRON_SECRET` | Guards all `/api/cron/*` endpoints. |
+| `ICONNECT_HEALTH_CHECK_TOKEN` | Required secret for `/api/health`; Better Stack must send it as the `X-Health-Token` request header. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_RENEWALS_URL` | Optional Better Stack heartbeat URL for membership renewals. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for membership-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_GOCARDLESS_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for GoCardless reconciliation. |
+| `BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for Stripe card-plan reconciliation. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL` | Optional Better Stack heartbeat URL for scheduled workflows. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL` | Optional Better Stack heartbeat URL for scheduled campaigns. |
+| `BETTERSTACK_HEARTBEAT_DATABASE_BACKUP_URL` | Optional Better Stack heartbeat URL for database backup to R2. |
+| `BETTERSTACK_HEARTBEAT_STORAGE_BACKUP_URL` | Optional Better Stack heartbeat URL for storage backup to R2. |
+| `BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for form-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_AUTOMATIC_MEMBERSHIP_PROCESSING_URL` | Optional Better Stack heartbeat URL for automatic membership processing. |
+| `ENABLE_RESET_DEBUG` (opt, `'true'`) | Temporary diagnostic: `/api/auth/request-admin-password-reset` returns a `debug` field (`no_identity`/`no_owner_membership`/`email_failed`/`sent`). Leave unset in normal operation so account existence is not disclosed. |
+| `R2_ACCOUNT_ID` | Cloudflare account ID — builds the R2 endpoint URL (`https://<id>.r2.cloudflarestorage.com`). Set this **or** `R2_ENDPOINT`. Vercel secret. |
+| `R2_ENDPOINT` (opt) | Full R2 endpoint URL override, instead of `R2_ACCOUNT_ID`. |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | R2 API token credentials + target bucket for backups. Vercel secrets. |
+| `DB_BACKUP_SCHEMAS` (opt) | Comma-separated Postgres schemas in the nightly DB dump (default: `public`). Supabase internal schemas (`auth`, `storage`, `realtime`, …) are intentionally excluded — Supabase manages them. |
+
+### External health monitoring
+
+Create a Better Stack HTTP monitor for `GET /api/health`. In the monitor's
+request headers, configure `X-Health-Token` to the same secret held in the
+Vercel `ICONNECT_HEALTH_CHECK_TOKEN` environment variable. The endpoint is
+intentionally unauthorised only by that header and returns no dependency detail
+when the header is missing or invalid.
+
+The ten `BETTERSTACK_HEARTBEAT_*_URL` variables are independently optional
+and apply only to the ten selected production schedules. The application
+derives Better Stack's `/fail` target from each configured success URL; store
+only the success URL in Vercel Production. See
+`guides/better-stack-cron-heartbeats.md` for the setup matrix and the complete
+30-schedule coverage inventory.
+Set each Vercel value to the matching Better Stack heartbeat URL for only the
+scheduled job you wish to monitor. The job sends a success URL after a clean
+run and Better Stack's `/fail` URL for a failed run; delivery failures never
+change the job's response or retry behaviour.
+
+## Stack & where things live
+-   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS
+-   **Backend:** Express.js (dev) / Vercel serverless functions (prod), PostgreSQL, Drizzle ORM
+-   `/client`: Frontend source (`client/src/design-system` = custom "new-york" shadcn variant)
+-   `/api`: Backend API endpoints (Vercel serverless functions); shared helpers under `api/_lib/`
+-   `/supabase/migrations`: Database migrations (idempotent SQL); `supabase/schema.prisma` is the schema source of truth for Drizzle
+-   `/scripts`: Utility and migration scripts
+-   `client/index.html` + `api/render.js`: SSR for SEO/OG tag injection
+
+## Architecture decisions
+-   **Multi-tenancy:** Data isolation at GLOBAL / TENANT / ORGANIZATION / MEMBER levels via `tenant_id` and `organization_id`. The shared entity API hard-fails any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Identity:** Unified identity with per-tenant password isolation, Google OAuth, feature-based role management.
+-   **Email sending:** `api/_lib/emailService.js` resolves the sending domain off `tenantId` for tenant→member emails. **System emails** (platform→tenant-owner: admin reset, signup verification, team invite, billing notifications) MUST pass `systemEmail: true` (or use `sendSystemEmail()`); this forces both Mailgun domain AND From identity to `mail.${APP_DOMAIN}` / `noreply@mail.${APP_DOMAIN}`. System reset/verification links must point at `${APP_DOMAIN}/...` not a tenant subdomain.
+-   **Dynamic SEO:** SSR meta-tag injection per-tenant via `api/render.js`; per-page metadata resolved by `api/_lib/entityMeta.js`. Per-entity `seo_title` / `seo_description` / `og_image_url` overrides on events, blog posts, news, campaigns, resources, and directories (UI in `client/src/components/blog/SEOSettings.jsx`). `og:image` URLs on `vault.iconn.app` or `*.supabase.co` are proxied through `/api/og-image`.
+-   **Event deletion:** Multi-step cancellation flow (refunds, reinstatements, Zoom unregistration) before any data purge. Direct deletion of events is deprecated for UI flows.
+-   **Semantic `warning` color:** `--warning` / `--warning-foreground` CSS vars in `client/src/index.css` (both themes, WCAG-AA). Use `text-warning`, `bg-warning`, `<Badge variant="warning">`, `<Alert variant="warning">` instead of raw amber/yellow/orange palette classes.
+-   **Membership invoices:** `organisation_membership_history` / `member_membership_history` carry `payment_status` (`unpaid`/`paid`/`partial`/`voided`) + `paid_at`, separate from the lifecycle `status`. Accounting-sync failures flag the row `accounting_sync_status='failed'` (not swallowed) with a Retry button in `OrgMembershipTab.jsx`. Payment reconciliation cron `/api/cron/reconcile-membership-invoice-payments` (every 3h, `CRON_SECRET`-guarded) queries Xero/QBO and fires workflows on `unpaid -> paid` only. See `api/_lib/membershipPaymentReconciliation.js`, `api/_lib/accountingProvider.js`.
+-   **Tenant storage metering:** `tenant.storage_used_bytes` (BIGINT) drives `checkStorageQuota` (`api/_lib/planQuota.js`) and `/admin/plan-usage`. Maintained incrementally via `addTenantStorageBytes` (`api/_lib/tenantStorageUsage.js`). Can drift (signed-URL claimed size); re-baseline with `scripts/recompute-tenant-storage.mjs` or the nightly cron.
+-   **Paid-plan upgrade flow (`/admin/plan-usage` → Stripe Checkout):** `PlanUsage.jsx` → `api/admin/plan-checkout.js` (tenant-admin RBAC, uses PLATFORM `STRIPE_SECRET_KEY`, NOT tenant's connected Stripe). First-time creates a Checkout Session; existing live sub swaps price in place via `stripe.subscriptions.update` (proration, never a parallel sub). Webhook `api/webhooks/stripe-plan.js` upserts `tenant_subscription` and flips `tenant.plan_code` only when status is `active`/`trialing`; `subscription.deleted` reverts to `free`.
+-   **Self-serve signup & onboarding (`/signup` → wizard):** `signup-start.js` (captcha + rate limits + verification email) → `signup-verify.js` (`provisionTenant`, `free` plan) → 5-step `OnboardingWizard.jsx` → `POST /api/admin/onboarding` runs `api/_lib/onboardingSeeder.js` (branding + tiers + persona seed pack tagged `is_sample=true`). Legacy admins backfilled to `onboarding_status='complete'`.
+-   **Accessibility audits:** Admin page (RBAC `admin.accessibility-audits`) runs axe-core 4.10 via browserless.io for tenant public URLs. Results in `accessibility_audit` / `accessibility_audit_result`; endpoints under `/api/admin/accessibility-audits`; runner `api/_lib/browserlessAxe.js`. v1 limits: ≤10 URLs/run, http(s) only, no credentialed URLs.
+-   **AI Design Studio V1 (Canvas AI Composition):** generation via `api/ai-compositions/generate.js`; prompt-led editing via `api/ai-compositions/edit.js` (propose/accept/reject/undo + conversation history in `ai_composition_conversation`) and `api/ai-compositions/destinations.js` (record-ID link picker — the AI never invents internal URLs). Patch engine `api/_lib/aiCompositionPatch.js`, edit pipeline `api/_lib/aiCompositionEdit.js`. Accept re-applies the STORED proposal server-side against the current document; complete redesigns are saved as alternatives (`is_alternative`); protected-value changes (prices, dates, names) require explicit confirmation. Editor UI in `client/src/components/canvas/blocks/AiCompositionEditPanel.jsx`. V1 scene-graph compositions are now read-only w.r.t. the V2 pivot.
+-   **AI Design Studio V2 (native-code pivot):** V2 compositions are native AI HTML/CSS/SVG packages (document `schemaVersion "2.0"`, `ai_composition.renderer_version=2`), sanitised ONCE server-side at store time by `api/_lib/aiCodePipeline.js` (schema → jsdom+DOMPurify sanitise → manifest cross-check → postcss CSS scoping under `[data-ai-composition="<uuid>"]` → leak check; reject-don't-repair), rendered verbatim by `AiCodeCompositionBlock.jsx`; signed CSP-locked preview + Browserless screenshots via `api/ai-compositions/preview.js` (HMAC keyed by `AIC_PREVIEW_SECRET`/`CRON_SECRET`). **Page bodies:** `compositionType: "page_body"` runs a plan stage (content manifest + creative plan, anti-degenerate checks in `aiCodeGeneration.js`) before code gen; page gates forbid `<header>/<footer>/<nav>` recreation. **Actions** (`data-ai-action` + manifest, `api/_lib/aiCodeActions.js`) resolve server-side to real records — unresolved actions block page publish (409 `AI_UNRESOLVED_ACTIONS`; editor fix-up via `api/ai-compositions/resolve-action.js`). **Slots** (`data-iconnect-slot`, `api/_lib/aiCodeSlots.js`) portal trusted platform blocks into generated markup; never block publish. **Imagery:** the model never writes image URLs — `<img data-ai-asset="<key>">` placeholders declared in the package `assets` manifest, fulfilled server-side (`api/_lib/aiCodeAssets.js`, gpt-image-1 or media library, tenant-owned storage); only unfulfilled `required` assets hard-reject; image swap is a deterministic `replace-image` edit action. V1→V2 rebuild is admin-only via `api/ai-compositions/rebuild-v2.js` (never automatic). **Editing:** `api/ai-compositions/edit-v2.js` (propose/accept/reject/undo); proposals (element-scoped patches via `data-ai-id`, or full revisions saved as alternatives) stored in `ai_composition_conversation` and re-applied against the CURRENT document on accept (`api/_lib/aiCodeEdit.js`); protected values + locked `data-content-key` texts require confirmation; breakpoint-scoped edits must leave other breakpoints' CSS untouched; accepts introducing NEW critical accessibility issues are blocked (422 `AI_VALIDATION_CRITICAL`). Admin-only Composition Inspector via `GET /api/ai-compositions/:id?inspector=1` (404 to non-admins). Full details: `guides/ai-design-studio-v2-pivot.md`.
+-   **Member AI structured Q&A:** the member assistant answers count/aggregate questions from live records via a whitelisted query spec (LLM never writes SQL). Catalog + validation + executors in `api/_lib/memberAiStructured.js`; routing in `api/member-ai/ask.js`. Adding an entity/field: follow `guides/member-ai-structured-qa.md` (visibility mirrors the member browse surfaces; drift guard in `memberAiStructuredSchemaDrift.test.mjs`).
+
+## Gotchas
+-   **Vercel preview-domain ownership:** Project `vite-migrate-replit-6` serves this repository. Both `dev.iconn.app` and `*.dev.iconn.app` are verified Vercel project domains pinned to the `eventemb2` Git branch; tenant custom-domain actions must never attach, reclaim, or detach `iconn.app` or any of its subdomains.
+-   **`dev.iconn.app` = Vercel preview deployment** built from the `eventemb2` git branch of the same Vercel project as production. Shares the same Supabase. (a) Vercel's Functions → Logs viewer defaults to Production and hides Preview logs — switch the Environment filter to Preview. (b) A fix only reaches `dev.iconn.app` after the commit is on the `eventemb2` branch and that branch's preview build has finished.
+-   **`sendEmail()` never throws.** It catches Mailgun errors and returns `{ success: false, error, status, domain }`. Callers MUST inspect the return value; a bare `try { await sendEmail(...) } catch {}` will falsely report success on 401 / unverified domain / missing key. Canonical pattern: `api/auth/request-admin-password-reset.js`.
+-   **System emails MUST pass `systemEmail: true`** (or use `sendSystemEmail()`). Without it, a tenant with a verified custom sending domain would silently send admin reset / signup / billing emails from the tenant's own brand — wrong identity.
+-   **API hard-fails** any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Workflow `dd_owner` / `dd_owner_email` placeholders** resolve via `resolveDdOwnerForSubmission` (`api/_lib/ddOwner.js`) only when the trigger caller passes `context.formSubmissionId` to `triggerWorkflows`. Without submission context they collapse to empty strings.
+-   **No server-side length validation on `event.summary` / `complex_event.summary`** — relies on client-side `event_summary_max_length` system setting (default 150).
+
+## Product
+-   **Core:** Members, Events, Bookings, Resources, Blog.
+-   **Identity:** Unified login, multi-tenant ownership, organization memberships, granular access control.
+-   **Customization:** Page Builder, Custom Forms with conditional logic, Workflow Automation, per-tenant branding.
+-   **Financials:** Stripe membership payments, Xero/QBO invoicing, Fundraising with Gift Aid.
+-   **Comms:** Email templates, campaigns, member preferences.
+-   **Integrations:** WordPress Sync, Zoom (events/sessions), Zoho CRM sync.
+-   **Reporting:** Due Diligence Reports, configurable Member/Org Directories.
+-   **Community:** Tenant-scoped forums, Member Group email campaigns.
+
+## User preferences
+Preferred communication style: Simple, everyday language.
+
+## Pointers
+-   **React:** `https://react.dev/` · **Tailwind:** `https://tailwindcss.com/docs` · **Drizzle:** `https://orm.drizzle.team/docs/overview`
+-   **Vercel Functions:** `https://vercel.com/docs/functions/overview` · **Supabase:** `https://supabase.com/docs`
+-   **Stripe:** `https://stripe.com/docs/api` · **Mailgun:** `https://documentation.mailgun.com/en/latest/api_reference.html`
+# Membership Management Platform
+A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
+
+## Run & Operate
+-   **Run Dev Server:** `npm run dev`
+-   **Build:** `npm run build` · **Typecheck:** `npm run typecheck` · **Codegen:** `npm run codegen`
+-   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — only works from environments with IPv6 outbound; **not from this Replit workspace** (see "Database connection").
+-   **Migrations:** every `.sql` in `supabase/migrations/` is idempotent and applied against `DEST_DATABASE_URL` (pooler). Most migrations have a matching `node scripts/apply-*.mjs` runner; check `scripts/` before applying anything by hand.
+-   **One-off scripts (backfills, CSV imports, tenant seeds):** live in `scripts/` (e.g. `recompute-tenant-storage.mjs`, `backfill-*.mjs`, `import-*.mjs`, `seed-*.mjs`). They are idempotent, default to dry-run unless an `--apply` flag is passed, and many are hard-pinned to a single tenant. Read the script header before running; each documents its own flags and scope.
+-   **Inclusive relationship reports:** `node scripts/apply-inclusive-relationship-reports.mjs --apply` installs the V2 paging/count helpers and separate BNMS Organisation department summary using `DEST_DATABASE_URL` only. `node scripts/verify-bnms-organisation-department-summary.mjs` verifies saved preview results read-only; `--reference-only` checks source totals before setup. Existing V1 reports are not upgraded.
+-   **Storage usage reconcile:** `node scripts/recompute-tenant-storage.mjs [--dry-run] [--tenant=<uuid>]`, or trust the nightly cron at `/api/cron/recompute-tenant-storage` (03:00 UTC, `CRON_SECRET`-guarded).
+
+## Database connection (read this before any DB work from this workspace)
+There are two Supabase projects this codebase talks to:
+
+| Role | What it is | URL secret | Postgres URL secret | Service-role key secret |
+| ---- | ---------- | ---------- | ------------------- | ----------------------- |
+| **Destination (current prod)** | Multi-tenant iConnect DB | `DEST_SUPABASE_URL` (`https://lvmzliemqnieeoruhkik.supabase.co`) | `DEST_DATABASE_URL` | `DEST_SUPABASE_KEY` |
+| **Source (legacy)** | Pre-multi-tenancy single-tenant snapshot, used by migration scripts | `SOURCE_SUPABASE_URL` | `SOURCE_DATABASE_URL` | `SOURCE_SUPABASE_KEY` |
+
+**The Supabase direct host (`db.<project>.supabase.co`) is unreachable from this Replit workspace** — it publishes only IPv6 (AAAA) DNS and the Replit container has no IPv6 outbound route, so `psql`, `execute_sql_tool`, `drizzle-kit push`, and any raw `pg`/Drizzle client pointed at the direct host fail with `ENOTFOUND` / `ENETUNREACH`. Those tools work from Vercel functions, the user's laptop, and CI — just not from here against the direct host.
+
+**The Supabase Pooler hostname IS IPv4-reachable from this workspace** (`aws-1-eu-central-1.pooler.supabase.com:5432`, which is what `DEST_DATABASE_URL` already points to). `pg` clients using `DEST_DATABASE_URL` (transaction-pooler mode) work from Replit for read/write queries and DDL such as `CREATE INDEX`. Prefer `@supabase/supabase-js` for ordinary CRUD (REST endpoint is also IPv4-reachable, more ergonomic); reach for `pg` via `DEST_DATABASE_URL` only when you need raw SQL / DDL the REST API can't do.
+
+For any DB access from this workspace (scripts, ad-hoc debugging, one-off data fixes), use **`@supabase/supabase-js`** with the service-role key. Working reference: `scripts/debug-tenant.mjs`.
+
+```js
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(
+  process.env.DEST_SUPABASE_URL,
+  process.env.DEST_SUPABASE_KEY
+);
+```
+
+Quick one-off from bash (env vars ARE available in the shell):
+
+```bash
+node -e "
+const { createClient } = require('@supabase/supabase-js');
+const sb = createClient(process.env.DEST_SUPABASE_URL, process.env.DEST_SUPABASE_KEY, { auth: { persistSession: false } });
+(async () => {
+  const { data, error } = await sb.from('tenant').select('id, slug, name').limit(5);
+  console.log({ data, error });
+})();
+"
+```
+
+## Testing
+-   **AI assistant tests** (registered as the `ai-assistant-tests` validation step, runs automatically on task completion): `node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/aiCompositionRender.test.mjs` — member-AI visibility (security boundary), ranking, indexer, help-chunker, dashboard aggregation/LMIC operators, Canvas auto-height bake guards, `useAutoHeightBake` runtime gates (jsdom), and Canvas auto reading-order suites.
+-   **GoCardless tests:** `node --test api/_lib/gocardless*.test.mjs` — webhook signature/idempotency/status-transition suites, per-tenant credential resolution (tenant_integrations → env fallback, env/token mismatch guards), org DD billing-contact invitations (token format, expiry clamp 1-90 via `dd_invite_expiry_days`, validate/supersede/single-use/revoke, recipient dedupe), Phase 5 renewal decisions (`gocardlessDdRenewals.test.mjs`), and migration invite/funnel (`gocardlessDdMigration.test.mjs`).
+-   **GoCardless sandbox proof:** `node scripts/gocardless-sandbox-proof.mjs [runId]` — billing request + hosted flow creation and idempotent-retry behaviour against the GC sandbox (requires `GOCARDLESS_ACCESS_TOKEN`; refuses to run against live).
+-   **Pending-PO report tests:** `node --test api/_lib/pendingPoInvoice.test.mjs` — PO reference extraction/blacklist and cross-record membership PO propagation helpers.
+-   **Organisation Directory filters:** `npm run test:directory-object-fields` covers schema projections, safe diagnostics, exact source-value selection, permission revocation, and population pagination; `npx playwright test tests/directory-object-fields.smoke.spec.mjs` covers mounted directory controls and card behaviour. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` when using a system Chromium.
+-   **Destination directory verification (read-only):** `node scripts/verify-directory-source-values-destination.mjs` checks the configured BNMS Department Name source against DEST without changing settings or records. `npx playwright test --config=tests/task-4360-destination-harness.config.mjs` renders the local app with fixture sign-in/chrome and real destination-backed directory service responses. This harness is not a deployed-login/authentication test; `scripts/verify-task-4360-preview.mjs` separately supports normal authenticated preview verification with an ephemeral `PLAYWRIGHT_STORAGE_STATE`.
+-   **Repeatable Custom Object source verification (read-only):** `node scripts/verify-form-row-choice-sources.mjs --parent-object=<uuid> --related-object=<uuid> --value-field=<name>` checks record → distinct scalar → filtered record options and submission eligibility against DEST using an in-memory form. It does not save forms, submissions, or catalogue records.
+
+## Env vars (current canonical set)
+Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPABASE_*` names; prefer the `DEST_*` names below for new code.
+
+| Var | Purpose |
+| --- | ------- |
+| `DEST_SUPABASE_URL` / `DEST_SUPABASE_KEY` / `DEST_DATABASE_URL` | Destination (prod) Supabase. See "Database connection". |
+| `SOURCE_SUPABASE_URL` / `SOURCE_SUPABASE_KEY` / `SOURCE_DATABASE_URL` | Legacy single-tenant snapshot — only used by migration scripts. |
+| `DATABASE_URL` | Direct host (IPv6 only) — used by Vercel / Drizzle push, not this workspace. |
+| `MAILGUN_API_KEY`, `MAILGUN_REGION` (default `eu`), `MAILGUN_FROM_EMAIL`, `APP_DOMAIN` (default `iconn.app`) | Email sending. `MAILGUN_FROM_EMAIL` is the non-system default From; system emails are pinned to `noreply@mail.${APP_DOMAIN}` regardless. |
+| `STRIPE_SECRET_KEY` | Tenant Stripe AND platform-side paid-plan upgrade Checkout. |
+| `STRIPE_PLAN_WEBHOOK_SECRET` | Verifies `/api/webhooks/stripe-plan` from the platform Stripe account. Configure dashboard to deliver `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
+| `GOCARDLESS_ENVIRONMENT` | `sandbox` (default) or `live`. Platform-level FALLBACK only — tenants connect their own GoCardless account via `tenant_integrations` (`integration_type='gocardless'`, resolved by `api/_lib/gocardlessCredentials.js`). |
+| `GOCARDLESS_ACCESS_TOKEN` | Platform-fallback GoCardless API access token (sandbox tokens start `sandbox_`, live `live_`; env/token mismatch is rejected at call time). |
+| `GOCARDLESS_WEBHOOK_SECRET` | Platform-fallback secret verifying `Webhook-Signature` (HMAC-SHA256 of raw body) on `/api/webhooks/gocardless`. Tenant-connected accounts register the URL with `?tenant=<uuid>` and are verified against their own stored secret. |
+| `GOCARDLESS_REDIRECT_BASE_URL` | Base URL for Billing Request Flow redirect/exit URIs (e.g. `https://iconn.app`). |
+| `GOCARDLESS_CREDITOR_ID` (opt) | Pins billing requests to one creditor on multi-creditor GC accounts. |
+| `GOOGLE_FONTS_API_KEY` | Server-side key for the Google Fonts Developer API. Powers live font search in the `/InstalledFonts` add dialog via `api/public/google-fonts.js`. If unset, the picker falls back to the curated `POPULAR_GOOGLE_FONTS` list. |
+| `XERO_CLIENT_ID` | Xero OAuth. |
+| `QUICKBOOKS_REDIRECT_URI` (opt) | Overrides default `${origin}/api/quickbooks/callback` for stable QBO OAuth redirect. |
+| `BROWSERLESS_API_TOKEN`, `BROWSERLESS_BASE_URL` (opt), `BROWSERLESS_AUDIT_TIMEOUT_MS` (opt) | Accessibility audits via browserless.io. |
+| `VITE_APP_URL` | Frontend-known app URL. |
+| `CAPTCHA_PROVIDER`, `CAPTCHA_SECRET_KEY` (opt) | Self-serve signup captcha (hCaptcha/Turnstile/reCAPTCHA). Bypassed when not production. |
+| `SIGNUP_RATE_IP_PER_HOUR`, `SIGNUP_RATE_EMAIL_PER_DAY` (opt) | Self-serve signup rate limits. |
+| `CRON_SECRET` | Guards all `/api/cron/*` endpoints. |
+| `ICONNECT_HEALTH_CHECK_TOKEN` | Required secret for `/api/health`; Better Stack must send it as the `X-Health-Token` request header. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_RENEWALS_URL` | Optional Better Stack heartbeat URL for membership renewals. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for membership-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_GOCARDLESS_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for GoCardless reconciliation. |
+| `BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for Stripe card-plan reconciliation. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL` | Optional Better Stack heartbeat URL for scheduled workflows. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL` | Optional Better Stack heartbeat URL for scheduled campaigns. |
+| `BETTERSTACK_HEARTBEAT_DATABASE_BACKUP_URL` | Optional Better Stack heartbeat URL for database backup to R2. |
+| `BETTERSTACK_HEARTBEAT_STORAGE_BACKUP_URL` | Optional Better Stack heartbeat URL for storage backup to R2. |
+| `BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for form-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_AUTOMATIC_MEMBERSHIP_PROCESSING_URL` | Optional Better Stack heartbeat URL for automatic membership processing. |
+| `ENABLE_RESET_DEBUG` (opt, `'true'`) | Temporary diagnostic: `/api/auth/request-admin-password-reset` returns a `debug` field (`no_identity`/`no_owner_membership`/`email_failed`/`sent`). Leave unset in normal operation so account existence is not disclosed. |
+| `R2_ACCOUNT_ID` | Cloudflare account ID — builds the R2 endpoint URL (`https://<id>.r2.cloudflarestorage.com`). Set this **or** `R2_ENDPOINT`. Vercel secret. |
+| `R2_ENDPOINT` (opt) | Full R2 endpoint URL override, instead of `R2_ACCOUNT_ID`. |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | R2 API token credentials + target bucket for backups. Vercel secrets. |
+| `DB_BACKUP_SCHEMAS` (opt) | Comma-separated Postgres schemas in the nightly DB dump (default: `public`). Supabase internal schemas (`auth`, `storage`, `realtime`, …) are intentionally excluded — Supabase manages them. |
+
+### External health monitoring
+
+Create a Better Stack HTTP monitor for `GET /api/health`. In the monitor's
+request headers, configure `X-Health-Token` to the same secret held in the
+Vercel `ICONNECT_HEALTH_CHECK_TOKEN` environment variable. The endpoint is
+intentionally unauthorised only by that header and returns no dependency detail
+when the header is missing or invalid.
+
+The ten `BETTERSTACK_HEARTBEAT_*_URL` variables are independently optional
+and apply only to the ten selected production schedules. The application
+derives Better Stack's `/fail` target from each configured success URL; store
+only the success URL in Vercel Production. See
+`guides/better-stack-cron-heartbeats.md` for the setup matrix and the complete
+30-schedule coverage inventory.
+Set each Vercel value to the matching Better Stack heartbeat URL for only the
+scheduled job you wish to monitor. The job sends a success URL after a clean
+run and Better Stack's `/fail` URL for a failed run; delivery failures never
+change the job's response or retry behaviour.
+
+## Stack & where things live
+-   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS
+-   **Backend:** Express.js (dev) / Vercel serverless functions (prod), PostgreSQL, Drizzle ORM
+-   `/client`: Frontend source (`client/src/design-system` = custom "new-york" shadcn variant)
+-   `/api`: Backend API endpoints (Vercel serverless functions); shared helpers under `api/_lib/`
+-   `/supabase/migrations`: Database migrations (idempotent SQL); `supabase/schema.prisma` is the schema source of truth for Drizzle
+-   `/scripts`: Utility and migration scripts
+-   `client/index.html` + `api/render.js`: SSR for SEO/OG tag injection
+
+## Architecture decisions
+-   **Multi-tenancy:** Data isolation at GLOBAL / TENANT / ORGANIZATION / MEMBER levels via `tenant_id` and `organization_id`. The shared entity API hard-fails any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Identity:** Unified identity with per-tenant password isolation, Google OAuth, feature-based role management.
+-   **Email sending:** `api/_lib/emailService.js` resolves the sending domain off `tenantId` for tenant→member emails. **System emails** (platform→tenant-owner: admin reset, signup verification, team invite, billing notifications) MUST pass `systemEmail: true` (or use `sendSystemEmail()`); this forces both Mailgun domain AND From identity to `mail.${APP_DOMAIN}` / `noreply@mail.${APP_DOMAIN}`. System reset/verification links must point at `${APP_DOMAIN}/...` not a tenant subdomain.
+-   **Dynamic SEO:** SSR meta-tag injection per-tenant via `api/render.js`; per-page metadata resolved by `api/_lib/entityMeta.js`. Per-entity `seo_title` / `seo_description` / `og_image_url` overrides on events, blog posts, news, campaigns, resources, and directories (UI in `client/src/components/blog/SEOSettings.jsx`). `og:image` URLs on `vault.iconn.app` or `*.supabase.co` are proxied through `/api/og-image`.
+-   **Event deletion:** Multi-step cancellation flow (refunds, reinstatements, Zoom unregistration) before any data purge. Direct deletion of events is deprecated for UI flows.
+-   **Semantic `warning` color:** `--warning` / `--warning-foreground` CSS vars in `client/src/index.css` (both themes, WCAG-AA). Use `text-warning`, `bg-warning`, `<Badge variant="warning">`, `<Alert variant="warning">` instead of raw amber/yellow/orange palette classes.
+-   **Membership invoices:** `organisation_membership_history` / `member_membership_history` carry `payment_status` (`unpaid`/`paid`/`partial`/`voided`) + `paid_at`, separate from the lifecycle `status`. Accounting-sync failures flag the row `accounting_sync_status='failed'` (not swallowed) with a Retry button in `OrgMembershipTab.jsx`. Payment reconciliation cron `/api/cron/reconcile-membership-invoice-payments` (every 3h, `CRON_SECRET`-guarded) queries Xero/QBO and fires workflows on `unpaid -> paid` only. See `api/_lib/membershipPaymentReconciliation.js`, `api/_lib/accountingProvider.js`.
+-   **Tenant storage metering:** `tenant.storage_used_bytes` (BIGINT) drives `checkStorageQuota` (`api/_lib/planQuota.js`) and `/admin/plan-usage`. Maintained incrementally via `addTenantStorageBytes` (`api/_lib/tenantStorageUsage.js`). Can drift (signed-URL claimed size); re-baseline with `scripts/recompute-tenant-storage.mjs` or the nightly cron.
+-   **Paid-plan upgrade flow (`/admin/plan-usage` → Stripe Checkout):** `PlanUsage.jsx` → `api/admin/plan-checkout.js` (tenant-admin RBAC, uses PLATFORM `STRIPE_SECRET_KEY`, NOT tenant's connected Stripe). First-time creates a Checkout Session; existing live sub swaps price in place via `stripe.subscriptions.update` (proration, never a parallel sub). Webhook `api/webhooks/stripe-plan.js` upserts `tenant_subscription` and flips `tenant.plan_code` only when status is `active`/`trialing`; `subscription.deleted` reverts to `free`.
+-   **Self-serve signup & onboarding (`/signup` → wizard):** `signup-start.js` (captcha + rate limits + verification email) → `signup-verify.js` (`provisionTenant`, `free` plan) → 5-step `OnboardingWizard.jsx` → `POST /api/admin/onboarding` runs `api/_lib/onboardingSeeder.js` (branding + tiers + persona seed pack tagged `is_sample=true`). Legacy admins backfilled to `onboarding_status='complete'`.
+-   **Accessibility audits:** Admin page (RBAC `admin.accessibility-audits`) runs axe-core 4.10 via browserless.io for tenant public URLs. Results in `accessibility_audit` / `accessibility_audit_result`; endpoints under `/api/admin/accessibility-audits`; runner `api/_lib/browserlessAxe.js`. v1 limits: ≤10 URLs/run, http(s) only, no credentialed URLs.
+-   **AI Design Studio V1 (Canvas AI Composition):** generation via `api/ai-compositions/generate.js`; prompt-led editing via `api/ai-compositions/edit.js` (propose/accept/reject/undo + conversation history in `ai_composition_conversation`) and `api/ai-compositions/destinations.js` (record-ID link picker — the AI never invents internal URLs). Patch engine `api/_lib/aiCompositionPatch.js`, edit pipeline `api/_lib/aiCompositionEdit.js`. Accept re-applies the STORED proposal server-side against the current document; complete redesigns are saved as alternatives (`is_alternative`); protected-value changes (prices, dates, names) require explicit confirmation. Editor UI in `client/src/components/canvas/blocks/AiCompositionEditPanel.jsx`. V1 scene-graph compositions are now read-only w.r.t. the V2 pivot.
+-   **AI Design Studio V2 (native-code pivot):** V2 compositions are native AI HTML/CSS/SVG packages (document `schemaVersion "2.0"`, `ai_composition.renderer_version=2`), sanitised ONCE server-side at store time by `api/_lib/aiCodePipeline.js` (schema → jsdom+DOMPurify sanitise → manifest cross-check → postcss CSS scoping under `[data-ai-composition="<uuid>"]` → leak check; reject-don't-repair), rendered verbatim by `AiCodeCompositionBlock.jsx`; signed CSP-locked preview + Browserless screenshots via `api/ai-compositions/preview.js` (HMAC keyed by `AIC_PREVIEW_SECRET`/`CRON_SECRET`). **Page bodies:** `compositionType: "page_body"` runs a plan stage (content manifest + creative plan, anti-degenerate checks in `aiCodeGeneration.js`) before code gen; page gates forbid `<header>/<footer>/<nav>` recreation. **Actions** (`data-ai-action` + manifest, `api/_lib/aiCodeActions.js`) resolve server-side to real records — unresolved actions block page publish (409 `AI_UNRESOLVED_ACTIONS`; editor fix-up via `api/ai-compositions/resolve-action.js`). **Slots** (`data-iconnect-slot`, `api/_lib/aiCodeSlots.js`) portal trusted platform blocks into generated markup; never block publish. **Imagery:** the model never writes image URLs — `<img data-ai-asset="<key>">` placeholders declared in the package `assets` manifest, fulfilled server-side (`api/_lib/aiCodeAssets.js`, gpt-image-1 or media library, tenant-owned storage); only unfulfilled `required` assets hard-reject; image swap is a deterministic `replace-image` edit action. V1→V2 rebuild is admin-only via `api/ai-compositions/rebuild-v2.js` (never automatic). **Editing:** `api/ai-compositions/edit-v2.js` (propose/accept/reject/undo); proposals (element-scoped patches via `data-ai-id`, or full revisions saved as alternatives) stored in `ai_composition_conversation` and re-applied against the CURRENT document on accept (`api/_lib/aiCodeEdit.js`); protected values + locked `data-content-key` texts require confirmation; breakpoint-scoped edits must leave other breakpoints' CSS untouched; accepts introducing NEW critical accessibility issues are blocked (422 `AI_VALIDATION_CRITICAL`). Admin-only Composition Inspector via `GET /api/ai-compositions/:id?inspector=1` (404 to non-admins). Full details: `guides/ai-design-studio-v2-pivot.md`.
+-   **Member AI structured Q&A:** the member assistant answers count/aggregate questions from live records via a whitelisted query spec (LLM never writes SQL). Catalog + validation + executors in `api/_lib/memberAiStructured.js`; routing in `api/member-ai/ask.js`. Adding an entity/field: follow `guides/member-ai-structured-qa.md` (visibility mirrors the member browse surfaces; drift guard in `memberAiStructuredSchemaDrift.test.mjs`).
+
+## Gotchas
+-   **Vercel preview-domain ownership:** Project `vite-migrate-replit-6` serves this repository. Both `dev.iconn.app` and `*.dev.iconn.app` are verified Vercel project domains pinned to the `eventemb2` Git branch; tenant custom-domain actions must never attach, reclaim, or detach `iconn.app` or any of its subdomains.
+-   **`dev.iconn.app` = Vercel preview deployment** built from the `eventemb2` git branch of the same Vercel project as production. Shares the same Supabase. (a) Vercel's Functions → Logs viewer defaults to Production and hides Preview logs — switch the Environment filter to Preview. (b) A fix only reaches `dev.iconn.app` after the commit is on the `eventemb2` branch and that branch's preview build has finished.
+-   **`sendEmail()` never throws.** It catches Mailgun errors and returns `{ success: false, error, status, domain }`. Callers MUST inspect the return value; a bare `try { await sendEmail(...) } catch {}` will falsely report success on 401 / unverified domain / missing key. Canonical pattern: `api/auth/request-admin-password-reset.js`.
+-   **System emails MUST pass `systemEmail: true`** (or use `sendSystemEmail()`). Without it, a tenant with a verified custom sending domain would silently send admin reset / signup / billing emails from the tenant's own brand — wrong identity.
+-   **API hard-fails** any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Workflow `dd_owner` / `dd_owner_email` placeholders** resolve via `resolveDdOwnerForSubmission` (`api/_lib/ddOwner.js`) only when the trigger caller passes `context.formSubmissionId` to `triggerWorkflows`. Without submission context they collapse to empty strings.
+-   **No server-side length validation on `event.summary` / `complex_event.summary`** — relies on client-side `event_summary_max_length` system setting (default 150).
+
+## Product
+-   **Core:** Members, Events, Bookings, Resources, Blog.
+-   **Identity:** Unified login, multi-tenant ownership, organization memberships, granular access control.
+-   **Customization:** Page Builder, Custom Forms with conditional logic, Workflow Automation, per-tenant branding.
+-   **Financials:** Stripe membership payments, Xero/QBO invoicing, Fundraising with Gift Aid.
+-   **Comms:** Email templates, campaigns, member preferences.
+-   **Integrations:** WordPress Sync, Zoom (events/sessions), Zoho CRM sync.
+-   **Reporting:** Due Diligence Reports, configurable Member/Org Directories.
+-   **Community:** Tenant-scoped forums, Member Group email campaigns.
+
+## User preferences
+Preferred communication style: Simple, everyday language.
+
+## Pointers
+-   **React:** `https://react.dev/` · **Tailwind:** `https://tailwindcss.com/docs` · **Drizzle:** `https://orm.drizzle.team/docs/overview`
+-   **Vercel Functions:** `https://vercel.com/docs/functions/overview` · **Supabase:** `https://supabase.com/docs`
+-   **Stripe:** `https://stripe.com/docs/api` · **Mailgun:** `https://documentation.mailgun.com/en/latest/api_reference.html`
+# Membership Management Platform
+A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
+
+## Run & Operate
+-   **Run Dev Server:** `npm run dev`
+-   **Build:** `npm run build` · **Typecheck:** `npm run typecheck` · **Codegen:** `npm run codegen`
+-   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — only works from environments with IPv6 outbound; **not from this Replit workspace** (see "Database connection").
+-   **Migrations:** every `.sql` in `supabase/migrations/` is idempotent and applied against `DEST_DATABASE_URL` (pooler). Most migrations have a matching `node scripts/apply-*.mjs` runner; check `scripts/` before applying anything by hand.
+-   **One-off scripts (backfills, CSV imports, tenant seeds):** live in `scripts/` (e.g. `recompute-tenant-storage.mjs`, `backfill-*.mjs`, `import-*.mjs`, `seed-*.mjs`). They are idempotent, default to dry-run unless an `--apply` flag is passed, and many are hard-pinned to a single tenant. Read the script header before running; each documents its own flags and scope.
+-   **Storage usage reconcile:** `node scripts/recompute-tenant-storage.mjs [--dry-run] [--tenant=<uuid>]`, or trust the nightly cron at `/api/cron/recompute-tenant-storage` (03:00 UTC, `CRON_SECRET`-guarded).
+
+## Database connection (read this before any DB work from this workspace)
+There are two Supabase projects this codebase talks to:
+
+| Role | What it is | URL secret | Postgres URL secret | Service-role key secret |
+| ---- | ---------- | ---------- | ------------------- | ----------------------- |
+| **Destination (current prod)** | Multi-tenant iConnect DB | `DEST_SUPABASE_URL` (`https://lvmzliemqnieeoruhkik.supabase.co`) | `DEST_DATABASE_URL` | `DEST_SUPABASE_KEY` |
+| **Source (legacy)** | Pre-multi-tenancy single-tenant snapshot, used by migration scripts | `SOURCE_SUPABASE_URL` | `SOURCE_DATABASE_URL` | `SOURCE_SUPABASE_KEY` |
+
+**The Supabase direct host (`db.<project>.supabase.co`) is unreachable from this Replit workspace** — it publishes only IPv6 (AAAA) DNS and the Replit container has no IPv6 outbound route, so `psql`, `execute_sql_tool`, `drizzle-kit push`, and any raw `pg`/Drizzle client pointed at the direct host fail with `ENOTFOUND` / `ENETUNREACH`. Those tools work from Vercel functions, the user's laptop, and CI — just not from here against the direct host.
+
+**The Supabase Pooler hostname IS IPv4-reachable from this workspace** (`aws-1-eu-central-1.pooler.supabase.com:5432`, which is what `DEST_DATABASE_URL` already points to). `pg` clients using `DEST_DATABASE_URL` (transaction-pooler mode) work from Replit for read/write queries and DDL such as `CREATE INDEX`. Prefer `@supabase/supabase-js` for ordinary CRUD (REST endpoint is also IPv4-reachable, more ergonomic); reach for `pg` via `DEST_DATABASE_URL` only when you need raw SQL / DDL the REST API can't do.
+
+For any DB access from this workspace (scripts, ad-hoc debugging, one-off data fixes), use **`@supabase/supabase-js`** with the service-role key. Working reference: `scripts/debug-tenant.mjs`.
+
+```js
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(
+  process.env.DEST_SUPABASE_URL,
+  process.env.DEST_SUPABASE_KEY
+);
+```
+
+Quick one-off from bash (env vars ARE available in the shell):
+
+```bash
+node -e "
+const { createClient } = require('@supabase/supabase-js');
+const sb = createClient(process.env.DEST_SUPABASE_URL, process.env.DEST_SUPABASE_KEY, { auth: { persistSession: false } });
+(async () => {
+  const { data, error } = await sb.from('tenant').select('id, slug, name').limit(5);
+  console.log({ data, error });
+})();
+"
+```
+
+## Testing
+-   **AI assistant tests** (registered as the `ai-assistant-tests` validation step, runs automatically on task completion): `node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/aiCompositionRender.test.mjs` — member-AI visibility (security boundary), ranking, indexer, help-chunker, dashboard aggregation/LMIC operators, Canvas auto-height bake guards, `useAutoHeightBake` runtime gates (jsdom), and Canvas auto reading-order suites.
+-   **GoCardless tests:** `node --test api/_lib/gocardless*.test.mjs` — webhook signature/idempotency/status-transition suites, per-tenant credential resolution (tenant_integrations → env fallback, env/token mismatch guards), org DD billing-contact invitations (token format, expiry clamp 1-90 via `dd_invite_expiry_days`, validate/supersede/single-use/revoke, recipient dedupe), Phase 5 renewal decisions (`gocardlessDdRenewals.test.mjs`), and migration invite/funnel (`gocardlessDdMigration.test.mjs`).
+-   **GoCardless sandbox proof:** `node scripts/gocardless-sandbox-proof.mjs [runId]` — billing request + hosted flow creation and idempotent-retry behaviour against the GC sandbox (requires `GOCARDLESS_ACCESS_TOKEN`; refuses to run against live).
+-   **Pending-PO report tests:** `node --test api/_lib/pendingPoInvoice.test.mjs` — PO reference extraction/blacklist and cross-record membership PO propagation helpers.
+
+## Env vars (current canonical set)
+Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPABASE_*` names; prefer the `DEST_*` names below for new code.
+
+| Var | Purpose |
+| --- | ------- |
+| `DEST_SUPABASE_URL` / `DEST_SUPABASE_KEY` / `DEST_DATABASE_URL` | Destination (prod) Supabase. See "Database connection". |
+| `SOURCE_SUPABASE_URL` / `SOURCE_SUPABASE_KEY` / `SOURCE_DATABASE_URL` | Legacy single-tenant snapshot — only used by migration scripts. |
+| `DATABASE_URL` | Direct host (IPv6 only) — used by Vercel / Drizzle push, not this workspace. |
+| `MAILGUN_API_KEY`, `MAILGUN_REGION` (default `eu`), `MAILGUN_FROM_EMAIL`, `APP_DOMAIN` (default `iconn.app`) | Email sending. `MAILGUN_FROM_EMAIL` is the non-system default From; system emails are pinned to `noreply@mail.${APP_DOMAIN}` regardless. |
+| `STRIPE_SECRET_KEY` | Tenant Stripe AND platform-side paid-plan upgrade Checkout. |
+| `STRIPE_PLAN_WEBHOOK_SECRET` | Verifies `/api/webhooks/stripe-plan` from the platform Stripe account. Configure dashboard to deliver `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
+| `GOCARDLESS_ENVIRONMENT` | `sandbox` (default) or `live`. Platform-level FALLBACK only — tenants connect their own GoCardless account via `tenant_integrations` (`integration_type='gocardless'`, resolved by `api/_lib/gocardlessCredentials.js`). |
+| `GOCARDLESS_ACCESS_TOKEN` | Platform-fallback GoCardless API access token (sandbox tokens start `sandbox_`, live `live_`; env/token mismatch is rejected at call time). |
+| `GOCARDLESS_WEBHOOK_SECRET` | Platform-fallback secret verifying `Webhook-Signature` (HMAC-SHA256 of raw body) on `/api/webhooks/gocardless`. Tenant-connected accounts register the URL with `?tenant=<uuid>` and are verified against their own stored secret. |
+| `GOCARDLESS_REDIRECT_BASE_URL` | Base URL for Billing Request Flow redirect/exit URIs (e.g. `https://iconn.app`). |
+| `GOCARDLESS_CREDITOR_ID` (opt) | Pins billing requests to one creditor on multi-creditor GC accounts. |
+| `GOOGLE_FONTS_API_KEY` | Server-side key for the Google Fonts Developer API. Powers live font search in the `/InstalledFonts` add dialog via `api/public/google-fonts.js`. If unset, the picker falls back to the curated `POPULAR_GOOGLE_FONTS` list. |
+| `XERO_CLIENT_ID` | Xero OAuth. |
+| `QUICKBOOKS_REDIRECT_URI` (opt) | Overrides default `${origin}/api/quickbooks/callback` for stable QBO OAuth redirect. |
+| `BROWSERLESS_API_TOKEN`, `BROWSERLESS_BASE_URL` (opt), `BROWSERLESS_AUDIT_TIMEOUT_MS` (opt) | Accessibility audits via browserless.io. |
+| `VITE_APP_URL` | Frontend-known app URL. |
+| `CAPTCHA_PROVIDER`, `CAPTCHA_SECRET_KEY` (opt) | Self-serve signup captcha (hCaptcha/Turnstile/reCAPTCHA). Bypassed when not production. |
+| `SIGNUP_RATE_IP_PER_HOUR`, `SIGNUP_RATE_EMAIL_PER_DAY` (opt) | Self-serve signup rate limits. |
+| `CRON_SECRET` | Guards all `/api/cron/*` endpoints. |
+| `ICONNECT_HEALTH_CHECK_TOKEN` | Required secret for `/api/health`; Better Stack must send it as the `X-Health-Token` request header. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_RENEWALS_URL` | Optional Better Stack heartbeat URL for membership renewals. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for membership-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_GOCARDLESS_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for GoCardless reconciliation. |
+| `BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for Stripe card-plan reconciliation. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL` | Optional Better Stack heartbeat URL for scheduled workflows. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL` | Optional Better Stack heartbeat URL for scheduled campaigns. |
+| `BETTERSTACK_HEARTBEAT_DATABASE_BACKUP_URL` | Optional Better Stack heartbeat URL for database backup to R2. |
+| `BETTERSTACK_HEARTBEAT_STORAGE_BACKUP_URL` | Optional Better Stack heartbeat URL for storage backup to R2. |
+| `BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for form-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_AUTOMATIC_MEMBERSHIP_PROCESSING_URL` | Optional Better Stack heartbeat URL for automatic membership processing. |
+| `ENABLE_RESET_DEBUG` (opt, `'true'`) | Temporary diagnostic: `/api/auth/request-admin-password-reset` returns a `debug` field (`no_identity`/`no_owner_membership`/`email_failed`/`sent`). Leave unset in normal operation so account existence is not disclosed. |
+| `R2_ACCOUNT_ID` | Cloudflare account ID — builds the R2 endpoint URL (`https://<id>.r2.cloudflarestorage.com`). Set this **or** `R2_ENDPOINT`. Vercel secret. |
+| `R2_ENDPOINT` (opt) | Full R2 endpoint URL override, instead of `R2_ACCOUNT_ID`. |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | R2 API token credentials + target bucket for backups. Vercel secrets. |
+| `DB_BACKUP_SCHEMAS` (opt) | Comma-separated Postgres schemas in the nightly DB dump (default: `public`). Supabase internal schemas (`auth`, `storage`, `realtime`, …) are intentionally excluded — Supabase manages them. |
+
+### External health monitoring
+
+Create a Better Stack HTTP monitor for `GET /api/health`. In the monitor's
+request headers, configure `X-Health-Token` to the same secret held in the
+Vercel `ICONNECT_HEALTH_CHECK_TOKEN` environment variable. The endpoint is
+intentionally unauthorised only by that header and returns no dependency detail
+when the header is missing or invalid.
+
+The ten `BETTERSTACK_HEARTBEAT_*_URL` variables are independently optional
+and apply only to the ten selected production schedules. The application
+derives Better Stack's `/fail` target from each configured success URL; store
+only the success URL in Vercel Production. See
+`guides/better-stack-cron-heartbeats.md` for the setup matrix and the complete
+30-schedule coverage inventory.
+Set each Vercel value to the matching Better Stack heartbeat URL for only the
+scheduled job you wish to monitor. The job sends a success URL after a clean
+run and Better Stack's `/fail` URL for a failed run; delivery failures never
+change the job's response or retry behaviour.
+
+## Stack & where things live
+-   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS
+-   **Backend:** Express.js (dev) / Vercel serverless functions (prod), PostgreSQL, Drizzle ORM
+-   `/client`: Frontend source (`client/src/design-system` = custom "new-york" shadcn variant)
+-   `/api`: Backend API endpoints (Vercel serverless functions); shared helpers under `api/_lib/`
+-   `/supabase/migrations`: Database migrations (idempotent SQL); `supabase/schema.prisma` is the schema source of truth for Drizzle
+-   `/scripts`: Utility and migration scripts
+-   `client/index.html` + `api/render.js`: SSR for SEO/OG tag injection
+
+## Architecture decisions
+-   **Multi-tenancy:** Data isolation at GLOBAL / TENANT / ORGANIZATION / MEMBER levels via `tenant_id` and `organization_id`. The shared entity API hard-fails any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Identity:** Unified identity with per-tenant password isolation, Google OAuth, feature-based role management.
+-   **Email sending:** `api/_lib/emailService.js` resolves the sending domain off `tenantId` for tenant→member emails. **System emails** (platform→tenant-owner: admin reset, signup verification, team invite, billing notifications) MUST pass `systemEmail: true` (or use `sendSystemEmail()`); this forces both Mailgun domain AND From identity to `mail.${APP_DOMAIN}` / `noreply@mail.${APP_DOMAIN}`. System reset/verification links must point at `${APP_DOMAIN}/...` not a tenant subdomain.
+-   **Dynamic SEO:** SSR meta-tag injection per-tenant via `api/render.js`; per-page metadata resolved by `api/_lib/entityMeta.js`. Per-entity `seo_title` / `seo_description` / `og_image_url` overrides on events, blog posts, news, campaigns, resources, and directories (UI in `client/src/components/blog/SEOSettings.jsx`). `og:image` URLs on `vault.iconn.app` or `*.supabase.co` are proxied through `/api/og-image`.
+-   **Event deletion:** Multi-step cancellation flow (refunds, reinstatements, Zoom unregistration) before any data purge. Direct deletion of events is deprecated for UI flows.
+-   **Semantic `warning` color:** `--warning` / `--warning-foreground` CSS vars in `client/src/index.css` (both themes, WCAG-AA). Use `text-warning`, `bg-warning`, `<Badge variant="warning">`, `<Alert variant="warning">` instead of raw amber/yellow/orange palette classes.
+-   **Membership invoices:** `organisation_membership_history` / `member_membership_history` carry `payment_status` (`unpaid`/`paid`/`partial`/`voided`) + `paid_at`, separate from the lifecycle `status`. Accounting-sync failures flag the row `accounting_sync_status='failed'` (not swallowed) with a Retry button in `OrgMembershipTab.jsx`. Payment reconciliation cron `/api/cron/reconcile-membership-invoice-payments` (every 3h, `CRON_SECRET`-guarded) queries Xero/QBO and fires workflows on `unpaid -> paid` only. See `api/_lib/membershipPaymentReconciliation.js`, `api/_lib/accountingProvider.js`.
+-   **Tenant storage metering:** `tenant.storage_used_bytes` (BIGINT) drives `checkStorageQuota` (`api/_lib/planQuota.js`) and `/admin/plan-usage`. Maintained incrementally via `addTenantStorageBytes` (`api/_lib/tenantStorageUsage.js`). Can drift (signed-URL claimed size); re-baseline with `scripts/recompute-tenant-storage.mjs` or the nightly cron.
+-   **Paid-plan upgrade flow (`/admin/plan-usage` → Stripe Checkout):** `PlanUsage.jsx` → `api/admin/plan-checkout.js` (tenant-admin RBAC, uses PLATFORM `STRIPE_SECRET_KEY`, NOT tenant's connected Stripe). First-time creates a Checkout Session; existing live sub swaps price in place via `stripe.subscriptions.update` (proration, never a parallel sub). Webhook `api/webhooks/stripe-plan.js` upserts `tenant_subscription` and flips `tenant.plan_code` only when status is `active`/`trialing`; `subscription.deleted` reverts to `free`.
+-   **Self-serve signup & onboarding (`/signup` → wizard):** `signup-start.js` (captcha + rate limits + verification email) → `signup-verify.js` (`provisionTenant`, `free` plan) → 5-step `OnboardingWizard.jsx` → `POST /api/admin/onboarding` runs `api/_lib/onboardingSeeder.js` (branding + tiers + persona seed pack tagged `is_sample=true`). Legacy admins backfilled to `onboarding_status='complete'`.
+-   **Accessibility audits:** Admin page (RBAC `admin.accessibility-audits`) runs axe-core 4.10 via browserless.io for tenant public URLs. Results in `accessibility_audit` / `accessibility_audit_result`; endpoints under `/api/admin/accessibility-audits`; runner `api/_lib/browserlessAxe.js`. v1 limits: ≤10 URLs/run, http(s) only, no credentialed URLs.
+-   **AI Design Studio V1 (Canvas AI Composition):** generation via `api/ai-compositions/generate.js`; prompt-led editing via `api/ai-compositions/edit.js` (propose/accept/reject/undo + conversation history in `ai_composition_conversation`) and `api/ai-compositions/destinations.js` (record-ID link picker — the AI never invents internal URLs). Patch engine `api/_lib/aiCompositionPatch.js`, edit pipeline `api/_lib/aiCompositionEdit.js`. Accept re-applies the STORED proposal server-side against the current document; complete redesigns are saved as alternatives (`is_alternative`); protected-value changes (prices, dates, names) require explicit confirmation. Editor UI in `client/src/components/canvas/blocks/AiCompositionEditPanel.jsx`. V1 scene-graph compositions are now read-only w.r.t. the V2 pivot.
+-   **AI Design Studio V2 (native-code pivot):** V2 compositions are native AI HTML/CSS/SVG packages (document `schemaVersion "2.0"`, `ai_composition.renderer_version=2`), sanitised ONCE server-side at store time by `api/_lib/aiCodePipeline.js` (schema → jsdom+DOMPurify sanitise → manifest cross-check → postcss CSS scoping under `[data-ai-composition="<uuid>"]` → leak check; reject-don't-repair), rendered verbatim by `AiCodeCompositionBlock.jsx`; signed CSP-locked preview + Browserless screenshots via `api/ai-compositions/preview.js` (HMAC keyed by `AIC_PREVIEW_SECRET`/`CRON_SECRET`). **Page bodies:** `compositionType: "page_body"` runs a plan stage (content manifest + creative plan, anti-degenerate checks in `aiCodeGeneration.js`) before code gen; page gates forbid `<header>/<footer>/<nav>` recreation. **Actions** (`data-ai-action` + manifest, `api/_lib/aiCodeActions.js`) resolve server-side to real records — unresolved actions block page publish (409 `AI_UNRESOLVED_ACTIONS`; editor fix-up via `api/ai-compositions/resolve-action.js`). **Slots** (`data-iconnect-slot`, `api/_lib/aiCodeSlots.js`) portal trusted platform blocks into generated markup; never block publish. **Imagery:** the model never writes image URLs — `<img data-ai-asset="<key>">` placeholders declared in the package `assets` manifest, fulfilled server-side (`api/_lib/aiCodeAssets.js`, gpt-image-1 or media library, tenant-owned storage); only unfulfilled `required` assets hard-reject; image swap is a deterministic `replace-image` edit action. V1→V2 rebuild is admin-only via `api/ai-compositions/rebuild-v2.js` (never automatic). **Editing:** `api/ai-compositions/edit-v2.js` (propose/accept/reject/undo); proposals (element-scoped patches via `data-ai-id`, or full revisions saved as alternatives) stored in `ai_composition_conversation` and re-applied against the CURRENT document on accept (`api/_lib/aiCodeEdit.js`); protected values + locked `data-content-key` texts require confirmation; breakpoint-scoped edits must leave other breakpoints' CSS untouched; accepts introducing NEW critical accessibility issues are blocked (422 `AI_VALIDATION_CRITICAL`). Admin-only Composition Inspector via `GET /api/ai-compositions/:id?inspector=1` (404 to non-admins). Full details: `guides/ai-design-studio-v2-pivot.md`.
+-   **Member AI structured Q&A:** the member assistant answers count/aggregate questions from live records via a whitelisted query spec (LLM never writes SQL). Catalog + validation + executors in `api/_lib/memberAiStructured.js`; routing in `api/member-ai/ask.js`. Adding an entity/field: follow `guides/member-ai-structured-qa.md` (visibility mirrors the member browse surfaces; drift guard in `memberAiStructuredSchemaDrift.test.mjs`).
+
+## Gotchas
+-   **Vercel preview-domain ownership:** Project `vite-migrate-replit-6` serves this repository. Both `dev.iconn.app` and `*.dev.iconn.app` are verified Vercel project domains pinned to the `eventemb2` Git branch; tenant custom-domain actions must never attach, reclaim, or detach `iconn.app` or any of its subdomains.
+-   **`dev.iconn.app` = Vercel preview deployment** built from the `eventemb2` git branch of the same Vercel project as production. Shares the same Supabase. (a) Vercel's Functions → Logs viewer defaults to Production and hides Preview logs — switch the Environment filter to Preview. (b) A fix only reaches `dev.iconn.app` after the commit is on the `eventemb2` branch and that branch's preview build has finished.
+-   **`sendEmail()` never throws.** It catches Mailgun errors and returns `{ success: false, error, status, domain }`. Callers MUST inspect the return value; a bare `try { await sendEmail(...) } catch {}` will falsely report success on 401 / unverified domain / missing key. Canonical pattern: `api/auth/request-admin-password-reset.js`.
+-   **System emails MUST pass `systemEmail: true`** (or use `sendSystemEmail()`). Without it, a tenant with a verified custom sending domain would silently send admin reset / signup / billing emails from the tenant's own brand — wrong identity.
+-   **API hard-fails** any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Workflow `dd_owner` / `dd_owner_email` placeholders** resolve via `resolveDdOwnerForSubmission` (`api/_lib/ddOwner.js`) only when the trigger caller passes `context.formSubmissionId` to `triggerWorkflows`. Without submission context they collapse to empty strings.
+-   **No server-side length validation on `event.summary` / `complex_event.summary`** — relies on client-side `event_summary_max_length` system setting (default 150).
+
+## Product
+-   **Core:** Members, Events, Bookings, Resources, Blog.
+-   **Identity:** Unified login, multi-tenant ownership, organization memberships, granular access control.
+-   **Customization:** Page Builder, Custom Forms with conditional logic, Workflow Automation, per-tenant branding.
+-   **Financials:** Stripe membership payments, Xero/QBO invoicing, Fundraising with Gift Aid.
+-   **Comms:** Email templates, campaigns, member preferences.
+-   **Integrations:** WordPress Sync, Zoom (events/sessions), Zoho CRM sync.
+-   **Reporting:** Due Diligence Reports, configurable Member/Org Directories.
+-   **Community:** Tenant-scoped forums, Member Group email campaigns.
+
+## User preferences
+Preferred communication style: Simple, everyday language.
+
+## Pointers
+-   **React:** `https://react.dev/` · **Tailwind:** `https://tailwindcss.com/docs` · **Drizzle:** `https://orm.drizzle.team/docs/overview`
+-   **Vercel Functions:** `https://vercel.com/docs/functions/overview` · **Supabase:** `https://supabase.com/docs`
+-   **Stripe:** `https://stripe.com/docs/api` · **Mailgun:** `https://documentation.mailgun.com/en/latest/api_reference.html`
+# Membership Management Platform
+A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
+
+## Run & Operate
+-   **Run Dev Server:** `npm run dev`
+-   **Build:** `npm run build` · **Typecheck:** `npm run typecheck` · **Codegen:** `npm run codegen`
+-   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — only works from environments with IPv6 outbound; **not from this Replit workspace** (see "Database connection").
+-   **Migrations:** every `.sql` in `supabase/migrations/` is idempotent and applied against `DEST_DATABASE_URL` (pooler). Most migrations have a matching `node scripts/apply-*.mjs` runner; check `scripts/` before applying anything by hand.
+-   **One-off scripts (backfills, CSV imports, tenant seeds):** live in `scripts/` (e.g. `recompute-tenant-storage.mjs`, `backfill-*.mjs`, `import-*.mjs`, `seed-*.mjs`). They are idempotent, default to dry-run unless an `--apply` flag is passed, and many are hard-pinned to a single tenant. Read the script header before running; each documents its own flags and scope.
+-   **Storage usage reconcile:** `node scripts/recompute-tenant-storage.mjs [--dry-run] [--tenant=<uuid>]`, or trust the nightly cron at `/api/cron/recompute-tenant-storage` (03:00 UTC, `CRON_SECRET`-guarded).
+
+## Database connection (read this before any DB work from this workspace)
+There are two Supabase projects this codebase talks to:
+
+| Role | What it is | URL secret | Postgres URL secret | Service-role key secret |
+| ---- | ---------- | ---------- | ------------------- | ----------------------- |
+| **Destination (current prod)** | Multi-tenant iConnect DB | `DEST_SUPABASE_URL` (`https://lvmzliemqnieeoruhkik.supabase.co`) | `DEST_DATABASE_URL` | `DEST_SUPABASE_KEY` |
+| **Source (legacy)** | Pre-multi-tenancy single-tenant snapshot, used by migration scripts | `SOURCE_SUPABASE_URL` | `SOURCE_DATABASE_URL` | `SOURCE_SUPABASE_KEY` |
+
+**The Supabase direct host (`db.<project>.supabase.co`) is unreachable from this Replit workspace** — it publishes only IPv6 (AAAA) DNS and the Replit container has no IPv6 outbound route, so `psql`, `execute_sql_tool`, `drizzle-kit push`, and any raw `pg`/Drizzle client pointed at the direct host fail with `ENOTFOUND` / `ENETUNREACH`. Those tools work from Vercel functions, the user's laptop, and CI — just not from here against the direct host.
+
+**The Supabase Pooler hostname IS IPv4-reachable from this workspace** (`aws-1-eu-central-1.pooler.supabase.com:5432`, which is what `DEST_DATABASE_URL` already points to). `pg` clients using `DEST_DATABASE_URL` (transaction-pooler mode) work from Replit for read/write queries and DDL such as `CREATE INDEX`. Prefer `@supabase/supabase-js` for ordinary CRUD (REST endpoint is also IPv4-reachable, more ergonomic); reach for `pg` via `DEST_DATABASE_URL` only when you need raw SQL / DDL the REST API can't do.
+
+For any DB access from this workspace (scripts, ad-hoc debugging, one-off data fixes), use **`@supabase/supabase-js`** with the service-role key. Working reference: `scripts/debug-tenant.mjs`.
+
+```js
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(
+  process.env.DEST_SUPABASE_URL,
+  process.env.DEST_SUPABASE_KEY
+);
+```
+
+Quick one-off from bash (env vars ARE available in the shell):
+
+```bash
+node -e "
+const { createClient } = require('@supabase/supabase-js');
+const sb = createClient(process.env.DEST_SUPABASE_URL, process.env.DEST_SUPABASE_KEY, { auth: { persistSession: false } });
+(async () => {
+  const { data, error } = await sb.from('tenant').select('id, slug, name').limit(5);
+  console.log({ data, error });
+})();
+"
+```
+
+## Testing
+-   **AI assistant tests** (registered as the `ai-assistant-tests` validation step, runs automatically on task completion): `node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/aiCompositionRender.test.mjs` — member-AI visibility (security boundary), ranking, indexer, help-chunker, dashboard aggregation/LMIC operators, Canvas auto-height bake guards, `useAutoHeightBake` runtime gates (jsdom), and Canvas auto reading-order suites.
+-   **GoCardless tests:** `node --test api/_lib/gocardless*.test.mjs` — webhook signature/idempotency/status-transition suites, per-tenant credential resolution (tenant_integrations → env fallback, env/token mismatch guards), org DD billing-contact invitations (token format, expiry clamp 1-90 via `dd_invite_expiry_days`, validate/supersede/single-use/revoke, recipient dedupe), Phase 5 renewal decisions (`gocardlessDdRenewals.test.mjs`), and migration invite/funnel (`gocardlessDdMigration.test.mjs`).
+-   **GoCardless sandbox proof:** `node scripts/gocardless-sandbox-proof.mjs [runId]` — billing request + hosted flow creation and idempotent-retry behaviour against the GC sandbox (requires `GOCARDLESS_ACCESS_TOKEN`; refuses to run against live).
+-   **Pending-PO report tests:** `node --test api/_lib/pendingPoInvoice.test.mjs` — PO reference extraction/blacklist and cross-record membership PO propagation helpers.
+
+## Env vars (current canonical set)
+Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPABASE_*` names; prefer the `DEST_*` names below for new code.
+
+| Var | Purpose |
+| --- | ------- |
+| `DEST_SUPABASE_URL` / `DEST_SUPABASE_KEY` / `DEST_DATABASE_URL` | Destination (prod) Supabase. See "Database connection". |
+| `SOURCE_SUPABASE_URL` / `SOURCE_SUPABASE_KEY` / `SOURCE_DATABASE_URL` | Legacy single-tenant snapshot — only used by migration scripts. |
+| `DATABASE_URL` | Direct host (IPv6 only) — used by Vercel / Drizzle push, not this workspace. |
+| `MAILGUN_API_KEY`, `MAILGUN_REGION` (default `eu`), `MAILGUN_FROM_EMAIL`, `APP_DOMAIN` (default `iconn.app`) | Email sending. `MAILGUN_FROM_EMAIL` is the non-system default From; system emails are pinned to `noreply@mail.${APP_DOMAIN}` regardless. |
+| `STRIPE_SECRET_KEY` | Tenant Stripe AND platform-side paid-plan upgrade Checkout. |
+| `STRIPE_PLAN_WEBHOOK_SECRET` | Verifies `/api/webhooks/stripe-plan` from the platform Stripe account. Configure dashboard to deliver `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
+| `GOCARDLESS_ENVIRONMENT` | `sandbox` (default) or `live`. Platform-level FALLBACK only — tenants connect their own GoCardless account via `tenant_integrations` (`integration_type='gocardless'`, resolved by `api/_lib/gocardlessCredentials.js`). |
+| `GOCARDLESS_ACCESS_TOKEN` | Platform-fallback GoCardless API access token (sandbox tokens start `sandbox_`, live `live_`; env/token mismatch is rejected at call time). |
+| `GOCARDLESS_WEBHOOK_SECRET` | Platform-fallback secret verifying `Webhook-Signature` (HMAC-SHA256 of raw body) on `/api/webhooks/gocardless`. Tenant-connected accounts register the URL with `?tenant=<uuid>` and are verified against their own stored secret. |
+| `GOCARDLESS_REDIRECT_BASE_URL` | Base URL for Billing Request Flow redirect/exit URIs (e.g. `https://iconn.app`). |
+| `GOCARDLESS_CREDITOR_ID` (opt) | Pins billing requests to one creditor on multi-creditor GC accounts. |
+| `GOOGLE_FONTS_API_KEY` | Server-side key for the Google Fonts Developer API. Powers live font search in the `/InstalledFonts` add dialog via `api/public/google-fonts.js`. If unset, the picker falls back to the curated `POPULAR_GOOGLE_FONTS` list. |
+| `XERO_CLIENT_ID` | Xero OAuth. |
+| `QUICKBOOKS_REDIRECT_URI` (opt) | Overrides default `${origin}/api/quickbooks/callback` for stable QBO OAuth redirect. |
+| `BROWSERLESS_API_TOKEN`, `BROWSERLESS_BASE_URL` (opt), `BROWSERLESS_AUDIT_TIMEOUT_MS` (opt) | Accessibility audits via browserless.io. |
+| `VITE_APP_URL` | Frontend-known app URL. |
+| `CAPTCHA_PROVIDER`, `CAPTCHA_SECRET_KEY` (opt) | Self-serve signup captcha (hCaptcha/Turnstile/reCAPTCHA). Bypassed when not production. |
+| `SIGNUP_RATE_IP_PER_HOUR`, `SIGNUP_RATE_EMAIL_PER_DAY` (opt) | Self-serve signup rate limits. |
+| `CRON_SECRET` | Guards all `/api/cron/*` endpoints. |
+| `ICONNECT_HEALTH_CHECK_TOKEN` | Required secret for `/api/health`; Better Stack must send it as the `X-Health-Token` request header. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_RENEWALS_URL` | Optional Better Stack heartbeat URL for membership renewals. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for membership-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_GOCARDLESS_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for GoCardless reconciliation. |
+| `BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for Stripe card-plan reconciliation. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL` | Optional Better Stack heartbeat URL for scheduled workflows. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL` | Optional Better Stack heartbeat URL for scheduled campaigns. |
+| `BETTERSTACK_HEARTBEAT_DATABASE_BACKUP_URL` | Optional Better Stack heartbeat URL for database backup to R2. |
+| `BETTERSTACK_HEARTBEAT_STORAGE_BACKUP_URL` | Optional Better Stack heartbeat URL for storage backup to R2. |
+| `BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for form-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_AUTOMATIC_MEMBERSHIP_PROCESSING_URL` | Optional Better Stack heartbeat URL for automatic membership processing. |
+| `ENABLE_RESET_DEBUG` (opt, `'true'`) | Temporary diagnostic: `/api/auth/request-admin-password-reset` returns a `debug` field (`no_identity`/`no_owner_membership`/`email_failed`/`sent`). Leave unset in normal operation so account existence is not disclosed. |
+| `R2_ACCOUNT_ID` | Cloudflare account ID — builds the R2 endpoint URL (`https://<id>.r2.cloudflarestorage.com`). Set this **or** `R2_ENDPOINT`. Vercel secret. |
+| `R2_ENDPOINT` (opt) | Full R2 endpoint URL override, instead of `R2_ACCOUNT_ID`. |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | R2 API token credentials + target bucket for backups. Vercel secrets. |
+| `DB_BACKUP_SCHEMAS` (opt) | Comma-separated Postgres schemas in the nightly DB dump (default: `public`). Supabase internal schemas (`auth`, `storage`, `realtime`, …) are intentionally excluded — Supabase manages them. |
+
+### External health monitoring
+
+Create a Better Stack HTTP monitor for `GET /api/health`. In the monitor's
+request headers, configure `X-Health-Token` to the same secret held in the
+Vercel `ICONNECT_HEALTH_CHECK_TOKEN` environment variable. The endpoint is
+intentionally unauthorised only by that header and returns no dependency detail
+when the header is missing or invalid.
+
+The ten `BETTERSTACK_HEARTBEAT_*_URL` variables are independently optional
+and apply only to the ten selected production schedules. The application
+derives Better Stack's `/fail` target from each configured success URL; store
+only the success URL in Vercel Production. See
+`guides/better-stack-cron-heartbeats.md` for the setup matrix and the complete
+30-schedule coverage inventory.
+Set each Vercel value to the matching Better Stack heartbeat URL for only the
+scheduled job you wish to monitor. The job sends a success URL after a clean
+run and Better Stack's `/fail` URL for a failed run; delivery failures never
+change the job's response or retry behaviour.
+
+## Stack & where things live
+-   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS
+-   **Backend:** Express.js (dev) / Vercel serverless functions (prod), PostgreSQL, Drizzle ORM
+-   `/client`: Frontend source (`client/src/design-system` = custom "new-york" shadcn variant)
+-   `/api`: Backend API endpoints (Vercel serverless functions); shared helpers under `api/_lib/`
+-   `/supabase/migrations`: Database migrations (idempotent SQL); `supabase/schema.prisma` is the schema source of truth for Drizzle
+-   `/scripts`: Utility and migration scripts
+-   `client/index.html` + `api/render.js`: SSR for SEO/OG tag injection
+
+## Architecture decisions
+-   **Multi-tenancy:** Data isolation at GLOBAL / TENANT / ORGANIZATION / MEMBER levels via `tenant_id` and `organization_id`. The shared entity API hard-fails any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Identity:** Unified identity with per-tenant password isolation, Google OAuth, feature-based role management.
+-   **Email sending:** `api/_lib/emailService.js` resolves the sending domain off `tenantId` for tenant→member emails. **System emails** (platform→tenant-owner: admin reset, signup verification, team invite, billing notifications) MUST pass `systemEmail: true` (or use `sendSystemEmail()`); this forces both Mailgun domain AND From identity to `mail.${APP_DOMAIN}` / `noreply@mail.${APP_DOMAIN}`. System reset/verification links must point at `${APP_DOMAIN}/...` not a tenant subdomain.
+-   **Dynamic SEO:** SSR meta-tag injection per-tenant via `api/render.js`; per-page metadata resolved by `api/_lib/entityMeta.js`. Per-entity `seo_title` / `seo_description` / `og_image_url` overrides on events, blog posts, news, campaigns, resources, and directories (UI in `client/src/components/blog/SEOSettings.jsx`). `og:image` URLs on `vault.iconn.app` or `*.supabase.co` are proxied through `/api/og-image`.
+-   **Event deletion:** Multi-step cancellation flow (refunds, reinstatements, Zoom unregistration) before any data purge. Direct deletion of events is deprecated for UI flows.
+-   **Semantic `warning` color:** `--warning` / `--warning-foreground` CSS vars in `client/src/index.css` (both themes, WCAG-AA). Use `text-warning`, `bg-warning`, `<Badge variant="warning">`, `<Alert variant="warning">` instead of raw amber/yellow/orange palette classes.
+-   **Membership invoices:** `organisation_membership_history` / `member_membership_history` carry `payment_status` (`unpaid`/`paid`/`partial`/`voided`) + `paid_at`, separate from the lifecycle `status`. Accounting-sync failures flag the row `accounting_sync_status='failed'` (not swallowed) with a Retry button in `OrgMembershipTab.jsx`. Payment reconciliation cron `/api/cron/reconcile-membership-invoice-payments` (every 3h, `CRON_SECRET`-guarded) queries Xero/QBO and fires workflows on `unpaid -> paid` only. See `api/_lib/membershipPaymentReconciliation.js`, `api/_lib/accountingProvider.js`.
+-   **Tenant storage metering:** `tenant.storage_used_bytes` (BIGINT) drives `checkStorageQuota` (`api/_lib/planQuota.js`) and `/admin/plan-usage`. Maintained incrementally via `addTenantStorageBytes` (`api/_lib/tenantStorageUsage.js`). Can drift (signed-URL claimed size); re-baseline with `scripts/recompute-tenant-storage.mjs` or the nightly cron.
+-   **Paid-plan upgrade flow (`/admin/plan-usage` → Stripe Checkout):** `PlanUsage.jsx` → `api/admin/plan-checkout.js` (tenant-admin RBAC, uses PLATFORM `STRIPE_SECRET_KEY`, NOT tenant's connected Stripe). First-time creates a Checkout Session; existing live sub swaps price in place via `stripe.subscriptions.update` (proration, never a parallel sub). Webhook `api/webhooks/stripe-plan.js` upserts `tenant_subscription` and flips `tenant.plan_code` only when status is `active`/`trialing`; `subscription.deleted` reverts to `free`.
+-   **Self-serve signup & onboarding (`/signup` → wizard):** `signup-start.js` (captcha + rate limits + verification email) → `signup-verify.js` (`provisionTenant`, `free` plan) → 5-step `OnboardingWizard.jsx` → `POST /api/admin/onboarding` runs `api/_lib/onboardingSeeder.js` (branding + tiers + persona seed pack tagged `is_sample=true`). Legacy admins backfilled to `onboarding_status='complete'`.
+-   **Accessibility audits:** Admin page (RBAC `admin.accessibility-audits`) runs axe-core 4.10 via browserless.io for tenant public URLs. Results in `accessibility_audit` / `accessibility_audit_result`; endpoints under `/api/admin/accessibility-audits`; runner `api/_lib/browserlessAxe.js`. v1 limits: ≤10 URLs/run, http(s) only, no credentialed URLs.
+-   **AI Design Studio V1 (Canvas AI Composition):** generation via `api/ai-compositions/generate.js`; prompt-led editing via `api/ai-compositions/edit.js` (propose/accept/reject/undo + conversation history in `ai_composition_conversation`) and `api/ai-compositions/destinations.js` (record-ID link picker — the AI never invents internal URLs). Patch engine `api/_lib/aiCompositionPatch.js`, edit pipeline `api/_lib/aiCompositionEdit.js`. Accept re-applies the STORED proposal server-side against the current document; complete redesigns are saved as alternatives (`is_alternative`); protected-value changes (prices, dates, names) require explicit confirmation. Editor UI in `client/src/components/canvas/blocks/AiCompositionEditPanel.jsx`. V1 scene-graph compositions are now read-only w.r.t. the V2 pivot.
+-   **AI Design Studio V2 (native-code pivot):** V2 compositions are native AI HTML/CSS/SVG packages (document `schemaVersion "2.0"`, `ai_composition.renderer_version=2`), sanitised ONCE server-side at store time by `api/_lib/aiCodePipeline.js` (schema → jsdom+DOMPurify sanitise → manifest cross-check → postcss CSS scoping under `[data-ai-composition="<uuid>"]` → leak check; reject-don't-repair), rendered verbatim by `AiCodeCompositionBlock.jsx`; signed CSP-locked preview + Browserless screenshots via `api/ai-compositions/preview.js` (HMAC keyed by `AIC_PREVIEW_SECRET`/`CRON_SECRET`). **Page bodies:** `compositionType: "page_body"` runs a plan stage (content manifest + creative plan, anti-degenerate checks in `aiCodeGeneration.js`) before code gen; page gates forbid `<header>/<footer>/<nav>` recreation. **Actions** (`data-ai-action` + manifest, `api/_lib/aiCodeActions.js`) resolve server-side to real records — unresolved actions block page publish (409 `AI_UNRESOLVED_ACTIONS`; editor fix-up via `api/ai-compositions/resolve-action.js`). **Slots** (`data-iconnect-slot`, `api/_lib/aiCodeSlots.js`) portal trusted platform blocks into generated markup; never block publish. **Imagery:** the model never writes image URLs — `<img data-ai-asset="<key>">` placeholders declared in the package `assets` manifest, fulfilled server-side (`api/_lib/aiCodeAssets.js`, gpt-image-1 or media library, tenant-owned storage); only unfulfilled `required` assets hard-reject; image swap is a deterministic `replace-image` edit action. V1→V2 rebuild is admin-only via `api/ai-compositions/rebuild-v2.js` (never automatic). **Editing:** `api/ai-compositions/edit-v2.js` (propose/accept/reject/undo); proposals (element-scoped patches via `data-ai-id`, or full revisions saved as alternatives) stored in `ai_composition_conversation` and re-applied against the CURRENT document on accept (`api/_lib/aiCodeEdit.js`); protected values + locked `data-content-key` texts require confirmation; breakpoint-scoped edits must leave other breakpoints' CSS untouched; accepts introducing NEW critical accessibility issues are blocked (422 `AI_VALIDATION_CRITICAL`). Admin-only Composition Inspector via `GET /api/ai-compositions/:id?inspector=1` (404 to non-admins). Full details: `guides/ai-design-studio-v2-pivot.md`.
+-   **Member AI structured Q&A:** the member assistant answers count/aggregate questions from live records via a whitelisted query spec (LLM never writes SQL). Catalog + validation + executors in `api/_lib/memberAiStructured.js`; routing in `api/member-ai/ask.js`. Adding an entity/field: follow `guides/member-ai-structured-qa.md` (visibility mirrors the member browse surfaces; drift guard in `memberAiStructuredSchemaDrift.test.mjs`).
+
+## Gotchas
+-   **Vercel preview-domain ownership:** Project `vite-migrate-replit-6` serves this repository. Both `dev.iconn.app` and `*.dev.iconn.app` are verified Vercel project domains pinned to the `eventemb2` Git branch; tenant custom-domain actions must never attach, reclaim, or detach `iconn.app` or any of its subdomains.
+-   **`dev.iconn.app` = Vercel preview deployment** built from the `eventemb2` git branch of the same Vercel project as production. Shares the same Supabase. (a) Vercel's Functions → Logs viewer defaults to Production and hides Preview logs — switch the Environment filter to Preview. (b) A fix only reaches `dev.iconn.app` after the commit is on the `eventemb2` branch and that branch's preview build has finished.
+-   **`sendEmail()` never throws.** It catches Mailgun errors and returns `{ success: false, error, status, domain }`. Callers MUST inspect the return value; a bare `try { await sendEmail(...) } catch {}` will falsely report success on 401 / unverified domain / missing key. Canonical pattern: `api/auth/request-admin-password-reset.js`.
+-   **System emails MUST pass `systemEmail: true`** (or use `sendSystemEmail()`). Without it, a tenant with a verified custom sending domain would silently send admin reset / signup / billing emails from the tenant's own brand — wrong identity.
+-   **API hard-fails** any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Workflow `dd_owner` / `dd_owner_email` placeholders** resolve via `resolveDdOwnerForSubmission` (`api/_lib/ddOwner.js`) only when the trigger caller passes `context.formSubmissionId` to `triggerWorkflows`. Without submission context they collapse to empty strings.
+-   **No server-side length validation on `event.summary` / `complex_event.summary`** — relies on client-side `event_summary_max_length` system setting (default 150).
+
+## Product
+-   **Core:** Members, Events, Bookings, Resources, Blog.
+-   **Identity:** Unified login, multi-tenant ownership, organization memberships, granular access control.
+-   **Customization:** Page Builder, Custom Forms with conditional logic, Workflow Automation, per-tenant branding.
+-   **Financials:** Stripe membership payments, Xero/QBO invoicing, Fundraising with Gift Aid.
+-   **Comms:** Email templates, campaigns, member preferences.
+-   **Integrations:** WordPress Sync, Zoom (events/sessions), Zoho CRM sync.
+-   **Reporting:** Due Diligence Reports, configurable Member/Org Directories.
+-   **Community:** Tenant-scoped forums, Member Group email campaigns.
+
+## User preferences
+Preferred communication style: Simple, everyday language.
+
+## Pointers
+-   **React:** `https://react.dev/` · **Tailwind:** `https://tailwindcss.com/docs` · **Drizzle:** `https://orm.drizzle.team/docs/overview`
+-   **Vercel Functions:** `https://vercel.com/docs/functions/overview` · **Supabase:** `https://supabase.com/docs`
+-   **Stripe:** `https://stripe.com/docs/api` · **Mailgun:** `https://documentation.mailgun.com/en/latest/api_reference.html`
+# Membership Management Platform
+A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
+
+## Run & Operate
+-   **Run Dev Server:** `npm run dev`
+-   **Build:** `npm run build` · **Typecheck:** `npm run typecheck` · **Codegen:** `npm run codegen`
+-   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — only works from environments with IPv6 outbound; **not from this Replit workspace** (see "Database connection").
+-   **Migrations:** every `.sql` in `supabase/migrations/` is idempotent and applied against `DEST_DATABASE_URL` (pooler). Most migrations have a matching `node scripts/apply-*.mjs` runner; check `scripts/` before applying anything by hand.
+-   **One-off scripts (backfills, CSV imports, tenant seeds):** live in `scripts/` (e.g. `recompute-tenant-storage.mjs`, `backfill-*.mjs`, `import-*.mjs`, `seed-*.mjs`). They are idempotent, default to dry-run unless an `--apply` flag is passed, and many are hard-pinned to a single tenant. Read the script header before running; each documents its own flags and scope.
+-   **Storage usage reconcile:** `node scripts/recompute-tenant-storage.mjs [--dry-run] [--tenant=<uuid>]`, or trust the nightly cron at `/api/cron/recompute-tenant-storage` (03:00 UTC, `CRON_SECRET`-guarded).
+
+## Database connection (read this before any DB work from this workspace)
+There are two Supabase projects this codebase talks to:
+
+| Role | What it is | URL secret | Postgres URL secret | Service-role key secret |
+| ---- | ---------- | ---------- | ------------------- | ----------------------- |
+| **Destination (current prod)** | Multi-tenant iConnect DB | `DEST_SUPABASE_URL` (`https://lvmzliemqnieeoruhkik.supabase.co`) | `DEST_DATABASE_URL` | `DEST_SUPABASE_KEY` |
+| **Source (legacy)** | Pre-multi-tenancy single-tenant snapshot, used by migration scripts | `SOURCE_SUPABASE_URL` | `SOURCE_DATABASE_URL` | `SOURCE_SUPABASE_KEY` |
+
+**The Supabase direct host (`db.<project>.supabase.co`) is unreachable from this Replit workspace** — it publishes only IPv6 (AAAA) DNS and the Replit container has no IPv6 outbound route, so `psql`, `execute_sql_tool`, `drizzle-kit push`, and any raw `pg`/Drizzle client pointed at the direct host fail with `ENOTFOUND` / `ENETUNREACH`. Those tools work from Vercel functions, the user's laptop, and CI — just not from here against the direct host.
+
+**The Supabase Pooler hostname IS IPv4-reachable from this workspace** (`aws-1-eu-central-1.pooler.supabase.com:5432`, which is what `DEST_DATABASE_URL` already points to). `pg` clients using `DEST_DATABASE_URL` (transaction-pooler mode) work from Replit for read/write queries and DDL such as `CREATE INDEX`. Prefer `@supabase/supabase-js` for ordinary CRUD (REST endpoint is also IPv4-reachable, more ergonomic); reach for `pg` via `DEST_DATABASE_URL` only when you need raw SQL / DDL the REST API can't do.
+
+For any DB access from this workspace (scripts, ad-hoc debugging, one-off data fixes), use **`@supabase/supabase-js`** with the service-role key. Working reference: `scripts/debug-tenant.mjs`.
+
+```js
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(
+  process.env.DEST_SUPABASE_URL,
+  process.env.DEST_SUPABASE_KEY
+);
+```
+
+Quick one-off from bash (env vars ARE available in the shell):
+
+```bash
+node -e "
+const { createClient } = require('@supabase/supabase-js');
+const sb = createClient(process.env.DEST_SUPABASE_URL, process.env.DEST_SUPABASE_KEY, { auth: { persistSession: false } });
+(async () => {
+  const { data, error } = await sb.from('tenant').select('id, slug, name').limit(5);
+  console.log({ data, error });
+})();
+"
+```
+
+## Testing
+-   **AI assistant tests** (registered as the `ai-assistant-tests` validation step, runs automatically on task completion): `node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/aiCompositionRender.test.mjs` — member-AI visibility (security boundary), ranking, indexer, help-chunker, dashboard aggregation/LMIC operators, Canvas auto-height bake guards, `useAutoHeightBake` runtime gates (jsdom), and Canvas auto reading-order suites.
+-   **GoCardless tests:** `node --test api/_lib/gocardless*.test.mjs` — webhook signature/idempotency/status-transition suites, per-tenant credential resolution (tenant_integrations → env fallback, env/token mismatch guards), org DD billing-contact invitations (token format, expiry clamp 1-90 via `dd_invite_expiry_days`, validate/supersede/single-use/revoke, recipient dedupe), Phase 5 renewal decisions (`gocardlessDdRenewals.test.mjs`), and migration invite/funnel (`gocardlessDdMigration.test.mjs`).
+-   **GoCardless sandbox proof:** `node scripts/gocardless-sandbox-proof.mjs [runId]` — billing request + hosted flow creation and idempotent-retry behaviour against the GC sandbox (requires `GOCARDLESS_ACCESS_TOKEN`; refuses to run against live).
+-   **Pending-PO report tests:** `node --test api/_lib/pendingPoInvoice.test.mjs` — PO reference extraction/blacklist and cross-record membership PO propagation helpers.
+
+## Env vars (current canonical set)
+Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPABASE_*` names; prefer the `DEST_*` names below for new code.
+
+| Var | Purpose |
+| --- | ------- |
+| `DEST_SUPABASE_URL` / `DEST_SUPABASE_KEY` / `DEST_DATABASE_URL` | Destination (prod) Supabase. See "Database connection". |
+| `SOURCE_SUPABASE_URL` / `SOURCE_SUPABASE_KEY` / `SOURCE_DATABASE_URL` | Legacy single-tenant snapshot — only used by migration scripts. |
+| `DATABASE_URL` | Direct host (IPv6 only) — used by Vercel / Drizzle push, not this workspace. |
+| `MAILGUN_API_KEY`, `MAILGUN_REGION` (default `eu`), `MAILGUN_FROM_EMAIL`, `APP_DOMAIN` (default `iconn.app`) | Email sending. `MAILGUN_FROM_EMAIL` is the non-system default From; system emails are pinned to `noreply@mail.${APP_DOMAIN}` regardless. |
+| `STRIPE_SECRET_KEY` | Tenant Stripe AND platform-side paid-plan upgrade Checkout. |
+| `STRIPE_PLAN_WEBHOOK_SECRET` | Verifies `/api/webhooks/stripe-plan` from the platform Stripe account. Configure dashboard to deliver `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
+| `GOCARDLESS_ENVIRONMENT` | `sandbox` (default) or `live`. Platform-level FALLBACK only — tenants connect their own GoCardless account via `tenant_integrations` (`integration_type='gocardless'`, resolved by `api/_lib/gocardlessCredentials.js`). |
+| `GOCARDLESS_ACCESS_TOKEN` | Platform-fallback GoCardless API access token (sandbox tokens start `sandbox_`, live `live_`; env/token mismatch is rejected at call time). |
+| `GOCARDLESS_WEBHOOK_SECRET` | Platform-fallback secret verifying `Webhook-Signature` (HMAC-SHA256 of raw body) on `/api/webhooks/gocardless`. Tenant-connected accounts register the URL with `?tenant=<uuid>` and are verified against their own stored secret. |
+| `GOCARDLESS_REDIRECT_BASE_URL` | Base URL for Billing Request Flow redirect/exit URIs (e.g. `https://iconn.app`). |
+| `GOCARDLESS_CREDITOR_ID` (opt) | Pins billing requests to one creditor on multi-creditor GC accounts. |
+| `GOOGLE_FONTS_API_KEY` | Server-side key for the Google Fonts Developer API. Powers live font search in the `/InstalledFonts` add dialog via `api/public/google-fonts.js`. If unset, the picker falls back to the curated `POPULAR_GOOGLE_FONTS` list. |
+| `XERO_CLIENT_ID` | Xero OAuth. |
+| `QUICKBOOKS_REDIRECT_URI` (opt) | Overrides default `${origin}/api/quickbooks/callback` for stable QBO OAuth redirect. |
+| `BROWSERLESS_API_TOKEN`, `BROWSERLESS_BASE_URL` (opt), `BROWSERLESS_AUDIT_TIMEOUT_MS` (opt) | Accessibility audits via browserless.io. |
+| `VITE_APP_URL` | Frontend-known app URL. |
+| `CAPTCHA_PROVIDER`, `CAPTCHA_SECRET_KEY` (opt) | Self-serve signup captcha (hCaptcha/Turnstile/reCAPTCHA). Bypassed when not production. |
+| `SIGNUP_RATE_IP_PER_HOUR`, `SIGNUP_RATE_EMAIL_PER_DAY` (opt) | Self-serve signup rate limits. |
+| `CRON_SECRET` | Guards all `/api/cron/*` endpoints. |
+| `ICONNECT_HEALTH_CHECK_TOKEN` | Required secret for `/api/health`; Better Stack must send it as the `X-Health-Token` request header. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_RENEWALS_URL` | Optional Better Stack heartbeat URL for membership renewals. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for membership-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_GOCARDLESS_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for GoCardless reconciliation. |
+| `BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for Stripe card-plan reconciliation. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL` | Optional Better Stack heartbeat URL for scheduled workflows. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL` | Optional Better Stack heartbeat URL for scheduled campaigns. |
+| `BETTERSTACK_HEARTBEAT_DATABASE_BACKUP_URL` | Optional Better Stack heartbeat URL for database backup to R2. |
+| `BETTERSTACK_HEARTBEAT_STORAGE_BACKUP_URL` | Optional Better Stack heartbeat URL for storage backup to R2. |
+| `BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for form-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_AUTOMATIC_MEMBERSHIP_PROCESSING_URL` | Optional Better Stack heartbeat URL for automatic membership processing. |
+| `ENABLE_RESET_DEBUG` (opt, `'true'`) | Temporary diagnostic: `/api/auth/request-admin-password-reset` returns a `debug` field (`no_identity`/`no_owner_membership`/`email_failed`/`sent`). Leave unset in normal operation so account existence is not disclosed. |
+| `R2_ACCOUNT_ID` | Cloudflare account ID — builds the R2 endpoint URL (`https://<id>.r2.cloudflarestorage.com`). Set this **or** `R2_ENDPOINT`. Vercel secret. |
+| `R2_ENDPOINT` (opt) | Full R2 endpoint URL override, instead of `R2_ACCOUNT_ID`. |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | R2 API token credentials + target bucket for backups. Vercel secrets. |
+| `DB_BACKUP_SCHEMAS` (opt) | Comma-separated Postgres schemas in the nightly DB dump (default: `public`). Supabase internal schemas (`auth`, `storage`, `realtime`, …) are intentionally excluded — Supabase manages them. |
+
+### External health monitoring
+
+Create a Better Stack HTTP monitor for `GET /api/health`. In the monitor's
+request headers, configure `X-Health-Token` to the same secret held in the
+Vercel `ICONNECT_HEALTH_CHECK_TOKEN` environment variable. The endpoint is
+intentionally unauthorised only by that header and returns no dependency detail
+when the header is missing or invalid.
+
+The ten `BETTERSTACK_HEARTBEAT_*_URL` variables are independently optional
+and apply only to the ten selected production schedules. The application
+derives Better Stack's `/fail` target from each configured success URL; store
+only the success URL in Vercel Production. See
+`guides/better-stack-cron-heartbeats.md` for the setup matrix and the complete
+30-schedule coverage inventory.
+Set each Vercel value to the matching Better Stack heartbeat URL for only the
+scheduled job you wish to monitor. The job sends a success URL after a clean
+run and Better Stack's `/fail` URL for a failed run; delivery failures never
+change the job's response or retry behaviour.
+
+## Stack & where things live
+-   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS
+-   **Backend:** Express.js (dev) / Vercel serverless functions (prod), PostgreSQL, Drizzle ORM
+-   `/client`: Frontend source (`client/src/design-system` = custom "new-york" shadcn variant)
+-   `/api`: Backend API endpoints (Vercel serverless functions); shared helpers under `api/_lib/`
+-   `/supabase/migrations`: Database migrations (idempotent SQL); `supabase/schema.prisma` is the schema source of truth for Drizzle
+-   `/scripts`: Utility and migration scripts
+-   `client/index.html` + `api/render.js`: SSR for SEO/OG tag injection
+
+## Architecture decisions
+-   **Multi-tenancy:** Data isolation at GLOBAL / TENANT / ORGANIZATION / MEMBER levels via `tenant_id` and `organization_id`. The shared entity API hard-fails any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Identity:** Unified identity with per-tenant password isolation, Google OAuth, feature-based role management.
+-   **Email sending:** `api/_lib/emailService.js` resolves the sending domain off `tenantId` for tenant→member emails. **System emails** (platform→tenant-owner: admin reset, signup verification, team invite, billing notifications) MUST pass `systemEmail: true` (or use `sendSystemEmail()`); this forces both Mailgun domain AND From identity to `mail.${APP_DOMAIN}` / `noreply@mail.${APP_DOMAIN}`. System reset/verification links must point at `${APP_DOMAIN}/...` not a tenant subdomain.
+-   **Dynamic SEO:** SSR meta-tag injection per-tenant via `api/render.js`; per-page metadata resolved by `api/_lib/entityMeta.js`. Per-entity `seo_title` / `seo_description` / `og_image_url` overrides on events, blog posts, news, campaigns, resources, and directories (UI in `client/src/components/blog/SEOSettings.jsx`). `og:image` URLs on `vault.iconn.app` or `*.supabase.co` are proxied through `/api/og-image`.
+-   **Event deletion:** Multi-step cancellation flow (refunds, reinstatements, Zoom unregistration) before any data purge. Direct deletion of events is deprecated for UI flows.
+-   **Semantic `warning` color:** `--warning` / `--warning-foreground` CSS vars in `client/src/index.css` (both themes, WCAG-AA). Use `text-warning`, `bg-warning`, `<Badge variant="warning">`, `<Alert variant="warning">` instead of raw amber/yellow/orange palette classes.
+-   **Membership invoices:** `organisation_membership_history` / `member_membership_history` carry `payment_status` (`unpaid`/`paid`/`partial`/`voided`) + `paid_at`, separate from the lifecycle `status`. Accounting-sync failures flag the row `accounting_sync_status='failed'` (not swallowed) with a Retry button in `OrgMembershipTab.jsx`. Payment reconciliation cron `/api/cron/reconcile-membership-invoice-payments` (every 3h, `CRON_SECRET`-guarded) queries Xero/QBO and fires workflows on `unpaid -> paid` only. See `api/_lib/membershipPaymentReconciliation.js`, `api/_lib/accountingProvider.js`.
+-   **Tenant storage metering:** `tenant.storage_used_bytes` (BIGINT) drives `checkStorageQuota` (`api/_lib/planQuota.js`) and `/admin/plan-usage`. Maintained incrementally via `addTenantStorageBytes` (`api/_lib/tenantStorageUsage.js`). Can drift (signed-URL claimed size); re-baseline with `scripts/recompute-tenant-storage.mjs` or the nightly cron.
+-   **Paid-plan upgrade flow (`/admin/plan-usage` → Stripe Checkout):** `PlanUsage.jsx` → `api/admin/plan-checkout.js` (tenant-admin RBAC, uses PLATFORM `STRIPE_SECRET_KEY`, NOT tenant's connected Stripe). First-time creates a Checkout Session; existing live sub swaps price in place via `stripe.subscriptions.update` (proration, never a parallel sub). Webhook `api/webhooks/stripe-plan.js` upserts `tenant_subscription` and flips `tenant.plan_code` only when status is `active`/`trialing`; `subscription.deleted` reverts to `free`.
+-   **Self-serve signup & onboarding (`/signup` → wizard):** `signup-start.js` (captcha + rate limits + verification email) → `signup-verify.js` (`provisionTenant`, `free` plan) → 5-step `OnboardingWizard.jsx` → `POST /api/admin/onboarding` runs `api/_lib/onboardingSeeder.js` (branding + tiers + persona seed pack tagged `is_sample=true`). Legacy admins backfilled to `onboarding_status='complete'`.
+-   **Accessibility audits:** Admin page (RBAC `admin.accessibility-audits`) runs axe-core 4.10 via browserless.io for tenant public URLs. Results in `accessibility_audit` / `accessibility_audit_result`; endpoints under `/api/admin/accessibility-audits`; runner `api/_lib/browserlessAxe.js`. v1 limits: ≤10 URLs/run, http(s) only, no credentialed URLs.
+-   **AI Design Studio V1 (Canvas AI Composition):** generation via `api/ai-compositions/generate.js`; prompt-led editing via `api/ai-compositions/edit.js` (propose/accept/reject/undo + conversation history in `ai_composition_conversation`) and `api/ai-compositions/destinations.js` (record-ID link picker — the AI never invents internal URLs). Patch engine `api/_lib/aiCompositionPatch.js`, edit pipeline `api/_lib/aiCompositionEdit.js`. Accept re-applies the STORED proposal server-side against the current document; complete redesigns are saved as alternatives (`is_alternative`); protected-value changes (prices, dates, names) require explicit confirmation. Editor UI in `client/src/components/canvas/blocks/AiCompositionEditPanel.jsx`. V1 scene-graph compositions are now read-only w.r.t. the V2 pivot.
+-   **AI Design Studio V2 (native-code pivot):** V2 compositions are native AI HTML/CSS/SVG packages (document `schemaVersion "2.0"`, `ai_composition.renderer_version=2`), sanitised ONCE server-side at store time by `api/_lib/aiCodePipeline.js` (schema → jsdom+DOMPurify sanitise → manifest cross-check → postcss CSS scoping under `[data-ai-composition="<uuid>"]` → leak check; reject-don't-repair), rendered verbatim by `AiCodeCompositionBlock.jsx`; signed CSP-locked preview + Browserless screenshots via `api/ai-compositions/preview.js` (HMAC keyed by `AIC_PREVIEW_SECRET`/`CRON_SECRET`). **Page bodies:** `compositionType: "page_body"` runs a plan stage (content manifest + creative plan, anti-degenerate checks in `aiCodeGeneration.js`) before code gen; page gates forbid `<header>/<footer>/<nav>` recreation. **Actions** (`data-ai-action` + manifest, `api/_lib/aiCodeActions.js`) resolve server-side to real records — unresolved actions block page publish (409 `AI_UNRESOLVED_ACTIONS`; editor fix-up via `api/ai-compositions/resolve-action.js`). **Slots** (`data-iconnect-slot`, `api/_lib/aiCodeSlots.js`) portal trusted platform blocks into generated markup; never block publish. **Imagery:** the model never writes image URLs — `<img data-ai-asset="<key>">` placeholders declared in the package `assets` manifest, fulfilled server-side (`api/_lib/aiCodeAssets.js`, gpt-image-1 or media library, tenant-owned storage); only unfulfilled `required` assets hard-reject; image swap is a deterministic `replace-image` edit action. V1→V2 rebuild is admin-only via `api/ai-compositions/rebuild-v2.js` (never automatic). **Editing:** `api/ai-compositions/edit-v2.js` (propose/accept/reject/undo); proposals (element-scoped patches via `data-ai-id`, or full revisions saved as alternatives) stored in `ai_composition_conversation` and re-applied against the CURRENT document on accept (`api/_lib/aiCodeEdit.js`); protected values + locked `data-content-key` texts require confirmation; breakpoint-scoped edits must leave other breakpoints' CSS untouched; accepts introducing NEW critical accessibility issues are blocked (422 `AI_VALIDATION_CRITICAL`). Admin-only Composition Inspector via `GET /api/ai-compositions/:id?inspector=1` (404 to non-admins). Full details: `guides/ai-design-studio-v2-pivot.md`.
+-   **Member AI structured Q&A:** the member assistant answers count/aggregate questions from live records via a whitelisted query spec (LLM never writes SQL). Catalog + validation + executors in `api/_lib/memberAiStructured.js`; routing in `api/member-ai/ask.js`. Adding an entity/field: follow `guides/member-ai-structured-qa.md` (visibility mirrors the member browse surfaces; drift guard in `memberAiStructuredSchemaDrift.test.mjs`).
+
+## Gotchas
+-   **Vercel preview-domain ownership:** Project `vite-migrate-replit-6` serves this repository. Both `dev.iconn.app` and `*.dev.iconn.app` are verified Vercel project domains pinned to the `eventemb2` Git branch; tenant custom-domain actions must never attach, reclaim, or detach `iconn.app` or any of its subdomains.
+-   **`dev.iconn.app` = Vercel preview deployment** built from the `eventemb2` git branch of the same Vercel project as production. Shares the same Supabase. (a) Vercel's Functions → Logs viewer defaults to Production and hides Preview logs — switch the Environment filter to Preview. (b) A fix only reaches `dev.iconn.app` after the commit is on the `eventemb2` branch and that branch's preview build has finished.
+-   **`sendEmail()` never throws.** It catches Mailgun errors and returns `{ success: false, error, status, domain }`. Callers MUST inspect the return value; a bare `try { await sendEmail(...) } catch {}` will falsely report success on 401 / unverified domain / missing key. Canonical pattern: `api/auth/request-admin-password-reset.js`.
+-   **System emails MUST pass `systemEmail: true`** (or use `sendSystemEmail()`). Without it, a tenant with a verified custom sending domain would silently send admin reset / signup / billing emails from the tenant's own brand — wrong identity.
+-   **API hard-fails** any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Workflow `dd_owner` / `dd_owner_email` placeholders** resolve via `resolveDdOwnerForSubmission` (`api/_lib/ddOwner.js`) only when the trigger caller passes `context.formSubmissionId` to `triggerWorkflows`. Without submission context they collapse to empty strings.
+-   **No server-side length validation on `event.summary` / `complex_event.summary`** — relies on client-side `event_summary_max_length` system setting (default 150).
+
+## Product
+-   **Core:** Members, Events, Bookings, Resources, Blog.
+-   **Identity:** Unified login, multi-tenant ownership, organization memberships, granular access control.
+-   **Customization:** Page Builder, Custom Forms with conditional logic, Workflow Automation, per-tenant branding.
+-   **Financials:** Stripe membership payments, Xero/QBO invoicing, Fundraising with Gift Aid.
+-   **Comms:** Email templates, campaigns, member preferences.
+-   **Integrations:** WordPress Sync, Zoom (events/sessions), Zoho CRM sync.
+-   **Reporting:** Due Diligence Reports, configurable Member/Org Directories.
+-   **Community:** Tenant-scoped forums, Member Group email campaigns.
+
+## User preferences
+Preferred communication style: Simple, everyday language.
+
+## Pointers
+-   **React:** `https://react.dev/` · **Tailwind:** `https://tailwindcss.com/docs` · **Drizzle:** `https://orm.drizzle.team/docs/overview`
+-   **Vercel Functions:** `https://vercel.com/docs/functions/overview` · **Supabase:** `https://supabase.com/docs`
+-   **Stripe:** `https://stripe.com/docs/api` · **Mailgun:** `https://documentation.mailgun.com/en/latest/api_reference.html`
+# Membership Management Platform
+A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
+
+## Run & Operate
+-   **Run Dev Server:** `npm run dev`
+-   **Build:** `npm run build` · **Typecheck:** `npm run typecheck` · **Codegen:** `npm run codegen`
+-   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — only works from environments with IPv6 outbound; **not from this Replit workspace** (see "Database connection").
+-   **Migrations:** every `.sql` in `supabase/migrations/` is idempotent and applied against `DEST_DATABASE_URL` (pooler). Most migrations have a matching `node scripts/apply-*.mjs` runner; check `scripts/` before applying anything by hand.
+-   **One-off scripts (backfills, CSV imports, tenant seeds):** live in `scripts/` (e.g. `recompute-tenant-storage.mjs`, `backfill-*.mjs`, `import-*.mjs`, `seed-*.mjs`). They are idempotent, default to dry-run unless an `--apply` flag is passed, and many are hard-pinned to a single tenant. Read the script header before running; each documents its own flags and scope.
+-   **Inclusive relationship reports:** `node scripts/apply-inclusive-relationship-reports.mjs --apply` installs the V2 paging/count helpers and separate BNMS Organisation department summary using `DEST_DATABASE_URL` only. `node scripts/verify-bnms-organisation-department-summary.mjs` verifies saved preview results read-only; `--reference-only` checks source totals before setup. Existing V1 reports are not upgraded.
+-   **Storage usage reconcile:** `node scripts/recompute-tenant-storage.mjs [--dry-run] [--tenant=<uuid>]`, or trust the nightly cron at `/api/cron/recompute-tenant-storage` (03:00 UTC, `CRON_SECRET`-guarded).
+
+## Database connection (read this before any DB work from this workspace)
+There are two Supabase projects this codebase talks to:
+
+| Role | What it is | URL secret | Postgres URL secret | Service-role key secret |
+| ---- | ---------- | ---------- | ------------------- | ----------------------- |
+| **Destination (current prod)** | Multi-tenant iConnect DB | `DEST_SUPABASE_URL` (`https://lvmzliemqnieeoruhkik.supabase.co`) | `DEST_DATABASE_URL` | `DEST_SUPABASE_KEY` |
+| **Source (legacy)** | Pre-multi-tenancy single-tenant snapshot, used by migration scripts | `SOURCE_SUPABASE_URL` | `SOURCE_DATABASE_URL` | `SOURCE_SUPABASE_KEY` |
+
+**The Supabase direct host (`db.<project>.supabase.co`) is unreachable from this Replit workspace** — it publishes only IPv6 (AAAA) DNS and the Replit container has no IPv6 outbound route, so `psql`, `execute_sql_tool`, `drizzle-kit push`, and any raw `pg`/Drizzle client pointed at the direct host fail with `ENOTFOUND` / `ENETUNREACH`. Those tools work from Vercel functions, the user's laptop, and CI — just not from here against the direct host.
+
+**The Supabase Pooler hostname IS IPv4-reachable from this workspace** (`aws-1-eu-central-1.pooler.supabase.com:5432`, which is what `DEST_DATABASE_URL` already points to). `pg` clients using `DEST_DATABASE_URL` (transaction-pooler mode) work from Replit for read/write queries and DDL such as `CREATE INDEX`. Prefer `@supabase/supabase-js` for ordinary CRUD (REST endpoint is also IPv4-reachable, more ergonomic); reach for `pg` via `DEST_DATABASE_URL` only when you need raw SQL / DDL the REST API can't do.
+
+For any DB access from this workspace (scripts, ad-hoc debugging, one-off data fixes), use **`@supabase/supabase-js`** with the service-role key. Working reference: `scripts/debug-tenant.mjs`.
+
+```js
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(
+  process.env.DEST_SUPABASE_URL,
+  process.env.DEST_SUPABASE_KEY
+);
+```
+
+Quick one-off from bash (env vars ARE available in the shell):
+
+```bash
+node -e "
+const { createClient } = require('@supabase/supabase-js');
+const sb = createClient(process.env.DEST_SUPABASE_URL, process.env.DEST_SUPABASE_KEY, { auth: { persistSession: false } });
+(async () => {
+  const { data, error } = await sb.from('tenant').select('id, slug, name').limit(5);
+  console.log({ data, error });
+})();
+"
+```
+
+## Testing
+-   **AI assistant tests** (registered as the `ai-assistant-tests` validation step, runs automatically on task completion): `node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/aiCompositionRender.test.mjs` — member-AI visibility (security boundary), ranking, indexer, help-chunker, dashboard aggregation/LMIC operators, Canvas auto-height bake guards, `useAutoHeightBake` runtime gates (jsdom), and Canvas auto reading-order suites.
+-   **GoCardless tests:** `node --test api/_lib/gocardless*.test.mjs` — webhook signature/idempotency/status-transition suites, per-tenant credential resolution (tenant_integrations → env fallback, env/token mismatch guards), org DD billing-contact invitations (token format, expiry clamp 1-90 via `dd_invite_expiry_days`, validate/supersede/single-use/revoke, recipient dedupe), Phase 5 renewal decisions (`gocardlessDdRenewals.test.mjs`), and migration invite/funnel (`gocardlessDdMigration.test.mjs`).
+-   **GoCardless sandbox proof:** `node scripts/gocardless-sandbox-proof.mjs [runId]` — billing request + hosted flow creation and idempotent-retry behaviour against the GC sandbox (requires `GOCARDLESS_ACCESS_TOKEN`; refuses to run against live).
+-   **Pending-PO report tests:** `node --test api/_lib/pendingPoInvoice.test.mjs` — PO reference extraction/blacklist and cross-record membership PO propagation helpers.
+-   **Organisation Directory filters:** `npm run test:directory-object-fields` covers schema projections, safe diagnostics, exact source-value selection, permission revocation, and population pagination; `npx playwright test tests/directory-object-fields.smoke.spec.mjs` covers mounted directory controls and card behaviour. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` when using a system Chromium.
+-   **Destination directory verification (read-only):** `node scripts/verify-directory-source-values-destination.mjs` checks the configured BNMS Department Name source against DEST without changing settings or records. `npx playwright test --config=tests/task-4360-destination-harness.config.mjs` renders the local app with fixture sign-in/chrome and real destination-backed directory service responses. This harness is not a deployed-login/authentication test; `scripts/verify-task-4360-preview.mjs` separately supports normal authenticated preview verification with an ephemeral `PLAYWRIGHT_STORAGE_STATE`.
+-   **Repeatable Custom Object source verification (read-only):** `node scripts/verify-form-row-choice-sources.mjs --parent-object=<uuid> --related-object=<uuid> --value-field=<name>` checks record → distinct scalar → filtered record options and submission eligibility against DEST using an in-memory form. It does not save forms, submissions, or catalogue records.
+
+## Env vars (current canonical set)
+Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPABASE_*` names; prefer the `DEST_*` names below for new code.
+
+| Var | Purpose |
+| --- | ------- |
+| `DEST_SUPABASE_URL` / `DEST_SUPABASE_KEY` / `DEST_DATABASE_URL` | Destination (prod) Supabase. See "Database connection". |
+| `SOURCE_SUPABASE_URL` / `SOURCE_SUPABASE_KEY` / `SOURCE_DATABASE_URL` | Legacy single-tenant snapshot — only used by migration scripts. |
+| `DATABASE_URL` | Direct host (IPv6 only) — used by Vercel / Drizzle push, not this workspace. |
+| `MAILGUN_API_KEY`, `MAILGUN_REGION` (default `eu`), `MAILGUN_FROM_EMAIL`, `APP_DOMAIN` (default `iconn.app`) | Email sending. `MAILGUN_FROM_EMAIL` is the non-system default From; system emails are pinned to `noreply@mail.${APP_DOMAIN}` regardless. |
+| `STRIPE_SECRET_KEY` | Tenant Stripe AND platform-side paid-plan upgrade Checkout. |
+| `STRIPE_PLAN_WEBHOOK_SECRET` | Verifies `/api/webhooks/stripe-plan` from the platform Stripe account. Configure dashboard to deliver `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
+| `GOCARDLESS_ENVIRONMENT` | `sandbox` (default) or `live`. Platform-level FALLBACK only — tenants connect their own GoCardless account via `tenant_integrations` (`integration_type='gocardless'`, resolved by `api/_lib/gocardlessCredentials.js`). |
+| `GOCARDLESS_ACCESS_TOKEN` | Platform-fallback GoCardless API access token (sandbox tokens start `sandbox_`, live `live_`; env/token mismatch is rejected at call time). |
+| `GOCARDLESS_WEBHOOK_SECRET` | Platform-fallback secret verifying `Webhook-Signature` (HMAC-SHA256 of raw body) on `/api/webhooks/gocardless`. Tenant-connected accounts register the URL with `?tenant=<uuid>` and are verified against their own stored secret. |
+| `GOCARDLESS_REDIRECT_BASE_URL` | Base URL for Billing Request Flow redirect/exit URIs (e.g. `https://iconn.app`). |
+| `GOCARDLESS_CREDITOR_ID` (opt) | Pins billing requests to one creditor on multi-creditor GC accounts. |
+| `GOOGLE_FONTS_API_KEY` | Server-side key for the Google Fonts Developer API. Powers live font search in the `/InstalledFonts` add dialog via `api/public/google-fonts.js`. If unset, the picker falls back to the curated `POPULAR_GOOGLE_FONTS` list. |
+| `XERO_CLIENT_ID` | Xero OAuth. |
+| `QUICKBOOKS_REDIRECT_URI` (opt) | Overrides default `${origin}/api/quickbooks/callback` for stable QBO OAuth redirect. |
+| `BROWSERLESS_API_TOKEN`, `BROWSERLESS_BASE_URL` (opt), `BROWSERLESS_AUDIT_TIMEOUT_MS` (opt) | Accessibility audits via browserless.io. |
+| `VITE_APP_URL` | Frontend-known app URL. |
+| `CAPTCHA_PROVIDER`, `CAPTCHA_SECRET_KEY` (opt) | Self-serve signup captcha (hCaptcha/Turnstile/reCAPTCHA). Bypassed when not production. |
+| `SIGNUP_RATE_IP_PER_HOUR`, `SIGNUP_RATE_EMAIL_PER_DAY` (opt) | Self-serve signup rate limits. |
+| `CRON_SECRET` | Guards all `/api/cron/*` endpoints. |
+| `ICONNECT_HEALTH_CHECK_TOKEN` | Required secret for `/api/health`; Better Stack must send it as the `X-Health-Token` request header. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_RENEWALS_URL` | Optional Better Stack heartbeat URL for membership renewals. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for membership-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_GOCARDLESS_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for GoCardless reconciliation. |
+| `BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for Stripe card-plan reconciliation. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL` | Optional Better Stack heartbeat URL for scheduled workflows. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL` | Optional Better Stack heartbeat URL for scheduled campaigns. |
+| `BETTERSTACK_HEARTBEAT_DATABASE_BACKUP_URL` | Optional Better Stack heartbeat URL for database backup to R2. |
+| `BETTERSTACK_HEARTBEAT_STORAGE_BACKUP_URL` | Optional Better Stack heartbeat URL for storage backup to R2. |
+| `BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for form-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_AUTOMATIC_MEMBERSHIP_PROCESSING_URL` | Optional Better Stack heartbeat URL for automatic membership processing. |
+| `ENABLE_RESET_DEBUG` (opt, `'true'`) | Temporary diagnostic: `/api/auth/request-admin-password-reset` returns a `debug` field (`no_identity`/`no_owner_membership`/`email_failed`/`sent`). Leave unset in normal operation so account existence is not disclosed. |
+| `R2_ACCOUNT_ID` | Cloudflare account ID — builds the R2 endpoint URL (`https://<id>.r2.cloudflarestorage.com`). Set this **or** `R2_ENDPOINT`. Vercel secret. |
+| `R2_ENDPOINT` (opt) | Full R2 endpoint URL override, instead of `R2_ACCOUNT_ID`. |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | R2 API token credentials + target bucket for backups. Vercel secrets. |
+| `DB_BACKUP_SCHEMAS` (opt) | Comma-separated Postgres schemas in the nightly DB dump (default: `public`). Supabase internal schemas (`auth`, `storage`, `realtime`, …) are intentionally excluded — Supabase manages them. |
+
+### External health monitoring
+
+Create a Better Stack HTTP monitor for `GET /api/health`. In the monitor's
+request headers, configure `X-Health-Token` to the same secret held in the
+Vercel `ICONNECT_HEALTH_CHECK_TOKEN` environment variable. The endpoint is
+intentionally unauthorised only by that header and returns no dependency detail
+when the header is missing or invalid.
+
+The ten `BETTERSTACK_HEARTBEAT_*_URL` variables are independently optional
+and apply only to the ten selected production schedules. The application
+derives Better Stack's `/fail` target from each configured success URL; store
+only the success URL in Vercel Production. See
+`guides/better-stack-cron-heartbeats.md` for the setup matrix and the complete
+30-schedule coverage inventory.
+Set each Vercel value to the matching Better Stack heartbeat URL for only the
+scheduled job you wish to monitor. The job sends a success URL after a clean
+run and Better Stack's `/fail` URL for a failed run; delivery failures never
+change the job's response or retry behaviour.
+
+## Stack & where things live
+-   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS
+-   **Backend:** Express.js (dev) / Vercel serverless functions (prod), PostgreSQL, Drizzle ORM
+-   `/client`: Frontend source (`client/src/design-system` = custom "new-york" shadcn variant)
+-   `/api`: Backend API endpoints (Vercel serverless functions); shared helpers under `api/_lib/`
+-   `/supabase/migrations`: Database migrations (idempotent SQL); `supabase/schema.prisma` is the schema source of truth for Drizzle
+-   `/scripts`: Utility and migration scripts
+-   `client/index.html` + `api/render.js`: SSR for SEO/OG tag injection
+
+## Architecture decisions
+-   **Multi-tenancy:** Data isolation at GLOBAL / TENANT / ORGANIZATION / MEMBER levels via `tenant_id` and `organization_id`. The shared entity API hard-fails any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Identity:** Unified identity with per-tenant password isolation, Google OAuth, feature-based role management.
+-   **Email sending:** `api/_lib/emailService.js` resolves the sending domain off `tenantId` for tenant→member emails. **System emails** (platform→tenant-owner: admin reset, signup verification, team invite, billing notifications) MUST pass `systemEmail: true` (or use `sendSystemEmail()`); this forces both Mailgun domain AND From identity to `mail.${APP_DOMAIN}` / `noreply@mail.${APP_DOMAIN}`. System reset/verification links must point at `${APP_DOMAIN}/...` not a tenant subdomain.
+-   **Dynamic SEO:** SSR meta-tag injection per-tenant via `api/render.js`; per-page metadata resolved by `api/_lib/entityMeta.js`. Per-entity `seo_title` / `seo_description` / `og_image_url` overrides on events, blog posts, news, campaigns, resources, and directories (UI in `client/src/components/blog/SEOSettings.jsx`). `og:image` URLs on `vault.iconn.app` or `*.supabase.co` are proxied through `/api/og-image`.
+-   **Event deletion:** Multi-step cancellation flow (refunds, reinstatements, Zoom unregistration) before any data purge. Direct deletion of events is deprecated for UI flows.
+-   **Semantic `warning` color:** `--warning` / `--warning-foreground` CSS vars in `client/src/index.css` (both themes, WCAG-AA). Use `text-warning`, `bg-warning`, `<Badge variant="warning">`, `<Alert variant="warning">` instead of raw amber/yellow/orange palette classes.
+-   **Membership invoices:** `organisation_membership_history` / `member_membership_history` carry `payment_status` (`unpaid`/`paid`/`partial`/`voided`) + `paid_at`, separate from the lifecycle `status`. Accounting-sync failures flag the row `accounting_sync_status='failed'` (not swallowed) with a Retry button in `OrgMembershipTab.jsx`. Payment reconciliation cron `/api/cron/reconcile-membership-invoice-payments` (every 3h, `CRON_SECRET`-guarded) queries Xero/QBO and fires workflows on `unpaid -> paid` only. See `api/_lib/membershipPaymentReconciliation.js`, `api/_lib/accountingProvider.js`.
+-   **Tenant storage metering:** `tenant.storage_used_bytes` (BIGINT) drives `checkStorageQuota` (`api/_lib/planQuota.js`) and `/admin/plan-usage`. Maintained incrementally via `addTenantStorageBytes` (`api/_lib/tenantStorageUsage.js`). Can drift (signed-URL claimed size); re-baseline with `scripts/recompute-tenant-storage.mjs` or the nightly cron.
+-   **Paid-plan upgrade flow (`/admin/plan-usage` → Stripe Checkout):** `PlanUsage.jsx` → `api/admin/plan-checkout.js` (tenant-admin RBAC, uses PLATFORM `STRIPE_SECRET_KEY`, NOT tenant's connected Stripe). First-time creates a Checkout Session; existing live sub swaps price in place via `stripe.subscriptions.update` (proration, never a parallel sub). Webhook `api/webhooks/stripe-plan.js` upserts `tenant_subscription` and flips `tenant.plan_code` only when status is `active`/`trialing`; `subscription.deleted` reverts to `free`.
+-   **Self-serve signup & onboarding (`/signup` → wizard):** `signup-start.js` (captcha + rate limits + verification email) → `signup-verify.js` (`provisionTenant`, `free` plan) → 5-step `OnboardingWizard.jsx` → `POST /api/admin/onboarding` runs `api/_lib/onboardingSeeder.js` (branding + tiers + persona seed pack tagged `is_sample=true`). Legacy admins backfilled to `onboarding_status='complete'`.
+-   **Accessibility audits:** Admin page (RBAC `admin.accessibility-audits`) runs axe-core 4.10 via browserless.io for tenant public URLs. Results in `accessibility_audit` / `accessibility_audit_result`; endpoints under `/api/admin/accessibility-audits`; runner `api/_lib/browserlessAxe.js`. v1 limits: ≤10 URLs/run, http(s) only, no credentialed URLs.
+-   **AI Design Studio V1 (Canvas AI Composition):** generation via `api/ai-compositions/generate.js`; prompt-led editing via `api/ai-compositions/edit.js` (propose/accept/reject/undo + conversation history in `ai_composition_conversation`) and `api/ai-compositions/destinations.js` (record-ID link picker — the AI never invents internal URLs). Patch engine `api/_lib/aiCompositionPatch.js`, edit pipeline `api/_lib/aiCompositionEdit.js`. Accept re-applies the STORED proposal server-side against the current document; complete redesigns are saved as alternatives (`is_alternative`); protected-value changes (prices, dates, names) require explicit confirmation. Editor UI in `client/src/components/canvas/blocks/AiCompositionEditPanel.jsx`. V1 scene-graph compositions are now read-only w.r.t. the V2 pivot.
+-   **AI Design Studio V2 (native-code pivot):** V2 compositions are native AI HTML/CSS/SVG packages (document `schemaVersion "2.0"`, `ai_composition.renderer_version=2`), sanitised ONCE server-side at store time by `api/_lib/aiCodePipeline.js` (schema → jsdom+DOMPurify sanitise → manifest cross-check → postcss CSS scoping under `[data-ai-composition="<uuid>"]` → leak check; reject-don't-repair), rendered verbatim by `AiCodeCompositionBlock.jsx`; signed CSP-locked preview + Browserless screenshots via `api/ai-compositions/preview.js` (HMAC keyed by `AIC_PREVIEW_SECRET`/`CRON_SECRET`). **Page bodies:** `compositionType: "page_body"` runs a plan stage (content manifest + creative plan, anti-degenerate checks in `aiCodeGeneration.js`) before code gen; page gates forbid `<header>/<footer>/<nav>` recreation. **Actions** (`data-ai-action` + manifest, `api/_lib/aiCodeActions.js`) resolve server-side to real records — unresolved actions block page publish (409 `AI_UNRESOLVED_ACTIONS`; editor fix-up via `api/ai-compositions/resolve-action.js`). **Slots** (`data-iconnect-slot`, `api/_lib/aiCodeSlots.js`) portal trusted platform blocks into generated markup; never block publish. **Imagery:** the model never writes image URLs — `<img data-ai-asset="<key>">` placeholders declared in the package `assets` manifest, fulfilled server-side (`api/_lib/aiCodeAssets.js`, gpt-image-1 or media library, tenant-owned storage); only unfulfilled `required` assets hard-reject; image swap is a deterministic `replace-image` edit action. V1→V2 rebuild is admin-only via `api/ai-compositions/rebuild-v2.js` (never automatic). **Editing:** `api/ai-compositions/edit-v2.js` (propose/accept/reject/undo); proposals (element-scoped patches via `data-ai-id`, or full revisions saved as alternatives) stored in `ai_composition_conversation` and re-applied against the CURRENT document on accept (`api/_lib/aiCodeEdit.js`); protected values + locked `data-content-key` texts require confirmation; breakpoint-scoped edits must leave other breakpoints' CSS untouched; accepts introducing NEW critical accessibility issues are blocked (422 `AI_VALIDATION_CRITICAL`). Admin-only Composition Inspector via `GET /api/ai-compositions/:id?inspector=1` (404 to non-admins). Full details: `guides/ai-design-studio-v2-pivot.md`.
+-   **Member AI structured Q&A:** the member assistant answers count/aggregate questions from live records via a whitelisted query spec (LLM never writes SQL). Catalog + validation + executors in `api/_lib/memberAiStructured.js`; routing in `api/member-ai/ask.js`. Adding an entity/field: follow `guides/member-ai-structured-qa.md` (visibility mirrors the member browse surfaces; drift guard in `memberAiStructuredSchemaDrift.test.mjs`).
+
+## Gotchas
+-   **Vercel preview-domain ownership:** Project `vite-migrate-replit-6` serves this repository. Both `dev.iconn.app` and `*.dev.iconn.app` are verified Vercel project domains pinned to the `eventemb2` Git branch; tenant custom-domain actions must never attach, reclaim, or detach `iconn.app` or any of its subdomains.
+-   **`dev.iconn.app` = Vercel preview deployment** built from the `eventemb2` git branch of the same Vercel project as production. Shares the same Supabase. (a) Vercel's Functions → Logs viewer defaults to Production and hides Preview logs — switch the Environment filter to Preview. (b) A fix only reaches `dev.iconn.app` after the commit is on the `eventemb2` branch and that branch's preview build has finished.
+-   **`sendEmail()` never throws.** It catches Mailgun errors and returns `{ success: false, error, status, domain }`. Callers MUST inspect the return value; a bare `try { await sendEmail(...) } catch {}` will falsely report success on 401 / unverified domain / missing key. Canonical pattern: `api/auth/request-admin-password-reset.js`.
+-   **System emails MUST pass `systemEmail: true`** (or use `sendSystemEmail()`). Without it, a tenant with a verified custom sending domain would silently send admin reset / signup / billing emails from the tenant's own brand — wrong identity.
+-   **API hard-fails** any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Workflow `dd_owner` / `dd_owner_email` placeholders** resolve via `resolveDdOwnerForSubmission` (`api/_lib/ddOwner.js`) only when the trigger caller passes `context.formSubmissionId` to `triggerWorkflows`. Without submission context they collapse to empty strings.
+-   **No server-side length validation on `event.summary` / `complex_event.summary`** — relies on client-side `event_summary_max_length` system setting (default 150).
+
+## Product
+-   **Core:** Members, Events, Bookings, Resources, Blog.
+-   **Identity:** Unified login, multi-tenant ownership, organization memberships, granular access control.
+-   **Customization:** Page Builder, Custom Forms with conditional logic, Workflow Automation, per-tenant branding.
+-   **Financials:** Stripe membership payments, Xero/QBO invoicing, Fundraising with Gift Aid.
+-   **Comms:** Email templates, campaigns, member preferences.
+-   **Integrations:** WordPress Sync, Zoom (events/sessions), Zoho CRM sync.
+-   **Reporting:** Due Diligence Reports, configurable Member/Org Directories.
+-   **Community:** Tenant-scoped forums, Member Group email campaigns.
+
+## User preferences
+Preferred communication style: Simple, everyday language.
+
+## Pointers
+-   **React:** `https://react.dev/` · **Tailwind:** `https://tailwindcss.com/docs` · **Drizzle:** `https://orm.drizzle.team/docs/overview`
+-   **Vercel Functions:** `https://vercel.com/docs/functions/overview` · **Supabase:** `https://supabase.com/docs`
+-   **Stripe:** `https://stripe.com/docs/api` · **Mailgun:** `https://documentation.mailgun.com/en/latest/api_reference.html`
+# Membership Management Platform
+A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
+
+## Run & Operate
+-   **Run Dev Server:** `npm run dev`
+-   **Build:** `npm run build` · **Typecheck:** `npm run typecheck` · **Codegen:** `npm run codegen`
+-   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — only works from environments with IPv6 outbound; **not from this Replit workspace** (see "Database connection").
+-   **Migrations:** every `.sql` in `supabase/migrations/` is idempotent and applied against `DEST_DATABASE_URL` (pooler). Most migrations have a matching `node scripts/apply-*.mjs` runner; check `scripts/` before applying anything by hand.
+-   **One-off scripts (backfills, CSV imports, tenant seeds):** live in `scripts/` (e.g. `recompute-tenant-storage.mjs`, `backfill-*.mjs`, `import-*.mjs`, `seed-*.mjs`). They are idempotent, default to dry-run unless an `--apply` flag is passed, and many are hard-pinned to a single tenant. Read the script header before running; each documents its own flags and scope.
+-   **Storage usage reconcile:** `node scripts/recompute-tenant-storage.mjs [--dry-run] [--tenant=<uuid>]`, or trust the nightly cron at `/api/cron/recompute-tenant-storage` (03:00 UTC, `CRON_SECRET`-guarded).
+
+## Database connection (read this before any DB work from this workspace)
+There are two Supabase projects this codebase talks to:
+
+| Role | What it is | URL secret | Postgres URL secret | Service-role key secret |
+| ---- | ---------- | ---------- | ------------------- | ----------------------- |
+| **Destination (current prod)** | Multi-tenant iConnect DB | `DEST_SUPABASE_URL` (`https://lvmzliemqnieeoruhkik.supabase.co`) | `DEST_DATABASE_URL` | `DEST_SUPABASE_KEY` |
+| **Source (legacy)** | Pre-multi-tenancy single-tenant snapshot, used by migration scripts | `SOURCE_SUPABASE_URL` | `SOURCE_DATABASE_URL` | `SOURCE_SUPABASE_KEY` |
+
+**The Supabase direct host (`db.<project>.supabase.co`) is unreachable from this Replit workspace** — it publishes only IPv6 (AAAA) DNS and the Replit container has no IPv6 outbound route, so `psql`, `execute_sql_tool`, `drizzle-kit push`, and any raw `pg`/Drizzle client pointed at the direct host fail with `ENOTFOUND` / `ENETUNREACH`. Those tools work from Vercel functions, the user's laptop, and CI — just not from here against the direct host.
+
+**The Supabase Pooler hostname IS IPv4-reachable from this workspace** (`aws-1-eu-central-1.pooler.supabase.com:5432`, which is what `DEST_DATABASE_URL` already points to). `pg` clients using `DEST_DATABASE_URL` (transaction-pooler mode) work from Replit for read/write queries and DDL such as `CREATE INDEX`. Prefer `@supabase/supabase-js` for ordinary CRUD (REST endpoint is also IPv4-reachable, more ergonomic); reach for `pg` via `DEST_DATABASE_URL` only when you need raw SQL / DDL the REST API can't do.
+
+For any DB access from this workspace (scripts, ad-hoc debugging, one-off data fixes), use **`@supabase/supabase-js`** with the service-role key. Working reference: `scripts/debug-tenant.mjs`.
+
+```js
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(
+  process.env.DEST_SUPABASE_URL,
+  process.env.DEST_SUPABASE_KEY
+);
+```
+
+Quick one-off from bash (env vars ARE available in the shell):
+
+```bash
+node -e "
+const { createClient } = require('@supabase/supabase-js');
+const sb = createClient(process.env.DEST_SUPABASE_URL, process.env.DEST_SUPABASE_KEY, { auth: { persistSession: false } });
+(async () => {
+  const { data, error } = await sb.from('tenant').select('id, slug, name').limit(5);
+  console.log({ data, error });
+})();
+"
+```
+
+## Testing
+-   **AI assistant tests** (registered as the `ai-assistant-tests` validation step, runs automatically on task completion): `node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/aiCompositionRender.test.mjs` — member-AI visibility (security boundary), ranking, indexer, help-chunker, dashboard aggregation/LMIC operators, Canvas auto-height bake guards, `useAutoHeightBake` runtime gates (jsdom), and Canvas auto reading-order suites.
+-   **GoCardless tests:** `node --test api/_lib/gocardless*.test.mjs` — webhook signature/idempotency/status-transition suites, per-tenant credential resolution (tenant_integrations → env fallback, env/token mismatch guards), org DD billing-contact invitations (token format, expiry clamp 1-90 via `dd_invite_expiry_days`, validate/supersede/single-use/revoke, recipient dedupe), Phase 5 renewal decisions (`gocardlessDdRenewals.test.mjs`), and migration invite/funnel (`gocardlessDdMigration.test.mjs`).
+-   **GoCardless sandbox proof:** `node scripts/gocardless-sandbox-proof.mjs [runId]` — billing request + hosted flow creation and idempotent-retry behaviour against the GC sandbox (requires `GOCARDLESS_ACCESS_TOKEN`; refuses to run against live).
+-   **Pending-PO report tests:** `node --test api/_lib/pendingPoInvoice.test.mjs` — PO reference extraction/blacklist and cross-record membership PO propagation helpers.
+
+## Env vars (current canonical set)
+Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPABASE_*` names; prefer the `DEST_*` names below for new code.
+
+| Var | Purpose |
+| --- | ------- |
+| `DEST_SUPABASE_URL` / `DEST_SUPABASE_KEY` / `DEST_DATABASE_URL` | Destination (prod) Supabase. See "Database connection". |
+| `SOURCE_SUPABASE_URL` / `SOURCE_SUPABASE_KEY` / `SOURCE_DATABASE_URL` | Legacy single-tenant snapshot — only used by migration scripts. |
+| `DATABASE_URL` | Direct host (IPv6 only) — used by Vercel / Drizzle push, not this workspace. |
+| `MAILGUN_API_KEY`, `MAILGUN_REGION` (default `eu`), `MAILGUN_FROM_EMAIL`, `APP_DOMAIN` (default `iconn.app`) | Email sending. `MAILGUN_FROM_EMAIL` is the non-system default From; system emails are pinned to `noreply@mail.${APP_DOMAIN}` regardless. |
+| `STRIPE_SECRET_KEY` | Tenant Stripe AND platform-side paid-plan upgrade Checkout. |
+| `STRIPE_PLAN_WEBHOOK_SECRET` | Verifies `/api/webhooks/stripe-plan` from the platform Stripe account. Configure dashboard to deliver `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
+| `GOCARDLESS_ENVIRONMENT` | `sandbox` (default) or `live`. Platform-level FALLBACK only — tenants connect their own GoCardless account via `tenant_integrations` (`integration_type='gocardless'`, resolved by `api/_lib/gocardlessCredentials.js`). |
+| `GOCARDLESS_ACCESS_TOKEN` | Platform-fallback GoCardless API access token (sandbox tokens start `sandbox_`, live `live_`; env/token mismatch is rejected at call time). |
+| `GOCARDLESS_WEBHOOK_SECRET` | Platform-fallback secret verifying `Webhook-Signature` (HMAC-SHA256 of raw body) on `/api/webhooks/gocardless`. Tenant-connected accounts register the URL with `?tenant=<uuid>` and are verified against their own stored secret. |
+| `GOCARDLESS_REDIRECT_BASE_URL` | Base URL for Billing Request Flow redirect/exit URIs (e.g. `https://iconn.app`). |
+| `GOCARDLESS_CREDITOR_ID` (opt) | Pins billing requests to one creditor on multi-creditor GC accounts. |
+| `GOOGLE_FONTS_API_KEY` | Server-side key for the Google Fonts Developer API. Powers live font search in the `/InstalledFonts` add dialog via `api/public/google-fonts.js`. If unset, the picker falls back to the curated `POPULAR_GOOGLE_FONTS` list. |
+| `XERO_CLIENT_ID` | Xero OAuth. |
+| `QUICKBOOKS_REDIRECT_URI` (opt) | Overrides default `${origin}/api/quickbooks/callback` for stable QBO OAuth redirect. |
+| `BROWSERLESS_API_TOKEN`, `BROWSERLESS_BASE_URL` (opt), `BROWSERLESS_AUDIT_TIMEOUT_MS` (opt) | Accessibility audits via browserless.io. |
+| `VITE_APP_URL` | Frontend-known app URL. |
+| `CAPTCHA_PROVIDER`, `CAPTCHA_SECRET_KEY` (opt) | Self-serve signup captcha (hCaptcha/Turnstile/reCAPTCHA). Bypassed when not production. |
+| `SIGNUP_RATE_IP_PER_HOUR`, `SIGNUP_RATE_EMAIL_PER_DAY` (opt) | Self-serve signup rate limits. |
+| `CRON_SECRET` | Guards all `/api/cron/*` endpoints. |
+| `ICONNECT_HEALTH_CHECK_TOKEN` | Required secret for `/api/health`; Better Stack must send it as the `X-Health-Token` request header. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_RENEWALS_URL` | Optional Better Stack heartbeat URL for membership renewals. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for membership-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_GOCARDLESS_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for GoCardless reconciliation. |
+| `BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for Stripe card-plan reconciliation. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL` | Optional Better Stack heartbeat URL for scheduled workflows. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL` | Optional Better Stack heartbeat URL for scheduled campaigns. |
+| `BETTERSTACK_HEARTBEAT_DATABASE_BACKUP_URL` | Optional Better Stack heartbeat URL for database backup to R2. |
+| `BETTERSTACK_HEARTBEAT_STORAGE_BACKUP_URL` | Optional Better Stack heartbeat URL for storage backup to R2. |
+| `BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for form-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_AUTOMATIC_MEMBERSHIP_PROCESSING_URL` | Optional Better Stack heartbeat URL for automatic membership processing. |
+| `ENABLE_RESET_DEBUG` (opt, `'true'`) | Temporary diagnostic: `/api/auth/request-admin-password-reset` returns a `debug` field (`no_identity`/`no_owner_membership`/`email_failed`/`sent`). Leave unset in normal operation so account existence is not disclosed. |
+| `R2_ACCOUNT_ID` | Cloudflare account ID — builds the R2 endpoint URL (`https://<id>.r2.cloudflarestorage.com`). Set this **or** `R2_ENDPOINT`. Vercel secret. |
+| `R2_ENDPOINT` (opt) | Full R2 endpoint URL override, instead of `R2_ACCOUNT_ID`. |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | R2 API token credentials + target bucket for backups. Vercel secrets. |
+| `DB_BACKUP_SCHEMAS` (opt) | Comma-separated Postgres schemas in the nightly DB dump (default: `public`). Supabase internal schemas (`auth`, `storage`, `realtime`, …) are intentionally excluded — Supabase manages them. |
+
+### External health monitoring
+
+Create a Better Stack HTTP monitor for `GET /api/health`. In the monitor's
+request headers, configure `X-Health-Token` to the same secret held in the
+Vercel `ICONNECT_HEALTH_CHECK_TOKEN` environment variable. The endpoint is
+intentionally unauthorised only by that header and returns no dependency detail
+when the header is missing or invalid.
+
+The ten `BETTERSTACK_HEARTBEAT_*_URL` variables are independently optional
+and apply only to the ten selected production schedules. The application
+derives Better Stack's `/fail` target from each configured success URL; store
+only the success URL in Vercel Production. See
+`guides/better-stack-cron-heartbeats.md` for the setup matrix and the complete
+30-schedule coverage inventory.
+Set each Vercel value to the matching Better Stack heartbeat URL for only the
+scheduled job you wish to monitor. The job sends a success URL after a clean
+run and Better Stack's `/fail` URL for a failed run; delivery failures never
+change the job's response or retry behaviour.
+
+## Stack & where things live
+-   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS
+-   **Backend:** Express.js (dev) / Vercel serverless functions (prod), PostgreSQL, Drizzle ORM
+-   `/client`: Frontend source (`client/src/design-system` = custom "new-york" shadcn variant)
+-   `/api`: Backend API endpoints (Vercel serverless functions); shared helpers under `api/_lib/`
+-   `/supabase/migrations`: Database migrations (idempotent SQL); `supabase/schema.prisma` is the schema source of truth for Drizzle
+-   `/scripts`: Utility and migration scripts
+-   `client/index.html` + `api/render.js`: SSR for SEO/OG tag injection
+
+## Architecture decisions
+-   **Multi-tenancy:** Data isolation at GLOBAL / TENANT / ORGANIZATION / MEMBER levels via `tenant_id` and `organization_id`. The shared entity API hard-fails any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Identity:** Unified identity with per-tenant password isolation, Google OAuth, feature-based role management.
+-   **Email sending:** `api/_lib/emailService.js` resolves the sending domain off `tenantId` for tenant→member emails. **System emails** (platform→tenant-owner: admin reset, signup verification, team invite, billing notifications) MUST pass `systemEmail: true` (or use `sendSystemEmail()`); this forces both Mailgun domain AND From identity to `mail.${APP_DOMAIN}` / `noreply@mail.${APP_DOMAIN}`. System reset/verification links must point at `${APP_DOMAIN}/...` not a tenant subdomain.
+-   **Dynamic SEO:** SSR meta-tag injection per-tenant via `api/render.js`; per-page metadata resolved by `api/_lib/entityMeta.js`. Per-entity `seo_title` / `seo_description` / `og_image_url` overrides on events, blog posts, news, campaigns, resources, and directories (UI in `client/src/components/blog/SEOSettings.jsx`). `og:image` URLs on `vault.iconn.app` or `*.supabase.co` are proxied through `/api/og-image`.
+-   **Event deletion:** Multi-step cancellation flow (refunds, reinstatements, Zoom unregistration) before any data purge. Direct deletion of events is deprecated for UI flows.
+-   **Semantic `warning` color:** `--warning` / `--warning-foreground` CSS vars in `client/src/index.css` (both themes, WCAG-AA). Use `text-warning`, `bg-warning`, `<Badge variant="warning">`, `<Alert variant="warning">` instead of raw amber/yellow/orange palette classes.
+-   **Membership invoices:** `organisation_membership_history` / `member_membership_history` carry `payment_status` (`unpaid`/`paid`/`partial`/`voided`) + `paid_at`, separate from the lifecycle `status`. Accounting-sync failures flag the row `accounting_sync_status='failed'` (not swallowed) with a Retry button in `OrgMembershipTab.jsx`. Payment reconciliation cron `/api/cron/reconcile-membership-invoice-payments` (every 3h, `CRON_SECRET`-guarded) queries Xero/QBO and fires workflows on `unpaid -> paid` only. See `api/_lib/membershipPaymentReconciliation.js`, `api/_lib/accountingProvider.js`.
+-   **Tenant storage metering:** `tenant.storage_used_bytes` (BIGINT) drives `checkStorageQuota` (`api/_lib/planQuota.js`) and `/admin/plan-usage`. Maintained incrementally via `addTenantStorageBytes` (`api/_lib/tenantStorageUsage.js`). Can drift (signed-URL claimed size); re-baseline with `scripts/recompute-tenant-storage.mjs` or the nightly cron.
+-   **Paid-plan upgrade flow (`/admin/plan-usage` → Stripe Checkout):** `PlanUsage.jsx` → `api/admin/plan-checkout.js` (tenant-admin RBAC, uses PLATFORM `STRIPE_SECRET_KEY`, NOT tenant's connected Stripe). First-time creates a Checkout Session; existing live sub swaps price in place via `stripe.subscriptions.update` (proration, never a parallel sub). Webhook `api/webhooks/stripe-plan.js` upserts `tenant_subscription` and flips `tenant.plan_code` only when status is `active`/`trialing`; `subscription.deleted` reverts to `free`.
+-   **Self-serve signup & onboarding (`/signup` → wizard):** `signup-start.js` (captcha + rate limits + verification email) → `signup-verify.js` (`provisionTenant`, `free` plan) → 5-step `OnboardingWizard.jsx` → `POST /api/admin/onboarding` runs `api/_lib/onboardingSeeder.js` (branding + tiers + persona seed pack tagged `is_sample=true`). Legacy admins backfilled to `onboarding_status='complete'`.
+-   **Accessibility audits:** Admin page (RBAC `admin.accessibility-audits`) runs axe-core 4.10 via browserless.io for tenant public URLs. Results in `accessibility_audit` / `accessibility_audit_result`; endpoints under `/api/admin/accessibility-audits`; runner `api/_lib/browserlessAxe.js`. v1 limits: ≤10 URLs/run, http(s) only, no credentialed URLs.
+-   **AI Design Studio V1 (Canvas AI Composition):** generation via `api/ai-compositions/generate.js`; prompt-led editing via `api/ai-compositions/edit.js` (propose/accept/reject/undo + conversation history in `ai_composition_conversation`) and `api/ai-compositions/destinations.js` (record-ID link picker — the AI never invents internal URLs). Patch engine `api/_lib/aiCompositionPatch.js`, edit pipeline `api/_lib/aiCompositionEdit.js`. Accept re-applies the STORED proposal server-side against the current document; complete redesigns are saved as alternatives (`is_alternative`); protected-value changes (prices, dates, names) require explicit confirmation. Editor UI in `client/src/components/canvas/blocks/AiCompositionEditPanel.jsx`. V1 scene-graph compositions are now read-only w.r.t. the V2 pivot.
+-   **AI Design Studio V2 (native-code pivot):** V2 compositions are native AI HTML/CSS/SVG packages (document `schemaVersion "2.0"`, `ai_composition.renderer_version=2`), sanitised ONCE server-side at store time by `api/_lib/aiCodePipeline.js` (schema → jsdom+DOMPurify sanitise → manifest cross-check → postcss CSS scoping under `[data-ai-composition="<uuid>"]` → leak check; reject-don't-repair), rendered verbatim by `AiCodeCompositionBlock.jsx`; signed CSP-locked preview + Browserless screenshots via `api/ai-compositions/preview.js` (HMAC keyed by `AIC_PREVIEW_SECRET`/`CRON_SECRET`). **Page bodies:** `compositionType: "page_body"` runs a plan stage (content manifest + creative plan, anti-degenerate checks in `aiCodeGeneration.js`) before code gen; page gates forbid `<header>/<footer>/<nav>` recreation. **Actions** (`data-ai-action` + manifest, `api/_lib/aiCodeActions.js`) resolve server-side to real records — unresolved actions block page publish (409 `AI_UNRESOLVED_ACTIONS`; editor fix-up via `api/ai-compositions/resolve-action.js`). **Slots** (`data-iconnect-slot`, `api/_lib/aiCodeSlots.js`) portal trusted platform blocks into generated markup; never block publish. **Imagery:** the model never writes image URLs — `<img data-ai-asset="<key>">` placeholders declared in the package `assets` manifest, fulfilled server-side (`api/_lib/aiCodeAssets.js`, gpt-image-1 or media library, tenant-owned storage); only unfulfilled `required` assets hard-reject; image swap is a deterministic `replace-image` edit action. V1→V2 rebuild is admin-only via `api/ai-compositions/rebuild-v2.js` (never automatic). **Editing:** `api/ai-compositions/edit-v2.js` (propose/accept/reject/undo); proposals (element-scoped patches via `data-ai-id`, or full revisions saved as alternatives) stored in `ai_composition_conversation` and re-applied against the CURRENT document on accept (`api/_lib/aiCodeEdit.js`); protected values + locked `data-content-key` texts require confirmation; breakpoint-scoped edits must leave other breakpoints' CSS untouched; accepts introducing NEW critical accessibility issues are blocked (422 `AI_VALIDATION_CRITICAL`). Admin-only Composition Inspector via `GET /api/ai-compositions/:id?inspector=1` (404 to non-admins). Full details: `guides/ai-design-studio-v2-pivot.md`.
+-   **Member AI structured Q&A:** the member assistant answers count/aggregate questions from live records via a whitelisted query spec (LLM never writes SQL). Catalog + validation + executors in `api/_lib/memberAiStructured.js`; routing in `api/member-ai/ask.js`. Adding an entity/field: follow `guides/member-ai-structured-qa.md` (visibility mirrors the member browse surfaces; drift guard in `memberAiStructuredSchemaDrift.test.mjs`).
+
+## Gotchas
+-   **Vercel preview-domain ownership:** Project `vite-migrate-replit-6` serves this repository. Both `dev.iconn.app` and `*.dev.iconn.app` are verified Vercel project domains pinned to the `eventemb2` Git branch; tenant custom-domain actions must never attach, reclaim, or detach `iconn.app` or any of its subdomains.
+-   **`dev.iconn.app` = Vercel preview deployment** built from the `eventemb2` git branch of the same Vercel project as production. Shares the same Supabase. (a) Vercel's Functions → Logs viewer defaults to Production and hides Preview logs — switch the Environment filter to Preview. (b) A fix only reaches `dev.iconn.app` after the commit is on the `eventemb2` branch and that branch's preview build has finished.
+-   **`sendEmail()` never throws.** It catches Mailgun errors and returns `{ success: false, error, status, domain }`. Callers MUST inspect the return value; a bare `try { await sendEmail(...) } catch {}` will falsely report success on 401 / unverified domain / missing key. Canonical pattern: `api/auth/request-admin-password-reset.js`.
+-   **System emails MUST pass `systemEmail: true`** (or use `sendSystemEmail()`). Without it, a tenant with a verified custom sending domain would silently send admin reset / signup / billing emails from the tenant's own brand — wrong identity.
+-   **API hard-fails** any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Workflow `dd_owner` / `dd_owner_email` placeholders** resolve via `resolveDdOwnerForSubmission` (`api/_lib/ddOwner.js`) only when the trigger caller passes `context.formSubmissionId` to `triggerWorkflows`. Without submission context they collapse to empty strings.
+-   **No server-side length validation on `event.summary` / `complex_event.summary`** — relies on client-side `event_summary_max_length` system setting (default 150).
+
+## Product
+-   **Core:** Members, Events, Bookings, Resources, Blog.
+-   **Identity:** Unified login, multi-tenant ownership, organization memberships, granular access control.
+-   **Customization:** Page Builder, Custom Forms with conditional logic, Workflow Automation, per-tenant branding.
+-   **Financials:** Stripe membership payments, Xero/QBO invoicing, Fundraising with Gift Aid.
+-   **Comms:** Email templates, campaigns, member preferences.
+-   **Integrations:** WordPress Sync, Zoom (events/sessions), Zoho CRM sync.
+-   **Reporting:** Due Diligence Reports, configurable Member/Org Directories.
+-   **Community:** Tenant-scoped forums, Member Group email campaigns.
+
+## User preferences
+Preferred communication style: Simple, everyday language.
+
+## Pointers
+-   **React:** `https://react.dev/` · **Tailwind:** `https://tailwindcss.com/docs` · **Drizzle:** `https://orm.drizzle.team/docs/overview`
+-   **Vercel Functions:** `https://vercel.com/docs/functions/overview` · **Supabase:** `https://supabase.com/docs`
+-   **Stripe:** `https://stripe.com/docs/api` · **Mailgun:** `https://documentation.mailgun.com/en/latest/api_reference.html`
+# Membership Management Platform
+A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
+
+## Run & Operate
+-   **Run Dev Server:** `npm run dev`
+-   **Build:** `npm run build` · **Typecheck:** `npm run typecheck` · **Codegen:** `npm run codegen`
+-   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — only works from environments with IPv6 outbound; **not from this Replit workspace** (see "Database connection").
+-   **Migrations:** every `.sql` in `supabase/migrations/` is idempotent and applied against `DEST_DATABASE_URL` (pooler). Most migrations have a matching `node scripts/apply-*.mjs` runner; check `scripts/` before applying anything by hand.
+-   **One-off scripts (backfills, CSV imports, tenant seeds):** live in `scripts/` (e.g. `recompute-tenant-storage.mjs`, `backfill-*.mjs`, `import-*.mjs`, `seed-*.mjs`). They are idempotent, default to dry-run unless an `--apply` flag is passed, and many are hard-pinned to a single tenant. Read the script header before running; each documents its own flags and scope.
+-   **Storage usage reconcile:** `node scripts/recompute-tenant-storage.mjs [--dry-run] [--tenant=<uuid>]`, or trust the nightly cron at `/api/cron/recompute-tenant-storage` (03:00 UTC, `CRON_SECRET`-guarded).
+
+## Database connection (read this before any DB work from this workspace)
+There are two Supabase projects this codebase talks to:
+
+| Role | What it is | URL secret | Postgres URL secret | Service-role key secret |
+| ---- | ---------- | ---------- | ------------------- | ----------------------- |
+| **Destination (current prod)** | Multi-tenant iConnect DB | `DEST_SUPABASE_URL` (`https://lvmzliemqnieeoruhkik.supabase.co`) | `DEST_DATABASE_URL` | `DEST_SUPABASE_KEY` |
+| **Source (legacy)** | Pre-multi-tenancy single-tenant snapshot, used by migration scripts | `SOURCE_SUPABASE_URL` | `SOURCE_DATABASE_URL` | `SOURCE_SUPABASE_KEY` |
+
+**The Supabase direct host (`db.<project>.supabase.co`) is unreachable from this Replit workspace** — it publishes only IPv6 (AAAA) DNS and the Replit container has no IPv6 outbound route, so `psql`, `execute_sql_tool`, `drizzle-kit push`, and any raw `pg`/Drizzle client pointed at the direct host fail with `ENOTFOUND` / `ENETUNREACH`. Those tools work from Vercel functions, the user's laptop, and CI — just not from here against the direct host.
+
+**The Supabase Pooler hostname IS IPv4-reachable from this workspace** (`aws-1-eu-central-1.pooler.supabase.com:5432`, which is what `DEST_DATABASE_URL` already points to). `pg` clients using `DEST_DATABASE_URL` (transaction-pooler mode) work from Replit for read/write queries and DDL such as `CREATE INDEX`. Prefer `@supabase/supabase-js` for ordinary CRUD (REST endpoint is also IPv4-reachable, more ergonomic); reach for `pg` via `DEST_DATABASE_URL` only when you need raw SQL / DDL the REST API can't do.
+
+For any DB access from this workspace (scripts, ad-hoc debugging, one-off data fixes), use **`@supabase/supabase-js`** with the service-role key. Working reference: `scripts/debug-tenant.mjs`.
+
+```js
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(
+  process.env.DEST_SUPABASE_URL,
+  process.env.DEST_SUPABASE_KEY
+);
+```
+
+Quick one-off from bash (env vars ARE available in the shell):
+
+```bash
+node -e "
+const { createClient } = require('@supabase/supabase-js');
+const sb = createClient(process.env.DEST_SUPABASE_URL, process.env.DEST_SUPABASE_KEY, { auth: { persistSession: false } });
+(async () => {
+  const { data, error } = await sb.from('tenant').select('id, slug, name').limit(5);
+  console.log({ data, error });
+})();
+"
+```
+
+## Testing
+-   **AI assistant tests** (registered as the `ai-assistant-tests` validation step, runs automatically on task completion): `node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/aiCompositionRender.test.mjs` — member-AI visibility (security boundary), ranking, indexer, help-chunker, dashboard aggregation/LMIC operators, Canvas auto-height bake guards, `useAutoHeightBake` runtime gates (jsdom), and Canvas auto reading-order suites.
+-   **GoCardless tests:** `node --test api/_lib/gocardless*.test.mjs` — webhook signature/idempotency/status-transition suites, per-tenant credential resolution (tenant_integrations → env fallback, env/token mismatch guards), org DD billing-contact invitations (token format, expiry clamp 1-90 via `dd_invite_expiry_days`, validate/supersede/single-use/revoke, recipient dedupe), Phase 5 renewal decisions (`gocardlessDdRenewals.test.mjs`), and migration invite/funnel (`gocardlessDdMigration.test.mjs`).
+-   **GoCardless sandbox proof:** `node scripts/gocardless-sandbox-proof.mjs [runId]` — billing request + hosted flow creation and idempotent-retry behaviour against the GC sandbox (requires `GOCARDLESS_ACCESS_TOKEN`; refuses to run against live).
+-   **Pending-PO report tests:** `node --test api/_lib/pendingPoInvoice.test.mjs` — PO reference extraction/blacklist and cross-record membership PO propagation helpers.
+
+## Env vars (current canonical set)
+Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPABASE_*` names; prefer the `DEST_*` names below for new code.
+
+| Var | Purpose |
+| --- | ------- |
+| `DEST_SUPABASE_URL` / `DEST_SUPABASE_KEY` / `DEST_DATABASE_URL` | Destination (prod) Supabase. See "Database connection". |
+| `SOURCE_SUPABASE_URL` / `SOURCE_SUPABASE_KEY` / `SOURCE_DATABASE_URL` | Legacy single-tenant snapshot — only used by migration scripts. |
+| `DATABASE_URL` | Direct host (IPv6 only) — used by Vercel / Drizzle push, not this workspace. |
+| `MAILGUN_API_KEY`, `MAILGUN_REGION` (default `eu`), `MAILGUN_FROM_EMAIL`, `APP_DOMAIN` (default `iconn.app`) | Email sending. `MAILGUN_FROM_EMAIL` is the non-system default From; system emails are pinned to `noreply@mail.${APP_DOMAIN}` regardless. |
+| `STRIPE_SECRET_KEY` | Tenant Stripe AND platform-side paid-plan upgrade Checkout. |
+| `STRIPE_PLAN_WEBHOOK_SECRET` | Verifies `/api/webhooks/stripe-plan` from the platform Stripe account. Configure dashboard to deliver `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
+| `GOCARDLESS_ENVIRONMENT` | `sandbox` (default) or `live`. Platform-level FALLBACK only — tenants connect their own GoCardless account via `tenant_integrations` (`integration_type='gocardless'`, resolved by `api/_lib/gocardlessCredentials.js`). |
+| `GOCARDLESS_ACCESS_TOKEN` | Platform-fallback GoCardless API access token (sandbox tokens start `sandbox_`, live `live_`; env/token mismatch is rejected at call time). |
+| `GOCARDLESS_WEBHOOK_SECRET` | Platform-fallback secret verifying `Webhook-Signature` (HMAC-SHA256 of raw body) on `/api/webhooks/gocardless`. Tenant-connected accounts register the URL with `?tenant=<uuid>` and are verified against their own stored secret. |
+| `GOCARDLESS_REDIRECT_BASE_URL` | Base URL for Billing Request Flow redirect/exit URIs (e.g. `https://iconn.app`). |
+| `GOCARDLESS_CREDITOR_ID` (opt) | Pins billing requests to one creditor on multi-creditor GC accounts. |
+| `GOOGLE_FONTS_API_KEY` | Server-side key for the Google Fonts Developer API. Powers live font search in the `/InstalledFonts` add dialog via `api/public/google-fonts.js`. If unset, the picker falls back to the curated `POPULAR_GOOGLE_FONTS` list. |
+| `XERO_CLIENT_ID` | Xero OAuth. |
+| `QUICKBOOKS_REDIRECT_URI` (opt) | Overrides default `${origin}/api/quickbooks/callback` for stable QBO OAuth redirect. |
+| `BROWSERLESS_API_TOKEN`, `BROWSERLESS_BASE_URL` (opt), `BROWSERLESS_AUDIT_TIMEOUT_MS` (opt) | Accessibility audits via browserless.io. |
+| `VITE_APP_URL` | Frontend-known app URL. |
+| `CAPTCHA_PROVIDER`, `CAPTCHA_SECRET_KEY` (opt) | Self-serve signup captcha (hCaptcha/Turnstile/reCAPTCHA). Bypassed when not production. |
+| `SIGNUP_RATE_IP_PER_HOUR`, `SIGNUP_RATE_EMAIL_PER_DAY` (opt) | Self-serve signup rate limits. |
+| `CRON_SECRET` | Guards all `/api/cron/*` endpoints. |
+| `ICONNECT_HEALTH_CHECK_TOKEN` | Required secret for `/api/health`; Better Stack must send it as the `X-Health-Token` request header. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_RENEWALS_URL` | Optional Better Stack heartbeat URL for membership renewals. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for membership-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_GOCARDLESS_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for GoCardless reconciliation. |
+| `BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for Stripe card-plan reconciliation. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL` | Optional Better Stack heartbeat URL for scheduled workflows. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL` | Optional Better Stack heartbeat URL for scheduled campaigns. |
+| `BETTERSTACK_HEARTBEAT_DATABASE_BACKUP_URL` | Optional Better Stack heartbeat URL for database backup to R2. |
+| `BETTERSTACK_HEARTBEAT_STORAGE_BACKUP_URL` | Optional Better Stack heartbeat URL for storage backup to R2. |
+| `BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for form-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_AUTOMATIC_MEMBERSHIP_PROCESSING_URL` | Optional Better Stack heartbeat URL for automatic membership processing. |
+| `ENABLE_RESET_DEBUG` (opt, `'true'`) | Temporary diagnostic: `/api/auth/request-admin-password-reset` returns a `debug` field (`no_identity`/`no_owner_membership`/`email_failed`/`sent`). Leave unset in normal operation so account existence is not disclosed. |
+| `R2_ACCOUNT_ID` | Cloudflare account ID — builds the R2 endpoint URL (`https://<id>.r2.cloudflarestorage.com`). Set this **or** `R2_ENDPOINT`. Vercel secret. |
+| `R2_ENDPOINT` (opt) | Full R2 endpoint URL override, instead of `R2_ACCOUNT_ID`. |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | R2 API token credentials + target bucket for backups. Vercel secrets. |
+| `DB_BACKUP_SCHEMAS` (opt) | Comma-separated Postgres schemas in the nightly DB dump (default: `public`). Supabase internal schemas (`auth`, `storage`, `realtime`, …) are intentionally excluded — Supabase manages them. |
+
+### External health monitoring
+
+Create a Better Stack HTTP monitor for `GET /api/health`. In the monitor's
+request headers, configure `X-Health-Token` to the same secret held in the
+Vercel `ICONNECT_HEALTH_CHECK_TOKEN` environment variable. The endpoint is
+intentionally unauthorised only by that header and returns no dependency detail
+when the header is missing or invalid.
+
+The ten `BETTERSTACK_HEARTBEAT_*_URL` variables are independently optional
+and apply only to the ten selected production schedules. The application
+derives Better Stack's `/fail` target from each configured success URL; store
+only the success URL in Vercel Production. See
+`guides/better-stack-cron-heartbeats.md` for the setup matrix and the complete
+30-schedule coverage inventory.
+Set each Vercel value to the matching Better Stack heartbeat URL for only the
+scheduled job you wish to monitor. The job sends a success URL after a clean
+run and Better Stack's `/fail` URL for a failed run; delivery failures never
+change the job's response or retry behaviour.
+
+## Stack & where things live
+-   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS
+-   **Backend:** Express.js (dev) / Vercel serverless functions (prod), PostgreSQL, Drizzle ORM
+-   `/client`: Frontend source (`client/src/design-system` = custom "new-york" shadcn variant)
+-   `/api`: Backend API endpoints (Vercel serverless functions); shared helpers under `api/_lib/`
+-   `/supabase/migrations`: Database migrations (idempotent SQL); `supabase/schema.prisma` is the schema source of truth for Drizzle
+-   `/scripts`: Utility and migration scripts
+-   `client/index.html` + `api/render.js`: SSR for SEO/OG tag injection
+
+## Architecture decisions
+-   **Multi-tenancy:** Data isolation at GLOBAL / TENANT / ORGANIZATION / MEMBER levels via `tenant_id` and `organization_id`. The shared entity API hard-fails any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Identity:** Unified identity with per-tenant password isolation, Google OAuth, feature-based role management.
+-   **Email sending:** `api/_lib/emailService.js` resolves the sending domain off `tenantId` for tenant→member emails. **System emails** (platform→tenant-owner: admin reset, signup verification, team invite, billing notifications) MUST pass `systemEmail: true` (or use `sendSystemEmail()`); this forces both Mailgun domain AND From identity to `mail.${APP_DOMAIN}` / `noreply@mail.${APP_DOMAIN}`. System reset/verification links must point at `${APP_DOMAIN}/...` not a tenant subdomain.
+-   **Dynamic SEO:** SSR meta-tag injection per-tenant via `api/render.js`; per-page metadata resolved by `api/_lib/entityMeta.js`. Per-entity `seo_title` / `seo_description` / `og_image_url` overrides on events, blog posts, news, campaigns, resources, and directories (UI in `client/src/components/blog/SEOSettings.jsx`). `og:image` URLs on `vault.iconn.app` or `*.supabase.co` are proxied through `/api/og-image`.
+-   **Event deletion:** Multi-step cancellation flow (refunds, reinstatements, Zoom unregistration) before any data purge. Direct deletion of events is deprecated for UI flows.
+-   **Semantic `warning` color:** `--warning` / `--warning-foreground` CSS vars in `client/src/index.css` (both themes, WCAG-AA). Use `text-warning`, `bg-warning`, `<Badge variant="warning">`, `<Alert variant="warning">` instead of raw amber/yellow/orange palette classes.
+-   **Membership invoices:** `organisation_membership_history` / `member_membership_history` carry `payment_status` (`unpaid`/`paid`/`partial`/`voided`) + `paid_at`, separate from the lifecycle `status`. Accounting-sync failures flag the row `accounting_sync_status='failed'` (not swallowed) with a Retry button in `OrgMembershipTab.jsx`. Payment reconciliation cron `/api/cron/reconcile-membership-invoice-payments` (every 3h, `CRON_SECRET`-guarded) queries Xero/QBO and fires workflows on `unpaid -> paid` only. See `api/_lib/membershipPaymentReconciliation.js`, `api/_lib/accountingProvider.js`.
+-   **Tenant storage metering:** `tenant.storage_used_bytes` (BIGINT) drives `checkStorageQuota` (`api/_lib/planQuota.js`) and `/admin/plan-usage`. Maintained incrementally via `addTenantStorageBytes` (`api/_lib/tenantStorageUsage.js`). Can drift (signed-URL claimed size); re-baseline with `scripts/recompute-tenant-storage.mjs` or the nightly cron.
+-   **Paid-plan upgrade flow (`/admin/plan-usage` → Stripe Checkout):** `PlanUsage.jsx` → `api/admin/plan-checkout.js` (tenant-admin RBAC, uses PLATFORM `STRIPE_SECRET_KEY`, NOT tenant's connected Stripe). First-time creates a Checkout Session; existing live sub swaps price in place via `stripe.subscriptions.update` (proration, never a parallel sub). Webhook `api/webhooks/stripe-plan.js` upserts `tenant_subscription` and flips `tenant.plan_code` only when status is `active`/`trialing`; `subscription.deleted` reverts to `free`.
+-   **Self-serve signup & onboarding (`/signup` → wizard):** `signup-start.js` (captcha + rate limits + verification email) → `signup-verify.js` (`provisionTenant`, `free` plan) → 5-step `OnboardingWizard.jsx` → `POST /api/admin/onboarding` runs `api/_lib/onboardingSeeder.js` (branding + tiers + persona seed pack tagged `is_sample=true`). Legacy admins backfilled to `onboarding_status='complete'`.
+-   **Accessibility audits:** Admin page (RBAC `admin.accessibility-audits`) runs axe-core 4.10 via browserless.io for tenant public URLs. Results in `accessibility_audit` / `accessibility_audit_result`; endpoints under `/api/admin/accessibility-audits`; runner `api/_lib/browserlessAxe.js`. v1 limits: ≤10 URLs/run, http(s) only, no credentialed URLs.
+-   **AI Design Studio V1 (Canvas AI Composition):** generation via `api/ai-compositions/generate.js`; prompt-led editing via `api/ai-compositions/edit.js` (propose/accept/reject/undo + conversation history in `ai_composition_conversation`) and `api/ai-compositions/destinations.js` (record-ID link picker — the AI never invents internal URLs). Patch engine `api/_lib/aiCompositionPatch.js`, edit pipeline `api/_lib/aiCompositionEdit.js`. Accept re-applies the STORED proposal server-side against the current document; complete redesigns are saved as alternatives (`is_alternative`); protected-value changes (prices, dates, names) require explicit confirmation. Editor UI in `client/src/components/canvas/blocks/AiCompositionEditPanel.jsx`. V1 scene-graph compositions are now read-only w.r.t. the V2 pivot.
+-   **AI Design Studio V2 (native-code pivot):** V2 compositions are native AI HTML/CSS/SVG packages (document `schemaVersion "2.0"`, `ai_composition.renderer_version=2`), sanitised ONCE server-side at store time by `api/_lib/aiCodePipeline.js` (schema → jsdom+DOMPurify sanitise → manifest cross-check → postcss CSS scoping under `[data-ai-composition="<uuid>"]` → leak check; reject-don't-repair), rendered verbatim by `AiCodeCompositionBlock.jsx`; signed CSP-locked preview + Browserless screenshots via `api/ai-compositions/preview.js` (HMAC keyed by `AIC_PREVIEW_SECRET`/`CRON_SECRET`). **Page bodies:** `compositionType: "page_body"` runs a plan stage (content manifest + creative plan, anti-degenerate checks in `aiCodeGeneration.js`) before code gen; page gates forbid `<header>/<footer>/<nav>` recreation. **Actions** (`data-ai-action` + manifest, `api/_lib/aiCodeActions.js`) resolve server-side to real records — unresolved actions block page publish (409 `AI_UNRESOLVED_ACTIONS`; editor fix-up via `api/ai-compositions/resolve-action.js`). **Slots** (`data-iconnect-slot`, `api/_lib/aiCodeSlots.js`) portal trusted platform blocks into generated markup; never block publish. **Imagery:** the model never writes image URLs — `<img data-ai-asset="<key>">` placeholders declared in the package `assets` manifest, fulfilled server-side (`api/_lib/aiCodeAssets.js`, gpt-image-1 or media library, tenant-owned storage); only unfulfilled `required` assets hard-reject; image swap is a deterministic `replace-image` edit action. V1→V2 rebuild is admin-only via `api/ai-compositions/rebuild-v2.js` (never automatic). **Editing:** `api/ai-compositions/edit-v2.js` (propose/accept/reject/undo); proposals (element-scoped patches via `data-ai-id`, or full revisions saved as alternatives) stored in `ai_composition_conversation` and re-applied against the CURRENT document on accept (`api/_lib/aiCodeEdit.js`); protected values + locked `data-content-key` texts require confirmation; breakpoint-scoped edits must leave other breakpoints' CSS untouched; accepts introducing NEW critical accessibility issues are blocked (422 `AI_VALIDATION_CRITICAL`). Admin-only Composition Inspector via `GET /api/ai-compositions/:id?inspector=1` (404 to non-admins). Full details: `guides/ai-design-studio-v2-pivot.md`.
+-   **Member AI structured Q&A:** the member assistant answers count/aggregate questions from live records via a whitelisted query spec (LLM never writes SQL). Catalog + validation + executors in `api/_lib/memberAiStructured.js`; routing in `api/member-ai/ask.js`. Adding an entity/field: follow `guides/member-ai-structured-qa.md` (visibility mirrors the member browse surfaces; drift guard in `memberAiStructuredSchemaDrift.test.mjs`).
+
+## Gotchas
+-   **Vercel preview-domain ownership:** Project `vite-migrate-replit-6` serves this repository. Both `dev.iconn.app` and `*.dev.iconn.app` are verified Vercel project domains pinned to the `eventemb2` Git branch; tenant custom-domain actions must never attach, reclaim, or detach `iconn.app` or any of its subdomains.
+-   **`dev.iconn.app` = Vercel preview deployment** built from the `eventemb2` git branch of the same Vercel project as production. Shares the same Supabase. (a) Vercel's Functions → Logs viewer defaults to Production and hides Preview logs — switch the Environment filter to Preview. (b) A fix only reaches `dev.iconn.app` after the commit is on the `eventemb2` branch and that branch's preview build has finished.
+-   **`sendEmail()` never throws.** It catches Mailgun errors and returns `{ success: false, error, status, domain }`. Callers MUST inspect the return value; a bare `try { await sendEmail(...) } catch {}` will falsely report success on 401 / unverified domain / missing key. Canonical pattern: `api/auth/request-admin-password-reset.js`.
+-   **System emails MUST pass `systemEmail: true`** (or use `sendSystemEmail()`). Without it, a tenant with a verified custom sending domain would silently send admin reset / signup / billing emails from the tenant's own brand — wrong identity.
+-   **API hard-fails** any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Workflow `dd_owner` / `dd_owner_email` placeholders** resolve via `resolveDdOwnerForSubmission` (`api/_lib/ddOwner.js`) only when the trigger caller passes `context.formSubmissionId` to `triggerWorkflows`. Without submission context they collapse to empty strings.
+-   **No server-side length validation on `event.summary` / `complex_event.summary`** — relies on client-side `event_summary_max_length` system setting (default 150).
+
+## Product
+-   **Core:** Members, Events, Bookings, Resources, Blog.
+-   **Identity:** Unified login, multi-tenant ownership, organization memberships, granular access control.
+-   **Customization:** Page Builder, Custom Forms with conditional logic, Workflow Automation, per-tenant branding.
+-   **Financials:** Stripe membership payments, Xero/QBO invoicing, Fundraising with Gift Aid.
+-   **Comms:** Email templates, campaigns, member preferences.
+-   **Integrations:** WordPress Sync, Zoom (events/sessions), Zoho CRM sync.
+-   **Reporting:** Due Diligence Reports, configurable Member/Org Directories.
+-   **Community:** Tenant-scoped forums, Member Group email campaigns.
+
+## User preferences
+Preferred communication style: Simple, everyday language.
+
+## Pointers
+-   **React:** `https://react.dev/` · **Tailwind:** `https://tailwindcss.com/docs` · **Drizzle:** `https://orm.drizzle.team/docs/overview`
+-   **Vercel Functions:** `https://vercel.com/docs/functions/overview` · **Supabase:** `https://supabase.com/docs`
+-   **Stripe:** `https://stripe.com/docs/api` · **Mailgun:** `https://documentation.mailgun.com/en/latest/api_reference.html`
+# Membership Management Platform
+A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
+
+## Run & Operate
+-   **Run Dev Server:** `npm run dev`
+-   **Build:** `npm run build` · **Typecheck:** `npm run typecheck` · **Codegen:** `npm run codegen`
+-   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — only works from environments with IPv6 outbound; **not from this Replit workspace** (see "Database connection").
+-   **Migrations:** every `.sql` in `supabase/migrations/` is idempotent and applied against `DEST_DATABASE_URL` (pooler). Most migrations have a matching `node scripts/apply-*.mjs` runner; check `scripts/` before applying anything by hand.
+-   **One-off scripts (backfills, CSV imports, tenant seeds):** live in `scripts/` (e.g. `recompute-tenant-storage.mjs`, `backfill-*.mjs`, `import-*.mjs`, `seed-*.mjs`). They are idempotent, default to dry-run unless an `--apply` flag is passed, and many are hard-pinned to a single tenant. Read the script header before running; each documents its own flags and scope.
+-   **Storage usage reconcile:** `node scripts/recompute-tenant-storage.mjs [--dry-run] [--tenant=<uuid>]`, or trust the nightly cron at `/api/cron/recompute-tenant-storage` (03:00 UTC, `CRON_SECRET`-guarded).
+
+## Database connection (read this before any DB work from this workspace)
+There are two Supabase projects this codebase talks to:
+
+| Role | What it is | URL secret | Postgres URL secret | Service-role key secret |
+| ---- | ---------- | ---------- | ------------------- | ----------------------- |
+| **Destination (current prod)** | Multi-tenant iConnect DB | `DEST_SUPABASE_URL` (`https://lvmzliemqnieeoruhkik.supabase.co`) | `DEST_DATABASE_URL` | `DEST_SUPABASE_KEY` |
+| **Source (legacy)** | Pre-multi-tenancy single-tenant snapshot, used by migration scripts | `SOURCE_SUPABASE_URL` | `SOURCE_DATABASE_URL` | `SOURCE_SUPABASE_KEY` |
+
+**The Supabase direct host (`db.<project>.supabase.co`) is unreachable from this Replit workspace** — it publishes only IPv6 (AAAA) DNS and the Replit container has no IPv6 outbound route, so `psql`, `execute_sql_tool`, `drizzle-kit push`, and any raw `pg`/Drizzle client pointed at the direct host fail with `ENOTFOUND` / `ENETUNREACH`. Those tools work from Vercel functions, the user's laptop, and CI — just not from here against the direct host.
+
+**The Supabase Pooler hostname IS IPv4-reachable from this workspace** (`aws-1-eu-central-1.pooler.supabase.com:5432`, which is what `DEST_DATABASE_URL` already points to). `pg` clients using `DEST_DATABASE_URL` (transaction-pooler mode) work from Replit for read/write queries and DDL such as `CREATE INDEX`. Prefer `@supabase/supabase-js` for ordinary CRUD (REST endpoint is also IPv4-reachable, more ergonomic); reach for `pg` via `DEST_DATABASE_URL` only when you need raw SQL / DDL the REST API can't do.
+
+For any DB access from this workspace (scripts, ad-hoc debugging, one-off data fixes), use **`@supabase/supabase-js`** with the service-role key. Working reference: `scripts/debug-tenant.mjs`.
+
+```js
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(
+  process.env.DEST_SUPABASE_URL,
+  process.env.DEST_SUPABASE_KEY
+);
+```
+
+Quick one-off from bash (env vars ARE available in the shell):
+
+```bash
+node -e "
+const { createClient } = require('@supabase/supabase-js');
+const sb = createClient(process.env.DEST_SUPABASE_URL, process.env.DEST_SUPABASE_KEY, { auth: { persistSession: false } });
+(async () => {
+  const { data, error } = await sb.from('tenant').select('id, slug, name').limit(5);
+  console.log({ data, error });
+})();
+"
+```
+
+## Testing
+-   **AI assistant tests** (registered as the `ai-assistant-tests` validation step, runs automatically on task completion): `node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/aiCompositionRender.test.mjs` — member-AI visibility (security boundary), ranking, indexer, help-chunker, dashboard aggregation/LMIC operators, Canvas auto-height bake guards, `useAutoHeightBake` runtime gates (jsdom), and Canvas auto reading-order suites.
+-   **GoCardless tests:** `node --test api/_lib/gocardless*.test.mjs` — webhook signature/idempotency/status-transition suites, per-tenant credential resolution (tenant_integrations → env fallback, env/token mismatch guards), org DD billing-contact invitations (token format, expiry clamp 1-90 via `dd_invite_expiry_days`, validate/supersede/single-use/revoke, recipient dedupe), Phase 5 renewal decisions (`gocardlessDdRenewals.test.mjs`), and migration invite/funnel (`gocardlessDdMigration.test.mjs`).
+-   **GoCardless sandbox proof:** `node scripts/gocardless-sandbox-proof.mjs [runId]` — billing request + hosted flow creation and idempotent-retry behaviour against the GC sandbox (requires `GOCARDLESS_ACCESS_TOKEN`; refuses to run against live).
+-   **Pending-PO report tests:** `node --test api/_lib/pendingPoInvoice.test.mjs` — PO reference extraction/blacklist and cross-record membership PO propagation helpers.
+
+## Env vars (current canonical set)
+Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPABASE_*` names; prefer the `DEST_*` names below for new code.
+
+| Var | Purpose |
+| --- | ------- |
+| `DEST_SUPABASE_URL` / `DEST_SUPABASE_KEY` / `DEST_DATABASE_URL` | Destination (prod) Supabase. See "Database connection". |
+| `SOURCE_SUPABASE_URL` / `SOURCE_SUPABASE_KEY` / `SOURCE_DATABASE_URL` | Legacy single-tenant snapshot — only used by migration scripts. |
+| `DATABASE_URL` | Direct host (IPv6 only) — used by Vercel / Drizzle push, not this workspace. |
+| `MAILGUN_API_KEY`, `MAILGUN_REGION` (default `eu`), `MAILGUN_FROM_EMAIL`, `APP_DOMAIN` (default `iconn.app`) | Email sending. `MAILGUN_FROM_EMAIL` is the non-system default From; system emails are pinned to `noreply@mail.${APP_DOMAIN}` regardless. |
+| `STRIPE_SECRET_KEY` | Tenant Stripe AND platform-side paid-plan upgrade Checkout. |
+| `STRIPE_PLAN_WEBHOOK_SECRET` | Verifies `/api/webhooks/stripe-plan` from the platform Stripe account. Configure dashboard to deliver `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
+| `GOCARDLESS_ENVIRONMENT` | `sandbox` (default) or `live`. Platform-level FALLBACK only — tenants connect their own GoCardless account via `tenant_integrations` (`integration_type='gocardless'`, resolved by `api/_lib/gocardlessCredentials.js`). |
+| `GOCARDLESS_ACCESS_TOKEN` | Platform-fallback GoCardless API access token (sandbox tokens start `sandbox_`, live `live_`; env/token mismatch is rejected at call time). |
+| `GOCARDLESS_WEBHOOK_SECRET` | Platform-fallback secret verifying `Webhook-Signature` (HMAC-SHA256 of raw body) on `/api/webhooks/gocardless`. Tenant-connected accounts register the URL with `?tenant=<uuid>` and are verified against their own stored secret. |
+| `GOCARDLESS_REDIRECT_BASE_URL` | Base URL for Billing Request Flow redirect/exit URIs (e.g. `https://iconn.app`). |
+| `GOCARDLESS_CREDITOR_ID` (opt) | Pins billing requests to one creditor on multi-creditor GC accounts. |
+| `GOOGLE_FONTS_API_KEY` | Server-side key for the Google Fonts Developer API. Powers live font search in the `/InstalledFonts` add dialog via `api/public/google-fonts.js`. If unset, the picker falls back to the curated `POPULAR_GOOGLE_FONTS` list. |
+| `XERO_CLIENT_ID` | Xero OAuth. |
+| `QUICKBOOKS_REDIRECT_URI` (opt) | Overrides default `${origin}/api/quickbooks/callback` for stable QBO OAuth redirect. |
+| `BROWSERLESS_API_TOKEN`, `BROWSERLESS_BASE_URL` (opt), `BROWSERLESS_AUDIT_TIMEOUT_MS` (opt) | Accessibility audits via browserless.io. |
+| `VITE_APP_URL` | Frontend-known app URL. |
+| `CAPTCHA_PROVIDER`, `CAPTCHA_SECRET_KEY` (opt) | Self-serve signup captcha (hCaptcha/Turnstile/reCAPTCHA). Bypassed when not production. |
+| `SIGNUP_RATE_IP_PER_HOUR`, `SIGNUP_RATE_EMAIL_PER_DAY` (opt) | Self-serve signup rate limits. |
+| `CRON_SECRET` | Guards all `/api/cron/*` endpoints. |
+| `ICONNECT_HEALTH_CHECK_TOKEN` | Required secret for `/api/health`; Better Stack must send it as the `X-Health-Token` request header. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_RENEWALS_URL` | Optional Better Stack heartbeat URL for membership renewals. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for membership-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_GOCARDLESS_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for GoCardless reconciliation. |
+| `BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for Stripe card-plan reconciliation. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL` | Optional Better Stack heartbeat URL for scheduled workflows. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL` | Optional Better Stack heartbeat URL for scheduled campaigns. |
+| `BETTERSTACK_HEARTBEAT_DATABASE_BACKUP_URL` | Optional Better Stack heartbeat URL for database backup to R2. |
+| `BETTERSTACK_HEARTBEAT_STORAGE_BACKUP_URL` | Optional Better Stack heartbeat URL for storage backup to R2. |
+| `BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for form-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_AUTOMATIC_MEMBERSHIP_PROCESSING_URL` | Optional Better Stack heartbeat URL for automatic membership processing. |
+| `ENABLE_RESET_DEBUG` (opt, `'true'`) | Temporary diagnostic: `/api/auth/request-admin-password-reset` returns a `debug` field (`no_identity`/`no_owner_membership`/`email_failed`/`sent`). Leave unset in normal operation so account existence is not disclosed. |
+| `R2_ACCOUNT_ID` | Cloudflare account ID — builds the R2 endpoint URL (`https://<id>.r2.cloudflarestorage.com`). Set this **or** `R2_ENDPOINT`. Vercel secret. |
+| `R2_ENDPOINT` (opt) | Full R2 endpoint URL override, instead of `R2_ACCOUNT_ID`. |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | R2 API token credentials + target bucket for backups. Vercel secrets. |
+| `DB_BACKUP_SCHEMAS` (opt) | Comma-separated Postgres schemas in the nightly DB dump (default: `public`). Supabase internal schemas (`auth`, `storage`, `realtime`, …) are intentionally excluded — Supabase manages them. |
+
+### External health monitoring
+
+Create a Better Stack HTTP monitor for `GET /api/health`. In the monitor's
+request headers, configure `X-Health-Token` to the same secret held in the
+Vercel `ICONNECT_HEALTH_CHECK_TOKEN` environment variable. The endpoint is
+intentionally unauthorised only by that header and returns no dependency detail
+when the header is missing or invalid.
+
+The ten `BETTERSTACK_HEARTBEAT_*_URL` variables are independently optional
+and apply only to the ten selected production schedules. The application
+derives Better Stack's `/fail` target from each configured success URL; store
+only the success URL in Vercel Production. See
+`guides/better-stack-cron-heartbeats.md` for the setup matrix and the complete
+30-schedule coverage inventory.
+Set each Vercel value to the matching Better Stack heartbeat URL for only the
+scheduled job you wish to monitor. The job sends a success URL after a clean
+run and Better Stack's `/fail` URL for a failed run; delivery failures never
+change the job's response or retry behaviour.
+
+## Stack & where things live
+-   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS
+-   **Backend:** Express.js (dev) / Vercel serverless functions (prod), PostgreSQL, Drizzle ORM
+-   `/client`: Frontend source (`client/src/design-system` = custom "new-york" shadcn variant)
+-   `/api`: Backend API endpoints (Vercel serverless functions); shared helpers under `api/_lib/`
+-   `/supabase/migrations`: Database migrations (idempotent SQL); `supabase/schema.prisma` is the schema source of truth for Drizzle
+-   `/scripts`: Utility and migration scripts
+-   `client/index.html` + `api/render.js`: SSR for SEO/OG tag injection
+
+## Architecture decisions
+-   **Multi-tenancy:** Data isolation at GLOBAL / TENANT / ORGANIZATION / MEMBER levels via `tenant_id` and `organization_id`. The shared entity API hard-fails any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Identity:** Unified identity with per-tenant password isolation, Google OAuth, feature-based role management.
+-   **Email sending:** `api/_lib/emailService.js` resolves the sending domain off `tenantId` for tenant→member emails. **System emails** (platform→tenant-owner: admin reset, signup verification, team invite, billing notifications) MUST pass `systemEmail: true` (or use `sendSystemEmail()`); this forces both Mailgun domain AND From identity to `mail.${APP_DOMAIN}` / `noreply@mail.${APP_DOMAIN}`. System reset/verification links must point at `${APP_DOMAIN}/...` not a tenant subdomain.
+-   **Dynamic SEO:** SSR meta-tag injection per-tenant via `api/render.js`; per-page metadata resolved by `api/_lib/entityMeta.js`. Per-entity `seo_title` / `seo_description` / `og_image_url` overrides on events, blog posts, news, campaigns, resources, and directories (UI in `client/src/components/blog/SEOSettings.jsx`). `og:image` URLs on `vault.iconn.app` or `*.supabase.co` are proxied through `/api/og-image`.
+-   **Event deletion:** Multi-step cancellation flow (refunds, reinstatements, Zoom unregistration) before any data purge. Direct deletion of events is deprecated for UI flows.
+-   **Semantic `warning` color:** `--warning` / `--warning-foreground` CSS vars in `client/src/index.css` (both themes, WCAG-AA). Use `text-warning`, `bg-warning`, `<Badge variant="warning">`, `<Alert variant="warning">` instead of raw amber/yellow/orange palette classes.
+-   **Membership invoices:** `organisation_membership_history` / `member_membership_history` carry `payment_status` (`unpaid`/`paid`/`partial`/`voided`) + `paid_at`, separate from the lifecycle `status`. Accounting-sync failures flag the row `accounting_sync_status='failed'` (not swallowed) with a Retry button in `OrgMembershipTab.jsx`. Payment reconciliation cron `/api/cron/reconcile-membership-invoice-payments` (every 3h, `CRON_SECRET`-guarded) queries Xero/QBO and fires workflows on `unpaid -> paid` only. See `api/_lib/membershipPaymentReconciliation.js`, `api/_lib/accountingProvider.js`.
+-   **Tenant storage metering:** `tenant.storage_used_bytes` (BIGINT) drives `checkStorageQuota` (`api/_lib/planQuota.js`) and `/admin/plan-usage`. Maintained incrementally via `addTenantStorageBytes` (`api/_lib/tenantStorageUsage.js`). Can drift (signed-URL claimed size); re-baseline with `scripts/recompute-tenant-storage.mjs` or the nightly cron.
+-   **Paid-plan upgrade flow (`/admin/plan-usage` → Stripe Checkout):** `PlanUsage.jsx` → `api/admin/plan-checkout.js` (tenant-admin RBAC, uses PLATFORM `STRIPE_SECRET_KEY`, NOT tenant's connected Stripe). First-time creates a Checkout Session; existing live sub swaps price in place via `stripe.subscriptions.update` (proration, never a parallel sub). Webhook `api/webhooks/stripe-plan.js` upserts `tenant_subscription` and flips `tenant.plan_code` only when status is `active`/`trialing`; `subscription.deleted` reverts to `free`.
+-   **Self-serve signup & onboarding (`/signup` → wizard):** `signup-start.js` (captcha + rate limits + verification email) → `signup-verify.js` (`provisionTenant`, `free` plan) → 5-step `OnboardingWizard.jsx` → `POST /api/admin/onboarding` runs `api/_lib/onboardingSeeder.js` (branding + tiers + persona seed pack tagged `is_sample=true`). Legacy admins backfilled to `onboarding_status='complete'`.
+-   **Accessibility audits:** Admin page (RBAC `admin.accessibility-audits`) runs axe-core 4.10 via browserless.io for tenant public URLs. Results in `accessibility_audit` / `accessibility_audit_result`; endpoints under `/api/admin/accessibility-audits`; runner `api/_lib/browserlessAxe.js`. v1 limits: ≤10 URLs/run, http(s) only, no credentialed URLs.
+-   **AI Design Studio V1 (Canvas AI Composition):** generation via `api/ai-compositions/generate.js`; prompt-led editing via `api/ai-compositions/edit.js` (propose/accept/reject/undo + conversation history in `ai_composition_conversation`) and `api/ai-compositions/destinations.js` (record-ID link picker — the AI never invents internal URLs). Patch engine `api/_lib/aiCompositionPatch.js`, edit pipeline `api/_lib/aiCompositionEdit.js`. Accept re-applies the STORED proposal server-side against the current document; complete redesigns are saved as alternatives (`is_alternative`); protected-value changes (prices, dates, names) require explicit confirmation. Editor UI in `client/src/components/canvas/blocks/AiCompositionEditPanel.jsx`. V1 scene-graph compositions are now read-only w.r.t. the V2 pivot.
+-   **AI Design Studio V2 (native-code pivot):** V2 compositions are native AI HTML/CSS/SVG packages (document `schemaVersion "2.0"`, `ai_composition.renderer_version=2`), sanitised ONCE server-side at store time by `api/_lib/aiCodePipeline.js` (schema → jsdom+DOMPurify sanitise → manifest cross-check → postcss CSS scoping under `[data-ai-composition="<uuid>"]` → leak check; reject-don't-repair), rendered verbatim by `AiCodeCompositionBlock.jsx`; signed CSP-locked preview + Browserless screenshots via `api/ai-compositions/preview.js` (HMAC keyed by `AIC_PREVIEW_SECRET`/`CRON_SECRET`). **Page bodies:** `compositionType: "page_body"` runs a plan stage (content manifest + creative plan, anti-degenerate checks in `aiCodeGeneration.js`) before code gen; page gates forbid `<header>/<footer>/<nav>` recreation. **Actions** (`data-ai-action` + manifest, `api/_lib/aiCodeActions.js`) resolve server-side to real records — unresolved actions block page publish (409 `AI_UNRESOLVED_ACTIONS`; editor fix-up via `api/ai-compositions/resolve-action.js`). **Slots** (`data-iconnect-slot`, `api/_lib/aiCodeSlots.js`) portal trusted platform blocks into generated markup; never block publish. **Imagery:** the model never writes image URLs — `<img data-ai-asset="<key>">` placeholders declared in the package `assets` manifest, fulfilled server-side (`api/_lib/aiCodeAssets.js`, gpt-image-1 or media library, tenant-owned storage); only unfulfilled `required` assets hard-reject; image swap is a deterministic `replace-image` edit action. V1→V2 rebuild is admin-only via `api/ai-compositions/rebuild-v2.js` (never automatic). **Editing:** `api/ai-compositions/edit-v2.js` (propose/accept/reject/undo); proposals (element-scoped patches via `data-ai-id`, or full revisions saved as alternatives) stored in `ai_composition_conversation` and re-applied against the CURRENT document on accept (`api/_lib/aiCodeEdit.js`); protected values + locked `data-content-key` texts require confirmation; breakpoint-scoped edits must leave other breakpoints' CSS untouched; accepts introducing NEW critical accessibility issues are blocked (422 `AI_VALIDATION_CRITICAL`). Admin-only Composition Inspector via `GET /api/ai-compositions/:id?inspector=1` (404 to non-admins). Full details: `guides/ai-design-studio-v2-pivot.md`.
+-   **Member AI structured Q&A:** the member assistant answers count/aggregate questions from live records via a whitelisted query spec (LLM never writes SQL). Catalog + validation + executors in `api/_lib/memberAiStructured.js`; routing in `api/member-ai/ask.js`. Adding an entity/field: follow `guides/member-ai-structured-qa.md` (visibility mirrors the member browse surfaces; drift guard in `memberAiStructuredSchemaDrift.test.mjs`).
+
+## Gotchas
+-   **Vercel preview-domain ownership:** Project `vite-migrate-replit-6` serves this repository. Both `dev.iconn.app` and `*.dev.iconn.app` are verified Vercel project domains pinned to the `eventemb2` Git branch; tenant custom-domain actions must never attach, reclaim, or detach `iconn.app` or any of its subdomains.
+-   **`dev.iconn.app` = Vercel preview deployment** built from the `eventemb2` git branch of the same Vercel project as production. Shares the same Supabase. (a) Vercel's Functions → Logs viewer defaults to Production and hides Preview logs — switch the Environment filter to Preview. (b) A fix only reaches `dev.iconn.app` after the commit is on the `eventemb2` branch and that branch's preview build has finished.
+-   **`sendEmail()` never throws.** It catches Mailgun errors and returns `{ success: false, error, status, domain }`. Callers MUST inspect the return value; a bare `try { await sendEmail(...) } catch {}` will falsely report success on 401 / unverified domain / missing key. Canonical pattern: `api/auth/request-admin-password-reset.js`.
+-   **System emails MUST pass `systemEmail: true`** (or use `sendSystemEmail()`). Without it, a tenant with a verified custom sending domain would silently send admin reset / signup / billing emails from the tenant's own brand — wrong identity.
+-   **API hard-fails** any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Workflow `dd_owner` / `dd_owner_email` placeholders** resolve via `resolveDdOwnerForSubmission` (`api/_lib/ddOwner.js`) only when the trigger caller passes `context.formSubmissionId` to `triggerWorkflows`. Without submission context they collapse to empty strings.
+-   **No server-side length validation on `event.summary` / `complex_event.summary`** — relies on client-side `event_summary_max_length` system setting (default 150).
+
+## Product
+-   **Core:** Members, Events, Bookings, Resources, Blog.
+-   **Identity:** Unified login, multi-tenant ownership, organization memberships, granular access control.
+-   **Customization:** Page Builder, Custom Forms with conditional logic, Workflow Automation, per-tenant branding.
+-   **Financials:** Stripe membership payments, Xero/QBO invoicing, Fundraising with Gift Aid.
+-   **Comms:** Email templates, campaigns, member preferences.
+-   **Integrations:** WordPress Sync, Zoom (events/sessions), Zoho CRM sync.
+-   **Reporting:** Due Diligence Reports, configurable Member/Org Directories.
+-   **Community:** Tenant-scoped forums, Member Group email campaigns.
+
+## User preferences
+Preferred communication style: Simple, everyday language.
+
+## Pointers
+-   **React:** `https://react.dev/` · **Tailwind:** `https://tailwindcss.com/docs` · **Drizzle:** `https://orm.drizzle.team/docs/overview`
+-   **Vercel Functions:** `https://vercel.com/docs/functions/overview` · **Supabase:** `https://supabase.com/docs`
+-   **Stripe:** `https://stripe.com/docs/api` · **Mailgun:** `https://documentation.mailgun.com/en/latest/api_reference.html`
+# Membership Management Platform
+A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
+
+## Run & Operate
+-   **Run Dev Server:** `npm run dev`
+-   **Build:** `npm run build` · **Typecheck:** `npm run typecheck` · **Codegen:** `npm run codegen`
+-   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — only works from environments with IPv6 outbound; **not from this Replit workspace** (see "Database connection").
+-   **Migrations:** every `.sql` in `supabase/migrations/` is idempotent and applied against `DEST_DATABASE_URL` (pooler). Most migrations have a matching `node scripts/apply-*.mjs` runner; check `scripts/` before applying anything by hand.
+-   **One-off scripts (backfills, CSV imports, tenant seeds):** live in `scripts/` (e.g. `recompute-tenant-storage.mjs`, `backfill-*.mjs`, `import-*.mjs`, `seed-*.mjs`). They are idempotent, default to dry-run unless an `--apply` flag is passed, and many are hard-pinned to a single tenant. Read the script header before running; each documents its own flags and scope.
+-   **Inclusive relationship reports:** `node scripts/apply-inclusive-relationship-reports.mjs --apply` installs the V2 paging/count helpers and separate BNMS Organisation department summary using `DEST_DATABASE_URL` only. `node scripts/verify-bnms-organisation-department-summary.mjs` verifies saved preview results read-only; `--reference-only` checks source totals before setup. Existing V1 reports are not upgraded.
+-   **Storage usage reconcile:** `node scripts/recompute-tenant-storage.mjs [--dry-run] [--tenant=<uuid>]`, or trust the nightly cron at `/api/cron/recompute-tenant-storage` (03:00 UTC, `CRON_SECRET`-guarded).
+
+## Database connection (read this before any DB work from this workspace)
+There are two Supabase projects this codebase talks to:
+
+| Role | What it is | URL secret | Postgres URL secret | Service-role key secret |
+| ---- | ---------- | ---------- | ------------------- | ----------------------- |
+| **Destination (current prod)** | Multi-tenant iConnect DB | `DEST_SUPABASE_URL` (`https://lvmzliemqnieeoruhkik.supabase.co`) | `DEST_DATABASE_URL` | `DEST_SUPABASE_KEY` |
+| **Source (legacy)** | Pre-multi-tenancy single-tenant snapshot, used by migration scripts | `SOURCE_SUPABASE_URL` | `SOURCE_DATABASE_URL` | `SOURCE_SUPABASE_KEY` |
+
+**The Supabase direct host (`db.<project>.supabase.co`) is unreachable from this Replit workspace** — it publishes only IPv6 (AAAA) DNS and the Replit container has no IPv6 outbound route, so `psql`, `execute_sql_tool`, `drizzle-kit push`, and any raw `pg`/Drizzle client pointed at the direct host fail with `ENOTFOUND` / `ENETUNREACH`. Those tools work from Vercel functions, the user's laptop, and CI — just not from here against the direct host.
+
+**The Supabase Pooler hostname IS IPv4-reachable from this workspace** (`aws-1-eu-central-1.pooler.supabase.com:5432`, which is what `DEST_DATABASE_URL` already points to). `pg` clients using `DEST_DATABASE_URL` (transaction-pooler mode) work from Replit for read/write queries and DDL such as `CREATE INDEX`. Prefer `@supabase/supabase-js` for ordinary CRUD (REST endpoint is also IPv4-reachable, more ergonomic); reach for `pg` via `DEST_DATABASE_URL` only when you need raw SQL / DDL the REST API can't do.
+
+For any DB access from this workspace (scripts, ad-hoc debugging, one-off data fixes), use **`@supabase/supabase-js`** with the service-role key. Working reference: `scripts/debug-tenant.mjs`.
+
+```js
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(
+  process.env.DEST_SUPABASE_URL,
+  process.env.DEST_SUPABASE_KEY
+);
+```
+
+Quick one-off from bash (env vars ARE available in the shell):
+
+```bash
+node -e "
+const { createClient } = require('@supabase/supabase-js');
+const sb = createClient(process.env.DEST_SUPABASE_URL, process.env.DEST_SUPABASE_KEY, { auth: { persistSession: false } });
+(async () => {
+  const { data, error } = await sb.from('tenant').select('id, slug, name').limit(5);
+  console.log({ data, error });
+})();
+"
+```
+
+## Testing
+-   **AI assistant tests** (registered as the `ai-assistant-tests` validation step, runs automatically on task completion): `node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/aiCompositionRender.test.mjs` — member-AI visibility (security boundary), ranking, indexer, help-chunker, dashboard aggregation/LMIC operators, Canvas auto-height bake guards, `useAutoHeightBake` runtime gates (jsdom), and Canvas auto reading-order suites.
+-   **GoCardless tests:** `node --test api/_lib/gocardless*.test.mjs` — webhook signature/idempotency/status-transition suites, per-tenant credential resolution (tenant_integrations → env fallback, env/token mismatch guards), org DD billing-contact invitations (token format, expiry clamp 1-90 via `dd_invite_expiry_days`, validate/supersede/single-use/revoke, recipient dedupe), Phase 5 renewal decisions (`gocardlessDdRenewals.test.mjs`), and migration invite/funnel (`gocardlessDdMigration.test.mjs`).
+-   **GoCardless sandbox proof:** `node scripts/gocardless-sandbox-proof.mjs [runId]` — billing request + hosted flow creation and idempotent-retry behaviour against the GC sandbox (requires `GOCARDLESS_ACCESS_TOKEN`; refuses to run against live).
+-   **Pending-PO report tests:** `node --test api/_lib/pendingPoInvoice.test.mjs` — PO reference extraction/blacklist and cross-record membership PO propagation helpers.
+-   **Organisation Directory filters:** `npm run test:directory-object-fields` covers schema projections, safe diagnostics, exact source-value selection, permission revocation, and population pagination; `npx playwright test tests/directory-object-fields.smoke.spec.mjs` covers mounted directory controls and card behaviour. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` when using a system Chromium.
+-   **Destination directory verification (read-only):** `node scripts/verify-directory-source-values-destination.mjs` checks the configured BNMS Department Name source against DEST without changing settings or records. `npx playwright test --config=tests/task-4360-destination-harness.config.mjs` renders the local app with fixture sign-in/chrome and real destination-backed directory service responses. This harness is not a deployed-login/authentication test; `scripts/verify-task-4360-preview.mjs` separately supports normal authenticated preview verification with an ephemeral `PLAYWRIGHT_STORAGE_STATE`.
+-   **Repeatable Custom Object source verification (read-only):** `node scripts/verify-form-row-choice-sources.mjs --parent-object=<uuid> --related-object=<uuid> --value-field=<name>` checks record → distinct scalar → filtered record options and submission eligibility against DEST using an in-memory form. It does not save forms, submissions, or catalogue records.
+
+## Env vars (current canonical set)
+Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPABASE_*` names; prefer the `DEST_*` names below for new code.
+
+| Var | Purpose |
+| --- | ------- |
+| `DEST_SUPABASE_URL` / `DEST_SUPABASE_KEY` / `DEST_DATABASE_URL` | Destination (prod) Supabase. See "Database connection". |
+| `SOURCE_SUPABASE_URL` / `SOURCE_SUPABASE_KEY` / `SOURCE_DATABASE_URL` | Legacy single-tenant snapshot — only used by migration scripts. |
+| `DATABASE_URL` | Direct host (IPv6 only) — used by Vercel / Drizzle push, not this workspace. |
+| `MAILGUN_API_KEY`, `MAILGUN_REGION` (default `eu`), `MAILGUN_FROM_EMAIL`, `APP_DOMAIN` (default `iconn.app`) | Email sending. `MAILGUN_FROM_EMAIL` is the non-system default From; system emails are pinned to `noreply@mail.${APP_DOMAIN}` regardless. |
+| `STRIPE_SECRET_KEY` | Tenant Stripe AND platform-side paid-plan upgrade Checkout. |
+| `STRIPE_PLAN_WEBHOOK_SECRET` | Verifies `/api/webhooks/stripe-plan` from the platform Stripe account. Configure dashboard to deliver `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
+| `GOCARDLESS_ENVIRONMENT` | `sandbox` (default) or `live`. Platform-level FALLBACK only — tenants connect their own GoCardless account via `tenant_integrations` (`integration_type='gocardless'`, resolved by `api/_lib/gocardlessCredentials.js`). |
+| `GOCARDLESS_ACCESS_TOKEN` | Platform-fallback GoCardless API access token (sandbox tokens start `sandbox_`, live `live_`; env/token mismatch is rejected at call time). |
+| `GOCARDLESS_WEBHOOK_SECRET` | Platform-fallback secret verifying `Webhook-Signature` (HMAC-SHA256 of raw body) on `/api/webhooks/gocardless`. Tenant-connected accounts register the URL with `?tenant=<uuid>` and are verified against their own stored secret. |
+| `GOCARDLESS_REDIRECT_BASE_URL` | Base URL for Billing Request Flow redirect/exit URIs (e.g. `https://iconn.app`). |
+| `GOCARDLESS_CREDITOR_ID` (opt) | Pins billing requests to one creditor on multi-creditor GC accounts. |
+| `GOOGLE_FONTS_API_KEY` | Server-side key for the Google Fonts Developer API. Powers live font search in the `/InstalledFonts` add dialog via `api/public/google-fonts.js`. If unset, the picker falls back to the curated `POPULAR_GOOGLE_FONTS` list. |
+| `XERO_CLIENT_ID` | Xero OAuth. |
+| `QUICKBOOKS_REDIRECT_URI` (opt) | Overrides default `${origin}/api/quickbooks/callback` for stable QBO OAuth redirect. |
+| `BROWSERLESS_API_TOKEN`, `BROWSERLESS_BASE_URL` (opt), `BROWSERLESS_AUDIT_TIMEOUT_MS` (opt) | Accessibility audits via browserless.io. |
+| `VITE_APP_URL` | Frontend-known app URL. |
+| `CAPTCHA_PROVIDER`, `CAPTCHA_SECRET_KEY` (opt) | Self-serve signup captcha (hCaptcha/Turnstile/reCAPTCHA). Bypassed when not production. |
+| `SIGNUP_RATE_IP_PER_HOUR`, `SIGNUP_RATE_EMAIL_PER_DAY` (opt) | Self-serve signup rate limits. |
+| `CRON_SECRET` | Guards all `/api/cron/*` endpoints. |
+| `ICONNECT_HEALTH_CHECK_TOKEN` | Required secret for `/api/health`; Better Stack must send it as the `X-Health-Token` request header. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_RENEWALS_URL` | Optional Better Stack heartbeat URL for membership renewals. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for membership-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_GOCARDLESS_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for GoCardless reconciliation. |
+| `BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for Stripe card-plan reconciliation. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL` | Optional Better Stack heartbeat URL for scheduled workflows. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL` | Optional Better Stack heartbeat URL for scheduled campaigns. |
+| `BETTERSTACK_HEARTBEAT_DATABASE_BACKUP_URL` | Optional Better Stack heartbeat URL for database backup to R2. |
+| `BETTERSTACK_HEARTBEAT_STORAGE_BACKUP_URL` | Optional Better Stack heartbeat URL for storage backup to R2. |
+| `BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for form-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_AUTOMATIC_MEMBERSHIP_PROCESSING_URL` | Optional Better Stack heartbeat URL for automatic membership processing. |
+| `ENABLE_RESET_DEBUG` (opt, `'true'`) | Temporary diagnostic: `/api/auth/request-admin-password-reset` returns a `debug` field (`no_identity`/`no_owner_membership`/`email_failed`/`sent`). Leave unset in normal operation so account existence is not disclosed. |
+| `R2_ACCOUNT_ID` | Cloudflare account ID — builds the R2 endpoint URL (`https://<id>.r2.cloudflarestorage.com`). Set this **or** `R2_ENDPOINT`. Vercel secret. |
+| `R2_ENDPOINT` (opt) | Full R2 endpoint URL override, instead of `R2_ACCOUNT_ID`. |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | R2 API token credentials + target bucket for backups. Vercel secrets. |
+| `DB_BACKUP_SCHEMAS` (opt) | Comma-separated Postgres schemas in the nightly DB dump (default: `public`). Supabase internal schemas (`auth`, `storage`, `realtime`, …) are intentionally excluded — Supabase manages them. |
+
+### External health monitoring
+
+Create a Better Stack HTTP monitor for `GET /api/health`. In the monitor's
+request headers, configure `X-Health-Token` to the same secret held in the
+Vercel `ICONNECT_HEALTH_CHECK_TOKEN` environment variable. The endpoint is
+intentionally unauthorised only by that header and returns no dependency detail
+when the header is missing or invalid.
+
+The ten `BETTERSTACK_HEARTBEAT_*_URL` variables are independently optional
+and apply only to the ten selected production schedules. The application
+derives Better Stack's `/fail` target from each configured success URL; store
+only the success URL in Vercel Production. See
+`guides/better-stack-cron-heartbeats.md` for the setup matrix and the complete
+30-schedule coverage inventory.
+Set each Vercel value to the matching Better Stack heartbeat URL for only the
+scheduled job you wish to monitor. The job sends a success URL after a clean
+run and Better Stack's `/fail` URL for a failed run; delivery failures never
+change the job's response or retry behaviour.
+
+## Stack & where things live
+-   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS
+-   **Backend:** Express.js (dev) / Vercel serverless functions (prod), PostgreSQL, Drizzle ORM
+-   `/client`: Frontend source (`client/src/design-system` = custom "new-york" shadcn variant)
+-   `/api`: Backend API endpoints (Vercel serverless functions); shared helpers under `api/_lib/`
+-   `/supabase/migrations`: Database migrations (idempotent SQL); `supabase/schema.prisma` is the schema source of truth for Drizzle
+-   `/scripts`: Utility and migration scripts
+-   `client/index.html` + `api/render.js`: SSR for SEO/OG tag injection
+
+## Architecture decisions
+-   **Multi-tenancy:** Data isolation at GLOBAL / TENANT / ORGANIZATION / MEMBER levels via `tenant_id` and `organization_id`. The shared entity API hard-fails any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Identity:** Unified identity with per-tenant password isolation, Google OAuth, feature-based role management.
+-   **Email sending:** `api/_lib/emailService.js` resolves the sending domain off `tenantId` for tenant→member emails. **System emails** (platform→tenant-owner: admin reset, signup verification, team invite, billing notifications) MUST pass `systemEmail: true` (or use `sendSystemEmail()`); this forces both Mailgun domain AND From identity to `mail.${APP_DOMAIN}` / `noreply@mail.${APP_DOMAIN}`. System reset/verification links must point at `${APP_DOMAIN}/...` not a tenant subdomain.
+-   **Dynamic SEO:** SSR meta-tag injection per-tenant via `api/render.js`; per-page metadata resolved by `api/_lib/entityMeta.js`. Per-entity `seo_title` / `seo_description` / `og_image_url` overrides on events, blog posts, news, campaigns, resources, and directories (UI in `client/src/components/blog/SEOSettings.jsx`). `og:image` URLs on `vault.iconn.app` or `*.supabase.co` are proxied through `/api/og-image`.
+-   **Event deletion:** Multi-step cancellation flow (refunds, reinstatements, Zoom unregistration) before any data purge. Direct deletion of events is deprecated for UI flows.
+-   **Semantic `warning` color:** `--warning` / `--warning-foreground` CSS vars in `client/src/index.css` (both themes, WCAG-AA). Use `text-warning`, `bg-warning`, `<Badge variant="warning">`, `<Alert variant="warning">` instead of raw amber/yellow/orange palette classes.
+-   **Membership invoices:** `organisation_membership_history` / `member_membership_history` carry `payment_status` (`unpaid`/`paid`/`partial`/`voided`) + `paid_at`, separate from the lifecycle `status`. Accounting-sync failures flag the row `accounting_sync_status='failed'` (not swallowed) with a Retry button in `OrgMembershipTab.jsx`. Payment reconciliation cron `/api/cron/reconcile-membership-invoice-payments` (every 3h, `CRON_SECRET`-guarded) queries Xero/QBO and fires workflows on `unpaid -> paid` only. See `api/_lib/membershipPaymentReconciliation.js`, `api/_lib/accountingProvider.js`.
+-   **Tenant storage metering:** `tenant.storage_used_bytes` (BIGINT) drives `checkStorageQuota` (`api/_lib/planQuota.js`) and `/admin/plan-usage`. Maintained incrementally via `addTenantStorageBytes` (`api/_lib/tenantStorageUsage.js`). Can drift (signed-URL claimed size); re-baseline with `scripts/recompute-tenant-storage.mjs` or the nightly cron.
+-   **Paid-plan upgrade flow (`/admin/plan-usage` → Stripe Checkout):** `PlanUsage.jsx` → `api/admin/plan-checkout.js` (tenant-admin RBAC, uses PLATFORM `STRIPE_SECRET_KEY`, NOT tenant's connected Stripe). First-time creates a Checkout Session; existing live sub swaps price in place via `stripe.subscriptions.update` (proration, never a parallel sub). Webhook `api/webhooks/stripe-plan.js` upserts `tenant_subscription` and flips `tenant.plan_code` only when status is `active`/`trialing`; `subscription.deleted` reverts to `free`.
+-   **Self-serve signup & onboarding (`/signup` → wizard):** `signup-start.js` (captcha + rate limits + verification email) → `signup-verify.js` (`provisionTenant`, `free` plan) → 5-step `OnboardingWizard.jsx` → `POST /api/admin/onboarding` runs `api/_lib/onboardingSeeder.js` (branding + tiers + persona seed pack tagged `is_sample=true`). Legacy admins backfilled to `onboarding_status='complete'`.
+-   **Accessibility audits:** Admin page (RBAC `admin.accessibility-audits`) runs axe-core 4.10 via browserless.io for tenant public URLs. Results in `accessibility_audit` / `accessibility_audit_result`; endpoints under `/api/admin/accessibility-audits`; runner `api/_lib/browserlessAxe.js`. v1 limits: ≤10 URLs/run, http(s) only, no credentialed URLs.
+-   **AI Design Studio V1 (Canvas AI Composition):** generation via `api/ai-compositions/generate.js`; prompt-led editing via `api/ai-compositions/edit.js` (propose/accept/reject/undo + conversation history in `ai_composition_conversation`) and `api/ai-compositions/destinations.js` (record-ID link picker — the AI never invents internal URLs). Patch engine `api/_lib/aiCompositionPatch.js`, edit pipeline `api/_lib/aiCompositionEdit.js`. Accept re-applies the STORED proposal server-side against the current document; complete redesigns are saved as alternatives (`is_alternative`); protected-value changes (prices, dates, names) require explicit confirmation. Editor UI in `client/src/components/canvas/blocks/AiCompositionEditPanel.jsx`. V1 scene-graph compositions are now read-only w.r.t. the V2 pivot.
+-   **AI Design Studio V2 (native-code pivot):** V2 compositions are native AI HTML/CSS/SVG packages (document `schemaVersion "2.0"`, `ai_composition.renderer_version=2`), sanitised ONCE server-side at store time by `api/_lib/aiCodePipeline.js` (schema → jsdom+DOMPurify sanitise → manifest cross-check → postcss CSS scoping under `[data-ai-composition="<uuid>"]` → leak check; reject-don't-repair), rendered verbatim by `AiCodeCompositionBlock.jsx`; signed CSP-locked preview + Browserless screenshots via `api/ai-compositions/preview.js` (HMAC keyed by `AIC_PREVIEW_SECRET`/`CRON_SECRET`). **Page bodies:** `compositionType: "page_body"` runs a plan stage (content manifest + creative plan, anti-degenerate checks in `aiCodeGeneration.js`) before code gen; page gates forbid `<header>/<footer>/<nav>` recreation. **Actions** (`data-ai-action` + manifest, `api/_lib/aiCodeActions.js`) resolve server-side to real records — unresolved actions block page publish (409 `AI_UNRESOLVED_ACTIONS`; editor fix-up via `api/ai-compositions/resolve-action.js`). **Slots** (`data-iconnect-slot`, `api/_lib/aiCodeSlots.js`) portal trusted platform blocks into generated markup; never block publish. **Imagery:** the model never writes image URLs — `<img data-ai-asset="<key>">` placeholders declared in the package `assets` manifest, fulfilled server-side (`api/_lib/aiCodeAssets.js`, gpt-image-1 or media library, tenant-owned storage); only unfulfilled `required` assets hard-reject; image swap is a deterministic `replace-image` edit action. V1→V2 rebuild is admin-only via `api/ai-compositions/rebuild-v2.js` (never automatic). **Editing:** `api/ai-compositions/edit-v2.js` (propose/accept/reject/undo); proposals (element-scoped patches via `data-ai-id`, or full revisions saved as alternatives) stored in `ai_composition_conversation` and re-applied against the CURRENT document on accept (`api/_lib/aiCodeEdit.js`); protected values + locked `data-content-key` texts require confirmation; breakpoint-scoped edits must leave other breakpoints' CSS untouched; accepts introducing NEW critical accessibility issues are blocked (422 `AI_VALIDATION_CRITICAL`). Admin-only Composition Inspector via `GET /api/ai-compositions/:id?inspector=1` (404 to non-admins). Full details: `guides/ai-design-studio-v2-pivot.md`.
+-   **Member AI structured Q&A:** the member assistant answers count/aggregate questions from live records via a whitelisted query spec (LLM never writes SQL). Catalog + validation + executors in `api/_lib/memberAiStructured.js`; routing in `api/member-ai/ask.js`. Adding an entity/field: follow `guides/member-ai-structured-qa.md` (visibility mirrors the member browse surfaces; drift guard in `memberAiStructuredSchemaDrift.test.mjs`).
+
+## Gotchas
+-   **Vercel preview-domain ownership:** Project `vite-migrate-replit-6` serves this repository. Both `dev.iconn.app` and `*.dev.iconn.app` are verified Vercel project domains pinned to the `eventemb2` Git branch; tenant custom-domain actions must never attach, reclaim, or detach `iconn.app` or any of its subdomains.
+-   **`dev.iconn.app` = Vercel preview deployment** built from the `eventemb2` git branch of the same Vercel project as production. Shares the same Supabase. (a) Vercel's Functions → Logs viewer defaults to Production and hides Preview logs — switch the Environment filter to Preview. (b) A fix only reaches `dev.iconn.app` after the commit is on the `eventemb2` branch and that branch's preview build has finished.
+-   **`sendEmail()` never throws.** It catches Mailgun errors and returns `{ success: false, error, status, domain }`. Callers MUST inspect the return value; a bare `try { await sendEmail(...) } catch {}` will falsely report success on 401 / unverified domain / missing key. Canonical pattern: `api/auth/request-admin-password-reset.js`.
+-   **System emails MUST pass `systemEmail: true`** (or use `sendSystemEmail()`). Without it, a tenant with a verified custom sending domain would silently send admin reset / signup / billing emails from the tenant's own brand — wrong identity.
+-   **API hard-fails** any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Workflow `dd_owner` / `dd_owner_email` placeholders** resolve via `resolveDdOwnerForSubmission` (`api/_lib/ddOwner.js`) only when the trigger caller passes `context.formSubmissionId` to `triggerWorkflows`. Without submission context they collapse to empty strings.
+-   **No server-side length validation on `event.summary` / `complex_event.summary`** — relies on client-side `event_summary_max_length` system setting (default 150).
+
+## Product
+-   **Core:** Members, Events, Bookings, Resources, Blog.
+-   **Identity:** Unified login, multi-tenant ownership, organization memberships, granular access control.
+-   **Customization:** Page Builder, Custom Forms with conditional logic, Workflow Automation, per-tenant branding.
+-   **Financials:** Stripe membership payments, Xero/QBO invoicing, Fundraising with Gift Aid.
+-   **Comms:** Email templates, campaigns, member preferences.
+-   **Integrations:** WordPress Sync, Zoom (events/sessions), Zoho CRM sync.
+-   **Reporting:** Due Diligence Reports, configurable Member/Org Directories.
+-   **Community:** Tenant-scoped forums, Member Group email campaigns.
+
+## User preferences
+Preferred communication style: Simple, everyday language.
+
+## Pointers
+-   **React:** `https://react.dev/` · **Tailwind:** `https://tailwindcss.com/docs` · **Drizzle:** `https://orm.drizzle.team/docs/overview`
+-   **Vercel Functions:** `https://vercel.com/docs/functions/overview` · **Supabase:** `https://supabase.com/docs`
+-   **Stripe:** `https://stripe.com/docs/api` · **Mailgun:** `https://documentation.mailgun.com/en/latest/api_reference.html`
+# Membership Management Platform
+A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
+
+## Run & Operate
+-   **Run Dev Server:** `npm run dev`
+-   **Build:** `npm run build` · **Typecheck:** `npm run typecheck` · **Codegen:** `npm run codegen`
+-   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — only works from environments with IPv6 outbound; **not from this Replit workspace** (see "Database connection").
+-   **Migrations:** every `.sql` in `supabase/migrations/` is idempotent and applied against `DEST_DATABASE_URL` (pooler). Most migrations have a matching `node scripts/apply-*.mjs` runner; check `scripts/` before applying anything by hand.
+-   **One-off scripts (backfills, CSV imports, tenant seeds):** live in `scripts/` (e.g. `recompute-tenant-storage.mjs`, `backfill-*.mjs`, `import-*.mjs`, `seed-*.mjs`). They are idempotent, default to dry-run unless an `--apply` flag is passed, and many are hard-pinned to a single tenant. Read the script header before running; each documents its own flags and scope.
+-   **Storage usage reconcile:** `node scripts/recompute-tenant-storage.mjs [--dry-run] [--tenant=<uuid>]`, or trust the nightly cron at `/api/cron/recompute-tenant-storage` (03:00 UTC, `CRON_SECRET`-guarded).
+
+## Database connection (read this before any DB work from this workspace)
+There are two Supabase projects this codebase talks to:
+
+| Role | What it is | URL secret | Postgres URL secret | Service-role key secret |
+| ---- | ---------- | ---------- | ------------------- | ----------------------- |
+| **Destination (current prod)** | Multi-tenant iConnect DB | `DEST_SUPABASE_URL` (`https://lvmzliemqnieeoruhkik.supabase.co`) | `DEST_DATABASE_URL` | `DEST_SUPABASE_KEY` |
+| **Source (legacy)** | Pre-multi-tenancy single-tenant snapshot, used by migration scripts | `SOURCE_SUPABASE_URL` | `SOURCE_DATABASE_URL` | `SOURCE_SUPABASE_KEY` |
+
+**The Supabase direct host (`db.<project>.supabase.co`) is unreachable from this Replit workspace** — it publishes only IPv6 (AAAA) DNS and the Replit container has no IPv6 outbound route, so `psql`, `execute_sql_tool`, `drizzle-kit push`, and any raw `pg`/Drizzle client pointed at the direct host fail with `ENOTFOUND` / `ENETUNREACH`. Those tools work from Vercel functions, the user's laptop, and CI — just not from here against the direct host.
+
+**The Supabase Pooler hostname IS IPv4-reachable from this workspace** (`aws-1-eu-central-1.pooler.supabase.com:5432`, which is what `DEST_DATABASE_URL` already points to). `pg` clients using `DEST_DATABASE_URL` (transaction-pooler mode) work from Replit for read/write queries and DDL such as `CREATE INDEX`. Prefer `@supabase/supabase-js` for ordinary CRUD (REST endpoint is also IPv4-reachable, more ergonomic); reach for `pg` via `DEST_DATABASE_URL` only when you need raw SQL / DDL the REST API can't do.
+
+For any DB access from this workspace (scripts, ad-hoc debugging, one-off data fixes), use **`@supabase/supabase-js`** with the service-role key. Working reference: `scripts/debug-tenant.mjs`.
+
+```js
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(
+  process.env.DEST_SUPABASE_URL,
+  process.env.DEST_SUPABASE_KEY
+);
+```
+
+Quick one-off from bash (env vars ARE available in the shell):
+
+```bash
+node -e "
+const { createClient } = require('@supabase/supabase-js');
+const sb = createClient(process.env.DEST_SUPABASE_URL, process.env.DEST_SUPABASE_KEY, { auth: { persistSession: false } });
+(async () => {
+  const { data, error } = await sb.from('tenant').select('id, slug, name').limit(5);
+  console.log({ data, error });
+})();
+"
+```
+
+## Testing
+-   **AI assistant tests** (registered as the `ai-assistant-tests` validation step, runs automatically on task completion): `node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/aiCompositionRender.test.mjs` — member-AI visibility (security boundary), ranking, indexer, help-chunker, dashboard aggregation/LMIC operators, Canvas auto-height bake guards, `useAutoHeightBake` runtime gates (jsdom), and Canvas auto reading-order suites.
+-   **GoCardless tests:** `node --test api/_lib/gocardless*.test.mjs` — webhook signature/idempotency/status-transition suites, per-tenant credential resolution (tenant_integrations → env fallback, env/token mismatch guards), org DD billing-contact invitations (token format, expiry clamp 1-90 via `dd_invite_expiry_days`, validate/supersede/single-use/revoke, recipient dedupe), Phase 5 renewal decisions (`gocardlessDdRenewals.test.mjs`), and migration invite/funnel (`gocardlessDdMigration.test.mjs`).
+-   **GoCardless sandbox proof:** `node scripts/gocardless-sandbox-proof.mjs [runId]` — billing request + hosted flow creation and idempotent-retry behaviour against the GC sandbox (requires `GOCARDLESS_ACCESS_TOKEN`; refuses to run against live).
+-   **Pending-PO report tests:** `node --test api/_lib/pendingPoInvoice.test.mjs` — PO reference extraction/blacklist and cross-record membership PO propagation helpers.
+
+## Env vars (current canonical set)
+Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPABASE_*` names; prefer the `DEST_*` names below for new code.
+
+| Var | Purpose |
+| --- | ------- |
+| `DEST_SUPABASE_URL` / `DEST_SUPABASE_KEY` / `DEST_DATABASE_URL` | Destination (prod) Supabase. See "Database connection". |
+| `SOURCE_SUPABASE_URL` / `SOURCE_SUPABASE_KEY` / `SOURCE_DATABASE_URL` | Legacy single-tenant snapshot — only used by migration scripts. |
+| `DATABASE_URL` | Direct host (IPv6 only) — used by Vercel / Drizzle push, not this workspace. |
+| `MAILGUN_API_KEY`, `MAILGUN_REGION` (default `eu`), `MAILGUN_FROM_EMAIL`, `APP_DOMAIN` (default `iconn.app`) | Email sending. `MAILGUN_FROM_EMAIL` is the non-system default From; system emails are pinned to `noreply@mail.${APP_DOMAIN}` regardless. |
+| `STRIPE_SECRET_KEY` | Tenant Stripe AND platform-side paid-plan upgrade Checkout. |
+| `STRIPE_PLAN_WEBHOOK_SECRET` | Verifies `/api/webhooks/stripe-plan` from the platform Stripe account. Configure dashboard to deliver `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
+| `GOCARDLESS_ENVIRONMENT` | `sandbox` (default) or `live`. Platform-level FALLBACK only — tenants connect their own GoCardless account via `tenant_integrations` (`integration_type='gocardless'`, resolved by `api/_lib/gocardlessCredentials.js`). |
+| `GOCARDLESS_ACCESS_TOKEN` | Platform-fallback GoCardless API access token (sandbox tokens start `sandbox_`, live `live_`; env/token mismatch is rejected at call time). |
+| `GOCARDLESS_WEBHOOK_SECRET` | Platform-fallback secret verifying `Webhook-Signature` (HMAC-SHA256 of raw body) on `/api/webhooks/gocardless`. Tenant-connected accounts register the URL with `?tenant=<uuid>` and are verified against their own stored secret. |
+| `GOCARDLESS_REDIRECT_BASE_URL` | Base URL for Billing Request Flow redirect/exit URIs (e.g. `https://iconn.app`). |
+| `GOCARDLESS_CREDITOR_ID` (opt) | Pins billing requests to one creditor on multi-creditor GC accounts. |
+| `GOOGLE_FONTS_API_KEY` | Server-side key for the Google Fonts Developer API. Powers live font search in the `/InstalledFonts` add dialog via `api/public/google-fonts.js`. If unset, the picker falls back to the curated `POPULAR_GOOGLE_FONTS` list. |
+| `XERO_CLIENT_ID` | Xero OAuth. |
+| `QUICKBOOKS_REDIRECT_URI` (opt) | Overrides default `${origin}/api/quickbooks/callback` for stable QBO OAuth redirect. |
+| `BROWSERLESS_API_TOKEN`, `BROWSERLESS_BASE_URL` (opt), `BROWSERLESS_AUDIT_TIMEOUT_MS` (opt) | Accessibility audits via browserless.io. |
+| `VITE_APP_URL` | Frontend-known app URL. |
+| `CAPTCHA_PROVIDER`, `CAPTCHA_SECRET_KEY` (opt) | Self-serve signup captcha (hCaptcha/Turnstile/reCAPTCHA). Bypassed when not production. |
+| `SIGNUP_RATE_IP_PER_HOUR`, `SIGNUP_RATE_EMAIL_PER_DAY` (opt) | Self-serve signup rate limits. |
+| `CRON_SECRET` | Guards all `/api/cron/*` endpoints. |
+| `ICONNECT_HEALTH_CHECK_TOKEN` | Required secret for `/api/health`; Better Stack must send it as the `X-Health-Token` request header. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_RENEWALS_URL` | Optional Better Stack heartbeat URL for membership renewals. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for membership-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_GOCARDLESS_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for GoCardless reconciliation. |
+| `BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for Stripe card-plan reconciliation. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL` | Optional Better Stack heartbeat URL for scheduled workflows. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL` | Optional Better Stack heartbeat URL for scheduled campaigns. |
+| `BETTERSTACK_HEARTBEAT_DATABASE_BACKUP_URL` | Optional Better Stack heartbeat URL for database backup to R2. |
+| `BETTERSTACK_HEARTBEAT_STORAGE_BACKUP_URL` | Optional Better Stack heartbeat URL for storage backup to R2. |
+| `BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for form-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_AUTOMATIC_MEMBERSHIP_PROCESSING_URL` | Optional Better Stack heartbeat URL for automatic membership processing. |
+| `ENABLE_RESET_DEBUG` (opt, `'true'`) | Temporary diagnostic: `/api/auth/request-admin-password-reset` returns a `debug` field (`no_identity`/`no_owner_membership`/`email_failed`/`sent`). Leave unset in normal operation so account existence is not disclosed. |
+| `R2_ACCOUNT_ID` | Cloudflare account ID — builds the R2 endpoint URL (`https://<id>.r2.cloudflarestorage.com`). Set this **or** `R2_ENDPOINT`. Vercel secret. |
+| `R2_ENDPOINT` (opt) | Full R2 endpoint URL override, instead of `R2_ACCOUNT_ID`. |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | R2 API token credentials + target bucket for backups. Vercel secrets. |
+| `DB_BACKUP_SCHEMAS` (opt) | Comma-separated Postgres schemas in the nightly DB dump (default: `public`). Supabase internal schemas (`auth`, `storage`, `realtime`, …) are intentionally excluded — Supabase manages them. |
+
+### External health monitoring
+
+Create a Better Stack HTTP monitor for `GET /api/health`. In the monitor's
+request headers, configure `X-Health-Token` to the same secret held in the
+Vercel `ICONNECT_HEALTH_CHECK_TOKEN` environment variable. The endpoint is
+intentionally unauthorised only by that header and returns no dependency detail
+when the header is missing or invalid.
+
+The ten `BETTERSTACK_HEARTBEAT_*_URL` variables are independently optional
+and apply only to the ten selected production schedules. The application
+derives Better Stack's `/fail` target from each configured success URL; store
+only the success URL in Vercel Production. See
+`guides/better-stack-cron-heartbeats.md` for the setup matrix and the complete
+30-schedule coverage inventory.
+Set each Vercel value to the matching Better Stack heartbeat URL for only the
+scheduled job you wish to monitor. The job sends a success URL after a clean
+run and Better Stack's `/fail` URL for a failed run; delivery failures never
+change the job's response or retry behaviour.
+
+## Stack & where things live
+-   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS
+-   **Backend:** Express.js (dev) / Vercel serverless functions (prod), PostgreSQL, Drizzle ORM
+-   `/client`: Frontend source (`client/src/design-system` = custom "new-york" shadcn variant)
+-   `/api`: Backend API endpoints (Vercel serverless functions); shared helpers under `api/_lib/`
+-   `/supabase/migrations`: Database migrations (idempotent SQL); `supabase/schema.prisma` is the schema source of truth for Drizzle
+-   `/scripts`: Utility and migration scripts
+-   `client/index.html` + `api/render.js`: SSR for SEO/OG tag injection
+
+## Architecture decisions
+-   **Multi-tenancy:** Data isolation at GLOBAL / TENANT / ORGANIZATION / MEMBER levels via `tenant_id` and `organization_id`. The shared entity API hard-fails any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Identity:** Unified identity with per-tenant password isolation, Google OAuth, feature-based role management.
+-   **Email sending:** `api/_lib/emailService.js` resolves the sending domain off `tenantId` for tenant→member emails. **System emails** (platform→tenant-owner: admin reset, signup verification, team invite, billing notifications) MUST pass `systemEmail: true` (or use `sendSystemEmail()`); this forces both Mailgun domain AND From identity to `mail.${APP_DOMAIN}` / `noreply@mail.${APP_DOMAIN}`. System reset/verification links must point at `${APP_DOMAIN}/...` not a tenant subdomain.
+-   **Dynamic SEO:** SSR meta-tag injection per-tenant via `api/render.js`; per-page metadata resolved by `api/_lib/entityMeta.js`. Per-entity `seo_title` / `seo_description` / `og_image_url` overrides on events, blog posts, news, campaigns, resources, and directories (UI in `client/src/components/blog/SEOSettings.jsx`). `og:image` URLs on `vault.iconn.app` or `*.supabase.co` are proxied through `/api/og-image`.
+-   **Event deletion:** Multi-step cancellation flow (refunds, reinstatements, Zoom unregistration) before any data purge. Direct deletion of events is deprecated for UI flows.
+-   **Semantic `warning` color:** `--warning` / `--warning-foreground` CSS vars in `client/src/index.css` (both themes, WCAG-AA). Use `text-warning`, `bg-warning`, `<Badge variant="warning">`, `<Alert variant="warning">` instead of raw amber/yellow/orange palette classes.
+-   **Membership invoices:** `organisation_membership_history` / `member_membership_history` carry `payment_status` (`unpaid`/`paid`/`partial`/`voided`) + `paid_at`, separate from the lifecycle `status`. Accounting-sync failures flag the row `accounting_sync_status='failed'` (not swallowed) with a Retry button in `OrgMembershipTab.jsx`. Payment reconciliation cron `/api/cron/reconcile-membership-invoice-payments` (every 3h, `CRON_SECRET`-guarded) queries Xero/QBO and fires workflows on `unpaid -> paid` only. See `api/_lib/membershipPaymentReconciliation.js`, `api/_lib/accountingProvider.js`.
+-   **Tenant storage metering:** `tenant.storage_used_bytes` (BIGINT) drives `checkStorageQuota` (`api/_lib/planQuota.js`) and `/admin/plan-usage`. Maintained incrementally via `addTenantStorageBytes` (`api/_lib/tenantStorageUsage.js`). Can drift (signed-URL claimed size); re-baseline with `scripts/recompute-tenant-storage.mjs` or the nightly cron.
+-   **Paid-plan upgrade flow (`/admin/plan-usage` → Stripe Checkout):** `PlanUsage.jsx` → `api/admin/plan-checkout.js` (tenant-admin RBAC, uses PLATFORM `STRIPE_SECRET_KEY`, NOT tenant's connected Stripe). First-time creates a Checkout Session; existing live sub swaps price in place via `stripe.subscriptions.update` (proration, never a parallel sub). Webhook `api/webhooks/stripe-plan.js` upserts `tenant_subscription` and flips `tenant.plan_code` only when status is `active`/`trialing`; `subscription.deleted` reverts to `free`.
+-   **Self-serve signup & onboarding (`/signup` → wizard):** `signup-start.js` (captcha + rate limits + verification email) → `signup-verify.js` (`provisionTenant`, `free` plan) → 5-step `OnboardingWizard.jsx` → `POST /api/admin/onboarding` runs `api/_lib/onboardingSeeder.js` (branding + tiers + persona seed pack tagged `is_sample=true`). Legacy admins backfilled to `onboarding_status='complete'`.
+-   **Accessibility audits:** Admin page (RBAC `admin.accessibility-audits`) runs axe-core 4.10 via browserless.io for tenant public URLs. Results in `accessibility_audit` / `accessibility_audit_result`; endpoints under `/api/admin/accessibility-audits`; runner `api/_lib/browserlessAxe.js`. v1 limits: ≤10 URLs/run, http(s) only, no credentialed URLs.
+-   **AI Design Studio V1 (Canvas AI Composition):** generation via `api/ai-compositions/generate.js`; prompt-led editing via `api/ai-compositions/edit.js` (propose/accept/reject/undo + conversation history in `ai_composition_conversation`) and `api/ai-compositions/destinations.js` (record-ID link picker — the AI never invents internal URLs). Patch engine `api/_lib/aiCompositionPatch.js`, edit pipeline `api/_lib/aiCompositionEdit.js`. Accept re-applies the STORED proposal server-side against the current document; complete redesigns are saved as alternatives (`is_alternative`); protected-value changes (prices, dates, names) require explicit confirmation. Editor UI in `client/src/components/canvas/blocks/AiCompositionEditPanel.jsx`. V1 scene-graph compositions are now read-only w.r.t. the V2 pivot.
+-   **AI Design Studio V2 (native-code pivot):** V2 compositions are native AI HTML/CSS/SVG packages (document `schemaVersion "2.0"`, `ai_composition.renderer_version=2`), sanitised ONCE server-side at store time by `api/_lib/aiCodePipeline.js` (schema → jsdom+DOMPurify sanitise → manifest cross-check → postcss CSS scoping under `[data-ai-composition="<uuid>"]` → leak check; reject-don't-repair), rendered verbatim by `AiCodeCompositionBlock.jsx`; signed CSP-locked preview + Browserless screenshots via `api/ai-compositions/preview.js` (HMAC keyed by `AIC_PREVIEW_SECRET`/`CRON_SECRET`). **Page bodies:** `compositionType: "page_body"` runs a plan stage (content manifest + creative plan, anti-degenerate checks in `aiCodeGeneration.js`) before code gen; page gates forbid `<header>/<footer>/<nav>` recreation. **Actions** (`data-ai-action` + manifest, `api/_lib/aiCodeActions.js`) resolve server-side to real records — unresolved actions block page publish (409 `AI_UNRESOLVED_ACTIONS`; editor fix-up via `api/ai-compositions/resolve-action.js`). **Slots** (`data-iconnect-slot`, `api/_lib/aiCodeSlots.js`) portal trusted platform blocks into generated markup; never block publish. **Imagery:** the model never writes image URLs — `<img data-ai-asset="<key>">` placeholders declared in the package `assets` manifest, fulfilled server-side (`api/_lib/aiCodeAssets.js`, gpt-image-1 or media library, tenant-owned storage); only unfulfilled `required` assets hard-reject; image swap is a deterministic `replace-image` edit action. V1→V2 rebuild is admin-only via `api/ai-compositions/rebuild-v2.js` (never automatic). **Editing:** `api/ai-compositions/edit-v2.js` (propose/accept/reject/undo); proposals (element-scoped patches via `data-ai-id`, or full revisions saved as alternatives) stored in `ai_composition_conversation` and re-applied against the CURRENT document on accept (`api/_lib/aiCodeEdit.js`); protected values + locked `data-content-key` texts require confirmation; breakpoint-scoped edits must leave other breakpoints' CSS untouched; accepts introducing NEW critical accessibility issues are blocked (422 `AI_VALIDATION_CRITICAL`). Admin-only Composition Inspector via `GET /api/ai-compositions/:id?inspector=1` (404 to non-admins). Full details: `guides/ai-design-studio-v2-pivot.md`.
+-   **Member AI structured Q&A:** the member assistant answers count/aggregate questions from live records via a whitelisted query spec (LLM never writes SQL). Catalog + validation + executors in `api/_lib/memberAiStructured.js`; routing in `api/member-ai/ask.js`. Adding an entity/field: follow `guides/member-ai-structured-qa.md` (visibility mirrors the member browse surfaces; drift guard in `memberAiStructuredSchemaDrift.test.mjs`).
+
+## Gotchas
+-   **Vercel preview-domain ownership:** Project `vite-migrate-replit-6` serves this repository. Both `dev.iconn.app` and `*.dev.iconn.app` are verified Vercel project domains pinned to the `eventemb2` Git branch; tenant custom-domain actions must never attach, reclaim, or detach `iconn.app` or any of its subdomains.
+-   **`dev.iconn.app` = Vercel preview deployment** built from the `eventemb2` git branch of the same Vercel project as production. Shares the same Supabase. (a) Vercel's Functions → Logs viewer defaults to Production and hides Preview logs — switch the Environment filter to Preview. (b) A fix only reaches `dev.iconn.app` after the commit is on the `eventemb2` branch and that branch's preview build has finished.
+-   **`sendEmail()` never throws.** It catches Mailgun errors and returns `{ success: false, error, status, domain }`. Callers MUST inspect the return value; a bare `try { await sendEmail(...) } catch {}` will falsely report success on 401 / unverified domain / missing key. Canonical pattern: `api/auth/request-admin-password-reset.js`.
+-   **System emails MUST pass `systemEmail: true`** (or use `sendSystemEmail()`). Without it, a tenant with a verified custom sending domain would silently send admin reset / signup / billing emails from the tenant's own brand — wrong identity.
+-   **API hard-fails** any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Workflow `dd_owner` / `dd_owner_email` placeholders** resolve via `resolveDdOwnerForSubmission` (`api/_lib/ddOwner.js`) only when the trigger caller passes `context.formSubmissionId` to `triggerWorkflows`. Without submission context they collapse to empty strings.
+-   **No server-side length validation on `event.summary` / `complex_event.summary`** — relies on client-side `event_summary_max_length` system setting (default 150).
+
+## Product
+-   **Core:** Members, Events, Bookings, Resources, Blog.
+-   **Identity:** Unified login, multi-tenant ownership, organization memberships, granular access control.
+-   **Customization:** Page Builder, Custom Forms with conditional logic, Workflow Automation, per-tenant branding.
+-   **Financials:** Stripe membership payments, Xero/QBO invoicing, Fundraising with Gift Aid.
+-   **Comms:** Email templates, campaigns, member preferences.
+-   **Integrations:** WordPress Sync, Zoom (events/sessions), Zoho CRM sync.
+-   **Reporting:** Due Diligence Reports, configurable Member/Org Directories.
+-   **Community:** Tenant-scoped forums, Member Group email campaigns.
+
+## User preferences
+Preferred communication style: Simple, everyday language.
+
+## Pointers
+-   **React:** `https://react.dev/` · **Tailwind:** `https://tailwindcss.com/docs` · **Drizzle:** `https://orm.drizzle.team/docs/overview`
+-   **Vercel Functions:** `https://vercel.com/docs/functions/overview` · **Supabase:** `https://supabase.com/docs`
+-   **Stripe:** `https://stripe.com/docs/api` · **Mailgun:** `https://documentation.mailgun.com/en/latest/api_reference.html`
+# Membership Management Platform
+A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
+
+## Run & Operate
+-   **Run Dev Server:** `npm run dev`
+-   **Build:** `npm run build` · **Typecheck:** `npm run typecheck` · **Codegen:** `npm run codegen`
+-   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — only works from environments with IPv6 outbound; **not from this Replit workspace** (see "Database connection").
+-   **Migrations:** every `.sql` in `supabase/migrations/` is idempotent and applied against `DEST_DATABASE_URL` (pooler). Most migrations have a matching `node scripts/apply-*.mjs` runner; check `scripts/` before applying anything by hand.
+-   **One-off scripts (backfills, CSV imports, tenant seeds):** live in `scripts/` (e.g. `recompute-tenant-storage.mjs`, `backfill-*.mjs`, `import-*.mjs`, `seed-*.mjs`). They are idempotent, default to dry-run unless an `--apply` flag is passed, and many are hard-pinned to a single tenant. Read the script header before running; each documents its own flags and scope.
+-   **Storage usage reconcile:** `node scripts/recompute-tenant-storage.mjs [--dry-run] [--tenant=<uuid>]`, or trust the nightly cron at `/api/cron/recompute-tenant-storage` (03:00 UTC, `CRON_SECRET`-guarded).
+
+## Database connection (read this before any DB work from this workspace)
+There are two Supabase projects this codebase talks to:
+
+| Role | What it is | URL secret | Postgres URL secret | Service-role key secret |
+| ---- | ---------- | ---------- | ------------------- | ----------------------- |
+| **Destination (current prod)** | Multi-tenant iConnect DB | `DEST_SUPABASE_URL` (`https://lvmzliemqnieeoruhkik.supabase.co`) | `DEST_DATABASE_URL` | `DEST_SUPABASE_KEY` |
+| **Source (legacy)** | Pre-multi-tenancy single-tenant snapshot, used by migration scripts | `SOURCE_SUPABASE_URL` | `SOURCE_DATABASE_URL` | `SOURCE_SUPABASE_KEY` |
+
+**The Supabase direct host (`db.<project>.supabase.co`) is unreachable from this Replit workspace** — it publishes only IPv6 (AAAA) DNS and the Replit container has no IPv6 outbound route, so `psql`, `execute_sql_tool`, `drizzle-kit push`, and any raw `pg`/Drizzle client pointed at the direct host fail with `ENOTFOUND` / `ENETUNREACH`. Those tools work from Vercel functions, the user's laptop, and CI — just not from here against the direct host.
+
+**The Supabase Pooler hostname IS IPv4-reachable from this workspace** (`aws-1-eu-central-1.pooler.supabase.com:5432`, which is what `DEST_DATABASE_URL` already points to). `pg` clients using `DEST_DATABASE_URL` (transaction-pooler mode) work from Replit for read/write queries and DDL such as `CREATE INDEX`. Prefer `@supabase/supabase-js` for ordinary CRUD (REST endpoint is also IPv4-reachable, more ergonomic); reach for `pg` via `DEST_DATABASE_URL` only when you need raw SQL / DDL the REST API can't do.
+
+For any DB access from this workspace (scripts, ad-hoc debugging, one-off data fixes), use **`@supabase/supabase-js`** with the service-role key. Working reference: `scripts/debug-tenant.mjs`.
+
+```js
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(
+  process.env.DEST_SUPABASE_URL,
+  process.env.DEST_SUPABASE_KEY
+);
+```
+
+Quick one-off from bash (env vars ARE available in the shell):
+
+```bash
+node -e "
+const { createClient } = require('@supabase/supabase-js');
+const sb = createClient(process.env.DEST_SUPABASE_URL, process.env.DEST_SUPABASE_KEY, { auth: { persistSession: false } });
+(async () => {
+  const { data, error } = await sb.from('tenant').select('id, slug, name').limit(5);
+  console.log({ data, error });
+})();
+"
+```
+
+## Testing
+-   **AI assistant tests** (registered as the `ai-assistant-tests` validation step, runs automatically on task completion): `node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/aiCompositionRender.test.mjs` — member-AI visibility (security boundary), ranking, indexer, help-chunker, dashboard aggregation/LMIC operators, Canvas auto-height bake guards, `useAutoHeightBake` runtime gates (jsdom), and Canvas auto reading-order suites.
+-   **GoCardless tests:** `node --test api/_lib/gocardless*.test.mjs` — webhook signature/idempotency/status-transition suites, per-tenant credential resolution (tenant_integrations → env fallback, env/token mismatch guards), org DD billing-contact invitations (token format, expiry clamp 1-90 via `dd_invite_expiry_days`, validate/supersede/single-use/revoke, recipient dedupe), Phase 5 renewal decisions (`gocardlessDdRenewals.test.mjs`), and migration invite/funnel (`gocardlessDdMigration.test.mjs`).
+-   **GoCardless sandbox proof:** `node scripts/gocardless-sandbox-proof.mjs [runId]` — billing request + hosted flow creation and idempotent-retry behaviour against the GC sandbox (requires `GOCARDLESS_ACCESS_TOKEN`; refuses to run against live).
+-   **Pending-PO report tests:** `node --test api/_lib/pendingPoInvoice.test.mjs` — PO reference extraction/blacklist and cross-record membership PO propagation helpers.
+
+## Env vars (current canonical set)
+Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPABASE_*` names; prefer the `DEST_*` names below for new code.
+
+| Var | Purpose |
+| --- | ------- |
+| `DEST_SUPABASE_URL` / `DEST_SUPABASE_KEY` / `DEST_DATABASE_URL` | Destination (prod) Supabase. See "Database connection". |
+| `SOURCE_SUPABASE_URL` / `SOURCE_SUPABASE_KEY` / `SOURCE_DATABASE_URL` | Legacy single-tenant snapshot — only used by migration scripts. |
+| `DATABASE_URL` | Direct host (IPv6 only) — used by Vercel / Drizzle push, not this workspace. |
+| `MAILGUN_API_KEY`, `MAILGUN_REGION` (default `eu`), `MAILGUN_FROM_EMAIL`, `APP_DOMAIN` (default `iconn.app`) | Email sending. `MAILGUN_FROM_EMAIL` is the non-system default From; system emails are pinned to `noreply@mail.${APP_DOMAIN}` regardless. |
+| `STRIPE_SECRET_KEY` | Tenant Stripe AND platform-side paid-plan upgrade Checkout. |
+| `STRIPE_PLAN_WEBHOOK_SECRET` | Verifies `/api/webhooks/stripe-plan` from the platform Stripe account. Configure dashboard to deliver `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
+| `GOCARDLESS_ENVIRONMENT` | `sandbox` (default) or `live`. Platform-level FALLBACK only — tenants connect their own GoCardless account via `tenant_integrations` (`integration_type='gocardless'`, resolved by `api/_lib/gocardlessCredentials.js`). |
+| `GOCARDLESS_ACCESS_TOKEN` | Platform-fallback GoCardless API access token (sandbox tokens start `sandbox_`, live `live_`; env/token mismatch is rejected at call time). |
+| `GOCARDLESS_WEBHOOK_SECRET` | Platform-fallback secret verifying `Webhook-Signature` (HMAC-SHA256 of raw body) on `/api/webhooks/gocardless`. Tenant-connected accounts register the URL with `?tenant=<uuid>` and are verified against their own stored secret. |
+| `GOCARDLESS_REDIRECT_BASE_URL` | Base URL for Billing Request Flow redirect/exit URIs (e.g. `https://iconn.app`). |
+| `GOCARDLESS_CREDITOR_ID` (opt) | Pins billing requests to one creditor on multi-creditor GC accounts. |
+| `GOOGLE_FONTS_API_KEY` | Server-side key for the Google Fonts Developer API. Powers live font search in the `/InstalledFonts` add dialog via `api/public/google-fonts.js`. If unset, the picker falls back to the curated `POPULAR_GOOGLE_FONTS` list. |
+| `XERO_CLIENT_ID` | Xero OAuth. |
+| `QUICKBOOKS_REDIRECT_URI` (opt) | Overrides default `${origin}/api/quickbooks/callback` for stable QBO OAuth redirect. |
+| `BROWSERLESS_API_TOKEN`, `BROWSERLESS_BASE_URL` (opt), `BROWSERLESS_AUDIT_TIMEOUT_MS` (opt) | Accessibility audits via browserless.io. |
+| `VITE_APP_URL` | Frontend-known app URL. |
+| `CAPTCHA_PROVIDER`, `CAPTCHA_SECRET_KEY` (opt) | Self-serve signup captcha (hCaptcha/Turnstile/reCAPTCHA). Bypassed when not production. |
+| `SIGNUP_RATE_IP_PER_HOUR`, `SIGNUP_RATE_EMAIL_PER_DAY` (opt) | Self-serve signup rate limits. |
+| `CRON_SECRET` | Guards all `/api/cron/*` endpoints. |
+| `ICONNECT_HEALTH_CHECK_TOKEN` | Required secret for `/api/health`; Better Stack must send it as the `X-Health-Token` request header. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_RENEWALS_URL` | Optional Better Stack heartbeat URL for membership renewals. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for membership-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_GOCARDLESS_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for GoCardless reconciliation. |
+| `BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for Stripe card-plan reconciliation. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL` | Optional Better Stack heartbeat URL for scheduled workflows. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL` | Optional Better Stack heartbeat URL for scheduled campaigns. |
+| `BETTERSTACK_HEARTBEAT_DATABASE_BACKUP_URL` | Optional Better Stack heartbeat URL for database backup to R2. |
+| `BETTERSTACK_HEARTBEAT_STORAGE_BACKUP_URL` | Optional Better Stack heartbeat URL for storage backup to R2. |
+| `BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for form-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_AUTOMATIC_MEMBERSHIP_PROCESSING_URL` | Optional Better Stack heartbeat URL for automatic membership processing. |
+| `ENABLE_RESET_DEBUG` (opt, `'true'`) | Temporary diagnostic: `/api/auth/request-admin-password-reset` returns a `debug` field (`no_identity`/`no_owner_membership`/`email_failed`/`sent`). Leave unset in normal operation so account existence is not disclosed. |
+| `R2_ACCOUNT_ID` | Cloudflare account ID — builds the R2 endpoint URL (`https://<id>.r2.cloudflarestorage.com`). Set this **or** `R2_ENDPOINT`. Vercel secret. |
+| `R2_ENDPOINT` (opt) | Full R2 endpoint URL override, instead of `R2_ACCOUNT_ID`. |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | R2 API token credentials + target bucket for backups. Vercel secrets. |
+| `DB_BACKUP_SCHEMAS` (opt) | Comma-separated Postgres schemas in the nightly DB dump (default: `public`). Supabase internal schemas (`auth`, `storage`, `realtime`, …) are intentionally excluded — Supabase manages them. |
+
+### External health monitoring
+
+Create a Better Stack HTTP monitor for `GET /api/health`. In the monitor's
+request headers, configure `X-Health-Token` to the same secret held in the
+Vercel `ICONNECT_HEALTH_CHECK_TOKEN` environment variable. The endpoint is
+intentionally unauthorised only by that header and returns no dependency detail
+when the header is missing or invalid.
+
+The ten `BETTERSTACK_HEARTBEAT_*_URL` variables are independently optional
+and apply only to the ten selected production schedules. The application
+derives Better Stack's `/fail` target from each configured success URL; store
+only the success URL in Vercel Production. See
+`guides/better-stack-cron-heartbeats.md` for the setup matrix and the complete
+30-schedule coverage inventory.
+Set each Vercel value to the matching Better Stack heartbeat URL for only the
+scheduled job you wish to monitor. The job sends a success URL after a clean
+run and Better Stack's `/fail` URL for a failed run; delivery failures never
+change the job's response or retry behaviour.
+
+## Stack & where things live
+-   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS
+-   **Backend:** Express.js (dev) / Vercel serverless functions (prod), PostgreSQL, Drizzle ORM
+-   `/client`: Frontend source (`client/src/design-system` = custom "new-york" shadcn variant)
+-   `/api`: Backend API endpoints (Vercel serverless functions); shared helpers under `api/_lib/`
+-   `/supabase/migrations`: Database migrations (idempotent SQL); `supabase/schema.prisma` is the schema source of truth for Drizzle
+-   `/scripts`: Utility and migration scripts
+-   `client/index.html` + `api/render.js`: SSR for SEO/OG tag injection
+
+## Architecture decisions
+-   **Multi-tenancy:** Data isolation at GLOBAL / TENANT / ORGANIZATION / MEMBER levels via `tenant_id` and `organization_id`. The shared entity API hard-fails any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Identity:** Unified identity with per-tenant password isolation, Google OAuth, feature-based role management.
+-   **Email sending:** `api/_lib/emailService.js` resolves the sending domain off `tenantId` for tenant→member emails. **System emails** (platform→tenant-owner: admin reset, signup verification, team invite, billing notifications) MUST pass `systemEmail: true` (or use `sendSystemEmail()`); this forces both Mailgun domain AND From identity to `mail.${APP_DOMAIN}` / `noreply@mail.${APP_DOMAIN}`. System reset/verification links must point at `${APP_DOMAIN}/...` not a tenant subdomain.
+-   **Dynamic SEO:** SSR meta-tag injection per-tenant via `api/render.js`; per-page metadata resolved by `api/_lib/entityMeta.js`. Per-entity `seo_title` / `seo_description` / `og_image_url` overrides on events, blog posts, news, campaigns, resources, and directories (UI in `client/src/components/blog/SEOSettings.jsx`). `og:image` URLs on `vault.iconn.app` or `*.supabase.co` are proxied through `/api/og-image`.
+-   **Event deletion:** Multi-step cancellation flow (refunds, reinstatements, Zoom unregistration) before any data purge. Direct deletion of events is deprecated for UI flows.
+-   **Semantic `warning` color:** `--warning` / `--warning-foreground` CSS vars in `client/src/index.css` (both themes, WCAG-AA). Use `text-warning`, `bg-warning`, `<Badge variant="warning">`, `<Alert variant="warning">` instead of raw amber/yellow/orange palette classes.
+-   **Membership invoices:** `organisation_membership_history` / `member_membership_history` carry `payment_status` (`unpaid`/`paid`/`partial`/`voided`) + `paid_at`, separate from the lifecycle `status`. Accounting-sync failures flag the row `accounting_sync_status='failed'` (not swallowed) with a Retry button in `OrgMembershipTab.jsx`. Payment reconciliation cron `/api/cron/reconcile-membership-invoice-payments` (every 3h, `CRON_SECRET`-guarded) queries Xero/QBO and fires workflows on `unpaid -> paid` only. See `api/_lib/membershipPaymentReconciliation.js`, `api/_lib/accountingProvider.js`.
+-   **Tenant storage metering:** `tenant.storage_used_bytes` (BIGINT) drives `checkStorageQuota` (`api/_lib/planQuota.js`) and `/admin/plan-usage`. Maintained incrementally via `addTenantStorageBytes` (`api/_lib/tenantStorageUsage.js`). Can drift (signed-URL claimed size); re-baseline with `scripts/recompute-tenant-storage.mjs` or the nightly cron.
+-   **Paid-plan upgrade flow (`/admin/plan-usage` → Stripe Checkout):** `PlanUsage.jsx` → `api/admin/plan-checkout.js` (tenant-admin RBAC, uses PLATFORM `STRIPE_SECRET_KEY`, NOT tenant's connected Stripe). First-time creates a Checkout Session; existing live sub swaps price in place via `stripe.subscriptions.update` (proration, never a parallel sub). Webhook `api/webhooks/stripe-plan.js` upserts `tenant_subscription` and flips `tenant.plan_code` only when status is `active`/`trialing`; `subscription.deleted` reverts to `free`.
+-   **Self-serve signup & onboarding (`/signup` → wizard):** `signup-start.js` (captcha + rate limits + verification email) → `signup-verify.js` (`provisionTenant`, `free` plan) → 5-step `OnboardingWizard.jsx` → `POST /api/admin/onboarding` runs `api/_lib/onboardingSeeder.js` (branding + tiers + persona seed pack tagged `is_sample=true`). Legacy admins backfilled to `onboarding_status='complete'`.
+-   **Accessibility audits:** Admin page (RBAC `admin.accessibility-audits`) runs axe-core 4.10 via browserless.io for tenant public URLs. Results in `accessibility_audit` / `accessibility_audit_result`; endpoints under `/api/admin/accessibility-audits`; runner `api/_lib/browserlessAxe.js`. v1 limits: ≤10 URLs/run, http(s) only, no credentialed URLs.
+-   **AI Design Studio V1 (Canvas AI Composition):** generation via `api/ai-compositions/generate.js`; prompt-led editing via `api/ai-compositions/edit.js` (propose/accept/reject/undo + conversation history in `ai_composition_conversation`) and `api/ai-compositions/destinations.js` (record-ID link picker — the AI never invents internal URLs). Patch engine `api/_lib/aiCompositionPatch.js`, edit pipeline `api/_lib/aiCompositionEdit.js`. Accept re-applies the STORED proposal server-side against the current document; complete redesigns are saved as alternatives (`is_alternative`); protected-value changes (prices, dates, names) require explicit confirmation. Editor UI in `client/src/components/canvas/blocks/AiCompositionEditPanel.jsx`. V1 scene-graph compositions are now read-only w.r.t. the V2 pivot.
+-   **AI Design Studio V2 (native-code pivot):** V2 compositions are native AI HTML/CSS/SVG packages (document `schemaVersion "2.0"`, `ai_composition.renderer_version=2`), sanitised ONCE server-side at store time by `api/_lib/aiCodePipeline.js` (schema → jsdom+DOMPurify sanitise → manifest cross-check → postcss CSS scoping under `[data-ai-composition="<uuid>"]` → leak check; reject-don't-repair), rendered verbatim by `AiCodeCompositionBlock.jsx`; signed CSP-locked preview + Browserless screenshots via `api/ai-compositions/preview.js` (HMAC keyed by `AIC_PREVIEW_SECRET`/`CRON_SECRET`). **Page bodies:** `compositionType: "page_body"` runs a plan stage (content manifest + creative plan, anti-degenerate checks in `aiCodeGeneration.js`) before code gen; page gates forbid `<header>/<footer>/<nav>` recreation. **Actions** (`data-ai-action` + manifest, `api/_lib/aiCodeActions.js`) resolve server-side to real records — unresolved actions block page publish (409 `AI_UNRESOLVED_ACTIONS`; editor fix-up via `api/ai-compositions/resolve-action.js`). **Slots** (`data-iconnect-slot`, `api/_lib/aiCodeSlots.js`) portal trusted platform blocks into generated markup; never block publish. **Imagery:** the model never writes image URLs — `<img data-ai-asset="<key>">` placeholders declared in the package `assets` manifest, fulfilled server-side (`api/_lib/aiCodeAssets.js`, gpt-image-1 or media library, tenant-owned storage); only unfulfilled `required` assets hard-reject; image swap is a deterministic `replace-image` edit action. V1→V2 rebuild is admin-only via `api/ai-compositions/rebuild-v2.js` (never automatic). **Editing:** `api/ai-compositions/edit-v2.js` (propose/accept/reject/undo); proposals (element-scoped patches via `data-ai-id`, or full revisions saved as alternatives) stored in `ai_composition_conversation` and re-applied against the CURRENT document on accept (`api/_lib/aiCodeEdit.js`); protected values + locked `data-content-key` texts require confirmation; breakpoint-scoped edits must leave other breakpoints' CSS untouched; accepts introducing NEW critical accessibility issues are blocked (422 `AI_VALIDATION_CRITICAL`). Admin-only Composition Inspector via `GET /api/ai-compositions/:id?inspector=1` (404 to non-admins). Full details: `guides/ai-design-studio-v2-pivot.md`.
+-   **Member AI structured Q&A:** the member assistant answers count/aggregate questions from live records via a whitelisted query spec (LLM never writes SQL). Catalog + validation + executors in `api/_lib/memberAiStructured.js`; routing in `api/member-ai/ask.js`. Adding an entity/field: follow `guides/member-ai-structured-qa.md` (visibility mirrors the member browse surfaces; drift guard in `memberAiStructuredSchemaDrift.test.mjs`).
+
+## Gotchas
+-   **Vercel preview-domain ownership:** Project `vite-migrate-replit-6` serves this repository. Both `dev.iconn.app` and `*.dev.iconn.app` are verified Vercel project domains pinned to the `eventemb2` Git branch; tenant custom-domain actions must never attach, reclaim, or detach `iconn.app` or any of its subdomains.
+-   **`dev.iconn.app` = Vercel preview deployment** built from the `eventemb2` git branch of the same Vercel project as production. Shares the same Supabase. (a) Vercel's Functions → Logs viewer defaults to Production and hides Preview logs — switch the Environment filter to Preview. (b) A fix only reaches `dev.iconn.app` after the commit is on the `eventemb2` branch and that branch's preview build has finished.
+-   **`sendEmail()` never throws.** It catches Mailgun errors and returns `{ success: false, error, status, domain }`. Callers MUST inspect the return value; a bare `try { await sendEmail(...) } catch {}` will falsely report success on 401 / unverified domain / missing key. Canonical pattern: `api/auth/request-admin-password-reset.js`.
+-   **System emails MUST pass `systemEmail: true`** (or use `sendSystemEmail()`). Without it, a tenant with a verified custom sending domain would silently send admin reset / signup / billing emails from the tenant's own brand — wrong identity.
+-   **API hard-fails** any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Workflow `dd_owner` / `dd_owner_email` placeholders** resolve via `resolveDdOwnerForSubmission` (`api/_lib/ddOwner.js`) only when the trigger caller passes `context.formSubmissionId` to `triggerWorkflows`. Without submission context they collapse to empty strings.
+-   **No server-side length validation on `event.summary` / `complex_event.summary`** — relies on client-side `event_summary_max_length` system setting (default 150).
+
+## Product
+-   **Core:** Members, Events, Bookings, Resources, Blog.
+-   **Identity:** Unified login, multi-tenant ownership, organization memberships, granular access control.
+-   **Customization:** Page Builder, Custom Forms with conditional logic, Workflow Automation, per-tenant branding.
+-   **Financials:** Stripe membership payments, Xero/QBO invoicing, Fundraising with Gift Aid.
+-   **Comms:** Email templates, campaigns, member preferences.
+-   **Integrations:** WordPress Sync, Zoom (events/sessions), Zoho CRM sync.
+-   **Reporting:** Due Diligence Reports, configurable Member/Org Directories.
+-   **Community:** Tenant-scoped forums, Member Group email campaigns.
+
+## User preferences
+Preferred communication style: Simple, everyday language.
+
+## Pointers
+-   **React:** `https://react.dev/` · **Tailwind:** `https://tailwindcss.com/docs` · **Drizzle:** `https://orm.drizzle.team/docs/overview`
+-   **Vercel Functions:** `https://vercel.com/docs/functions/overview` · **Supabase:** `https://supabase.com/docs`
+-   **Stripe:** `https://stripe.com/docs/api` · **Mailgun:** `https://documentation.mailgun.com/en/latest/api_reference.html`
+# Membership Management Platform
+A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
+
+## Run & Operate
+-   **Run Dev Server:** `npm run dev`
+-   **Build:** `npm run build` · **Typecheck:** `npm run typecheck` · **Codegen:** `npm run codegen`
+-   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — only works from environments with IPv6 outbound; **not from this Replit workspace** (see "Database connection").
+-   **Migrations:** every `.sql` in `supabase/migrations/` is idempotent and applied against `DEST_DATABASE_URL` (pooler). Most migrations have a matching `node scripts/apply-*.mjs` runner; check `scripts/` before applying anything by hand.
+-   **One-off scripts (backfills, CSV imports, tenant seeds):** live in `scripts/` (e.g. `recompute-tenant-storage.mjs`, `backfill-*.mjs`, `import-*.mjs`, `seed-*.mjs`). They are idempotent, default to dry-run unless an `--apply` flag is passed, and many are hard-pinned to a single tenant. Read the script header before running; each documents its own flags and scope.
+-   **Storage usage reconcile:** `node scripts/recompute-tenant-storage.mjs [--dry-run] [--tenant=<uuid>]`, or trust the nightly cron at `/api/cron/recompute-tenant-storage` (03:00 UTC, `CRON_SECRET`-guarded).
+
+## Database connection (read this before any DB work from this workspace)
+There are two Supabase projects this codebase talks to:
+
+| Role | What it is | URL secret | Postgres URL secret | Service-role key secret |
+| ---- | ---------- | ---------- | ------------------- | ----------------------- |
+| **Destination (current prod)** | Multi-tenant iConnect DB | `DEST_SUPABASE_URL` (`https://lvmzliemqnieeoruhkik.supabase.co`) | `DEST_DATABASE_URL` | `DEST_SUPABASE_KEY` |
+| **Source (legacy)** | Pre-multi-tenancy single-tenant snapshot, used by migration scripts | `SOURCE_SUPABASE_URL` | `SOURCE_DATABASE_URL` | `SOURCE_SUPABASE_KEY` |
+
+**The Supabase direct host (`db.<project>.supabase.co`) is unreachable from this Replit workspace** — it publishes only IPv6 (AAAA) DNS and the Replit container has no IPv6 outbound route, so `psql`, `execute_sql_tool`, `drizzle-kit push`, and any raw `pg`/Drizzle client pointed at the direct host fail with `ENOTFOUND` / `ENETUNREACH`. Those tools work from Vercel functions, the user's laptop, and CI — just not from here against the direct host.
+
+**The Supabase Pooler hostname IS IPv4-reachable from this workspace** (`aws-1-eu-central-1.pooler.supabase.com:5432`, which is what `DEST_DATABASE_URL` already points to). `pg` clients using `DEST_DATABASE_URL` (transaction-pooler mode) work from Replit for read/write queries and DDL such as `CREATE INDEX`. Prefer `@supabase/supabase-js` for ordinary CRUD (REST endpoint is also IPv4-reachable, more ergonomic); reach for `pg` via `DEST_DATABASE_URL` only when you need raw SQL / DDL the REST API can't do.
+
+For any DB access from this workspace (scripts, ad-hoc debugging, one-off data fixes), use **`@supabase/supabase-js`** with the service-role key. Working reference: `scripts/debug-tenant.mjs`.
+
+```js
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(
+  process.env.DEST_SUPABASE_URL,
+  process.env.DEST_SUPABASE_KEY
+);
+```
+
+Quick one-off from bash (env vars ARE available in the shell):
+
+```bash
+node -e "
+const { createClient } = require('@supabase/supabase-js');
+const sb = createClient(process.env.DEST_SUPABASE_URL, process.env.DEST_SUPABASE_KEY, { auth: { persistSession: false } });
+(async () => {
+  const { data, error } = await sb.from('tenant').select('id, slug, name').limit(5);
+  console.log({ data, error });
+})();
+"
+```
+
+## Testing
+-   **AI assistant tests** (registered as the `ai-assistant-tests` validation step, runs automatically on task completion): `node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/aiCompositionRender.test.mjs` — member-AI visibility (security boundary), ranking, indexer, help-chunker, dashboard aggregation/LMIC operators, Canvas auto-height bake guards, `useAutoHeightBake` runtime gates (jsdom), and Canvas auto reading-order suites.
+-   **GoCardless tests:** `node --test api/_lib/gocardless*.test.mjs` — webhook signature/idempotency/status-transition suites, per-tenant credential resolution (tenant_integrations → env fallback, env/token mismatch guards), org DD billing-contact invitations (token format, expiry clamp 1-90 via `dd_invite_expiry_days`, validate/supersede/single-use/revoke, recipient dedupe), Phase 5 renewal decisions (`gocardlessDdRenewals.test.mjs`), and migration invite/funnel (`gocardlessDdMigration.test.mjs`).
+-   **GoCardless sandbox proof:** `node scripts/gocardless-sandbox-proof.mjs [runId]` — billing request + hosted flow creation and idempotent-retry behaviour against the GC sandbox (requires `GOCARDLESS_ACCESS_TOKEN`; refuses to run against live).
+-   **Pending-PO report tests:** `node --test api/_lib/pendingPoInvoice.test.mjs` — PO reference extraction/blacklist and cross-record membership PO propagation helpers.
+
+## Env vars (current canonical set)
+Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPABASE_*` names; prefer the `DEST_*` names below for new code.
+
+| Var | Purpose |
+| --- | ------- |
+| `DEST_SUPABASE_URL` / `DEST_SUPABASE_KEY` / `DEST_DATABASE_URL` | Destination (prod) Supabase. See "Database connection". |
+| `SOURCE_SUPABASE_URL` / `SOURCE_SUPABASE_KEY` / `SOURCE_DATABASE_URL` | Legacy single-tenant snapshot — only used by migration scripts. |
+| `DATABASE_URL` | Direct host (IPv6 only) — used by Vercel / Drizzle push, not this workspace. |
+| `MAILGUN_API_KEY`, `MAILGUN_REGION` (default `eu`), `MAILGUN_FROM_EMAIL`, `APP_DOMAIN` (default `iconn.app`) | Email sending. `MAILGUN_FROM_EMAIL` is the non-system default From; system emails are pinned to `noreply@mail.${APP_DOMAIN}` regardless. |
+| `STRIPE_SECRET_KEY` | Tenant Stripe AND platform-side paid-plan upgrade Checkout. |
+| `STRIPE_PLAN_WEBHOOK_SECRET` | Verifies `/api/webhooks/stripe-plan` from the platform Stripe account. Configure dashboard to deliver `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
+| `GOCARDLESS_ENVIRONMENT` | `sandbox` (default) or `live`. Platform-level FALLBACK only — tenants connect their own GoCardless account via `tenant_integrations` (`integration_type='gocardless'`, resolved by `api/_lib/gocardlessCredentials.js`). |
+| `GOCARDLESS_ACCESS_TOKEN` | Platform-fallback GoCardless API access token (sandbox tokens start `sandbox_`, live `live_`; env/token mismatch is rejected at call time). |
+| `GOCARDLESS_WEBHOOK_SECRET` | Platform-fallback secret verifying `Webhook-Signature` (HMAC-SHA256 of raw body) on `/api/webhooks/gocardless`. Tenant-connected accounts register the URL with `?tenant=<uuid>` and are verified against their own stored secret. |
+| `GOCARDLESS_REDIRECT_BASE_URL` | Base URL for Billing Request Flow redirect/exit URIs (e.g. `https://iconn.app`). |
+| `GOCARDLESS_CREDITOR_ID` (opt) | Pins billing requests to one creditor on multi-creditor GC accounts. |
+| `GOOGLE_FONTS_API_KEY` | Server-side key for the Google Fonts Developer API. Powers live font search in the `/InstalledFonts` add dialog via `api/public/google-fonts.js`. If unset, the picker falls back to the curated `POPULAR_GOOGLE_FONTS` list. |
+| `XERO_CLIENT_ID` | Xero OAuth. |
+| `QUICKBOOKS_REDIRECT_URI` (opt) | Overrides default `${origin}/api/quickbooks/callback` for stable QBO OAuth redirect. |
+| `BROWSERLESS_API_TOKEN`, `BROWSERLESS_BASE_URL` (opt), `BROWSERLESS_AUDIT_TIMEOUT_MS` (opt) | Accessibility audits via browserless.io. |
+| `VITE_APP_URL` | Frontend-known app URL. |
+| `CAPTCHA_PROVIDER`, `CAPTCHA_SECRET_KEY` (opt) | Self-serve signup captcha (hCaptcha/Turnstile/reCAPTCHA). Bypassed when not production. |
+| `SIGNUP_RATE_IP_PER_HOUR`, `SIGNUP_RATE_EMAIL_PER_DAY` (opt) | Self-serve signup rate limits. |
+| `CRON_SECRET` | Guards all `/api/cron/*` endpoints. |
+| `ICONNECT_HEALTH_CHECK_TOKEN` | Required secret for `/api/health`; Better Stack must send it as the `X-Health-Token` request header. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_RENEWALS_URL` | Optional Better Stack heartbeat URL for membership renewals. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for membership-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_GOCARDLESS_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for GoCardless reconciliation. |
+| `BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for Stripe card-plan reconciliation. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL` | Optional Better Stack heartbeat URL for scheduled workflows. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL` | Optional Better Stack heartbeat URL for scheduled campaigns. |
+| `BETTERSTACK_HEARTBEAT_DATABASE_BACKUP_URL` | Optional Better Stack heartbeat URL for database backup to R2. |
+| `BETTERSTACK_HEARTBEAT_STORAGE_BACKUP_URL` | Optional Better Stack heartbeat URL for storage backup to R2. |
+| `BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for form-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_AUTOMATIC_MEMBERSHIP_PROCESSING_URL` | Optional Better Stack heartbeat URL for automatic membership processing. |
+| `ENABLE_RESET_DEBUG` (opt, `'true'`) | Temporary diagnostic: `/api/auth/request-admin-password-reset` returns a `debug` field (`no_identity`/`no_owner_membership`/`email_failed`/`sent`). Leave unset in normal operation so account existence is not disclosed. |
+| `R2_ACCOUNT_ID` | Cloudflare account ID — builds the R2 endpoint URL (`https://<id>.r2.cloudflarestorage.com`). Set this **or** `R2_ENDPOINT`. Vercel secret. |
+| `R2_ENDPOINT` (opt) | Full R2 endpoint URL override, instead of `R2_ACCOUNT_ID`. |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | R2 API token credentials + target bucket for backups. Vercel secrets. |
+| `DB_BACKUP_SCHEMAS` (opt) | Comma-separated Postgres schemas in the nightly DB dump (default: `public`). Supabase internal schemas (`auth`, `storage`, `realtime`, …) are intentionally excluded — Supabase manages them. |
+
+### External health monitoring
+
+Create a Better Stack HTTP monitor for `GET /api/health`. In the monitor's
+request headers, configure `X-Health-Token` to the same secret held in the
+Vercel `ICONNECT_HEALTH_CHECK_TOKEN` environment variable. The endpoint is
+intentionally unauthorised only by that header and returns no dependency detail
+when the header is missing or invalid.
+
+The ten `BETTERSTACK_HEARTBEAT_*_URL` variables are independently optional
+and apply only to the ten selected production schedules. The application
+derives Better Stack's `/fail` target from each configured success URL; store
+only the success URL in Vercel Production. See
+`guides/better-stack-cron-heartbeats.md` for the setup matrix and the complete
+30-schedule coverage inventory.
+Set each Vercel value to the matching Better Stack heartbeat URL for only the
+scheduled job you wish to monitor. The job sends a success URL after a clean
+run and Better Stack's `/fail` URL for a failed run; delivery failures never
+change the job's response or retry behaviour.
+
+## Stack & where things live
+-   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS
+-   **Backend:** Express.js (dev) / Vercel serverless functions (prod), PostgreSQL, Drizzle ORM
+-   `/client`: Frontend source (`client/src/design-system` = custom "new-york" shadcn variant)
+-   `/api`: Backend API endpoints (Vercel serverless functions); shared helpers under `api/_lib/`
+-   `/supabase/migrations`: Database migrations (idempotent SQL); `supabase/schema.prisma` is the schema source of truth for Drizzle
+-   `/scripts`: Utility and migration scripts
+-   `client/index.html` + `api/render.js`: SSR for SEO/OG tag injection
+
+## Architecture decisions
+-   **Multi-tenancy:** Data isolation at GLOBAL / TENANT / ORGANIZATION / MEMBER levels via `tenant_id` and `organization_id`. The shared entity API hard-fails any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Identity:** Unified identity with per-tenant password isolation, Google OAuth, feature-based role management.
+-   **Email sending:** `api/_lib/emailService.js` resolves the sending domain off `tenantId` for tenant→member emails. **System emails** (platform→tenant-owner: admin reset, signup verification, team invite, billing notifications) MUST pass `systemEmail: true` (or use `sendSystemEmail()`); this forces both Mailgun domain AND From identity to `mail.${APP_DOMAIN}` / `noreply@mail.${APP_DOMAIN}`. System reset/verification links must point at `${APP_DOMAIN}/...` not a tenant subdomain.
+-   **Dynamic SEO:** SSR meta-tag injection per-tenant via `api/render.js`; per-page metadata resolved by `api/_lib/entityMeta.js`. Per-entity `seo_title` / `seo_description` / `og_image_url` overrides on events, blog posts, news, campaigns, resources, and directories (UI in `client/src/components/blog/SEOSettings.jsx`). `og:image` URLs on `vault.iconn.app` or `*.supabase.co` are proxied through `/api/og-image`.
+-   **Event deletion:** Multi-step cancellation flow (refunds, reinstatements, Zoom unregistration) before any data purge. Direct deletion of events is deprecated for UI flows.
+-   **Semantic `warning` color:** `--warning` / `--warning-foreground` CSS vars in `client/src/index.css` (both themes, WCAG-AA). Use `text-warning`, `bg-warning`, `<Badge variant="warning">`, `<Alert variant="warning">` instead of raw amber/yellow/orange palette classes.
+-   **Membership invoices:** `organisation_membership_history` / `member_membership_history` carry `payment_status` (`unpaid`/`paid`/`partial`/`voided`) + `paid_at`, separate from the lifecycle `status`. Accounting-sync failures flag the row `accounting_sync_status='failed'` (not swallowed) with a Retry button in `OrgMembershipTab.jsx`. Payment reconciliation cron `/api/cron/reconcile-membership-invoice-payments` (every 3h, `CRON_SECRET`-guarded) queries Xero/QBO and fires workflows on `unpaid -> paid` only. See `api/_lib/membershipPaymentReconciliation.js`, `api/_lib/accountingProvider.js`.
+-   **Tenant storage metering:** `tenant.storage_used_bytes` (BIGINT) drives `checkStorageQuota` (`api/_lib/planQuota.js`) and `/admin/plan-usage`. Maintained incrementally via `addTenantStorageBytes` (`api/_lib/tenantStorageUsage.js`). Can drift (signed-URL claimed size); re-baseline with `scripts/recompute-tenant-storage.mjs` or the nightly cron.
+-   **Paid-plan upgrade flow (`/admin/plan-usage` → Stripe Checkout):** `PlanUsage.jsx` → `api/admin/plan-checkout.js` (tenant-admin RBAC, uses PLATFORM `STRIPE_SECRET_KEY`, NOT tenant's connected Stripe). First-time creates a Checkout Session; existing live sub swaps price in place via `stripe.subscriptions.update` (proration, never a parallel sub). Webhook `api/webhooks/stripe-plan.js` upserts `tenant_subscription` and flips `tenant.plan_code` only when status is `active`/`trialing`; `subscription.deleted` reverts to `free`.
+-   **Self-serve signup & onboarding (`/signup` → wizard):** `signup-start.js` (captcha + rate limits + verification email) → `signup-verify.js` (`provisionTenant`, `free` plan) → 5-step `OnboardingWizard.jsx` → `POST /api/admin/onboarding` runs `api/_lib/onboardingSeeder.js` (branding + tiers + persona seed pack tagged `is_sample=true`). Legacy admins backfilled to `onboarding_status='complete'`.
+-   **Accessibility audits:** Admin page (RBAC `admin.accessibility-audits`) runs axe-core 4.10 via browserless.io for tenant public URLs. Results in `accessibility_audit` / `accessibility_audit_result`; endpoints under `/api/admin/accessibility-audits`; runner `api/_lib/browserlessAxe.js`. v1 limits: ≤10 URLs/run, http(s) only, no credentialed URLs.
+-   **AI Design Studio V1 (Canvas AI Composition):** generation via `api/ai-compositions/generate.js`; prompt-led editing via `api/ai-compositions/edit.js` (propose/accept/reject/undo + conversation history in `ai_composition_conversation`) and `api/ai-compositions/destinations.js` (record-ID link picker — the AI never invents internal URLs). Patch engine `api/_lib/aiCompositionPatch.js`, edit pipeline `api/_lib/aiCompositionEdit.js`. Accept re-applies the STORED proposal server-side against the current document; complete redesigns are saved as alternatives (`is_alternative`); protected-value changes (prices, dates, names) require explicit confirmation. Editor UI in `client/src/components/canvas/blocks/AiCompositionEditPanel.jsx`. V1 scene-graph compositions are now read-only w.r.t. the V2 pivot.
+-   **AI Design Studio V2 (native-code pivot):** V2 compositions are native AI HTML/CSS/SVG packages (document `schemaVersion "2.0"`, `ai_composition.renderer_version=2`), sanitised ONCE server-side at store time by `api/_lib/aiCodePipeline.js` (schema → jsdom+DOMPurify sanitise → manifest cross-check → postcss CSS scoping under `[data-ai-composition="<uuid>"]` → leak check; reject-don't-repair), rendered verbatim by `AiCodeCompositionBlock.jsx`; signed CSP-locked preview + Browserless screenshots via `api/ai-compositions/preview.js` (HMAC keyed by `AIC_PREVIEW_SECRET`/`CRON_SECRET`). **Page bodies:** `compositionType: "page_body"` runs a plan stage (content manifest + creative plan, anti-degenerate checks in `aiCodeGeneration.js`) before code gen; page gates forbid `<header>/<footer>/<nav>` recreation. **Actions** (`data-ai-action` + manifest, `api/_lib/aiCodeActions.js`) resolve server-side to real records — unresolved actions block page publish (409 `AI_UNRESOLVED_ACTIONS`; editor fix-up via `api/ai-compositions/resolve-action.js`). **Slots** (`data-iconnect-slot`, `api/_lib/aiCodeSlots.js`) portal trusted platform blocks into generated markup; never block publish. **Imagery:** the model never writes image URLs — `<img data-ai-asset="<key>">` placeholders declared in the package `assets` manifest, fulfilled server-side (`api/_lib/aiCodeAssets.js`, gpt-image-1 or media library, tenant-owned storage); only unfulfilled `required` assets hard-reject; image swap is a deterministic `replace-image` edit action. V1→V2 rebuild is admin-only via `api/ai-compositions/rebuild-v2.js` (never automatic). **Editing:** `api/ai-compositions/edit-v2.js` (propose/accept/reject/undo); proposals (element-scoped patches via `data-ai-id`, or full revisions saved as alternatives) stored in `ai_composition_conversation` and re-applied against the CURRENT document on accept (`api/_lib/aiCodeEdit.js`); protected values + locked `data-content-key` texts require confirmation; breakpoint-scoped edits must leave other breakpoints' CSS untouched; accepts introducing NEW critical accessibility issues are blocked (422 `AI_VALIDATION_CRITICAL`). Admin-only Composition Inspector via `GET /api/ai-compositions/:id?inspector=1` (404 to non-admins). Full details: `guides/ai-design-studio-v2-pivot.md`.
+-   **Member AI structured Q&A:** the member assistant answers count/aggregate questions from live records via a whitelisted query spec (LLM never writes SQL). Catalog + validation + executors in `api/_lib/memberAiStructured.js`; routing in `api/member-ai/ask.js`. Adding an entity/field: follow `guides/member-ai-structured-qa.md` (visibility mirrors the member browse surfaces; drift guard in `memberAiStructuredSchemaDrift.test.mjs`).
+
+## Gotchas
+-   **Vercel preview-domain ownership:** Project `vite-migrate-replit-6` serves this repository. Both `dev.iconn.app` and `*.dev.iconn.app` are verified Vercel project domains pinned to the `eventemb2` Git branch; tenant custom-domain actions must never attach, reclaim, or detach `iconn.app` or any of its subdomains.
+-   **`dev.iconn.app` = Vercel preview deployment** built from the `eventemb2` git branch of the same Vercel project as production. Shares the same Supabase. (a) Vercel's Functions → Logs viewer defaults to Production and hides Preview logs — switch the Environment filter to Preview. (b) A fix only reaches `dev.iconn.app` after the commit is on the `eventemb2` branch and that branch's preview build has finished.
+-   **`sendEmail()` never throws.** It catches Mailgun errors and returns `{ success: false, error, status, domain }`. Callers MUST inspect the return value; a bare `try { await sendEmail(...) } catch {}` will falsely report success on 401 / unverified domain / missing key. Canonical pattern: `api/auth/request-admin-password-reset.js`.
+-   **System emails MUST pass `systemEmail: true`** (or use `sendSystemEmail()`). Without it, a tenant with a verified custom sending domain would silently send admin reset / signup / billing emails from the tenant's own brand — wrong identity.
+-   **API hard-fails** any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Workflow `dd_owner` / `dd_owner_email` placeholders** resolve via `resolveDdOwnerForSubmission` (`api/_lib/ddOwner.js`) only when the trigger caller passes `context.formSubmissionId` to `triggerWorkflows`. Without submission context they collapse to empty strings.
+-   **No server-side length validation on `event.summary` / `complex_event.summary`** — relies on client-side `event_summary_max_length` system setting (default 150).
+
+## Product
+-   **Core:** Members, Events, Bookings, Resources, Blog.
+-   **Identity:** Unified login, multi-tenant ownership, organization memberships, granular access control.
+-   **Customization:** Page Builder, Custom Forms with conditional logic, Workflow Automation, per-tenant branding.
+-   **Financials:** Stripe membership payments, Xero/QBO invoicing, Fundraising with Gift Aid.
+-   **Comms:** Email templates, campaigns, member preferences.
+-   **Integrations:** WordPress Sync, Zoom (events/sessions), Zoho CRM sync.
+-   **Reporting:** Due Diligence Reports, configurable Member/Org Directories.
+-   **Community:** Tenant-scoped forums, Member Group email campaigns.
+
+## User preferences
+Preferred communication style: Simple, everyday language.
+
+## Pointers
+-   **React:** `https://react.dev/` · **Tailwind:** `https://tailwindcss.com/docs` · **Drizzle:** `https://orm.drizzle.team/docs/overview`
+-   **Vercel Functions:** `https://vercel.com/docs/functions/overview` · **Supabase:** `https://supabase.com/docs`
+-   **Stripe:** `https://stripe.com/docs/api` · **Mailgun:** `https://documentation.mailgun.com/en/latest/api_reference.html`
+# Membership Management Platform
+A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
+
+## Run & Operate
+-   **Run Dev Server:** `npm run dev`
+-   **Build:** `npm run build` · **Typecheck:** `npm run typecheck` · **Codegen:** `npm run codegen`
+-   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — only works from environments with IPv6 outbound; **not from this Replit workspace** (see "Database connection").
+-   **Migrations:** every `.sql` in `supabase/migrations/` is idempotent and applied against `DEST_DATABASE_URL` (pooler). Most migrations have a matching `node scripts/apply-*.mjs` runner; check `scripts/` before applying anything by hand.
+-   **One-off scripts (backfills, CSV imports, tenant seeds):** live in `scripts/` (e.g. `recompute-tenant-storage.mjs`, `backfill-*.mjs`, `import-*.mjs`, `seed-*.mjs`). They are idempotent, default to dry-run unless an `--apply` flag is passed, and many are hard-pinned to a single tenant. Read the script header before running; each documents its own flags and scope.
+-   **Inclusive relationship reports:** `node scripts/apply-inclusive-relationship-reports.mjs --apply` installs the V2 paging/count helpers and separate BNMS Organisation department summary using `DEST_DATABASE_URL` only. `node scripts/verify-bnms-organisation-department-summary.mjs` verifies saved preview results read-only; `--reference-only` checks source totals before setup. Existing V1 reports are not upgraded.
+-   **Storage usage reconcile:** `node scripts/recompute-tenant-storage.mjs [--dry-run] [--tenant=<uuid>]`, or trust the nightly cron at `/api/cron/recompute-tenant-storage` (03:00 UTC, `CRON_SECRET`-guarded).
+
+## Database connection (read this before any DB work from this workspace)
+There are two Supabase projects this codebase talks to:
+
+| Role | What it is | URL secret | Postgres URL secret | Service-role key secret |
+| ---- | ---------- | ---------- | ------------------- | ----------------------- |
+| **Destination (current prod)** | Multi-tenant iConnect DB | `DEST_SUPABASE_URL` (`https://lvmzliemqnieeoruhkik.supabase.co`) | `DEST_DATABASE_URL` | `DEST_SUPABASE_KEY` |
+| **Source (legacy)** | Pre-multi-tenancy single-tenant snapshot, used by migration scripts | `SOURCE_SUPABASE_URL` | `SOURCE_DATABASE_URL` | `SOURCE_SUPABASE_KEY` |
+
+**The Supabase direct host (`db.<project>.supabase.co`) is unreachable from this Replit workspace** — it publishes only IPv6 (AAAA) DNS and the Replit container has no IPv6 outbound route, so `psql`, `execute_sql_tool`, `drizzle-kit push`, and any raw `pg`/Drizzle client pointed at the direct host fail with `ENOTFOUND` / `ENETUNREACH`. Those tools work from Vercel functions, the user's laptop, and CI — just not from here against the direct host.
+
+**The Supabase Pooler hostname IS IPv4-reachable from this workspace** (`aws-1-eu-central-1.pooler.supabase.com:5432`, which is what `DEST_DATABASE_URL` already points to). `pg` clients using `DEST_DATABASE_URL` (transaction-pooler mode) work from Replit for read/write queries and DDL such as `CREATE INDEX`. Prefer `@supabase/supabase-js` for ordinary CRUD (REST endpoint is also IPv4-reachable, more ergonomic); reach for `pg` via `DEST_DATABASE_URL` only when you need raw SQL / DDL the REST API can't do.
+
+For any DB access from this workspace (scripts, ad-hoc debugging, one-off data fixes), use **`@supabase/supabase-js`** with the service-role key. Working reference: `scripts/debug-tenant.mjs`.
+
+```js
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(
+  process.env.DEST_SUPABASE_URL,
+  process.env.DEST_SUPABASE_KEY
+);
+```
+
+Quick one-off from bash (env vars ARE available in the shell):
+
+```bash
+node -e "
+const { createClient } = require('@supabase/supabase-js');
+const sb = createClient(process.env.DEST_SUPABASE_URL, process.env.DEST_SUPABASE_KEY, { auth: { persistSession: false } });
+(async () => {
+  const { data, error } = await sb.from('tenant').select('id, slug, name').limit(5);
+  console.log({ data, error });
+})();
+"
+```
+
+## Testing
+-   **AI assistant tests** (registered as the `ai-assistant-tests` validation step, runs automatically on task completion): `node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/aiCompositionRender.test.mjs` — member-AI visibility (security boundary), ranking, indexer, help-chunker, dashboard aggregation/LMIC operators, Canvas auto-height bake guards, `useAutoHeightBake` runtime gates (jsdom), and Canvas auto reading-order suites.
+-   **GoCardless tests:** `node --test api/_lib/gocardless*.test.mjs` — webhook signature/idempotency/status-transition suites, per-tenant credential resolution (tenant_integrations → env fallback, env/token mismatch guards), org DD billing-contact invitations (token format, expiry clamp 1-90 via `dd_invite_expiry_days`, validate/supersede/single-use/revoke, recipient dedupe), Phase 5 renewal decisions (`gocardlessDdRenewals.test.mjs`), and migration invite/funnel (`gocardlessDdMigration.test.mjs`).
+-   **GoCardless sandbox proof:** `node scripts/gocardless-sandbox-proof.mjs [runId]` — billing request + hosted flow creation and idempotent-retry behaviour against the GC sandbox (requires `GOCARDLESS_ACCESS_TOKEN`; refuses to run against live).
+-   **Pending-PO report tests:** `node --test api/_lib/pendingPoInvoice.test.mjs` — PO reference extraction/blacklist and cross-record membership PO propagation helpers.
+-   **Organisation Directory filters:** `npm run test:directory-object-fields` covers schema projections, safe diagnostics, exact source-value selection, permission revocation, and population pagination; `npx playwright test tests/directory-object-fields.smoke.spec.mjs` covers mounted directory controls and card behaviour. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` when using a system Chromium.
+-   **Destination directory verification (read-only):** `node scripts/verify-directory-source-values-destination.mjs` checks the configured BNMS Department Name source against DEST without changing settings or records. `npx playwright test --config=tests/task-4360-destination-harness.config.mjs` renders the local app with fixture sign-in/chrome and real destination-backed directory service responses. This harness is not a deployed-login/authentication test; `scripts/verify-task-4360-preview.mjs` separately supports normal authenticated preview verification with an ephemeral `PLAYWRIGHT_STORAGE_STATE`.
+-   **Repeatable Custom Object source verification (read-only):** `node scripts/verify-form-row-choice-sources.mjs --parent-object=<uuid> --related-object=<uuid> --value-field=<name>` checks record → distinct scalar → filtered record options and submission eligibility against DEST using an in-memory form. It does not save forms, submissions, or catalogue records.
+
+## Env vars (current canonical set)
+Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPABASE_*` names; prefer the `DEST_*` names below for new code.
+
+| Var | Purpose |
+| --- | ------- |
+| `DEST_SUPABASE_URL` / `DEST_SUPABASE_KEY` / `DEST_DATABASE_URL` | Destination (prod) Supabase. See "Database connection". |
+| `SOURCE_SUPABASE_URL` / `SOURCE_SUPABASE_KEY` / `SOURCE_DATABASE_URL` | Legacy single-tenant snapshot — only used by migration scripts. |
+| `DATABASE_URL` | Direct host (IPv6 only) — used by Vercel / Drizzle push, not this workspace. |
+| `MAILGUN_API_KEY`, `MAILGUN_REGION` (default `eu`), `MAILGUN_FROM_EMAIL`, `APP_DOMAIN` (default `iconn.app`) | Email sending. `MAILGUN_FROM_EMAIL` is the non-system default From; system emails are pinned to `noreply@mail.${APP_DOMAIN}` regardless. |
+| `STRIPE_SECRET_KEY` | Tenant Stripe AND platform-side paid-plan upgrade Checkout. |
+| `STRIPE_PLAN_WEBHOOK_SECRET` | Verifies `/api/webhooks/stripe-plan` from the platform Stripe account. Configure dashboard to deliver `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
+| `GOCARDLESS_ENVIRONMENT` | `sandbox` (default) or `live`. Platform-level FALLBACK only — tenants connect their own GoCardless account via `tenant_integrations` (`integration_type='gocardless'`, resolved by `api/_lib/gocardlessCredentials.js`). |
+| `GOCARDLESS_ACCESS_TOKEN` | Platform-fallback GoCardless API access token (sandbox tokens start `sandbox_`, live `live_`; env/token mismatch is rejected at call time). |
+| `GOCARDLESS_WEBHOOK_SECRET` | Platform-fallback secret verifying `Webhook-Signature` (HMAC-SHA256 of raw body) on `/api/webhooks/gocardless`. Tenant-connected accounts register the URL with `?tenant=<uuid>` and are verified against their own stored secret. |
+| `GOCARDLESS_REDIRECT_BASE_URL` | Base URL for Billing Request Flow redirect/exit URIs (e.g. `https://iconn.app`). |
+| `GOCARDLESS_CREDITOR_ID` (opt) | Pins billing requests to one creditor on multi-creditor GC accounts. |
+| `GOOGLE_FONTS_API_KEY` | Server-side key for the Google Fonts Developer API. Powers live font search in the `/InstalledFonts` add dialog via `api/public/google-fonts.js`. If unset, the picker falls back to the curated `POPULAR_GOOGLE_FONTS` list. |
+| `XERO_CLIENT_ID` | Xero OAuth. |
+| `QUICKBOOKS_REDIRECT_URI` (opt) | Overrides default `${origin}/api/quickbooks/callback` for stable QBO OAuth redirect. |
+| `BROWSERLESS_API_TOKEN`, `BROWSERLESS_BASE_URL` (opt), `BROWSERLESS_AUDIT_TIMEOUT_MS` (opt) | Accessibility audits via browserless.io. |
+| `VITE_APP_URL` | Frontend-known app URL. |
+| `CAPTCHA_PROVIDER`, `CAPTCHA_SECRET_KEY` (opt) | Self-serve signup captcha (hCaptcha/Turnstile/reCAPTCHA). Bypassed when not production. |
+| `SIGNUP_RATE_IP_PER_HOUR`, `SIGNUP_RATE_EMAIL_PER_DAY` (opt) | Self-serve signup rate limits. |
+| `CRON_SECRET` | Guards all `/api/cron/*` endpoints. |
+| `ICONNECT_HEALTH_CHECK_TOKEN` | Required secret for `/api/health`; Better Stack must send it as the `X-Health-Token` request header. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_RENEWALS_URL` | Optional Better Stack heartbeat URL for membership renewals. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for membership-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_GOCARDLESS_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for GoCardless reconciliation. |
+| `BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for Stripe card-plan reconciliation. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL` | Optional Better Stack heartbeat URL for scheduled workflows. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL` | Optional Better Stack heartbeat URL for scheduled campaigns. |
+| `BETTERSTACK_HEARTBEAT_DATABASE_BACKUP_URL` | Optional Better Stack heartbeat URL for database backup to R2. |
+| `BETTERSTACK_HEARTBEAT_STORAGE_BACKUP_URL` | Optional Better Stack heartbeat URL for storage backup to R2. |
+| `BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for form-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_AUTOMATIC_MEMBERSHIP_PROCESSING_URL` | Optional Better Stack heartbeat URL for automatic membership processing. |
+| `ENABLE_RESET_DEBUG` (opt, `'true'`) | Temporary diagnostic: `/api/auth/request-admin-password-reset` returns a `debug` field (`no_identity`/`no_owner_membership`/`email_failed`/`sent`). Leave unset in normal operation so account existence is not disclosed. |
+| `R2_ACCOUNT_ID` | Cloudflare account ID — builds the R2 endpoint URL (`https://<id>.r2.cloudflarestorage.com`). Set this **or** `R2_ENDPOINT`. Vercel secret. |
+| `R2_ENDPOINT` (opt) | Full R2 endpoint URL override, instead of `R2_ACCOUNT_ID`. |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | R2 API token credentials + target bucket for backups. Vercel secrets. |
+| `DB_BACKUP_SCHEMAS` (opt) | Comma-separated Postgres schemas in the nightly DB dump (default: `public`). Supabase internal schemas (`auth`, `storage`, `realtime`, …) are intentionally excluded — Supabase manages them. |
+
+### External health monitoring
+
+Create a Better Stack HTTP monitor for `GET /api/health`. In the monitor's
+request headers, configure `X-Health-Token` to the same secret held in the
+Vercel `ICONNECT_HEALTH_CHECK_TOKEN` environment variable. The endpoint is
+intentionally unauthorised only by that header and returns no dependency detail
+when the header is missing or invalid.
+
+The ten `BETTERSTACK_HEARTBEAT_*_URL` variables are independently optional
+and apply only to the ten selected production schedules. The application
+derives Better Stack's `/fail` target from each configured success URL; store
+only the success URL in Vercel Production. See
+`guides/better-stack-cron-heartbeats.md` for the setup matrix and the complete
+30-schedule coverage inventory.
+Set each Vercel value to the matching Better Stack heartbeat URL for only the
+scheduled job you wish to monitor. The job sends a success URL after a clean
+run and Better Stack's `/fail` URL for a failed run; delivery failures never
+change the job's response or retry behaviour.
+
+## Stack & where things live
+-   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS
+-   **Backend:** Express.js (dev) / Vercel serverless functions (prod), PostgreSQL, Drizzle ORM
+-   `/client`: Frontend source (`client/src/design-system` = custom "new-york" shadcn variant)
+-   `/api`: Backend API endpoints (Vercel serverless functions); shared helpers under `api/_lib/`
+-   `/supabase/migrations`: Database migrations (idempotent SQL); `supabase/schema.prisma` is the schema source of truth for Drizzle
+-   `/scripts`: Utility and migration scripts
+-   `client/index.html` + `api/render.js`: SSR for SEO/OG tag injection
+
+## Architecture decisions
+-   **Multi-tenancy:** Data isolation at GLOBAL / TENANT / ORGANIZATION / MEMBER levels via `tenant_id` and `organization_id`. The shared entity API hard-fails any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Identity:** Unified identity with per-tenant password isolation, Google OAuth, feature-based role management.
+-   **Email sending:** `api/_lib/emailService.js` resolves the sending domain off `tenantId` for tenant→member emails. **System emails** (platform→tenant-owner: admin reset, signup verification, team invite, billing notifications) MUST pass `systemEmail: true` (or use `sendSystemEmail()`); this forces both Mailgun domain AND From identity to `mail.${APP_DOMAIN}` / `noreply@mail.${APP_DOMAIN}`. System reset/verification links must point at `${APP_DOMAIN}/...` not a tenant subdomain.
+-   **Dynamic SEO:** SSR meta-tag injection per-tenant via `api/render.js`; per-page metadata resolved by `api/_lib/entityMeta.js`. Per-entity `seo_title` / `seo_description` / `og_image_url` overrides on events, blog posts, news, campaigns, resources, and directories (UI in `client/src/components/blog/SEOSettings.jsx`). `og:image` URLs on `vault.iconn.app` or `*.supabase.co` are proxied through `/api/og-image`.
+-   **Event deletion:** Multi-step cancellation flow (refunds, reinstatements, Zoom unregistration) before any data purge. Direct deletion of events is deprecated for UI flows.
+-   **Semantic `warning` color:** `--warning` / `--warning-foreground` CSS vars in `client/src/index.css` (both themes, WCAG-AA). Use `text-warning`, `bg-warning`, `<Badge variant="warning">`, `<Alert variant="warning">` instead of raw amber/yellow/orange palette classes.
+-   **Membership invoices:** `organisation_membership_history` / `member_membership_history` carry `payment_status` (`unpaid`/`paid`/`partial`/`voided`) + `paid_at`, separate from the lifecycle `status`. Accounting-sync failures flag the row `accounting_sync_status='failed'` (not swallowed) with a Retry button in `OrgMembershipTab.jsx`. Payment reconciliation cron `/api/cron/reconcile-membership-invoice-payments` (every 3h, `CRON_SECRET`-guarded) queries Xero/QBO and fires workflows on `unpaid -> paid` only. See `api/_lib/membershipPaymentReconciliation.js`, `api/_lib/accountingProvider.js`.
+-   **Tenant storage metering:** `tenant.storage_used_bytes` (BIGINT) drives `checkStorageQuota` (`api/_lib/planQuota.js`) and `/admin/plan-usage`. Maintained incrementally via `addTenantStorageBytes` (`api/_lib/tenantStorageUsage.js`). Can drift (signed-URL claimed size); re-baseline with `scripts/recompute-tenant-storage.mjs` or the nightly cron.
+-   **Paid-plan upgrade flow (`/admin/plan-usage` → Stripe Checkout):** `PlanUsage.jsx` → `api/admin/plan-checkout.js` (tenant-admin RBAC, uses PLATFORM `STRIPE_SECRET_KEY`, NOT tenant's connected Stripe). First-time creates a Checkout Session; existing live sub swaps price in place via `stripe.subscriptions.update` (proration, never a parallel sub). Webhook `api/webhooks/stripe-plan.js` upserts `tenant_subscription` and flips `tenant.plan_code` only when status is `active`/`trialing`; `subscription.deleted` reverts to `free`.
+-   **Self-serve signup & onboarding (`/signup` → wizard):** `signup-start.js` (captcha + rate limits + verification email) → `signup-verify.js` (`provisionTenant`, `free` plan) → 5-step `OnboardingWizard.jsx` → `POST /api/admin/onboarding` runs `api/_lib/onboardingSeeder.js` (branding + tiers + persona seed pack tagged `is_sample=true`). Legacy admins backfilled to `onboarding_status='complete'`.
+-   **Accessibility audits:** Admin page (RBAC `admin.accessibility-audits`) runs axe-core 4.10 via browserless.io for tenant public URLs. Results in `accessibility_audit` / `accessibility_audit_result`; endpoints under `/api/admin/accessibility-audits`; runner `api/_lib/browserlessAxe.js`. v1 limits: ≤10 URLs/run, http(s) only, no credentialed URLs.
+-   **AI Design Studio V1 (Canvas AI Composition):** generation via `api/ai-compositions/generate.js`; prompt-led editing via `api/ai-compositions/edit.js` (propose/accept/reject/undo + conversation history in `ai_composition_conversation`) and `api/ai-compositions/destinations.js` (record-ID link picker — the AI never invents internal URLs). Patch engine `api/_lib/aiCompositionPatch.js`, edit pipeline `api/_lib/aiCompositionEdit.js`. Accept re-applies the STORED proposal server-side against the current document; complete redesigns are saved as alternatives (`is_alternative`); protected-value changes (prices, dates, names) require explicit confirmation. Editor UI in `client/src/components/canvas/blocks/AiCompositionEditPanel.jsx`. V1 scene-graph compositions are now read-only w.r.t. the V2 pivot.
+-   **AI Design Studio V2 (native-code pivot):** V2 compositions are native AI HTML/CSS/SVG packages (document `schemaVersion "2.0"`, `ai_composition.renderer_version=2`), sanitised ONCE server-side at store time by `api/_lib/aiCodePipeline.js` (schema → jsdom+DOMPurify sanitise → manifest cross-check → postcss CSS scoping under `[data-ai-composition="<uuid>"]` → leak check; reject-don't-repair), rendered verbatim by `AiCodeCompositionBlock.jsx`; signed CSP-locked preview + Browserless screenshots via `api/ai-compositions/preview.js` (HMAC keyed by `AIC_PREVIEW_SECRET`/`CRON_SECRET`). **Page bodies:** `compositionType: "page_body"` runs a plan stage (content manifest + creative plan, anti-degenerate checks in `aiCodeGeneration.js`) before code gen; page gates forbid `<header>/<footer>/<nav>` recreation. **Actions** (`data-ai-action` + manifest, `api/_lib/aiCodeActions.js`) resolve server-side to real records — unresolved actions block page publish (409 `AI_UNRESOLVED_ACTIONS`; editor fix-up via `api/ai-compositions/resolve-action.js`). **Slots** (`data-iconnect-slot`, `api/_lib/aiCodeSlots.js`) portal trusted platform blocks into generated markup; never block publish. **Imagery:** the model never writes image URLs — `<img data-ai-asset="<key>">` placeholders declared in the package `assets` manifest, fulfilled server-side (`api/_lib/aiCodeAssets.js`, gpt-image-1 or media library, tenant-owned storage); only unfulfilled `required` assets hard-reject; image swap is a deterministic `replace-image` edit action. V1→V2 rebuild is admin-only via `api/ai-compositions/rebuild-v2.js` (never automatic). **Editing:** `api/ai-compositions/edit-v2.js` (propose/accept/reject/undo); proposals (element-scoped patches via `data-ai-id`, or full revisions saved as alternatives) stored in `ai_composition_conversation` and re-applied against the CURRENT document on accept (`api/_lib/aiCodeEdit.js`); protected values + locked `data-content-key` texts require confirmation; breakpoint-scoped edits must leave other breakpoints' CSS untouched; accepts introducing NEW critical accessibility issues are blocked (422 `AI_VALIDATION_CRITICAL`). Admin-only Composition Inspector via `GET /api/ai-compositions/:id?inspector=1` (404 to non-admins). Full details: `guides/ai-design-studio-v2-pivot.md`.
+-   **Member AI structured Q&A:** the member assistant answers count/aggregate questions from live records via a whitelisted query spec (LLM never writes SQL). Catalog + validation + executors in `api/_lib/memberAiStructured.js`; routing in `api/member-ai/ask.js`. Adding an entity/field: follow `guides/member-ai-structured-qa.md` (visibility mirrors the member browse surfaces; drift guard in `memberAiStructuredSchemaDrift.test.mjs`).
+
+## Gotchas
+-   **Vercel preview-domain ownership:** Project `vite-migrate-replit-6` serves this repository. Both `dev.iconn.app` and `*.dev.iconn.app` are verified Vercel project domains pinned to the `eventemb2` Git branch; tenant custom-domain actions must never attach, reclaim, or detach `iconn.app` or any of its subdomains.
+-   **`dev.iconn.app` = Vercel preview deployment** built from the `eventemb2` git branch of the same Vercel project as production. Shares the same Supabase. (a) Vercel's Functions → Logs viewer defaults to Production and hides Preview logs — switch the Environment filter to Preview. (b) A fix only reaches `dev.iconn.app` after the commit is on the `eventemb2` branch and that branch's preview build has finished.
+-   **`sendEmail()` never throws.** It catches Mailgun errors and returns `{ success: false, error, status, domain }`. Callers MUST inspect the return value; a bare `try { await sendEmail(...) } catch {}` will falsely report success on 401 / unverified domain / missing key. Canonical pattern: `api/auth/request-admin-password-reset.js`.
+-   **System emails MUST pass `systemEmail: true`** (or use `sendSystemEmail()`). Without it, a tenant with a verified custom sending domain would silently send admin reset / signup / billing emails from the tenant's own brand — wrong identity.
+-   **API hard-fails** any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Workflow `dd_owner` / `dd_owner_email` placeholders** resolve via `resolveDdOwnerForSubmission` (`api/_lib/ddOwner.js`) only when the trigger caller passes `context.formSubmissionId` to `triggerWorkflows`. Without submission context they collapse to empty strings.
+-   **No server-side length validation on `event.summary` / `complex_event.summary`** — relies on client-side `event_summary_max_length` system setting (default 150).
+
+## Product
+-   **Core:** Members, Events, Bookings, Resources, Blog.
+-   **Identity:** Unified login, multi-tenant ownership, organization memberships, granular access control.
+-   **Customization:** Page Builder, Custom Forms with conditional logic, Workflow Automation, per-tenant branding.
+-   **Financials:** Stripe membership payments, Xero/QBO invoicing, Fundraising with Gift Aid.
+-   **Comms:** Email templates, campaigns, member preferences.
+-   **Integrations:** WordPress Sync, Zoom (events/sessions), Zoho CRM sync.
+-   **Reporting:** Due Diligence Reports, configurable Member/Org Directories.
+-   **Community:** Tenant-scoped forums, Member Group email campaigns.
+
+## User preferences
+Preferred communication style: Simple, everyday language.
+
+## Pointers
+-   **React:** `https://react.dev/` · **Tailwind:** `https://tailwindcss.com/docs` · **Drizzle:** `https://orm.drizzle.team/docs/overview`
+-   **Vercel Functions:** `https://vercel.com/docs/functions/overview` · **Supabase:** `https://supabase.com/docs`
+-   **Stripe:** `https://stripe.com/docs/api` · **Mailgun:** `https://documentation.mailgun.com/en/latest/api_reference.html`
+# Membership Management Platform
+A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
+
+## Run & Operate
+-   **Run Dev Server:** `npm run dev`
+-   **Build:** `npm run build` · **Typecheck:** `npm run typecheck` · **Codegen:** `npm run codegen`
+-   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — only works from environments with IPv6 outbound; **not from this Replit workspace** (see "Database connection").
+-   **Migrations:** every `.sql` in `supabase/migrations/` is idempotent and applied against `DEST_DATABASE_URL` (pooler). Most migrations have a matching `node scripts/apply-*.mjs` runner; check `scripts/` before applying anything by hand.
+-   **One-off scripts (backfills, CSV imports, tenant seeds):** live in `scripts/` (e.g. `recompute-tenant-storage.mjs`, `backfill-*.mjs`, `import-*.mjs`, `seed-*.mjs`). They are idempotent, default to dry-run unless an `--apply` flag is passed, and many are hard-pinned to a single tenant. Read the script header before running; each documents its own flags and scope.
+-   **Storage usage reconcile:** `node scripts/recompute-tenant-storage.mjs [--dry-run] [--tenant=<uuid>]`, or trust the nightly cron at `/api/cron/recompute-tenant-storage` (03:00 UTC, `CRON_SECRET`-guarded).
+
+## Database connection (read this before any DB work from this workspace)
+There are two Supabase projects this codebase talks to:
+
+| Role | What it is | URL secret | Postgres URL secret | Service-role key secret |
+| ---- | ---------- | ---------- | ------------------- | ----------------------- |
+| **Destination (current prod)** | Multi-tenant iConnect DB | `DEST_SUPABASE_URL` (`https://lvmzliemqnieeoruhkik.supabase.co`) | `DEST_DATABASE_URL` | `DEST_SUPABASE_KEY` |
+| **Source (legacy)** | Pre-multi-tenancy single-tenant snapshot, used by migration scripts | `SOURCE_SUPABASE_URL` | `SOURCE_DATABASE_URL` | `SOURCE_SUPABASE_KEY` |
+
+**The Supabase direct host (`db.<project>.supabase.co`) is unreachable from this Replit workspace** — it publishes only IPv6 (AAAA) DNS and the Replit container has no IPv6 outbound route, so `psql`, `execute_sql_tool`, `drizzle-kit push`, and any raw `pg`/Drizzle client pointed at the direct host fail with `ENOTFOUND` / `ENETUNREACH`. Those tools work from Vercel functions, the user's laptop, and CI — just not from here against the direct host.
+
+**The Supabase Pooler hostname IS IPv4-reachable from this workspace** (`aws-1-eu-central-1.pooler.supabase.com:5432`, which is what `DEST_DATABASE_URL` already points to). `pg` clients using `DEST_DATABASE_URL` (transaction-pooler mode) work from Replit for read/write queries and DDL such as `CREATE INDEX`. Prefer `@supabase/supabase-js` for ordinary CRUD (REST endpoint is also IPv4-reachable, more ergonomic); reach for `pg` via `DEST_DATABASE_URL` only when you need raw SQL / DDL the REST API can't do.
+
+For any DB access from this workspace (scripts, ad-hoc debugging, one-off data fixes), use **`@supabase/supabase-js`** with the service-role key. Working reference: `scripts/debug-tenant.mjs`.
+
+```js
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(
+  process.env.DEST_SUPABASE_URL,
+  process.env.DEST_SUPABASE_KEY
+);
+```
+
+Quick one-off from bash (env vars ARE available in the shell):
+
+```bash
+node -e "
+const { createClient } = require('@supabase/supabase-js');
+const sb = createClient(process.env.DEST_SUPABASE_URL, process.env.DEST_SUPABASE_KEY, { auth: { persistSession: false } });
+(async () => {
+  const { data, error } = await sb.from('tenant').select('id, slug, name').limit(5);
+  console.log({ data, error });
+})();
+"
+```
+
+## Testing
+-   **AI assistant tests** (registered as the `ai-assistant-tests` validation step, runs automatically on task completion): `node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/aiCompositionRender.test.mjs` — member-AI visibility (security boundary), ranking, indexer, help-chunker, dashboard aggregation/LMIC operators, Canvas auto-height bake guards, `useAutoHeightBake` runtime gates (jsdom), and Canvas auto reading-order suites.
+-   **GoCardless tests:** `node --test api/_lib/gocardless*.test.mjs` — webhook signature/idempotency/status-transition suites, per-tenant credential resolution (tenant_integrations → env fallback, env/token mismatch guards), org DD billing-contact invitations (token format, expiry clamp 1-90 via `dd_invite_expiry_days`, validate/supersede/single-use/revoke, recipient dedupe), Phase 5 renewal decisions (`gocardlessDdRenewals.test.mjs`), and migration invite/funnel (`gocardlessDdMigration.test.mjs`).
+-   **GoCardless sandbox proof:** `node scripts/gocardless-sandbox-proof.mjs [runId]` — billing request + hosted flow creation and idempotent-retry behaviour against the GC sandbox (requires `GOCARDLESS_ACCESS_TOKEN`; refuses to run against live).
+-   **Pending-PO report tests:** `node --test api/_lib/pendingPoInvoice.test.mjs` — PO reference extraction/blacklist and cross-record membership PO propagation helpers.
+
+## Env vars (current canonical set)
+Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPABASE_*` names; prefer the `DEST_*` names below for new code.
+
+| Var | Purpose |
+| --- | ------- |
+| `DEST_SUPABASE_URL` / `DEST_SUPABASE_KEY` / `DEST_DATABASE_URL` | Destination (prod) Supabase. See "Database connection". |
+| `SOURCE_SUPABASE_URL` / `SOURCE_SUPABASE_KEY` / `SOURCE_DATABASE_URL` | Legacy single-tenant snapshot — only used by migration scripts. |
+| `DATABASE_URL` | Direct host (IPv6 only) — used by Vercel / Drizzle push, not this workspace. |
+| `MAILGUN_API_KEY`, `MAILGUN_REGION` (default `eu`), `MAILGUN_FROM_EMAIL`, `APP_DOMAIN` (default `iconn.app`) | Email sending. `MAILGUN_FROM_EMAIL` is the non-system default From; system emails are pinned to `noreply@mail.${APP_DOMAIN}` regardless. |
+| `STRIPE_SECRET_KEY` | Tenant Stripe AND platform-side paid-plan upgrade Checkout. |
+| `STRIPE_PLAN_WEBHOOK_SECRET` | Verifies `/api/webhooks/stripe-plan` from the platform Stripe account. Configure dashboard to deliver `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
+| `GOCARDLESS_ENVIRONMENT` | `sandbox` (default) or `live`. Platform-level FALLBACK only — tenants connect their own GoCardless account via `tenant_integrations` (`integration_type='gocardless'`, resolved by `api/_lib/gocardlessCredentials.js`). |
+| `GOCARDLESS_ACCESS_TOKEN` | Platform-fallback GoCardless API access token (sandbox tokens start `sandbox_`, live `live_`; env/token mismatch is rejected at call time). |
+| `GOCARDLESS_WEBHOOK_SECRET` | Platform-fallback secret verifying `Webhook-Signature` (HMAC-SHA256 of raw body) on `/api/webhooks/gocardless`. Tenant-connected accounts register the URL with `?tenant=<uuid>` and are verified against their own stored secret. |
+| `GOCARDLESS_REDIRECT_BASE_URL` | Base URL for Billing Request Flow redirect/exit URIs (e.g. `https://iconn.app`). |
+| `GOCARDLESS_CREDITOR_ID` (opt) | Pins billing requests to one creditor on multi-creditor GC accounts. |
+| `GOOGLE_FONTS_API_KEY` | Server-side key for the Google Fonts Developer API. Powers live font search in the `/InstalledFonts` add dialog via `api/public/google-fonts.js`. If unset, the picker falls back to the curated `POPULAR_GOOGLE_FONTS` list. |
+| `XERO_CLIENT_ID` | Xero OAuth. |
+| `QUICKBOOKS_REDIRECT_URI` (opt) | Overrides default `${origin}/api/quickbooks/callback` for stable QBO OAuth redirect. |
+| `BROWSERLESS_API_TOKEN`, `BROWSERLESS_BASE_URL` (opt), `BROWSERLESS_AUDIT_TIMEOUT_MS` (opt) | Accessibility audits via browserless.io. |
+| `VITE_APP_URL` | Frontend-known app URL. |
+| `CAPTCHA_PROVIDER`, `CAPTCHA_SECRET_KEY` (opt) | Self-serve signup captcha (hCaptcha/Turnstile/reCAPTCHA). Bypassed when not production. |
+| `SIGNUP_RATE_IP_PER_HOUR`, `SIGNUP_RATE_EMAIL_PER_DAY` (opt) | Self-serve signup rate limits. |
+| `CRON_SECRET` | Guards all `/api/cron/*` endpoints. |
+| `ICONNECT_HEALTH_CHECK_TOKEN` | Required secret for `/api/health`; Better Stack must send it as the `X-Health-Token` request header. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_RENEWALS_URL` | Optional Better Stack heartbeat URL for membership renewals. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for membership-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_GOCARDLESS_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for GoCardless reconciliation. |
+| `BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for Stripe card-plan reconciliation. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL` | Optional Better Stack heartbeat URL for scheduled workflows. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL` | Optional Better Stack heartbeat URL for scheduled campaigns. |
+| `BETTERSTACK_HEARTBEAT_DATABASE_BACKUP_URL` | Optional Better Stack heartbeat URL for database backup to R2. |
+| `BETTERSTACK_HEARTBEAT_STORAGE_BACKUP_URL` | Optional Better Stack heartbeat URL for storage backup to R2. |
+| `BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for form-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_AUTOMATIC_MEMBERSHIP_PROCESSING_URL` | Optional Better Stack heartbeat URL for automatic membership processing. |
+| `ENABLE_RESET_DEBUG` (opt, `'true'`) | Temporary diagnostic: `/api/auth/request-admin-password-reset` returns a `debug` field (`no_identity`/`no_owner_membership`/`email_failed`/`sent`). Leave unset in normal operation so account existence is not disclosed. |
+| `R2_ACCOUNT_ID` | Cloudflare account ID — builds the R2 endpoint URL (`https://<id>.r2.cloudflarestorage.com`). Set this **or** `R2_ENDPOINT`. Vercel secret. |
+| `R2_ENDPOINT` (opt) | Full R2 endpoint URL override, instead of `R2_ACCOUNT_ID`. |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | R2 API token credentials + target bucket for backups. Vercel secrets. |
+| `DB_BACKUP_SCHEMAS` (opt) | Comma-separated Postgres schemas in the nightly DB dump (default: `public`). Supabase internal schemas (`auth`, `storage`, `realtime`, …) are intentionally excluded — Supabase manages them. |
+
+### External health monitoring
+
+Create a Better Stack HTTP monitor for `GET /api/health`. In the monitor's
+request headers, configure `X-Health-Token` to the same secret held in the
+Vercel `ICONNECT_HEALTH_CHECK_TOKEN` environment variable. The endpoint is
+intentionally unauthorised only by that header and returns no dependency detail
+when the header is missing or invalid.
+
+The ten `BETTERSTACK_HEARTBEAT_*_URL` variables are independently optional
+and apply only to the ten selected production schedules. The application
+derives Better Stack's `/fail` target from each configured success URL; store
+only the success URL in Vercel Production. See
+`guides/better-stack-cron-heartbeats.md` for the setup matrix and the complete
+30-schedule coverage inventory.
+Set each Vercel value to the matching Better Stack heartbeat URL for only the
+scheduled job you wish to monitor. The job sends a success URL after a clean
+run and Better Stack's `/fail` URL for a failed run; delivery failures never
+change the job's response or retry behaviour.
+
+## Stack & where things live
+-   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS
+-   **Backend:** Express.js (dev) / Vercel serverless functions (prod), PostgreSQL, Drizzle ORM
+-   `/client`: Frontend source (`client/src/design-system` = custom "new-york" shadcn variant)
+-   `/api`: Backend API endpoints (Vercel serverless functions); shared helpers under `api/_lib/`
+-   `/supabase/migrations`: Database migrations (idempotent SQL); `supabase/schema.prisma` is the schema source of truth for Drizzle
+-   `/scripts`: Utility and migration scripts
+-   `client/index.html` + `api/render.js`: SSR for SEO/OG tag injection
+
+## Architecture decisions
+-   **Multi-tenancy:** Data isolation at GLOBAL / TENANT / ORGANIZATION / MEMBER levels via `tenant_id` and `organization_id`. The shared entity API hard-fails any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Identity:** Unified identity with per-tenant password isolation, Google OAuth, feature-based role management.
+-   **Email sending:** `api/_lib/emailService.js` resolves the sending domain off `tenantId` for tenant→member emails. **System emails** (platform→tenant-owner: admin reset, signup verification, team invite, billing notifications) MUST pass `systemEmail: true` (or use `sendSystemEmail()`); this forces both Mailgun domain AND From identity to `mail.${APP_DOMAIN}` / `noreply@mail.${APP_DOMAIN}`. System reset/verification links must point at `${APP_DOMAIN}/...` not a tenant subdomain.
+-   **Dynamic SEO:** SSR meta-tag injection per-tenant via `api/render.js`; per-page metadata resolved by `api/_lib/entityMeta.js`. Per-entity `seo_title` / `seo_description` / `og_image_url` overrides on events, blog posts, news, campaigns, resources, and directories (UI in `client/src/components/blog/SEOSettings.jsx`). `og:image` URLs on `vault.iconn.app` or `*.supabase.co` are proxied through `/api/og-image`.
+-   **Event deletion:** Multi-step cancellation flow (refunds, reinstatements, Zoom unregistration) before any data purge. Direct deletion of events is deprecated for UI flows.
+-   **Semantic `warning` color:** `--warning` / `--warning-foreground` CSS vars in `client/src/index.css` (both themes, WCAG-AA). Use `text-warning`, `bg-warning`, `<Badge variant="warning">`, `<Alert variant="warning">` instead of raw amber/yellow/orange palette classes.
+-   **Membership invoices:** `organisation_membership_history` / `member_membership_history` carry `payment_status` (`unpaid`/`paid`/`partial`/`voided`) + `paid_at`, separate from the lifecycle `status`. Accounting-sync failures flag the row `accounting_sync_status='failed'` (not swallowed) with a Retry button in `OrgMembershipTab.jsx`. Payment reconciliation cron `/api/cron/reconcile-membership-invoice-payments` (every 3h, `CRON_SECRET`-guarded) queries Xero/QBO and fires workflows on `unpaid -> paid` only. See `api/_lib/membershipPaymentReconciliation.js`, `api/_lib/accountingProvider.js`.
+-   **Tenant storage metering:** `tenant.storage_used_bytes` (BIGINT) drives `checkStorageQuota` (`api/_lib/planQuota.js`) and `/admin/plan-usage`. Maintained incrementally via `addTenantStorageBytes` (`api/_lib/tenantStorageUsage.js`). Can drift (signed-URL claimed size); re-baseline with `scripts/recompute-tenant-storage.mjs` or the nightly cron.
+-   **Paid-plan upgrade flow (`/admin/plan-usage` → Stripe Checkout):** `PlanUsage.jsx` → `api/admin/plan-checkout.js` (tenant-admin RBAC, uses PLATFORM `STRIPE_SECRET_KEY`, NOT tenant's connected Stripe). First-time creates a Checkout Session; existing live sub swaps price in place via `stripe.subscriptions.update` (proration, never a parallel sub). Webhook `api/webhooks/stripe-plan.js` upserts `tenant_subscription` and flips `tenant.plan_code` only when status is `active`/`trialing`; `subscription.deleted` reverts to `free`.
+-   **Self-serve signup & onboarding (`/signup` → wizard):** `signup-start.js` (captcha + rate limits + verification email) → `signup-verify.js` (`provisionTenant`, `free` plan) → 5-step `OnboardingWizard.jsx` → `POST /api/admin/onboarding` runs `api/_lib/onboardingSeeder.js` (branding + tiers + persona seed pack tagged `is_sample=true`). Legacy admins backfilled to `onboarding_status='complete'`.
+-   **Accessibility audits:** Admin page (RBAC `admin.accessibility-audits`) runs axe-core 4.10 via browserless.io for tenant public URLs. Results in `accessibility_audit` / `accessibility_audit_result`; endpoints under `/api/admin/accessibility-audits`; runner `api/_lib/browserlessAxe.js`. v1 limits: ≤10 URLs/run, http(s) only, no credentialed URLs.
+-   **AI Design Studio V1 (Canvas AI Composition):** generation via `api/ai-compositions/generate.js`; prompt-led editing via `api/ai-compositions/edit.js` (propose/accept/reject/undo + conversation history in `ai_composition_conversation`) and `api/ai-compositions/destinations.js` (record-ID link picker — the AI never invents internal URLs). Patch engine `api/_lib/aiCompositionPatch.js`, edit pipeline `api/_lib/aiCompositionEdit.js`. Accept re-applies the STORED proposal server-side against the current document; complete redesigns are saved as alternatives (`is_alternative`); protected-value changes (prices, dates, names) require explicit confirmation. Editor UI in `client/src/components/canvas/blocks/AiCompositionEditPanel.jsx`. V1 scene-graph compositions are now read-only w.r.t. the V2 pivot.
+-   **AI Design Studio V2 (native-code pivot):** V2 compositions are native AI HTML/CSS/SVG packages (document `schemaVersion "2.0"`, `ai_composition.renderer_version=2`), sanitised ONCE server-side at store time by `api/_lib/aiCodePipeline.js` (schema → jsdom+DOMPurify sanitise → manifest cross-check → postcss CSS scoping under `[data-ai-composition="<uuid>"]` → leak check; reject-don't-repair), rendered verbatim by `AiCodeCompositionBlock.jsx`; signed CSP-locked preview + Browserless screenshots via `api/ai-compositions/preview.js` (HMAC keyed by `AIC_PREVIEW_SECRET`/`CRON_SECRET`). **Page bodies:** `compositionType: "page_body"` runs a plan stage (content manifest + creative plan, anti-degenerate checks in `aiCodeGeneration.js`) before code gen; page gates forbid `<header>/<footer>/<nav>` recreation. **Actions** (`data-ai-action` + manifest, `api/_lib/aiCodeActions.js`) resolve server-side to real records — unresolved actions block page publish (409 `AI_UNRESOLVED_ACTIONS`; editor fix-up via `api/ai-compositions/resolve-action.js`). **Slots** (`data-iconnect-slot`, `api/_lib/aiCodeSlots.js`) portal trusted platform blocks into generated markup; never block publish. **Imagery:** the model never writes image URLs — `<img data-ai-asset="<key>">` placeholders declared in the package `assets` manifest, fulfilled server-side (`api/_lib/aiCodeAssets.js`, gpt-image-1 or media library, tenant-owned storage); only unfulfilled `required` assets hard-reject; image swap is a deterministic `replace-image` edit action. V1→V2 rebuild is admin-only via `api/ai-compositions/rebuild-v2.js` (never automatic). **Editing:** `api/ai-compositions/edit-v2.js` (propose/accept/reject/undo); proposals (element-scoped patches via `data-ai-id`, or full revisions saved as alternatives) stored in `ai_composition_conversation` and re-applied against the CURRENT document on accept (`api/_lib/aiCodeEdit.js`); protected values + locked `data-content-key` texts require confirmation; breakpoint-scoped edits must leave other breakpoints' CSS untouched; accepts introducing NEW critical accessibility issues are blocked (422 `AI_VALIDATION_CRITICAL`). Admin-only Composition Inspector via `GET /api/ai-compositions/:id?inspector=1` (404 to non-admins). Full details: `guides/ai-design-studio-v2-pivot.md`.
+-   **Member AI structured Q&A:** the member assistant answers count/aggregate questions from live records via a whitelisted query spec (LLM never writes SQL). Catalog + validation + executors in `api/_lib/memberAiStructured.js`; routing in `api/member-ai/ask.js`. Adding an entity/field: follow `guides/member-ai-structured-qa.md` (visibility mirrors the member browse surfaces; drift guard in `memberAiStructuredSchemaDrift.test.mjs`).
+
+## Gotchas
+-   **Vercel preview-domain ownership:** Project `vite-migrate-replit-6` serves this repository. Both `dev.iconn.app` and `*.dev.iconn.app` are verified Vercel project domains pinned to the `eventemb2` Git branch; tenant custom-domain actions must never attach, reclaim, or detach `iconn.app` or any of its subdomains.
+-   **`dev.iconn.app` = Vercel preview deployment** built from the `eventemb2` git branch of the same Vercel project as production. Shares the same Supabase. (a) Vercel's Functions → Logs viewer defaults to Production and hides Preview logs — switch the Environment filter to Preview. (b) A fix only reaches `dev.iconn.app` after the commit is on the `eventemb2` branch and that branch's preview build has finished.
+-   **`sendEmail()` never throws.** It catches Mailgun errors and returns `{ success: false, error, status, domain }`. Callers MUST inspect the return value; a bare `try { await sendEmail(...) } catch {}` will falsely report success on 401 / unverified domain / missing key. Canonical pattern: `api/auth/request-admin-password-reset.js`.
+-   **System emails MUST pass `systemEmail: true`** (or use `sendSystemEmail()`). Without it, a tenant with a verified custom sending domain would silently send admin reset / signup / billing emails from the tenant's own brand — wrong identity.
+-   **API hard-fails** any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Workflow `dd_owner` / `dd_owner_email` placeholders** resolve via `resolveDdOwnerForSubmission` (`api/_lib/ddOwner.js`) only when the trigger caller passes `context.formSubmissionId` to `triggerWorkflows`. Without submission context they collapse to empty strings.
+-   **No server-side length validation on `event.summary` / `complex_event.summary`** — relies on client-side `event_summary_max_length` system setting (default 150).
+
+## Product
+-   **Core:** Members, Events, Bookings, Resources, Blog.
+-   **Identity:** Unified login, multi-tenant ownership, organization memberships, granular access control.
+-   **Customization:** Page Builder, Custom Forms with conditional logic, Workflow Automation, per-tenant branding.
+-   **Financials:** Stripe membership payments, Xero/QBO invoicing, Fundraising with Gift Aid.
+-   **Comms:** Email templates, campaigns, member preferences.
+-   **Integrations:** WordPress Sync, Zoom (events/sessions), Zoho CRM sync.
+-   **Reporting:** Due Diligence Reports, configurable Member/Org Directories.
+-   **Community:** Tenant-scoped forums, Member Group email campaigns.
+
+## User preferences
+Preferred communication style: Simple, everyday language.
+
+## Pointers
+-   **React:** `https://react.dev/` · **Tailwind:** `https://tailwindcss.com/docs` · **Drizzle:** `https://orm.drizzle.team/docs/overview`
+-   **Vercel Functions:** `https://vercel.com/docs/functions/overview` · **Supabase:** `https://supabase.com/docs`
+-   **Stripe:** `https://stripe.com/docs/api` · **Mailgun:** `https://documentation.mailgun.com/en/latest/api_reference.html`
+# Membership Management Platform
+A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
+
+## Run & Operate
+-   **Run Dev Server:** `npm run dev`
+-   **Build:** `npm run build` · **Typecheck:** `npm run typecheck` · **Codegen:** `npm run codegen`
+-   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — only works from environments with IPv6 outbound; **not from this Replit workspace** (see "Database connection").
+-   **Migrations:** every `.sql` in `supabase/migrations/` is idempotent and applied against `DEST_DATABASE_URL` (pooler). Most migrations have a matching `node scripts/apply-*.mjs` runner; check `scripts/` before applying anything by hand.
+-   **One-off scripts (backfills, CSV imports, tenant seeds):** live in `scripts/` (e.g. `recompute-tenant-storage.mjs`, `backfill-*.mjs`, `import-*.mjs`, `seed-*.mjs`). They are idempotent, default to dry-run unless an `--apply` flag is passed, and many are hard-pinned to a single tenant. Read the script header before running; each documents its own flags and scope.
+-   **Storage usage reconcile:** `node scripts/recompute-tenant-storage.mjs [--dry-run] [--tenant=<uuid>]`, or trust the nightly cron at `/api/cron/recompute-tenant-storage` (03:00 UTC, `CRON_SECRET`-guarded).
+
+## Database connection (read this before any DB work from this workspace)
+There are two Supabase projects this codebase talks to:
+
+| Role | What it is | URL secret | Postgres URL secret | Service-role key secret |
+| ---- | ---------- | ---------- | ------------------- | ----------------------- |
+| **Destination (current prod)** | Multi-tenant iConnect DB | `DEST_SUPABASE_URL` (`https://lvmzliemqnieeoruhkik.supabase.co`) | `DEST_DATABASE_URL` | `DEST_SUPABASE_KEY` |
+| **Source (legacy)** | Pre-multi-tenancy single-tenant snapshot, used by migration scripts | `SOURCE_SUPABASE_URL` | `SOURCE_DATABASE_URL` | `SOURCE_SUPABASE_KEY` |
+
+**The Supabase direct host (`db.<project>.supabase.co`) is unreachable from this Replit workspace** — it publishes only IPv6 (AAAA) DNS and the Replit container has no IPv6 outbound route, so `psql`, `execute_sql_tool`, `drizzle-kit push`, and any raw `pg`/Drizzle client pointed at the direct host fail with `ENOTFOUND` / `ENETUNREACH`. Those tools work from Vercel functions, the user's laptop, and CI — just not from here against the direct host.
+
+**The Supabase Pooler hostname IS IPv4-reachable from this workspace** (`aws-1-eu-central-1.pooler.supabase.com:5432`, which is what `DEST_DATABASE_URL` already points to). `pg` clients using `DEST_DATABASE_URL` (transaction-pooler mode) work from Replit for read/write queries and DDL such as `CREATE INDEX`. Prefer `@supabase/supabase-js` for ordinary CRUD (REST endpoint is also IPv4-reachable, more ergonomic); reach for `pg` via `DEST_DATABASE_URL` only when you need raw SQL / DDL the REST API can't do.
+
+For any DB access from this workspace (scripts, ad-hoc debugging, one-off data fixes), use **`@supabase/supabase-js`** with the service-role key. Working reference: `scripts/debug-tenant.mjs`.
+
+```js
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(
+  process.env.DEST_SUPABASE_URL,
+  process.env.DEST_SUPABASE_KEY
+);
+```
+
+Quick one-off from bash (env vars ARE available in the shell):
+
+```bash
+node -e "
+const { createClient } = require('@supabase/supabase-js');
+const sb = createClient(process.env.DEST_SUPABASE_URL, process.env.DEST_SUPABASE_KEY, { auth: { persistSession: false } });
+(async () => {
+  const { data, error } = await sb.from('tenant').select('id, slug, name').limit(5);
+  console.log({ data, error });
+})();
+"
+```
+
+## Testing
+-   **AI assistant tests** (registered as the `ai-assistant-tests` validation step, runs automatically on task completion): `node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/aiCompositionRender.test.mjs` — member-AI visibility (security boundary), ranking, indexer, help-chunker, dashboard aggregation/LMIC operators, Canvas auto-height bake guards, `useAutoHeightBake` runtime gates (jsdom), and Canvas auto reading-order suites.
+-   **GoCardless tests:** `node --test api/_lib/gocardless*.test.mjs` — webhook signature/idempotency/status-transition suites, per-tenant credential resolution (tenant_integrations → env fallback, env/token mismatch guards), org DD billing-contact invitations (token format, expiry clamp 1-90 via `dd_invite_expiry_days`, validate/supersede/single-use/revoke, recipient dedupe), Phase 5 renewal decisions (`gocardlessDdRenewals.test.mjs`), and migration invite/funnel (`gocardlessDdMigration.test.mjs`).
+-   **GoCardless sandbox proof:** `node scripts/gocardless-sandbox-proof.mjs [runId]` — billing request + hosted flow creation and idempotent-retry behaviour against the GC sandbox (requires `GOCARDLESS_ACCESS_TOKEN`; refuses to run against live).
+-   **Pending-PO report tests:** `node --test api/_lib/pendingPoInvoice.test.mjs` — PO reference extraction/blacklist and cross-record membership PO propagation helpers.
+
+## Env vars (current canonical set)
+Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPABASE_*` names; prefer the `DEST_*` names below for new code.
+
+| Var | Purpose |
+| --- | ------- |
+| `DEST_SUPABASE_URL` / `DEST_SUPABASE_KEY` / `DEST_DATABASE_URL` | Destination (prod) Supabase. See "Database connection". |
+| `SOURCE_SUPABASE_URL` / `SOURCE_SUPABASE_KEY` / `SOURCE_DATABASE_URL` | Legacy single-tenant snapshot — only used by migration scripts. |
+| `DATABASE_URL` | Direct host (IPv6 only) — used by Vercel / Drizzle push, not this workspace. |
+| `MAILGUN_API_KEY`, `MAILGUN_REGION` (default `eu`), `MAILGUN_FROM_EMAIL`, `APP_DOMAIN` (default `iconn.app`) | Email sending. `MAILGUN_FROM_EMAIL` is the non-system default From; system emails are pinned to `noreply@mail.${APP_DOMAIN}` regardless. |
+| `STRIPE_SECRET_KEY` | Tenant Stripe AND platform-side paid-plan upgrade Checkout. |
+| `STRIPE_PLAN_WEBHOOK_SECRET` | Verifies `/api/webhooks/stripe-plan` from the platform Stripe account. Configure dashboard to deliver `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
+| `GOCARDLESS_ENVIRONMENT` | `sandbox` (default) or `live`. Platform-level FALLBACK only — tenants connect their own GoCardless account via `tenant_integrations` (`integration_type='gocardless'`, resolved by `api/_lib/gocardlessCredentials.js`). |
+| `GOCARDLESS_ACCESS_TOKEN` | Platform-fallback GoCardless API access token (sandbox tokens start `sandbox_`, live `live_`; env/token mismatch is rejected at call time). |
+| `GOCARDLESS_WEBHOOK_SECRET` | Platform-fallback secret verifying `Webhook-Signature` (HMAC-SHA256 of raw body) on `/api/webhooks/gocardless`. Tenant-connected accounts register the URL with `?tenant=<uuid>` and are verified against their own stored secret. |
+| `GOCARDLESS_REDIRECT_BASE_URL` | Base URL for Billing Request Flow redirect/exit URIs (e.g. `https://iconn.app`). |
+| `GOCARDLESS_CREDITOR_ID` (opt) | Pins billing requests to one creditor on multi-creditor GC accounts. |
+| `GOOGLE_FONTS_API_KEY` | Server-side key for the Google Fonts Developer API. Powers live font search in the `/InstalledFonts` add dialog via `api/public/google-fonts.js`. If unset, the picker falls back to the curated `POPULAR_GOOGLE_FONTS` list. |
+| `XERO_CLIENT_ID` | Xero OAuth. |
+| `QUICKBOOKS_REDIRECT_URI` (opt) | Overrides default `${origin}/api/quickbooks/callback` for stable QBO OAuth redirect. |
+| `BROWSERLESS_API_TOKEN`, `BROWSERLESS_BASE_URL` (opt), `BROWSERLESS_AUDIT_TIMEOUT_MS` (opt) | Accessibility audits via browserless.io. |
+| `VITE_APP_URL` | Frontend-known app URL. |
+| `CAPTCHA_PROVIDER`, `CAPTCHA_SECRET_KEY` (opt) | Self-serve signup captcha (hCaptcha/Turnstile/reCAPTCHA). Bypassed when not production. |
+| `SIGNUP_RATE_IP_PER_HOUR`, `SIGNUP_RATE_EMAIL_PER_DAY` (opt) | Self-serve signup rate limits. |
+| `CRON_SECRET` | Guards all `/api/cron/*` endpoints. |
+| `ICONNECT_HEALTH_CHECK_TOKEN` | Required secret for `/api/health`; Better Stack must send it as the `X-Health-Token` request header. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_RENEWALS_URL` | Optional Better Stack heartbeat URL for membership renewals. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for membership-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_GOCARDLESS_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for GoCardless reconciliation. |
+| `BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for Stripe card-plan reconciliation. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL` | Optional Better Stack heartbeat URL for scheduled workflows. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL` | Optional Better Stack heartbeat URL for scheduled campaigns. |
+| `BETTERSTACK_HEARTBEAT_DATABASE_BACKUP_URL` | Optional Better Stack heartbeat URL for database backup to R2. |
+| `BETTERSTACK_HEARTBEAT_STORAGE_BACKUP_URL` | Optional Better Stack heartbeat URL for storage backup to R2. |
+| `BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for form-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_AUTOMATIC_MEMBERSHIP_PROCESSING_URL` | Optional Better Stack heartbeat URL for automatic membership processing. |
+| `ENABLE_RESET_DEBUG` (opt, `'true'`) | Temporary diagnostic: `/api/auth/request-admin-password-reset` returns a `debug` field (`no_identity`/`no_owner_membership`/`email_failed`/`sent`). Leave unset in normal operation so account existence is not disclosed. |
+| `R2_ACCOUNT_ID` | Cloudflare account ID — builds the R2 endpoint URL (`https://<id>.r2.cloudflarestorage.com`). Set this **or** `R2_ENDPOINT`. Vercel secret. |
+| `R2_ENDPOINT` (opt) | Full R2 endpoint URL override, instead of `R2_ACCOUNT_ID`. |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | R2 API token credentials + target bucket for backups. Vercel secrets. |
+| `DB_BACKUP_SCHEMAS` (opt) | Comma-separated Postgres schemas in the nightly DB dump (default: `public`). Supabase internal schemas (`auth`, `storage`, `realtime`, …) are intentionally excluded — Supabase manages them. |
+
+### External health monitoring
+
+Create a Better Stack HTTP monitor for `GET /api/health`. In the monitor's
+request headers, configure `X-Health-Token` to the same secret held in the
+Vercel `ICONNECT_HEALTH_CHECK_TOKEN` environment variable. The endpoint is
+intentionally unauthorised only by that header and returns no dependency detail
+when the header is missing or invalid.
+
+The ten `BETTERSTACK_HEARTBEAT_*_URL` variables are independently optional
+and apply only to the ten selected production schedules. The application
+derives Better Stack's `/fail` target from each configured success URL; store
+only the success URL in Vercel Production. See
+`guides/better-stack-cron-heartbeats.md` for the setup matrix and the complete
+30-schedule coverage inventory.
+Set each Vercel value to the matching Better Stack heartbeat URL for only the
+scheduled job you wish to monitor. The job sends a success URL after a clean
+run and Better Stack's `/fail` URL for a failed run; delivery failures never
+change the job's response or retry behaviour.
+
+## Stack & where things live
+-   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS
+-   **Backend:** Express.js (dev) / Vercel serverless functions (prod), PostgreSQL, Drizzle ORM
+-   `/client`: Frontend source (`client/src/design-system` = custom "new-york" shadcn variant)
+-   `/api`: Backend API endpoints (Vercel serverless functions); shared helpers under `api/_lib/`
+-   `/supabase/migrations`: Database migrations (idempotent SQL); `supabase/schema.prisma` is the schema source of truth for Drizzle
+-   `/scripts`: Utility and migration scripts
+-   `client/index.html` + `api/render.js`: SSR for SEO/OG tag injection
+
+## Architecture decisions
+-   **Multi-tenancy:** Data isolation at GLOBAL / TENANT / ORGANIZATION / MEMBER levels via `tenant_id` and `organization_id`. The shared entity API hard-fails any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Identity:** Unified identity with per-tenant password isolation, Google OAuth, feature-based role management.
+-   **Email sending:** `api/_lib/emailService.js` resolves the sending domain off `tenantId` for tenant→member emails. **System emails** (platform→tenant-owner: admin reset, signup verification, team invite, billing notifications) MUST pass `systemEmail: true` (or use `sendSystemEmail()`); this forces both Mailgun domain AND From identity to `mail.${APP_DOMAIN}` / `noreply@mail.${APP_DOMAIN}`. System reset/verification links must point at `${APP_DOMAIN}/...` not a tenant subdomain.
+-   **Dynamic SEO:** SSR meta-tag injection per-tenant via `api/render.js`; per-page metadata resolved by `api/_lib/entityMeta.js`. Per-entity `seo_title` / `seo_description` / `og_image_url` overrides on events, blog posts, news, campaigns, resources, and directories (UI in `client/src/components/blog/SEOSettings.jsx`). `og:image` URLs on `vault.iconn.app` or `*.supabase.co` are proxied through `/api/og-image`.
+-   **Event deletion:** Multi-step cancellation flow (refunds, reinstatements, Zoom unregistration) before any data purge. Direct deletion of events is deprecated for UI flows.
+-   **Semantic `warning` color:** `--warning` / `--warning-foreground` CSS vars in `client/src/index.css` (both themes, WCAG-AA). Use `text-warning`, `bg-warning`, `<Badge variant="warning">`, `<Alert variant="warning">` instead of raw amber/yellow/orange palette classes.
+-   **Membership invoices:** `organisation_membership_history` / `member_membership_history` carry `payment_status` (`unpaid`/`paid`/`partial`/`voided`) + `paid_at`, separate from the lifecycle `status`. Accounting-sync failures flag the row `accounting_sync_status='failed'` (not swallowed) with a Retry button in `OrgMembershipTab.jsx`. Payment reconciliation cron `/api/cron/reconcile-membership-invoice-payments` (every 3h, `CRON_SECRET`-guarded) queries Xero/QBO and fires workflows on `unpaid -> paid` only. See `api/_lib/membershipPaymentReconciliation.js`, `api/_lib/accountingProvider.js`.
+-   **Tenant storage metering:** `tenant.storage_used_bytes` (BIGINT) drives `checkStorageQuota` (`api/_lib/planQuota.js`) and `/admin/plan-usage`. Maintained incrementally via `addTenantStorageBytes` (`api/_lib/tenantStorageUsage.js`). Can drift (signed-URL claimed size); re-baseline with `scripts/recompute-tenant-storage.mjs` or the nightly cron.
+-   **Paid-plan upgrade flow (`/admin/plan-usage` → Stripe Checkout):** `PlanUsage.jsx` → `api/admin/plan-checkout.js` (tenant-admin RBAC, uses PLATFORM `STRIPE_SECRET_KEY`, NOT tenant's connected Stripe). First-time creates a Checkout Session; existing live sub swaps price in place via `stripe.subscriptions.update` (proration, never a parallel sub). Webhook `api/webhooks/stripe-plan.js` upserts `tenant_subscription` and flips `tenant.plan_code` only when status is `active`/`trialing`; `subscription.deleted` reverts to `free`.
+-   **Self-serve signup & onboarding (`/signup` → wizard):** `signup-start.js` (captcha + rate limits + verification email) → `signup-verify.js` (`provisionTenant`, `free` plan) → 5-step `OnboardingWizard.jsx` → `POST /api/admin/onboarding` runs `api/_lib/onboardingSeeder.js` (branding + tiers + persona seed pack tagged `is_sample=true`). Legacy admins backfilled to `onboarding_status='complete'`.
+-   **Accessibility audits:** Admin page (RBAC `admin.accessibility-audits`) runs axe-core 4.10 via browserless.io for tenant public URLs. Results in `accessibility_audit` / `accessibility_audit_result`; endpoints under `/api/admin/accessibility-audits`; runner `api/_lib/browserlessAxe.js`. v1 limits: ≤10 URLs/run, http(s) only, no credentialed URLs.
+-   **AI Design Studio V1 (Canvas AI Composition):** generation via `api/ai-compositions/generate.js`; prompt-led editing via `api/ai-compositions/edit.js` (propose/accept/reject/undo + conversation history in `ai_composition_conversation`) and `api/ai-compositions/destinations.js` (record-ID link picker — the AI never invents internal URLs). Patch engine `api/_lib/aiCompositionPatch.js`, edit pipeline `api/_lib/aiCompositionEdit.js`. Accept re-applies the STORED proposal server-side against the current document; complete redesigns are saved as alternatives (`is_alternative`); protected-value changes (prices, dates, names) require explicit confirmation. Editor UI in `client/src/components/canvas/blocks/AiCompositionEditPanel.jsx`. V1 scene-graph compositions are now read-only w.r.t. the V2 pivot.
+-   **AI Design Studio V2 (native-code pivot):** V2 compositions are native AI HTML/CSS/SVG packages (document `schemaVersion "2.0"`, `ai_composition.renderer_version=2`), sanitised ONCE server-side at store time by `api/_lib/aiCodePipeline.js` (schema → jsdom+DOMPurify sanitise → manifest cross-check → postcss CSS scoping under `[data-ai-composition="<uuid>"]` → leak check; reject-don't-repair), rendered verbatim by `AiCodeCompositionBlock.jsx`; signed CSP-locked preview + Browserless screenshots via `api/ai-compositions/preview.js` (HMAC keyed by `AIC_PREVIEW_SECRET`/`CRON_SECRET`). **Page bodies:** `compositionType: "page_body"` runs a plan stage (content manifest + creative plan, anti-degenerate checks in `aiCodeGeneration.js`) before code gen; page gates forbid `<header>/<footer>/<nav>` recreation. **Actions** (`data-ai-action` + manifest, `api/_lib/aiCodeActions.js`) resolve server-side to real records — unresolved actions block page publish (409 `AI_UNRESOLVED_ACTIONS`; editor fix-up via `api/ai-compositions/resolve-action.js`). **Slots** (`data-iconnect-slot`, `api/_lib/aiCodeSlots.js`) portal trusted platform blocks into generated markup; never block publish. **Imagery:** the model never writes image URLs — `<img data-ai-asset="<key>">` placeholders declared in the package `assets` manifest, fulfilled server-side (`api/_lib/aiCodeAssets.js`, gpt-image-1 or media library, tenant-owned storage); only unfulfilled `required` assets hard-reject; image swap is a deterministic `replace-image` edit action. V1→V2 rebuild is admin-only via `api/ai-compositions/rebuild-v2.js` (never automatic). **Editing:** `api/ai-compositions/edit-v2.js` (propose/accept/reject/undo); proposals (element-scoped patches via `data-ai-id`, or full revisions saved as alternatives) stored in `ai_composition_conversation` and re-applied against the CURRENT document on accept (`api/_lib/aiCodeEdit.js`); protected values + locked `data-content-key` texts require confirmation; breakpoint-scoped edits must leave other breakpoints' CSS untouched; accepts introducing NEW critical accessibility issues are blocked (422 `AI_VALIDATION_CRITICAL`). Admin-only Composition Inspector via `GET /api/ai-compositions/:id?inspector=1` (404 to non-admins). Full details: `guides/ai-design-studio-v2-pivot.md`.
+-   **Member AI structured Q&A:** the member assistant answers count/aggregate questions from live records via a whitelisted query spec (LLM never writes SQL). Catalog + validation + executors in `api/_lib/memberAiStructured.js`; routing in `api/member-ai/ask.js`. Adding an entity/field: follow `guides/member-ai-structured-qa.md` (visibility mirrors the member browse surfaces; drift guard in `memberAiStructuredSchemaDrift.test.mjs`).
+
+## Gotchas
+-   **Vercel preview-domain ownership:** Project `vite-migrate-replit-6` serves this repository. Both `dev.iconn.app` and `*.dev.iconn.app` are verified Vercel project domains pinned to the `eventemb2` Git branch; tenant custom-domain actions must never attach, reclaim, or detach `iconn.app` or any of its subdomains.
+-   **`dev.iconn.app` = Vercel preview deployment** built from the `eventemb2` git branch of the same Vercel project as production. Shares the same Supabase. (a) Vercel's Functions → Logs viewer defaults to Production and hides Preview logs — switch the Environment filter to Preview. (b) A fix only reaches `dev.iconn.app` after the commit is on the `eventemb2` branch and that branch's preview build has finished.
+-   **`sendEmail()` never throws.** It catches Mailgun errors and returns `{ success: false, error, status, domain }`. Callers MUST inspect the return value; a bare `try { await sendEmail(...) } catch {}` will falsely report success on 401 / unverified domain / missing key. Canonical pattern: `api/auth/request-admin-password-reset.js`.
+-   **System emails MUST pass `systemEmail: true`** (or use `sendSystemEmail()`). Without it, a tenant with a verified custom sending domain would silently send admin reset / signup / billing emails from the tenant's own brand — wrong identity.
+-   **API hard-fails** any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Workflow `dd_owner` / `dd_owner_email` placeholders** resolve via `resolveDdOwnerForSubmission` (`api/_lib/ddOwner.js`) only when the trigger caller passes `context.formSubmissionId` to `triggerWorkflows`. Without submission context they collapse to empty strings.
+-   **No server-side length validation on `event.summary` / `complex_event.summary`** — relies on client-side `event_summary_max_length` system setting (default 150).
+
+## Product
+-   **Core:** Members, Events, Bookings, Resources, Blog.
+-   **Identity:** Unified login, multi-tenant ownership, organization memberships, granular access control.
+-   **Customization:** Page Builder, Custom Forms with conditional logic, Workflow Automation, per-tenant branding.
+-   **Financials:** Stripe membership payments, Xero/QBO invoicing, Fundraising with Gift Aid.
+-   **Comms:** Email templates, campaigns, member preferences.
+-   **Integrations:** WordPress Sync, Zoom (events/sessions), Zoho CRM sync.
+-   **Reporting:** Due Diligence Reports, configurable Member/Org Directories.
+-   **Community:** Tenant-scoped forums, Member Group email campaigns.
+
+## User preferences
+Preferred communication style: Simple, everyday language.
+
+## Pointers
+-   **React:** `https://react.dev/` · **Tailwind:** `https://tailwindcss.com/docs` · **Drizzle:** `https://orm.drizzle.team/docs/overview`
+-   **Vercel Functions:** `https://vercel.com/docs/functions/overview` · **Supabase:** `https://supabase.com/docs`
+-   **Stripe:** `https://stripe.com/docs/api` · **Mailgun:** `https://documentation.mailgun.com/en/latest/api_reference.html`
+# Membership Management Platform
+A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
+
+## Run & Operate
+-   **Run Dev Server:** `npm run dev`
+-   **Build:** `npm run build` · **Typecheck:** `npm run typecheck` · **Codegen:** `npm run codegen`
+-   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — only works from environments with IPv6 outbound; **not from this Replit workspace** (see "Database connection").
+-   **Migrations:** every `.sql` in `supabase/migrations/` is idempotent and applied against `DEST_DATABASE_URL` (pooler). Most migrations have a matching `node scripts/apply-*.mjs` runner; check `scripts/` before applying anything by hand.
+-   **One-off scripts (backfills, CSV imports, tenant seeds):** live in `scripts/` (e.g. `recompute-tenant-storage.mjs`, `backfill-*.mjs`, `import-*.mjs`, `seed-*.mjs`). They are idempotent, default to dry-run unless an `--apply` flag is passed, and many are hard-pinned to a single tenant. Read the script header before running; each documents its own flags and scope.
+-   **Storage usage reconcile:** `node scripts/recompute-tenant-storage.mjs [--dry-run] [--tenant=<uuid>]`, or trust the nightly cron at `/api/cron/recompute-tenant-storage` (03:00 UTC, `CRON_SECRET`-guarded).
+
+## Database connection (read this before any DB work from this workspace)
+There are two Supabase projects this codebase talks to:
+
+| Role | What it is | URL secret | Postgres URL secret | Service-role key secret |
+| ---- | ---------- | ---------- | ------------------- | ----------------------- |
+| **Destination (current prod)** | Multi-tenant iConnect DB | `DEST_SUPABASE_URL` (`https://lvmzliemqnieeoruhkik.supabase.co`) | `DEST_DATABASE_URL` | `DEST_SUPABASE_KEY` |
+| **Source (legacy)** | Pre-multi-tenancy single-tenant snapshot, used by migration scripts | `SOURCE_SUPABASE_URL` | `SOURCE_DATABASE_URL` | `SOURCE_SUPABASE_KEY` |
+
+**The Supabase direct host (`db.<project>.supabase.co`) is unreachable from this Replit workspace** — it publishes only IPv6 (AAAA) DNS and the Replit container has no IPv6 outbound route, so `psql`, `execute_sql_tool`, `drizzle-kit push`, and any raw `pg`/Drizzle client pointed at the direct host fail with `ENOTFOUND` / `ENETUNREACH`. Those tools work from Vercel functions, the user's laptop, and CI — just not from here against the direct host.
+
+**The Supabase Pooler hostname IS IPv4-reachable from this workspace** (`aws-1-eu-central-1.pooler.supabase.com:5432`, which is what `DEST_DATABASE_URL` already points to). `pg` clients using `DEST_DATABASE_URL` (transaction-pooler mode) work from Replit for read/write queries and DDL such as `CREATE INDEX`. Prefer `@supabase/supabase-js` for ordinary CRUD (REST endpoint is also IPv4-reachable, more ergonomic); reach for `pg` via `DEST_DATABASE_URL` only when you need raw SQL / DDL the REST API can't do.
+
+For any DB access from this workspace (scripts, ad-hoc debugging, one-off data fixes), use **`@supabase/supabase-js`** with the service-role key. Working reference: `scripts/debug-tenant.mjs`.
+
+```js
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(
+  process.env.DEST_SUPABASE_URL,
+  process.env.DEST_SUPABASE_KEY
+);
+```
+
+Quick one-off from bash (env vars ARE available in the shell):
+
+```bash
+node -e "
+const { createClient } = require('@supabase/supabase-js');
+const sb = createClient(process.env.DEST_SUPABASE_URL, process.env.DEST_SUPABASE_KEY, { auth: { persistSession: false } });
+(async () => {
+  const { data, error } = await sb.from('tenant').select('id, slug, name').limit(5);
+  console.log({ data, error });
+})();
+"
+```
+
+## Testing
+-   **AI assistant tests** (registered as the `ai-assistant-tests` validation step, runs automatically on task completion): `node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/aiCompositionRender.test.mjs` — member-AI visibility (security boundary), ranking, indexer, help-chunker, dashboard aggregation/LMIC operators, Canvas auto-height bake guards, `useAutoHeightBake` runtime gates (jsdom), and Canvas auto reading-order suites.
+-   **GoCardless tests:** `node --test api/_lib/gocardless*.test.mjs` — webhook signature/idempotency/status-transition suites, per-tenant credential resolution (tenant_integrations → env fallback, env/token mismatch guards), org DD billing-contact invitations (token format, expiry clamp 1-90 via `dd_invite_expiry_days`, validate/supersede/single-use/revoke, recipient dedupe), Phase 5 renewal decisions (`gocardlessDdRenewals.test.mjs`), and migration invite/funnel (`gocardlessDdMigration.test.mjs`).
+-   **GoCardless sandbox proof:** `node scripts/gocardless-sandbox-proof.mjs [runId]` — billing request + hosted flow creation and idempotent-retry behaviour against the GC sandbox (requires `GOCARDLESS_ACCESS_TOKEN`; refuses to run against live).
+-   **Pending-PO report tests:** `node --test api/_lib/pendingPoInvoice.test.mjs` — PO reference extraction/blacklist and cross-record membership PO propagation helpers.
+
+## Env vars (current canonical set)
+Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPABASE_*` names; prefer the `DEST_*` names below for new code.
+
+| Var | Purpose |
+| --- | ------- |
+| `DEST_SUPABASE_URL` / `DEST_SUPABASE_KEY` / `DEST_DATABASE_URL` | Destination (prod) Supabase. See "Database connection". |
+| `SOURCE_SUPABASE_URL` / `SOURCE_SUPABASE_KEY` / `SOURCE_DATABASE_URL` | Legacy single-tenant snapshot — only used by migration scripts. |
+| `DATABASE_URL` | Direct host (IPv6 only) — used by Vercel / Drizzle push, not this workspace. |
+| `MAILGUN_API_KEY`, `MAILGUN_REGION` (default `eu`), `MAILGUN_FROM_EMAIL`, `APP_DOMAIN` (default `iconn.app`) | Email sending. `MAILGUN_FROM_EMAIL` is the non-system default From; system emails are pinned to `noreply@mail.${APP_DOMAIN}` regardless. |
+| `STRIPE_SECRET_KEY` | Tenant Stripe AND platform-side paid-plan upgrade Checkout. |
+| `STRIPE_PLAN_WEBHOOK_SECRET` | Verifies `/api/webhooks/stripe-plan` from the platform Stripe account. Configure dashboard to deliver `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
+| `GOCARDLESS_ENVIRONMENT` | `sandbox` (default) or `live`. Platform-level FALLBACK only — tenants connect their own GoCardless account via `tenant_integrations` (`integration_type='gocardless'`, resolved by `api/_lib/gocardlessCredentials.js`). |
+| `GOCARDLESS_ACCESS_TOKEN` | Platform-fallback GoCardless API access token (sandbox tokens start `sandbox_`, live `live_`; env/token mismatch is rejected at call time). |
+| `GOCARDLESS_WEBHOOK_SECRET` | Platform-fallback secret verifying `Webhook-Signature` (HMAC-SHA256 of raw body) on `/api/webhooks/gocardless`. Tenant-connected accounts register the URL with `?tenant=<uuid>` and are verified against their own stored secret. |
+| `GOCARDLESS_REDIRECT_BASE_URL` | Base URL for Billing Request Flow redirect/exit URIs (e.g. `https://iconn.app`). |
+| `GOCARDLESS_CREDITOR_ID` (opt) | Pins billing requests to one creditor on multi-creditor GC accounts. |
+| `GOOGLE_FONTS_API_KEY` | Server-side key for the Google Fonts Developer API. Powers live font search in the `/InstalledFonts` add dialog via `api/public/google-fonts.js`. If unset, the picker falls back to the curated `POPULAR_GOOGLE_FONTS` list. |
+| `XERO_CLIENT_ID` | Xero OAuth. |
+| `QUICKBOOKS_REDIRECT_URI` (opt) | Overrides default `${origin}/api/quickbooks/callback` for stable QBO OAuth redirect. |
+| `BROWSERLESS_API_TOKEN`, `BROWSERLESS_BASE_URL` (opt), `BROWSERLESS_AUDIT_TIMEOUT_MS` (opt) | Accessibility audits via browserless.io. |
+| `VITE_APP_URL` | Frontend-known app URL. |
+| `CAPTCHA_PROVIDER`, `CAPTCHA_SECRET_KEY` (opt) | Self-serve signup captcha (hCaptcha/Turnstile/reCAPTCHA). Bypassed when not production. |
+| `SIGNUP_RATE_IP_PER_HOUR`, `SIGNUP_RATE_EMAIL_PER_DAY` (opt) | Self-serve signup rate limits. |
+| `CRON_SECRET` | Guards all `/api/cron/*` endpoints. |
+| `ICONNECT_HEALTH_CHECK_TOKEN` | Required secret for `/api/health`; Better Stack must send it as the `X-Health-Token` request header. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_RENEWALS_URL` | Optional Better Stack heartbeat URL for membership renewals. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for membership-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_GOCARDLESS_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for GoCardless reconciliation. |
+| `BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for Stripe card-plan reconciliation. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL` | Optional Better Stack heartbeat URL for scheduled workflows. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL` | Optional Better Stack heartbeat URL for scheduled campaigns. |
+| `BETTERSTACK_HEARTBEAT_DATABASE_BACKUP_URL` | Optional Better Stack heartbeat URL for database backup to R2. |
+| `BETTERSTACK_HEARTBEAT_STORAGE_BACKUP_URL` | Optional Better Stack heartbeat URL for storage backup to R2. |
+| `BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for form-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_AUTOMATIC_MEMBERSHIP_PROCESSING_URL` | Optional Better Stack heartbeat URL for automatic membership processing. |
+| `ENABLE_RESET_DEBUG` (opt, `'true'`) | Temporary diagnostic: `/api/auth/request-admin-password-reset` returns a `debug` field (`no_identity`/`no_owner_membership`/`email_failed`/`sent`). Leave unset in normal operation so account existence is not disclosed. |
+| `R2_ACCOUNT_ID` | Cloudflare account ID — builds the R2 endpoint URL (`https://<id>.r2.cloudflarestorage.com`). Set this **or** `R2_ENDPOINT`. Vercel secret. |
+| `R2_ENDPOINT` (opt) | Full R2 endpoint URL override, instead of `R2_ACCOUNT_ID`. |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | R2 API token credentials + target bucket for backups. Vercel secrets. |
+| `DB_BACKUP_SCHEMAS` (opt) | Comma-separated Postgres schemas in the nightly DB dump (default: `public`). Supabase internal schemas (`auth`, `storage`, `realtime`, …) are intentionally excluded — Supabase manages them. |
+
+### External health monitoring
+
+Create a Better Stack HTTP monitor for `GET /api/health`. In the monitor's
+request headers, configure `X-Health-Token` to the same secret held in the
+Vercel `ICONNECT_HEALTH_CHECK_TOKEN` environment variable. The endpoint is
+intentionally unauthorised only by that header and returns no dependency detail
+when the header is missing or invalid.
+
+The ten `BETTERSTACK_HEARTBEAT_*_URL` variables are independently optional
+and apply only to the ten selected production schedules. The application
+derives Better Stack's `/fail` target from each configured success URL; store
+only the success URL in Vercel Production. See
+`guides/better-stack-cron-heartbeats.md` for the setup matrix and the complete
+30-schedule coverage inventory.
+Set each Vercel value to the matching Better Stack heartbeat URL for only the
+scheduled job you wish to monitor. The job sends a success URL after a clean
+run and Better Stack's `/fail` URL for a failed run; delivery failures never
+change the job's response or retry behaviour.
+
+## Stack & where things live
+-   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS
+-   **Backend:** Express.js (dev) / Vercel serverless functions (prod), PostgreSQL, Drizzle ORM
+-   `/client`: Frontend source (`client/src/design-system` = custom "new-york" shadcn variant)
+-   `/api`: Backend API endpoints (Vercel serverless functions); shared helpers under `api/_lib/`
+-   `/supabase/migrations`: Database migrations (idempotent SQL); `supabase/schema.prisma` is the schema source of truth for Drizzle
+-   `/scripts`: Utility and migration scripts
+-   `client/index.html` + `api/render.js`: SSR for SEO/OG tag injection
+
+## Architecture decisions
+-   **Multi-tenancy:** Data isolation at GLOBAL / TENANT / ORGANIZATION / MEMBER levels via `tenant_id` and `organization_id`. The shared entity API hard-fails any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Identity:** Unified identity with per-tenant password isolation, Google OAuth, feature-based role management.
+-   **Email sending:** `api/_lib/emailService.js` resolves the sending domain off `tenantId` for tenant→member emails. **System emails** (platform→tenant-owner: admin reset, signup verification, team invite, billing notifications) MUST pass `systemEmail: true` (or use `sendSystemEmail()`); this forces both Mailgun domain AND From identity to `mail.${APP_DOMAIN}` / `noreply@mail.${APP_DOMAIN}`. System reset/verification links must point at `${APP_DOMAIN}/...` not a tenant subdomain.
+-   **Dynamic SEO:** SSR meta-tag injection per-tenant via `api/render.js`; per-page metadata resolved by `api/_lib/entityMeta.js`. Per-entity `seo_title` / `seo_description` / `og_image_url` overrides on events, blog posts, news, campaigns, resources, and directories (UI in `client/src/components/blog/SEOSettings.jsx`). `og:image` URLs on `vault.iconn.app` or `*.supabase.co` are proxied through `/api/og-image`.
+-   **Event deletion:** Multi-step cancellation flow (refunds, reinstatements, Zoom unregistration) before any data purge. Direct deletion of events is deprecated for UI flows.
+-   **Semantic `warning` color:** `--warning` / `--warning-foreground` CSS vars in `client/src/index.css` (both themes, WCAG-AA). Use `text-warning`, `bg-warning`, `<Badge variant="warning">`, `<Alert variant="warning">` instead of raw amber/yellow/orange palette classes.
+-   **Membership invoices:** `organisation_membership_history` / `member_membership_history` carry `payment_status` (`unpaid`/`paid`/`partial`/`voided`) + `paid_at`, separate from the lifecycle `status`. Accounting-sync failures flag the row `accounting_sync_status='failed'` (not swallowed) with a Retry button in `OrgMembershipTab.jsx`. Payment reconciliation cron `/api/cron/reconcile-membership-invoice-payments` (every 3h, `CRON_SECRET`-guarded) queries Xero/QBO and fires workflows on `unpaid -> paid` only. See `api/_lib/membershipPaymentReconciliation.js`, `api/_lib/accountingProvider.js`.
+-   **Tenant storage metering:** `tenant.storage_used_bytes` (BIGINT) drives `checkStorageQuota` (`api/_lib/planQuota.js`) and `/admin/plan-usage`. Maintained incrementally via `addTenantStorageBytes` (`api/_lib/tenantStorageUsage.js`). Can drift (signed-URL claimed size); re-baseline with `scripts/recompute-tenant-storage.mjs` or the nightly cron.
+-   **Paid-plan upgrade flow (`/admin/plan-usage` → Stripe Checkout):** `PlanUsage.jsx` → `api/admin/plan-checkout.js` (tenant-admin RBAC, uses PLATFORM `STRIPE_SECRET_KEY`, NOT tenant's connected Stripe). First-time creates a Checkout Session; existing live sub swaps price in place via `stripe.subscriptions.update` (proration, never a parallel sub). Webhook `api/webhooks/stripe-plan.js` upserts `tenant_subscription` and flips `tenant.plan_code` only when status is `active`/`trialing`; `subscription.deleted` reverts to `free`.
+-   **Self-serve signup & onboarding (`/signup` → wizard):** `signup-start.js` (captcha + rate limits + verification email) → `signup-verify.js` (`provisionTenant`, `free` plan) → 5-step `OnboardingWizard.jsx` → `POST /api/admin/onboarding` runs `api/_lib/onboardingSeeder.js` (branding + tiers + persona seed pack tagged `is_sample=true`). Legacy admins backfilled to `onboarding_status='complete'`.
+-   **Accessibility audits:** Admin page (RBAC `admin.accessibility-audits`) runs axe-core 4.10 via browserless.io for tenant public URLs. Results in `accessibility_audit` / `accessibility_audit_result`; endpoints under `/api/admin/accessibility-audits`; runner `api/_lib/browserlessAxe.js`. v1 limits: ≤10 URLs/run, http(s) only, no credentialed URLs.
+-   **AI Design Studio V1 (Canvas AI Composition):** generation via `api/ai-compositions/generate.js`; prompt-led editing via `api/ai-compositions/edit.js` (propose/accept/reject/undo + conversation history in `ai_composition_conversation`) and `api/ai-compositions/destinations.js` (record-ID link picker — the AI never invents internal URLs). Patch engine `api/_lib/aiCompositionPatch.js`, edit pipeline `api/_lib/aiCompositionEdit.js`. Accept re-applies the STORED proposal server-side against the current document; complete redesigns are saved as alternatives (`is_alternative`); protected-value changes (prices, dates, names) require explicit confirmation. Editor UI in `client/src/components/canvas/blocks/AiCompositionEditPanel.jsx`. V1 scene-graph compositions are now read-only w.r.t. the V2 pivot.
+-   **AI Design Studio V2 (native-code pivot):** V2 compositions are native AI HTML/CSS/SVG packages (document `schemaVersion "2.0"`, `ai_composition.renderer_version=2`), sanitised ONCE server-side at store time by `api/_lib/aiCodePipeline.js` (schema → jsdom+DOMPurify sanitise → manifest cross-check → postcss CSS scoping under `[data-ai-composition="<uuid>"]` → leak check; reject-don't-repair), rendered verbatim by `AiCodeCompositionBlock.jsx`; signed CSP-locked preview + Browserless screenshots via `api/ai-compositions/preview.js` (HMAC keyed by `AIC_PREVIEW_SECRET`/`CRON_SECRET`). **Page bodies:** `compositionType: "page_body"` runs a plan stage (content manifest + creative plan, anti-degenerate checks in `aiCodeGeneration.js`) before code gen; page gates forbid `<header>/<footer>/<nav>` recreation. **Actions** (`data-ai-action` + manifest, `api/_lib/aiCodeActions.js`) resolve server-side to real records — unresolved actions block page publish (409 `AI_UNRESOLVED_ACTIONS`; editor fix-up via `api/ai-compositions/resolve-action.js`). **Slots** (`data-iconnect-slot`, `api/_lib/aiCodeSlots.js`) portal trusted platform blocks into generated markup; never block publish. **Imagery:** the model never writes image URLs — `<img data-ai-asset="<key>">` placeholders declared in the package `assets` manifest, fulfilled server-side (`api/_lib/aiCodeAssets.js`, gpt-image-1 or media library, tenant-owned storage); only unfulfilled `required` assets hard-reject; image swap is a deterministic `replace-image` edit action. V1→V2 rebuild is admin-only via `api/ai-compositions/rebuild-v2.js` (never automatic). **Editing:** `api/ai-compositions/edit-v2.js` (propose/accept/reject/undo); proposals (element-scoped patches via `data-ai-id`, or full revisions saved as alternatives) stored in `ai_composition_conversation` and re-applied against the CURRENT document on accept (`api/_lib/aiCodeEdit.js`); protected values + locked `data-content-key` texts require confirmation; breakpoint-scoped edits must leave other breakpoints' CSS untouched; accepts introducing NEW critical accessibility issues are blocked (422 `AI_VALIDATION_CRITICAL`). Admin-only Composition Inspector via `GET /api/ai-compositions/:id?inspector=1` (404 to non-admins). Full details: `guides/ai-design-studio-v2-pivot.md`.
+-   **Member AI structured Q&A:** the member assistant answers count/aggregate questions from live records via a whitelisted query spec (LLM never writes SQL). Catalog + validation + executors in `api/_lib/memberAiStructured.js`; routing in `api/member-ai/ask.js`. Adding an entity/field: follow `guides/member-ai-structured-qa.md` (visibility mirrors the member browse surfaces; drift guard in `memberAiStructuredSchemaDrift.test.mjs`).
+
+## Gotchas
+-   **Vercel preview-domain ownership:** Project `vite-migrate-replit-6` serves this repository. Both `dev.iconn.app` and `*.dev.iconn.app` are verified Vercel project domains pinned to the `eventemb2` Git branch; tenant custom-domain actions must never attach, reclaim, or detach `iconn.app` or any of its subdomains.
+-   **`dev.iconn.app` = Vercel preview deployment** built from the `eventemb2` git branch of the same Vercel project as production. Shares the same Supabase. (a) Vercel's Functions → Logs viewer defaults to Production and hides Preview logs — switch the Environment filter to Preview. (b) A fix only reaches `dev.iconn.app` after the commit is on the `eventemb2` branch and that branch's preview build has finished.
+-   **`sendEmail()` never throws.** It catches Mailgun errors and returns `{ success: false, error, status, domain }`. Callers MUST inspect the return value; a bare `try { await sendEmail(...) } catch {}` will falsely report success on 401 / unverified domain / missing key. Canonical pattern: `api/auth/request-admin-password-reset.js`.
+-   **System emails MUST pass `systemEmail: true`** (or use `sendSystemEmail()`). Without it, a tenant with a verified custom sending domain would silently send admin reset / signup / billing emails from the tenant's own brand — wrong identity.
+-   **API hard-fails** any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Workflow `dd_owner` / `dd_owner_email` placeholders** resolve via `resolveDdOwnerForSubmission` (`api/_lib/ddOwner.js`) only when the trigger caller passes `context.formSubmissionId` to `triggerWorkflows`. Without submission context they collapse to empty strings.
+-   **No server-side length validation on `event.summary` / `complex_event.summary`** — relies on client-side `event_summary_max_length` system setting (default 150).
+
+## Product
+-   **Core:** Members, Events, Bookings, Resources, Blog.
+-   **Identity:** Unified login, multi-tenant ownership, organization memberships, granular access control.
+-   **Customization:** Page Builder, Custom Forms with conditional logic, Workflow Automation, per-tenant branding.
+-   **Financials:** Stripe membership payments, Xero/QBO invoicing, Fundraising with Gift Aid.
+-   **Comms:** Email templates, campaigns, member preferences.
+-   **Integrations:** WordPress Sync, Zoom (events/sessions), Zoho CRM sync.
+-   **Reporting:** Due Diligence Reports, configurable Member/Org Directories.
+-   **Community:** Tenant-scoped forums, Member Group email campaigns.
+
+## User preferences
+Preferred communication style: Simple, everyday language.
+
+## Pointers
+-   **React:** `https://react.dev/` · **Tailwind:** `https://tailwindcss.com/docs` · **Drizzle:** `https://orm.drizzle.team/docs/overview`
+-   **Vercel Functions:** `https://vercel.com/docs/functions/overview` · **Supabase:** `https://supabase.com/docs`
+-   **Stripe:** `https://stripe.com/docs/api` · **Mailgun:** `https://documentation.mailgun.com/en/latest/api_reference.html`
+# Membership Management Platform
+A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
+
+## Run & Operate
+-   **Run Dev Server:** `npm run dev`
+-   **Build:** `npm run build` · **Typecheck:** `npm run typecheck` · **Codegen:** `npm run codegen`
+-   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — only works from environments with IPv6 outbound; **not from this Replit workspace** (see "Database connection").
+-   **Migrations:** every `.sql` in `supabase/migrations/` is idempotent and applied against `DEST_DATABASE_URL` (pooler). Most migrations have a matching `node scripts/apply-*.mjs` runner; check `scripts/` before applying anything by hand.
+-   **One-off scripts (backfills, CSV imports, tenant seeds):** live in `scripts/` (e.g. `recompute-tenant-storage.mjs`, `backfill-*.mjs`, `import-*.mjs`, `seed-*.mjs`). They are idempotent, default to dry-run unless an `--apply` flag is passed, and many are hard-pinned to a single tenant. Read the script header before running; each documents its own flags and scope.
+-   **Inclusive relationship reports:** `node scripts/apply-inclusive-relationship-reports.mjs --apply` installs the V2 paging/count helpers and separate BNMS Organisation department summary using `DEST_DATABASE_URL` only. `node scripts/verify-bnms-organisation-department-summary.mjs` verifies saved preview results read-only; `--reference-only` checks source totals before setup. Existing V1 reports are not upgraded.
+-   **Storage usage reconcile:** `node scripts/recompute-tenant-storage.mjs [--dry-run] [--tenant=<uuid>]`, or trust the nightly cron at `/api/cron/recompute-tenant-storage` (03:00 UTC, `CRON_SECRET`-guarded).
+
+## Database connection (read this before any DB work from this workspace)
+There are two Supabase projects this codebase talks to:
+
+| Role | What it is | URL secret | Postgres URL secret | Service-role key secret |
+| ---- | ---------- | ---------- | ------------------- | ----------------------- |
+| **Destination (current prod)** | Multi-tenant iConnect DB | `DEST_SUPABASE_URL` (`https://lvmzliemqnieeoruhkik.supabase.co`) | `DEST_DATABASE_URL` | `DEST_SUPABASE_KEY` |
+| **Source (legacy)** | Pre-multi-tenancy single-tenant snapshot, used by migration scripts | `SOURCE_SUPABASE_URL` | `SOURCE_DATABASE_URL` | `SOURCE_SUPABASE_KEY` |
+
+**The Supabase direct host (`db.<project>.supabase.co`) is unreachable from this Replit workspace** — it publishes only IPv6 (AAAA) DNS and the Replit container has no IPv6 outbound route, so `psql`, `execute_sql_tool`, `drizzle-kit push`, and any raw `pg`/Drizzle client pointed at the direct host fail with `ENOTFOUND` / `ENETUNREACH`. Those tools work from Vercel functions, the user's laptop, and CI — just not from here against the direct host.
+
+**The Supabase Pooler hostname IS IPv4-reachable from this workspace** (`aws-1-eu-central-1.pooler.supabase.com:5432`, which is what `DEST_DATABASE_URL` already points to). `pg` clients using `DEST_DATABASE_URL` (transaction-pooler mode) work from Replit for read/write queries and DDL such as `CREATE INDEX`. Prefer `@supabase/supabase-js` for ordinary CRUD (REST endpoint is also IPv4-reachable, more ergonomic); reach for `pg` via `DEST_DATABASE_URL` only when you need raw SQL / DDL the REST API can't do.
+
+For any DB access from this workspace (scripts, ad-hoc debugging, one-off data fixes), use **`@supabase/supabase-js`** with the service-role key. Working reference: `scripts/debug-tenant.mjs`.
+
+```js
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(
+  process.env.DEST_SUPABASE_URL,
+  process.env.DEST_SUPABASE_KEY
+);
+```
+
+Quick one-off from bash (env vars ARE available in the shell):
+
+```bash
+node -e "
+const { createClient } = require('@supabase/supabase-js');
+const sb = createClient(process.env.DEST_SUPABASE_URL, process.env.DEST_SUPABASE_KEY, { auth: { persistSession: false } });
+(async () => {
+  const { data, error } = await sb.from('tenant').select('id, slug, name').limit(5);
+  console.log({ data, error });
+})();
+"
+```
+
+## Testing
+-   **AI assistant tests** (registered as the `ai-assistant-tests` validation step, runs automatically on task completion): `node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/aiCompositionRender.test.mjs` — member-AI visibility (security boundary), ranking, indexer, help-chunker, dashboard aggregation/LMIC operators, Canvas auto-height bake guards, `useAutoHeightBake` runtime gates (jsdom), and Canvas auto reading-order suites.
+-   **GoCardless tests:** `node --test api/_lib/gocardless*.test.mjs` — webhook signature/idempotency/status-transition suites, per-tenant credential resolution (tenant_integrations → env fallback, env/token mismatch guards), org DD billing-contact invitations (token format, expiry clamp 1-90 via `dd_invite_expiry_days`, validate/supersede/single-use/revoke, recipient dedupe), Phase 5 renewal decisions (`gocardlessDdRenewals.test.mjs`), and migration invite/funnel (`gocardlessDdMigration.test.mjs`).
+-   **GoCardless sandbox proof:** `node scripts/gocardless-sandbox-proof.mjs [runId]` — billing request + hosted flow creation and idempotent-retry behaviour against the GC sandbox (requires `GOCARDLESS_ACCESS_TOKEN`; refuses to run against live).
+-   **Pending-PO report tests:** `node --test api/_lib/pendingPoInvoice.test.mjs` — PO reference extraction/blacklist and cross-record membership PO propagation helpers.
+-   **Organisation Directory filters:** `npm run test:directory-object-fields` covers schema projections, safe diagnostics, exact source-value selection, permission revocation, and population pagination; `npx playwright test tests/directory-object-fields.smoke.spec.mjs` covers mounted directory controls and card behaviour. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` when using a system Chromium.
+-   **Destination directory verification (read-only):** `node scripts/verify-directory-source-values-destination.mjs` checks the configured BNMS Department Name source against DEST without changing settings or records. `npx playwright test --config=tests/task-4360-destination-harness.config.mjs` renders the local app with fixture sign-in/chrome and real destination-backed directory service responses. This harness is not a deployed-login/authentication test; `scripts/verify-task-4360-preview.mjs` separately supports normal authenticated preview verification with an ephemeral `PLAYWRIGHT_STORAGE_STATE`.
+-   **Repeatable Custom Object source verification (read-only):** `node scripts/verify-form-row-choice-sources.mjs --parent-object=<uuid> --related-object=<uuid> --value-field=<name>` checks record → distinct scalar → filtered record options and submission eligibility against DEST using an in-memory form. It does not save forms, submissions, or catalogue records.
+
+## Env vars (current canonical set)
+Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPABASE_*` names; prefer the `DEST_*` names below for new code.
+
+| Var | Purpose |
+| --- | ------- |
+| `DEST_SUPABASE_URL` / `DEST_SUPABASE_KEY` / `DEST_DATABASE_URL` | Destination (prod) Supabase. See "Database connection". |
+| `SOURCE_SUPABASE_URL` / `SOURCE_SUPABASE_KEY` / `SOURCE_DATABASE_URL` | Legacy single-tenant snapshot — only used by migration scripts. |
+| `DATABASE_URL` | Direct host (IPv6 only) — used by Vercel / Drizzle push, not this workspace. |
+| `MAILGUN_API_KEY`, `MAILGUN_REGION` (default `eu`), `MAILGUN_FROM_EMAIL`, `APP_DOMAIN` (default `iconn.app`) | Email sending. `MAILGUN_FROM_EMAIL` is the non-system default From; system emails are pinned to `noreply@mail.${APP_DOMAIN}` regardless. |
+| `STRIPE_SECRET_KEY` | Tenant Stripe AND platform-side paid-plan upgrade Checkout. |
+| `STRIPE_PLAN_WEBHOOK_SECRET` | Verifies `/api/webhooks/stripe-plan` from the platform Stripe account. Configure dashboard to deliver `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
+| `GOCARDLESS_ENVIRONMENT` | `sandbox` (default) or `live`. Platform-level FALLBACK only — tenants connect their own GoCardless account via `tenant_integrations` (`integration_type='gocardless'`, resolved by `api/_lib/gocardlessCredentials.js`). |
+| `GOCARDLESS_ACCESS_TOKEN` | Platform-fallback GoCardless API access token (sandbox tokens start `sandbox_`, live `live_`; env/token mismatch is rejected at call time). |
+| `GOCARDLESS_WEBHOOK_SECRET` | Platform-fallback secret verifying `Webhook-Signature` (HMAC-SHA256 of raw body) on `/api/webhooks/gocardless`. Tenant-connected accounts register the URL with `?tenant=<uuid>` and are verified against their own stored secret. |
+| `GOCARDLESS_REDIRECT_BASE_URL` | Base URL for Billing Request Flow redirect/exit URIs (e.g. `https://iconn.app`). |
+| `GOCARDLESS_CREDITOR_ID` (opt) | Pins billing requests to one creditor on multi-creditor GC accounts. |
+| `GOOGLE_FONTS_API_KEY` | Server-side key for the Google Fonts Developer API. Powers live font search in the `/InstalledFonts` add dialog via `api/public/google-fonts.js`. If unset, the picker falls back to the curated `POPULAR_GOOGLE_FONTS` list. |
+| `XERO_CLIENT_ID` | Xero OAuth. |
+| `QUICKBOOKS_REDIRECT_URI` (opt) | Overrides default `${origin}/api/quickbooks/callback` for stable QBO OAuth redirect. |
+| `BROWSERLESS_API_TOKEN`, `BROWSERLESS_BASE_URL` (opt), `BROWSERLESS_AUDIT_TIMEOUT_MS` (opt) | Accessibility audits via browserless.io. |
+| `VITE_APP_URL` | Frontend-known app URL. |
+| `CAPTCHA_PROVIDER`, `CAPTCHA_SECRET_KEY` (opt) | Self-serve signup captcha (hCaptcha/Turnstile/reCAPTCHA). Bypassed when not production. |
+| `SIGNUP_RATE_IP_PER_HOUR`, `SIGNUP_RATE_EMAIL_PER_DAY` (opt) | Self-serve signup rate limits. |
+| `CRON_SECRET` | Guards all `/api/cron/*` endpoints. |
+| `ICONNECT_HEALTH_CHECK_TOKEN` | Required secret for `/api/health`; Better Stack must send it as the `X-Health-Token` request header. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_RENEWALS_URL` | Optional Better Stack heartbeat URL for membership renewals. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for membership-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_GOCARDLESS_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for GoCardless reconciliation. |
+| `BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for Stripe card-plan reconciliation. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL` | Optional Better Stack heartbeat URL for scheduled workflows. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL` | Optional Better Stack heartbeat URL for scheduled campaigns. |
+| `BETTERSTACK_HEARTBEAT_DATABASE_BACKUP_URL` | Optional Better Stack heartbeat URL for database backup to R2. |
+| `BETTERSTACK_HEARTBEAT_STORAGE_BACKUP_URL` | Optional Better Stack heartbeat URL for storage backup to R2. |
+| `BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for form-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_AUTOMATIC_MEMBERSHIP_PROCESSING_URL` | Optional Better Stack heartbeat URL for automatic membership processing. |
+| `ENABLE_RESET_DEBUG` (opt, `'true'`) | Temporary diagnostic: `/api/auth/request-admin-password-reset` returns a `debug` field (`no_identity`/`no_owner_membership`/`email_failed`/`sent`). Leave unset in normal operation so account existence is not disclosed. |
+| `R2_ACCOUNT_ID` | Cloudflare account ID — builds the R2 endpoint URL (`https://<id>.r2.cloudflarestorage.com`). Set this **or** `R2_ENDPOINT`. Vercel secret. |
+| `R2_ENDPOINT` (opt) | Full R2 endpoint URL override, instead of `R2_ACCOUNT_ID`. |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | R2 API token credentials + target bucket for backups. Vercel secrets. |
+| `DB_BACKUP_SCHEMAS` (opt) | Comma-separated Postgres schemas in the nightly DB dump (default: `public`). Supabase internal schemas (`auth`, `storage`, `realtime`, …) are intentionally excluded — Supabase manages them. |
+
+### External health monitoring
+
+Create a Better Stack HTTP monitor for `GET /api/health`. In the monitor's
+request headers, configure `X-Health-Token` to the same secret held in the
+Vercel `ICONNECT_HEALTH_CHECK_TOKEN` environment variable. The endpoint is
+intentionally unauthorised only by that header and returns no dependency detail
+when the header is missing or invalid.
+
+The ten `BETTERSTACK_HEARTBEAT_*_URL` variables are independently optional
+and apply only to the ten selected production schedules. The application
+derives Better Stack's `/fail` target from each configured success URL; store
+only the success URL in Vercel Production. See
+`guides/better-stack-cron-heartbeats.md` for the setup matrix and the complete
+30-schedule coverage inventory.
+Set each Vercel value to the matching Better Stack heartbeat URL for only the
+scheduled job you wish to monitor. The job sends a success URL after a clean
+run and Better Stack's `/fail` URL for a failed run; delivery failures never
+change the job's response or retry behaviour.
+
+## Stack & where things live
+-   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS
+-   **Backend:** Express.js (dev) / Vercel serverless functions (prod), PostgreSQL, Drizzle ORM
+-   `/client`: Frontend source (`client/src/design-system` = custom "new-york" shadcn variant)
+-   `/api`: Backend API endpoints (Vercel serverless functions); shared helpers under `api/_lib/`
+-   `/supabase/migrations`: Database migrations (idempotent SQL); `supabase/schema.prisma` is the schema source of truth for Drizzle
+-   `/scripts`: Utility and migration scripts
+-   `client/index.html` + `api/render.js`: SSR for SEO/OG tag injection
+
+## Architecture decisions
+-   **Multi-tenancy:** Data isolation at GLOBAL / TENANT / ORGANIZATION / MEMBER levels via `tenant_id` and `organization_id`. The shared entity API hard-fails any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Identity:** Unified identity with per-tenant password isolation, Google OAuth, feature-based role management.
+-   **Email sending:** `api/_lib/emailService.js` resolves the sending domain off `tenantId` for tenant→member emails. **System emails** (platform→tenant-owner: admin reset, signup verification, team invite, billing notifications) MUST pass `systemEmail: true` (or use `sendSystemEmail()`); this forces both Mailgun domain AND From identity to `mail.${APP_DOMAIN}` / `noreply@mail.${APP_DOMAIN}`. System reset/verification links must point at `${APP_DOMAIN}/...` not a tenant subdomain.
+-   **Dynamic SEO:** SSR meta-tag injection per-tenant via `api/render.js`; per-page metadata resolved by `api/_lib/entityMeta.js`. Per-entity `seo_title` / `seo_description` / `og_image_url` overrides on events, blog posts, news, campaigns, resources, and directories (UI in `client/src/components/blog/SEOSettings.jsx`). `og:image` URLs on `vault.iconn.app` or `*.supabase.co` are proxied through `/api/og-image`.
+-   **Event deletion:** Multi-step cancellation flow (refunds, reinstatements, Zoom unregistration) before any data purge. Direct deletion of events is deprecated for UI flows.
+-   **Semantic `warning` color:** `--warning` / `--warning-foreground` CSS vars in `client/src/index.css` (both themes, WCAG-AA). Use `text-warning`, `bg-warning`, `<Badge variant="warning">`, `<Alert variant="warning">` instead of raw amber/yellow/orange palette classes.
+-   **Membership invoices:** `organisation_membership_history` / `member_membership_history` carry `payment_status` (`unpaid`/`paid`/`partial`/`voided`) + `paid_at`, separate from the lifecycle `status`. Accounting-sync failures flag the row `accounting_sync_status='failed'` (not swallowed) with a Retry button in `OrgMembershipTab.jsx`. Payment reconciliation cron `/api/cron/reconcile-membership-invoice-payments` (every 3h, `CRON_SECRET`-guarded) queries Xero/QBO and fires workflows on `unpaid -> paid` only. See `api/_lib/membershipPaymentReconciliation.js`, `api/_lib/accountingProvider.js`.
+-   **Tenant storage metering:** `tenant.storage_used_bytes` (BIGINT) drives `checkStorageQuota` (`api/_lib/planQuota.js`) and `/admin/plan-usage`. Maintained incrementally via `addTenantStorageBytes` (`api/_lib/tenantStorageUsage.js`). Can drift (signed-URL claimed size); re-baseline with `scripts/recompute-tenant-storage.mjs` or the nightly cron.
+-   **Paid-plan upgrade flow (`/admin/plan-usage` → Stripe Checkout):** `PlanUsage.jsx` → `api/admin/plan-checkout.js` (tenant-admin RBAC, uses PLATFORM `STRIPE_SECRET_KEY`, NOT tenant's connected Stripe). First-time creates a Checkout Session; existing live sub swaps price in place via `stripe.subscriptions.update` (proration, never a parallel sub). Webhook `api/webhooks/stripe-plan.js` upserts `tenant_subscription` and flips `tenant.plan_code` only when status is `active`/`trialing`; `subscription.deleted` reverts to `free`.
+-   **Self-serve signup & onboarding (`/signup` → wizard):** `signup-start.js` (captcha + rate limits + verification email) → `signup-verify.js` (`provisionTenant`, `free` plan) → 5-step `OnboardingWizard.jsx` → `POST /api/admin/onboarding` runs `api/_lib/onboardingSeeder.js` (branding + tiers + persona seed pack tagged `is_sample=true`). Legacy admins backfilled to `onboarding_status='complete'`.
+-   **Accessibility audits:** Admin page (RBAC `admin.accessibility-audits`) runs axe-core 4.10 via browserless.io for tenant public URLs. Results in `accessibility_audit` / `accessibility_audit_result`; endpoints under `/api/admin/accessibility-audits`; runner `api/_lib/browserlessAxe.js`. v1 limits: ≤10 URLs/run, http(s) only, no credentialed URLs.
+-   **AI Design Studio V1 (Canvas AI Composition):** generation via `api/ai-compositions/generate.js`; prompt-led editing via `api/ai-compositions/edit.js` (propose/accept/reject/undo + conversation history in `ai_composition_conversation`) and `api/ai-compositions/destinations.js` (record-ID link picker — the AI never invents internal URLs). Patch engine `api/_lib/aiCompositionPatch.js`, edit pipeline `api/_lib/aiCompositionEdit.js`. Accept re-applies the STORED proposal server-side against the current document; complete redesigns are saved as alternatives (`is_alternative`); protected-value changes (prices, dates, names) require explicit confirmation. Editor UI in `client/src/components/canvas/blocks/AiCompositionEditPanel.jsx`. V1 scene-graph compositions are now read-only w.r.t. the V2 pivot.
+-   **AI Design Studio V2 (native-code pivot):** V2 compositions are native AI HTML/CSS/SVG packages (document `schemaVersion "2.0"`, `ai_composition.renderer_version=2`), sanitised ONCE server-side at store time by `api/_lib/aiCodePipeline.js` (schema → jsdom+DOMPurify sanitise → manifest cross-check → postcss CSS scoping under `[data-ai-composition="<uuid>"]` → leak check; reject-don't-repair), rendered verbatim by `AiCodeCompositionBlock.jsx`; signed CSP-locked preview + Browserless screenshots via `api/ai-compositions/preview.js` (HMAC keyed by `AIC_PREVIEW_SECRET`/`CRON_SECRET`). **Page bodies:** `compositionType: "page_body"` runs a plan stage (content manifest + creative plan, anti-degenerate checks in `aiCodeGeneration.js`) before code gen; page gates forbid `<header>/<footer>/<nav>` recreation. **Actions** (`data-ai-action` + manifest, `api/_lib/aiCodeActions.js`) resolve server-side to real records — unresolved actions block page publish (409 `AI_UNRESOLVED_ACTIONS`; editor fix-up via `api/ai-compositions/resolve-action.js`). **Slots** (`data-iconnect-slot`, `api/_lib/aiCodeSlots.js`) portal trusted platform blocks into generated markup; never block publish. **Imagery:** the model never writes image URLs — `<img data-ai-asset="<key>">` placeholders declared in the package `assets` manifest, fulfilled server-side (`api/_lib/aiCodeAssets.js`, gpt-image-1 or media library, tenant-owned storage); only unfulfilled `required` assets hard-reject; image swap is a deterministic `replace-image` edit action. V1→V2 rebuild is admin-only via `api/ai-compositions/rebuild-v2.js` (never automatic). **Editing:** `api/ai-compositions/edit-v2.js` (propose/accept/reject/undo); proposals (element-scoped patches via `data-ai-id`, or full revisions saved as alternatives) stored in `ai_composition_conversation` and re-applied against the CURRENT document on accept (`api/_lib/aiCodeEdit.js`); protected values + locked `data-content-key` texts require confirmation; breakpoint-scoped edits must leave other breakpoints' CSS untouched; accepts introducing NEW critical accessibility issues are blocked (422 `AI_VALIDATION_CRITICAL`). Admin-only Composition Inspector via `GET /api/ai-compositions/:id?inspector=1` (404 to non-admins). Full details: `guides/ai-design-studio-v2-pivot.md`.
+-   **Member AI structured Q&A:** the member assistant answers count/aggregate questions from live records via a whitelisted query spec (LLM never writes SQL). Catalog + validation + executors in `api/_lib/memberAiStructured.js`; routing in `api/member-ai/ask.js`. Adding an entity/field: follow `guides/member-ai-structured-qa.md` (visibility mirrors the member browse surfaces; drift guard in `memberAiStructuredSchemaDrift.test.mjs`).
+
+## Gotchas
+-   **Vercel preview-domain ownership:** Project `vite-migrate-replit-6` serves this repository. Both `dev.iconn.app` and `*.dev.iconn.app` are verified Vercel project domains pinned to the `eventemb2` Git branch; tenant custom-domain actions must never attach, reclaim, or detach `iconn.app` or any of its subdomains.
+-   **`dev.iconn.app` = Vercel preview deployment** built from the `eventemb2` git branch of the same Vercel project as production. Shares the same Supabase. (a) Vercel's Functions → Logs viewer defaults to Production and hides Preview logs — switch the Environment filter to Preview. (b) A fix only reaches `dev.iconn.app` after the commit is on the `eventemb2` branch and that branch's preview build has finished.
+-   **`sendEmail()` never throws.** It catches Mailgun errors and returns `{ success: false, error, status, domain }`. Callers MUST inspect the return value; a bare `try { await sendEmail(...) } catch {}` will falsely report success on 401 / unverified domain / missing key. Canonical pattern: `api/auth/request-admin-password-reset.js`.
+-   **System emails MUST pass `systemEmail: true`** (or use `sendSystemEmail()`). Without it, a tenant with a verified custom sending domain would silently send admin reset / signup / billing emails from the tenant's own brand — wrong identity.
+-   **API hard-fails** any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Workflow `dd_owner` / `dd_owner_email` placeholders** resolve via `resolveDdOwnerForSubmission` (`api/_lib/ddOwner.js`) only when the trigger caller passes `context.formSubmissionId` to `triggerWorkflows`. Without submission context they collapse to empty strings.
+-   **No server-side length validation on `event.summary` / `complex_event.summary`** — relies on client-side `event_summary_max_length` system setting (default 150).
+
+## Product
+-   **Core:** Members, Events, Bookings, Resources, Blog.
+-   **Identity:** Unified login, multi-tenant ownership, organization memberships, granular access control.
+-   **Customization:** Page Builder, Custom Forms with conditional logic, Workflow Automation, per-tenant branding.
+-   **Financials:** Stripe membership payments, Xero/QBO invoicing, Fundraising with Gift Aid.
+-   **Comms:** Email templates, campaigns, member preferences.
+-   **Integrations:** WordPress Sync, Zoom (events/sessions), Zoho CRM sync.
+-   **Reporting:** Due Diligence Reports, configurable Member/Org Directories.
+-   **Community:** Tenant-scoped forums, Member Group email campaigns.
+
+## User preferences
+Preferred communication style: Simple, everyday language.
+
+## Pointers
+-   **React:** `https://react.dev/` · **Tailwind:** `https://tailwindcss.com/docs` · **Drizzle:** `https://orm.drizzle.team/docs/overview`
+-   **Vercel Functions:** `https://vercel.com/docs/functions/overview` · **Supabase:** `https://supabase.com/docs`
+-   **Stripe:** `https://stripe.com/docs/api` · **Mailgun:** `https://documentation.mailgun.com/en/latest/api_reference.html`
+# Membership Management Platform
+A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
+
+## Run & Operate
+-   **Run Dev Server:** `npm run dev`
+-   **Build:** `npm run build` · **Typecheck:** `npm run typecheck` · **Codegen:** `npm run codegen`
+-   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — only works from environments with IPv6 outbound; **not from this Replit workspace** (see "Database connection").
+-   **Migrations:** every `.sql` in `supabase/migrations/` is idempotent and applied against `DEST_DATABASE_URL` (pooler). Most migrations have a matching `node scripts/apply-*.mjs` runner; check `scripts/` before applying anything by hand.
+-   **One-off scripts (backfills, CSV imports, tenant seeds):** live in `scripts/` (e.g. `recompute-tenant-storage.mjs`, `backfill-*.mjs`, `import-*.mjs`, `seed-*.mjs`). They are idempotent, default to dry-run unless an `--apply` flag is passed, and many are hard-pinned to a single tenant. Read the script header before running; each documents its own flags and scope.
+-   **Storage usage reconcile:** `node scripts/recompute-tenant-storage.mjs [--dry-run] [--tenant=<uuid>]`, or trust the nightly cron at `/api/cron/recompute-tenant-storage` (03:00 UTC, `CRON_SECRET`-guarded).
+
+## Database connection (read this before any DB work from this workspace)
+There are two Supabase projects this codebase talks to:
+
+| Role | What it is | URL secret | Postgres URL secret | Service-role key secret |
+| ---- | ---------- | ---------- | ------------------- | ----------------------- |
+| **Destination (current prod)** | Multi-tenant iConnect DB | `DEST_SUPABASE_URL` (`https://lvmzliemqnieeoruhkik.supabase.co`) | `DEST_DATABASE_URL` | `DEST_SUPABASE_KEY` |
+| **Source (legacy)** | Pre-multi-tenancy single-tenant snapshot, used by migration scripts | `SOURCE_SUPABASE_URL` | `SOURCE_DATABASE_URL` | `SOURCE_SUPABASE_KEY` |
+
+**The Supabase direct host (`db.<project>.supabase.co`) is unreachable from this Replit workspace** — it publishes only IPv6 (AAAA) DNS and the Replit container has no IPv6 outbound route, so `psql`, `execute_sql_tool`, `drizzle-kit push`, and any raw `pg`/Drizzle client pointed at the direct host fail with `ENOTFOUND` / `ENETUNREACH`. Those tools work from Vercel functions, the user's laptop, and CI — just not from here against the direct host.
+
+**The Supabase Pooler hostname IS IPv4-reachable from this workspace** (`aws-1-eu-central-1.pooler.supabase.com:5432`, which is what `DEST_DATABASE_URL` already points to). `pg` clients using `DEST_DATABASE_URL` (transaction-pooler mode) work from Replit for read/write queries and DDL such as `CREATE INDEX`. Prefer `@supabase/supabase-js` for ordinary CRUD (REST endpoint is also IPv4-reachable, more ergonomic); reach for `pg` via `DEST_DATABASE_URL` only when you need raw SQL / DDL the REST API can't do.
+
+For any DB access from this workspace (scripts, ad-hoc debugging, one-off data fixes), use **`@supabase/supabase-js`** with the service-role key. Working reference: `scripts/debug-tenant.mjs`.
+
+```js
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(
+  process.env.DEST_SUPABASE_URL,
+  process.env.DEST_SUPABASE_KEY
+);
+```
+
+Quick one-off from bash (env vars ARE available in the shell):
+
+```bash
+node -e "
+const { createClient } = require('@supabase/supabase-js');
+const sb = createClient(process.env.DEST_SUPABASE_URL, process.env.DEST_SUPABASE_KEY, { auth: { persistSession: false } });
+(async () => {
+  const { data, error } = await sb.from('tenant').select('id, slug, name').limit(5);
+  console.log({ data, error });
+})();
+"
+```
+
+## Testing
+-   **AI assistant tests** (registered as the `ai-assistant-tests` validation step, runs automatically on task completion): `node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/aiCompositionRender.test.mjs` — member-AI visibility (security boundary), ranking, indexer, help-chunker, dashboard aggregation/LMIC operators, Canvas auto-height bake guards, `useAutoHeightBake` runtime gates (jsdom), and Canvas auto reading-order suites.
+-   **GoCardless tests:** `node --test api/_lib/gocardless*.test.mjs` — webhook signature/idempotency/status-transition suites, per-tenant credential resolution (tenant_integrations → env fallback, env/token mismatch guards), org DD billing-contact invitations (token format, expiry clamp 1-90 via `dd_invite_expiry_days`, validate/supersede/single-use/revoke, recipient dedupe), Phase 5 renewal decisions (`gocardlessDdRenewals.test.mjs`), and migration invite/funnel (`gocardlessDdMigration.test.mjs`).
+-   **GoCardless sandbox proof:** `node scripts/gocardless-sandbox-proof.mjs [runId]` — billing request + hosted flow creation and idempotent-retry behaviour against the GC sandbox (requires `GOCARDLESS_ACCESS_TOKEN`; refuses to run against live).
+-   **Pending-PO report tests:** `node --test api/_lib/pendingPoInvoice.test.mjs` — PO reference extraction/blacklist and cross-record membership PO propagation helpers.
+
+## Env vars (current canonical set)
+Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPABASE_*` names; prefer the `DEST_*` names below for new code.
+
+| Var | Purpose |
+| --- | ------- |
+| `DEST_SUPABASE_URL` / `DEST_SUPABASE_KEY` / `DEST_DATABASE_URL` | Destination (prod) Supabase. See "Database connection". |
+| `SOURCE_SUPABASE_URL` / `SOURCE_SUPABASE_KEY` / `SOURCE_DATABASE_URL` | Legacy single-tenant snapshot — only used by migration scripts. |
+| `DATABASE_URL` | Direct host (IPv6 only) — used by Vercel / Drizzle push, not this workspace. |
+| `MAILGUN_API_KEY`, `MAILGUN_REGION` (default `eu`), `MAILGUN_FROM_EMAIL`, `APP_DOMAIN` (default `iconn.app`) | Email sending. `MAILGUN_FROM_EMAIL` is the non-system default From; system emails are pinned to `noreply@mail.${APP_DOMAIN}` regardless. |
+| `STRIPE_SECRET_KEY` | Tenant Stripe AND platform-side paid-plan upgrade Checkout. |
+| `STRIPE_PLAN_WEBHOOK_SECRET` | Verifies `/api/webhooks/stripe-plan` from the platform Stripe account. Configure dashboard to deliver `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
+| `GOCARDLESS_ENVIRONMENT` | `sandbox` (default) or `live`. Platform-level FALLBACK only — tenants connect their own GoCardless account via `tenant_integrations` (`integration_type='gocardless'`, resolved by `api/_lib/gocardlessCredentials.js`). |
+| `GOCARDLESS_ACCESS_TOKEN` | Platform-fallback GoCardless API access token (sandbox tokens start `sandbox_`, live `live_`; env/token mismatch is rejected at call time). |
+| `GOCARDLESS_WEBHOOK_SECRET` | Platform-fallback secret verifying `Webhook-Signature` (HMAC-SHA256 of raw body) on `/api/webhooks/gocardless`. Tenant-connected accounts register the URL with `?tenant=<uuid>` and are verified against their own stored secret. |
+| `GOCARDLESS_REDIRECT_BASE_URL` | Base URL for Billing Request Flow redirect/exit URIs (e.g. `https://iconn.app`). |
+| `GOCARDLESS_CREDITOR_ID` (opt) | Pins billing requests to one creditor on multi-creditor GC accounts. |
+| `GOOGLE_FONTS_API_KEY` | Server-side key for the Google Fonts Developer API. Powers live font search in the `/InstalledFonts` add dialog via `api/public/google-fonts.js`. If unset, the picker falls back to the curated `POPULAR_GOOGLE_FONTS` list. |
+| `XERO_CLIENT_ID` | Xero OAuth. |
+| `QUICKBOOKS_REDIRECT_URI` (opt) | Overrides default `${origin}/api/quickbooks/callback` for stable QBO OAuth redirect. |
+| `BROWSERLESS_API_TOKEN`, `BROWSERLESS_BASE_URL` (opt), `BROWSERLESS_AUDIT_TIMEOUT_MS` (opt) | Accessibility audits via browserless.io. |
+| `VITE_APP_URL` | Frontend-known app URL. |
+| `CAPTCHA_PROVIDER`, `CAPTCHA_SECRET_KEY` (opt) | Self-serve signup captcha (hCaptcha/Turnstile/reCAPTCHA). Bypassed when not production. |
+| `SIGNUP_RATE_IP_PER_HOUR`, `SIGNUP_RATE_EMAIL_PER_DAY` (opt) | Self-serve signup rate limits. |
+| `CRON_SECRET` | Guards all `/api/cron/*` endpoints. |
+| `ICONNECT_HEALTH_CHECK_TOKEN` | Required secret for `/api/health`; Better Stack must send it as the `X-Health-Token` request header. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_RENEWALS_URL` | Optional Better Stack heartbeat URL for membership renewals. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for membership-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_GOCARDLESS_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for GoCardless reconciliation. |
+| `BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for Stripe card-plan reconciliation. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL` | Optional Better Stack heartbeat URL for scheduled workflows. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL` | Optional Better Stack heartbeat URL for scheduled campaigns. |
+| `BETTERSTACK_HEARTBEAT_DATABASE_BACKUP_URL` | Optional Better Stack heartbeat URL for database backup to R2. |
+| `BETTERSTACK_HEARTBEAT_STORAGE_BACKUP_URL` | Optional Better Stack heartbeat URL for storage backup to R2. |
+| `BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for form-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_AUTOMATIC_MEMBERSHIP_PROCESSING_URL` | Optional Better Stack heartbeat URL for automatic membership processing. |
+| `ENABLE_RESET_DEBUG` (opt, `'true'`) | Temporary diagnostic: `/api/auth/request-admin-password-reset` returns a `debug` field (`no_identity`/`no_owner_membership`/`email_failed`/`sent`). Leave unset in normal operation so account existence is not disclosed. |
+| `R2_ACCOUNT_ID` | Cloudflare account ID — builds the R2 endpoint URL (`https://<id>.r2.cloudflarestorage.com`). Set this **or** `R2_ENDPOINT`. Vercel secret. |
+| `R2_ENDPOINT` (opt) | Full R2 endpoint URL override, instead of `R2_ACCOUNT_ID`. |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | R2 API token credentials + target bucket for backups. Vercel secrets. |
+| `DB_BACKUP_SCHEMAS` (opt) | Comma-separated Postgres schemas in the nightly DB dump (default: `public`). Supabase internal schemas (`auth`, `storage`, `realtime`, …) are intentionally excluded — Supabase manages them. |
+
+### External health monitoring
+
+Create a Better Stack HTTP monitor for `GET /api/health`. In the monitor's
+request headers, configure `X-Health-Token` to the same secret held in the
+Vercel `ICONNECT_HEALTH_CHECK_TOKEN` environment variable. The endpoint is
+intentionally unauthorised only by that header and returns no dependency detail
+when the header is missing or invalid.
+
+The ten `BETTERSTACK_HEARTBEAT_*_URL` variables are independently optional
+and apply only to the ten selected production schedules. The application
+derives Better Stack's `/fail` target from each configured success URL; store
+only the success URL in Vercel Production. See
+`guides/better-stack-cron-heartbeats.md` for the setup matrix and the complete
+30-schedule coverage inventory.
+Set each Vercel value to the matching Better Stack heartbeat URL for only the
+scheduled job you wish to monitor. The job sends a success URL after a clean
+run and Better Stack's `/fail` URL for a failed run; delivery failures never
+change the job's response or retry behaviour.
+
+## Stack & where things live
+-   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS
+-   **Backend:** Express.js (dev) / Vercel serverless functions (prod), PostgreSQL, Drizzle ORM
+-   `/client`: Frontend source (`client/src/design-system` = custom "new-york" shadcn variant)
+-   `/api`: Backend API endpoints (Vercel serverless functions); shared helpers under `api/_lib/`
+-   `/supabase/migrations`: Database migrations (idempotent SQL); `supabase/schema.prisma` is the schema source of truth for Drizzle
+-   `/scripts`: Utility and migration scripts
+-   `client/index.html` + `api/render.js`: SSR for SEO/OG tag injection
+
+## Architecture decisions
+-   **Multi-tenancy:** Data isolation at GLOBAL / TENANT / ORGANIZATION / MEMBER levels via `tenant_id` and `organization_id`. The shared entity API hard-fails any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Identity:** Unified identity with per-tenant password isolation, Google OAuth, feature-based role management.
+-   **Email sending:** `api/_lib/emailService.js` resolves the sending domain off `tenantId` for tenant→member emails. **System emails** (platform→tenant-owner: admin reset, signup verification, team invite, billing notifications) MUST pass `systemEmail: true` (or use `sendSystemEmail()`); this forces both Mailgun domain AND From identity to `mail.${APP_DOMAIN}` / `noreply@mail.${APP_DOMAIN}`. System reset/verification links must point at `${APP_DOMAIN}/...` not a tenant subdomain.
+-   **Dynamic SEO:** SSR meta-tag injection per-tenant via `api/render.js`; per-page metadata resolved by `api/_lib/entityMeta.js`. Per-entity `seo_title` / `seo_description` / `og_image_url` overrides on events, blog posts, news, campaigns, resources, and directories (UI in `client/src/components/blog/SEOSettings.jsx`). `og:image` URLs on `vault.iconn.app` or `*.supabase.co` are proxied through `/api/og-image`.
+-   **Event deletion:** Multi-step cancellation flow (refunds, reinstatements, Zoom unregistration) before any data purge. Direct deletion of events is deprecated for UI flows.
+-   **Semantic `warning` color:** `--warning` / `--warning-foreground` CSS vars in `client/src/index.css` (both themes, WCAG-AA). Use `text-warning`, `bg-warning`, `<Badge variant="warning">`, `<Alert variant="warning">` instead of raw amber/yellow/orange palette classes.
+-   **Membership invoices:** `organisation_membership_history` / `member_membership_history` carry `payment_status` (`unpaid`/`paid`/`partial`/`voided`) + `paid_at`, separate from the lifecycle `status`. Accounting-sync failures flag the row `accounting_sync_status='failed'` (not swallowed) with a Retry button in `OrgMembershipTab.jsx`. Payment reconciliation cron `/api/cron/reconcile-membership-invoice-payments` (every 3h, `CRON_SECRET`-guarded) queries Xero/QBO and fires workflows on `unpaid -> paid` only. See `api/_lib/membershipPaymentReconciliation.js`, `api/_lib/accountingProvider.js`.
+-   **Tenant storage metering:** `tenant.storage_used_bytes` (BIGINT) drives `checkStorageQuota` (`api/_lib/planQuota.js`) and `/admin/plan-usage`. Maintained incrementally via `addTenantStorageBytes` (`api/_lib/tenantStorageUsage.js`). Can drift (signed-URL claimed size); re-baseline with `scripts/recompute-tenant-storage.mjs` or the nightly cron.
+-   **Paid-plan upgrade flow (`/admin/plan-usage` → Stripe Checkout):** `PlanUsage.jsx` → `api/admin/plan-checkout.js` (tenant-admin RBAC, uses PLATFORM `STRIPE_SECRET_KEY`, NOT tenant's connected Stripe). First-time creates a Checkout Session; existing live sub swaps price in place via `stripe.subscriptions.update` (proration, never a parallel sub). Webhook `api/webhooks/stripe-plan.js` upserts `tenant_subscription` and flips `tenant.plan_code` only when status is `active`/`trialing`; `subscription.deleted` reverts to `free`.
+-   **Self-serve signup & onboarding (`/signup` → wizard):** `signup-start.js` (captcha + rate limits + verification email) → `signup-verify.js` (`provisionTenant`, `free` plan) → 5-step `OnboardingWizard.jsx` → `POST /api/admin/onboarding` runs `api/_lib/onboardingSeeder.js` (branding + tiers + persona seed pack tagged `is_sample=true`). Legacy admins backfilled to `onboarding_status='complete'`.
+-   **Accessibility audits:** Admin page (RBAC `admin.accessibility-audits`) runs axe-core 4.10 via browserless.io for tenant public URLs. Results in `accessibility_audit` / `accessibility_audit_result`; endpoints under `/api/admin/accessibility-audits`; runner `api/_lib/browserlessAxe.js`. v1 limits: ≤10 URLs/run, http(s) only, no credentialed URLs.
+-   **AI Design Studio V1 (Canvas AI Composition):** generation via `api/ai-compositions/generate.js`; prompt-led editing via `api/ai-compositions/edit.js` (propose/accept/reject/undo + conversation history in `ai_composition_conversation`) and `api/ai-compositions/destinations.js` (record-ID link picker — the AI never invents internal URLs). Patch engine `api/_lib/aiCompositionPatch.js`, edit pipeline `api/_lib/aiCompositionEdit.js`. Accept re-applies the STORED proposal server-side against the current document; complete redesigns are saved as alternatives (`is_alternative`); protected-value changes (prices, dates, names) require explicit confirmation. Editor UI in `client/src/components/canvas/blocks/AiCompositionEditPanel.jsx`. V1 scene-graph compositions are now read-only w.r.t. the V2 pivot.
+-   **AI Design Studio V2 (native-code pivot):** V2 compositions are native AI HTML/CSS/SVG packages (document `schemaVersion "2.0"`, `ai_composition.renderer_version=2`), sanitised ONCE server-side at store time by `api/_lib/aiCodePipeline.js` (schema → jsdom+DOMPurify sanitise → manifest cross-check → postcss CSS scoping under `[data-ai-composition="<uuid>"]` → leak check; reject-don't-repair), rendered verbatim by `AiCodeCompositionBlock.jsx`; signed CSP-locked preview + Browserless screenshots via `api/ai-compositions/preview.js` (HMAC keyed by `AIC_PREVIEW_SECRET`/`CRON_SECRET`). **Page bodies:** `compositionType: "page_body"` runs a plan stage (content manifest + creative plan, anti-degenerate checks in `aiCodeGeneration.js`) before code gen; page gates forbid `<header>/<footer>/<nav>` recreation. **Actions** (`data-ai-action` + manifest, `api/_lib/aiCodeActions.js`) resolve server-side to real records — unresolved actions block page publish (409 `AI_UNRESOLVED_ACTIONS`; editor fix-up via `api/ai-compositions/resolve-action.js`). **Slots** (`data-iconnect-slot`, `api/_lib/aiCodeSlots.js`) portal trusted platform blocks into generated markup; never block publish. **Imagery:** the model never writes image URLs — `<img data-ai-asset="<key>">` placeholders declared in the package `assets` manifest, fulfilled server-side (`api/_lib/aiCodeAssets.js`, gpt-image-1 or media library, tenant-owned storage); only unfulfilled `required` assets hard-reject; image swap is a deterministic `replace-image` edit action. V1→V2 rebuild is admin-only via `api/ai-compositions/rebuild-v2.js` (never automatic). **Editing:** `api/ai-compositions/edit-v2.js` (propose/accept/reject/undo); proposals (element-scoped patches via `data-ai-id`, or full revisions saved as alternatives) stored in `ai_composition_conversation` and re-applied against the CURRENT document on accept (`api/_lib/aiCodeEdit.js`); protected values + locked `data-content-key` texts require confirmation; breakpoint-scoped edits must leave other breakpoints' CSS untouched; accepts introducing NEW critical accessibility issues are blocked (422 `AI_VALIDATION_CRITICAL`). Admin-only Composition Inspector via `GET /api/ai-compositions/:id?inspector=1` (404 to non-admins). Full details: `guides/ai-design-studio-v2-pivot.md`.
+-   **Member AI structured Q&A:** the member assistant answers count/aggregate questions from live records via a whitelisted query spec (LLM never writes SQL). Catalog + validation + executors in `api/_lib/memberAiStructured.js`; routing in `api/member-ai/ask.js`. Adding an entity/field: follow `guides/member-ai-structured-qa.md` (visibility mirrors the member browse surfaces; drift guard in `memberAiStructuredSchemaDrift.test.mjs`).
+
+## Gotchas
+-   **Vercel preview-domain ownership:** Project `vite-migrate-replit-6` serves this repository. Both `dev.iconn.app` and `*.dev.iconn.app` are verified Vercel project domains pinned to the `eventemb2` Git branch; tenant custom-domain actions must never attach, reclaim, or detach `iconn.app` or any of its subdomains.
+-   **`dev.iconn.app` = Vercel preview deployment** built from the `eventemb2` git branch of the same Vercel project as production. Shares the same Supabase. (a) Vercel's Functions → Logs viewer defaults to Production and hides Preview logs — switch the Environment filter to Preview. (b) A fix only reaches `dev.iconn.app` after the commit is on the `eventemb2` branch and that branch's preview build has finished.
+-   **`sendEmail()` never throws.** It catches Mailgun errors and returns `{ success: false, error, status, domain }`. Callers MUST inspect the return value; a bare `try { await sendEmail(...) } catch {}` will falsely report success on 401 / unverified domain / missing key. Canonical pattern: `api/auth/request-admin-password-reset.js`.
+-   **System emails MUST pass `systemEmail: true`** (or use `sendSystemEmail()`). Without it, a tenant with a verified custom sending domain would silently send admin reset / signup / billing emails from the tenant's own brand — wrong identity.
+-   **API hard-fails** any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Workflow `dd_owner` / `dd_owner_email` placeholders** resolve via `resolveDdOwnerForSubmission` (`api/_lib/ddOwner.js`) only when the trigger caller passes `context.formSubmissionId` to `triggerWorkflows`. Without submission context they collapse to empty strings.
+-   **No server-side length validation on `event.summary` / `complex_event.summary`** — relies on client-side `event_summary_max_length` system setting (default 150).
+
+## Product
+-   **Core:** Members, Events, Bookings, Resources, Blog.
+-   **Identity:** Unified login, multi-tenant ownership, organization memberships, granular access control.
+-   **Customization:** Page Builder, Custom Forms with conditional logic, Workflow Automation, per-tenant branding.
+-   **Financials:** Stripe membership payments, Xero/QBO invoicing, Fundraising with Gift Aid.
+-   **Comms:** Email templates, campaigns, member preferences.
+-   **Integrations:** WordPress Sync, Zoom (events/sessions), Zoho CRM sync.
+-   **Reporting:** Due Diligence Reports, configurable Member/Org Directories.
+-   **Community:** Tenant-scoped forums, Member Group email campaigns.
+
+## User preferences
+Preferred communication style: Simple, everyday language.
+
+## Pointers
+-   **React:** `https://react.dev/` · **Tailwind:** `https://tailwindcss.com/docs` · **Drizzle:** `https://orm.drizzle.team/docs/overview`
+-   **Vercel Functions:** `https://vercel.com/docs/functions/overview` · **Supabase:** `https://supabase.com/docs`
+-   **Stripe:** `https://stripe.com/docs/api` · **Mailgun:** `https://documentation.mailgun.com/en/latest/api_reference.html`
+# Membership Management Platform
+A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
+
+## Run & Operate
+-   **Run Dev Server:** `npm run dev`
+-   **Build:** `npm run build` · **Typecheck:** `npm run typecheck` · **Codegen:** `npm run codegen`
+-   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — only works from environments with IPv6 outbound; **not from this Replit workspace** (see "Database connection").
+-   **Migrations:** every `.sql` in `supabase/migrations/` is idempotent and applied against `DEST_DATABASE_URL` (pooler). Most migrations have a matching `node scripts/apply-*.mjs` runner; check `scripts/` before applying anything by hand.
+-   **One-off scripts (backfills, CSV imports, tenant seeds):** live in `scripts/` (e.g. `recompute-tenant-storage.mjs`, `backfill-*.mjs`, `import-*.mjs`, `seed-*.mjs`). They are idempotent, default to dry-run unless an `--apply` flag is passed, and many are hard-pinned to a single tenant. Read the script header before running; each documents its own flags and scope.
+-   **Storage usage reconcile:** `node scripts/recompute-tenant-storage.mjs [--dry-run] [--tenant=<uuid>]`, or trust the nightly cron at `/api/cron/recompute-tenant-storage` (03:00 UTC, `CRON_SECRET`-guarded).
+
+## Database connection (read this before any DB work from this workspace)
+There are two Supabase projects this codebase talks to:
+
+| Role | What it is | URL secret | Postgres URL secret | Service-role key secret |
+| ---- | ---------- | ---------- | ------------------- | ----------------------- |
+| **Destination (current prod)** | Multi-tenant iConnect DB | `DEST_SUPABASE_URL` (`https://lvmzliemqnieeoruhkik.supabase.co`) | `DEST_DATABASE_URL` | `DEST_SUPABASE_KEY` |
+| **Source (legacy)** | Pre-multi-tenancy single-tenant snapshot, used by migration scripts | `SOURCE_SUPABASE_URL` | `SOURCE_DATABASE_URL` | `SOURCE_SUPABASE_KEY` |
+
+**The Supabase direct host (`db.<project>.supabase.co`) is unreachable from this Replit workspace** — it publishes only IPv6 (AAAA) DNS and the Replit container has no IPv6 outbound route, so `psql`, `execute_sql_tool`, `drizzle-kit push`, and any raw `pg`/Drizzle client pointed at the direct host fail with `ENOTFOUND` / `ENETUNREACH`. Those tools work from Vercel functions, the user's laptop, and CI — just not from here against the direct host.
+
+**The Supabase Pooler hostname IS IPv4-reachable from this workspace** (`aws-1-eu-central-1.pooler.supabase.com:5432`, which is what `DEST_DATABASE_URL` already points to). `pg` clients using `DEST_DATABASE_URL` (transaction-pooler mode) work from Replit for read/write queries and DDL such as `CREATE INDEX`. Prefer `@supabase/supabase-js` for ordinary CRUD (REST endpoint is also IPv4-reachable, more ergonomic); reach for `pg` via `DEST_DATABASE_URL` only when you need raw SQL / DDL the REST API can't do.
+
+For any DB access from this workspace (scripts, ad-hoc debugging, one-off data fixes), use **`@supabase/supabase-js`** with the service-role key. Working reference: `scripts/debug-tenant.mjs`.
+
+```js
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(
+  process.env.DEST_SUPABASE_URL,
+  process.env.DEST_SUPABASE_KEY
+);
+```
+
+Quick one-off from bash (env vars ARE available in the shell):
+
+```bash
+node -e "
+const { createClient } = require('@supabase/supabase-js');
+const sb = createClient(process.env.DEST_SUPABASE_URL, process.env.DEST_SUPABASE_KEY, { auth: { persistSession: false } });
+(async () => {
+  const { data, error } = await sb.from('tenant').select('id, slug, name').limit(5);
+  console.log({ data, error });
+})();
+"
+```
+
+## Testing
+-   **AI assistant tests** (registered as the `ai-assistant-tests` validation step, runs automatically on task completion): `node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/aiCompositionRender.test.mjs` — member-AI visibility (security boundary), ranking, indexer, help-chunker, dashboard aggregation/LMIC operators, Canvas auto-height bake guards, `useAutoHeightBake` runtime gates (jsdom), and Canvas auto reading-order suites.
+-   **GoCardless tests:** `node --test api/_lib/gocardless*.test.mjs` — webhook signature/idempotency/status-transition suites, per-tenant credential resolution (tenant_integrations → env fallback, env/token mismatch guards), org DD billing-contact invitations (token format, expiry clamp 1-90 via `dd_invite_expiry_days`, validate/supersede/single-use/revoke, recipient dedupe), Phase 5 renewal decisions (`gocardlessDdRenewals.test.mjs`), and migration invite/funnel (`gocardlessDdMigration.test.mjs`).
+-   **GoCardless sandbox proof:** `node scripts/gocardless-sandbox-proof.mjs [runId]` — billing request + hosted flow creation and idempotent-retry behaviour against the GC sandbox (requires `GOCARDLESS_ACCESS_TOKEN`; refuses to run against live).
+-   **Pending-PO report tests:** `node --test api/_lib/pendingPoInvoice.test.mjs` — PO reference extraction/blacklist and cross-record membership PO propagation helpers.
+
+## Env vars (current canonical set)
+Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPABASE_*` names; prefer the `DEST_*` names below for new code.
+
+| Var | Purpose |
+| --- | ------- |
+| `DEST_SUPABASE_URL` / `DEST_SUPABASE_KEY` / `DEST_DATABASE_URL` | Destination (prod) Supabase. See "Database connection". |
+| `SOURCE_SUPABASE_URL` / `SOURCE_SUPABASE_KEY` / `SOURCE_DATABASE_URL` | Legacy single-tenant snapshot — only used by migration scripts. |
+| `DATABASE_URL` | Direct host (IPv6 only) — used by Vercel / Drizzle push, not this workspace. |
+| `MAILGUN_API_KEY`, `MAILGUN_REGION` (default `eu`), `MAILGUN_FROM_EMAIL`, `APP_DOMAIN` (default `iconn.app`) | Email sending. `MAILGUN_FROM_EMAIL` is the non-system default From; system emails are pinned to `noreply@mail.${APP_DOMAIN}` regardless. |
+| `STRIPE_SECRET_KEY` | Tenant Stripe AND platform-side paid-plan upgrade Checkout. |
+| `STRIPE_PLAN_WEBHOOK_SECRET` | Verifies `/api/webhooks/stripe-plan` from the platform Stripe account. Configure dashboard to deliver `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
+| `GOCARDLESS_ENVIRONMENT` | `sandbox` (default) or `live`. Platform-level FALLBACK only — tenants connect their own GoCardless account via `tenant_integrations` (`integration_type='gocardless'`, resolved by `api/_lib/gocardlessCredentials.js`). |
+| `GOCARDLESS_ACCESS_TOKEN` | Platform-fallback GoCardless API access token (sandbox tokens start `sandbox_`, live `live_`; env/token mismatch is rejected at call time). |
+| `GOCARDLESS_WEBHOOK_SECRET` | Platform-fallback secret verifying `Webhook-Signature` (HMAC-SHA256 of raw body) on `/api/webhooks/gocardless`. Tenant-connected accounts register the URL with `?tenant=<uuid>` and are verified against their own stored secret. |
+| `GOCARDLESS_REDIRECT_BASE_URL` | Base URL for Billing Request Flow redirect/exit URIs (e.g. `https://iconn.app`). |
+| `GOCARDLESS_CREDITOR_ID` (opt) | Pins billing requests to one creditor on multi-creditor GC accounts. |
+| `GOOGLE_FONTS_API_KEY` | Server-side key for the Google Fonts Developer API. Powers live font search in the `/InstalledFonts` add dialog via `api/public/google-fonts.js`. If unset, the picker falls back to the curated `POPULAR_GOOGLE_FONTS` list. |
+| `XERO_CLIENT_ID` | Xero OAuth. |
+| `QUICKBOOKS_REDIRECT_URI` (opt) | Overrides default `${origin}/api/quickbooks/callback` for stable QBO OAuth redirect. |
+| `BROWSERLESS_API_TOKEN`, `BROWSERLESS_BASE_URL` (opt), `BROWSERLESS_AUDIT_TIMEOUT_MS` (opt) | Accessibility audits via browserless.io. |
+| `VITE_APP_URL` | Frontend-known app URL. |
+| `CAPTCHA_PROVIDER`, `CAPTCHA_SECRET_KEY` (opt) | Self-serve signup captcha (hCaptcha/Turnstile/reCAPTCHA). Bypassed when not production. |
+| `SIGNUP_RATE_IP_PER_HOUR`, `SIGNUP_RATE_EMAIL_PER_DAY` (opt) | Self-serve signup rate limits. |
+| `CRON_SECRET` | Guards all `/api/cron/*` endpoints. |
+| `ICONNECT_HEALTH_CHECK_TOKEN` | Required secret for `/api/health`; Better Stack must send it as the `X-Health-Token` request header. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_RENEWALS_URL` | Optional Better Stack heartbeat URL for membership renewals. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for membership-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_GOCARDLESS_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for GoCardless reconciliation. |
+| `BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for Stripe card-plan reconciliation. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL` | Optional Better Stack heartbeat URL for scheduled workflows. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL` | Optional Better Stack heartbeat URL for scheduled campaigns. |
+| `BETTERSTACK_HEARTBEAT_DATABASE_BACKUP_URL` | Optional Better Stack heartbeat URL for database backup to R2. |
+| `BETTERSTACK_HEARTBEAT_STORAGE_BACKUP_URL` | Optional Better Stack heartbeat URL for storage backup to R2. |
+| `BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for form-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_AUTOMATIC_MEMBERSHIP_PROCESSING_URL` | Optional Better Stack heartbeat URL for automatic membership processing. |
+| `ENABLE_RESET_DEBUG` (opt, `'true'`) | Temporary diagnostic: `/api/auth/request-admin-password-reset` returns a `debug` field (`no_identity`/`no_owner_membership`/`email_failed`/`sent`). Leave unset in normal operation so account existence is not disclosed. |
+| `R2_ACCOUNT_ID` | Cloudflare account ID — builds the R2 endpoint URL (`https://<id>.r2.cloudflarestorage.com`). Set this **or** `R2_ENDPOINT`. Vercel secret. |
+| `R2_ENDPOINT` (opt) | Full R2 endpoint URL override, instead of `R2_ACCOUNT_ID`. |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | R2 API token credentials + target bucket for backups. Vercel secrets. |
+| `DB_BACKUP_SCHEMAS` (opt) | Comma-separated Postgres schemas in the nightly DB dump (default: `public`). Supabase internal schemas (`auth`, `storage`, `realtime`, …) are intentionally excluded — Supabase manages them. |
+
+### External health monitoring
+
+Create a Better Stack HTTP monitor for `GET /api/health`. In the monitor's
+request headers, configure `X-Health-Token` to the same secret held in the
+Vercel `ICONNECT_HEALTH_CHECK_TOKEN` environment variable. The endpoint is
+intentionally unauthorised only by that header and returns no dependency detail
+when the header is missing or invalid.
+
+The ten `BETTERSTACK_HEARTBEAT_*_URL` variables are independently optional
+and apply only to the ten selected production schedules. The application
+derives Better Stack's `/fail` target from each configured success URL; store
+only the success URL in Vercel Production. See
+`guides/better-stack-cron-heartbeats.md` for the setup matrix and the complete
+30-schedule coverage inventory.
+Set each Vercel value to the matching Better Stack heartbeat URL for only the
+scheduled job you wish to monitor. The job sends a success URL after a clean
+run and Better Stack's `/fail` URL for a failed run; delivery failures never
+change the job's response or retry behaviour.
+
+## Stack & where things live
+-   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS
+-   **Backend:** Express.js (dev) / Vercel serverless functions (prod), PostgreSQL, Drizzle ORM
+-   `/client`: Frontend source (`client/src/design-system` = custom "new-york" shadcn variant)
+-   `/api`: Backend API endpoints (Vercel serverless functions); shared helpers under `api/_lib/`
+-   `/supabase/migrations`: Database migrations (idempotent SQL); `supabase/schema.prisma` is the schema source of truth for Drizzle
+-   `/scripts`: Utility and migration scripts
+-   `client/index.html` + `api/render.js`: SSR for SEO/OG tag injection
+
+## Architecture decisions
+-   **Multi-tenancy:** Data isolation at GLOBAL / TENANT / ORGANIZATION / MEMBER levels via `tenant_id` and `organization_id`. The shared entity API hard-fails any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Identity:** Unified identity with per-tenant password isolation, Google OAuth, feature-based role management.
+-   **Email sending:** `api/_lib/emailService.js` resolves the sending domain off `tenantId` for tenant→member emails. **System emails** (platform→tenant-owner: admin reset, signup verification, team invite, billing notifications) MUST pass `systemEmail: true` (or use `sendSystemEmail()`); this forces both Mailgun domain AND From identity to `mail.${APP_DOMAIN}` / `noreply@mail.${APP_DOMAIN}`. System reset/verification links must point at `${APP_DOMAIN}/...` not a tenant subdomain.
+-   **Dynamic SEO:** SSR meta-tag injection per-tenant via `api/render.js`; per-page metadata resolved by `api/_lib/entityMeta.js`. Per-entity `seo_title` / `seo_description` / `og_image_url` overrides on events, blog posts, news, campaigns, resources, and directories (UI in `client/src/components/blog/SEOSettings.jsx`). `og:image` URLs on `vault.iconn.app` or `*.supabase.co` are proxied through `/api/og-image`.
+-   **Event deletion:** Multi-step cancellation flow (refunds, reinstatements, Zoom unregistration) before any data purge. Direct deletion of events is deprecated for UI flows.
+-   **Semantic `warning` color:** `--warning` / `--warning-foreground` CSS vars in `client/src/index.css` (both themes, WCAG-AA). Use `text-warning`, `bg-warning`, `<Badge variant="warning">`, `<Alert variant="warning">` instead of raw amber/yellow/orange palette classes.
+-   **Membership invoices:** `organisation_membership_history` / `member_membership_history` carry `payment_status` (`unpaid`/`paid`/`partial`/`voided`) + `paid_at`, separate from the lifecycle `status`. Accounting-sync failures flag the row `accounting_sync_status='failed'` (not swallowed) with a Retry button in `OrgMembershipTab.jsx`. Payment reconciliation cron `/api/cron/reconcile-membership-invoice-payments` (every 3h, `CRON_SECRET`-guarded) queries Xero/QBO and fires workflows on `unpaid -> paid` only. See `api/_lib/membershipPaymentReconciliation.js`, `api/_lib/accountingProvider.js`.
+-   **Tenant storage metering:** `tenant.storage_used_bytes` (BIGINT) drives `checkStorageQuota` (`api/_lib/planQuota.js`) and `/admin/plan-usage`. Maintained incrementally via `addTenantStorageBytes` (`api/_lib/tenantStorageUsage.js`). Can drift (signed-URL claimed size); re-baseline with `scripts/recompute-tenant-storage.mjs` or the nightly cron.
+-   **Paid-plan upgrade flow (`/admin/plan-usage` → Stripe Checkout):** `PlanUsage.jsx` → `api/admin/plan-checkout.js` (tenant-admin RBAC, uses PLATFORM `STRIPE_SECRET_KEY`, NOT tenant's connected Stripe). First-time creates a Checkout Session; existing live sub swaps price in place via `stripe.subscriptions.update` (proration, never a parallel sub). Webhook `api/webhooks/stripe-plan.js` upserts `tenant_subscription` and flips `tenant.plan_code` only when status is `active`/`trialing`; `subscription.deleted` reverts to `free`.
+-   **Self-serve signup & onboarding (`/signup` → wizard):** `signup-start.js` (captcha + rate limits + verification email) → `signup-verify.js` (`provisionTenant`, `free` plan) → 5-step `OnboardingWizard.jsx` → `POST /api/admin/onboarding` runs `api/_lib/onboardingSeeder.js` (branding + tiers + persona seed pack tagged `is_sample=true`). Legacy admins backfilled to `onboarding_status='complete'`.
+-   **Accessibility audits:** Admin page (RBAC `admin.accessibility-audits`) runs axe-core 4.10 via browserless.io for tenant public URLs. Results in `accessibility_audit` / `accessibility_audit_result`; endpoints under `/api/admin/accessibility-audits`; runner `api/_lib/browserlessAxe.js`. v1 limits: ≤10 URLs/run, http(s) only, no credentialed URLs.
+-   **AI Design Studio V1 (Canvas AI Composition):** generation via `api/ai-compositions/generate.js`; prompt-led editing via `api/ai-compositions/edit.js` (propose/accept/reject/undo + conversation history in `ai_composition_conversation`) and `api/ai-compositions/destinations.js` (record-ID link picker — the AI never invents internal URLs). Patch engine `api/_lib/aiCompositionPatch.js`, edit pipeline `api/_lib/aiCompositionEdit.js`. Accept re-applies the STORED proposal server-side against the current document; complete redesigns are saved as alternatives (`is_alternative`); protected-value changes (prices, dates, names) require explicit confirmation. Editor UI in `client/src/components/canvas/blocks/AiCompositionEditPanel.jsx`. V1 scene-graph compositions are now read-only w.r.t. the V2 pivot.
+-   **AI Design Studio V2 (native-code pivot):** V2 compositions are native AI HTML/CSS/SVG packages (document `schemaVersion "2.0"`, `ai_composition.renderer_version=2`), sanitised ONCE server-side at store time by `api/_lib/aiCodePipeline.js` (schema → jsdom+DOMPurify sanitise → manifest cross-check → postcss CSS scoping under `[data-ai-composition="<uuid>"]` → leak check; reject-don't-repair), rendered verbatim by `AiCodeCompositionBlock.jsx`; signed CSP-locked preview + Browserless screenshots via `api/ai-compositions/preview.js` (HMAC keyed by `AIC_PREVIEW_SECRET`/`CRON_SECRET`). **Page bodies:** `compositionType: "page_body"` runs a plan stage (content manifest + creative plan, anti-degenerate checks in `aiCodeGeneration.js`) before code gen; page gates forbid `<header>/<footer>/<nav>` recreation. **Actions** (`data-ai-action` + manifest, `api/_lib/aiCodeActions.js`) resolve server-side to real records — unresolved actions block page publish (409 `AI_UNRESOLVED_ACTIONS`; editor fix-up via `api/ai-compositions/resolve-action.js`). **Slots** (`data-iconnect-slot`, `api/_lib/aiCodeSlots.js`) portal trusted platform blocks into generated markup; never block publish. **Imagery:** the model never writes image URLs — `<img data-ai-asset="<key>">` placeholders declared in the package `assets` manifest, fulfilled server-side (`api/_lib/aiCodeAssets.js`, gpt-image-1 or media library, tenant-owned storage); only unfulfilled `required` assets hard-reject; image swap is a deterministic `replace-image` edit action. V1→V2 rebuild is admin-only via `api/ai-compositions/rebuild-v2.js` (never automatic). **Editing:** `api/ai-compositions/edit-v2.js` (propose/accept/reject/undo); proposals (element-scoped patches via `data-ai-id`, or full revisions saved as alternatives) stored in `ai_composition_conversation` and re-applied against the CURRENT document on accept (`api/_lib/aiCodeEdit.js`); protected values + locked `data-content-key` texts require confirmation; breakpoint-scoped edits must leave other breakpoints' CSS untouched; accepts introducing NEW critical accessibility issues are blocked (422 `AI_VALIDATION_CRITICAL`). Admin-only Composition Inspector via `GET /api/ai-compositions/:id?inspector=1` (404 to non-admins). Full details: `guides/ai-design-studio-v2-pivot.md`.
+-   **Member AI structured Q&A:** the member assistant answers count/aggregate questions from live records via a whitelisted query spec (LLM never writes SQL). Catalog + validation + executors in `api/_lib/memberAiStructured.js`; routing in `api/member-ai/ask.js`. Adding an entity/field: follow `guides/member-ai-structured-qa.md` (visibility mirrors the member browse surfaces; drift guard in `memberAiStructuredSchemaDrift.test.mjs`).
+
+## Gotchas
+-   **Vercel preview-domain ownership:** Project `vite-migrate-replit-6` serves this repository. Both `dev.iconn.app` and `*.dev.iconn.app` are verified Vercel project domains pinned to the `eventemb2` Git branch; tenant custom-domain actions must never attach, reclaim, or detach `iconn.app` or any of its subdomains.
+-   **`dev.iconn.app` = Vercel preview deployment** built from the `eventemb2` git branch of the same Vercel project as production. Shares the same Supabase. (a) Vercel's Functions → Logs viewer defaults to Production and hides Preview logs — switch the Environment filter to Preview. (b) A fix only reaches `dev.iconn.app` after the commit is on the `eventemb2` branch and that branch's preview build has finished.
+-   **`sendEmail()` never throws.** It catches Mailgun errors and returns `{ success: false, error, status, domain }`. Callers MUST inspect the return value; a bare `try { await sendEmail(...) } catch {}` will falsely report success on 401 / unverified domain / missing key. Canonical pattern: `api/auth/request-admin-password-reset.js`.
+-   **System emails MUST pass `systemEmail: true`** (or use `sendSystemEmail()`). Without it, a tenant with a verified custom sending domain would silently send admin reset / signup / billing emails from the tenant's own brand — wrong identity.
+-   **API hard-fails** any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Workflow `dd_owner` / `dd_owner_email` placeholders** resolve via `resolveDdOwnerForSubmission` (`api/_lib/ddOwner.js`) only when the trigger caller passes `context.formSubmissionId` to `triggerWorkflows`. Without submission context they collapse to empty strings.
+-   **No server-side length validation on `event.summary` / `complex_event.summary`** — relies on client-side `event_summary_max_length` system setting (default 150).
+
+## Product
+-   **Core:** Members, Events, Bookings, Resources, Blog.
+-   **Identity:** Unified login, multi-tenant ownership, organization memberships, granular access control.
+-   **Customization:** Page Builder, Custom Forms with conditional logic, Workflow Automation, per-tenant branding.
+-   **Financials:** Stripe membership payments, Xero/QBO invoicing, Fundraising with Gift Aid.
+-   **Comms:** Email templates, campaigns, member preferences.
+-   **Integrations:** WordPress Sync, Zoom (events/sessions), Zoho CRM sync.
+-   **Reporting:** Due Diligence Reports, configurable Member/Org Directories.
+-   **Community:** Tenant-scoped forums, Member Group email campaigns.
+
+## User preferences
+Preferred communication style: Simple, everyday language.
+
+## Pointers
+-   **React:** `https://react.dev/` · **Tailwind:** `https://tailwindcss.com/docs` · **Drizzle:** `https://orm.drizzle.team/docs/overview`
+-   **Vercel Functions:** `https://vercel.com/docs/functions/overview` · **Supabase:** `https://supabase.com/docs`
+-   **Stripe:** `https://stripe.com/docs/api` · **Mailgun:** `https://documentation.mailgun.com/en/latest/api_reference.html`
+# Membership Management Platform
+A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
+
+## Run & Operate
+-   **Run Dev Server:** `npm run dev`
+-   **Build:** `npm run build` · **Typecheck:** `npm run typecheck` · **Codegen:** `npm run codegen`
+-   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — only works from environments with IPv6 outbound; **not from this Replit workspace** (see "Database connection").
+-   **Migrations:** every `.sql` in `supabase/migrations/` is idempotent and applied against `DEST_DATABASE_URL` (pooler). Most migrations have a matching `node scripts/apply-*.mjs` runner; check `scripts/` before applying anything by hand.
+-   **One-off scripts (backfills, CSV imports, tenant seeds):** live in `scripts/` (e.g. `recompute-tenant-storage.mjs`, `backfill-*.mjs`, `import-*.mjs`, `seed-*.mjs`). They are idempotent, default to dry-run unless an `--apply` flag is passed, and many are hard-pinned to a single tenant. Read the script header before running; each documents its own flags and scope.
+-   **Storage usage reconcile:** `node scripts/recompute-tenant-storage.mjs [--dry-run] [--tenant=<uuid>]`, or trust the nightly cron at `/api/cron/recompute-tenant-storage` (03:00 UTC, `CRON_SECRET`-guarded).
+
+## Database connection (read this before any DB work from this workspace)
+There are two Supabase projects this codebase talks to:
+
+| Role | What it is | URL secret | Postgres URL secret | Service-role key secret |
+| ---- | ---------- | ---------- | ------------------- | ----------------------- |
+| **Destination (current prod)** | Multi-tenant iConnect DB | `DEST_SUPABASE_URL` (`https://lvmzliemqnieeoruhkik.supabase.co`) | `DEST_DATABASE_URL` | `DEST_SUPABASE_KEY` |
+| **Source (legacy)** | Pre-multi-tenancy single-tenant snapshot, used by migration scripts | `SOURCE_SUPABASE_URL` | `SOURCE_DATABASE_URL` | `SOURCE_SUPABASE_KEY` |
+
+**The Supabase direct host (`db.<project>.supabase.co`) is unreachable from this Replit workspace** — it publishes only IPv6 (AAAA) DNS and the Replit container has no IPv6 outbound route, so `psql`, `execute_sql_tool`, `drizzle-kit push`, and any raw `pg`/Drizzle client pointed at the direct host fail with `ENOTFOUND` / `ENETUNREACH`. Those tools work from Vercel functions, the user's laptop, and CI — just not from here against the direct host.
+
+**The Supabase Pooler hostname IS IPv4-reachable from this workspace** (`aws-1-eu-central-1.pooler.supabase.com:5432`, which is what `DEST_DATABASE_URL` already points to). `pg` clients using `DEST_DATABASE_URL` (transaction-pooler mode) work from Replit for read/write queries and DDL such as `CREATE INDEX`. Prefer `@supabase/supabase-js` for ordinary CRUD (REST endpoint is also IPv4-reachable, more ergonomic); reach for `pg` via `DEST_DATABASE_URL` only when you need raw SQL / DDL the REST API can't do.
+
+For any DB access from this workspace (scripts, ad-hoc debugging, one-off data fixes), use **`@supabase/supabase-js`** with the service-role key. Working reference: `scripts/debug-tenant.mjs`.
+
+```js
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(
+  process.env.DEST_SUPABASE_URL,
+  process.env.DEST_SUPABASE_KEY
+);
+```
+
+Quick one-off from bash (env vars ARE available in the shell):
+
+```bash
+node -e "
+const { createClient } = require('@supabase/supabase-js');
+const sb = createClient(process.env.DEST_SUPABASE_URL, process.env.DEST_SUPABASE_KEY, { auth: { persistSession: false } });
+(async () => {
+  const { data, error } = await sb.from('tenant').select('id, slug, name').limit(5);
+  console.log({ data, error });
+})();
+"
+```
+
+## Testing
+-   **AI assistant tests** (registered as the `ai-assistant-tests` validation step, runs automatically on task completion): `node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/aiCompositionRender.test.mjs` — member-AI visibility (security boundary), ranking, indexer, help-chunker, dashboard aggregation/LMIC operators, Canvas auto-height bake guards, `useAutoHeightBake` runtime gates (jsdom), and Canvas auto reading-order suites.
+-   **GoCardless tests:** `node --test api/_lib/gocardless*.test.mjs` — webhook signature/idempotency/status-transition suites, per-tenant credential resolution (tenant_integrations → env fallback, env/token mismatch guards), org DD billing-contact invitations (token format, expiry clamp 1-90 via `dd_invite_expiry_days`, validate/supersede/single-use/revoke, recipient dedupe), Phase 5 renewal decisions (`gocardlessDdRenewals.test.mjs`), and migration invite/funnel (`gocardlessDdMigration.test.mjs`).
+-   **GoCardless sandbox proof:** `node scripts/gocardless-sandbox-proof.mjs [runId]` — billing request + hosted flow creation and idempotent-retry behaviour against the GC sandbox (requires `GOCARDLESS_ACCESS_TOKEN`; refuses to run against live).
+-   **Pending-PO report tests:** `node --test api/_lib/pendingPoInvoice.test.mjs` — PO reference extraction/blacklist and cross-record membership PO propagation helpers.
+
+## Env vars (current canonical set)
+Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPABASE_*` names; prefer the `DEST_*` names below for new code.
+
+| Var | Purpose |
+| --- | ------- |
+| `DEST_SUPABASE_URL` / `DEST_SUPABASE_KEY` / `DEST_DATABASE_URL` | Destination (prod) Supabase. See "Database connection". |
+| `SOURCE_SUPABASE_URL` / `SOURCE_SUPABASE_KEY` / `SOURCE_DATABASE_URL` | Legacy single-tenant snapshot — only used by migration scripts. |
+| `DATABASE_URL` | Direct host (IPv6 only) — used by Vercel / Drizzle push, not this workspace. |
+| `MAILGUN_API_KEY`, `MAILGUN_REGION` (default `eu`), `MAILGUN_FROM_EMAIL`, `APP_DOMAIN` (default `iconn.app`) | Email sending. `MAILGUN_FROM_EMAIL` is the non-system default From; system emails are pinned to `noreply@mail.${APP_DOMAIN}` regardless. |
+| `STRIPE_SECRET_KEY` | Tenant Stripe AND platform-side paid-plan upgrade Checkout. |
+| `STRIPE_PLAN_WEBHOOK_SECRET` | Verifies `/api/webhooks/stripe-plan` from the platform Stripe account. Configure dashboard to deliver `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
+| `GOCARDLESS_ENVIRONMENT` | `sandbox` (default) or `live`. Platform-level FALLBACK only — tenants connect their own GoCardless account via `tenant_integrations` (`integration_type='gocardless'`, resolved by `api/_lib/gocardlessCredentials.js`). |
+| `GOCARDLESS_ACCESS_TOKEN` | Platform-fallback GoCardless API access token (sandbox tokens start `sandbox_`, live `live_`; env/token mismatch is rejected at call time). |
+| `GOCARDLESS_WEBHOOK_SECRET` | Platform-fallback secret verifying `Webhook-Signature` (HMAC-SHA256 of raw body) on `/api/webhooks/gocardless`. Tenant-connected accounts register the URL with `?tenant=<uuid>` and are verified against their own stored secret. |
+| `GOCARDLESS_REDIRECT_BASE_URL` | Base URL for Billing Request Flow redirect/exit URIs (e.g. `https://iconn.app`). |
+| `GOCARDLESS_CREDITOR_ID` (opt) | Pins billing requests to one creditor on multi-creditor GC accounts. |
+| `GOOGLE_FONTS_API_KEY` | Server-side key for the Google Fonts Developer API. Powers live font search in the `/InstalledFonts` add dialog via `api/public/google-fonts.js`. If unset, the picker falls back to the curated `POPULAR_GOOGLE_FONTS` list. |
+| `XERO_CLIENT_ID` | Xero OAuth. |
+| `QUICKBOOKS_REDIRECT_URI` (opt) | Overrides default `${origin}/api/quickbooks/callback` for stable QBO OAuth redirect. |
+| `BROWSERLESS_API_TOKEN`, `BROWSERLESS_BASE_URL` (opt), `BROWSERLESS_AUDIT_TIMEOUT_MS` (opt) | Accessibility audits via browserless.io. |
+| `VITE_APP_URL` | Frontend-known app URL. |
+| `CAPTCHA_PROVIDER`, `CAPTCHA_SECRET_KEY` (opt) | Self-serve signup captcha (hCaptcha/Turnstile/reCAPTCHA). Bypassed when not production. |
+| `SIGNUP_RATE_IP_PER_HOUR`, `SIGNUP_RATE_EMAIL_PER_DAY` (opt) | Self-serve signup rate limits. |
+| `CRON_SECRET` | Guards all `/api/cron/*` endpoints. |
+| `ICONNECT_HEALTH_CHECK_TOKEN` | Required secret for `/api/health`; Better Stack must send it as the `X-Health-Token` request header. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_RENEWALS_URL` | Optional Better Stack heartbeat URL for membership renewals. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for membership-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_GOCARDLESS_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for GoCardless reconciliation. |
+| `BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for Stripe card-plan reconciliation. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL` | Optional Better Stack heartbeat URL for scheduled workflows. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL` | Optional Better Stack heartbeat URL for scheduled campaigns. |
+| `BETTERSTACK_HEARTBEAT_DATABASE_BACKUP_URL` | Optional Better Stack heartbeat URL for database backup to R2. |
+| `BETTERSTACK_HEARTBEAT_STORAGE_BACKUP_URL` | Optional Better Stack heartbeat URL for storage backup to R2. |
+| `BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for form-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_AUTOMATIC_MEMBERSHIP_PROCESSING_URL` | Optional Better Stack heartbeat URL for automatic membership processing. |
+| `ENABLE_RESET_DEBUG` (opt, `'true'`) | Temporary diagnostic: `/api/auth/request-admin-password-reset` returns a `debug` field (`no_identity`/`no_owner_membership`/`email_failed`/`sent`). Leave unset in normal operation so account existence is not disclosed. |
+| `R2_ACCOUNT_ID` | Cloudflare account ID — builds the R2 endpoint URL (`https://<id>.r2.cloudflarestorage.com`). Set this **or** `R2_ENDPOINT`. Vercel secret. |
+| `R2_ENDPOINT` (opt) | Full R2 endpoint URL override, instead of `R2_ACCOUNT_ID`. |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | R2 API token credentials + target bucket for backups. Vercel secrets. |
+| `DB_BACKUP_SCHEMAS` (opt) | Comma-separated Postgres schemas in the nightly DB dump (default: `public`). Supabase internal schemas (`auth`, `storage`, `realtime`, …) are intentionally excluded — Supabase manages them. |
+
+### External health monitoring
+
+Create a Better Stack HTTP monitor for `GET /api/health`. In the monitor's
+request headers, configure `X-Health-Token` to the same secret held in the
+Vercel `ICONNECT_HEALTH_CHECK_TOKEN` environment variable. The endpoint is
+intentionally unauthorised only by that header and returns no dependency detail
+when the header is missing or invalid.
+
+The ten `BETTERSTACK_HEARTBEAT_*_URL` variables are independently optional
+and apply only to the ten selected production schedules. The application
+derives Better Stack's `/fail` target from each configured success URL; store
+only the success URL in Vercel Production. See
+`guides/better-stack-cron-heartbeats.md` for the setup matrix and the complete
+30-schedule coverage inventory.
+Set each Vercel value to the matching Better Stack heartbeat URL for only the
+scheduled job you wish to monitor. The job sends a success URL after a clean
+run and Better Stack's `/fail` URL for a failed run; delivery failures never
+change the job's response or retry behaviour.
+
+## Stack & where things live
+-   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS
+-   **Backend:** Express.js (dev) / Vercel serverless functions (prod), PostgreSQL, Drizzle ORM
+-   `/client`: Frontend source (`client/src/design-system` = custom "new-york" shadcn variant)
+-   `/api`: Backend API endpoints (Vercel serverless functions); shared helpers under `api/_lib/`
+-   `/supabase/migrations`: Database migrations (idempotent SQL); `supabase/schema.prisma` is the schema source of truth for Drizzle
+-   `/scripts`: Utility and migration scripts
+-   `client/index.html` + `api/render.js`: SSR for SEO/OG tag injection
+
+## Architecture decisions
+-   **Multi-tenancy:** Data isolation at GLOBAL / TENANT / ORGANIZATION / MEMBER levels via `tenant_id` and `organization_id`. The shared entity API hard-fails any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Identity:** Unified identity with per-tenant password isolation, Google OAuth, feature-based role management.
+-   **Email sending:** `api/_lib/emailService.js` resolves the sending domain off `tenantId` for tenant→member emails. **System emails** (platform→tenant-owner: admin reset, signup verification, team invite, billing notifications) MUST pass `systemEmail: true` (or use `sendSystemEmail()`); this forces both Mailgun domain AND From identity to `mail.${APP_DOMAIN}` / `noreply@mail.${APP_DOMAIN}`. System reset/verification links must point at `${APP_DOMAIN}/...` not a tenant subdomain.
+-   **Dynamic SEO:** SSR meta-tag injection per-tenant via `api/render.js`; per-page metadata resolved by `api/_lib/entityMeta.js`. Per-entity `seo_title` / `seo_description` / `og_image_url` overrides on events, blog posts, news, campaigns, resources, and directories (UI in `client/src/components/blog/SEOSettings.jsx`). `og:image` URLs on `vault.iconn.app` or `*.supabase.co` are proxied through `/api/og-image`.
+-   **Event deletion:** Multi-step cancellation flow (refunds, reinstatements, Zoom unregistration) before any data purge. Direct deletion of events is deprecated for UI flows.
+-   **Semantic `warning` color:** `--warning` / `--warning-foreground` CSS vars in `client/src/index.css` (both themes, WCAG-AA). Use `text-warning`, `bg-warning`, `<Badge variant="warning">`, `<Alert variant="warning">` instead of raw amber/yellow/orange palette classes.
+-   **Membership invoices:** `organisation_membership_history` / `member_membership_history` carry `payment_status` (`unpaid`/`paid`/`partial`/`voided`) + `paid_at`, separate from the lifecycle `status`. Accounting-sync failures flag the row `accounting_sync_status='failed'` (not swallowed) with a Retry button in `OrgMembershipTab.jsx`. Payment reconciliation cron `/api/cron/reconcile-membership-invoice-payments` (every 3h, `CRON_SECRET`-guarded) queries Xero/QBO and fires workflows on `unpaid -> paid` only. See `api/_lib/membershipPaymentReconciliation.js`, `api/_lib/accountingProvider.js`.
+-   **Tenant storage metering:** `tenant.storage_used_bytes` (BIGINT) drives `checkStorageQuota` (`api/_lib/planQuota.js`) and `/admin/plan-usage`. Maintained incrementally via `addTenantStorageBytes` (`api/_lib/tenantStorageUsage.js`). Can drift (signed-URL claimed size); re-baseline with `scripts/recompute-tenant-storage.mjs` or the nightly cron.
+-   **Paid-plan upgrade flow (`/admin/plan-usage` → Stripe Checkout):** `PlanUsage.jsx` → `api/admin/plan-checkout.js` (tenant-admin RBAC, uses PLATFORM `STRIPE_SECRET_KEY`, NOT tenant's connected Stripe). First-time creates a Checkout Session; existing live sub swaps price in place via `stripe.subscriptions.update` (proration, never a parallel sub). Webhook `api/webhooks/stripe-plan.js` upserts `tenant_subscription` and flips `tenant.plan_code` only when status is `active`/`trialing`; `subscription.deleted` reverts to `free`.
+-   **Self-serve signup & onboarding (`/signup` → wizard):** `signup-start.js` (captcha + rate limits + verification email) → `signup-verify.js` (`provisionTenant`, `free` plan) → 5-step `OnboardingWizard.jsx` → `POST /api/admin/onboarding` runs `api/_lib/onboardingSeeder.js` (branding + tiers + persona seed pack tagged `is_sample=true`). Legacy admins backfilled to `onboarding_status='complete'`.
+-   **Accessibility audits:** Admin page (RBAC `admin.accessibility-audits`) runs axe-core 4.10 via browserless.io for tenant public URLs. Results in `accessibility_audit` / `accessibility_audit_result`; endpoints under `/api/admin/accessibility-audits`; runner `api/_lib/browserlessAxe.js`. v1 limits: ≤10 URLs/run, http(s) only, no credentialed URLs.
+-   **AI Design Studio V1 (Canvas AI Composition):** generation via `api/ai-compositions/generate.js`; prompt-led editing via `api/ai-compositions/edit.js` (propose/accept/reject/undo + conversation history in `ai_composition_conversation`) and `api/ai-compositions/destinations.js` (record-ID link picker — the AI never invents internal URLs). Patch engine `api/_lib/aiCompositionPatch.js`, edit pipeline `api/_lib/aiCompositionEdit.js`. Accept re-applies the STORED proposal server-side against the current document; complete redesigns are saved as alternatives (`is_alternative`); protected-value changes (prices, dates, names) require explicit confirmation. Editor UI in `client/src/components/canvas/blocks/AiCompositionEditPanel.jsx`. V1 scene-graph compositions are now read-only w.r.t. the V2 pivot.
+-   **AI Design Studio V2 (native-code pivot):** V2 compositions are native AI HTML/CSS/SVG packages (document `schemaVersion "2.0"`, `ai_composition.renderer_version=2`), sanitised ONCE server-side at store time by `api/_lib/aiCodePipeline.js` (schema → jsdom+DOMPurify sanitise → manifest cross-check → postcss CSS scoping under `[data-ai-composition="<uuid>"]` → leak check; reject-don't-repair), rendered verbatim by `AiCodeCompositionBlock.jsx`; signed CSP-locked preview + Browserless screenshots via `api/ai-compositions/preview.js` (HMAC keyed by `AIC_PREVIEW_SECRET`/`CRON_SECRET`). **Page bodies:** `compositionType: "page_body"` runs a plan stage (content manifest + creative plan, anti-degenerate checks in `aiCodeGeneration.js`) before code gen; page gates forbid `<header>/<footer>/<nav>` recreation. **Actions** (`data-ai-action` + manifest, `api/_lib/aiCodeActions.js`) resolve server-side to real records — unresolved actions block page publish (409 `AI_UNRESOLVED_ACTIONS`; editor fix-up via `api/ai-compositions/resolve-action.js`). **Slots** (`data-iconnect-slot`, `api/_lib/aiCodeSlots.js`) portal trusted platform blocks into generated markup; never block publish. **Imagery:** the model never writes image URLs — `<img data-ai-asset="<key>">` placeholders declared in the package `assets` manifest, fulfilled server-side (`api/_lib/aiCodeAssets.js`, gpt-image-1 or media library, tenant-owned storage); only unfulfilled `required` assets hard-reject; image swap is a deterministic `replace-image` edit action. V1→V2 rebuild is admin-only via `api/ai-compositions/rebuild-v2.js` (never automatic). **Editing:** `api/ai-compositions/edit-v2.js` (propose/accept/reject/undo); proposals (element-scoped patches via `data-ai-id`, or full revisions saved as alternatives) stored in `ai_composition_conversation` and re-applied against the CURRENT document on accept (`api/_lib/aiCodeEdit.js`); protected values + locked `data-content-key` texts require confirmation; breakpoint-scoped edits must leave other breakpoints' CSS untouched; accepts introducing NEW critical accessibility issues are blocked (422 `AI_VALIDATION_CRITICAL`). Admin-only Composition Inspector via `GET /api/ai-compositions/:id?inspector=1` (404 to non-admins). Full details: `guides/ai-design-studio-v2-pivot.md`.
+-   **Member AI structured Q&A:** the member assistant answers count/aggregate questions from live records via a whitelisted query spec (LLM never writes SQL). Catalog + validation + executors in `api/_lib/memberAiStructured.js`; routing in `api/member-ai/ask.js`. Adding an entity/field: follow `guides/member-ai-structured-qa.md` (visibility mirrors the member browse surfaces; drift guard in `memberAiStructuredSchemaDrift.test.mjs`).
+
+## Gotchas
+-   **Vercel preview-domain ownership:** Project `vite-migrate-replit-6` serves this repository. Both `dev.iconn.app` and `*.dev.iconn.app` are verified Vercel project domains pinned to the `eventemb2` Git branch; tenant custom-domain actions must never attach, reclaim, or detach `iconn.app` or any of its subdomains.
+-   **`dev.iconn.app` = Vercel preview deployment** built from the `eventemb2` git branch of the same Vercel project as production. Shares the same Supabase. (a) Vercel's Functions → Logs viewer defaults to Production and hides Preview logs — switch the Environment filter to Preview. (b) A fix only reaches `dev.iconn.app` after the commit is on the `eventemb2` branch and that branch's preview build has finished.
+-   **`sendEmail()` never throws.** It catches Mailgun errors and returns `{ success: false, error, status, domain }`. Callers MUST inspect the return value; a bare `try { await sendEmail(...) } catch {}` will falsely report success on 401 / unverified domain / missing key. Canonical pattern: `api/auth/request-admin-password-reset.js`.
+-   **System emails MUST pass `systemEmail: true`** (or use `sendSystemEmail()`). Without it, a tenant with a verified custom sending domain would silently send admin reset / signup / billing emails from the tenant's own brand — wrong identity.
+-   **API hard-fails** any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Workflow `dd_owner` / `dd_owner_email` placeholders** resolve via `resolveDdOwnerForSubmission` (`api/_lib/ddOwner.js`) only when the trigger caller passes `context.formSubmissionId` to `triggerWorkflows`. Without submission context they collapse to empty strings.
+-   **No server-side length validation on `event.summary` / `complex_event.summary`** — relies on client-side `event_summary_max_length` system setting (default 150).
+
+## Product
+-   **Core:** Members, Events, Bookings, Resources, Blog.
+-   **Identity:** Unified login, multi-tenant ownership, organization memberships, granular access control.
+-   **Customization:** Page Builder, Custom Forms with conditional logic, Workflow Automation, per-tenant branding.
+-   **Financials:** Stripe membership payments, Xero/QBO invoicing, Fundraising with Gift Aid.
+-   **Comms:** Email templates, campaigns, member preferences.
+-   **Integrations:** WordPress Sync, Zoom (events/sessions), Zoho CRM sync.
+-   **Reporting:** Due Diligence Reports, configurable Member/Org Directories.
+-   **Community:** Tenant-scoped forums, Member Group email campaigns.
+
+## User preferences
+Preferred communication style: Simple, everyday language.
+
+## Pointers
+-   **React:** `https://react.dev/` · **Tailwind:** `https://tailwindcss.com/docs` · **Drizzle:** `https://orm.drizzle.team/docs/overview`
+-   **Vercel Functions:** `https://vercel.com/docs/functions/overview` · **Supabase:** `https://supabase.com/docs`
+-   **Stripe:** `https://stripe.com/docs/api` · **Mailgun:** `https://documentation.mailgun.com/en/latest/api_reference.html`
+# Membership Management Platform
+A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
+
+## Run & Operate
+-   **Run Dev Server:** `npm run dev`
+-   **Build:** `npm run build` · **Typecheck:** `npm run typecheck` · **Codegen:** `npm run codegen`
+-   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — only works from environments with IPv6 outbound; **not from this Replit workspace** (see "Database connection").
+-   **Migrations:** every `.sql` in `supabase/migrations/` is idempotent and applied against `DEST_DATABASE_URL` (pooler). Most migrations have a matching `node scripts/apply-*.mjs` runner; check `scripts/` before applying anything by hand.
+-   **One-off scripts (backfills, CSV imports, tenant seeds):** live in `scripts/` (e.g. `recompute-tenant-storage.mjs`, `backfill-*.mjs`, `import-*.mjs`, `seed-*.mjs`). They are idempotent, default to dry-run unless an `--apply` flag is passed, and many are hard-pinned to a single tenant. Read the script header before running; each documents its own flags and scope.
+-   **Inclusive relationship reports:** `node scripts/apply-inclusive-relationship-reports.mjs --apply` installs the V2 paging/count helpers and separate BNMS Organisation department summary using `DEST_DATABASE_URL` only. `node scripts/verify-bnms-organisation-department-summary.mjs` verifies saved preview results read-only; `--reference-only` checks source totals before setup. Existing V1 reports are not upgraded.
+-   **Storage usage reconcile:** `node scripts/recompute-tenant-storage.mjs [--dry-run] [--tenant=<uuid>]`, or trust the nightly cron at `/api/cron/recompute-tenant-storage` (03:00 UTC, `CRON_SECRET`-guarded).
+
+## Database connection (read this before any DB work from this workspace)
+There are two Supabase projects this codebase talks to:
+
+| Role | What it is | URL secret | Postgres URL secret | Service-role key secret |
+| ---- | ---------- | ---------- | ------------------- | ----------------------- |
+| **Destination (current prod)** | Multi-tenant iConnect DB | `DEST_SUPABASE_URL` (`https://lvmzliemqnieeoruhkik.supabase.co`) | `DEST_DATABASE_URL` | `DEST_SUPABASE_KEY` |
+| **Source (legacy)** | Pre-multi-tenancy single-tenant snapshot, used by migration scripts | `SOURCE_SUPABASE_URL` | `SOURCE_DATABASE_URL` | `SOURCE_SUPABASE_KEY` |
+
+**The Supabase direct host (`db.<project>.supabase.co`) is unreachable from this Replit workspace** — it publishes only IPv6 (AAAA) DNS and the Replit container has no IPv6 outbound route, so `psql`, `execute_sql_tool`, `drizzle-kit push`, and any raw `pg`/Drizzle client pointed at the direct host fail with `ENOTFOUND` / `ENETUNREACH`. Those tools work from Vercel functions, the user's laptop, and CI — just not from here against the direct host.
+
+**The Supabase Pooler hostname IS IPv4-reachable from this workspace** (`aws-1-eu-central-1.pooler.supabase.com:5432`, which is what `DEST_DATABASE_URL` already points to). `pg` clients using `DEST_DATABASE_URL` (transaction-pooler mode) work from Replit for read/write queries and DDL such as `CREATE INDEX`. Prefer `@supabase/supabase-js` for ordinary CRUD (REST endpoint is also IPv4-reachable, more ergonomic); reach for `pg` via `DEST_DATABASE_URL` only when you need raw SQL / DDL the REST API can't do.
+
+For any DB access from this workspace (scripts, ad-hoc debugging, one-off data fixes), use **`@supabase/supabase-js`** with the service-role key. Working reference: `scripts/debug-tenant.mjs`.
+
+```js
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(
+  process.env.DEST_SUPABASE_URL,
+  process.env.DEST_SUPABASE_KEY
+);
+```
+
+Quick one-off from bash (env vars ARE available in the shell):
+
+```bash
+node -e "
+const { createClient } = require('@supabase/supabase-js');
+const sb = createClient(process.env.DEST_SUPABASE_URL, process.env.DEST_SUPABASE_KEY, { auth: { persistSession: false } });
+(async () => {
+  const { data, error } = await sb.from('tenant').select('id, slug, name').limit(5);
+  console.log({ data, error });
+})();
+"
+```
+
+## Testing
+-   **AI assistant tests** (registered as the `ai-assistant-tests` validation step, runs automatically on task completion): `node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/aiCompositionRender.test.mjs` — member-AI visibility (security boundary), ranking, indexer, help-chunker, dashboard aggregation/LMIC operators, Canvas auto-height bake guards, `useAutoHeightBake` runtime gates (jsdom), and Canvas auto reading-order suites.
+-   **GoCardless tests:** `node --test api/_lib/gocardless*.test.mjs` — webhook signature/idempotency/status-transition suites, per-tenant credential resolution (tenant_integrations → env fallback, env/token mismatch guards), org DD billing-contact invitations (token format, expiry clamp 1-90 via `dd_invite_expiry_days`, validate/supersede/single-use/revoke, recipient dedupe), Phase 5 renewal decisions (`gocardlessDdRenewals.test.mjs`), and migration invite/funnel (`gocardlessDdMigration.test.mjs`).
+-   **GoCardless sandbox proof:** `node scripts/gocardless-sandbox-proof.mjs [runId]` — billing request + hosted flow creation and idempotent-retry behaviour against the GC sandbox (requires `GOCARDLESS_ACCESS_TOKEN`; refuses to run against live).
+-   **Pending-PO report tests:** `node --test api/_lib/pendingPoInvoice.test.mjs` — PO reference extraction/blacklist and cross-record membership PO propagation helpers.
+-   **Organisation Directory filters:** `npm run test:directory-object-fields` covers schema projections, safe diagnostics, exact source-value selection, permission revocation, and population pagination; `npx playwright test tests/directory-object-fields.smoke.spec.mjs` covers mounted directory controls and card behaviour. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` when using a system Chromium.
+-   **Destination directory verification (read-only):** `node scripts/verify-directory-source-values-destination.mjs` checks the configured BNMS Department Name source against DEST without changing settings or records. `npx playwright test --config=tests/task-4360-destination-harness.config.mjs` renders the local app with fixture sign-in/chrome and real destination-backed directory service responses. This harness is not a deployed-login/authentication test; `scripts/verify-task-4360-preview.mjs` separately supports normal authenticated preview verification with an ephemeral `PLAYWRIGHT_STORAGE_STATE`.
+-   **Repeatable Custom Object source verification (read-only):** `node scripts/verify-form-row-choice-sources.mjs --parent-object=<uuid> --related-object=<uuid> --value-field=<name>` checks record → distinct scalar → filtered record options and submission eligibility against DEST using an in-memory form. It does not save forms, submissions, or catalogue records.
+
+## Env vars (current canonical set)
+Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPABASE_*` names; prefer the `DEST_*` names below for new code.
+
+| Var | Purpose |
+| --- | ------- |
+| `DEST_SUPABASE_URL` / `DEST_SUPABASE_KEY` / `DEST_DATABASE_URL` | Destination (prod) Supabase. See "Database connection". |
+| `SOURCE_SUPABASE_URL` / `SOURCE_SUPABASE_KEY` / `SOURCE_DATABASE_URL` | Legacy single-tenant snapshot — only used by migration scripts. |
+| `DATABASE_URL` | Direct host (IPv6 only) — used by Vercel / Drizzle push, not this workspace. |
+| `MAILGUN_API_KEY`, `MAILGUN_REGION` (default `eu`), `MAILGUN_FROM_EMAIL`, `APP_DOMAIN` (default `iconn.app`) | Email sending. `MAILGUN_FROM_EMAIL` is the non-system default From; system emails are pinned to `noreply@mail.${APP_DOMAIN}` regardless. |
+| `STRIPE_SECRET_KEY` | Tenant Stripe AND platform-side paid-plan upgrade Checkout. |
+| `STRIPE_PLAN_WEBHOOK_SECRET` | Verifies `/api/webhooks/stripe-plan` from the platform Stripe account. Configure dashboard to deliver `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
+| `GOCARDLESS_ENVIRONMENT` | `sandbox` (default) or `live`. Platform-level FALLBACK only — tenants connect their own GoCardless account via `tenant_integrations` (`integration_type='gocardless'`, resolved by `api/_lib/gocardlessCredentials.js`). |
+| `GOCARDLESS_ACCESS_TOKEN` | Platform-fallback GoCardless API access token (sandbox tokens start `sandbox_`, live `live_`; env/token mismatch is rejected at call time). |
+| `GOCARDLESS_WEBHOOK_SECRET` | Platform-fallback secret verifying `Webhook-Signature` (HMAC-SHA256 of raw body) on `/api/webhooks/gocardless`. Tenant-connected accounts register the URL with `?tenant=<uuid>` and are verified against their own stored secret. |
+| `GOCARDLESS_REDIRECT_BASE_URL` | Base URL for Billing Request Flow redirect/exit URIs (e.g. `https://iconn.app`). |
+| `GOCARDLESS_CREDITOR_ID` (opt) | Pins billing requests to one creditor on multi-creditor GC accounts. |
+| `GOOGLE_FONTS_API_KEY` | Server-side key for the Google Fonts Developer API. Powers live font search in the `/InstalledFonts` add dialog via `api/public/google-fonts.js`. If unset, the picker falls back to the curated `POPULAR_GOOGLE_FONTS` list. |
+| `XERO_CLIENT_ID` | Xero OAuth. |
+| `QUICKBOOKS_REDIRECT_URI` (opt) | Overrides default `${origin}/api/quickbooks/callback` for stable QBO OAuth redirect. |
+| `BROWSERLESS_API_TOKEN`, `BROWSERLESS_BASE_URL` (opt), `BROWSERLESS_AUDIT_TIMEOUT_MS` (opt) | Accessibility audits via browserless.io. |
+| `VITE_APP_URL` | Frontend-known app URL. |
+| `CAPTCHA_PROVIDER`, `CAPTCHA_SECRET_KEY` (opt) | Self-serve signup captcha (hCaptcha/Turnstile/reCAPTCHA). Bypassed when not production. |
+| `SIGNUP_RATE_IP_PER_HOUR`, `SIGNUP_RATE_EMAIL_PER_DAY` (opt) | Self-serve signup rate limits. |
+| `CRON_SECRET` | Guards all `/api/cron/*` endpoints. |
+| `ICONNECT_HEALTH_CHECK_TOKEN` | Required secret for `/api/health`; Better Stack must send it as the `X-Health-Token` request header. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_RENEWALS_URL` | Optional Better Stack heartbeat URL for membership renewals. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for membership-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_GOCARDLESS_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for GoCardless reconciliation. |
+| `BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for Stripe card-plan reconciliation. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL` | Optional Better Stack heartbeat URL for scheduled workflows. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL` | Optional Better Stack heartbeat URL for scheduled campaigns. |
+| `BETTERSTACK_HEARTBEAT_DATABASE_BACKUP_URL` | Optional Better Stack heartbeat URL for database backup to R2. |
+| `BETTERSTACK_HEARTBEAT_STORAGE_BACKUP_URL` | Optional Better Stack heartbeat URL for storage backup to R2. |
+| `BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for form-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_AUTOMATIC_MEMBERSHIP_PROCESSING_URL` | Optional Better Stack heartbeat URL for automatic membership processing. |
+| `ENABLE_RESET_DEBUG` (opt, `'true'`) | Temporary diagnostic: `/api/auth/request-admin-password-reset` returns a `debug` field (`no_identity`/`no_owner_membership`/`email_failed`/`sent`). Leave unset in normal operation so account existence is not disclosed. |
+| `R2_ACCOUNT_ID` | Cloudflare account ID — builds the R2 endpoint URL (`https://<id>.r2.cloudflarestorage.com`). Set this **or** `R2_ENDPOINT`. Vercel secret. |
+| `R2_ENDPOINT` (opt) | Full R2 endpoint URL override, instead of `R2_ACCOUNT_ID`. |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | R2 API token credentials + target bucket for backups. Vercel secrets. |
+| `DB_BACKUP_SCHEMAS` (opt) | Comma-separated Postgres schemas in the nightly DB dump (default: `public`). Supabase internal schemas (`auth`, `storage`, `realtime`, …) are intentionally excluded — Supabase manages them. |
+
+### External health monitoring
+
+Create a Better Stack HTTP monitor for `GET /api/health`. In the monitor's
+request headers, configure `X-Health-Token` to the same secret held in the
+Vercel `ICONNECT_HEALTH_CHECK_TOKEN` environment variable. The endpoint is
+intentionally unauthorised only by that header and returns no dependency detail
+when the header is missing or invalid.
+
+The ten `BETTERSTACK_HEARTBEAT_*_URL` variables are independently optional
+and apply only to the ten selected production schedules. The application
+derives Better Stack's `/fail` target from each configured success URL; store
+only the success URL in Vercel Production. See
+`guides/better-stack-cron-heartbeats.md` for the setup matrix and the complete
+30-schedule coverage inventory.
+Set each Vercel value to the matching Better Stack heartbeat URL for only the
+scheduled job you wish to monitor. The job sends a success URL after a clean
+run and Better Stack's `/fail` URL for a failed run; delivery failures never
+change the job's response or retry behaviour.
+
+## Stack & where things live
+-   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS
+-   **Backend:** Express.js (dev) / Vercel serverless functions (prod), PostgreSQL, Drizzle ORM
+-   `/client`: Frontend source (`client/src/design-system` = custom "new-york" shadcn variant)
+-   `/api`: Backend API endpoints (Vercel serverless functions); shared helpers under `api/_lib/`
+-   `/supabase/migrations`: Database migrations (idempotent SQL); `supabase/schema.prisma` is the schema source of truth for Drizzle
+-   `/scripts`: Utility and migration scripts
+-   `client/index.html` + `api/render.js`: SSR for SEO/OG tag injection
+
+## Architecture decisions
+-   **Multi-tenancy:** Data isolation at GLOBAL / TENANT / ORGANIZATION / MEMBER levels via `tenant_id` and `organization_id`. The shared entity API hard-fails any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Identity:** Unified identity with per-tenant password isolation, Google OAuth, feature-based role management.
+-   **Email sending:** `api/_lib/emailService.js` resolves the sending domain off `tenantId` for tenant→member emails. **System emails** (platform→tenant-owner: admin reset, signup verification, team invite, billing notifications) MUST pass `systemEmail: true` (or use `sendSystemEmail()`); this forces both Mailgun domain AND From identity to `mail.${APP_DOMAIN}` / `noreply@mail.${APP_DOMAIN}`. System reset/verification links must point at `${APP_DOMAIN}/...` not a tenant subdomain.
+-   **Dynamic SEO:** SSR meta-tag injection per-tenant via `api/render.js`; per-page metadata resolved by `api/_lib/entityMeta.js`. Per-entity `seo_title` / `seo_description` / `og_image_url` overrides on events, blog posts, news, campaigns, resources, and directories (UI in `client/src/components/blog/SEOSettings.jsx`). `og:image` URLs on `vault.iconn.app` or `*.supabase.co` are proxied through `/api/og-image`.
+-   **Event deletion:** Multi-step cancellation flow (refunds, reinstatements, Zoom unregistration) before any data purge. Direct deletion of events is deprecated for UI flows.
+-   **Semantic `warning` color:** `--warning` / `--warning-foreground` CSS vars in `client/src/index.css` (both themes, WCAG-AA). Use `text-warning`, `bg-warning`, `<Badge variant="warning">`, `<Alert variant="warning">` instead of raw amber/yellow/orange palette classes.
+-   **Membership invoices:** `organisation_membership_history` / `member_membership_history` carry `payment_status` (`unpaid`/`paid`/`partial`/`voided`) + `paid_at`, separate from the lifecycle `status`. Accounting-sync failures flag the row `accounting_sync_status='failed'` (not swallowed) with a Retry button in `OrgMembershipTab.jsx`. Payment reconciliation cron `/api/cron/reconcile-membership-invoice-payments` (every 3h, `CRON_SECRET`-guarded) queries Xero/QBO and fires workflows on `unpaid -> paid` only. See `api/_lib/membershipPaymentReconciliation.js`, `api/_lib/accountingProvider.js`.
+-   **Tenant storage metering:** `tenant.storage_used_bytes` (BIGINT) drives `checkStorageQuota` (`api/_lib/planQuota.js`) and `/admin/plan-usage`. Maintained incrementally via `addTenantStorageBytes` (`api/_lib/tenantStorageUsage.js`). Can drift (signed-URL claimed size); re-baseline with `scripts/recompute-tenant-storage.mjs` or the nightly cron.
+-   **Paid-plan upgrade flow (`/admin/plan-usage` → Stripe Checkout):** `PlanUsage.jsx` → `api/admin/plan-checkout.js` (tenant-admin RBAC, uses PLATFORM `STRIPE_SECRET_KEY`, NOT tenant's connected Stripe). First-time creates a Checkout Session; existing live sub swaps price in place via `stripe.subscriptions.update` (proration, never a parallel sub). Webhook `api/webhooks/stripe-plan.js` upserts `tenant_subscription` and flips `tenant.plan_code` only when status is `active`/`trialing`; `subscription.deleted` reverts to `free`.
+-   **Self-serve signup & onboarding (`/signup` → wizard):** `signup-start.js` (captcha + rate limits + verification email) → `signup-verify.js` (`provisionTenant`, `free` plan) → 5-step `OnboardingWizard.jsx` → `POST /api/admin/onboarding` runs `api/_lib/onboardingSeeder.js` (branding + tiers + persona seed pack tagged `is_sample=true`). Legacy admins backfilled to `onboarding_status='complete'`.
+-   **Accessibility audits:** Admin page (RBAC `admin.accessibility-audits`) runs axe-core 4.10 via browserless.io for tenant public URLs. Results in `accessibility_audit` / `accessibility_audit_result`; endpoints under `/api/admin/accessibility-audits`; runner `api/_lib/browserlessAxe.js`. v1 limits: ≤10 URLs/run, http(s) only, no credentialed URLs.
+-   **AI Design Studio V1 (Canvas AI Composition):** generation via `api/ai-compositions/generate.js`; prompt-led editing via `api/ai-compositions/edit.js` (propose/accept/reject/undo + conversation history in `ai_composition_conversation`) and `api/ai-compositions/destinations.js` (record-ID link picker — the AI never invents internal URLs). Patch engine `api/_lib/aiCompositionPatch.js`, edit pipeline `api/_lib/aiCompositionEdit.js`. Accept re-applies the STORED proposal server-side against the current document; complete redesigns are saved as alternatives (`is_alternative`); protected-value changes (prices, dates, names) require explicit confirmation. Editor UI in `client/src/components/canvas/blocks/AiCompositionEditPanel.jsx`. V1 scene-graph compositions are now read-only w.r.t. the V2 pivot.
+-   **AI Design Studio V2 (native-code pivot):** V2 compositions are native AI HTML/CSS/SVG packages (document `schemaVersion "2.0"`, `ai_composition.renderer_version=2`), sanitised ONCE server-side at store time by `api/_lib/aiCodePipeline.js` (schema → jsdom+DOMPurify sanitise → manifest cross-check → postcss CSS scoping under `[data-ai-composition="<uuid>"]` → leak check; reject-don't-repair), rendered verbatim by `AiCodeCompositionBlock.jsx`; signed CSP-locked preview + Browserless screenshots via `api/ai-compositions/preview.js` (HMAC keyed by `AIC_PREVIEW_SECRET`/`CRON_SECRET`). **Page bodies:** `compositionType: "page_body"` runs a plan stage (content manifest + creative plan, anti-degenerate checks in `aiCodeGeneration.js`) before code gen; page gates forbid `<header>/<footer>/<nav>` recreation. **Actions** (`data-ai-action` + manifest, `api/_lib/aiCodeActions.js`) resolve server-side to real records — unresolved actions block page publish (409 `AI_UNRESOLVED_ACTIONS`; editor fix-up via `api/ai-compositions/resolve-action.js`). **Slots** (`data-iconnect-slot`, `api/_lib/aiCodeSlots.js`) portal trusted platform blocks into generated markup; never block publish. **Imagery:** the model never writes image URLs — `<img data-ai-asset="<key>">` placeholders declared in the package `assets` manifest, fulfilled server-side (`api/_lib/aiCodeAssets.js`, gpt-image-1 or media library, tenant-owned storage); only unfulfilled `required` assets hard-reject; image swap is a deterministic `replace-image` edit action. V1→V2 rebuild is admin-only via `api/ai-compositions/rebuild-v2.js` (never automatic). **Editing:** `api/ai-compositions/edit-v2.js` (propose/accept/reject/undo); proposals (element-scoped patches via `data-ai-id`, or full revisions saved as alternatives) stored in `ai_composition_conversation` and re-applied against the CURRENT document on accept (`api/_lib/aiCodeEdit.js`); protected values + locked `data-content-key` texts require confirmation; breakpoint-scoped edits must leave other breakpoints' CSS untouched; accepts introducing NEW critical accessibility issues are blocked (422 `AI_VALIDATION_CRITICAL`). Admin-only Composition Inspector via `GET /api/ai-compositions/:id?inspector=1` (404 to non-admins). Full details: `guides/ai-design-studio-v2-pivot.md`.
+-   **Member AI structured Q&A:** the member assistant answers count/aggregate questions from live records via a whitelisted query spec (LLM never writes SQL). Catalog + validation + executors in `api/_lib/memberAiStructured.js`; routing in `api/member-ai/ask.js`. Adding an entity/field: follow `guides/member-ai-structured-qa.md` (visibility mirrors the member browse surfaces; drift guard in `memberAiStructuredSchemaDrift.test.mjs`).
+
+## Gotchas
+-   **Vercel preview-domain ownership:** Project `vite-migrate-replit-6` serves this repository. Both `dev.iconn.app` and `*.dev.iconn.app` are verified Vercel project domains pinned to the `eventemb2` Git branch; tenant custom-domain actions must never attach, reclaim, or detach `iconn.app` or any of its subdomains.
+-   **`dev.iconn.app` = Vercel preview deployment** built from the `eventemb2` git branch of the same Vercel project as production. Shares the same Supabase. (a) Vercel's Functions → Logs viewer defaults to Production and hides Preview logs — switch the Environment filter to Preview. (b) A fix only reaches `dev.iconn.app` after the commit is on the `eventemb2` branch and that branch's preview build has finished.
+-   **`sendEmail()` never throws.** It catches Mailgun errors and returns `{ success: false, error, status, domain }`. Callers MUST inspect the return value; a bare `try { await sendEmail(...) } catch {}` will falsely report success on 401 / unverified domain / missing key. Canonical pattern: `api/auth/request-admin-password-reset.js`.
+-   **System emails MUST pass `systemEmail: true`** (or use `sendSystemEmail()`). Without it, a tenant with a verified custom sending domain would silently send admin reset / signup / billing emails from the tenant's own brand — wrong identity.
+-   **API hard-fails** any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Workflow `dd_owner` / `dd_owner_email` placeholders** resolve via `resolveDdOwnerForSubmission` (`api/_lib/ddOwner.js`) only when the trigger caller passes `context.formSubmissionId` to `triggerWorkflows`. Without submission context they collapse to empty strings.
+-   **No server-side length validation on `event.summary` / `complex_event.summary`** — relies on client-side `event_summary_max_length` system setting (default 150).
+
+## Product
+-   **Core:** Members, Events, Bookings, Resources, Blog.
+-   **Identity:** Unified login, multi-tenant ownership, organization memberships, granular access control.
+-   **Customization:** Page Builder, Custom Forms with conditional logic, Workflow Automation, per-tenant branding.
+-   **Financials:** Stripe membership payments, Xero/QBO invoicing, Fundraising with Gift Aid.
+-   **Comms:** Email templates, campaigns, member preferences.
+-   **Integrations:** WordPress Sync, Zoom (events/sessions), Zoho CRM sync.
+-   **Reporting:** Due Diligence Reports, configurable Member/Org Directories.
+-   **Community:** Tenant-scoped forums, Member Group email campaigns.
+
+## User preferences
+Preferred communication style: Simple, everyday language.
+
+## Pointers
+-   **React:** `https://react.dev/` · **Tailwind:** `https://tailwindcss.com/docs` · **Drizzle:** `https://orm.drizzle.team/docs/overview`
+-   **Vercel Functions:** `https://vercel.com/docs/functions/overview` · **Supabase:** `https://supabase.com/docs`
+-   **Stripe:** `https://stripe.com/docs/api` · **Mailgun:** `https://documentation.mailgun.com/en/latest/api_reference.html`
+# Membership Management Platform
+A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
+
+## Run & Operate
+-   **Run Dev Server:** `npm run dev`
+-   **Build:** `npm run build` · **Typecheck:** `npm run typecheck` · **Codegen:** `npm run codegen`
+-   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — only works from environments with IPv6 outbound; **not from this Replit workspace** (see "Database connection").
+-   **Migrations:** every `.sql` in `supabase/migrations/` is idempotent and applied against `DEST_DATABASE_URL` (pooler). Most migrations have a matching `node scripts/apply-*.mjs` runner; check `scripts/` before applying anything by hand.
+-   **One-off scripts (backfills, CSV imports, tenant seeds):** live in `scripts/` (e.g. `recompute-tenant-storage.mjs`, `backfill-*.mjs`, `import-*.mjs`, `seed-*.mjs`). They are idempotent, default to dry-run unless an `--apply` flag is passed, and many are hard-pinned to a single tenant. Read the script header before running; each documents its own flags and scope.
+-   **Storage usage reconcile:** `node scripts/recompute-tenant-storage.mjs [--dry-run] [--tenant=<uuid>]`, or trust the nightly cron at `/api/cron/recompute-tenant-storage` (03:00 UTC, `CRON_SECRET`-guarded).
+
+## Database connection (read this before any DB work from this workspace)
+There are two Supabase projects this codebase talks to:
+
+| Role | What it is | URL secret | Postgres URL secret | Service-role key secret |
+| ---- | ---------- | ---------- | ------------------- | ----------------------- |
+| **Destination (current prod)** | Multi-tenant iConnect DB | `DEST_SUPABASE_URL` (`https://lvmzliemqnieeoruhkik.supabase.co`) | `DEST_DATABASE_URL` | `DEST_SUPABASE_KEY` |
+| **Source (legacy)** | Pre-multi-tenancy single-tenant snapshot, used by migration scripts | `SOURCE_SUPABASE_URL` | `SOURCE_DATABASE_URL` | `SOURCE_SUPABASE_KEY` |
+
+**The Supabase direct host (`db.<project>.supabase.co`) is unreachable from this Replit workspace** — it publishes only IPv6 (AAAA) DNS and the Replit container has no IPv6 outbound route, so `psql`, `execute_sql_tool`, `drizzle-kit push`, and any raw `pg`/Drizzle client pointed at the direct host fail with `ENOTFOUND` / `ENETUNREACH`. Those tools work from Vercel functions, the user's laptop, and CI — just not from here against the direct host.
+
+**The Supabase Pooler hostname IS IPv4-reachable from this workspace** (`aws-1-eu-central-1.pooler.supabase.com:5432`, which is what `DEST_DATABASE_URL` already points to). `pg` clients using `DEST_DATABASE_URL` (transaction-pooler mode) work from Replit for read/write queries and DDL such as `CREATE INDEX`. Prefer `@supabase/supabase-js` for ordinary CRUD (REST endpoint is also IPv4-reachable, more ergonomic); reach for `pg` via `DEST_DATABASE_URL` only when you need raw SQL / DDL the REST API can't do.
+
+For any DB access from this workspace (scripts, ad-hoc debugging, one-off data fixes), use **`@supabase/supabase-js`** with the service-role key. Working reference: `scripts/debug-tenant.mjs`.
+
+```js
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(
+  process.env.DEST_SUPABASE_URL,
+  process.env.DEST_SUPABASE_KEY
+);
+```
+
+Quick one-off from bash (env vars ARE available in the shell):
+
+```bash
+node -e "
+const { createClient } = require('@supabase/supabase-js');
+const sb = createClient(process.env.DEST_SUPABASE_URL, process.env.DEST_SUPABASE_KEY, { auth: { persistSession: false } });
+(async () => {
+  const { data, error } = await sb.from('tenant').select('id, slug, name').limit(5);
+  console.log({ data, error });
+})();
+"
+```
+
+## Testing
+-   **AI assistant tests** (registered as the `ai-assistant-tests` validation step, runs automatically on task completion): `node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/aiCompositionRender.test.mjs` — member-AI visibility (security boundary), ranking, indexer, help-chunker, dashboard aggregation/LMIC operators, Canvas auto-height bake guards, `useAutoHeightBake` runtime gates (jsdom), and Canvas auto reading-order suites.
+-   **GoCardless tests:** `node --test api/_lib/gocardless*.test.mjs` — webhook signature/idempotency/status-transition suites, per-tenant credential resolution (tenant_integrations → env fallback, env/token mismatch guards), org DD billing-contact invitations (token format, expiry clamp 1-90 via `dd_invite_expiry_days`, validate/supersede/single-use/revoke, recipient dedupe), Phase 5 renewal decisions (`gocardlessDdRenewals.test.mjs`), and migration invite/funnel (`gocardlessDdMigration.test.mjs`).
+-   **GoCardless sandbox proof:** `node scripts/gocardless-sandbox-proof.mjs [runId]` — billing request + hosted flow creation and idempotent-retry behaviour against the GC sandbox (requires `GOCARDLESS_ACCESS_TOKEN`; refuses to run against live).
+-   **Pending-PO report tests:** `node --test api/_lib/pendingPoInvoice.test.mjs` — PO reference extraction/blacklist and cross-record membership PO propagation helpers.
+
+## Env vars (current canonical set)
+Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPABASE_*` names; prefer the `DEST_*` names below for new code.
+
+| Var | Purpose |
+| --- | ------- |
+| `DEST_SUPABASE_URL` / `DEST_SUPABASE_KEY` / `DEST_DATABASE_URL` | Destination (prod) Supabase. See "Database connection". |
+| `SOURCE_SUPABASE_URL` / `SOURCE_SUPABASE_KEY` / `SOURCE_DATABASE_URL` | Legacy single-tenant snapshot — only used by migration scripts. |
+| `DATABASE_URL` | Direct host (IPv6 only) — used by Vercel / Drizzle push, not this workspace. |
+| `MAILGUN_API_KEY`, `MAILGUN_REGION` (default `eu`), `MAILGUN_FROM_EMAIL`, `APP_DOMAIN` (default `iconn.app`) | Email sending. `MAILGUN_FROM_EMAIL` is the non-system default From; system emails are pinned to `noreply@mail.${APP_DOMAIN}` regardless. |
+| `STRIPE_SECRET_KEY` | Tenant Stripe AND platform-side paid-plan upgrade Checkout. |
+| `STRIPE_PLAN_WEBHOOK_SECRET` | Verifies `/api/webhooks/stripe-plan` from the platform Stripe account. Configure dashboard to deliver `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
+| `GOCARDLESS_ENVIRONMENT` | `sandbox` (default) or `live`. Platform-level FALLBACK only — tenants connect their own GoCardless account via `tenant_integrations` (`integration_type='gocardless'`, resolved by `api/_lib/gocardlessCredentials.js`). |
+| `GOCARDLESS_ACCESS_TOKEN` | Platform-fallback GoCardless API access token (sandbox tokens start `sandbox_`, live `live_`; env/token mismatch is rejected at call time). |
+| `GOCARDLESS_WEBHOOK_SECRET` | Platform-fallback secret verifying `Webhook-Signature` (HMAC-SHA256 of raw body) on `/api/webhooks/gocardless`. Tenant-connected accounts register the URL with `?tenant=<uuid>` and are verified against their own stored secret. |
+| `GOCARDLESS_REDIRECT_BASE_URL` | Base URL for Billing Request Flow redirect/exit URIs (e.g. `https://iconn.app`). |
+| `GOCARDLESS_CREDITOR_ID` (opt) | Pins billing requests to one creditor on multi-creditor GC accounts. |
+| `GOOGLE_FONTS_API_KEY` | Server-side key for the Google Fonts Developer API. Powers live font search in the `/InstalledFonts` add dialog via `api/public/google-fonts.js`. If unset, the picker falls back to the curated `POPULAR_GOOGLE_FONTS` list. |
+| `XERO_CLIENT_ID` | Xero OAuth. |
+| `QUICKBOOKS_REDIRECT_URI` (opt) | Overrides default `${origin}/api/quickbooks/callback` for stable QBO OAuth redirect. |
+| `BROWSERLESS_API_TOKEN`, `BROWSERLESS_BASE_URL` (opt), `BROWSERLESS_AUDIT_TIMEOUT_MS` (opt) | Accessibility audits via browserless.io. |
+| `VITE_APP_URL` | Frontend-known app URL. |
+| `CAPTCHA_PROVIDER`, `CAPTCHA_SECRET_KEY` (opt) | Self-serve signup captcha (hCaptcha/Turnstile/reCAPTCHA). Bypassed when not production. |
+| `SIGNUP_RATE_IP_PER_HOUR`, `SIGNUP_RATE_EMAIL_PER_DAY` (opt) | Self-serve signup rate limits. |
+| `CRON_SECRET` | Guards all `/api/cron/*` endpoints. |
+| `ICONNECT_HEALTH_CHECK_TOKEN` | Required secret for `/api/health`; Better Stack must send it as the `X-Health-Token` request header. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_RENEWALS_URL` | Optional Better Stack heartbeat URL for membership renewals. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for membership-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_GOCARDLESS_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for GoCardless reconciliation. |
+| `BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for Stripe card-plan reconciliation. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL` | Optional Better Stack heartbeat URL for scheduled workflows. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL` | Optional Better Stack heartbeat URL for scheduled campaigns. |
+| `BETTERSTACK_HEARTBEAT_DATABASE_BACKUP_URL` | Optional Better Stack heartbeat URL for database backup to R2. |
+| `BETTERSTACK_HEARTBEAT_STORAGE_BACKUP_URL` | Optional Better Stack heartbeat URL for storage backup to R2. |
+| `BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for form-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_AUTOMATIC_MEMBERSHIP_PROCESSING_URL` | Optional Better Stack heartbeat URL for automatic membership processing. |
+| `ENABLE_RESET_DEBUG` (opt, `'true'`) | Temporary diagnostic: `/api/auth/request-admin-password-reset` returns a `debug` field (`no_identity`/`no_owner_membership`/`email_failed`/`sent`). Leave unset in normal operation so account existence is not disclosed. |
+| `R2_ACCOUNT_ID` | Cloudflare account ID — builds the R2 endpoint URL (`https://<id>.r2.cloudflarestorage.com`). Set this **or** `R2_ENDPOINT`. Vercel secret. |
+| `R2_ENDPOINT` (opt) | Full R2 endpoint URL override, instead of `R2_ACCOUNT_ID`. |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | R2 API token credentials + target bucket for backups. Vercel secrets. |
+| `DB_BACKUP_SCHEMAS` (opt) | Comma-separated Postgres schemas in the nightly DB dump (default: `public`). Supabase internal schemas (`auth`, `storage`, `realtime`, …) are intentionally excluded — Supabase manages them. |
+
+### External health monitoring
+
+Create a Better Stack HTTP monitor for `GET /api/health`. In the monitor's
+request headers, configure `X-Health-Token` to the same secret held in the
+Vercel `ICONNECT_HEALTH_CHECK_TOKEN` environment variable. The endpoint is
+intentionally unauthorised only by that header and returns no dependency detail
+when the header is missing or invalid.
+
+The ten `BETTERSTACK_HEARTBEAT_*_URL` variables are independently optional
+and apply only to the ten selected production schedules. The application
+derives Better Stack's `/fail` target from each configured success URL; store
+only the success URL in Vercel Production. See
+`guides/better-stack-cron-heartbeats.md` for the setup matrix and the complete
+30-schedule coverage inventory.
+Set each Vercel value to the matching Better Stack heartbeat URL for only the
+scheduled job you wish to monitor. The job sends a success URL after a clean
+run and Better Stack's `/fail` URL for a failed run; delivery failures never
+change the job's response or retry behaviour.
+
+## Stack & where things live
+-   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS
+-   **Backend:** Express.js (dev) / Vercel serverless functions (prod), PostgreSQL, Drizzle ORM
+-   `/client`: Frontend source (`client/src/design-system` = custom "new-york" shadcn variant)
+-   `/api`: Backend API endpoints (Vercel serverless functions); shared helpers under `api/_lib/`
+-   `/supabase/migrations`: Database migrations (idempotent SQL); `supabase/schema.prisma` is the schema source of truth for Drizzle
+-   `/scripts`: Utility and migration scripts
+-   `client/index.html` + `api/render.js`: SSR for SEO/OG tag injection
+
+## Architecture decisions
+-   **Multi-tenancy:** Data isolation at GLOBAL / TENANT / ORGANIZATION / MEMBER levels via `tenant_id` and `organization_id`. The shared entity API hard-fails any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Identity:** Unified identity with per-tenant password isolation, Google OAuth, feature-based role management.
+-   **Email sending:** `api/_lib/emailService.js` resolves the sending domain off `tenantId` for tenant→member emails. **System emails** (platform→tenant-owner: admin reset, signup verification, team invite, billing notifications) MUST pass `systemEmail: true` (or use `sendSystemEmail()`); this forces both Mailgun domain AND From identity to `mail.${APP_DOMAIN}` / `noreply@mail.${APP_DOMAIN}`. System reset/verification links must point at `${APP_DOMAIN}/...` not a tenant subdomain.
+-   **Dynamic SEO:** SSR meta-tag injection per-tenant via `api/render.js`; per-page metadata resolved by `api/_lib/entityMeta.js`. Per-entity `seo_title` / `seo_description` / `og_image_url` overrides on events, blog posts, news, campaigns, resources, and directories (UI in `client/src/components/blog/SEOSettings.jsx`). `og:image` URLs on `vault.iconn.app` or `*.supabase.co` are proxied through `/api/og-image`.
+-   **Event deletion:** Multi-step cancellation flow (refunds, reinstatements, Zoom unregistration) before any data purge. Direct deletion of events is deprecated for UI flows.
+-   **Semantic `warning` color:** `--warning` / `--warning-foreground` CSS vars in `client/src/index.css` (both themes, WCAG-AA). Use `text-warning`, `bg-warning`, `<Badge variant="warning">`, `<Alert variant="warning">` instead of raw amber/yellow/orange palette classes.
+-   **Membership invoices:** `organisation_membership_history` / `member_membership_history` carry `payment_status` (`unpaid`/`paid`/`partial`/`voided`) + `paid_at`, separate from the lifecycle `status`. Accounting-sync failures flag the row `accounting_sync_status='failed'` (not swallowed) with a Retry button in `OrgMembershipTab.jsx`. Payment reconciliation cron `/api/cron/reconcile-membership-invoice-payments` (every 3h, `CRON_SECRET`-guarded) queries Xero/QBO and fires workflows on `unpaid -> paid` only. See `api/_lib/membershipPaymentReconciliation.js`, `api/_lib/accountingProvider.js`.
+-   **Tenant storage metering:** `tenant.storage_used_bytes` (BIGINT) drives `checkStorageQuota` (`api/_lib/planQuota.js`) and `/admin/plan-usage`. Maintained incrementally via `addTenantStorageBytes` (`api/_lib/tenantStorageUsage.js`). Can drift (signed-URL claimed size); re-baseline with `scripts/recompute-tenant-storage.mjs` or the nightly cron.
+-   **Paid-plan upgrade flow (`/admin/plan-usage` → Stripe Checkout):** `PlanUsage.jsx` → `api/admin/plan-checkout.js` (tenant-admin RBAC, uses PLATFORM `STRIPE_SECRET_KEY`, NOT tenant's connected Stripe). First-time creates a Checkout Session; existing live sub swaps price in place via `stripe.subscriptions.update` (proration, never a parallel sub). Webhook `api/webhooks/stripe-plan.js` upserts `tenant_subscription` and flips `tenant.plan_code` only when status is `active`/`trialing`; `subscription.deleted` reverts to `free`.
+-   **Self-serve signup & onboarding (`/signup` → wizard):** `signup-start.js` (captcha + rate limits + verification email) → `signup-verify.js` (`provisionTenant`, `free` plan) → 5-step `OnboardingWizard.jsx` → `POST /api/admin/onboarding` runs `api/_lib/onboardingSeeder.js` (branding + tiers + persona seed pack tagged `is_sample=true`). Legacy admins backfilled to `onboarding_status='complete'`.
+-   **Accessibility audits:** Admin page (RBAC `admin.accessibility-audits`) runs axe-core 4.10 via browserless.io for tenant public URLs. Results in `accessibility_audit` / `accessibility_audit_result`; endpoints under `/api/admin/accessibility-audits`; runner `api/_lib/browserlessAxe.js`. v1 limits: ≤10 URLs/run, http(s) only, no credentialed URLs.
+-   **AI Design Studio V1 (Canvas AI Composition):** generation via `api/ai-compositions/generate.js`; prompt-led editing via `api/ai-compositions/edit.js` (propose/accept/reject/undo + conversation history in `ai_composition_conversation`) and `api/ai-compositions/destinations.js` (record-ID link picker — the AI never invents internal URLs). Patch engine `api/_lib/aiCompositionPatch.js`, edit pipeline `api/_lib/aiCompositionEdit.js`. Accept re-applies the STORED proposal server-side against the current document; complete redesigns are saved as alternatives (`is_alternative`); protected-value changes (prices, dates, names) require explicit confirmation. Editor UI in `client/src/components/canvas/blocks/AiCompositionEditPanel.jsx`. V1 scene-graph compositions are now read-only w.r.t. the V2 pivot.
+-   **AI Design Studio V2 (native-code pivot):** V2 compositions are native AI HTML/CSS/SVG packages (document `schemaVersion "2.0"`, `ai_composition.renderer_version=2`), sanitised ONCE server-side at store time by `api/_lib/aiCodePipeline.js` (schema → jsdom+DOMPurify sanitise → manifest cross-check → postcss CSS scoping under `[data-ai-composition="<uuid>"]` → leak check; reject-don't-repair), rendered verbatim by `AiCodeCompositionBlock.jsx`; signed CSP-locked preview + Browserless screenshots via `api/ai-compositions/preview.js` (HMAC keyed by `AIC_PREVIEW_SECRET`/`CRON_SECRET`). **Page bodies:** `compositionType: "page_body"` runs a plan stage (content manifest + creative plan, anti-degenerate checks in `aiCodeGeneration.js`) before code gen; page gates forbid `<header>/<footer>/<nav>` recreation. **Actions** (`data-ai-action` + manifest, `api/_lib/aiCodeActions.js`) resolve server-side to real records — unresolved actions block page publish (409 `AI_UNRESOLVED_ACTIONS`; editor fix-up via `api/ai-compositions/resolve-action.js`). **Slots** (`data-iconnect-slot`, `api/_lib/aiCodeSlots.js`) portal trusted platform blocks into generated markup; never block publish. **Imagery:** the model never writes image URLs — `<img data-ai-asset="<key>">` placeholders declared in the package `assets` manifest, fulfilled server-side (`api/_lib/aiCodeAssets.js`, gpt-image-1 or media library, tenant-owned storage); only unfulfilled `required` assets hard-reject; image swap is a deterministic `replace-image` edit action. V1→V2 rebuild is admin-only via `api/ai-compositions/rebuild-v2.js` (never automatic). **Editing:** `api/ai-compositions/edit-v2.js` (propose/accept/reject/undo); proposals (element-scoped patches via `data-ai-id`, or full revisions saved as alternatives) stored in `ai_composition_conversation` and re-applied against the CURRENT document on accept (`api/_lib/aiCodeEdit.js`); protected values + locked `data-content-key` texts require confirmation; breakpoint-scoped edits must leave other breakpoints' CSS untouched; accepts introducing NEW critical accessibility issues are blocked (422 `AI_VALIDATION_CRITICAL`). Admin-only Composition Inspector via `GET /api/ai-compositions/:id?inspector=1` (404 to non-admins). Full details: `guides/ai-design-studio-v2-pivot.md`.
+-   **Member AI structured Q&A:** the member assistant answers count/aggregate questions from live records via a whitelisted query spec (LLM never writes SQL). Catalog + validation + executors in `api/_lib/memberAiStructured.js`; routing in `api/member-ai/ask.js`. Adding an entity/field: follow `guides/member-ai-structured-qa.md` (visibility mirrors the member browse surfaces; drift guard in `memberAiStructuredSchemaDrift.test.mjs`).
+
+## Gotchas
+-   **Vercel preview-domain ownership:** Project `vite-migrate-replit-6` serves this repository. Both `dev.iconn.app` and `*.dev.iconn.app` are verified Vercel project domains pinned to the `eventemb2` Git branch; tenant custom-domain actions must never attach, reclaim, or detach `iconn.app` or any of its subdomains.
+-   **`dev.iconn.app` = Vercel preview deployment** built from the `eventemb2` git branch of the same Vercel project as production. Shares the same Supabase. (a) Vercel's Functions → Logs viewer defaults to Production and hides Preview logs — switch the Environment filter to Preview. (b) A fix only reaches `dev.iconn.app` after the commit is on the `eventemb2` branch and that branch's preview build has finished.
+-   **`sendEmail()` never throws.** It catches Mailgun errors and returns `{ success: false, error, status, domain }`. Callers MUST inspect the return value; a bare `try { await sendEmail(...) } catch {}` will falsely report success on 401 / unverified domain / missing key. Canonical pattern: `api/auth/request-admin-password-reset.js`.
+-   **System emails MUST pass `systemEmail: true`** (or use `sendSystemEmail()`). Without it, a tenant with a verified custom sending domain would silently send admin reset / signup / billing emails from the tenant's own brand — wrong identity.
+-   **API hard-fails** any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Workflow `dd_owner` / `dd_owner_email` placeholders** resolve via `resolveDdOwnerForSubmission` (`api/_lib/ddOwner.js`) only when the trigger caller passes `context.formSubmissionId` to `triggerWorkflows`. Without submission context they collapse to empty strings.
+-   **No server-side length validation on `event.summary` / `complex_event.summary`** — relies on client-side `event_summary_max_length` system setting (default 150).
+
+## Product
+-   **Core:** Members, Events, Bookings, Resources, Blog.
+-   **Identity:** Unified login, multi-tenant ownership, organization memberships, granular access control.
+-   **Customization:** Page Builder, Custom Forms with conditional logic, Workflow Automation, per-tenant branding.
+-   **Financials:** Stripe membership payments, Xero/QBO invoicing, Fundraising with Gift Aid.
+-   **Comms:** Email templates, campaigns, member preferences.
+-   **Integrations:** WordPress Sync, Zoom (events/sessions), Zoho CRM sync.
+-   **Reporting:** Due Diligence Reports, configurable Member/Org Directories.
+-   **Community:** Tenant-scoped forums, Member Group email campaigns.
+
+## User preferences
+Preferred communication style: Simple, everyday language.
+
+## Pointers
+-   **React:** `https://react.dev/` · **Tailwind:** `https://tailwindcss.com/docs` · **Drizzle:** `https://orm.drizzle.team/docs/overview`
+-   **Vercel Functions:** `https://vercel.com/docs/functions/overview` · **Supabase:** `https://supabase.com/docs`
+-   **Stripe:** `https://stripe.com/docs/api` · **Mailgun:** `https://documentation.mailgun.com/en/latest/api_reference.html`
+# Membership Management Platform
+A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
+
+## Run & Operate
+-   **Run Dev Server:** `npm run dev`
+-   **Build:** `npm run build` · **Typecheck:** `npm run typecheck` · **Codegen:** `npm run codegen`
+-   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — only works from environments with IPv6 outbound; **not from this Replit workspace** (see "Database connection").
+-   **Migrations:** every `.sql` in `supabase/migrations/` is idempotent and applied against `DEST_DATABASE_URL` (pooler). Most migrations have a matching `node scripts/apply-*.mjs` runner; check `scripts/` before applying anything by hand.
+-   **One-off scripts (backfills, CSV imports, tenant seeds):** live in `scripts/` (e.g. `recompute-tenant-storage.mjs`, `backfill-*.mjs`, `import-*.mjs`, `seed-*.mjs`). They are idempotent, default to dry-run unless an `--apply` flag is passed, and many are hard-pinned to a single tenant. Read the script header before running; each documents its own flags and scope.
+-   **Storage usage reconcile:** `node scripts/recompute-tenant-storage.mjs [--dry-run] [--tenant=<uuid>]`, or trust the nightly cron at `/api/cron/recompute-tenant-storage` (03:00 UTC, `CRON_SECRET`-guarded).
+
+## Database connection (read this before any DB work from this workspace)
+There are two Supabase projects this codebase talks to:
+
+| Role | What it is | URL secret | Postgres URL secret | Service-role key secret |
+| ---- | ---------- | ---------- | ------------------- | ----------------------- |
+| **Destination (current prod)** | Multi-tenant iConnect DB | `DEST_SUPABASE_URL` (`https://lvmzliemqnieeoruhkik.supabase.co`) | `DEST_DATABASE_URL` | `DEST_SUPABASE_KEY` |
+| **Source (legacy)** | Pre-multi-tenancy single-tenant snapshot, used by migration scripts | `SOURCE_SUPABASE_URL` | `SOURCE_DATABASE_URL` | `SOURCE_SUPABASE_KEY` |
+
+**The Supabase direct host (`db.<project>.supabase.co`) is unreachable from this Replit workspace** — it publishes only IPv6 (AAAA) DNS and the Replit container has no IPv6 outbound route, so `psql`, `execute_sql_tool`, `drizzle-kit push`, and any raw `pg`/Drizzle client pointed at the direct host fail with `ENOTFOUND` / `ENETUNREACH`. Those tools work from Vercel functions, the user's laptop, and CI — just not from here against the direct host.
+
+**The Supabase Pooler hostname IS IPv4-reachable from this workspace** (`aws-1-eu-central-1.pooler.supabase.com:5432`, which is what `DEST_DATABASE_URL` already points to). `pg` clients using `DEST_DATABASE_URL` (transaction-pooler mode) work from Replit for read/write queries and DDL such as `CREATE INDEX`. Prefer `@supabase/supabase-js` for ordinary CRUD (REST endpoint is also IPv4-reachable, more ergonomic); reach for `pg` via `DEST_DATABASE_URL` only when you need raw SQL / DDL the REST API can't do.
+
+For any DB access from this workspace (scripts, ad-hoc debugging, one-off data fixes), use **`@supabase/supabase-js`** with the service-role key. Working reference: `scripts/debug-tenant.mjs`.
+
+```js
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(
+  process.env.DEST_SUPABASE_URL,
+  process.env.DEST_SUPABASE_KEY
+);
+```
+
+Quick one-off from bash (env vars ARE available in the shell):
+
+```bash
+node -e "
+const { createClient } = require('@supabase/supabase-js');
+const sb = createClient(process.env.DEST_SUPABASE_URL, process.env.DEST_SUPABASE_KEY, { auth: { persistSession: false } });
+(async () => {
+  const { data, error } = await sb.from('tenant').select('id, slug, name').limit(5);
+  console.log({ data, error });
+})();
+"
+```
+
+## Testing
+-   **AI assistant tests** (registered as the `ai-assistant-tests` validation step, runs automatically on task completion): `node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/aiCompositionRender.test.mjs` — member-AI visibility (security boundary), ranking, indexer, help-chunker, dashboard aggregation/LMIC operators, Canvas auto-height bake guards, `useAutoHeightBake` runtime gates (jsdom), and Canvas auto reading-order suites.
+-   **GoCardless tests:** `node --test api/_lib/gocardless*.test.mjs` — webhook signature/idempotency/status-transition suites, per-tenant credential resolution (tenant_integrations → env fallback, env/token mismatch guards), org DD billing-contact invitations (token format, expiry clamp 1-90 via `dd_invite_expiry_days`, validate/supersede/single-use/revoke, recipient dedupe), Phase 5 renewal decisions (`gocardlessDdRenewals.test.mjs`), and migration invite/funnel (`gocardlessDdMigration.test.mjs`).
+-   **GoCardless sandbox proof:** `node scripts/gocardless-sandbox-proof.mjs [runId]` — billing request + hosted flow creation and idempotent-retry behaviour against the GC sandbox (requires `GOCARDLESS_ACCESS_TOKEN`; refuses to run against live).
+-   **Pending-PO report tests:** `node --test api/_lib/pendingPoInvoice.test.mjs` — PO reference extraction/blacklist and cross-record membership PO propagation helpers.
+
+## Env vars (current canonical set)
+Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPABASE_*` names; prefer the `DEST_*` names below for new code.
+
+| Var | Purpose |
+| --- | ------- |
+| `DEST_SUPABASE_URL` / `DEST_SUPABASE_KEY` / `DEST_DATABASE_URL` | Destination (prod) Supabase. See "Database connection". |
+| `SOURCE_SUPABASE_URL` / `SOURCE_SUPABASE_KEY` / `SOURCE_DATABASE_URL` | Legacy single-tenant snapshot — only used by migration scripts. |
+| `DATABASE_URL` | Direct host (IPv6 only) — used by Vercel / Drizzle push, not this workspace. |
+| `MAILGUN_API_KEY`, `MAILGUN_REGION` (default `eu`), `MAILGUN_FROM_EMAIL`, `APP_DOMAIN` (default `iconn.app`) | Email sending. `MAILGUN_FROM_EMAIL` is the non-system default From; system emails are pinned to `noreply@mail.${APP_DOMAIN}` regardless. |
+| `STRIPE_SECRET_KEY` | Tenant Stripe AND platform-side paid-plan upgrade Checkout. |
+| `STRIPE_PLAN_WEBHOOK_SECRET` | Verifies `/api/webhooks/stripe-plan` from the platform Stripe account. Configure dashboard to deliver `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
+| `GOCARDLESS_ENVIRONMENT` | `sandbox` (default) or `live`. Platform-level FALLBACK only — tenants connect their own GoCardless account via `tenant_integrations` (`integration_type='gocardless'`, resolved by `api/_lib/gocardlessCredentials.js`). |
+| `GOCARDLESS_ACCESS_TOKEN` | Platform-fallback GoCardless API access token (sandbox tokens start `sandbox_`, live `live_`; env/token mismatch is rejected at call time). |
+| `GOCARDLESS_WEBHOOK_SECRET` | Platform-fallback secret verifying `Webhook-Signature` (HMAC-SHA256 of raw body) on `/api/webhooks/gocardless`. Tenant-connected accounts register the URL with `?tenant=<uuid>` and are verified against their own stored secret. |
+| `GOCARDLESS_REDIRECT_BASE_URL` | Base URL for Billing Request Flow redirect/exit URIs (e.g. `https://iconn.app`). |
+| `GOCARDLESS_CREDITOR_ID` (opt) | Pins billing requests to one creditor on multi-creditor GC accounts. |
+| `GOOGLE_FONTS_API_KEY` | Server-side key for the Google Fonts Developer API. Powers live font search in the `/InstalledFonts` add dialog via `api/public/google-fonts.js`. If unset, the picker falls back to the curated `POPULAR_GOOGLE_FONTS` list. |
+| `XERO_CLIENT_ID` | Xero OAuth. |
+| `QUICKBOOKS_REDIRECT_URI` (opt) | Overrides default `${origin}/api/quickbooks/callback` for stable QBO OAuth redirect. |
+| `BROWSERLESS_API_TOKEN`, `BROWSERLESS_BASE_URL` (opt), `BROWSERLESS_AUDIT_TIMEOUT_MS` (opt) | Accessibility audits via browserless.io. |
+| `VITE_APP_URL` | Frontend-known app URL. |
+| `CAPTCHA_PROVIDER`, `CAPTCHA_SECRET_KEY` (opt) | Self-serve signup captcha (hCaptcha/Turnstile/reCAPTCHA). Bypassed when not production. |
+| `SIGNUP_RATE_IP_PER_HOUR`, `SIGNUP_RATE_EMAIL_PER_DAY` (opt) | Self-serve signup rate limits. |
+| `CRON_SECRET` | Guards all `/api/cron/*` endpoints. |
+| `ICONNECT_HEALTH_CHECK_TOKEN` | Required secret for `/api/health`; Better Stack must send it as the `X-Health-Token` request header. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_RENEWALS_URL` | Optional Better Stack heartbeat URL for membership renewals. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for membership-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_GOCARDLESS_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for GoCardless reconciliation. |
+| `BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for Stripe card-plan reconciliation. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL` | Optional Better Stack heartbeat URL for scheduled workflows. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL` | Optional Better Stack heartbeat URL for scheduled campaigns. |
+| `BETTERSTACK_HEARTBEAT_DATABASE_BACKUP_URL` | Optional Better Stack heartbeat URL for database backup to R2. |
+| `BETTERSTACK_HEARTBEAT_STORAGE_BACKUP_URL` | Optional Better Stack heartbeat URL for storage backup to R2. |
+| `BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for form-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_AUTOMATIC_MEMBERSHIP_PROCESSING_URL` | Optional Better Stack heartbeat URL for automatic membership processing. |
+| `ENABLE_RESET_DEBUG` (opt, `'true'`) | Temporary diagnostic: `/api/auth/request-admin-password-reset` returns a `debug` field (`no_identity`/`no_owner_membership`/`email_failed`/`sent`). Leave unset in normal operation so account existence is not disclosed. |
+| `R2_ACCOUNT_ID` | Cloudflare account ID — builds the R2 endpoint URL (`https://<id>.r2.cloudflarestorage.com`). Set this **or** `R2_ENDPOINT`. Vercel secret. |
+| `R2_ENDPOINT` (opt) | Full R2 endpoint URL override, instead of `R2_ACCOUNT_ID`. |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | R2 API token credentials + target bucket for backups. Vercel secrets. |
+| `DB_BACKUP_SCHEMAS` (opt) | Comma-separated Postgres schemas in the nightly DB dump (default: `public`). Supabase internal schemas (`auth`, `storage`, `realtime`, …) are intentionally excluded — Supabase manages them. |
+
+### External health monitoring
+
+Create a Better Stack HTTP monitor for `GET /api/health`. In the monitor's
+request headers, configure `X-Health-Token` to the same secret held in the
+Vercel `ICONNECT_HEALTH_CHECK_TOKEN` environment variable. The endpoint is
+intentionally unauthorised only by that header and returns no dependency detail
+when the header is missing or invalid.
+
+The ten `BETTERSTACK_HEARTBEAT_*_URL` variables are independently optional
+and apply only to the ten selected production schedules. The application
+derives Better Stack's `/fail` target from each configured success URL; store
+only the success URL in Vercel Production. See
+`guides/better-stack-cron-heartbeats.md` for the setup matrix and the complete
+30-schedule coverage inventory.
+Set each Vercel value to the matching Better Stack heartbeat URL for only the
+scheduled job you wish to monitor. The job sends a success URL after a clean
+run and Better Stack's `/fail` URL for a failed run; delivery failures never
+change the job's response or retry behaviour.
+
+## Stack & where things live
+-   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS
+-   **Backend:** Express.js (dev) / Vercel serverless functions (prod), PostgreSQL, Drizzle ORM
+-   `/client`: Frontend source (`client/src/design-system` = custom "new-york" shadcn variant)
+-   `/api`: Backend API endpoints (Vercel serverless functions); shared helpers under `api/_lib/`
+-   `/supabase/migrations`: Database migrations (idempotent SQL); `supabase/schema.prisma` is the schema source of truth for Drizzle
+-   `/scripts`: Utility and migration scripts
+-   `client/index.html` + `api/render.js`: SSR for SEO/OG tag injection
+
+## Architecture decisions
+-   **Multi-tenancy:** Data isolation at GLOBAL / TENANT / ORGANIZATION / MEMBER levels via `tenant_id` and `organization_id`. The shared entity API hard-fails any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Identity:** Unified identity with per-tenant password isolation, Google OAuth, feature-based role management.
+-   **Email sending:** `api/_lib/emailService.js` resolves the sending domain off `tenantId` for tenant→member emails. **System emails** (platform→tenant-owner: admin reset, signup verification, team invite, billing notifications) MUST pass `systemEmail: true` (or use `sendSystemEmail()`); this forces both Mailgun domain AND From identity to `mail.${APP_DOMAIN}` / `noreply@mail.${APP_DOMAIN}`. System reset/verification links must point at `${APP_DOMAIN}/...` not a tenant subdomain.
+-   **Dynamic SEO:** SSR meta-tag injection per-tenant via `api/render.js`; per-page metadata resolved by `api/_lib/entityMeta.js`. Per-entity `seo_title` / `seo_description` / `og_image_url` overrides on events, blog posts, news, campaigns, resources, and directories (UI in `client/src/components/blog/SEOSettings.jsx`). `og:image` URLs on `vault.iconn.app` or `*.supabase.co` are proxied through `/api/og-image`.
+-   **Event deletion:** Multi-step cancellation flow (refunds, reinstatements, Zoom unregistration) before any data purge. Direct deletion of events is deprecated for UI flows.
+-   **Semantic `warning` color:** `--warning` / `--warning-foreground` CSS vars in `client/src/index.css` (both themes, WCAG-AA). Use `text-warning`, `bg-warning`, `<Badge variant="warning">`, `<Alert variant="warning">` instead of raw amber/yellow/orange palette classes.
+-   **Membership invoices:** `organisation_membership_history` / `member_membership_history` carry `payment_status` (`unpaid`/`paid`/`partial`/`voided`) + `paid_at`, separate from the lifecycle `status`. Accounting-sync failures flag the row `accounting_sync_status='failed'` (not swallowed) with a Retry button in `OrgMembershipTab.jsx`. Payment reconciliation cron `/api/cron/reconcile-membership-invoice-payments` (every 3h, `CRON_SECRET`-guarded) queries Xero/QBO and fires workflows on `unpaid -> paid` only. See `api/_lib/membershipPaymentReconciliation.js`, `api/_lib/accountingProvider.js`.
+-   **Tenant storage metering:** `tenant.storage_used_bytes` (BIGINT) drives `checkStorageQuota` (`api/_lib/planQuota.js`) and `/admin/plan-usage`. Maintained incrementally via `addTenantStorageBytes` (`api/_lib/tenantStorageUsage.js`). Can drift (signed-URL claimed size); re-baseline with `scripts/recompute-tenant-storage.mjs` or the nightly cron.
+-   **Paid-plan upgrade flow (`/admin/plan-usage` → Stripe Checkout):** `PlanUsage.jsx` → `api/admin/plan-checkout.js` (tenant-admin RBAC, uses PLATFORM `STRIPE_SECRET_KEY`, NOT tenant's connected Stripe). First-time creates a Checkout Session; existing live sub swaps price in place via `stripe.subscriptions.update` (proration, never a parallel sub). Webhook `api/webhooks/stripe-plan.js` upserts `tenant_subscription` and flips `tenant.plan_code` only when status is `active`/`trialing`; `subscription.deleted` reverts to `free`.
+-   **Self-serve signup & onboarding (`/signup` → wizard):** `signup-start.js` (captcha + rate limits + verification email) → `signup-verify.js` (`provisionTenant`, `free` plan) → 5-step `OnboardingWizard.jsx` → `POST /api/admin/onboarding` runs `api/_lib/onboardingSeeder.js` (branding + tiers + persona seed pack tagged `is_sample=true`). Legacy admins backfilled to `onboarding_status='complete'`.
+-   **Accessibility audits:** Admin page (RBAC `admin.accessibility-audits`) runs axe-core 4.10 via browserless.io for tenant public URLs. Results in `accessibility_audit` / `accessibility_audit_result`; endpoints under `/api/admin/accessibility-audits`; runner `api/_lib/browserlessAxe.js`. v1 limits: ≤10 URLs/run, http(s) only, no credentialed URLs.
+-   **AI Design Studio V1 (Canvas AI Composition):** generation via `api/ai-compositions/generate.js`; prompt-led editing via `api/ai-compositions/edit.js` (propose/accept/reject/undo + conversation history in `ai_composition_conversation`) and `api/ai-compositions/destinations.js` (record-ID link picker — the AI never invents internal URLs). Patch engine `api/_lib/aiCompositionPatch.js`, edit pipeline `api/_lib/aiCompositionEdit.js`. Accept re-applies the STORED proposal server-side against the current document; complete redesigns are saved as alternatives (`is_alternative`); protected-value changes (prices, dates, names) require explicit confirmation. Editor UI in `client/src/components/canvas/blocks/AiCompositionEditPanel.jsx`. V1 scene-graph compositions are now read-only w.r.t. the V2 pivot.
+-   **AI Design Studio V2 (native-code pivot):** V2 compositions are native AI HTML/CSS/SVG packages (document `schemaVersion "2.0"`, `ai_composition.renderer_version=2`), sanitised ONCE server-side at store time by `api/_lib/aiCodePipeline.js` (schema → jsdom+DOMPurify sanitise → manifest cross-check → postcss CSS scoping under `[data-ai-composition="<uuid>"]` → leak check; reject-don't-repair), rendered verbatim by `AiCodeCompositionBlock.jsx`; signed CSP-locked preview + Browserless screenshots via `api/ai-compositions/preview.js` (HMAC keyed by `AIC_PREVIEW_SECRET`/`CRON_SECRET`). **Page bodies:** `compositionType: "page_body"` runs a plan stage (content manifest + creative plan, anti-degenerate checks in `aiCodeGeneration.js`) before code gen; page gates forbid `<header>/<footer>/<nav>` recreation. **Actions** (`data-ai-action` + manifest, `api/_lib/aiCodeActions.js`) resolve server-side to real records — unresolved actions block page publish (409 `AI_UNRESOLVED_ACTIONS`; editor fix-up via `api/ai-compositions/resolve-action.js`). **Slots** (`data-iconnect-slot`, `api/_lib/aiCodeSlots.js`) portal trusted platform blocks into generated markup; never block publish. **Imagery:** the model never writes image URLs — `<img data-ai-asset="<key>">` placeholders declared in the package `assets` manifest, fulfilled server-side (`api/_lib/aiCodeAssets.js`, gpt-image-1 or media library, tenant-owned storage); only unfulfilled `required` assets hard-reject; image swap is a deterministic `replace-image` edit action. V1→V2 rebuild is admin-only via `api/ai-compositions/rebuild-v2.js` (never automatic). **Editing:** `api/ai-compositions/edit-v2.js` (propose/accept/reject/undo); proposals (element-scoped patches via `data-ai-id`, or full revisions saved as alternatives) stored in `ai_composition_conversation` and re-applied against the CURRENT document on accept (`api/_lib/aiCodeEdit.js`); protected values + locked `data-content-key` texts require confirmation; breakpoint-scoped edits must leave other breakpoints' CSS untouched; accepts introducing NEW critical accessibility issues are blocked (422 `AI_VALIDATION_CRITICAL`). Admin-only Composition Inspector via `GET /api/ai-compositions/:id?inspector=1` (404 to non-admins). Full details: `guides/ai-design-studio-v2-pivot.md`.
+-   **Member AI structured Q&A:** the member assistant answers count/aggregate questions from live records via a whitelisted query spec (LLM never writes SQL). Catalog + validation + executors in `api/_lib/memberAiStructured.js`; routing in `api/member-ai/ask.js`. Adding an entity/field: follow `guides/member-ai-structured-qa.md` (visibility mirrors the member browse surfaces; drift guard in `memberAiStructuredSchemaDrift.test.mjs`).
+
+## Gotchas
+-   **Vercel preview-domain ownership:** Project `vite-migrate-replit-6` serves this repository. Both `dev.iconn.app` and `*.dev.iconn.app` are verified Vercel project domains pinned to the `eventemb2` Git branch; tenant custom-domain actions must never attach, reclaim, or detach `iconn.app` or any of its subdomains.
+-   **`dev.iconn.app` = Vercel preview deployment** built from the `eventemb2` git branch of the same Vercel project as production. Shares the same Supabase. (a) Vercel's Functions → Logs viewer defaults to Production and hides Preview logs — switch the Environment filter to Preview. (b) A fix only reaches `dev.iconn.app` after the commit is on the `eventemb2` branch and that branch's preview build has finished.
+-   **`sendEmail()` never throws.** It catches Mailgun errors and returns `{ success: false, error, status, domain }`. Callers MUST inspect the return value; a bare `try { await sendEmail(...) } catch {}` will falsely report success on 401 / unverified domain / missing key. Canonical pattern: `api/auth/request-admin-password-reset.js`.
+-   **System emails MUST pass `systemEmail: true`** (or use `sendSystemEmail()`). Without it, a tenant with a verified custom sending domain would silently send admin reset / signup / billing emails from the tenant's own brand — wrong identity.
+-   **API hard-fails** any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Workflow `dd_owner` / `dd_owner_email` placeholders** resolve via `resolveDdOwnerForSubmission` (`api/_lib/ddOwner.js`) only when the trigger caller passes `context.formSubmissionId` to `triggerWorkflows`. Without submission context they collapse to empty strings.
+-   **No server-side length validation on `event.summary` / `complex_event.summary`** — relies on client-side `event_summary_max_length` system setting (default 150).
+
+## Product
+-   **Core:** Members, Events, Bookings, Resources, Blog.
+-   **Identity:** Unified login, multi-tenant ownership, organization memberships, granular access control.
+-   **Customization:** Page Builder, Custom Forms with conditional logic, Workflow Automation, per-tenant branding.
+-   **Financials:** Stripe membership payments, Xero/QBO invoicing, Fundraising with Gift Aid.
+-   **Comms:** Email templates, campaigns, member preferences.
+-   **Integrations:** WordPress Sync, Zoom (events/sessions), Zoho CRM sync.
+-   **Reporting:** Due Diligence Reports, configurable Member/Org Directories.
+-   **Community:** Tenant-scoped forums, Member Group email campaigns.
+
+## User preferences
+Preferred communication style: Simple, everyday language.
+
+## Pointers
+-   **React:** `https://react.dev/` · **Tailwind:** `https://tailwindcss.com/docs` · **Drizzle:** `https://orm.drizzle.team/docs/overview`
+-   **Vercel Functions:** `https://vercel.com/docs/functions/overview` · **Supabase:** `https://supabase.com/docs`
+-   **Stripe:** `https://stripe.com/docs/api` · **Mailgun:** `https://documentation.mailgun.com/en/latest/api_reference.html`
+# Membership Management Platform
+A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
+
+## Run & Operate
+-   **Run Dev Server:** `npm run dev`
+-   **Build:** `npm run build` · **Typecheck:** `npm run typecheck` · **Codegen:** `npm run codegen`
+-   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — only works from environments with IPv6 outbound; **not from this Replit workspace** (see "Database connection").
+-   **Migrations:** every `.sql` in `supabase/migrations/` is idempotent and applied against `DEST_DATABASE_URL` (pooler). Most migrations have a matching `node scripts/apply-*.mjs` runner; check `scripts/` before applying anything by hand.
+-   **One-off scripts (backfills, CSV imports, tenant seeds):** live in `scripts/` (e.g. `recompute-tenant-storage.mjs`, `backfill-*.mjs`, `import-*.mjs`, `seed-*.mjs`). They are idempotent, default to dry-run unless an `--apply` flag is passed, and many are hard-pinned to a single tenant. Read the script header before running; each documents its own flags and scope.
+-   **Storage usage reconcile:** `node scripts/recompute-tenant-storage.mjs [--dry-run] [--tenant=<uuid>]`, or trust the nightly cron at `/api/cron/recompute-tenant-storage` (03:00 UTC, `CRON_SECRET`-guarded).
+
+## Database connection (read this before any DB work from this workspace)
+There are two Supabase projects this codebase talks to:
+
+| Role | What it is | URL secret | Postgres URL secret | Service-role key secret |
+| ---- | ---------- | ---------- | ------------------- | ----------------------- |
+| **Destination (current prod)** | Multi-tenant iConnect DB | `DEST_SUPABASE_URL` (`https://lvmzliemqnieeoruhkik.supabase.co`) | `DEST_DATABASE_URL` | `DEST_SUPABASE_KEY` |
+| **Source (legacy)** | Pre-multi-tenancy single-tenant snapshot, used by migration scripts | `SOURCE_SUPABASE_URL` | `SOURCE_DATABASE_URL` | `SOURCE_SUPABASE_KEY` |
+
+**The Supabase direct host (`db.<project>.supabase.co`) is unreachable from this Replit workspace** — it publishes only IPv6 (AAAA) DNS and the Replit container has no IPv6 outbound route, so `psql`, `execute_sql_tool`, `drizzle-kit push`, and any raw `pg`/Drizzle client pointed at the direct host fail with `ENOTFOUND` / `ENETUNREACH`. Those tools work from Vercel functions, the user's laptop, and CI — just not from here against the direct host.
+
+**The Supabase Pooler hostname IS IPv4-reachable from this workspace** (`aws-1-eu-central-1.pooler.supabase.com:5432`, which is what `DEST_DATABASE_URL` already points to). `pg` clients using `DEST_DATABASE_URL` (transaction-pooler mode) work from Replit for read/write queries and DDL such as `CREATE INDEX`. Prefer `@supabase/supabase-js` for ordinary CRUD (REST endpoint is also IPv4-reachable, more ergonomic); reach for `pg` via `DEST_DATABASE_URL` only when you need raw SQL / DDL the REST API can't do.
+
+For any DB access from this workspace (scripts, ad-hoc debugging, one-off data fixes), use **`@supabase/supabase-js`** with the service-role key. Working reference: `scripts/debug-tenant.mjs`.
+
+```js
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(
+  process.env.DEST_SUPABASE_URL,
+  process.env.DEST_SUPABASE_KEY
+);
+```
+
+Quick one-off from bash (env vars ARE available in the shell):
+
+```bash
+node -e "
+const { createClient } = require('@supabase/supabase-js');
+const sb = createClient(process.env.DEST_SUPABASE_URL, process.env.DEST_SUPABASE_KEY, { auth: { persistSession: false } });
+(async () => {
+  const { data, error } = await sb.from('tenant').select('id, slug, name').limit(5);
+  console.log({ data, error });
+})();
+"
+```
+
+## Testing
+-   **AI assistant tests** (registered as the `ai-assistant-tests` validation step, runs automatically on task completion): `node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/aiCompositionRender.test.mjs` — member-AI visibility (security boundary), ranking, indexer, help-chunker, dashboard aggregation/LMIC operators, Canvas auto-height bake guards, `useAutoHeightBake` runtime gates (jsdom), and Canvas auto reading-order suites.
+-   **GoCardless tests:** `node --test api/_lib/gocardless*.test.mjs` — webhook signature/idempotency/status-transition suites, per-tenant credential resolution (tenant_integrations → env fallback, env/token mismatch guards), org DD billing-contact invitations (token format, expiry clamp 1-90 via `dd_invite_expiry_days`, validate/supersede/single-use/revoke, recipient dedupe), Phase 5 renewal decisions (`gocardlessDdRenewals.test.mjs`), and migration invite/funnel (`gocardlessDdMigration.test.mjs`).
+-   **GoCardless sandbox proof:** `node scripts/gocardless-sandbox-proof.mjs [runId]` — billing request + hosted flow creation and idempotent-retry behaviour against the GC sandbox (requires `GOCARDLESS_ACCESS_TOKEN`; refuses to run against live).
+-   **Pending-PO report tests:** `node --test api/_lib/pendingPoInvoice.test.mjs` — PO reference extraction/blacklist and cross-record membership PO propagation helpers.
+
+## Env vars (current canonical set)
+Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPABASE_*` names; prefer the `DEST_*` names below for new code.
+
+| Var | Purpose |
+| --- | ------- |
+| `DEST_SUPABASE_URL` / `DEST_SUPABASE_KEY` / `DEST_DATABASE_URL` | Destination (prod) Supabase. See "Database connection". |
+| `SOURCE_SUPABASE_URL` / `SOURCE_SUPABASE_KEY` / `SOURCE_DATABASE_URL` | Legacy single-tenant snapshot — only used by migration scripts. |
+| `DATABASE_URL` | Direct host (IPv6 only) — used by Vercel / Drizzle push, not this workspace. |
+| `MAILGUN_API_KEY`, `MAILGUN_REGION` (default `eu`), `MAILGUN_FROM_EMAIL`, `APP_DOMAIN` (default `iconn.app`) | Email sending. `MAILGUN_FROM_EMAIL` is the non-system default From; system emails are pinned to `noreply@mail.${APP_DOMAIN}` regardless. |
+| `STRIPE_SECRET_KEY` | Tenant Stripe AND platform-side paid-plan upgrade Checkout. |
+| `STRIPE_PLAN_WEBHOOK_SECRET` | Verifies `/api/webhooks/stripe-plan` from the platform Stripe account. Configure dashboard to deliver `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
+| `GOCARDLESS_ENVIRONMENT` | `sandbox` (default) or `live`. Platform-level FALLBACK only — tenants connect their own GoCardless account via `tenant_integrations` (`integration_type='gocardless'`, resolved by `api/_lib/gocardlessCredentials.js`). |
+| `GOCARDLESS_ACCESS_TOKEN` | Platform-fallback GoCardless API access token (sandbox tokens start `sandbox_`, live `live_`; env/token mismatch is rejected at call time). |
+| `GOCARDLESS_WEBHOOK_SECRET` | Platform-fallback secret verifying `Webhook-Signature` (HMAC-SHA256 of raw body) on `/api/webhooks/gocardless`. Tenant-connected accounts register the URL with `?tenant=<uuid>` and are verified against their own stored secret. |
+| `GOCARDLESS_REDIRECT_BASE_URL` | Base URL for Billing Request Flow redirect/exit URIs (e.g. `https://iconn.app`). |
+| `GOCARDLESS_CREDITOR_ID` (opt) | Pins billing requests to one creditor on multi-creditor GC accounts. |
+| `GOOGLE_FONTS_API_KEY` | Server-side key for the Google Fonts Developer API. Powers live font search in the `/InstalledFonts` add dialog via `api/public/google-fonts.js`. If unset, the picker falls back to the curated `POPULAR_GOOGLE_FONTS` list. |
+| `XERO_CLIENT_ID` | Xero OAuth. |
+| `QUICKBOOKS_REDIRECT_URI` (opt) | Overrides default `${origin}/api/quickbooks/callback` for stable QBO OAuth redirect. |
+| `BROWSERLESS_API_TOKEN`, `BROWSERLESS_BASE_URL` (opt), `BROWSERLESS_AUDIT_TIMEOUT_MS` (opt) | Accessibility audits via browserless.io. |
+| `VITE_APP_URL` | Frontend-known app URL. |
+| `CAPTCHA_PROVIDER`, `CAPTCHA_SECRET_KEY` (opt) | Self-serve signup captcha (hCaptcha/Turnstile/reCAPTCHA). Bypassed when not production. |
+| `SIGNUP_RATE_IP_PER_HOUR`, `SIGNUP_RATE_EMAIL_PER_DAY` (opt) | Self-serve signup rate limits. |
+| `CRON_SECRET` | Guards all `/api/cron/*` endpoints. |
+| `ICONNECT_HEALTH_CHECK_TOKEN` | Required secret for `/api/health`; Better Stack must send it as the `X-Health-Token` request header. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_RENEWALS_URL` | Optional Better Stack heartbeat URL for membership renewals. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for membership-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_GOCARDLESS_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for GoCardless reconciliation. |
+| `BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for Stripe card-plan reconciliation. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL` | Optional Better Stack heartbeat URL for scheduled workflows. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL` | Optional Better Stack heartbeat URL for scheduled campaigns. |
+| `BETTERSTACK_HEARTBEAT_DATABASE_BACKUP_URL` | Optional Better Stack heartbeat URL for database backup to R2. |
+| `BETTERSTACK_HEARTBEAT_STORAGE_BACKUP_URL` | Optional Better Stack heartbeat URL for storage backup to R2. |
+| `BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for form-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_AUTOMATIC_MEMBERSHIP_PROCESSING_URL` | Optional Better Stack heartbeat URL for automatic membership processing. |
+| `ENABLE_RESET_DEBUG` (opt, `'true'`) | Temporary diagnostic: `/api/auth/request-admin-password-reset` returns a `debug` field (`no_identity`/`no_owner_membership`/`email_failed`/`sent`). Leave unset in normal operation so account existence is not disclosed. |
+| `R2_ACCOUNT_ID` | Cloudflare account ID — builds the R2 endpoint URL (`https://<id>.r2.cloudflarestorage.com`). Set this **or** `R2_ENDPOINT`. Vercel secret. |
+| `R2_ENDPOINT` (opt) | Full R2 endpoint URL override, instead of `R2_ACCOUNT_ID`. |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | R2 API token credentials + target bucket for backups. Vercel secrets. |
+| `DB_BACKUP_SCHEMAS` (opt) | Comma-separated Postgres schemas in the nightly DB dump (default: `public`). Supabase internal schemas (`auth`, `storage`, `realtime`, …) are intentionally excluded — Supabase manages them. |
+
+### External health monitoring
+
+Create a Better Stack HTTP monitor for `GET /api/health`. In the monitor's
+request headers, configure `X-Health-Token` to the same secret held in the
+Vercel `ICONNECT_HEALTH_CHECK_TOKEN` environment variable. The endpoint is
+intentionally unauthorised only by that header and returns no dependency detail
+when the header is missing or invalid.
+
+The ten `BETTERSTACK_HEARTBEAT_*_URL` variables are independently optional
+and apply only to the ten selected production schedules. The application
+derives Better Stack's `/fail` target from each configured success URL; store
+only the success URL in Vercel Production. See
+`guides/better-stack-cron-heartbeats.md` for the setup matrix and the complete
+30-schedule coverage inventory.
+Set each Vercel value to the matching Better Stack heartbeat URL for only the
+scheduled job you wish to monitor. The job sends a success URL after a clean
+run and Better Stack's `/fail` URL for a failed run; delivery failures never
+change the job's response or retry behaviour.
+
+## Stack & where things live
+-   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS
+-   **Backend:** Express.js (dev) / Vercel serverless functions (prod), PostgreSQL, Drizzle ORM
+-   `/client`: Frontend source (`client/src/design-system` = custom "new-york" shadcn variant)
+-   `/api`: Backend API endpoints (Vercel serverless functions); shared helpers under `api/_lib/`
+-   `/supabase/migrations`: Database migrations (idempotent SQL); `supabase/schema.prisma` is the schema source of truth for Drizzle
+-   `/scripts`: Utility and migration scripts
+-   `client/index.html` + `api/render.js`: SSR for SEO/OG tag injection
+
+## Architecture decisions
+-   **Multi-tenancy:** Data isolation at GLOBAL / TENANT / ORGANIZATION / MEMBER levels via `tenant_id` and `organization_id`. The shared entity API hard-fails any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Identity:** Unified identity with per-tenant password isolation, Google OAuth, feature-based role management.
+-   **Email sending:** `api/_lib/emailService.js` resolves the sending domain off `tenantId` for tenant→member emails. **System emails** (platform→tenant-owner: admin reset, signup verification, team invite, billing notifications) MUST pass `systemEmail: true` (or use `sendSystemEmail()`); this forces both Mailgun domain AND From identity to `mail.${APP_DOMAIN}` / `noreply@mail.${APP_DOMAIN}`. System reset/verification links must point at `${APP_DOMAIN}/...` not a tenant subdomain.
+-   **Dynamic SEO:** SSR meta-tag injection per-tenant via `api/render.js`; per-page metadata resolved by `api/_lib/entityMeta.js`. Per-entity `seo_title` / `seo_description` / `og_image_url` overrides on events, blog posts, news, campaigns, resources, and directories (UI in `client/src/components/blog/SEOSettings.jsx`). `og:image` URLs on `vault.iconn.app` or `*.supabase.co` are proxied through `/api/og-image`.
+-   **Event deletion:** Multi-step cancellation flow (refunds, reinstatements, Zoom unregistration) before any data purge. Direct deletion of events is deprecated for UI flows.
+-   **Semantic `warning` color:** `--warning` / `--warning-foreground` CSS vars in `client/src/index.css` (both themes, WCAG-AA). Use `text-warning`, `bg-warning`, `<Badge variant="warning">`, `<Alert variant="warning">` instead of raw amber/yellow/orange palette classes.
+-   **Membership invoices:** `organisation_membership_history` / `member_membership_history` carry `payment_status` (`unpaid`/`paid`/`partial`/`voided`) + `paid_at`, separate from the lifecycle `status`. Accounting-sync failures flag the row `accounting_sync_status='failed'` (not swallowed) with a Retry button in `OrgMembershipTab.jsx`. Payment reconciliation cron `/api/cron/reconcile-membership-invoice-payments` (every 3h, `CRON_SECRET`-guarded) queries Xero/QBO and fires workflows on `unpaid -> paid` only. See `api/_lib/membershipPaymentReconciliation.js`, `api/_lib/accountingProvider.js`.
+-   **Tenant storage metering:** `tenant.storage_used_bytes` (BIGINT) drives `checkStorageQuota` (`api/_lib/planQuota.js`) and `/admin/plan-usage`. Maintained incrementally via `addTenantStorageBytes` (`api/_lib/tenantStorageUsage.js`). Can drift (signed-URL claimed size); re-baseline with `scripts/recompute-tenant-storage.mjs` or the nightly cron.
+-   **Paid-plan upgrade flow (`/admin/plan-usage` → Stripe Checkout):** `PlanUsage.jsx` → `api/admin/plan-checkout.js` (tenant-admin RBAC, uses PLATFORM `STRIPE_SECRET_KEY`, NOT tenant's connected Stripe). First-time creates a Checkout Session; existing live sub swaps price in place via `stripe.subscriptions.update` (proration, never a parallel sub). Webhook `api/webhooks/stripe-plan.js` upserts `tenant_subscription` and flips `tenant.plan_code` only when status is `active`/`trialing`; `subscription.deleted` reverts to `free`.
+-   **Self-serve signup & onboarding (`/signup` → wizard):** `signup-start.js` (captcha + rate limits + verification email) → `signup-verify.js` (`provisionTenant`, `free` plan) → 5-step `OnboardingWizard.jsx` → `POST /api/admin/onboarding` runs `api/_lib/onboardingSeeder.js` (branding + tiers + persona seed pack tagged `is_sample=true`). Legacy admins backfilled to `onboarding_status='complete'`.
+-   **Accessibility audits:** Admin page (RBAC `admin.accessibility-audits`) runs axe-core 4.10 via browserless.io for tenant public URLs. Results in `accessibility_audit` / `accessibility_audit_result`; endpoints under `/api/admin/accessibility-audits`; runner `api/_lib/browserlessAxe.js`. v1 limits: ≤10 URLs/run, http(s) only, no credentialed URLs.
+-   **AI Design Studio V1 (Canvas AI Composition):** generation via `api/ai-compositions/generate.js`; prompt-led editing via `api/ai-compositions/edit.js` (propose/accept/reject/undo + conversation history in `ai_composition_conversation`) and `api/ai-compositions/destinations.js` (record-ID link picker — the AI never invents internal URLs). Patch engine `api/_lib/aiCompositionPatch.js`, edit pipeline `api/_lib/aiCompositionEdit.js`. Accept re-applies the STORED proposal server-side against the current document; complete redesigns are saved as alternatives (`is_alternative`); protected-value changes (prices, dates, names) require explicit confirmation. Editor UI in `client/src/components/canvas/blocks/AiCompositionEditPanel.jsx`. V1 scene-graph compositions are now read-only w.r.t. the V2 pivot.
+-   **AI Design Studio V2 (native-code pivot):** V2 compositions are native AI HTML/CSS/SVG packages (document `schemaVersion "2.0"`, `ai_composition.renderer_version=2`), sanitised ONCE server-side at store time by `api/_lib/aiCodePipeline.js` (schema → jsdom+DOMPurify sanitise → manifest cross-check → postcss CSS scoping under `[data-ai-composition="<uuid>"]` → leak check; reject-don't-repair), rendered verbatim by `AiCodeCompositionBlock.jsx`; signed CSP-locked preview + Browserless screenshots via `api/ai-compositions/preview.js` (HMAC keyed by `AIC_PREVIEW_SECRET`/`CRON_SECRET`). **Page bodies:** `compositionType: "page_body"` runs a plan stage (content manifest + creative plan, anti-degenerate checks in `aiCodeGeneration.js`) before code gen; page gates forbid `<header>/<footer>/<nav>` recreation. **Actions** (`data-ai-action` + manifest, `api/_lib/aiCodeActions.js`) resolve server-side to real records — unresolved actions block page publish (409 `AI_UNRESOLVED_ACTIONS`; editor fix-up via `api/ai-compositions/resolve-action.js`). **Slots** (`data-iconnect-slot`, `api/_lib/aiCodeSlots.js`) portal trusted platform blocks into generated markup; never block publish. **Imagery:** the model never writes image URLs — `<img data-ai-asset="<key>">` placeholders declared in the package `assets` manifest, fulfilled server-side (`api/_lib/aiCodeAssets.js`, gpt-image-1 or media library, tenant-owned storage); only unfulfilled `required` assets hard-reject; image swap is a deterministic `replace-image` edit action. V1→V2 rebuild is admin-only via `api/ai-compositions/rebuild-v2.js` (never automatic). **Editing:** `api/ai-compositions/edit-v2.js` (propose/accept/reject/undo); proposals (element-scoped patches via `data-ai-id`, or full revisions saved as alternatives) stored in `ai_composition_conversation` and re-applied against the CURRENT document on accept (`api/_lib/aiCodeEdit.js`); protected values + locked `data-content-key` texts require confirmation; breakpoint-scoped edits must leave other breakpoints' CSS untouched; accepts introducing NEW critical accessibility issues are blocked (422 `AI_VALIDATION_CRITICAL`). Admin-only Composition Inspector via `GET /api/ai-compositions/:id?inspector=1` (404 to non-admins). Full details: `guides/ai-design-studio-v2-pivot.md`.
+-   **Member AI structured Q&A:** the member assistant answers count/aggregate questions from live records via a whitelisted query spec (LLM never writes SQL). Catalog + validation + executors in `api/_lib/memberAiStructured.js`; routing in `api/member-ai/ask.js`. Adding an entity/field: follow `guides/member-ai-structured-qa.md` (visibility mirrors the member browse surfaces; drift guard in `memberAiStructuredSchemaDrift.test.mjs`).
+
+## Gotchas
+-   **Vercel preview-domain ownership:** Project `vite-migrate-replit-6` serves this repository. Both `dev.iconn.app` and `*.dev.iconn.app` are verified Vercel project domains pinned to the `eventemb2` Git branch; tenant custom-domain actions must never attach, reclaim, or detach `iconn.app` or any of its subdomains.
+-   **`dev.iconn.app` = Vercel preview deployment** built from the `eventemb2` git branch of the same Vercel project as production. Shares the same Supabase. (a) Vercel's Functions → Logs viewer defaults to Production and hides Preview logs — switch the Environment filter to Preview. (b) A fix only reaches `dev.iconn.app` after the commit is on the `eventemb2` branch and that branch's preview build has finished.
+-   **`sendEmail()` never throws.** It catches Mailgun errors and returns `{ success: false, error, status, domain }`. Callers MUST inspect the return value; a bare `try { await sendEmail(...) } catch {}` will falsely report success on 401 / unverified domain / missing key. Canonical pattern: `api/auth/request-admin-password-reset.js`.
+-   **System emails MUST pass `systemEmail: true`** (or use `sendSystemEmail()`). Without it, a tenant with a verified custom sending domain would silently send admin reset / signup / billing emails from the tenant's own brand — wrong identity.
+-   **API hard-fails** any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Workflow `dd_owner` / `dd_owner_email` placeholders** resolve via `resolveDdOwnerForSubmission` (`api/_lib/ddOwner.js`) only when the trigger caller passes `context.formSubmissionId` to `triggerWorkflows`. Without submission context they collapse to empty strings.
+-   **No server-side length validation on `event.summary` / `complex_event.summary`** — relies on client-side `event_summary_max_length` system setting (default 150).
+
+## Product
+-   **Core:** Members, Events, Bookings, Resources, Blog.
+-   **Identity:** Unified login, multi-tenant ownership, organization memberships, granular access control.
+-   **Customization:** Page Builder, Custom Forms with conditional logic, Workflow Automation, per-tenant branding.
+-   **Financials:** Stripe membership payments, Xero/QBO invoicing, Fundraising with Gift Aid.
+-   **Comms:** Email templates, campaigns, member preferences.
+-   **Integrations:** WordPress Sync, Zoom (events/sessions), Zoho CRM sync.
+-   **Reporting:** Due Diligence Reports, configurable Member/Org Directories.
+-   **Community:** Tenant-scoped forums, Member Group email campaigns.
+
+## User preferences
+Preferred communication style: Simple, everyday language.
+
+## Pointers
+-   **React:** `https://react.dev/` · **Tailwind:** `https://tailwindcss.com/docs` · **Drizzle:** `https://orm.drizzle.team/docs/overview`
+-   **Vercel Functions:** `https://vercel.com/docs/functions/overview` · **Supabase:** `https://supabase.com/docs`
+-   **Stripe:** `https://stripe.com/docs/api` · **Mailgun:** `https://documentation.mailgun.com/en/latest/api_reference.html`
+# Membership Management Platform
+A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
+
+## Run & Operate
+-   **Run Dev Server:** `npm run dev`
+-   **Build:** `npm run build` · **Typecheck:** `npm run typecheck` · **Codegen:** `npm run codegen`
+-   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — only works from environments with IPv6 outbound; **not from this Replit workspace** (see "Database connection").
+-   **Migrations:** every `.sql` in `supabase/migrations/` is idempotent and applied against `DEST_DATABASE_URL` (pooler). Most migrations have a matching `node scripts/apply-*.mjs` runner; check `scripts/` before applying anything by hand.
+-   **One-off scripts (backfills, CSV imports, tenant seeds):** live in `scripts/` (e.g. `recompute-tenant-storage.mjs`, `backfill-*.mjs`, `import-*.mjs`, `seed-*.mjs`). They are idempotent, default to dry-run unless an `--apply` flag is passed, and many are hard-pinned to a single tenant. Read the script header before running; each documents its own flags and scope.
+-   **Inclusive relationship reports:** `node scripts/apply-inclusive-relationship-reports.mjs --apply` installs the V2 paging/count helpers and separate BNMS Organisation department summary using `DEST_DATABASE_URL` only. `node scripts/verify-bnms-organisation-department-summary.mjs` verifies saved preview results read-only; `--reference-only` checks source totals before setup. Existing V1 reports are not upgraded.
+-   **Storage usage reconcile:** `node scripts/recompute-tenant-storage.mjs [--dry-run] [--tenant=<uuid>]`, or trust the nightly cron at `/api/cron/recompute-tenant-storage` (03:00 UTC, `CRON_SECRET`-guarded).
+
+## Database connection (read this before any DB work from this workspace)
+There are two Supabase projects this codebase talks to:
+
+| Role | What it is | URL secret | Postgres URL secret | Service-role key secret |
+| ---- | ---------- | ---------- | ------------------- | ----------------------- |
+| **Destination (current prod)** | Multi-tenant iConnect DB | `DEST_SUPABASE_URL` (`https://lvmzliemqnieeoruhkik.supabase.co`) | `DEST_DATABASE_URL` | `DEST_SUPABASE_KEY` |
+| **Source (legacy)** | Pre-multi-tenancy single-tenant snapshot, used by migration scripts | `SOURCE_SUPABASE_URL` | `SOURCE_DATABASE_URL` | `SOURCE_SUPABASE_KEY` |
+
+**The Supabase direct host (`db.<project>.supabase.co`) is unreachable from this Replit workspace** — it publishes only IPv6 (AAAA) DNS and the Replit container has no IPv6 outbound route, so `psql`, `execute_sql_tool`, `drizzle-kit push`, and any raw `pg`/Drizzle client pointed at the direct host fail with `ENOTFOUND` / `ENETUNREACH`. Those tools work from Vercel functions, the user's laptop, and CI — just not from here against the direct host.
+
+**The Supabase Pooler hostname IS IPv4-reachable from this workspace** (`aws-1-eu-central-1.pooler.supabase.com:5432`, which is what `DEST_DATABASE_URL` already points to). `pg` clients using `DEST_DATABASE_URL` (transaction-pooler mode) work from Replit for read/write queries and DDL such as `CREATE INDEX`. Prefer `@supabase/supabase-js` for ordinary CRUD (REST endpoint is also IPv4-reachable, more ergonomic); reach for `pg` via `DEST_DATABASE_URL` only when you need raw SQL / DDL the REST API can't do.
+
+For any DB access from this workspace (scripts, ad-hoc debugging, one-off data fixes), use **`@supabase/supabase-js`** with the service-role key. Working reference: `scripts/debug-tenant.mjs`.
+
+```js
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(
+  process.env.DEST_SUPABASE_URL,
+  process.env.DEST_SUPABASE_KEY
+);
+```
+
+Quick one-off from bash (env vars ARE available in the shell):
+
+```bash
+node -e "
+const { createClient } = require('@supabase/supabase-js');
+const sb = createClient(process.env.DEST_SUPABASE_URL, process.env.DEST_SUPABASE_KEY, { auth: { persistSession: false } });
+(async () => {
+  const { data, error } = await sb.from('tenant').select('id, slug, name').limit(5);
+  console.log({ data, error });
+})();
+"
+```
+
+## Testing
+-   **AI assistant tests** (registered as the `ai-assistant-tests` validation step, runs automatically on task completion): `node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/aiCompositionRender.test.mjs` — member-AI visibility (security boundary), ranking, indexer, help-chunker, dashboard aggregation/LMIC operators, Canvas auto-height bake guards, `useAutoHeightBake` runtime gates (jsdom), and Canvas auto reading-order suites.
+-   **GoCardless tests:** `node --test api/_lib/gocardless*.test.mjs` — webhook signature/idempotency/status-transition suites, per-tenant credential resolution (tenant_integrations → env fallback, env/token mismatch guards), org DD billing-contact invitations (token format, expiry clamp 1-90 via `dd_invite_expiry_days`, validate/supersede/single-use/revoke, recipient dedupe), Phase 5 renewal decisions (`gocardlessDdRenewals.test.mjs`), and migration invite/funnel (`gocardlessDdMigration.test.mjs`).
+-   **GoCardless sandbox proof:** `node scripts/gocardless-sandbox-proof.mjs [runId]` — billing request + hosted flow creation and idempotent-retry behaviour against the GC sandbox (requires `GOCARDLESS_ACCESS_TOKEN`; refuses to run against live).
+-   **Pending-PO report tests:** `node --test api/_lib/pendingPoInvoice.test.mjs` — PO reference extraction/blacklist and cross-record membership PO propagation helpers.
+-   **Organisation Directory filters:** `npm run test:directory-object-fields` covers schema projections, safe diagnostics, exact source-value selection, permission revocation, and population pagination; `npx playwright test tests/directory-object-fields.smoke.spec.mjs` covers mounted directory controls and card behaviour. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` when using a system Chromium.
+-   **Destination directory verification (read-only):** `node scripts/verify-directory-source-values-destination.mjs` checks the configured BNMS Department Name source against DEST without changing settings or records. `npx playwright test --config=tests/task-4360-destination-harness.config.mjs` renders the local app with fixture sign-in/chrome and real destination-backed directory service responses. This harness is not a deployed-login/authentication test; `scripts/verify-task-4360-preview.mjs` separately supports normal authenticated preview verification with an ephemeral `PLAYWRIGHT_STORAGE_STATE`.
+-   **Repeatable Custom Object source verification (read-only):** `node scripts/verify-form-row-choice-sources.mjs --parent-object=<uuid> --related-object=<uuid> --value-field=<name>` checks record → distinct scalar → filtered record options and submission eligibility against DEST using an in-memory form. It does not save forms, submissions, or catalogue records.
+
+## Env vars (current canonical set)
+Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPABASE_*` names; prefer the `DEST_*` names below for new code.
+
+| Var | Purpose |
+| --- | ------- |
+| `DEST_SUPABASE_URL` / `DEST_SUPABASE_KEY` / `DEST_DATABASE_URL` | Destination (prod) Supabase. See "Database connection". |
+| `SOURCE_SUPABASE_URL` / `SOURCE_SUPABASE_KEY` / `SOURCE_DATABASE_URL` | Legacy single-tenant snapshot — only used by migration scripts. |
+| `DATABASE_URL` | Direct host (IPv6 only) — used by Vercel / Drizzle push, not this workspace. |
+| `MAILGUN_API_KEY`, `MAILGUN_REGION` (default `eu`), `MAILGUN_FROM_EMAIL`, `APP_DOMAIN` (default `iconn.app`) | Email sending. `MAILGUN_FROM_EMAIL` is the non-system default From; system emails are pinned to `noreply@mail.${APP_DOMAIN}` regardless. |
+| `STRIPE_SECRET_KEY` | Tenant Stripe AND platform-side paid-plan upgrade Checkout. |
+| `STRIPE_PLAN_WEBHOOK_SECRET` | Verifies `/api/webhooks/stripe-plan` from the platform Stripe account. Configure dashboard to deliver `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
+| `GOCARDLESS_ENVIRONMENT` | `sandbox` (default) or `live`. Platform-level FALLBACK only — tenants connect their own GoCardless account via `tenant_integrations` (`integration_type='gocardless'`, resolved by `api/_lib/gocardlessCredentials.js`). |
+| `GOCARDLESS_ACCESS_TOKEN` | Platform-fallback GoCardless API access token (sandbox tokens start `sandbox_`, live `live_`; env/token mismatch is rejected at call time). |
+| `GOCARDLESS_WEBHOOK_SECRET` | Platform-fallback secret verifying `Webhook-Signature` (HMAC-SHA256 of raw body) on `/api/webhooks/gocardless`. Tenant-connected accounts register the URL with `?tenant=<uuid>` and are verified against their own stored secret. |
+| `GOCARDLESS_REDIRECT_BASE_URL` | Base URL for Billing Request Flow redirect/exit URIs (e.g. `https://iconn.app`). |
+| `GOCARDLESS_CREDITOR_ID` (opt) | Pins billing requests to one creditor on multi-creditor GC accounts. |
+| `GOOGLE_FONTS_API_KEY` | Server-side key for the Google Fonts Developer API. Powers live font search in the `/InstalledFonts` add dialog via `api/public/google-fonts.js`. If unset, the picker falls back to the curated `POPULAR_GOOGLE_FONTS` list. |
+| `XERO_CLIENT_ID` | Xero OAuth. |
+| `QUICKBOOKS_REDIRECT_URI` (opt) | Overrides default `${origin}/api/quickbooks/callback` for stable QBO OAuth redirect. |
+| `BROWSERLESS_API_TOKEN`, `BROWSERLESS_BASE_URL` (opt), `BROWSERLESS_AUDIT_TIMEOUT_MS` (opt) | Accessibility audits via browserless.io. |
+| `VITE_APP_URL` | Frontend-known app URL. |
+| `CAPTCHA_PROVIDER`, `CAPTCHA_SECRET_KEY` (opt) | Self-serve signup captcha (hCaptcha/Turnstile/reCAPTCHA). Bypassed when not production. |
+| `SIGNUP_RATE_IP_PER_HOUR`, `SIGNUP_RATE_EMAIL_PER_DAY` (opt) | Self-serve signup rate limits. |
+| `CRON_SECRET` | Guards all `/api/cron/*` endpoints. |
+| `ICONNECT_HEALTH_CHECK_TOKEN` | Required secret for `/api/health`; Better Stack must send it as the `X-Health-Token` request header. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_RENEWALS_URL` | Optional Better Stack heartbeat URL for membership renewals. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for membership-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_GOCARDLESS_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for GoCardless reconciliation. |
+| `BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for Stripe card-plan reconciliation. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL` | Optional Better Stack heartbeat URL for scheduled workflows. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL` | Optional Better Stack heartbeat URL for scheduled campaigns. |
+| `BETTERSTACK_HEARTBEAT_DATABASE_BACKUP_URL` | Optional Better Stack heartbeat URL for database backup to R2. |
+| `BETTERSTACK_HEARTBEAT_STORAGE_BACKUP_URL` | Optional Better Stack heartbeat URL for storage backup to R2. |
+| `BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for form-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_AUTOMATIC_MEMBERSHIP_PROCESSING_URL` | Optional Better Stack heartbeat URL for automatic membership processing. |
+| `ENABLE_RESET_DEBUG` (opt, `'true'`) | Temporary diagnostic: `/api/auth/request-admin-password-reset` returns a `debug` field (`no_identity`/`no_owner_membership`/`email_failed`/`sent`). Leave unset in normal operation so account existence is not disclosed. |
+| `R2_ACCOUNT_ID` | Cloudflare account ID — builds the R2 endpoint URL (`https://<id>.r2.cloudflarestorage.com`). Set this **or** `R2_ENDPOINT`. Vercel secret. |
+| `R2_ENDPOINT` (opt) | Full R2 endpoint URL override, instead of `R2_ACCOUNT_ID`. |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | R2 API token credentials + target bucket for backups. Vercel secrets. |
+| `DB_BACKUP_SCHEMAS` (opt) | Comma-separated Postgres schemas in the nightly DB dump (default: `public`). Supabase internal schemas (`auth`, `storage`, `realtime`, …) are intentionally excluded — Supabase manages them. |
+
+### External health monitoring
+
+Create a Better Stack HTTP monitor for `GET /api/health`. In the monitor's
+request headers, configure `X-Health-Token` to the same secret held in the
+Vercel `ICONNECT_HEALTH_CHECK_TOKEN` environment variable. The endpoint is
+intentionally unauthorised only by that header and returns no dependency detail
+when the header is missing or invalid.
+
+The ten `BETTERSTACK_HEARTBEAT_*_URL` variables are independently optional
+and apply only to the ten selected production schedules. The application
+derives Better Stack's `/fail` target from each configured success URL; store
+only the success URL in Vercel Production. See
+`guides/better-stack-cron-heartbeats.md` for the setup matrix and the complete
+30-schedule coverage inventory.
+Set each Vercel value to the matching Better Stack heartbeat URL for only the
+scheduled job you wish to monitor. The job sends a success URL after a clean
+run and Better Stack's `/fail` URL for a failed run; delivery failures never
+change the job's response or retry behaviour.
+
+## Stack & where things live
+-   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS
+-   **Backend:** Express.js (dev) / Vercel serverless functions (prod), PostgreSQL, Drizzle ORM
+-   `/client`: Frontend source (`client/src/design-system` = custom "new-york" shadcn variant)
+-   `/api`: Backend API endpoints (Vercel serverless functions); shared helpers under `api/_lib/`
+-   `/supabase/migrations`: Database migrations (idempotent SQL); `supabase/schema.prisma` is the schema source of truth for Drizzle
+-   `/scripts`: Utility and migration scripts
+-   `client/index.html` + `api/render.js`: SSR for SEO/OG tag injection
+
+## Architecture decisions
+-   **Multi-tenancy:** Data isolation at GLOBAL / TENANT / ORGANIZATION / MEMBER levels via `tenant_id` and `organization_id`. The shared entity API hard-fails any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Identity:** Unified identity with per-tenant password isolation, Google OAuth, feature-based role management.
+-   **Email sending:** `api/_lib/emailService.js` resolves the sending domain off `tenantId` for tenant→member emails. **System emails** (platform→tenant-owner: admin reset, signup verification, team invite, billing notifications) MUST pass `systemEmail: true` (or use `sendSystemEmail()`); this forces both Mailgun domain AND From identity to `mail.${APP_DOMAIN}` / `noreply@mail.${APP_DOMAIN}`. System reset/verification links must point at `${APP_DOMAIN}/...` not a tenant subdomain.
+-   **Dynamic SEO:** SSR meta-tag injection per-tenant via `api/render.js`; per-page metadata resolved by `api/_lib/entityMeta.js`. Per-entity `seo_title` / `seo_description` / `og_image_url` overrides on events, blog posts, news, campaigns, resources, and directories (UI in `client/src/components/blog/SEOSettings.jsx`). `og:image` URLs on `vault.iconn.app` or `*.supabase.co` are proxied through `/api/og-image`.
+-   **Event deletion:** Multi-step cancellation flow (refunds, reinstatements, Zoom unregistration) before any data purge. Direct deletion of events is deprecated for UI flows.
+-   **Semantic `warning` color:** `--warning` / `--warning-foreground` CSS vars in `client/src/index.css` (both themes, WCAG-AA). Use `text-warning`, `bg-warning`, `<Badge variant="warning">`, `<Alert variant="warning">` instead of raw amber/yellow/orange palette classes.
+-   **Membership invoices:** `organisation_membership_history` / `member_membership_history` carry `payment_status` (`unpaid`/`paid`/`partial`/`voided`) + `paid_at`, separate from the lifecycle `status`. Accounting-sync failures flag the row `accounting_sync_status='failed'` (not swallowed) with a Retry button in `OrgMembershipTab.jsx`. Payment reconciliation cron `/api/cron/reconcile-membership-invoice-payments` (every 3h, `CRON_SECRET`-guarded) queries Xero/QBO and fires workflows on `unpaid -> paid` only. See `api/_lib/membershipPaymentReconciliation.js`, `api/_lib/accountingProvider.js`.
+-   **Tenant storage metering:** `tenant.storage_used_bytes` (BIGINT) drives `checkStorageQuota` (`api/_lib/planQuota.js`) and `/admin/plan-usage`. Maintained incrementally via `addTenantStorageBytes` (`api/_lib/tenantStorageUsage.js`). Can drift (signed-URL claimed size); re-baseline with `scripts/recompute-tenant-storage.mjs` or the nightly cron.
+-   **Paid-plan upgrade flow (`/admin/plan-usage` → Stripe Checkout):** `PlanUsage.jsx` → `api/admin/plan-checkout.js` (tenant-admin RBAC, uses PLATFORM `STRIPE_SECRET_KEY`, NOT tenant's connected Stripe). First-time creates a Checkout Session; existing live sub swaps price in place via `stripe.subscriptions.update` (proration, never a parallel sub). Webhook `api/webhooks/stripe-plan.js` upserts `tenant_subscription` and flips `tenant.plan_code` only when status is `active`/`trialing`; `subscription.deleted` reverts to `free`.
+-   **Self-serve signup & onboarding (`/signup` → wizard):** `signup-start.js` (captcha + rate limits + verification email) → `signup-verify.js` (`provisionTenant`, `free` plan) → 5-step `OnboardingWizard.jsx` → `POST /api/admin/onboarding` runs `api/_lib/onboardingSeeder.js` (branding + tiers + persona seed pack tagged `is_sample=true`). Legacy admins backfilled to `onboarding_status='complete'`.
+-   **Accessibility audits:** Admin page (RBAC `admin.accessibility-audits`) runs axe-core 4.10 via browserless.io for tenant public URLs. Results in `accessibility_audit` / `accessibility_audit_result`; endpoints under `/api/admin/accessibility-audits`; runner `api/_lib/browserlessAxe.js`. v1 limits: ≤10 URLs/run, http(s) only, no credentialed URLs.
+-   **AI Design Studio V1 (Canvas AI Composition):** generation via `api/ai-compositions/generate.js`; prompt-led editing via `api/ai-compositions/edit.js` (propose/accept/reject/undo + conversation history in `ai_composition_conversation`) and `api/ai-compositions/destinations.js` (record-ID link picker — the AI never invents internal URLs). Patch engine `api/_lib/aiCompositionPatch.js`, edit pipeline `api/_lib/aiCompositionEdit.js`. Accept re-applies the STORED proposal server-side against the current document; complete redesigns are saved as alternatives (`is_alternative`); protected-value changes (prices, dates, names) require explicit confirmation. Editor UI in `client/src/components/canvas/blocks/AiCompositionEditPanel.jsx`. V1 scene-graph compositions are now read-only w.r.t. the V2 pivot.
+-   **AI Design Studio V2 (native-code pivot):** V2 compositions are native AI HTML/CSS/SVG packages (document `schemaVersion "2.0"`, `ai_composition.renderer_version=2`), sanitised ONCE server-side at store time by `api/_lib/aiCodePipeline.js` (schema → jsdom+DOMPurify sanitise → manifest cross-check → postcss CSS scoping under `[data-ai-composition="<uuid>"]` → leak check; reject-don't-repair), rendered verbatim by `AiCodeCompositionBlock.jsx`; signed CSP-locked preview + Browserless screenshots via `api/ai-compositions/preview.js` (HMAC keyed by `AIC_PREVIEW_SECRET`/`CRON_SECRET`). **Page bodies:** `compositionType: "page_body"` runs a plan stage (content manifest + creative plan, anti-degenerate checks in `aiCodeGeneration.js`) before code gen; page gates forbid `<header>/<footer>/<nav>` recreation. **Actions** (`data-ai-action` + manifest, `api/_lib/aiCodeActions.js`) resolve server-side to real records — unresolved actions block page publish (409 `AI_UNRESOLVED_ACTIONS`; editor fix-up via `api/ai-compositions/resolve-action.js`). **Slots** (`data-iconnect-slot`, `api/_lib/aiCodeSlots.js`) portal trusted platform blocks into generated markup; never block publish. **Imagery:** the model never writes image URLs — `<img data-ai-asset="<key>">` placeholders declared in the package `assets` manifest, fulfilled server-side (`api/_lib/aiCodeAssets.js`, gpt-image-1 or media library, tenant-owned storage); only unfulfilled `required` assets hard-reject; image swap is a deterministic `replace-image` edit action. V1→V2 rebuild is admin-only via `api/ai-compositions/rebuild-v2.js` (never automatic). **Editing:** `api/ai-compositions/edit-v2.js` (propose/accept/reject/undo); proposals (element-scoped patches via `data-ai-id`, or full revisions saved as alternatives) stored in `ai_composition_conversation` and re-applied against the CURRENT document on accept (`api/_lib/aiCodeEdit.js`); protected values + locked `data-content-key` texts require confirmation; breakpoint-scoped edits must leave other breakpoints' CSS untouched; accepts introducing NEW critical accessibility issues are blocked (422 `AI_VALIDATION_CRITICAL`). Admin-only Composition Inspector via `GET /api/ai-compositions/:id?inspector=1` (404 to non-admins). Full details: `guides/ai-design-studio-v2-pivot.md`.
+-   **Member AI structured Q&A:** the member assistant answers count/aggregate questions from live records via a whitelisted query spec (LLM never writes SQL). Catalog + validation + executors in `api/_lib/memberAiStructured.js`; routing in `api/member-ai/ask.js`. Adding an entity/field: follow `guides/member-ai-structured-qa.md` (visibility mirrors the member browse surfaces; drift guard in `memberAiStructuredSchemaDrift.test.mjs`).
+
+## Gotchas
+-   **Vercel preview-domain ownership:** Project `vite-migrate-replit-6` serves this repository. Both `dev.iconn.app` and `*.dev.iconn.app` are verified Vercel project domains pinned to the `eventemb2` Git branch; tenant custom-domain actions must never attach, reclaim, or detach `iconn.app` or any of its subdomains.
+-   **`dev.iconn.app` = Vercel preview deployment** built from the `eventemb2` git branch of the same Vercel project as production. Shares the same Supabase. (a) Vercel's Functions → Logs viewer defaults to Production and hides Preview logs — switch the Environment filter to Preview. (b) A fix only reaches `dev.iconn.app` after the commit is on the `eventemb2` branch and that branch's preview build has finished.
+-   **`sendEmail()` never throws.** It catches Mailgun errors and returns `{ success: false, error, status, domain }`. Callers MUST inspect the return value; a bare `try { await sendEmail(...) } catch {}` will falsely report success on 401 / unverified domain / missing key. Canonical pattern: `api/auth/request-admin-password-reset.js`.
+-   **System emails MUST pass `systemEmail: true`** (or use `sendSystemEmail()`). Without it, a tenant with a verified custom sending domain would silently send admin reset / signup / billing emails from the tenant's own brand — wrong identity.
+-   **API hard-fails** any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Workflow `dd_owner` / `dd_owner_email` placeholders** resolve via `resolveDdOwnerForSubmission` (`api/_lib/ddOwner.js`) only when the trigger caller passes `context.formSubmissionId` to `triggerWorkflows`. Without submission context they collapse to empty strings.
+-   **No server-side length validation on `event.summary` / `complex_event.summary`** — relies on client-side `event_summary_max_length` system setting (default 150).
+
+## Product
+-   **Core:** Members, Events, Bookings, Resources, Blog.
+-   **Identity:** Unified login, multi-tenant ownership, organization memberships, granular access control.
+-   **Customization:** Page Builder, Custom Forms with conditional logic, Workflow Automation, per-tenant branding.
+-   **Financials:** Stripe membership payments, Xero/QBO invoicing, Fundraising with Gift Aid.
+-   **Comms:** Email templates, campaigns, member preferences.
+-   **Integrations:** WordPress Sync, Zoom (events/sessions), Zoho CRM sync.
+-   **Reporting:** Due Diligence Reports, configurable Member/Org Directories.
+-   **Community:** Tenant-scoped forums, Member Group email campaigns.
+
+## User preferences
+Preferred communication style: Simple, everyday language.
+
+## Pointers
+-   **React:** `https://react.dev/` · **Tailwind:** `https://tailwindcss.com/docs` · **Drizzle:** `https://orm.drizzle.team/docs/overview`
+-   **Vercel Functions:** `https://vercel.com/docs/functions/overview` · **Supabase:** `https://supabase.com/docs`
+-   **Stripe:** `https://stripe.com/docs/api` · **Mailgun:** `https://documentation.mailgun.com/en/latest/api_reference.html`
+# Membership Management Platform
+A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
+
+## Run & Operate
+-   **Run Dev Server:** `npm run dev`
+-   **Build:** `npm run build` · **Typecheck:** `npm run typecheck` · **Codegen:** `npm run codegen`
+-   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — only works from environments with IPv6 outbound; **not from this Replit workspace** (see "Database connection").
+-   **Migrations:** every `.sql` in `supabase/migrations/` is idempotent and applied against `DEST_DATABASE_URL` (pooler). Most migrations have a matching `node scripts/apply-*.mjs` runner; check `scripts/` before applying anything by hand.
+-   **One-off scripts (backfills, CSV imports, tenant seeds):** live in `scripts/` (e.g. `recompute-tenant-storage.mjs`, `backfill-*.mjs`, `import-*.mjs`, `seed-*.mjs`). They are idempotent, default to dry-run unless an `--apply` flag is passed, and many are hard-pinned to a single tenant. Read the script header before running; each documents its own flags and scope.
+-   **Storage usage reconcile:** `node scripts/recompute-tenant-storage.mjs [--dry-run] [--tenant=<uuid>]`, or trust the nightly cron at `/api/cron/recompute-tenant-storage` (03:00 UTC, `CRON_SECRET`-guarded).
+
+## Database connection (read this before any DB work from this workspace)
+There are two Supabase projects this codebase talks to:
+
+| Role | What it is | URL secret | Postgres URL secret | Service-role key secret |
+| ---- | ---------- | ---------- | ------------------- | ----------------------- |
+| **Destination (current prod)** | Multi-tenant iConnect DB | `DEST_SUPABASE_URL` (`https://lvmzliemqnieeoruhkik.supabase.co`) | `DEST_DATABASE_URL` | `DEST_SUPABASE_KEY` |
+| **Source (legacy)** | Pre-multi-tenancy single-tenant snapshot, used by migration scripts | `SOURCE_SUPABASE_URL` | `SOURCE_DATABASE_URL` | `SOURCE_SUPABASE_KEY` |
+
+**The Supabase direct host (`db.<project>.supabase.co`) is unreachable from this Replit workspace** — it publishes only IPv6 (AAAA) DNS and the Replit container has no IPv6 outbound route, so `psql`, `execute_sql_tool`, `drizzle-kit push`, and any raw `pg`/Drizzle client pointed at the direct host fail with `ENOTFOUND` / `ENETUNREACH`. Those tools work from Vercel functions, the user's laptop, and CI — just not from here against the direct host.
+
+**The Supabase Pooler hostname IS IPv4-reachable from this workspace** (`aws-1-eu-central-1.pooler.supabase.com:5432`, which is what `DEST_DATABASE_URL` already points to). `pg` clients using `DEST_DATABASE_URL` (transaction-pooler mode) work from Replit for read/write queries and DDL such as `CREATE INDEX`. Prefer `@supabase/supabase-js` for ordinary CRUD (REST endpoint is also IPv4-reachable, more ergonomic); reach for `pg` via `DEST_DATABASE_URL` only when you need raw SQL / DDL the REST API can't do.
+
+For any DB access from this workspace (scripts, ad-hoc debugging, one-off data fixes), use **`@supabase/supabase-js`** with the service-role key. Working reference: `scripts/debug-tenant.mjs`.
+
+```js
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(
+  process.env.DEST_SUPABASE_URL,
+  process.env.DEST_SUPABASE_KEY
+);
+```
+
+Quick one-off from bash (env vars ARE available in the shell):
+
+```bash
+node -e "
+const { createClient } = require('@supabase/supabase-js');
+const sb = createClient(process.env.DEST_SUPABASE_URL, process.env.DEST_SUPABASE_KEY, { auth: { persistSession: false } });
+(async () => {
+  const { data, error } = await sb.from('tenant').select('id, slug, name').limit(5);
+  console.log({ data, error });
+})();
+"
+```
+
+## Testing
+-   **AI assistant tests** (registered as the `ai-assistant-tests` validation step, runs automatically on task completion): `node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/aiCompositionRender.test.mjs` — member-AI visibility (security boundary), ranking, indexer, help-chunker, dashboard aggregation/LMIC operators, Canvas auto-height bake guards, `useAutoHeightBake` runtime gates (jsdom), and Canvas auto reading-order suites.
+-   **GoCardless tests:** `node --test api/_lib/gocardless*.test.mjs` — webhook signature/idempotency/status-transition suites, per-tenant credential resolution (tenant_integrations → env fallback, env/token mismatch guards), org DD billing-contact invitations (token format, expiry clamp 1-90 via `dd_invite_expiry_days`, validate/supersede/single-use/revoke, recipient dedupe), Phase 5 renewal decisions (`gocardlessDdRenewals.test.mjs`), and migration invite/funnel (`gocardlessDdMigration.test.mjs`).
+-   **GoCardless sandbox proof:** `node scripts/gocardless-sandbox-proof.mjs [runId]` — billing request + hosted flow creation and idempotent-retry behaviour against the GC sandbox (requires `GOCARDLESS_ACCESS_TOKEN`; refuses to run against live).
+-   **Pending-PO report tests:** `node --test api/_lib/pendingPoInvoice.test.mjs` — PO reference extraction/blacklist and cross-record membership PO propagation helpers.
+
+## Env vars (current canonical set)
+Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPABASE_*` names; prefer the `DEST_*` names below for new code.
+
+| Var | Purpose |
+| --- | ------- |
+| `DEST_SUPABASE_URL` / `DEST_SUPABASE_KEY` / `DEST_DATABASE_URL` | Destination (prod) Supabase. See "Database connection". |
+| `SOURCE_SUPABASE_URL` / `SOURCE_SUPABASE_KEY` / `SOURCE_DATABASE_URL` | Legacy single-tenant snapshot — only used by migration scripts. |
+| `DATABASE_URL` | Direct host (IPv6 only) — used by Vercel / Drizzle push, not this workspace. |
+| `MAILGUN_API_KEY`, `MAILGUN_REGION` (default `eu`), `MAILGUN_FROM_EMAIL`, `APP_DOMAIN` (default `iconn.app`) | Email sending. `MAILGUN_FROM_EMAIL` is the non-system default From; system emails are pinned to `noreply@mail.${APP_DOMAIN}` regardless. |
+| `STRIPE_SECRET_KEY` | Tenant Stripe AND platform-side paid-plan upgrade Checkout. |
+| `STRIPE_PLAN_WEBHOOK_SECRET` | Verifies `/api/webhooks/stripe-plan` from the platform Stripe account. Configure dashboard to deliver `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
+| `GOCARDLESS_ENVIRONMENT` | `sandbox` (default) or `live`. Platform-level FALLBACK only — tenants connect their own GoCardless account via `tenant_integrations` (`integration_type='gocardless'`, resolved by `api/_lib/gocardlessCredentials.js`). |
+| `GOCARDLESS_ACCESS_TOKEN` | Platform-fallback GoCardless API access token (sandbox tokens start `sandbox_`, live `live_`; env/token mismatch is rejected at call time). |
+| `GOCARDLESS_WEBHOOK_SECRET` | Platform-fallback secret verifying `Webhook-Signature` (HMAC-SHA256 of raw body) on `/api/webhooks/gocardless`. Tenant-connected accounts register the URL with `?tenant=<uuid>` and are verified against their own stored secret. |
+| `GOCARDLESS_REDIRECT_BASE_URL` | Base URL for Billing Request Flow redirect/exit URIs (e.g. `https://iconn.app`). |
+| `GOCARDLESS_CREDITOR_ID` (opt) | Pins billing requests to one creditor on multi-creditor GC accounts. |
+| `GOOGLE_FONTS_API_KEY` | Server-side key for the Google Fonts Developer API. Powers live font search in the `/InstalledFonts` add dialog via `api/public/google-fonts.js`. If unset, the picker falls back to the curated `POPULAR_GOOGLE_FONTS` list. |
+| `XERO_CLIENT_ID` | Xero OAuth. |
+| `QUICKBOOKS_REDIRECT_URI` (opt) | Overrides default `${origin}/api/quickbooks/callback` for stable QBO OAuth redirect. |
+| `BROWSERLESS_API_TOKEN`, `BROWSERLESS_BASE_URL` (opt), `BROWSERLESS_AUDIT_TIMEOUT_MS` (opt) | Accessibility audits via browserless.io. |
+| `VITE_APP_URL` | Frontend-known app URL. |
+| `CAPTCHA_PROVIDER`, `CAPTCHA_SECRET_KEY` (opt) | Self-serve signup captcha (hCaptcha/Turnstile/reCAPTCHA). Bypassed when not production. |
+| `SIGNUP_RATE_IP_PER_HOUR`, `SIGNUP_RATE_EMAIL_PER_DAY` (opt) | Self-serve signup rate limits. |
+| `CRON_SECRET` | Guards all `/api/cron/*` endpoints. |
+| `ICONNECT_HEALTH_CHECK_TOKEN` | Required secret for `/api/health`; Better Stack must send it as the `X-Health-Token` request header. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_RENEWALS_URL` | Optional Better Stack heartbeat URL for membership renewals. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for membership-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_GOCARDLESS_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for GoCardless reconciliation. |
+| `BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for Stripe card-plan reconciliation. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL` | Optional Better Stack heartbeat URL for scheduled workflows. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL` | Optional Better Stack heartbeat URL for scheduled campaigns. |
+| `BETTERSTACK_HEARTBEAT_DATABASE_BACKUP_URL` | Optional Better Stack heartbeat URL for database backup to R2. |
+| `BETTERSTACK_HEARTBEAT_STORAGE_BACKUP_URL` | Optional Better Stack heartbeat URL for storage backup to R2. |
+| `BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for form-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_AUTOMATIC_MEMBERSHIP_PROCESSING_URL` | Optional Better Stack heartbeat URL for automatic membership processing. |
+| `ENABLE_RESET_DEBUG` (opt, `'true'`) | Temporary diagnostic: `/api/auth/request-admin-password-reset` returns a `debug` field (`no_identity`/`no_owner_membership`/`email_failed`/`sent`). Leave unset in normal operation so account existence is not disclosed. |
+| `R2_ACCOUNT_ID` | Cloudflare account ID — builds the R2 endpoint URL (`https://<id>.r2.cloudflarestorage.com`). Set this **or** `R2_ENDPOINT`. Vercel secret. |
+| `R2_ENDPOINT` (opt) | Full R2 endpoint URL override, instead of `R2_ACCOUNT_ID`. |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | R2 API token credentials + target bucket for backups. Vercel secrets. |
+| `DB_BACKUP_SCHEMAS` (opt) | Comma-separated Postgres schemas in the nightly DB dump (default: `public`). Supabase internal schemas (`auth`, `storage`, `realtime`, …) are intentionally excluded — Supabase manages them. |
+
+### External health monitoring
+
+Create a Better Stack HTTP monitor for `GET /api/health`. In the monitor's
+request headers, configure `X-Health-Token` to the same secret held in the
+Vercel `ICONNECT_HEALTH_CHECK_TOKEN` environment variable. The endpoint is
+intentionally unauthorised only by that header and returns no dependency detail
+when the header is missing or invalid.
+
+The ten `BETTERSTACK_HEARTBEAT_*_URL` variables are independently optional
+and apply only to the ten selected production schedules. The application
+derives Better Stack's `/fail` target from each configured success URL; store
+only the success URL in Vercel Production. See
+`guides/better-stack-cron-heartbeats.md` for the setup matrix and the complete
+30-schedule coverage inventory.
+Set each Vercel value to the matching Better Stack heartbeat URL for only the
+scheduled job you wish to monitor. The job sends a success URL after a clean
+run and Better Stack's `/fail` URL for a failed run; delivery failures never
+change the job's response or retry behaviour.
+
+## Stack & where things live
+-   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS
+-   **Backend:** Express.js (dev) / Vercel serverless functions (prod), PostgreSQL, Drizzle ORM
+-   `/client`: Frontend source (`client/src/design-system` = custom "new-york" shadcn variant)
+-   `/api`: Backend API endpoints (Vercel serverless functions); shared helpers under `api/_lib/`
+-   `/supabase/migrations`: Database migrations (idempotent SQL); `supabase/schema.prisma` is the schema source of truth for Drizzle
+-   `/scripts`: Utility and migration scripts
+-   `client/index.html` + `api/render.js`: SSR for SEO/OG tag injection
+
+## Architecture decisions
+-   **Multi-tenancy:** Data isolation at GLOBAL / TENANT / ORGANIZATION / MEMBER levels via `tenant_id` and `organization_id`. The shared entity API hard-fails any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Identity:** Unified identity with per-tenant password isolation, Google OAuth, feature-based role management.
+-   **Email sending:** `api/_lib/emailService.js` resolves the sending domain off `tenantId` for tenant→member emails. **System emails** (platform→tenant-owner: admin reset, signup verification, team invite, billing notifications) MUST pass `systemEmail: true` (or use `sendSystemEmail()`); this forces both Mailgun domain AND From identity to `mail.${APP_DOMAIN}` / `noreply@mail.${APP_DOMAIN}`. System reset/verification links must point at `${APP_DOMAIN}/...` not a tenant subdomain.
+-   **Dynamic SEO:** SSR meta-tag injection per-tenant via `api/render.js`; per-page metadata resolved by `api/_lib/entityMeta.js`. Per-entity `seo_title` / `seo_description` / `og_image_url` overrides on events, blog posts, news, campaigns, resources, and directories (UI in `client/src/components/blog/SEOSettings.jsx`). `og:image` URLs on `vault.iconn.app` or `*.supabase.co` are proxied through `/api/og-image`.
+-   **Event deletion:** Multi-step cancellation flow (refunds, reinstatements, Zoom unregistration) before any data purge. Direct deletion of events is deprecated for UI flows.
+-   **Semantic `warning` color:** `--warning` / `--warning-foreground` CSS vars in `client/src/index.css` (both themes, WCAG-AA). Use `text-warning`, `bg-warning`, `<Badge variant="warning">`, `<Alert variant="warning">` instead of raw amber/yellow/orange palette classes.
+-   **Membership invoices:** `organisation_membership_history` / `member_membership_history` carry `payment_status` (`unpaid`/`paid`/`partial`/`voided`) + `paid_at`, separate from the lifecycle `status`. Accounting-sync failures flag the row `accounting_sync_status='failed'` (not swallowed) with a Retry button in `OrgMembershipTab.jsx`. Payment reconciliation cron `/api/cron/reconcile-membership-invoice-payments` (every 3h, `CRON_SECRET`-guarded) queries Xero/QBO and fires workflows on `unpaid -> paid` only. See `api/_lib/membershipPaymentReconciliation.js`, `api/_lib/accountingProvider.js`.
+-   **Tenant storage metering:** `tenant.storage_used_bytes` (BIGINT) drives `checkStorageQuota` (`api/_lib/planQuota.js`) and `/admin/plan-usage`. Maintained incrementally via `addTenantStorageBytes` (`api/_lib/tenantStorageUsage.js`). Can drift (signed-URL claimed size); re-baseline with `scripts/recompute-tenant-storage.mjs` or the nightly cron.
+-   **Paid-plan upgrade flow (`/admin/plan-usage` → Stripe Checkout):** `PlanUsage.jsx` → `api/admin/plan-checkout.js` (tenant-admin RBAC, uses PLATFORM `STRIPE_SECRET_KEY`, NOT tenant's connected Stripe). First-time creates a Checkout Session; existing live sub swaps price in place via `stripe.subscriptions.update` (proration, never a parallel sub). Webhook `api/webhooks/stripe-plan.js` upserts `tenant_subscription` and flips `tenant.plan_code` only when status is `active`/`trialing`; `subscription.deleted` reverts to `free`.
+-   **Self-serve signup & onboarding (`/signup` → wizard):** `signup-start.js` (captcha + rate limits + verification email) → `signup-verify.js` (`provisionTenant`, `free` plan) → 5-step `OnboardingWizard.jsx` → `POST /api/admin/onboarding` runs `api/_lib/onboardingSeeder.js` (branding + tiers + persona seed pack tagged `is_sample=true`). Legacy admins backfilled to `onboarding_status='complete'`.
+-   **Accessibility audits:** Admin page (RBAC `admin.accessibility-audits`) runs axe-core 4.10 via browserless.io for tenant public URLs. Results in `accessibility_audit` / `accessibility_audit_result`; endpoints under `/api/admin/accessibility-audits`; runner `api/_lib/browserlessAxe.js`. v1 limits: ≤10 URLs/run, http(s) only, no credentialed URLs.
+-   **AI Design Studio V1 (Canvas AI Composition):** generation via `api/ai-compositions/generate.js`; prompt-led editing via `api/ai-compositions/edit.js` (propose/accept/reject/undo + conversation history in `ai_composition_conversation`) and `api/ai-compositions/destinations.js` (record-ID link picker — the AI never invents internal URLs). Patch engine `api/_lib/aiCompositionPatch.js`, edit pipeline `api/_lib/aiCompositionEdit.js`. Accept re-applies the STORED proposal server-side against the current document; complete redesigns are saved as alternatives (`is_alternative`); protected-value changes (prices, dates, names) require explicit confirmation. Editor UI in `client/src/components/canvas/blocks/AiCompositionEditPanel.jsx`. V1 scene-graph compositions are now read-only w.r.t. the V2 pivot.
+-   **AI Design Studio V2 (native-code pivot):** V2 compositions are native AI HTML/CSS/SVG packages (document `schemaVersion "2.0"`, `ai_composition.renderer_version=2`), sanitised ONCE server-side at store time by `api/_lib/aiCodePipeline.js` (schema → jsdom+DOMPurify sanitise → manifest cross-check → postcss CSS scoping under `[data-ai-composition="<uuid>"]` → leak check; reject-don't-repair), rendered verbatim by `AiCodeCompositionBlock.jsx`; signed CSP-locked preview + Browserless screenshots via `api/ai-compositions/preview.js` (HMAC keyed by `AIC_PREVIEW_SECRET`/`CRON_SECRET`). **Page bodies:** `compositionType: "page_body"` runs a plan stage (content manifest + creative plan, anti-degenerate checks in `aiCodeGeneration.js`) before code gen; page gates forbid `<header>/<footer>/<nav>` recreation. **Actions** (`data-ai-action` + manifest, `api/_lib/aiCodeActions.js`) resolve server-side to real records — unresolved actions block page publish (409 `AI_UNRESOLVED_ACTIONS`; editor fix-up via `api/ai-compositions/resolve-action.js`). **Slots** (`data-iconnect-slot`, `api/_lib/aiCodeSlots.js`) portal trusted platform blocks into generated markup; never block publish. **Imagery:** the model never writes image URLs — `<img data-ai-asset="<key>">` placeholders declared in the package `assets` manifest, fulfilled server-side (`api/_lib/aiCodeAssets.js`, gpt-image-1 or media library, tenant-owned storage); only unfulfilled `required` assets hard-reject; image swap is a deterministic `replace-image` edit action. V1→V2 rebuild is admin-only via `api/ai-compositions/rebuild-v2.js` (never automatic). **Editing:** `api/ai-compositions/edit-v2.js` (propose/accept/reject/undo); proposals (element-scoped patches via `data-ai-id`, or full revisions saved as alternatives) stored in `ai_composition_conversation` and re-applied against the CURRENT document on accept (`api/_lib/aiCodeEdit.js`); protected values + locked `data-content-key` texts require confirmation; breakpoint-scoped edits must leave other breakpoints' CSS untouched; accepts introducing NEW critical accessibility issues are blocked (422 `AI_VALIDATION_CRITICAL`). Admin-only Composition Inspector via `GET /api/ai-compositions/:id?inspector=1` (404 to non-admins). Full details: `guides/ai-design-studio-v2-pivot.md`.
+-   **Member AI structured Q&A:** the member assistant answers count/aggregate questions from live records via a whitelisted query spec (LLM never writes SQL). Catalog + validation + executors in `api/_lib/memberAiStructured.js`; routing in `api/member-ai/ask.js`. Adding an entity/field: follow `guides/member-ai-structured-qa.md` (visibility mirrors the member browse surfaces; drift guard in `memberAiStructuredSchemaDrift.test.mjs`).
+
+## Gotchas
+-   **Vercel preview-domain ownership:** Project `vite-migrate-replit-6` serves this repository. Both `dev.iconn.app` and `*.dev.iconn.app` are verified Vercel project domains pinned to the `eventemb2` Git branch; tenant custom-domain actions must never attach, reclaim, or detach `iconn.app` or any of its subdomains.
+-   **`dev.iconn.app` = Vercel preview deployment** built from the `eventemb2` git branch of the same Vercel project as production. Shares the same Supabase. (a) Vercel's Functions → Logs viewer defaults to Production and hides Preview logs — switch the Environment filter to Preview. (b) A fix only reaches `dev.iconn.app` after the commit is on the `eventemb2` branch and that branch's preview build has finished.
+-   **`sendEmail()` never throws.** It catches Mailgun errors and returns `{ success: false, error, status, domain }`. Callers MUST inspect the return value; a bare `try { await sendEmail(...) } catch {}` will falsely report success on 401 / unverified domain / missing key. Canonical pattern: `api/auth/request-admin-password-reset.js`.
+-   **System emails MUST pass `systemEmail: true`** (or use `sendSystemEmail()`). Without it, a tenant with a verified custom sending domain would silently send admin reset / signup / billing emails from the tenant's own brand — wrong identity.
+-   **API hard-fails** any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Workflow `dd_owner` / `dd_owner_email` placeholders** resolve via `resolveDdOwnerForSubmission` (`api/_lib/ddOwner.js`) only when the trigger caller passes `context.formSubmissionId` to `triggerWorkflows`. Without submission context they collapse to empty strings.
+-   **No server-side length validation on `event.summary` / `complex_event.summary`** — relies on client-side `event_summary_max_length` system setting (default 150).
+
+## Product
+-   **Core:** Members, Events, Bookings, Resources, Blog.
+-   **Identity:** Unified login, multi-tenant ownership, organization memberships, granular access control.
+-   **Customization:** Page Builder, Custom Forms with conditional logic, Workflow Automation, per-tenant branding.
+-   **Financials:** Stripe membership payments, Xero/QBO invoicing, Fundraising with Gift Aid.
+-   **Comms:** Email templates, campaigns, member preferences.
+-   **Integrations:** WordPress Sync, Zoom (events/sessions), Zoho CRM sync.
+-   **Reporting:** Due Diligence Reports, configurable Member/Org Directories.
+-   **Community:** Tenant-scoped forums, Member Group email campaigns.
+
+## User preferences
+Preferred communication style: Simple, everyday language.
+
+## Pointers
+-   **React:** `https://react.dev/` · **Tailwind:** `https://tailwindcss.com/docs` · **Drizzle:** `https://orm.drizzle.team/docs/overview`
+-   **Vercel Functions:** `https://vercel.com/docs/functions/overview` · **Supabase:** `https://supabase.com/docs`
+-   **Stripe:** `https://stripe.com/docs/api` · **Mailgun:** `https://documentation.mailgun.com/en/latest/api_reference.html`
+# Membership Management Platform
+A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
+
+## Run & Operate
+-   **Run Dev Server:** `npm run dev`
+-   **Build:** `npm run build` · **Typecheck:** `npm run typecheck` · **Codegen:** `npm run codegen`
+-   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — only works from environments with IPv6 outbound; **not from this Replit workspace** (see "Database connection").
+-   **Migrations:** every `.sql` in `supabase/migrations/` is idempotent and applied against `DEST_DATABASE_URL` (pooler). Most migrations have a matching `node scripts/apply-*.mjs` runner; check `scripts/` before applying anything by hand.
+-   **One-off scripts (backfills, CSV imports, tenant seeds):** live in `scripts/` (e.g. `recompute-tenant-storage.mjs`, `backfill-*.mjs`, `import-*.mjs`, `seed-*.mjs`). They are idempotent, default to dry-run unless an `--apply` flag is passed, and many are hard-pinned to a single tenant. Read the script header before running; each documents its own flags and scope.
+-   **Storage usage reconcile:** `node scripts/recompute-tenant-storage.mjs [--dry-run] [--tenant=<uuid>]`, or trust the nightly cron at `/api/cron/recompute-tenant-storage` (03:00 UTC, `CRON_SECRET`-guarded).
+
+## Database connection (read this before any DB work from this workspace)
+There are two Supabase projects this codebase talks to:
+
+| Role | What it is | URL secret | Postgres URL secret | Service-role key secret |
+| ---- | ---------- | ---------- | ------------------- | ----------------------- |
+| **Destination (current prod)** | Multi-tenant iConnect DB | `DEST_SUPABASE_URL` (`https://lvmzliemqnieeoruhkik.supabase.co`) | `DEST_DATABASE_URL` | `DEST_SUPABASE_KEY` |
+| **Source (legacy)** | Pre-multi-tenancy single-tenant snapshot, used by migration scripts | `SOURCE_SUPABASE_URL` | `SOURCE_DATABASE_URL` | `SOURCE_SUPABASE_KEY` |
+
+**The Supabase direct host (`db.<project>.supabase.co`) is unreachable from this Replit workspace** — it publishes only IPv6 (AAAA) DNS and the Replit container has no IPv6 outbound route, so `psql`, `execute_sql_tool`, `drizzle-kit push`, and any raw `pg`/Drizzle client pointed at the direct host fail with `ENOTFOUND` / `ENETUNREACH`. Those tools work from Vercel functions, the user's laptop, and CI — just not from here against the direct host.
+
+**The Supabase Pooler hostname IS IPv4-reachable from this workspace** (`aws-1-eu-central-1.pooler.supabase.com:5432`, which is what `DEST_DATABASE_URL` already points to). `pg` clients using `DEST_DATABASE_URL` (transaction-pooler mode) work from Replit for read/write queries and DDL such as `CREATE INDEX`. Prefer `@supabase/supabase-js` for ordinary CRUD (REST endpoint is also IPv4-reachable, more ergonomic); reach for `pg` via `DEST_DATABASE_URL` only when you need raw SQL / DDL the REST API can't do.
+
+For any DB access from this workspace (scripts, ad-hoc debugging, one-off data fixes), use **`@supabase/supabase-js`** with the service-role key. Working reference: `scripts/debug-tenant.mjs`.
+
+```js
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(
+  process.env.DEST_SUPABASE_URL,
+  process.env.DEST_SUPABASE_KEY
+);
+```
+
+Quick one-off from bash (env vars ARE available in the shell):
+
+```bash
+node -e "
+const { createClient } = require('@supabase/supabase-js');
+const sb = createClient(process.env.DEST_SUPABASE_URL, process.env.DEST_SUPABASE_KEY, { auth: { persistSession: false } });
+(async () => {
+  const { data, error } = await sb.from('tenant').select('id, slug, name').limit(5);
+  console.log({ data, error });
+})();
+"
+```
+
+## Testing
+-   **AI assistant tests** (registered as the `ai-assistant-tests` validation step, runs automatically on task completion): `node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/aiCompositionRender.test.mjs` — member-AI visibility (security boundary), ranking, indexer, help-chunker, dashboard aggregation/LMIC operators, Canvas auto-height bake guards, `useAutoHeightBake` runtime gates (jsdom), and Canvas auto reading-order suites.
+-   **GoCardless tests:** `node --test api/_lib/gocardless*.test.mjs` — webhook signature/idempotency/status-transition suites, per-tenant credential resolution (tenant_integrations → env fallback, env/token mismatch guards), org DD billing-contact invitations (token format, expiry clamp 1-90 via `dd_invite_expiry_days`, validate/supersede/single-use/revoke, recipient dedupe), Phase 5 renewal decisions (`gocardlessDdRenewals.test.mjs`), and migration invite/funnel (`gocardlessDdMigration.test.mjs`).
+-   **GoCardless sandbox proof:** `node scripts/gocardless-sandbox-proof.mjs [runId]` — billing request + hosted flow creation and idempotent-retry behaviour against the GC sandbox (requires `GOCARDLESS_ACCESS_TOKEN`; refuses to run against live).
+-   **Pending-PO report tests:** `node --test api/_lib/pendingPoInvoice.test.mjs` — PO reference extraction/blacklist and cross-record membership PO propagation helpers.
+
+## Env vars (current canonical set)
+Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPABASE_*` names; prefer the `DEST_*` names below for new code.
+
+| Var | Purpose |
+| --- | ------- |
+| `DEST_SUPABASE_URL` / `DEST_SUPABASE_KEY` / `DEST_DATABASE_URL` | Destination (prod) Supabase. See "Database connection". |
+| `SOURCE_SUPABASE_URL` / `SOURCE_SUPABASE_KEY` / `SOURCE_DATABASE_URL` | Legacy single-tenant snapshot — only used by migration scripts. |
+| `DATABASE_URL` | Direct host (IPv6 only) — used by Vercel / Drizzle push, not this workspace. |
+| `MAILGUN_API_KEY`, `MAILGUN_REGION` (default `eu`), `MAILGUN_FROM_EMAIL`, `APP_DOMAIN` (default `iconn.app`) | Email sending. `MAILGUN_FROM_EMAIL` is the non-system default From; system emails are pinned to `noreply@mail.${APP_DOMAIN}` regardless. |
+| `STRIPE_SECRET_KEY` | Tenant Stripe AND platform-side paid-plan upgrade Checkout. |
+| `STRIPE_PLAN_WEBHOOK_SECRET` | Verifies `/api/webhooks/stripe-plan` from the platform Stripe account. Configure dashboard to deliver `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
+| `GOCARDLESS_ENVIRONMENT` | `sandbox` (default) or `live`. Platform-level FALLBACK only — tenants connect their own GoCardless account via `tenant_integrations` (`integration_type='gocardless'`, resolved by `api/_lib/gocardlessCredentials.js`). |
+| `GOCARDLESS_ACCESS_TOKEN` | Platform-fallback GoCardless API access token (sandbox tokens start `sandbox_`, live `live_`; env/token mismatch is rejected at call time). |
+| `GOCARDLESS_WEBHOOK_SECRET` | Platform-fallback secret verifying `Webhook-Signature` (HMAC-SHA256 of raw body) on `/api/webhooks/gocardless`. Tenant-connected accounts register the URL with `?tenant=<uuid>` and are verified against their own stored secret. |
+| `GOCARDLESS_REDIRECT_BASE_URL` | Base URL for Billing Request Flow redirect/exit URIs (e.g. `https://iconn.app`). |
+| `GOCARDLESS_CREDITOR_ID` (opt) | Pins billing requests to one creditor on multi-creditor GC accounts. |
+| `GOOGLE_FONTS_API_KEY` | Server-side key for the Google Fonts Developer API. Powers live font search in the `/InstalledFonts` add dialog via `api/public/google-fonts.js`. If unset, the picker falls back to the curated `POPULAR_GOOGLE_FONTS` list. |
+| `XERO_CLIENT_ID` | Xero OAuth. |
+| `QUICKBOOKS_REDIRECT_URI` (opt) | Overrides default `${origin}/api/quickbooks/callback` for stable QBO OAuth redirect. |
+| `BROWSERLESS_API_TOKEN`, `BROWSERLESS_BASE_URL` (opt), `BROWSERLESS_AUDIT_TIMEOUT_MS` (opt) | Accessibility audits via browserless.io. |
+| `VITE_APP_URL` | Frontend-known app URL. |
+| `CAPTCHA_PROVIDER`, `CAPTCHA_SECRET_KEY` (opt) | Self-serve signup captcha (hCaptcha/Turnstile/reCAPTCHA). Bypassed when not production. |
+| `SIGNUP_RATE_IP_PER_HOUR`, `SIGNUP_RATE_EMAIL_PER_DAY` (opt) | Self-serve signup rate limits. |
+| `CRON_SECRET` | Guards all `/api/cron/*` endpoints. |
+| `ICONNECT_HEALTH_CHECK_TOKEN` | Required secret for `/api/health`; Better Stack must send it as the `X-Health-Token` request header. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_RENEWALS_URL` | Optional Better Stack heartbeat URL for membership renewals. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for membership-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_GOCARDLESS_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for GoCardless reconciliation. |
+| `BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for Stripe card-plan reconciliation. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL` | Optional Better Stack heartbeat URL for scheduled workflows. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL` | Optional Better Stack heartbeat URL for scheduled campaigns. |
+| `BETTERSTACK_HEARTBEAT_DATABASE_BACKUP_URL` | Optional Better Stack heartbeat URL for database backup to R2. |
+| `BETTERSTACK_HEARTBEAT_STORAGE_BACKUP_URL` | Optional Better Stack heartbeat URL for storage backup to R2. |
+| `BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for form-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_AUTOMATIC_MEMBERSHIP_PROCESSING_URL` | Optional Better Stack heartbeat URL for automatic membership processing. |
+| `ENABLE_RESET_DEBUG` (opt, `'true'`) | Temporary diagnostic: `/api/auth/request-admin-password-reset` returns a `debug` field (`no_identity`/`no_owner_membership`/`email_failed`/`sent`). Leave unset in normal operation so account existence is not disclosed. |
+| `R2_ACCOUNT_ID` | Cloudflare account ID — builds the R2 endpoint URL (`https://<id>.r2.cloudflarestorage.com`). Set this **or** `R2_ENDPOINT`. Vercel secret. |
+| `R2_ENDPOINT` (opt) | Full R2 endpoint URL override, instead of `R2_ACCOUNT_ID`. |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | R2 API token credentials + target bucket for backups. Vercel secrets. |
+| `DB_BACKUP_SCHEMAS` (opt) | Comma-separated Postgres schemas in the nightly DB dump (default: `public`). Supabase internal schemas (`auth`, `storage`, `realtime`, …) are intentionally excluded — Supabase manages them. |
+
+### External health monitoring
+
+Create a Better Stack HTTP monitor for `GET /api/health`. In the monitor's
+request headers, configure `X-Health-Token` to the same secret held in the
+Vercel `ICONNECT_HEALTH_CHECK_TOKEN` environment variable. The endpoint is
+intentionally unauthorised only by that header and returns no dependency detail
+when the header is missing or invalid.
+
+The ten `BETTERSTACK_HEARTBEAT_*_URL` variables are independently optional
+and apply only to the ten selected production schedules. The application
+derives Better Stack's `/fail` target from each configured success URL; store
+only the success URL in Vercel Production. See
+`guides/better-stack-cron-heartbeats.md` for the setup matrix and the complete
+30-schedule coverage inventory.
+Set each Vercel value to the matching Better Stack heartbeat URL for only the
+scheduled job you wish to monitor. The job sends a success URL after a clean
+run and Better Stack's `/fail` URL for a failed run; delivery failures never
+change the job's response or retry behaviour.
+
+## Stack & where things live
+-   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS
+-   **Backend:** Express.js (dev) / Vercel serverless functions (prod), PostgreSQL, Drizzle ORM
+-   `/client`: Frontend source (`client/src/design-system` = custom "new-york" shadcn variant)
+-   `/api`: Backend API endpoints (Vercel serverless functions); shared helpers under `api/_lib/`
+-   `/supabase/migrations`: Database migrations (idempotent SQL); `supabase/schema.prisma` is the schema source of truth for Drizzle
+-   `/scripts`: Utility and migration scripts
+-   `client/index.html` + `api/render.js`: SSR for SEO/OG tag injection
+
+## Architecture decisions
+-   **Multi-tenancy:** Data isolation at GLOBAL / TENANT / ORGANIZATION / MEMBER levels via `tenant_id` and `organization_id`. The shared entity API hard-fails any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Identity:** Unified identity with per-tenant password isolation, Google OAuth, feature-based role management.
+-   **Email sending:** `api/_lib/emailService.js` resolves the sending domain off `tenantId` for tenant→member emails. **System emails** (platform→tenant-owner: admin reset, signup verification, team invite, billing notifications) MUST pass `systemEmail: true` (or use `sendSystemEmail()`); this forces both Mailgun domain AND From identity to `mail.${APP_DOMAIN}` / `noreply@mail.${APP_DOMAIN}`. System reset/verification links must point at `${APP_DOMAIN}/...` not a tenant subdomain.
+-   **Dynamic SEO:** SSR meta-tag injection per-tenant via `api/render.js`; per-page metadata resolved by `api/_lib/entityMeta.js`. Per-entity `seo_title` / `seo_description` / `og_image_url` overrides on events, blog posts, news, campaigns, resources, and directories (UI in `client/src/components/blog/SEOSettings.jsx`). `og:image` URLs on `vault.iconn.app` or `*.supabase.co` are proxied through `/api/og-image`.
+-   **Event deletion:** Multi-step cancellation flow (refunds, reinstatements, Zoom unregistration) before any data purge. Direct deletion of events is deprecated for UI flows.
+-   **Semantic `warning` color:** `--warning` / `--warning-foreground` CSS vars in `client/src/index.css` (both themes, WCAG-AA). Use `text-warning`, `bg-warning`, `<Badge variant="warning">`, `<Alert variant="warning">` instead of raw amber/yellow/orange palette classes.
+-   **Membership invoices:** `organisation_membership_history` / `member_membership_history` carry `payment_status` (`unpaid`/`paid`/`partial`/`voided`) + `paid_at`, separate from the lifecycle `status`. Accounting-sync failures flag the row `accounting_sync_status='failed'` (not swallowed) with a Retry button in `OrgMembershipTab.jsx`. Payment reconciliation cron `/api/cron/reconcile-membership-invoice-payments` (every 3h, `CRON_SECRET`-guarded) queries Xero/QBO and fires workflows on `unpaid -> paid` only. See `api/_lib/membershipPaymentReconciliation.js`, `api/_lib/accountingProvider.js`.
+-   **Tenant storage metering:** `tenant.storage_used_bytes` (BIGINT) drives `checkStorageQuota` (`api/_lib/planQuota.js`) and `/admin/plan-usage`. Maintained incrementally via `addTenantStorageBytes` (`api/_lib/tenantStorageUsage.js`). Can drift (signed-URL claimed size); re-baseline with `scripts/recompute-tenant-storage.mjs` or the nightly cron.
+-   **Paid-plan upgrade flow (`/admin/plan-usage` → Stripe Checkout):** `PlanUsage.jsx` → `api/admin/plan-checkout.js` (tenant-admin RBAC, uses PLATFORM `STRIPE_SECRET_KEY`, NOT tenant's connected Stripe). First-time creates a Checkout Session; existing live sub swaps price in place via `stripe.subscriptions.update` (proration, never a parallel sub). Webhook `api/webhooks/stripe-plan.js` upserts `tenant_subscription` and flips `tenant.plan_code` only when status is `active`/`trialing`; `subscription.deleted` reverts to `free`.
+-   **Self-serve signup & onboarding (`/signup` → wizard):** `signup-start.js` (captcha + rate limits + verification email) → `signup-verify.js` (`provisionTenant`, `free` plan) → 5-step `OnboardingWizard.jsx` → `POST /api/admin/onboarding` runs `api/_lib/onboardingSeeder.js` (branding + tiers + persona seed pack tagged `is_sample=true`). Legacy admins backfilled to `onboarding_status='complete'`.
+-   **Accessibility audits:** Admin page (RBAC `admin.accessibility-audits`) runs axe-core 4.10 via browserless.io for tenant public URLs. Results in `accessibility_audit` / `accessibility_audit_result`; endpoints under `/api/admin/accessibility-audits`; runner `api/_lib/browserlessAxe.js`. v1 limits: ≤10 URLs/run, http(s) only, no credentialed URLs.
+-   **AI Design Studio V1 (Canvas AI Composition):** generation via `api/ai-compositions/generate.js`; prompt-led editing via `api/ai-compositions/edit.js` (propose/accept/reject/undo + conversation history in `ai_composition_conversation`) and `api/ai-compositions/destinations.js` (record-ID link picker — the AI never invents internal URLs). Patch engine `api/_lib/aiCompositionPatch.js`, edit pipeline `api/_lib/aiCompositionEdit.js`. Accept re-applies the STORED proposal server-side against the current document; complete redesigns are saved as alternatives (`is_alternative`); protected-value changes (prices, dates, names) require explicit confirmation. Editor UI in `client/src/components/canvas/blocks/AiCompositionEditPanel.jsx`. V1 scene-graph compositions are now read-only w.r.t. the V2 pivot.
+-   **AI Design Studio V2 (native-code pivot):** V2 compositions are native AI HTML/CSS/SVG packages (document `schemaVersion "2.0"`, `ai_composition.renderer_version=2`), sanitised ONCE server-side at store time by `api/_lib/aiCodePipeline.js` (schema → jsdom+DOMPurify sanitise → manifest cross-check → postcss CSS scoping under `[data-ai-composition="<uuid>"]` → leak check; reject-don't-repair), rendered verbatim by `AiCodeCompositionBlock.jsx`; signed CSP-locked preview + Browserless screenshots via `api/ai-compositions/preview.js` (HMAC keyed by `AIC_PREVIEW_SECRET`/`CRON_SECRET`). **Page bodies:** `compositionType: "page_body"` runs a plan stage (content manifest + creative plan, anti-degenerate checks in `aiCodeGeneration.js`) before code gen; page gates forbid `<header>/<footer>/<nav>` recreation. **Actions** (`data-ai-action` + manifest, `api/_lib/aiCodeActions.js`) resolve server-side to real records — unresolved actions block page publish (409 `AI_UNRESOLVED_ACTIONS`; editor fix-up via `api/ai-compositions/resolve-action.js`). **Slots** (`data-iconnect-slot`, `api/_lib/aiCodeSlots.js`) portal trusted platform blocks into generated markup; never block publish. **Imagery:** the model never writes image URLs — `<img data-ai-asset="<key>">` placeholders declared in the package `assets` manifest, fulfilled server-side (`api/_lib/aiCodeAssets.js`, gpt-image-1 or media library, tenant-owned storage); only unfulfilled `required` assets hard-reject; image swap is a deterministic `replace-image` edit action. V1→V2 rebuild is admin-only via `api/ai-compositions/rebuild-v2.js` (never automatic). **Editing:** `api/ai-compositions/edit-v2.js` (propose/accept/reject/undo); proposals (element-scoped patches via `data-ai-id`, or full revisions saved as alternatives) stored in `ai_composition_conversation` and re-applied against the CURRENT document on accept (`api/_lib/aiCodeEdit.js`); protected values + locked `data-content-key` texts require confirmation; breakpoint-scoped edits must leave other breakpoints' CSS untouched; accepts introducing NEW critical accessibility issues are blocked (422 `AI_VALIDATION_CRITICAL`). Admin-only Composition Inspector via `GET /api/ai-compositions/:id?inspector=1` (404 to non-admins). Full details: `guides/ai-design-studio-v2-pivot.md`.
+-   **Member AI structured Q&A:** the member assistant answers count/aggregate questions from live records via a whitelisted query spec (LLM never writes SQL). Catalog + validation + executors in `api/_lib/memberAiStructured.js`; routing in `api/member-ai/ask.js`. Adding an entity/field: follow `guides/member-ai-structured-qa.md` (visibility mirrors the member browse surfaces; drift guard in `memberAiStructuredSchemaDrift.test.mjs`).
+
+## Gotchas
+-   **Vercel preview-domain ownership:** Project `vite-migrate-replit-6` serves this repository. Both `dev.iconn.app` and `*.dev.iconn.app` are verified Vercel project domains pinned to the `eventemb2` Git branch; tenant custom-domain actions must never attach, reclaim, or detach `iconn.app` or any of its subdomains.
+-   **`dev.iconn.app` = Vercel preview deployment** built from the `eventemb2` git branch of the same Vercel project as production. Shares the same Supabase. (a) Vercel's Functions → Logs viewer defaults to Production and hides Preview logs — switch the Environment filter to Preview. (b) A fix only reaches `dev.iconn.app` after the commit is on the `eventemb2` branch and that branch's preview build has finished.
+-   **`sendEmail()` never throws.** It catches Mailgun errors and returns `{ success: false, error, status, domain }`. Callers MUST inspect the return value; a bare `try { await sendEmail(...) } catch {}` will falsely report success on 401 / unverified domain / missing key. Canonical pattern: `api/auth/request-admin-password-reset.js`.
+-   **System emails MUST pass `systemEmail: true`** (or use `sendSystemEmail()`). Without it, a tenant with a verified custom sending domain would silently send admin reset / signup / billing emails from the tenant's own brand — wrong identity.
+-   **API hard-fails** any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Workflow `dd_owner` / `dd_owner_email` placeholders** resolve via `resolveDdOwnerForSubmission` (`api/_lib/ddOwner.js`) only when the trigger caller passes `context.formSubmissionId` to `triggerWorkflows`. Without submission context they collapse to empty strings.
+-   **No server-side length validation on `event.summary` / `complex_event.summary`** — relies on client-side `event_summary_max_length` system setting (default 150).
+
+## Product
+-   **Core:** Members, Events, Bookings, Resources, Blog.
+-   **Identity:** Unified login, multi-tenant ownership, organization memberships, granular access control.
+-   **Customization:** Page Builder, Custom Forms with conditional logic, Workflow Automation, per-tenant branding.
+-   **Financials:** Stripe membership payments, Xero/QBO invoicing, Fundraising with Gift Aid.
+-   **Comms:** Email templates, campaigns, member preferences.
+-   **Integrations:** WordPress Sync, Zoom (events/sessions), Zoho CRM sync.
+-   **Reporting:** Due Diligence Reports, configurable Member/Org Directories.
+-   **Community:** Tenant-scoped forums, Member Group email campaigns.
+
+## User preferences
+Preferred communication style: Simple, everyday language.
+
+## Pointers
+-   **React:** `https://react.dev/` · **Tailwind:** `https://tailwindcss.com/docs` · **Drizzle:** `https://orm.drizzle.team/docs/overview`
+-   **Vercel Functions:** `https://vercel.com/docs/functions/overview` · **Supabase:** `https://supabase.com/docs`
+-   **Stripe:** `https://stripe.com/docs/api` · **Mailgun:** `https://documentation.mailgun.com/en/latest/api_reference.html`
+# Membership Management Platform
+A multi-tenant SaaS platform unifying member, event, booking, resource, and blog post management for organizations.
+
+## Run & Operate
+-   **Run Dev Server:** `npm run dev`
+-   **Build:** `npm run build` · **Typecheck:** `npm run typecheck` · **Codegen:** `npm run codegen`
+-   **DB Push:** `npx drizzle-kit push:pg` (or `npm run db:push`) — only works from environments with IPv6 outbound; **not from this Replit workspace** (see "Database connection").
+-   **Migrations:** every `.sql` in `supabase/migrations/` is idempotent and applied against `DEST_DATABASE_URL` (pooler). Most migrations have a matching `node scripts/apply-*.mjs` runner; check `scripts/` before applying anything by hand.
+-   **One-off scripts (backfills, CSV imports, tenant seeds):** live in `scripts/` (e.g. `recompute-tenant-storage.mjs`, `backfill-*.mjs`, `import-*.mjs`, `seed-*.mjs`). They are idempotent, default to dry-run unless an `--apply` flag is passed, and many are hard-pinned to a single tenant. Read the script header before running; each documents its own flags and scope.
+-   **Storage usage reconcile:** `node scripts/recompute-tenant-storage.mjs [--dry-run] [--tenant=<uuid>]`, or trust the nightly cron at `/api/cron/recompute-tenant-storage` (03:00 UTC, `CRON_SECRET`-guarded).
+
+## Database connection (read this before any DB work from this workspace)
+There are two Supabase projects this codebase talks to:
+
+| Role | What it is | URL secret | Postgres URL secret | Service-role key secret |
+| ---- | ---------- | ---------- | ------------------- | ----------------------- |
+| **Destination (current prod)** | Multi-tenant iConnect DB | `DEST_SUPABASE_URL` (`https://lvmzliemqnieeoruhkik.supabase.co`) | `DEST_DATABASE_URL` | `DEST_SUPABASE_KEY` |
+| **Source (legacy)** | Pre-multi-tenancy single-tenant snapshot, used by migration scripts | `SOURCE_SUPABASE_URL` | `SOURCE_DATABASE_URL` | `SOURCE_SUPABASE_KEY` |
+
+**The Supabase direct host (`db.<project>.supabase.co`) is unreachable from this Replit workspace** — it publishes only IPv6 (AAAA) DNS and the Replit container has no IPv6 outbound route, so `psql`, `execute_sql_tool`, `drizzle-kit push`, and any raw `pg`/Drizzle client pointed at the direct host fail with `ENOTFOUND` / `ENETUNREACH`. Those tools work from Vercel functions, the user's laptop, and CI — just not from here against the direct host.
+
+**The Supabase Pooler hostname IS IPv4-reachable from this workspace** (`aws-1-eu-central-1.pooler.supabase.com:5432`, which is what `DEST_DATABASE_URL` already points to). `pg` clients using `DEST_DATABASE_URL` (transaction-pooler mode) work from Replit for read/write queries and DDL such as `CREATE INDEX`. Prefer `@supabase/supabase-js` for ordinary CRUD (REST endpoint is also IPv4-reachable, more ergonomic); reach for `pg` via `DEST_DATABASE_URL` only when you need raw SQL / DDL the REST API can't do.
+
+For any DB access from this workspace (scripts, ad-hoc debugging, one-off data fixes), use **`@supabase/supabase-js`** with the service-role key. Working reference: `scripts/debug-tenant.mjs`.
+
+```js
+import { createClient } from '@supabase/supabase-js';
+const supabase = createClient(
+  process.env.DEST_SUPABASE_URL,
+  process.env.DEST_SUPABASE_KEY
+);
+```
+
+Quick one-off from bash (env vars ARE available in the shell):
+
+```bash
+node -e "
+const { createClient } = require('@supabase/supabase-js');
+const sb = createClient(process.env.DEST_SUPABASE_URL, process.env.DEST_SUPABASE_KEY, { auth: { persistSession: false } });
+(async () => {
+  const { data, error } = await sb.from('tenant').select('id, slug, name').limit(5);
+  console.log({ data, error });
+})();
+"
+```
+
+## Testing
+-   **AI assistant tests** (registered as the `ai-assistant-tests` validation step, runs automatically on task completion): `node --test api/_lib/*.test.mjs api/dashboard/_lib/*.test.mjs client/src/components/canvas/autoHeightBake.test.mjs client/src/components/canvas/useAutoHeightBake.test.mjs client/src/lib/canvasA11y.test.mjs client/src/lib/aiCompositionRender.test.mjs` — member-AI visibility (security boundary), ranking, indexer, help-chunker, dashboard aggregation/LMIC operators, Canvas auto-height bake guards, `useAutoHeightBake` runtime gates (jsdom), and Canvas auto reading-order suites.
+-   **GoCardless tests:** `node --test api/_lib/gocardless*.test.mjs` — webhook signature/idempotency/status-transition suites, per-tenant credential resolution (tenant_integrations → env fallback, env/token mismatch guards), org DD billing-contact invitations (token format, expiry clamp 1-90 via `dd_invite_expiry_days`, validate/supersede/single-use/revoke, recipient dedupe), Phase 5 renewal decisions (`gocardlessDdRenewals.test.mjs`), and migration invite/funnel (`gocardlessDdMigration.test.mjs`).
+-   **GoCardless sandbox proof:** `node scripts/gocardless-sandbox-proof.mjs [runId]` — billing request + hosted flow creation and idempotent-retry behaviour against the GC sandbox (requires `GOCARDLESS_ACCESS_TOKEN`; refuses to run against live).
+-   **Pending-PO report tests:** `node --test api/_lib/pendingPoInvoice.test.mjs` — PO reference extraction/blacklist and cross-record membership PO propagation helpers.
+
+## Env vars (current canonical set)
+Resolve secrets defensively in scripts — some legacy ones use `DEV_*` / `SUPABASE_*` names; prefer the `DEST_*` names below for new code.
+
+| Var | Purpose |
+| --- | ------- |
+| `DEST_SUPABASE_URL` / `DEST_SUPABASE_KEY` / `DEST_DATABASE_URL` | Destination (prod) Supabase. See "Database connection". |
+| `SOURCE_SUPABASE_URL` / `SOURCE_SUPABASE_KEY` / `SOURCE_DATABASE_URL` | Legacy single-tenant snapshot — only used by migration scripts. |
+| `DATABASE_URL` | Direct host (IPv6 only) — used by Vercel / Drizzle push, not this workspace. |
+| `MAILGUN_API_KEY`, `MAILGUN_REGION` (default `eu`), `MAILGUN_FROM_EMAIL`, `APP_DOMAIN` (default `iconn.app`) | Email sending. `MAILGUN_FROM_EMAIL` is the non-system default From; system emails are pinned to `noreply@mail.${APP_DOMAIN}` regardless. |
+| `STRIPE_SECRET_KEY` | Tenant Stripe AND platform-side paid-plan upgrade Checkout. |
+| `STRIPE_PLAN_WEBHOOK_SECRET` | Verifies `/api/webhooks/stripe-plan` from the platform Stripe account. Configure dashboard to deliver `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`. |
+| `GOCARDLESS_ENVIRONMENT` | `sandbox` (default) or `live`. Platform-level FALLBACK only — tenants connect their own GoCardless account via `tenant_integrations` (`integration_type='gocardless'`, resolved by `api/_lib/gocardlessCredentials.js`). |
+| `GOCARDLESS_ACCESS_TOKEN` | Platform-fallback GoCardless API access token (sandbox tokens start `sandbox_`, live `live_`; env/token mismatch is rejected at call time). |
+| `GOCARDLESS_WEBHOOK_SECRET` | Platform-fallback secret verifying `Webhook-Signature` (HMAC-SHA256 of raw body) on `/api/webhooks/gocardless`. Tenant-connected accounts register the URL with `?tenant=<uuid>` and are verified against their own stored secret. |
+| `GOCARDLESS_REDIRECT_BASE_URL` | Base URL for Billing Request Flow redirect/exit URIs (e.g. `https://iconn.app`). |
+| `GOCARDLESS_CREDITOR_ID` (opt) | Pins billing requests to one creditor on multi-creditor GC accounts. |
+| `GOOGLE_FONTS_API_KEY` | Server-side key for the Google Fonts Developer API. Powers live font search in the `/InstalledFonts` add dialog via `api/public/google-fonts.js`. If unset, the picker falls back to the curated `POPULAR_GOOGLE_FONTS` list. |
+| `XERO_CLIENT_ID` | Xero OAuth. |
+| `QUICKBOOKS_REDIRECT_URI` (opt) | Overrides default `${origin}/api/quickbooks/callback` for stable QBO OAuth redirect. |
+| `BROWSERLESS_API_TOKEN`, `BROWSERLESS_BASE_URL` (opt), `BROWSERLESS_AUDIT_TIMEOUT_MS` (opt) | Accessibility audits via browserless.io. |
+| `VITE_APP_URL` | Frontend-known app URL. |
+| `CAPTCHA_PROVIDER`, `CAPTCHA_SECRET_KEY` (opt) | Self-serve signup captcha (hCaptcha/Turnstile/reCAPTCHA). Bypassed when not production. |
+| `SIGNUP_RATE_IP_PER_HOUR`, `SIGNUP_RATE_EMAIL_PER_DAY` (opt) | Self-serve signup rate limits. |
+| `CRON_SECRET` | Guards all `/api/cron/*` endpoints. |
+| `ICONNECT_HEALTH_CHECK_TOKEN` | Required secret for `/api/health`; Better Stack must send it as the `X-Health-Token` request header. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_RENEWALS_URL` | Optional Better Stack heartbeat URL for membership renewals. |
+| `BETTERSTACK_HEARTBEAT_MEMBERSHIP_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for membership-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_GOCARDLESS_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for GoCardless reconciliation. |
+| `BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for Stripe card-plan reconciliation. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL` | Optional Better Stack heartbeat URL for scheduled workflows. |
+| `BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL` | Optional Better Stack heartbeat URL for scheduled campaigns. |
+| `BETTERSTACK_HEARTBEAT_DATABASE_BACKUP_URL` | Optional Better Stack heartbeat URL for database backup to R2. |
+| `BETTERSTACK_HEARTBEAT_STORAGE_BACKUP_URL` | Optional Better Stack heartbeat URL for storage backup to R2. |
+| `BETTERSTACK_HEARTBEAT_FORM_PAYMENT_RECONCILIATION_URL` | Optional Better Stack heartbeat URL for form-payment reconciliation. |
+| `BETTERSTACK_HEARTBEAT_AUTOMATIC_MEMBERSHIP_PROCESSING_URL` | Optional Better Stack heartbeat URL for automatic membership processing. |
+| `ENABLE_RESET_DEBUG` (opt, `'true'`) | Temporary diagnostic: `/api/auth/request-admin-password-reset` returns a `debug` field (`no_identity`/`no_owner_membership`/`email_failed`/`sent`). Leave unset in normal operation so account existence is not disclosed. |
+| `R2_ACCOUNT_ID` | Cloudflare account ID — builds the R2 endpoint URL (`https://<id>.r2.cloudflarestorage.com`). Set this **or** `R2_ENDPOINT`. Vercel secret. |
+| `R2_ENDPOINT` (opt) | Full R2 endpoint URL override, instead of `R2_ACCOUNT_ID`. |
+| `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | R2 API token credentials + target bucket for backups. Vercel secrets. |
+| `DB_BACKUP_SCHEMAS` (opt) | Comma-separated Postgres schemas in the nightly DB dump (default: `public`). Supabase internal schemas (`auth`, `storage`, `realtime`, …) are intentionally excluded — Supabase manages them. |
+
+### External health monitoring
+
+Create a Better Stack HTTP monitor for `GET /api/health`. In the monitor's
+request headers, configure `X-Health-Token` to the same secret held in the
+Vercel `ICONNECT_HEALTH_CHECK_TOKEN` environment variable. The endpoint is
+intentionally unauthorised only by that header and returns no dependency detail
+when the header is missing or invalid.
+
+The ten `BETTERSTACK_HEARTBEAT_*_URL` variables are independently optional
+and apply only to the ten selected production schedules. The application
+derives Better Stack's `/fail` target from each configured success URL; store
+only the success URL in Vercel Production. See
+`guides/better-stack-cron-heartbeats.md` for the setup matrix and the complete
+30-schedule coverage inventory.
+Set each Vercel value to the matching Better Stack heartbeat URL for only the
+scheduled job you wish to monitor. The job sends a success URL after a clean
+run and Better Stack's `/fail` URL for a failed run; delivery failures never
+change the job's response or retry behaviour.
+
+## Stack & where things live
+-   **Frontend:** React 18 (TypeScript/JSX), Vite, TanStack Query, shadcn/ui (Radix UI), Tailwind CSS
+-   **Backend:** Express.js (dev) / Vercel serverless functions (prod), PostgreSQL, Drizzle ORM
+-   `/client`: Frontend source (`client/src/design-system` = custom "new-york" shadcn variant)
+-   `/api`: Backend API endpoints (Vercel serverless functions); shared helpers under `api/_lib/`
+-   `/supabase/migrations`: Database migrations (idempotent SQL); `supabase/schema.prisma` is the schema source of truth for Drizzle
+-   `/scripts`: Utility and migration scripts
+-   `client/index.html` + `api/render.js`: SSR for SEO/OG tag injection
+
+## Architecture decisions
+-   **Multi-tenancy:** Data isolation at GLOBAL / TENANT / ORGANIZATION / MEMBER levels via `tenant_id` and `organization_id`. The shared entity API hard-fails any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Identity:** Unified identity with per-tenant password isolation, Google OAuth, feature-based role management.
+-   **Email sending:** `api/_lib/emailService.js` resolves the sending domain off `tenantId` for tenant→member emails. **System emails** (platform→tenant-owner: admin reset, signup verification, team invite, billing notifications) MUST pass `systemEmail: true` (or use `sendSystemEmail()`); this forces both Mailgun domain AND From identity to `mail.${APP_DOMAIN}` / `noreply@mail.${APP_DOMAIN}`. System reset/verification links must point at `${APP_DOMAIN}/...` not a tenant subdomain.
+-   **Dynamic SEO:** SSR meta-tag injection per-tenant via `api/render.js`; per-page metadata resolved by `api/_lib/entityMeta.js`. Per-entity `seo_title` / `seo_description` / `og_image_url` overrides on events, blog posts, news, campaigns, resources, and directories (UI in `client/src/components/blog/SEOSettings.jsx`). `og:image` URLs on `vault.iconn.app` or `*.supabase.co` are proxied through `/api/og-image`.
+-   **Event deletion:** Multi-step cancellation flow (refunds, reinstatements, Zoom unregistration) before any data purge. Direct deletion of events is deprecated for UI flows.
+-   **Semantic `warning` color:** `--warning` / `--warning-foreground` CSS vars in `client/src/index.css` (both themes, WCAG-AA). Use `text-warning`, `bg-warning`, `<Badge variant="warning">`, `<Alert variant="warning">` instead of raw amber/yellow/orange palette classes.
+-   **Membership invoices:** `organisation_membership_history` / `member_membership_history` carry `payment_status` (`unpaid`/`paid`/`partial`/`voided`) + `paid_at`, separate from the lifecycle `status`. Accounting-sync failures flag the row `accounting_sync_status='failed'` (not swallowed) with a Retry button in `OrgMembershipTab.jsx`. Payment reconciliation cron `/api/cron/reconcile-membership-invoice-payments` (every 3h, `CRON_SECRET`-guarded) queries Xero/QBO and fires workflows on `unpaid -> paid` only. See `api/_lib/membershipPaymentReconciliation.js`, `api/_lib/accountingProvider.js`.
+-   **Tenant storage metering:** `tenant.storage_used_bytes` (BIGINT) drives `checkStorageQuota` (`api/_lib/planQuota.js`) and `/admin/plan-usage`. Maintained incrementally via `addTenantStorageBytes` (`api/_lib/tenantStorageUsage.js`). Can drift (signed-URL claimed size); re-baseline with `scripts/recompute-tenant-storage.mjs` or the nightly cron.
+-   **Paid-plan upgrade flow (`/admin/plan-usage` → Stripe Checkout):** `PlanUsage.jsx` → `api/admin/plan-checkout.js` (tenant-admin RBAC, uses PLATFORM `STRIPE_SECRET_KEY`, NOT tenant's connected Stripe). First-time creates a Checkout Session; existing live sub swaps price in place via `stripe.subscriptions.update` (proration, never a parallel sub). Webhook `api/webhooks/stripe-plan.js` upserts `tenant_subscription` and flips `tenant.plan_code` only when status is `active`/`trialing`; `subscription.deleted` reverts to `free`.
+-   **Self-serve signup & onboarding (`/signup` → wizard):** `signup-start.js` (captcha + rate limits + verification email) → `signup-verify.js` (`provisionTenant`, `free` plan) → 5-step `OnboardingWizard.jsx` → `POST /api/admin/onboarding` runs `api/_lib/onboardingSeeder.js` (branding + tiers + persona seed pack tagged `is_sample=true`). Legacy admins backfilled to `onboarding_status='complete'`.
+-   **Accessibility audits:** Admin page (RBAC `admin.accessibility-audits`) runs axe-core 4.10 via browserless.io for tenant public URLs. Results in `accessibility_audit` / `accessibility_audit_result`; endpoints under `/api/admin/accessibility-audits`; runner `api/_lib/browserlessAxe.js`. v1 limits: ≤10 URLs/run, http(s) only, no credentialed URLs.
+-   **AI Design Studio V1 (Canvas AI Composition):** generation via `api/ai-compositions/generate.js`; prompt-led editing via `api/ai-compositions/edit.js` (propose/accept/reject/undo + conversation history in `ai_composition_conversation`) and `api/ai-compositions/destinations.js` (record-ID link picker — the AI never invents internal URLs). Patch engine `api/_lib/aiCompositionPatch.js`, edit pipeline `api/_lib/aiCompositionEdit.js`. Accept re-applies the STORED proposal server-side against the current document; complete redesigns are saved as alternatives (`is_alternative`); protected-value changes (prices, dates, names) require explicit confirmation. Editor UI in `client/src/components/canvas/blocks/AiCompositionEditPanel.jsx`. V1 scene-graph compositions are now read-only w.r.t. the V2 pivot.
+-   **AI Design Studio V2 (native-code pivot):** V2 compositions are native AI HTML/CSS/SVG packages (document `schemaVersion "2.0"`, `ai_composition.renderer_version=2`), sanitised ONCE server-side at store time by `api/_lib/aiCodePipeline.js` (schema → jsdom+DOMPurify sanitise → manifest cross-check → postcss CSS scoping under `[data-ai-composition="<uuid>"]` → leak check; reject-don't-repair), rendered verbatim by `AiCodeCompositionBlock.jsx`; signed CSP-locked preview + Browserless screenshots via `api/ai-compositions/preview.js` (HMAC keyed by `AIC_PREVIEW_SECRET`/`CRON_SECRET`). **Page bodies:** `compositionType: "page_body"` runs a plan stage (content manifest + creative plan, anti-degenerate checks in `aiCodeGeneration.js`) before code gen; page gates forbid `<header>/<footer>/<nav>` recreation. **Actions** (`data-ai-action` + manifest, `api/_lib/aiCodeActions.js`) resolve server-side to real records — unresolved actions block page publish (409 `AI_UNRESOLVED_ACTIONS`; editor fix-up via `api/ai-compositions/resolve-action.js`). **Slots** (`data-iconnect-slot`, `api/_lib/aiCodeSlots.js`) portal trusted platform blocks into generated markup; never block publish. **Imagery:** the model never writes image URLs — `<img data-ai-asset="<key>">` placeholders declared in the package `assets` manifest, fulfilled server-side (`api/_lib/aiCodeAssets.js`, gpt-image-1 or media library, tenant-owned storage); only unfulfilled `required` assets hard-reject; image swap is a deterministic `replace-image` edit action. V1→V2 rebuild is admin-only via `api/ai-compositions/rebuild-v2.js` (never automatic). **Editing:** `api/ai-compositions/edit-v2.js` (propose/accept/reject/undo); proposals (element-scoped patches via `data-ai-id`, or full revisions saved as alternatives) stored in `ai_composition_conversation` and re-applied against the CURRENT document on accept (`api/_lib/aiCodeEdit.js`); protected values + locked `data-content-key` texts require confirmation; breakpoint-scoped edits must leave other breakpoints' CSS untouched; accepts introducing NEW critical accessibility issues are blocked (422 `AI_VALIDATION_CRITICAL`). Admin-only Composition Inspector via `GET /api/ai-compositions/:id?inspector=1` (404 to non-admins). Full details: `guides/ai-design-studio-v2-pivot.md`.
+-   **Member AI structured Q&A:** the member assistant answers count/aggregate questions from live records via a whitelisted query spec (LLM never writes SQL). Catalog + validation + executors in `api/_lib/memberAiStructured.js`; routing in `api/member-ai/ask.js`. Adding an entity/field: follow `guides/member-ai-structured-qa.md` (visibility mirrors the member browse surfaces; drift guard in `memberAiStructuredSchemaDrift.test.mjs`).
+
+## Gotchas
+-   **Vercel preview-domain ownership:** Project `vite-migrate-replit-6` serves this repository. Both `dev.iconn.app` and `*.dev.iconn.app` are verified Vercel project domains pinned to the `eventemb2` Git branch; tenant custom-domain actions must never attach, reclaim, or detach `iconn.app` or any of its subdomains.
+-   **`dev.iconn.app` = Vercel preview deployment** built from the `eventemb2` git branch of the same Vercel project as production. Shares the same Supabase. (a) Vercel's Functions → Logs viewer defaults to Production and hides Preview logs — switch the Environment filter to Preview. (b) A fix only reaches `dev.iconn.app` after the commit is on the `eventemb2` branch and that branch's preview build has finished.
+-   **`sendEmail()` never throws.** It catches Mailgun errors and returns `{ success: false, error, status, domain }`. Callers MUST inspect the return value; a bare `try { await sendEmail(...) } catch {}` will falsely report success on 401 / unverified domain / missing key. Canonical pattern: `api/auth/request-admin-password-reset.js`.
+-   **System emails MUST pass `systemEmail: true`** (or use `sendSystemEmail()`). Without it, a tenant with a verified custom sending domain would silently send admin reset / signup / billing emails from the tenant's own brand — wrong identity.
+-   **API hard-fails** any TENANT- or ORGANIZATION-scoped request without a usable tenant context.
+-   **Workflow `dd_owner` / `dd_owner_email` placeholders** resolve via `resolveDdOwnerForSubmission` (`api/_lib/ddOwner.js`) only when the trigger caller passes `context.formSubmissionId` to `triggerWorkflows`. Without submission context they collapse to empty strings.
+-   **No server-side length validation on `event.summary` / `complex_event.summary`** — relies on client-side `event_summary_max_length` system setting (default 150).
+
+## Product
+-   **Core:** Members, Events, Bookings, Resources, Blog.
+-   **Identity:** Unified login, multi-tenant ownership, organization memberships, granular access control.
+-   **Customization:** Page Builder, Custom Forms with conditional logic, Workflow Automation, per-tenant branding.
+-   **Financials:** Stripe membership payments, Xero/QBO invoicing, Fundraising with Gift Aid.
+-   **Comms:** Email templates, campaigns, member preferences.
+-   **Integrations:** WordPress Sync, Zoom (events/sessions), Zoho CRM sync.
+-   **Reporting:** Due Diligence Reports, configurable Member/Org Directories.
+-   **Community:** Tenant-scoped forums, Member Group email campaigns.
+
+## User preferences
+Preferred communication style: Simple, everyday language.
+
+## Pointers
+-   **React:** `https://react.dev/` · **Tailwind:** `https://tailwindcss.com/docs` · **Drizzle:** `https://orm.drizzle.team/docs/overview`
+-   **Vercel Functions:** `https://vercel.com/docs/functions/overview` · **Supabase:** `https://supabase.com/docs`
+-   **Stripe:** `https://stripe.com/docs/api` · **Mailgun:** `https://documentation.mailgun.com/en/latest/api_reference.html`

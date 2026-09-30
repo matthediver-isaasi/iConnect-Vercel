@@ -1,0 +1,4926 @@
+// Canvas Builder design document helpers.
+import { normalizeTableContent, TABLE_LIMITS } from './canvasDataTable.js';
+import {
+  DEFAULT_MEMBER_GROUP_CARD_COLUMNS,
+  MAX_MEMBER_GROUP_CARD_COLUMNS,
+  resolveSelectedMemberGroupIds,
+  resolveSelectedMemberGroupRoles,
+} from './memberGroupCards.js';
+import {
+  CANVAS_DYNAMIC_WIDGET_TYPE,
+  CANVAS_DYNAMIC_WIDGET_DEFAULT_GEOMETRY,
+  normalizeCanvasDynamicWidgetContent,
+} from './canvasDynamicWidget.js';
+import { normalizeMemberOnlyContent } from './memberOnlyHtml.js';
+import { getCanvasMembershipDefaults, normalizeCanvasMembershipContent } from './canvasMembershipData.js';
+//
+// The canvas_design column on i_edit_page stores a versioned JSON document
+// describing a free-form page laid out by the Canvas Builder.
+//
+// Phase 3 schema (back-compat with Phase 2 'box' blocks):
+//   {
+//     version: 1,
+//     root: {
+//       background: null | { color },
+//       sections: [{
+//         id: 'root-section',
+//         children: [
+//           {
+//             id, type: 'box'|'hero'|'text'|... , name, locked,
+//             style: {...},        // visual style (bg/border/etc.)
+//             a11y: {...},         // role / aria-label / alt / tabIndex
+//             content: {...},      // block-type-specific content (Phase 3+)
+//             bp: {
+//               desktop: { x, y, w, h, hidden? },     // always complete
+//               tablet:  { x?, y?, w?, h?, hidden? }, // partial overrides
+//               mobile:  { x?, y?, w?, h?, hidden? },
+//             },
+//           },
+//         ],
+//       }],
+//     },
+//   }
+//
+// Tablet/mobile inherit any unset field from the next-larger breakpoint
+// (mobile -> tablet -> desktop).
+
+export const CANVAS_DESIGN_VERSION = 1;
+
+// Task #2558 — flow (auto-layout) schema. Version 2 documents describe the page
+// as an ordered tree of containers (section → row → group → element) where
+// vertical position is DERIVED from block order + measured height, not stored.
+// Version 1 (absolute x/y coordinates) and version 2 coexist during rollout:
+// `isFlowDesign()` selects which normalizer / renderer path applies. Newly
+// created pages and the autobuild generator still emit v1 by default until the
+// flow renderer (Step 2) and builder (Step 3) land — so version 1 remains the
+// live default and there is no user-facing behaviour change from this step.
+export const CANVAS_FLOW_VERSION = 2;
+
+// Per-node layout mode. `flow` = children participate in auto-layout (their
+// position is derived from order + measured height, and editing one reflows
+// the rest inside AND outside the container). `free` = children are placed
+// absolutely by their per-breakpoint geometry and may overlap; the free
+// container is rigid internally but is still a normal flow item in its parent.
+export const LAYOUT_MODES = { FLOW: 'flow', FREE: 'free' };
+
+export const BREAKPOINTS = ['desktop', 'tablet', 'mobile'];
+
+export const BREAKPOINT_WIDTHS = {
+  desktop: 1200,
+  tablet: 768,
+  mobile: 375,
+};
+
+// CSS media-query boundaries used by the public renderer. Matches the
+// runtime detection in useActiveBreakpoint: w < 640 → mobile, w < 1024 →
+// tablet, otherwise desktop. We emit tablet/mobile rules inside
+// @media (max-width: …) queries so layout is correct without any JS.
+export const BREAKPOINT_MAX_PX = {
+  tablet: 1023.98,
+  mobile: 639.98,
+};
+
+// ARIA roles that have a matching HTML5 landmark element. Sections in the
+// inspector can pick a role and the public renderer will swap the wrapper
+// to the corresponding semantic tag. Roles not in this map render as a
+// neutral <div> with a `role` attribute.
+export const LANDMARK_ROLE_TO_TAG = {
+  banner: 'header',
+  header: 'header',
+  contentinfo: 'footer',
+  footer: 'footer',
+  navigation: 'nav',
+  nav: 'nav',
+  main: 'main',
+  complementary: 'aside',
+  aside: 'aside',
+  region: 'section',
+  section: 'section',
+};
+
+export function getLandmarkTag(role) {
+  if (!role) return null;
+  return LANDMARK_ROLE_TO_TAG[String(role).toLowerCase()] || null;
+}
+
+// Returns a landmark tag only for blocks that may legitimately wrap a
+// landmark region (sections). Block types like images, buttons, text, etc.
+// keep `role=` as an attribute but are never upgraded to header/nav/main/
+// aside/footer — this prevents invalid HTML and nested-<main> landmarks.
+// Also excludes `main`: the page already provides a single top-level
+// <main>, so block-level main roles fall back to <section>.
+export function getSectionLandmarkTag(blockType, role) {
+  if (blockType !== BLOCK_TYPES.SECTION) return null;
+  const tag = getLandmarkTag(role);
+  if (!tag || tag === 'main') return null;
+  return tag;
+}
+
+// ---------------------------------------------------------------------------
+// Responsive image helpers
+//
+// For images hosted on allow-listed CDNs (Supabase Storage public buckets;
+// vault.iconn.app falls through to the proxy used elsewhere) we emit a
+// real srcset + sizes so the browser can pick an appropriately-sized
+// asset. Other hosts pass through unchanged — no transforms, no srcset.
+// This mirrors the host allow-list used by `api/og-image.js`.
+// ---------------------------------------------------------------------------
+
+const RESPONSIVE_IMAGE_WIDTHS = [400, 800, 1200, 1600];
+
+function isAllowedImageHost(hostname) {
+  if (!hostname) return false;
+  if (hostname === 'vault.iconn.app') return true;
+  if (hostname.endsWith('.supabase.co')) return true;
+  return false;
+}
+
+export function buildResponsiveImage(src, { sizes } = {}) {
+  const out = { src: src || '', srcSet: undefined, sizes };
+  if (!src) return out;
+  try {
+    const u = new URL(src, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
+    if (!isAllowedImageHost(u.hostname)) return out;
+    // Supabase Storage: object public URLs can be reissued through the
+    // image transformer at /render/image/public/...
+    if (u.hostname.endsWith('.supabase.co') && u.pathname.includes('/storage/v1/object/public/')) {
+      const transformPath = u.pathname.replace('/storage/v1/object/public/', '/storage/v1/render/image/public/');
+      const base = `${u.origin}${transformPath}`;
+      const srcSet = RESPONSIVE_IMAGE_WIDTHS
+        .map((w) => `${base}?width=${w}&quality=80 ${w}w`)
+        .join(', ');
+      return {
+        src: `${base}?width=1200&quality=80`,
+        srcSet,
+        sizes: sizes || '100vw',
+      };
+    }
+    // Other allow-listed hosts: emit sizes for the browser hint, no srcset.
+    return { src, srcSet: undefined, sizes: sizes || '100vw' };
+  } catch {
+    return out;
+  }
+}
+
+// Static block types shipped in Phase 3.
+export const BLOCK_TYPES = {
+  BOX: 'box',
+  SECTION: 'section',
+  HERO: 'hero',
+  TEXT: 'text',
+  IMAGE: 'image',
+  BUTTON: 'button',
+  VIDEO: 'video',
+  COLUMNS: 'columns',
+  SPACER: 'spacer',
+  DIVIDER: 'divider',
+  VERTICAL_DIVIDER: 'vertical-divider',
+  ACCORDION: 'accordion',
+  TESTIMONIALS: 'testimonials',
+  CUSTOM_HTML: 'custom-html',
+  ICON: 'icon',
+  CARD: 'card',
+  STAT: 'stat',
+  LOGO_STRIP: 'logo-strip',
+  MAP: 'map',
+  PRICING_TABLE: 'pricing-table',
+  DATA_TABLE: 'data-table',
+  TESTIMONIAL_GRID: 'testimonial-grid',
+  NEWS_TICKER: 'news-ticker',
+  MEGA_MENU: 'mega-menu',
+  COUNTDOWN: 'countdown',
+  // Dynamic / data-bound blocks (Phase 4)
+  EVENT_LIST: 'event-list',
+  MEMBERSHIP_SUMMARY: 'membership-summary',
+  PAYMENT_DETAILS: 'payment-details',
+  EVENT_TEASER: 'event-teaser',
+  EVENT_REGISTRATION: 'event-registration',
+  EVENT_SESSIONS: 'event-sessions',
+  EVENT_CAROUSEL: 'event-carousel',
+  SPEAKER_CAROUSEL: 'speaker-carousel',
+  SPEAKER_GRID: 'speaker-grid',
+  SPONSOR_GRID: 'sponsor-grid',
+  SPONSOR_CAROUSEL: 'sponsor-carousel',
+  DIRECTORY_CAROUSEL: 'directory-carousel',
+  ARTICLE_LIST: 'article-list',
+  RESOURCE_LIST: 'resource-list',
+  RESOURCE_SHOWCASE: 'resource-showcase',
+  FEATURED_JOB: 'featured-job',
+  FORM_EMBED: 'form-embed',
+  CAMPAIGN_EMBED: 'campaign-embed',
+  MEMBER_DIRECTORY_EMBED: 'member-directory-embed',
+  DYNAMIC_DIRECTORY_EMBED: 'dynamic-directory-embed',
+  MEMBER_GROUP: 'member-group',
+  MEMBER_GROUP_CARDS: 'member-group-cards',
+  CARD_DECK: 'card-deck',
+  WALL_OF_FAME: 'wall-of-fame',
+  GALLERY: 'gallery',
+  CARD_FLIP_GRID: 'card-flip-grid',
+  HERO_CAROUSEL: 'hero-carousel',
+  // Task #2836 — phone-specific companion to HERO_CAROUSEL. Same content
+  // model and renderer (mobile variant), but defaults to hidden on
+  // desktop/tablet and visible on mobile, with mobile-tuned defaults.
+  HERO_CAROUSEL_MOBILE: 'hero-carousel-mobile',
+  // Reusable section symbols (Phase 7). A symbol block stores a `symbolId`
+  // and is rendered by inlining the referenced canvas_symbol design.
+  SYMBOL: 'symbol',
+  // System: tenant-customisable login form block (fixed size, position-only).
+  LOGIN_FORM: 'login-form',
+  // Styled public-search field that reuses /api/public/search.
+  SEARCH_INPUT: 'search-input',
+  // Task #2849 — AI Design Studio Phase 1: an element whose content is a
+  // server-generated, schema-validated AI Composition document rendered
+  // in-DOM with instance-scoped allowlisted CSS (no generated JS).
+  AI_COMPOSITION: 'ai-composition',
+  // AI Design Studio V2 (Task #2904): native HTML/CSS/SVG code packages
+  // (renderer_version 2). V1 `ai-composition` scene-graph blocks stay
+  // renderable but read-only.
+  AI_CODE_COMPOSITION: 'ai-code-composition',
+  // A tenant dashboard widget referenced by id. The block never stores a
+  // dashboard snapshot; both editor and public renderer resolve the reference
+  // through the dashboard API at render time.
+  DYNAMIC_WIDGET: CANVAS_DYNAMIC_WIDGET_TYPE,
+  // Task #2558 — flow (auto-layout) layout containers. `row` lays its children
+  // out horizontally as columns (the real Row/Columns primitive that replaces
+  // expressing side-by-side layouts with X coordinates); `group` is a
+  // free-position cluster whose children are placed absolutely and may overlap.
+  // Both are containers: they carry a `children` array and a `layoutMode`.
+  ROW: 'row',
+  GROUP: 'group',
+  // Advanced Accordion: a richer accordion variant where each panel contains
+  // arbitrary nested Canvas child blocks (text, image, button, etc.) instead of
+  // a single rich-text answer. Distinct from the legacy ACCORDION ('accordion')
+  // which is preserved byte-for-byte.
+  ADVANCED_ACCORDION: 'advanced-accordion',
+};
+
+// Block types whose accessible name already comes from their own content, so
+// the generic `aria-label` input in the inspector would be misleading or
+// redundant and is deliberately hidden for them:
+//  - TEXT: the visible words ARE the accessible name. An aria-label would
+//    silently REPLACE that copy, and the role-less wrapper it lands on is
+//    ignored by most screen readers anyway.
+//  - IMAGE / CARD: these carry their own dedicated Alt text input. aria-label
+//    overrides alt when both are set, so exposing both is confusing.
+// Every other block type (icon, divider, spacer, box/section, video, map, logo
+// strip, etc.) has no intrinsic readable text, so it keeps the aria-label
+// input where it genuinely adds value.
+export const BLOCK_TYPES_WITHOUT_ARIA_LABEL = new Set([
+  BLOCK_TYPES.TEXT,
+  BLOCK_TYPES.IMAGE,
+  BLOCK_TYPES.CARD,
+]);
+
+// Whether the inspector should show the generic aria-label input for a block.
+export function blockSupportsAriaLabelInput(type) {
+  return !BLOCK_TYPES_WITHOUT_ARIA_LABEL.has(type);
+}
+
+// Container block types in the flow model. A container carries a `children`
+// array and a `layoutMode`; a leaf does not. `section` already exists as a
+// visual box in v1 but becomes a flow container in v2.
+export const FLOW_CONTAINER_TYPES = new Set([
+  BLOCK_TYPES.SECTION,
+  BLOCK_TYPES.ROW,
+  BLOCK_TYPES.GROUP,
+]);
+
+export function isFlowContainerType(type) {
+  return FLOW_CONTAINER_TYPES.has(type);
+}
+
+// Block types that support the "full-bleed" treatment — a true 100vw
+// viewport-edge breakout (vs. the generic `fullWidth`, which only fills the
+// centered design stage). fullBleed lives on `block.content.fullBleed` and is
+// rendered by geomRule() (static stylesheet) AND CanvasPageRenderer (forced
+// breakpoint path); keep BOTH consumers driven off this single list.
+export const FULL_BLEED_BLOCK_TYPES = new Set([
+  BLOCK_TYPES.SECTION,
+  BLOCK_TYPES.HERO,
+  BLOCK_TYPES.HERO_CAROUSEL,
+  BLOCK_TYPES.HERO_CAROUSEL_MOBILE,
+  BLOCK_TYPES.NEWS_TICKER,
+  BLOCK_TYPES.MEGA_MENU,
+  BLOCK_TYPES.WALL_OF_FAME,
+  BLOCK_TYPES.TESTIMONIALS,
+  BLOCK_TYPES.TESTIMONIAL_GRID,
+  BLOCK_TYPES.FORM_EMBED,
+  BLOCK_TYPES.SPONSOR_CAROUSEL,
+  BLOCK_TYPES.DIRECTORY_CAROUSEL,
+  BLOCK_TYPES.IMAGE,
+  BLOCK_TYPES.FEATURED_JOB,
+]);
+
+export function blockSupportsFullBleed(type) {
+  return FULL_BLEED_BLOCK_TYPES.has(type);
+}
+
+// Task #3154: directional bleed. Sections can bleed to only ONE viewport
+// edge (left or right) while the other side stays at the centered page
+// column. The direction lives on `content.bleed` ('off'|'full'|'left'|
+// 'right'); legacy docs carry only the boolean `content.fullBleed`, which
+// maps to 'full'. This resolver is the ONE place that precedence lives —
+// every consumer (geomRule, CanvasPageRenderer forced path, editor pinning,
+// inspectors, SectionRender) must go through it. Returns null when the
+// block has no bleed (or doesn't support it). Directional values are only
+// honoured on Sections; on any other full-bleed-capable type a stray
+// 'left'/'right' degrades to 'full' so geometry never desyncs.
+export function getBlockBleed(block) {
+  if (!block || !blockSupportsFullBleed(block.type)) return null;
+  const c = block.content || {};
+  if (c.bleed === 'left' || c.bleed === 'right') {
+    return block.type === BLOCK_TYPES.SECTION ? c.bleed : 'full';
+  }
+  if (c.bleed === 'full') return 'full';
+  if (c.bleed === 'off') return null;
+  return c.fullBleed ? 'full' : null;
+}
+
+export function resolveBleedBorderRadius(block) {
+  const radius = block?.style?.borderRadius;
+  const bleed = getBlockBleed(block);
+  if (!bleed) return radius;
+  if (radius === undefined || radius === null || radius === 0 || radius === '0' || radius === '0px' || radius === '') {
+    return radius;
+  }
+  if (bleed === 'full') return 0;
+  const r = typeof radius === 'number' ? `${radius}px` : String(radius);
+  return bleed === 'left' ? `0 ${r} ${r} 0` : `${r} 0 0 ${r}`;
+}
+export function blockIsFullWidthLike(block) {
+  if (!block) return false;
+  if (block.fullWidth) return true;
+  return !!getBlockBleed(block);
+}
+
+// Task #2506: toggle `content.fullBleed` with snapshot-on-release semantics,
+// mirroring the Position panel's Full width toggle. While full-bleed is on,
+// the editor pins the rendered frame to x=0 / w=stage-width — so when it is
+// turned OFF we first write that currently rendered x/w into the active
+// breakpoint frame. The block keeps its visual size and the X/Width inputs
+// work immediately instead of snapping back to a stale stored frame.
+// Turning ON just sets the flag (stored frames are preserved underneath the
+// pin, same as fullWidth). Used by BOTH the Position panel's Full-bleed
+// control and block content inspectors (e.g. the Hero's toggle) so the two
+// entry points can't drift.
+export function setBlockContentFullBleed(block, breakpoint, on) {
+  return setBlockContentBleed(block, breakpoint, on ? 'full' : 'off');
+}
+
+// Task #3154: directional variant of the toggle above. `dir` is one of
+// 'off'|'full'|'left'|'right'. Any non-off direction pins the editor frame
+// exactly like full bleed (blockIsFullWidthLike), so switching BETWEEN
+// non-off directions just rewrites the flags; only 'off' snapshots the
+// currently rendered x/w into the active breakpoint frame first.
+// `content.fullBleed` is kept mirrored (true only for 'full') so legacy
+// consumers and old app bundles keep working, and `content.bleed` is only
+// written when the doc departs from plain boolean full-bleed semantics —
+// keeping docs that never use directional bleed byte-identical.
+export function setBlockContentBleed(block, breakpoint, dir) {
+  const d = dir === 'full' || dir === 'left' || dir === 'right' ? dir : 'off';
+  const hadBleedKey = !!(block.content && 'bleed' in block.content);
+  const writeBleed = d === 'left' || d === 'right' || hadBleedKey;
+  const flags = {
+    fullBleed: d === 'full',
+    ...(writeBleed ? { bleed: d } : {}),
+  };
+  if (d !== 'off') {
+    return { ...block, content: { ...block.content, ...flags } };
+  }
+  const cw = BREAKPOINT_WIDTHS[breakpoint] || BREAKPOINT_WIDTHS.desktop;
+  const withGeom = setBlockBp(block, breakpoint, { x: 0, w: cw });
+  return { ...withGeom, content: { ...withGeom.content, ...flags } };
+}
+
+const DEFAULT_STYLE = {
+  background: 'transparent',
+  borderColor: '#cbd5e1',
+  borderWidth: 0,
+  borderStyle: 'solid',
+  borderRadius: 4,
+  opacity: 1,
+  zIndex: 1,
+  paddingTop: 0,
+  paddingRight: 0,
+  paddingBottom: 0,
+  paddingLeft: 0,
+  // Task #2692 — drop shadow. Stored as a curated preset level key
+  // (see SHADOW_LEVELS); 'none' is the default so existing pages are
+  // byte-identical. resolveBoxShadowCss() maps the key to a CSS value and
+  // is the single source of truth applied inline on every render surface.
+  boxShadow: 'none',
+};
+
+// Task #2692 — curated drop-shadow preset levels. The KEY is what is stored
+// on block.style.boxShadow; the value is the CSS `box-shadow` string emitted
+// on every render surface. This is the ONE source of truth referenced by the
+// Inspector picker (options) AND by resolveBoxShadowCss (render) so the
+// builder and the published page can never drift. Shadows use a soft neutral
+// tint that reads well on light and (subtly) dark backgrounds.
+export const SHADOW_LEVELS = [
+  { value: 'none', label: 'None', css: 'none' },
+  { value: 'sm', label: 'Small', css: '0 1px 2px 0 rgba(15, 23, 42, 0.08)' },
+  { value: 'md', label: 'Medium', css: '0 4px 6px -1px rgba(15, 23, 42, 0.10), 0 2px 4px -2px rgba(15, 23, 42, 0.10)' },
+  { value: 'lg', label: 'Large', css: '0 10px 15px -3px rgba(15, 23, 42, 0.12), 0 4px 6px -4px rgba(15, 23, 42, 0.10)' },
+  { value: 'xl', label: 'Extra large', css: '0 20px 25px -5px rgba(15, 23, 42, 0.14), 0 8px 10px -6px rgba(15, 23, 42, 0.10)' },
+];
+
+const SHADOW_CSS_BY_LEVEL = SHADOW_LEVELS.reduce((acc, l) => {
+  acc[l.value] = l.css;
+  return acc;
+}, {});
+
+// Map a block's stored shadow level to its CSS `box-shadow` value. Unknown or
+// missing values (including legacy blocks with no boxShadow field) resolve to
+// 'none' so nothing changes appearance until an author opts in.
+export function resolveBoxShadowCss(style) {
+  const level = style && typeof style === 'object' ? style.boxShadow : null;
+  return SHADOW_CSS_BY_LEVEL[level] || 'none';
+}
+
+// Task #3181 — wrapper background for a block. Sections whose background is
+// gradient or image paint on a dedicated inset bleed layer inside the section
+// renderer; the block WRAPPER must not also paint `style.background` (which
+// defaults to a near-white '#f8fafc') or gradients fading to transparent
+// would expose the wrapper fill instead of whatever lies behind the section
+// (e.g. an image below it).
+//
+// Author intent: switching the inspector's background type to Gradient/Image
+// means that mode wins — any stored base colour is deliberately suppressed
+// (it re-applies if they switch back to Color). Solid-colour and legacy
+// sections (no bgType, or bgType === 'color') keep painting style.background
+// exactly as before, and a legacy gradient section still looks correct where
+// the gradient is opaque.
+//
+// One shared resolver used by every wrapper-rendering surface (editor stage,
+// public page renderer, symbol child preview) so they can't drift — mirroring
+// resolveBoxShadowCss / resolveBleedBorderRadius above.
+export function resolveWrapperBackground(block) {
+  const style = block?.style || {};
+  if (block?.type === BLOCK_TYPES.SECTION) {
+    const c = block.content || {};
+    // Match SectionRender's own gating: image mode needs a URL to activate;
+    // gradient mode always emits a gradient (the builder falls back to
+    // default from/to colours), so it always suppresses the wrapper fill.
+    if (c.bgType === 'gradient' || (c.bgType === 'image' && !!c.bgImageUrl)) {
+      return 'transparent';
+    }
+  }
+  return style.background;
+}
+
+// Block types that expose the drop-shadow control. Restricted to the
+// container/media surfaces where a shadow makes sense (Task #2692).
+export const SHADOW_BLOCK_TYPES = new Set([
+  BLOCK_TYPES.BOX,
+  BLOCK_TYPES.SECTION,
+  BLOCK_TYPES.IMAGE,
+  BLOCK_TYPES.MEMBERSHIP_SUMMARY,
+  BLOCK_TYPES.PAYMENT_DETAILS,
+]);
+
+export function blockSupportsShadow(type) {
+  return SHADOW_BLOCK_TYPES.has(type);
+}
+
+const DEFAULT_A11Y = {
+  role: '',
+  ariaLabel: '',
+  tabIndex: null, // null = not focusable beyond default
+  ariaHidden: false,
+  altText: '',
+};
+
+// Defaults per block type (geometry + content + style overrides + a11y).
+// The block registry under client/src/components/canvas/blocks/registry.jsx
+// is the editor/renderer source-of-truth; this is the data-layer copy used
+// by createBlock/normalizeBlock so the lib can stay React-free.
+export const BLOCK_DEFAULTS = {
+  [BLOCK_TYPES.MEMBERSHIP_SUMMARY]: {
+    name: 'Membership Summary',
+    geom: { w: 940, h: 280 },
+    bp: { tablet: { x: 24, w: 720 }, mobile: { x: 16, w: 343 } },
+    style: { background: '#ffffff', borderColor: '#d7dde5', borderWidth: 1, borderRadius: 10, paddingTop: 28, paddingRight: 28, paddingBottom: 28, paddingLeft: 28 },
+    content: getCanvasMembershipDefaults('membership-summary'),
+  },
+  [BLOCK_TYPES.PAYMENT_DETAILS]: {
+    name: 'Payment Details',
+    geom: { w: 940, h: 330 },
+    bp: { tablet: { x: 24, w: 720 }, mobile: { x: 16, w: 343 } },
+    style: { background: '#ffffff', borderColor: '#d7dde5', borderWidth: 1, borderRadius: 10, paddingTop: 28, paddingRight: 28, paddingBottom: 28, paddingLeft: 28 },
+    content: getCanvasMembershipDefaults('payment-details'),
+  },
+  [BLOCK_TYPES.BOX]: {
+    name: 'Box',
+    geom: { w: 200, h: 120 },
+    style: { background: '#ffffff', borderWidth: 1 },
+    content: {},
+  },
+  [BLOCK_TYPES.DYNAMIC_WIDGET]: {
+    name: 'Dynamic widget',
+    geom: { ...CANVAS_DYNAMIC_WIDGET_DEFAULT_GEOMETRY },
+    style: { background: '#ffffff', borderWidth: 1 },
+    content: { widgetId: '', allowUserResize: false },
+  },
+  [BLOCK_TYPES.SECTION]: {
+    name: 'Section',
+    geom: { w: 600, h: 240 },
+    style: { background: '#f8fafc', borderWidth: 0, paddingTop: 24, paddingRight: 24, paddingBottom: 24, paddingLeft: 24 },
+    // bgType defaults to 'color' so existing sections (which won't have
+    // any of the new fields) are byte-identical to today. The overlay
+    // fields are only consulted when bgType === 'image'.
+    //
+    // Multipoint gradients: `gradientStops` (an array of { color, opacity,
+    // position } stops) is the source of truth for the gradient background
+    // when present with 2+ stops. It is deliberately NOT seeded here — adding
+    // it to the defaults would make normalizeBlock backfill it onto every
+    // legacy gradient section and override their customised from/to colours.
+    // Instead the gradient builder falls back to the legacy two-stop
+    // from/to (linear) and centre/edge (radial) fields whenever the stops
+    // array is absent, and the inspector seeds a sensible two-stop list from
+    // those legacy fields on the author's first edit.
+    content: {
+      maxWidth: 0,
+      fullBleed: false,
+      bgType: 'color',
+      bgImageUrl: '',
+      // '' = legacy cover behaviour; 'fixed-crop' = Fixed Height / Horizontal
+      // Crop (image scales by section height only, sides clip when narrow).
+      bgImageFit: '',
+      // Mirror flips for the background image (Task #3164). Both default off;
+      // render paths read them as `=== true`, so legacy sections without the
+      // keys render byte-identically.
+      bgMirrorX: false,
+      bgMirrorY: false,
+      // Background focal point (Task #3162): { x, y } percentages mirroring
+      // the Hero block's bgFocalPoint. Like Hero, it is deliberately NOT
+      // seeded with a { x: 50, y: 50 } object — normalizeBlock would backfill
+      // that onto every legacy section and churn saved designs. All render
+      // paths treat a missing/partial focal point as centre (50/50), so
+      // existing sections render byte-identically.
+      overlayType: 'solid',
+      overlayBlendMode: 'normal',
+      overlayColor: '#000000',
+      overlayOpacity: 0.4,
+      overlayFromColor: '#000000',
+      overlayFromOpacity: 0.6,
+      overlayToColor: '#000000',
+      overlayToOpacity: 0,
+      overlayAngle: 180,
+      overlayCenterColor: '#000000',
+      overlayCenterOpacity: 0,
+      overlayEdgeColor: '#000000',
+      overlayEdgeOpacity: 0.6,
+    },
+  },
+  [BLOCK_TYPES.HERO]: {
+    name: 'Hero',
+    // Theme tokens — the renderer scopes --cb-color-* / --cb-font-* vars
+    // onto every canvas page (from tenant_canvas_theme). Defaulting to
+    // var() with a hardcoded fallback means new blocks pick up tenant
+    // branding automatically while still rendering sensibly when no
+    // theme is configured.
+    geom: { w: 800, h: 420 },
+    style: { background: 'var(--cb-color-primary, #0f172a)', borderWidth: 0, borderRadius: 0, paddingTop: 24, paddingRight: 24, paddingBottom: 24, paddingLeft: 24 },
+    a11y: {},
+    content: {
+      headline: 'Your headline here',
+      headingLevel: 1,
+      subheadline: 'A short supporting message that frames the page.',
+      bgType: 'color',
+      bgColor: 'var(--cb-color-primary, #0f172a)',
+      bgImageUrl: '',
+      bgVideoUrl: '',
+      darkWash: 0.4,
+      // Overlay style: 'solid' keeps the legacy flat black wash driven by
+      // darkWash; 'gradient' renders a linear gradient along overlayDirection.
+      // Absent/old data is treated as solid so saved pages render
+      // byte-identically until the user opts into a gradient.
+      //
+      // Multipoint gradients: `overlayStops` (an array of { color, opacity,
+      // position } stops) is the source of truth for the gradient overlay when
+      // present with 2+ stops. It is deliberately NOT seeded here — adding it to
+      // the defaults would make normalizeBlock backfill it onto every legacy
+      // hero and override their customised from/to colours. The overlay builder
+      // falls back to the legacy two-stop overlayFrom*/overlayTo* fields when
+      // the stops array is absent, and the inspector seeds a sensible two-stop
+      // list from those legacy fields on the author's first edit.
+      overlayStyle: 'solid',
+      overlayFromColor: '#000000',
+      overlayFromOpacity: 0.6,
+      overlayToColor: '#000000',
+      overlayToOpacity: 0,
+      overlayDirection: 'to-top',
+      overlayAngle: 0,
+      fullBleed: false,
+      alignment: 'center',
+      textColor: 'var(--cb-color-on-primary, #ffffff)',
+      ctas: [
+        { label: 'Primary CTA', href: '#', variant: 'primary' },
+      ],
+    },
+  },
+  [BLOCK_TYPES.TEXT]: {
+    name: 'Text',
+    geom: { w: 480, h: 160 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      html: '<p>Click to edit this text.</p>',
+      colorRole: 'default', // default | secondary | tertiary
+      // Custom bullet-list icon (Font Awesome). Empty bulletIcon = standard
+      // disc bullets (no change to existing blocks). When set, every <ul> in
+      // the block renders this icon as its marker in the chosen colour/size.
+      bulletIcon: '', // e.g. 'fa-solid fa-book-open'
+      bulletIconColor: '', // hex; empty = inherit text colour
+      bulletIconSize: null, // px number; empty/null = default (~1em)
+      // Padding (px) around the bullet icon. All null = legacy spacing
+      // (1.6em hanging indent). Left = icon offset from the edge; right = gap
+      // between the icon and the text; top/bottom = vertical space around the
+      // icon row. The list text inset is derived from left + icon size + right
+      // so a larger icon never overruns the text.
+      bulletIconPadTop: null,
+      bulletIconPadRight: null,
+      bulletIconPadBottom: null,
+      bulletIconPadLeft: null,
+      // Per-block character-spacing override (px number). null/undefined =
+      // inherit from the selected tenant typography style (or browser default).
+      characterSpacing: null,
+    },
+  },
+  [BLOCK_TYPES.IMAGE]: {
+    name: 'Image',
+    geom: { w: 320, h: 200 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      src: '',
+      alt: '',
+      href: '',
+      objectFit: 'cover', // cover | contain | fill | none | scale-down | fixed-crop (fixed height / horizontal crop)
+      // Focal point (Task #3180): { x, y } percentages deciding which part of
+      // the image stays visible when the fit mode crops (cover / fixed-crop).
+      // Mirrors the Section's bgFocalPoint: deliberately NOT seeded with a
+      // { x: 50, y: 50 } object — normalizeBlock would backfill it onto every
+      // legacy image and churn saved designs. All render paths treat a
+      // missing/partial focal point as centre (50/50), so existing images
+      // render byte-identically.
+      fullBleed: false,
+      // When full-bleed is on the block spans 100vw; heightMode controls how
+      // its height is resolved on published pages:
+      //   'auto' (default) — use the block geometry height (drag-to-resize)
+      //   'px'             — fixed pixel height from heightValue
+      //   'vh'             — viewport-relative height (heightValue + 'vh')
+      heightMode: 'auto',
+      heightValue: null,
+      // Icon (alternative to image). iconClass holds either a Font Awesome
+      // class string (e.g. "fa-solid fa-star") or a Lucide icon name
+      // (e.g. "arrow-right") — resolved by the shared renderStyleIcon helper.
+      iconClass: '',
+      iconSize: 64,
+      iconColor: '',
+      iconAlign: 'center',
+      // Optional frame drawn behind the icon: 'none' | 'square' | 'circle'
+      iconFrame: 'none',
+      // Frame fill colour. '' = default fill (#e2e8f0), the literal string
+      // 'transparent' = no fill (outline-only frames).
+      iconFrameColor: '',
+      // Optional frame border (outline). Border renders only when a colour is
+      // set and width > 0; both empty/0 = no border (legacy fill-only frames).
+      iconFrameBorderColor: '',
+      iconFrameBorderWidth: 0,
+    },
+  },
+  [BLOCK_TYPES.BUTTON]: {
+    name: 'Button',
+    geom: { w: 180, h: 44 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      label: 'Click me',
+      href: '#',
+      variant: 'default', // default | outline | ghost | primary
+      size: 'default',     // sm | default | lg
+      icon: '',            // lucide name OR Font Awesome class string
+      // Icon-only mode (Task #3167): render just the icon, no label. Both
+      // default off; render paths gate on `=== true` so legacy buttons
+      // without the keys are untouched.
+      iconOnly: false,
+      iconShape: 'square', // square | circle (icon-only mode)
+      ariaLabel: '',
+      newTab: false,
+    },
+  },
+  [BLOCK_TYPES.VIDEO]: {
+    name: 'Video',
+    geom: { w: 560, h: 315 },
+    style: { background: '#000000', borderWidth: 0 },
+    content: {
+      provider: 'youtube', // youtube | vimeo | mp4
+      url: '',
+      aspectRatio: '16:9',
+      captionsUrl: '',
+      autoplay: false,
+      muted: true,
+      controls: true,
+    },
+  },
+  [BLOCK_TYPES.COLUMNS]: {
+    name: 'Columns',
+    geom: { w: 720, h: 240 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      count: 2,
+      gap: 16,
+      stackOnMobile: true,
+      // widths per breakpoint as arrays summing to ~100%
+      widths: { desktop: [50, 50], tablet: [50, 50], mobile: [100, 100] },
+      items: [
+        { html: '<p>Column 1</p>' },
+        { html: '<p>Column 2</p>' },
+      ],
+    },
+  },
+  [BLOCK_TYPES.SPACER]: {
+    name: 'Spacer',
+    geom: { w: 400, h: 48 },
+    style: { background: 'transparent', borderWidth: 0 },
+    // Spacer height is driven entirely by the block's per-breakpoint
+    // geometry (Position panel) — no duplicate content fields.
+    content: {},
+  },
+  // Task #2558 — flow Row container. Lays its children out horizontally as
+  // columns. `content.columns` is the desired column count per breakpoint;
+  // tablet/mobile default to stacking. Widths are derived by the layout
+  // engine from each child's `flow.basis`/`flow.grow` (equal split when unset).
+  [BLOCK_TYPES.ROW]: {
+    name: 'Row',
+    geom: { w: 900, h: 200 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      columns: { desktop: 2, tablet: 2, mobile: 1 },
+      // Whether tablet/mobile collapse the row into a vertical stack.
+      stackTablet: false,
+      stackMobile: true,
+    },
+  },
+  // Task #2558 — free-position group. A cluster of children placed absolutely
+  // (by their per-breakpoint geometry) that may overlap — used to preserve
+  // heros/badges-on-images/overlapping cards when migrating v1 pages. Rigid
+  // internally, but flows as one item in its parent.
+  [BLOCK_TYPES.GROUP]: {
+    name: 'Group',
+    geom: { w: 900, h: 300 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {},
+  },
+  [BLOCK_TYPES.DIVIDER]: {
+    name: 'Divider',
+    geom: { w: 400, h: 24 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      lineStyle: 'solid', // solid | dashed | dotted
+      color: 'var(--cb-color-border, #e2e8f0)',
+      thickness: 1,
+    },
+  },
+  [BLOCK_TYPES.VERTICAL_DIVIDER]: {
+    name: 'Vertical Divider',
+    geom: { w: 24, h: 200 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      lineStyle: 'solid', // solid | dashed | dotted
+      color: 'var(--cb-color-border, #e2e8f0)',
+      thickness: 1,
+    },
+  },
+  [BLOCK_TYPES.ACCORDION]: {
+    name: 'FAQ / Accordion',
+    geom: { w: 560, h: 280 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      items: [
+        { q: 'Question one?', a: '<p>Answer one.</p>' },
+        { q: 'Question two?', a: '<p>Answer two.</p>' },
+      ],
+      expandOne: true,
+      questionFontSize: 14,
+      itemGap: 8,
+      // Task #3338: tenant typography + colour controls. Empty string means
+      // "no tenant style" so legacy blocks (questionFontSize only) render
+      // exactly as before.
+      questionTypographyStyleId: '',
+      answerTypographyStyleId: '',
+      questionColor: '',
+      answerColor: '',
+    },
+  },
+  // Advanced Accordion: each item carries an `id`, `title`, `anchor`, and a
+  // `children` array of normal canvas leaf blocks (no nested advanced accordions).
+  // `mode` controls single-open ('single') vs multi-open ('multi') behaviour.
+  // `initialId` is the item id that should start expanded ('' = all closed).
+  [BLOCK_TYPES.ADVANCED_ACCORDION]: {
+    name: 'Advanced Accordion',
+    geom: { w: 600, h: 320 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      items: [
+        {
+          id: 'adv-acc-item-1',
+          title: 'Panel one',
+          subtitle: 'Add supporting text or remove it.',
+          badge: '',
+          leadingIcon: '',
+          anchor: '',
+          children: [
+            {
+              id: 'adv-acc-item-1-text-1',
+              type: 'text',
+              name: 'Text',
+              content: { html: '<p>Content for panel one.</p>' },
+            },
+          ],
+        },
+        {
+          id: 'adv-acc-item-2',
+          title: 'Panel two',
+          subtitle: '',
+          badge: '',
+          leadingIcon: '',
+          anchor: '',
+          children: [
+            {
+              id: 'adv-acc-item-2-text-1',
+              type: 'text',
+              name: 'Text',
+              content: { html: '<p>Content for panel two.</p>' },
+            },
+          ],
+        },
+      ],
+      // multiple | single | single-required
+      mode: 'single',
+      // all-closed | first | specific | multiple
+      initialState: 'all-closed',
+      initialOpenIds: [],
+      // Legacy alias retained for early advanced-accordion drafts.
+      initialId: '',
+      indicator: 'plus-minus',
+      headingLevel: 3,
+      syncHashOnOpen: false,
+      itemGap: 8,
+      styles: {
+        itemBackground: '#ffffff',
+        itemBorderColor: '#cbd5e1',
+        itemBorderWidth: 1,
+        itemBorderRadius: 8,
+        itemShadow: 'none',
+        dividerColor: '#e2e8f0',
+        dividerWidth: 0,
+        headerClosedBackground: '#ffffff',
+        headerClosedColor: '#0f172a',
+        headerOpenBackground: '#f8fafc',
+        headerOpenColor: '#0f172a',
+        headerHoverBackground: '#f8fafc',
+        headerPaddingX: 16,
+        headerPaddingY: 14,
+        headerMinHeight: 52,
+        headerAlign: 'center',
+        titleFontSize: 16,
+        titleFontWeight: 600,
+        subtitleFontSize: 13,
+        subtitleColor: '#64748b',
+        panelBackground: '#ffffff',
+        panelColor: '#0f172a',
+        panelPaddingX: 16,
+        panelPaddingY: 16,
+        panelBorderColor: '#e2e8f0',
+        panelBorderWidth: 0,
+        childGap: 12,
+        badgeBackground: '#e2e8f0',
+        badgeColor: '#334155',
+        iconColor: '',
+        iconSize: 20,
+      },
+    },
+  },
+  [BLOCK_TYPES.TESTIMONIALS]: {
+    name: 'Testimonials',
+    geom: { w: 720, h: 280 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      layout: 'grid', // single | carousel | grid
+      items: [
+        { quote: 'A glowing review of your work.', author: 'Jane Smith', role: 'Customer', photo: '' },
+      ],
+      cardPadding: 12,
+      cardBgColor: '',
+      cardBorderColor: '',
+      quoteTypographyStyleId: '',
+      attributionTypographyStyleId: '',
+      fullBleed: false,
+    },
+  },
+  [BLOCK_TYPES.CUSTOM_HTML]: {
+    name: 'Custom HTML',
+    geom: { w: 480, h: 200 },
+    style: { background: 'transparent', borderWidth: 1, borderColor: '#facc15' },
+    content: {
+      html: '<div>Custom HTML — use at your own risk.</div>',
+      memberOnly: false,
+      guestMessage: 'Please login to view this member only content',
+    },
+  },
+  [BLOCK_TYPES.ICON]: {
+    name: 'Icon',
+    geom: { w: 64, h: 64 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      icon: 'Star',
+      color: 'var(--cb-color-primary, #0f172a)',
+      size: 48,
+      ariaLabel: '',
+    },
+  },
+  [BLOCK_TYPES.CARD]: {
+    name: 'Card',
+    geom: { w: 320, h: 380 },
+    style: { background: 'var(--cb-color-surface, #ffffff)', borderWidth: 1, borderColor: 'var(--cb-color-border, #e2e8f0)', borderRadius: 8, paddingTop: 0, paddingRight: 0, paddingBottom: 0, paddingLeft: 0 },
+    content: {
+      imageUrl: '',
+      imageAlt: '',
+      // Image layout: 'full-bleed' (legacy default — cropped header image) or
+      // 'inline' (uncropped, sized to a % of the card width and aligned).
+      imageDisplayMode: 'full-bleed',
+      imageWidthPct: 100,
+      imageAlign: 'center',
+      // Optional Font Awesome icon rendered above the heading (e.g.
+      // 'fa-solid fa-book-open'). Empty by default so existing cards are
+      // unchanged.
+      iconClass: '',
+      iconSize: 32,
+      iconAlign: 'left',
+      iconColor: '',
+      // Vertical gap (px) between the image/icon and the heading.
+      // null = "not set by author"; renderer falls back to the legacy
+      // per-element defaults (mb-2 for icon/inline, no margin for full-bleed).
+      headerSpacing: null,
+      // Vertical gaps (px) between heading → body and body → CTA.
+      // null = "not set by author"; renderer falls back to the legacy
+      // hardcoded Tailwind gaps (mt-1 = 4px and mt-2 = 8px respectively)
+      // so existing cards render pixel-identical.
+      headingBodySpacing: null,
+      bodyCtaSpacing: null,
+      heading: 'Card heading',
+      headingLevel: 3,
+      body: '<p>A short description for this card.</p>',
+      // Optional tenant typography style for the body rich text. Empty =
+      // legacy prose styling (matches headingTypographyStyleId semantics).
+      bodyTypographyStyleId: '',
+      contentPadding: 16,
+      // CTA is shown by default so existing cards (which always rendered the
+      // CTA when a label was present) are unchanged.
+      ctaEnabled: true,
+      ctaLabel: 'Learn more',
+      ctaHref: '#',
+      ctaVariant: 'outline',
+      ctaAlign: 'left',
+      // Icon-only CTA mode (Task #3174), mirroring the Button block's
+      // Task #3167 fields. Defaults off; render paths gate on `=== true`
+      // so existing cards are untouched. `ctaIcon` accepts a Lucide name
+      // or a Font Awesome class string.
+      ctaIconOnly: false,
+      ctaIconShape: 'square', // square | circle
+      ctaIcon: '',
+      ctaAriaLabel: '',
+      // Drop shadow ('none' | 'sm' | 'md' | 'lg') + optional highlight ring.
+      shadow: 'none',
+      highlight: false,
+      highlightColor: '#3b82f6',
+    },
+  },
+  [BLOCK_TYPES.STAT]: {
+    name: 'Stat',
+    geom: { w: 240, h: 140 },
+    style: {
+      background: '#ffffff',
+      borderColor: '#f3f4f6',
+      borderWidth: 1,
+      borderStyle: 'solid',
+      borderRadius: 12,
+      paddingTop: 16,
+      paddingRight: 16,
+      paddingBottom: 16,
+      paddingLeft: 16,
+    },
+    content: {
+      value: '2,500+',
+      label: 'Members',
+      color: '#ea7f21',
+      labelColor: '',
+      valueFontSize: 30,
+      labelFontSize: 14,
+      // Horizontal alignment inside the block box ('left' | 'center' |
+      // 'right'). Absent/'center' keeps the legacy centered layout.
+      align: 'center',
+      // Optional tenant typography styles for the value and label. Empty =
+      // legacy manual px/colour fields (which the inspector hides while a
+      // style is selected, matching the Card heading/body convention).
+      valueTypographyStyleId: '',
+      labelTypographyStyleId: '',
+      // Counter animation: when `animate` is true the value's numeric
+      // portion counts up from zero to the target on first scroll into
+      // view. Non-numeric prefix/suffix (e.g. "$", "+", "K") are
+      // preserved and the thousands-separator pattern from the saved
+      // value is re-applied to each intermediate frame.
+      animate: false,
+      animationDurationMs: 1500,
+    },
+  },
+  [BLOCK_TYPES.LOGO_STRIP]: {
+    name: 'Logo strip',
+    geom: { w: 720, h: 100 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      logos: [
+        { src: '', alt: '', href: '' },
+        { src: '', alt: '', href: '' },
+        { src: '', alt: '', href: '' },
+      ],
+      gap: 32,
+      grayscale: true,
+    },
+  },
+  [BLOCK_TYPES.PRICING_TABLE]: {
+    name: 'Pricing table',
+    geom: { w: 960, h: 520 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      heading: 'Pricing',
+      headingLevel: 2,
+      subheading: 'Simple, transparent pricing that scales with you.',
+      billingToggle: false,
+      defaultBilling: 'monthly', // monthly | annual
+      monthlyLabel: 'Monthly',
+      annualLabel: 'Annual',
+      annualNote: 'Save 2 months',
+      columns: { desktop: 3, tablet: 2, mobile: 1 },
+      gap: 16,
+      recommendedBadgeLabel: 'Most popular',
+      // Tenant typography controls (heading / sub-heading / card content).
+      // Empty/null defaults keep existing blocks visually identical — when no
+      // style id or size/colour override is set the renderer falls back to the
+      // legacy hardcoded styling, so saved blocks render unchanged.
+      headingTypographyStyleId: '',
+      headingFontSize: null,
+      headingColor: '',
+      subheadingTypographyStyleId: '',
+      subheadingFontSize: null,
+      subheadingColor: '',
+      cardTypographyStyleId: '',
+      cardFontSize: null,
+      cardColor: '',
+      // Feature glyph colours. Empty defaults preserve the legacy look:
+      // tick uses the primary CSS var, cross uses the muted CSS var.
+      tickColor: '',
+      crossColor: '',
+      tiers: [
+        {
+          name: 'Starter',
+          monthlyPrice: '£0',
+          annualPrice: '£0',
+          period: '/month',
+          description: 'For trying things out.',
+          features: [
+            { text: 'Up to 25 members', included: true, tooltip: '' },
+            { text: 'Email support', included: true, tooltip: '' },
+            { text: 'Basic reporting', included: true, tooltip: '' },
+            { text: 'Custom domain', included: false, tooltip: 'Available on Growth and above' },
+          ],
+          ctaLabel: 'Get started',
+          ctaHref: '#',
+          ctaVariant: 'outline',
+          recommended: false,
+        },
+        {
+          name: 'Growth',
+          monthlyPrice: '£29',
+          annualPrice: '£290',
+          period: '/month',
+          description: 'For growing organisations.',
+          features: [
+            { text: 'Up to 500 members', included: true, tooltip: '' },
+            { text: 'Workflows & automations', included: true, tooltip: '' },
+            { text: 'Priority support', included: true, tooltip: '' },
+            { text: 'Custom domain', included: true, tooltip: '' },
+          ],
+          ctaLabel: 'Choose Growth',
+          ctaHref: '#',
+          ctaVariant: 'primary',
+          recommended: true,
+        },
+        {
+          name: 'Pro',
+          monthlyPrice: '£79',
+          annualPrice: '£790',
+          period: '/month',
+          description: 'For established teams.',
+          features: [
+            { text: 'Unlimited members', included: true, tooltip: '' },
+            { text: 'Custom domain', included: true, tooltip: '' },
+            { text: 'Dedicated success manager', included: true, tooltip: '' },
+            { text: 'SSO / SAML', included: true, tooltip: 'Single sign-on via SAML 2.0' },
+          ],
+          ctaLabel: 'Choose Pro',
+          ctaHref: '#',
+          ctaVariant: 'outline',
+          recommended: false,
+        },
+      ],
+    },
+  },
+  [BLOCK_TYPES.DATA_TABLE]: {
+    name: 'Table',
+    geom: { w: 720, h: 180 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      columns: [
+        { id: 'col-name', heading: 'Name' },
+        { id: 'col-detail', heading: 'Detail' },
+      ],
+      rows: [
+        { id: 'row-1', cells: { 'col-name': 'Example', 'col-detail': 'Add your table data in the inspector.' } },
+      ],
+      headerTypographyStyleId: '',
+      bodyTypographyStyleId: '',
+    },
+  },
+  [BLOCK_TYPES.TESTIMONIAL_GRID]: {
+    name: 'Testimonial grid',
+    geom: { w: 960, h: 480 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      heading: 'What our customers say',
+      headingLevel: 2,
+      headingTypographyStyleId: '',
+      quoteTypographyStyleId: '',
+      attributionTypographyStyleId: '',
+      columns: { desktop: 3, tablet: 2, mobile: 1 },
+      gap: 16,
+      fullBleed: false,
+      innerPaddingTop: 0,
+      innerPaddingRight: 0,
+      innerPaddingBottom: 0,
+      innerPaddingLeft: 0,
+      items: [
+        {
+          quote: 'Switching saved us hours every single week. The team is happier and our members notice the difference.',
+          author: 'Alex Morgan',
+          role: 'Operations Lead',
+          company: 'Acme Co.',
+          avatarUrl: '',
+          avatarAlt: '',
+          companyLogoUrl: '',
+          companyLogoAlt: '',
+        },
+        {
+          quote: 'The page builder is genuinely a joy to use. We launched our new site in an afternoon.',
+          author: 'Priya Shah',
+          role: 'Marketing Director',
+          company: 'Bright Foundation',
+          avatarUrl: '',
+          avatarAlt: '',
+          companyLogoUrl: '',
+          companyLogoAlt: '',
+        },
+        {
+          quote: 'Best investment we made this year. Support is fast and the product keeps getting better.',
+          author: 'Sam Okafor',
+          role: 'Membership Manager',
+          company: 'Northwind Society',
+          avatarUrl: '',
+          avatarAlt: '',
+          companyLogoUrl: '',
+          companyLogoAlt: '',
+        },
+      ],
+    },
+  },
+  [BLOCK_TYPES.MAP]: {
+    name: 'Map',
+    geom: { w: 480, h: 320 },
+    style: { background: '#e2e8f0', borderWidth: 0, borderRadius: 8 },
+    content: {
+      query: 'London, UK',
+      zoom: 12,
+      title: 'Location',
+    },
+  },
+  [BLOCK_TYPES.NEWS_TICKER]: {
+    name: 'News Ticker',
+    geom: { w: 720, h: 48 },
+    style: { background: 'transparent', borderWidth: 0, borderRadius: 4 },
+    content: {
+      // Free-form text items typed by the editor (NOT linked to news
+      // articles — that's the portal-wide NewsTickerBar's job).
+      items: [
+        { text: 'Welcome — share your latest announcement here.' },
+        { text: 'Add, edit, reorder, or remove items in the Inspector.' },
+        { text: 'Switch between cycling and scrolling display modes.' },
+      ],
+      label: 'Latest:',
+      mode: 'cycling', // cycling | scrolling
+      // Cycling: seconds each item is shown. Scrolling: seconds per item
+      // as it travels across the bar (drives marquee duration).
+      intervalSeconds: 5,
+      // Defaults echo the portal ticker's purple bar.
+      backgroundColor: '#9333ea',
+      textColor: '#ffffff',
+      fullBleed: false,
+    },
+  },
+  [BLOCK_TYPES.MEGA_MENU]: {
+    name: 'Mega Menu',
+    geom: { w: 960, h: 56 },
+    style: { background: 'transparent', borderWidth: 0, borderRadius: 4 },
+    content: {
+      // A manually-built navigation bar placed on a specific page. Fully
+      // independent of the site-wide portal navigation (navigation_item /
+      // PublicHeader.jsx). Each top-level item is either a plain link (uses
+      // `href`) or opens a rich dropdown panel built from `columns` and/or a
+      // featured block. All links are typed URLs.
+      align: 'left', // left | center | right
+      fullBleed: false,
+      barBackgroundColor: '#ffffff',
+      barTextColor: '#0f172a',
+      panelBackgroundColor: '#ffffff',
+      panelTextColor: '#0f172a',
+      accentColor: '#9333ea',
+      labelFontSize: 14,
+      items: [
+        {
+          label: 'Home',
+          hasPanel: false,
+          href: '/Home',
+          openInNewTab: false,
+          columns: [],
+          featuredImage: '',
+          featuredAlt: '',
+          featuredTitle: '',
+          featuredText: '',
+          featuredHref: '',
+          featuredOpenInNewTab: false,
+        },
+        {
+          label: 'Products',
+          hasPanel: true,
+          href: '',
+          openInNewTab: false,
+          columns: [
+            {
+              heading: 'Popular',
+              links: [
+                { label: 'Overview', href: '/products', description: 'See everything we offer', openInNewTab: false },
+                { label: 'Pricing', href: '/pricing', description: 'Plans for every team', openInNewTab: false },
+              ],
+            },
+            {
+              heading: 'Resources',
+              links: [
+                { label: 'Guides', href: '/guides', description: 'Step-by-step help', openInNewTab: false },
+                { label: 'Blog', href: '/blog', description: 'News and updates', openInNewTab: false },
+              ],
+            },
+          ],
+          featuredImage: '',
+          featuredAlt: '',
+          featuredTitle: 'Featured',
+          featuredText: 'Highlight something special here.',
+          featuredHref: '',
+          featuredOpenInNewTab: false,
+        },
+        {
+          label: 'Contact',
+          hasPanel: false,
+          href: '/Contact',
+          openInNewTab: false,
+          columns: [],
+          featuredImage: '',
+          featuredAlt: '',
+          featuredTitle: '',
+          featuredText: '',
+          featuredHref: '',
+          featuredOpenInNewTab: false,
+        },
+      ],
+    },
+  },
+  [BLOCK_TYPES.COUNTDOWN]: {
+    name: 'Countdown',
+    geom: { w: 480, h: 160 },
+    style: { background: 'transparent', borderWidth: 0, borderRadius: 8 },
+    content: {
+      // ISO-ish local datetime string (value of an <input type="datetime-local">),
+      // e.g. "2026-12-31T23:59". Interpreted in the viewer's local timezone,
+      // matching how the inspector's datetime-local input captures it.
+      targetDate: '',
+      // Optional link to an event. When set, the target is read from the
+      // event's start_date instead of the manual targetDate above, keeping the
+      // countdown accurate if the event date changes. eventSlug is preferred
+      // (public-stable); eventId is the legacy fallback.
+      eventSlug: '',
+      eventId: '',
+      showDays: true,
+      showHours: true,
+      showMinutes: true,
+      showSeconds: true,
+      daysLabel: 'Days',
+      hoursLabel: 'Hours',
+      minutesLabel: 'Minutes',
+      secondsLabel: 'Seconds',
+      finishedMessage: "Time's up!",
+      alignment: 'center',
+      // Visual preset for the units: 'plain' renders bare numbers + labels;
+      // 'boxed' wraps each unit in a card using shared block tokens. Existing
+      // countdowns (no value persisted) fall back to 'plain' — no visual change.
+      presetStyle: 'plain',
+      // Show ':' colon separators between adjacent units.
+      showSeparators: false,
+      numberColor: 'var(--cb-color-primary, #0f172a)',
+      labelColor: '',
+      // Boxed preset: background + border of each unit card. Empty strings fall
+      // back to shared block tokens so tenant branding flows through.
+      boxBackground: '',
+      boxBorderColor: '',
+      numberFontSize: 40,
+      labelFontSize: 13,
+    },
+  },
+  // ---- Dynamic blocks ----
+  [BLOCK_TYPES.EVENT_LIST]: {
+    name: 'Event list',
+    geom: { w: 800, h: 520 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      title: 'Upcoming events',
+      headingLevel: 2,
+      limit: 6,
+      filter: 'upcoming', // upcoming | past | all
+      featuredOnly: false,
+      programTag: '',
+      sortBy: 'start-asc',
+      columns: { desktop: 3, tablet: 2, mobile: 1 },
+      gap: 16,
+      ctaLabel: 'View details',
+      emptyText: 'No upcoming events to show yet.',
+    },
+  },
+  [BLOCK_TYPES.EVENT_TEASER]: {
+    name: 'Event teaser',
+    geom: { w: 520, h: 320 },
+    style: { background: '#ffffff', borderWidth: 1, borderRadius: 8 },
+    content: {
+      eventId: '',
+      eventSlug: '',
+      showImage: true,
+      showSummary: true,
+      showCta: true,
+      ctaLabel: 'Find out more',
+    },
+  },
+  [BLOCK_TYPES.EVENT_REGISTRATION]: {
+    name: 'Event Registration',
+    geom: { w: 800, h: 900 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      eventType: 'simple',
+      eventId: '',
+      eventSlug: '',
+    },
+  },
+  [BLOCK_TYPES.EVENT_SESSIONS]: {
+    name: 'Event sessions',
+    geom: { w: 800, h: 600 },
+    style: { background: '#ffffff', borderWidth: 1, borderRadius: 8 },
+    content: {
+      eventId: '',
+      emptyText: 'No sessions have been published for this event yet.',
+    },
+  },
+  [BLOCK_TYPES.EVENT_CAROUSEL]: {
+    name: 'Event carousel',
+    geom: { w: 800, h: 400 },
+    style: { background: '#ffffff', borderWidth: 1, borderRadius: 8 },
+    content: {
+      eventIds: [],
+      ctaLabel: 'Find out more',
+      showSummary: true,
+      showDate: true,
+      imageSide: 'left',
+      imageAspect: '4/3',
+      autoplay: false,
+      autoplayMs: 5000,
+      showArrows: true,
+      showIndicators: true,
+      emptyText: 'Pick one or more events in the inspector.',
+    },
+  },
+  [BLOCK_TYPES.SPEAKER_CAROUSEL]: {
+    name: 'Speaker carousel',
+    geom: { w: 800, h: 420 },
+    style: { background: '#ffffff', borderWidth: 1, borderRadius: 8 },
+    content: {
+      eventId: '',
+      ctaLabel: 'See all speakers',
+      ctaMode: 'popup',
+      ctaHref: '',
+      speakersPerView: 1, // Scalar default; also accepts desktop/tablet/mobile overrides.
+      showJobTitle: true,
+      showOrganization: true,
+      autoplay: true,
+      autoplayMs: 5000,
+      showArrows: true,
+      showIndicators: true,
+      transition: 'slide',
+      transitionMs: 400,
+      pauseOnHover: false,
+      emptyText: 'Pick an event with assigned speakers in the inspector.',
+    },
+  },
+  [BLOCK_TYPES.SPEAKER_GRID]: {
+    name: 'Speaker grid',
+    geom: { w: 800, h: 520 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      eventId: '',
+      columns: { desktop: 4, tablet: 2, mobile: 1 },
+      gap: 16,
+      paginate: false,
+      rowsPerPage: 2,
+      showJobTitle: true,
+      showOrganization: true,
+      emptyText: 'Pick an event with assigned speakers in the inspector.',
+    },
+  },
+  [BLOCK_TYPES.SPONSOR_GRID]: {
+    name: 'Sponsor grid',
+    geom: { w: 800, h: 520 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      eventId: '',
+      categoryIds: [],
+      categoryOrder: [],
+      columns: { desktop: 4, tablet: 2, mobile: 1 },
+      gap: 16,
+      showDescription: true,
+      showSponsorDetail: false,
+      showCategoryHeadings: true,
+      centerAlign: false,
+      emptyText: 'Pick an event with assigned sponsors in the inspector.',
+      emptyCatMessage: '',
+      emptyCatCtaLabel: '',
+      emptyCatCtaHref: '',
+    },
+  },
+  [BLOCK_TYPES.SPONSOR_CAROUSEL]: {
+    name: 'Sponsor carousel',
+    geom: { w: 800, h: 420 },
+    style: { background: '#ffffff', borderWidth: 1, borderRadius: 8 },
+    content: {
+      eventId: '',
+      categoryIds: [],
+      sponsorsPerView: 3,
+      gap: 16,
+      innerPaddingTop: 16,
+      innerPaddingRight: 32,
+      innerPaddingBottom: 16,
+      innerPaddingLeft: 32,
+      showDescription: true,
+      showSponsorDetail: false,
+      autoplay: true,
+      autoplayMs: 5000,
+      showArrows: true,
+      showIndicators: true,
+      transition: 'slide',
+      transitionMs: 400,
+      pauseOnHover: false,
+      centerAlign: false,
+      fullBleed: false,
+      emptyText: 'Pick an event with assigned sponsors in the inspector.',
+      emptyCatMessage: '',
+      emptyCatCtaLabel: '',
+      emptyCatCtaHref: '',
+    },
+  },
+  [BLOCK_TYPES.DIRECTORY_CAROUSEL]: {
+    name: 'Directory carousel',
+    geom: { w: 800, h: 420 },
+    style: { background: '#ffffff', borderWidth: 1, borderRadius: 8 },
+    content: {
+      directorySlug: '',
+      title: '',
+      headingLevel: 2,
+      perView: 3,
+      gap: 16,
+      innerPaddingTop: 16,
+      innerPaddingRight: 32,
+      innerPaddingBottom: 16,
+      innerPaddingLeft: 32,
+      showDescription: true,
+      showDetails: true,
+      showWebsite: true,
+      websiteNewTab: true,
+      randomiseOrder: false,
+      autoplay: true,
+      autoplayMs: 5000,
+      showArrows: true,
+      showIndicators: true,
+      transition: 'slide',
+      transitionMs: 400,
+      pauseOnHover: false,
+      centerAlign: false,
+      fullBleed: false,
+      nameFontSize: null,
+      descFontSize: null,
+      emptyText: 'No organisations to show yet.',
+    },
+  },
+  [BLOCK_TYPES.ARTICLE_LIST]: {
+    name: 'Article / news list',
+    geom: { w: 800, h: 520 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      title: 'Latest articles',
+      headingLevel: 2,
+      source: 'articles', // articles | news
+      limit: 6,
+      tag: '',
+      columns: { desktop: 3, tablet: 2, mobile: 1 },
+      gap: 16,
+      showSummary: true,
+      showImage: true,
+      emptyText: 'No articles yet.',
+    },
+  },
+  [BLOCK_TYPES.RESOURCE_LIST]: {
+    name: 'Resource list',
+    geom: { w: 800, h: 520 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      title: 'Resources',
+      headingLevel: 2,
+      limit: 6,
+      paginate: false,
+      searchEnabled: false,
+      searchPlaceholder: 'Search resources…',
+      resourceType: '',
+      tag: '',
+      columns: { desktop: 3, tablet: 2, mobile: 1 },
+      gap: 16,
+      // Card corner radius in px (0–40, clamped at render time). 0 keeps
+      // the historical square resource cards, so legacy pages without the
+      // key render byte-identically.
+      cardBorderRadius: 0,
+      emptyText: 'No resources available.',
+      cardTitleTypographyStyleId: '',
+      cardDescriptionTypographyStyleId: '',
+      ctaVariant: 'outline',
+      ctaAlign: 'left',
+    },
+  },
+  [BLOCK_TYPES.RESOURCE_SHOWCASE]: {
+    // Cards-only equivalent of the iEdit "Resources Showcase" element: just
+    // the Showcase card grid (no background/header/subheader text — those are
+    // added with separate blocks), with the full set of card controls shared
+    // with the article/news list block.
+    name: 'Resource showcase',
+    geom: { w: 800, h: 460 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      // Keep the established filtered-and-sorted resource feed as the default.
+      // `resourceIds` retains a manual selection when an author switches back
+      // and forth between source modes.
+      sourceMode: 'automatic',
+      resourceIds: [],
+      limit: 3,
+      resourceType: '',
+      tag: '',
+      columns: { desktop: 3, tablet: 2, mobile: 1 },
+      gap: 24,
+      sortBy: 'date-desc',
+      emptyText: 'No resources available.',
+    },
+  },
+  [BLOCK_TYPES.FEATURED_JOB]: {
+    // Exact mirror of the iEdit "Featured Job" element: the canvas block
+    // renders the same IEditFeaturedJobElement component and reuses its
+    // editor as the inspector, so content keys/defaults are identical to
+    // iEdit (header_label, main_heading, gradient_*, job_title_*, etc.).
+    // Defaults intentionally live in the component, matching iEdit where
+    // an empty content object renders the full default design.
+    // `fullBleed` is the one canvas-specific key: it pushes the element's
+    // background to the viewport edges while the inner content rail stays
+    // constrained, like other full-bleed blocks.
+    name: 'Featured job',
+    geom: { w: 1100, h: 550 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: { fullBleed: false },
+  },
+  [BLOCK_TYPES.FORM_EMBED]: {
+    name: 'Form embed',
+    geom: { w: 640, h: 480 },
+    style: { background: 'transparent', borderWidth: 0 },
+    // fullBleed defaults to false and bgType to 'color' so existing form
+    // embeds (which carry none of these fields) render byte-identically to
+    // today: transparent background, no full-bleed. The overlay/gradient
+    // fields mirror the Section element's background schema and are only
+    // consulted when bgType is 'image'/'gradient' respectively. As with
+    // Section, `gradientStops` is deliberately NOT seeded here.
+    content: {
+      formSlug: '',
+      mode: 'inline', // inline | iframe | link
+      title: '',
+      ctaLabel: 'Open form',
+      fullBleed: false,
+      bgType: 'color',
+      bgImageUrl: '',
+      overlayType: 'solid',
+      overlayBlendMode: 'normal',
+      overlayColor: '#000000',
+      overlayOpacity: 0.4,
+      overlayFromColor: '#000000',
+      overlayFromOpacity: 0.6,
+      overlayToColor: '#000000',
+      overlayToOpacity: 0,
+      overlayAngle: 180,
+      overlayCenterColor: '#000000',
+      overlayCenterOpacity: 0,
+      overlayEdgeColor: '#000000',
+      overlayEdgeOpacity: 0.6,
+      fontFamily: '', // unset = embedded form's default typography
+      fontSize: null, // unset = embedded form's default base text size (px)
+    },
+  },
+  [BLOCK_TYPES.CAMPAIGN_EMBED]: {
+    name: 'Fundraising campaign',
+    geom: { w: 560, h: 380 },
+    style: { background: '#ffffff', borderWidth: 1, borderRadius: 8 },
+    content: {
+      campaignSlug: '',
+      showProgress: true,
+      showImage: true,
+      ctaLabel: 'Donate now',
+    },
+  },
+  [BLOCK_TYPES.MEMBER_DIRECTORY_EMBED]: {
+    name: 'Member directory',
+    geom: { w: 800, h: 520 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      directorySlug: '',
+      title: 'Member directory',
+      headingLevel: 2,
+      limit: 12,
+      sort: 'name-asc',
+      columns: { desktop: 3, tablet: 2, mobile: 1 },
+      gap: 16,
+      showPhoto: true,
+      showJobTitle: true,
+      ctaLabel: 'View directory',
+      emptyText: 'No members to show yet.',
+    },
+  },
+  [BLOCK_TYPES.DYNAMIC_DIRECTORY_EMBED]: {
+    name: 'Dynamic directory',
+    geom: { w: 800, h: 520 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      directorySlug: '',
+      title: '',
+      headingLevel: 2,
+      limit: 12,
+      sort: 'name-asc',
+      columns: { desktop: 3, tablet: 2, mobile: 1 },
+      gap: 16,
+      showPhoto: true,
+      ctaLabel: 'View full directory',
+      emptyText: 'No records to show yet.',
+    },
+  },
+  [BLOCK_TYPES.MEMBER_GROUP]: {
+    name: 'Member Group',
+    geom: { w: 800, h: 620 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      groupId: '',
+      roleFilter: [],
+      showMembers: true,
+      showGroupName: true,
+      showGroupDescription: true,
+      headingLevel: 2,
+      rows: 2,
+      columns: { desktop: 3, tablet: 2, mobile: 1 },
+      gap: 16,
+      emptyText: 'No group members to show yet.',
+    },
+  },
+  [BLOCK_TYPES.MEMBER_GROUP_CARDS]: {
+    name: 'Member Group Cards',
+    geom: { w: 800, h: 760 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      limit: 6,
+      source: 'self_join',
+      columns: { ...DEFAULT_MEMBER_GROUP_CARD_COLUMNS },
+      selectedGroupIds: [],
+      selectedGroupRoles: {},
+    },
+  },
+  [BLOCK_TYPES.CARD_DECK]: {
+    name: 'Card deck',
+    geom: { w: 800, h: 520 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      cardIds: [],
+      title: '',
+      headingLevel: 2,
+      columns: { desktop: 3, tablet: 2, mobile: 1 },
+      gap: 24,
+      showImage: true,
+      showDescription: true,
+      showButton: true,
+      emptyText: 'Select cards in the inspector.',
+    },
+  },
+  [BLOCK_TYPES.WALL_OF_FAME]: {
+    name: 'Wall of Fame',
+    geom: { w: 800, h: 560 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      sectionId: '',
+      categoryId: null,
+      columns: { desktop: 3, tablet: 2, mobile: 1 },
+      gap: 24,
+      showPhoto: true,
+      showJobTitle: true,
+      showBioSnippet: false,
+      fullBleed: false,
+      emptyText: 'Select a Wall of Fame section in the inspector.',
+    },
+  },
+  [BLOCK_TYPES.GALLERY]: {
+    name: 'Photo Gallery',
+    geom: { w: 800, h: 560 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      gallerySlug: '',
+      heading: '',
+      headingLevel: 2,
+      displayMode: 'grid',
+      columns: { desktop: 3, tablet: 2, mobile: 1 },
+      gap: 16,
+      pageSize: 12,
+      emptyText: 'Select a photo gallery in the inspector.',
+    },
+  },
+  // Card Flip Grid — a static, inline-authored block (cards live in
+  // block.content, like Hero CTAs; never fetched from a data source). Each
+  // card flips on click to reveal its back text, mirroring the Wall of Fame
+  // 3D flip. `columns` × `rowsPerPage` drives pagination; `shape` is
+  // square | rectangular | circular, and `cardHeight` only applies when
+  // shape === 'rectangular' (square/circular cards are 1:1).
+  [BLOCK_TYPES.CARD_FLIP_GRID]: {
+    name: 'Card Flip Grid',
+    geom: { w: 800, h: 520 },
+    style: { background: 'transparent', borderWidth: 0 },
+    content: {
+      cards: [
+        { image: '', imageAlt: '', title: 'Card one', summary: 'A short summary shown on the back of the card.', content: '<p>The full content for the first card. Add rich text here, then it shows in a pop-up when the visitor clicks View more.</p>', backText: '' },
+        { image: '', imageAlt: '', title: 'Card two', summary: 'A short summary shown on the back of the card.', content: '<p>The full content for the second card.</p>', backText: '' },
+        { image: '', imageAlt: '', title: 'Card three', summary: 'A short summary shown on the back of the card.', content: '<p>The full content for the third card.</p>', backText: '' },
+      ],
+      columns: { desktop: 3, tablet: 2, mobile: 1 },
+      rowsPerPage: 2,
+      gap: 16,
+      shape: 'square', // square | rectangular | circular
+      cardHeight: 320, // only used when shape === 'rectangular'
+      cornerRadius: 8, // px; ignored when shape === 'circular' (forced round)
+      flipDuration: 0.7, // seconds for the flip animation
+      titleColor: '#ffffff',
+      titleSize: 16, // px; front title font size
+      titleTypographyStyleId: '', // optional tenant typography style for the front title font
+      titlePosition: 'on', // on | above | below — where the front title sits relative to the image (works for all shapes, including circular)
+      titleAlignment: 'left', // left | center | right — horizontal alignment of the front title in every position/shape
+      summaryTypographyStyleId: '', // optional tenant typography style for the back summary
+      showTitleOverlay: true, // hide to drop the gradient behind the title (only applies when titlePosition === 'on')
+      overlayStrength: 0.72, // 0-1 opacity of the front overlay wash
+      overlayColor: '#000000', // colour of the front overlay gradient (fades to transparent)
+      overlayStyle: 'fade', // fade = gradient to transparent | solid = full coverage uniform wash
+      backBgType: 'color', // color | gradient
+      backBgColor: 'var(--cb-color-surface, #ffffff)',
+      // Gradient back: only consulted when backBgType === 'gradient'. Kept on
+      // dedicated back* keys so they never collide with the solid backBgColor.
+      backGradientType: 'linear', // linear | radial
+      backGradientFromColor: '#3b82f6',
+      backGradientToColor: '#1e3a8a',
+      backGradientAngle: 180, // deg; linear only
+      backTextColor: 'var(--cb-color-on-surface, #0f172a)',
+    },
+  },
+};
+
+BLOCK_DEFAULTS[BLOCK_TYPES.SYMBOL] = {
+  name: 'Symbol',
+  geom: { w: 600, h: 240 },
+  style: { background: 'transparent', borderWidth: 0 },
+  content: { symbolId: '', symbolName: '' },
+};
+
+// Login form block: fixed 448×520 card — position-only (no resize handles).
+BLOCK_DEFAULTS[BLOCK_TYPES.LOGIN_FORM] = {
+  name: 'Login Form',
+  geom: { w: 448, h: 520 },
+  style: { background: 'transparent', borderWidth: 0 },
+  content: {},
+};
+
+// Search input block: a styled search field that reuses the public search
+// endpoint. Renders identically in the editor preview and the published page.
+// `includeOutsideMicrosite` only takes effect on microsite pages (default ON =
+// tenant-wide results; OFF = results limited to the current microsite).
+BLOCK_DEFAULTS[BLOCK_TYPES.SEARCH_INPUT] = {
+  name: 'Search Input',
+  geom: { w: 360, h: 48 },
+  style: { background: 'transparent', borderWidth: 0, borderRadius: 8 },
+  content: {
+    placeholder: 'Search…',
+    size: 'md', // sm | md | lg
+    backgroundColor: '#ffffff',
+    textColor: '#0f172a',
+    borderColor: '#cbd5e1',
+    borderWidth: 1,
+    showIcon: true,
+    includeOutsideMicrosite: true,
+  },
+};
+
+// AI Composition block (Task #2849): renders a server-generated, strictly
+// schema-validated AI Composition document. `compositionId` is empty until
+// the author generates a draft in the inspector and inserts it. The block is
+// auto-height (see AUTO_HEIGHT_LEAF_TYPES) so the composition's rendered
+// content drives its footprint in the parent canvas flow.
+BLOCK_DEFAULTS[BLOCK_TYPES.AI_COMPOSITION] = {
+  name: 'AI Composition',
+  geom: { w: 800, h: 320 },
+  style: { background: 'transparent', borderWidth: 0 },
+  content: { compositionId: '' },
+};
+
+// AI Design Studio V2 (Task #2904): native HTML/CSS/SVG code package rendered
+// verbatim inside a [data-ai-composition="uuid"] wrapper. The document is
+// sanitised + CSS-scoped server-side (aiCodePipeline.js) before it is ever
+// stored; the client injects it as-is and never re-processes it.
+BLOCK_DEFAULTS[BLOCK_TYPES.AI_CODE_COMPOSITION] = {
+  name: 'AI Composition (V2)',
+  geom: { w: 800, h: 320 },
+  style: { background: 'transparent', borderWidth: 0 },
+  content: { compositionId: '' },
+};
+
+// Hero Carousel block: slide-based hero with per-slide backgrounds, overlays,
+// rich-text headings, CTA buttons, and configurable carousel playback.
+BLOCK_DEFAULTS[BLOCK_TYPES.HERO_CAROUSEL] = {
+  name: 'Hero Carousel',
+  geom: { w: 800, h: 500 },
+  style: { background: 'var(--cb-color-primary, #0f172a)', borderWidth: 0, borderRadius: 0 },
+  content: {
+    slides: [
+      {
+        id: 'slide-default-1',
+        headerText: '<p>Your Heading Here</p>',
+        subheadingText: '',
+        contentText: '',
+        ctaText: '',
+        ctaLink: '',
+        ctaStyle: '',
+        ctaAlign: '',
+        backgroundImage: '',
+        foregroundImage: '',
+        foregroundAlign: 'center',
+        overlayColor: '#000000',
+        overlayOpacity: 40,
+        imageFit: 'cover',
+      },
+    ],
+    header_font_family: 'Poppins',
+    header_font_size: 48,
+    header_color: 'var(--cb-color-on-primary, #ffffff)',
+    header_font_weight: 700,
+    header_letter_spacing: 0,
+    header_line_height: 1.2,
+    subheading_font_family: 'Poppins',
+    subheading_font_size: 24,
+    subheading_color: 'var(--cb-color-on-primary, #ffffff)',
+    subheading_font_weight: 400,
+    subheading_letter_spacing: 0,
+    subheading_line_height: 1.5,
+    content_font_family: 'Poppins',
+    content_font_size: 16,
+    content_color: 'var(--cb-color-on-primary, #ffffff)',
+    content_font_weight: 400,
+    content_letter_spacing: 0,
+    content_line_height: 1.6,
+    text_alignment: 'center',
+    height_type: 'custom',
+    custom_height: 500,
+    auto_min_height: 400,
+    // Aspect mode ('aspect'): height follows the tallest slide image's
+    // intrinsic aspect ratio at the rendered width. Optional clamps keep
+    // extreme ratios sane; 0 = no clamp.
+    aspect_min_height: 200,
+    aspect_max_height: 0,
+    // Natural w/h of the tallest slide image, persisted by the editor so the
+    // public first paint reserves the correct aspect height before any image
+    // loads (Task #2826). null = unknown (falls back to min-height placeholder).
+    aspect_ratio_w: null,
+    aspect_ratio_h: null,
+    padding_vertical: 60,
+    padding_horizontal: 16,
+    text_offset_x: 0,
+    text_offset_y: 0,
+    autoplayInterval: 5,
+    transitionEffect: 'fade',
+    transitionDuration: 700,
+    pauseOnHover: true,
+    showArrows: true,
+    showDots: true,
+    fullBleed: false,
+  },
+};
+
+// Task #2836 — phone-specific companion block. Identical content model to
+// HERO_CAROUSEL (shared renderer/inspector in mobile-variant mode, shared
+// validateBlock case) but with mobile-tuned typography/spacing defaults and
+// per-breakpoint visibility defaults (`bp`): hidden on desktop + tablet,
+// explicitly visible on mobile (the explicit mobile `hidden:false` is
+// required because resolveBlockAtBreakpoint cascades tablet -> mobile).
+BLOCK_DEFAULTS[BLOCK_TYPES.HERO_CAROUSEL_MOBILE] = {
+  name: 'Hero Carousel (Mobile)',
+  geom: { w: 375, h: 420 },
+  style: { background: 'var(--cb-color-primary, #0f172a)', borderWidth: 0, borderRadius: 0 },
+  bp: {
+    desktop: { hidden: true },
+    tablet: { hidden: true },
+    mobile: { hidden: false },
+  },
+  content: {
+    slides: [
+      {
+        id: 'slide-default-1',
+        headerText: '<p>Your Heading Here</p>',
+        subheadingText: '',
+        contentText: '',
+        ctaText: '',
+        ctaLink: '',
+        ctaStyle: '',
+        ctaAlign: '',
+        backgroundImage: '',
+        foregroundImage: '',
+        foregroundAlign: 'center',
+        overlayColor: '#000000',
+        overlayOpacity: 40,
+        imageFit: 'cover',
+      },
+    ],
+    header_font_family: 'Poppins',
+    header_font_size: 28,
+    header_color: 'var(--cb-color-on-primary, #ffffff)',
+    header_font_weight: 700,
+    header_letter_spacing: 0,
+    header_line_height: 1.2,
+    subheading_font_family: 'Poppins',
+    subheading_font_size: 18,
+    subheading_color: 'var(--cb-color-on-primary, #ffffff)',
+    subheading_font_weight: 400,
+    subheading_letter_spacing: 0,
+    subheading_line_height: 1.5,
+    content_font_family: 'Poppins',
+    content_font_size: 14,
+    content_color: 'var(--cb-color-on-primary, #ffffff)',
+    content_font_weight: 400,
+    content_letter_spacing: 0,
+    content_line_height: 1.6,
+    text_alignment: 'center',
+    height_type: 'custom',
+    custom_height: 420,
+    auto_min_height: 320,
+    aspect_min_height: 200,
+    aspect_max_height: 0,
+    aspect_ratio_w: null,
+    aspect_ratio_h: null,
+    padding_vertical: 32,
+    padding_horizontal: 16,
+    text_offset_x: 0,
+    text_offset_y: 0,
+    autoplayInterval: 5,
+    transitionEffect: 'fade',
+    transitionDuration: 700,
+    pauseOnHover: true,
+    showArrows: true,
+    showDots: true,
+    fullBleed: false,
+  },
+};
+
+export function getBlockDefaults(type) {
+  return BLOCK_DEFAULTS[type] || BLOCK_DEFAULTS[BLOCK_TYPES.BOX];
+}
+
+// Task #1609 — measure the rendered extent of a symbol's content at a given
+// breakpoint, in the symbol's OWN local coordinate space. Symbols are
+// authored with their selection's top-left translated to the origin (see the
+// Symbols dialog), so the extent measured from (0,0) tightly wraps the
+// content. Used to fit a symbol instance's bounding box to what is actually
+// drawn instead of leaving it at the placeholder/default size. Returns null
+// when the symbol has no visible children at this breakpoint.
+// Task #3465 — normalize a symbol design so every breakpoint's frames sit at
+// the symbol-local origin. Symbols saved from a selection historically only
+// translated the DESKTOP frame to (0,0); tablet/mobile overrides were copied
+// verbatim with page-absolute coordinates, so instances rendered the desktop
+// layout (or off-stage/clamped content) at those breakpoints. This helper
+// translates each breakpoint's explicit x/y overrides by that breakpoint's
+// own bounding origin (min over explicit values). It is:
+//   - idempotent: a correctly saved symbol has origin (0,0) per breakpoint,
+//     so re-running it is a no-op;
+//   - cascade-preserving: frames without explicit x/y are left untouched so
+//     resolveBlockAtBreakpoint keeps cascading from desktop;
+//   - a pure read/save-time transform — callers decide whether to persist.
+// Applied at save time (Symbols dialog) AND defensively at resolution time
+// (symbolContentExtent / resolveSymbolsInDesign / editor preview) so
+// previously saved symbols with untranslated frames render correctly too.
+export function normalizeSymbolDesignFrames(design) {
+  const d = normalizeCanvasDesign(design);
+  const kids = d?.root?.sections?.[0]?.children || [];
+  if (kids.length === 0) return d;
+  const origins = {};
+  for (const key of ['desktop', 'tablet', 'mobile']) {
+    let minX = Infinity;
+    let minY = Infinity;
+    for (const c of kids) {
+      const f = c?.bp?.[key];
+      if (!f) continue;
+      if (key === 'desktop') {
+        // Desktop frames always define the base layout; missing x/y counts
+        // as 0 (matches the historical save-time translation).
+        minX = Math.min(minX, Number.isFinite(f.x) ? f.x : 0);
+        minY = Math.min(minY, Number.isFinite(f.y) ? f.y : 0);
+      } else {
+        // Tablet/mobile: only frames carrying explicit coordinates
+        // participate — frames without overrides cascade from desktop.
+        if (Number.isFinite(f.x)) minX = Math.min(minX, f.x);
+        if (Number.isFinite(f.y)) minY = Math.min(minY, f.y);
+      }
+    }
+    origins[key] = {
+      x: Number.isFinite(minX) ? minX : 0,
+      y: Number.isFinite(minY) ? minY : 0,
+    };
+  }
+  if (['desktop', 'tablet', 'mobile'].every((k) => origins[k].x === 0 && origins[k].y === 0)) {
+    return d;
+  }
+  const children = kids.map((c) => {
+    const bp = c.bp || {};
+    const nextBp = { ...bp };
+    for (const key of ['desktop', 'tablet', 'mobile']) {
+      const f = bp[key];
+      if (!f) continue;
+      const o = origins[key];
+      const nf = { ...f };
+      if (key === 'desktop') {
+        nf.x = (Number.isFinite(f.x) ? f.x : 0) - o.x;
+        nf.y = (Number.isFinite(f.y) ? f.y : 0) - o.y;
+      } else {
+        if (Number.isFinite(f.x)) nf.x = f.x - o.x;
+        if (Number.isFinite(f.y)) nf.y = f.y - o.y;
+      }
+      nextBp[key] = nf;
+    }
+    return { ...c, bp: nextBp };
+  });
+  return {
+    ...d,
+    root: {
+      ...d.root,
+      sections: [{ ...d.root.sections[0], children }, ...d.root.sections.slice(1)],
+    },
+  };
+}
+
+export function symbolContentExtent(symbolDesign, breakpoint = 'desktop') {
+  if (!symbolDesign) return null;
+  // Task #3465 — defensively re-origin legacy symbols whose tablet/mobile
+  // frames were saved page-absolute, so the extent wraps content at every
+  // breakpoint (no-op for correctly saved symbols).
+  const kids = getRootChildren(normalizeSymbolDesignFrames(symbolDesign));
+  let maxRight = 0;
+  let maxBottom = 0;
+  let any = false;
+  for (const c of kids) {
+    const g = resolveBlockAtBreakpoint(c, breakpoint);
+    if (g.hidden) continue;
+    any = true;
+    maxRight = Math.max(maxRight, (g.x || 0) + (g.w || 0));
+    maxBottom = Math.max(maxBottom, (g.y || 0) + (g.h || 0));
+  }
+  if (!any) return null;
+  return { w: Math.max(10, Math.round(maxRight)), h: Math.max(10, Math.round(maxBottom)) };
+}
+
+// Phase 7 — Resolve symbol references inside a canvas design. Each `symbol`
+// block keeps its own geometry (x/y/w/h on the host page) but its visual
+// content comes from the referenced canvas_symbol design document. The
+// renderer calls this to splice symbol children into the page at render
+// time. Resolution is purely a read transform — the underlying page design
+// stays unchanged so authors can unlink symbols later.
+export function resolveSymbolsInDesign(design, symbolsById) {
+  if (!design || !symbolsById || symbolsById.size === 0) return design;
+  const d = normalizeCanvasDesign(design);
+  const sections = d.root.sections.map((section) => ({
+    ...section,
+    children: section.children.map((b) => {
+      if (b.type !== BLOCK_TYPES.SYMBOL) return b;
+      const sym = symbolsById.get(b?.content?.symbolId);
+      if (!sym || !sym.design) {
+        return { ...b, name: b.name || 'Missing symbol' };
+      }
+      // Pull the symbol's first-section children and re-key their ids so
+      // multiple instances of the same symbol don't collide. Geometry is
+      // preserved verbatim from the symbol design.
+      // Task #3465 — re-origin every breakpoint's frames to the symbol-local
+      // origin. Legacy symbols only translated desktop at save time, leaving
+      // tablet/mobile overrides page-absolute; without this the per-breakpoint
+      // host offset below lands them off-stage and the authored mobile/tablet
+      // arrangement is lost. No-op for correctly saved symbols.
+      const symDesign = normalizeSymbolDesignFrames(sym.design);
+      // Translate each child by the host symbol block's per-breakpoint
+      // origin so the symbol renders at its placed position on the host
+      // page. Without this, every symbol instance would render at
+      // top-left (its own local origin) and overlap with the others.
+      const hostBp = b.bp || {};
+      const symChildren = getRootChildren(symDesign).map((c, i) => {
+        const cBp = c.bp || {};
+        const nextBp = {};
+        for (const key of ['desktop', 'tablet', 'mobile']) {
+          const hostFrame = hostBp[key] || hostBp.desktop || {};
+          const childFrame = cBp[key] || cBp.desktop || {};
+          if (!childFrame) continue;
+          nextBp[key] = {
+            ...childFrame,
+            x: (childFrame.x || 0) + (hostFrame.x || 0),
+            y: (childFrame.y || 0) + (hostFrame.y || 0),
+            hidden: childFrame.hidden ?? hostFrame.hidden ?? false,
+          };
+        }
+        return {
+          ...c,
+          id: `${b.id}__${c.id || i}`,
+          locked: true,
+          bp: nextBp,
+        };
+      });
+      // Fit the host symbol block's box to the symbol's rendered content per
+      // breakpoint (Task #1609). The host position (x/y) is preserved; only
+      // width/height are derived from the content extent so any consumer that
+      // reads the host geometry sees a box that wraps what is drawn. This is
+      // a read-time transform — the persisted page design is untouched. The
+      // public renderer splices __symbolChildren as siblings and ignores the
+      // host box, so its output is unchanged.
+      //
+      // Fit ALL breakpoints, even ones the instance never overrode: symbol
+      // content can resolve to a different extent at tablet/mobile, so we
+      // write a display-only {w,h} for each. We only ever set w/h on the
+      // breakpoint frame, never x/y, so resolveBlockAtBreakpoint still
+      // cascades x/y from desktop for breakpoints that had no explicit frame.
+      const fittedBp = { ...hostBp };
+      for (const key of ['desktop', 'tablet', 'mobile']) {
+        const ext = symbolContentExtent(symDesign, key);
+        if (!ext) continue;
+        fittedBp[key] = { ...(hostBp[key] || {}), w: ext.w, h: ext.h };
+      }
+      // Wrap symbol children in a single transparent "container" block so
+      // the host geometry (x/y/w/h) still controls placement. We do this
+      // by emitting a synthetic section-style block that contains the
+      // symbol's children translated into its local coordinate space.
+      return {
+        ...b,
+        bp: Object.keys(fittedBp).length > 0 ? fittedBp : b.bp,
+        // Keep host block geometry & a11y. Replace content children for the
+        // renderer to pick up.
+        __symbolChildren: symChildren,
+      };
+    }),
+  }));
+  return { ...d, root: { ...d.root, sections } };
+}
+
+// Build a CSS variable map from a tenant theme object. Used by the renderer
+// to inject :root-scoped overrides on the canvas page wrapper.
+export function buildThemeCssVars(theme) {
+  if (!theme || typeof theme !== 'object') return '';
+  const lines = [];
+  const colors = theme.colors || {};
+  for (const [k, v] of Object.entries(colors)) {
+    if (!v) continue;
+    // Accept either H S% L% or hex / rgb — pass through as-is.
+    lines.push(`--cb-color-${k}: ${v};`);
+  }
+  const typography = theme.typography || {};
+  for (const [k, v] of Object.entries(typography)) {
+    if (!v) continue;
+    lines.push(`--cb-font-${k}: ${v};`);
+  }
+  const spacing = theme.spacing || {};
+  for (const [k, v] of Object.entries(spacing)) {
+    if (v == null || v === '') continue;
+    lines.push(`--cb-space-${k}: ${typeof v === 'number' ? `${v}px` : v};`);
+  }
+  return lines.join('\n');
+}
+
+export function createEmptyCanvasDesign(version = CANVAS_DESIGN_VERSION) {
+  // Rollout aid (Task #2678): allow callers to request a v2 (auto-layout/flow)
+  // empty design so a new page can start directly in flow mode. Accepts either
+  // the numeric flow version or the string 'v2' for convenience. Any other
+  // value falls through to the existing v1 (absolute-positioning) default, so
+  // the default behaviour is unchanged.
+  if (version === CANVAS_FLOW_VERSION || version === 'v2') {
+    return createFlowDesign();
+  }
+  return {
+    version: CANVAS_DESIGN_VERSION,
+    root: {
+      background: null,
+      // Task #1425: layer groups. A lightweight registry of
+      // { id, name, collapsed }; member blocks reference a group via
+      // `block.groupId`. Groups are purely organisational — z-order,
+      // geometry and the public renderer are unaffected.
+      groups: [],
+      // Task #1665: editor-only ruler guides. Two arrays of stage-coordinate
+      // positions — `vertical` are x-offsets, `horizontal` are y-offsets.
+      // Guides are an authoring aid (drag-out from the rulers, snap blocks to
+      // them); they are NEVER read by the public renderer, which only walks
+      // `root.sections`.
+      guides: { vertical: [], horizontal: [] },
+      sections: [
+        {
+          id: 'root-section',
+          children: [],
+        },
+      ],
+    },
+  };
+}
+
+function generateId(prefix = 'block') {
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+// ---------------------------------------------------------------------------
+// Recursive fresh-ID clone.
+//
+// Deep-clones a Canvas block and assigns fresh ids to every block node in its
+// descendant trees — both `children[]` (flow-model containers) and Advanced
+// Accordion `content.items[].children[]` — plus a fresh id for every Advanced
+// Accordion item. References that point at old item ids (`initialId` and
+// `initialOpenIds`) are remapped to the new ids so the initial-open contract
+// survives duplication. Everything else (content/style/bp/a11y/name/etc.) is
+// preserved. Top-level `overrides` are shallow-merged onto the cloned root so
+// callers can set a new name, position, etc. without losing the fresh ids.
+export function cloneCanvasBlockWithFreshIds(block, overrides = {}) {
+  if (!block || typeof block !== 'object') return block;
+
+  function cloneChildren(children) {
+    if (!Array.isArray(children)) return children;
+    return children.map((child) => cloneNode(child));
+  }
+
+  function cloneAdvancedAccordionContent(content) {
+    if (!content || typeof content !== 'object') return content;
+    const items = Array.isArray(content.items) ? content.items : null;
+    if (!items) return { ...content };
+    // Map old item id -> new item id so we can remap initial references.
+    const idMap = new Map();
+    const newItems = items.map((item) => {
+      if (!item || typeof item !== 'object') return item;
+      const freshItemId = generateId('adv-acc-item');
+      if (typeof item.id === 'string' && item.id) idMap.set(item.id, freshItemId);
+      return {
+        ...item,
+        id: freshItemId,
+        anchor: sanitizeAnchorId(
+          item.anchor
+            ? `${item.anchor}-${freshItemId.slice(-6)}`
+            : `accordion-${freshItemId}`,
+        ),
+        children: cloneChildren(item.children),
+      };
+    });
+    const nextContent = { ...content, items: newItems };
+    if (typeof content.initialId === 'string' && content.initialId) {
+      nextContent.initialId = idMap.get(content.initialId) || '';
+    }
+    if (Array.isArray(content.initialOpenIds)) {
+      nextContent.initialOpenIds = content.initialOpenIds
+        .map((id) => idMap.get(id))
+        .filter(Boolean);
+    }
+    return nextContent;
+  }
+
+  function cloneNode(node) {
+    if (!node || typeof node !== 'object') return node;
+    const freshId = generateId();
+    const next = {
+      ...node,
+      id: freshId,
+      anchorId: node.anchorId
+        ? sanitizeAnchorId(`${node.anchorId}-${freshId.slice(-6)}`)
+        : '',
+    };
+    if (Array.isArray(node.children)) {
+      next.children = cloneChildren(node.children);
+    }
+    if (node.type === BLOCK_TYPES.ADVANCED_ACCORDION) {
+      next.content = cloneAdvancedAccordionContent(node.content);
+    }
+    if (node.type === BLOCK_TYPES.MEMBERSHIP_SUMMARY || node.type === BLOCK_TYPES.PAYMENT_DETAILS) {
+      next.content = normalizeCanvasMembershipContent(node.content, node.type);
+    }
+    return next;
+  }
+
+  const cloned = cloneNode(block);
+  return { ...cloned, ...overrides };
+}
+
+// ---------------------------------------------------------------------------
+// Task #2558 — Flow (auto-layout) model, version 2.
+//
+// A flow design is an ordered tree of nodes. Every node has the same v1 leaf
+// shape (id/type/name/anchorId/locked/groupId/fullWidth/style/a11y/content/bp)
+// PLUS flow-model fields:
+//   - layoutMode : 'flow' | 'free'   (containers only)
+//   - flow       : spacing/sizing expressed as gaps/margins, NOT coordinates
+//   - responsive : per-breakpoint order/visibility/column overrides
+//   - children   : array of child nodes (containers only)
+//
+// `bp` (absolute per-breakpoint geometry) is RETAINED and is the source of
+// truth for a node's placement ONLY when it is inside a `free` container. In
+// flow containers, `bp` is ignored for position (position is derived) but a
+// leaf may pin its own height via `flow.heightMode:'fixed'` + `flow.height`.
+//
+// These helpers are additive and never touch the v1 path — `normalizeCanvasDesign`
+// only routes into the flow normalizer when `isFlowDesign()` is true.
+// ---------------------------------------------------------------------------
+
+export function isFlowDesign(design) {
+  if (!design || typeof design !== 'object') return false;
+  if (design.version === CANVAS_FLOW_VERSION) return true;
+  return design.root && typeof design.root === 'object' && design.root.layout === 'flow';
+}
+
+function defaultFlowProps() {
+  return {
+    // Gap between a container's children (px). Ignored on leaves.
+    gap: 24,
+    // Inner padding of a container (px). On a leaf these are ignored in favour
+    // of style.padding*, kept here only so the shape is uniform.
+    padTop: 0,
+    padRight: 0,
+    padBottom: 0,
+    padLeft: 0,
+    // Cross-axis alignment of children (start|center|end|stretch).
+    align: 'stretch',
+    // Main-axis distribution of children (start|center|end|between|around).
+    justify: 'start',
+    // This node's flex-grow within a Row (0 = don't grow).
+    grow: 0,
+    // Preferred main-size within a Row: a px number, a `'<n>%'` string, or null
+    // (equal split). Sections/leaves in a vertical stack ignore this.
+    basis: null,
+    // Outer vertical margins (px) added above/below this node in its parent.
+    marginTop: 0,
+    marginBottom: 0,
+    // Height resolution: 'auto' = derived from measured/child content;
+    // 'fixed' = use `flow.height` (px). Leaves like spacer/divider/hero use
+    // 'fixed'; text/accordion use 'auto' so editing content reflows.
+    heightMode: 'auto',
+    height: null,
+    // Optional centered content max-width for a container (px), null = full.
+    maxWidth: null,
+  };
+}
+
+const FLOW_ALIGN = new Set(['start', 'center', 'end', 'stretch']);
+const FLOW_JUSTIFY = new Set(['start', 'center', 'end', 'between', 'around']);
+
+function normalizeFlowProps(flow) {
+  const f = flow && typeof flow === 'object' ? flow : {};
+  const d = defaultFlowProps();
+  const numOr = (v, fallback) => (Number.isFinite(Number(v)) ? Number(v) : fallback);
+  // Nullable numeric: null/undefined/'' stay null (Number(null) === 0 would
+  // otherwise flip a null height/maxWidth to 0 on re-normalize — breaking
+  // idempotency).
+  const numOrNull = (v) =>
+    v === null || v === undefined || v === '' ? null : Number.isFinite(Number(v)) ? Number(v) : null;
+  let basis = null;
+  if (typeof f.basis === 'number' && Number.isFinite(f.basis)) basis = f.basis;
+  else if (typeof f.basis === 'string' && f.basis.trim()) basis = f.basis.trim();
+  return {
+    gap: numOr(f.gap, d.gap),
+    padTop: numOr(f.padTop, d.padTop),
+    padRight: numOr(f.padRight, d.padRight),
+    padBottom: numOr(f.padBottom, d.padBottom),
+    padLeft: numOr(f.padLeft, d.padLeft),
+    align: FLOW_ALIGN.has(f.align) ? f.align : d.align,
+    justify: FLOW_JUSTIFY.has(f.justify) ? f.justify : d.justify,
+    grow: numOr(f.grow, d.grow),
+    basis,
+    marginTop: numOr(f.marginTop, d.marginTop),
+    marginBottom: numOr(f.marginBottom, d.marginBottom),
+    heightMode: f.heightMode === 'fixed' ? 'fixed' : 'auto',
+    height: numOrNull(f.height),
+    maxWidth: numOrNull(f.maxWidth),
+  };
+}
+
+// Per-breakpoint flow overrides. `hidden` toggles visibility, `order` reorders
+// within the parent (lower first; null = source order), `columns` overrides a
+// Row's column count, `stack` forces a Row to stack vertically.
+function normalizeResponsiveBp(o) {
+  const s = o && typeof o === 'object' ? o : {};
+  const out = {};
+  if (typeof s.hidden === 'boolean') out.hidden = s.hidden;
+  if (Number.isFinite(Number(s.order))) out.order = Number(s.order);
+  if (Number.isFinite(Number(s.columns))) out.columns = Number(s.columns);
+  if (typeof s.stack === 'boolean') out.stack = s.stack;
+  return out;
+}
+
+function normalizeResponsive(responsive) {
+  const r = responsive && typeof responsive === 'object' ? responsive : {};
+  return {
+    tablet: normalizeResponsiveBp(r.tablet),
+    mobile: normalizeResponsiveBp(r.mobile),
+  };
+}
+
+// Build a fully-formed flow node (leaf or container) from a type + overrides.
+// Reuses createBlock for the shared leaf shape so styling/content defaults and
+// the bp frame stay identical to v1 blocks.
+export function createFlowNode(type = BLOCK_TYPES.BOX, overrides = {}) {
+  const base = createBlock(type, overrides);
+  const isContainer = isFlowContainerType(type);
+  const defaultMode = type === BLOCK_TYPES.GROUP ? LAYOUT_MODES.FREE : LAYOUT_MODES.FLOW;
+  const flowDefaults = type === BLOCK_TYPES.DYNAMIC_WIDGET
+    ? { heightMode: 'fixed', height: CANVAS_DYNAMIC_WIDGET_DEFAULT_GEOMETRY.h }
+    : {};
+  const flow = normalizeFlowProps({ ...flowDefaults, ...(overrides.flow || {}) });
+  if (type === BLOCK_TYPES.DYNAMIC_WIDGET) flow.heightMode = 'fixed';
+  const node = {
+    ...base,
+    layoutMode: isContainer
+      ? (overrides.layoutMode === LAYOUT_MODES.FREE || overrides.layoutMode === LAYOUT_MODES.FLOW
+        ? overrides.layoutMode
+        : defaultMode)
+      : LAYOUT_MODES.FLOW,
+    flow,
+    responsive: normalizeResponsive(overrides.responsive),
+  };
+  if (isContainer) {
+    node.children = Array.isArray(overrides.children)
+      ? overrides.children.map((c) => normalizeFlowNode(c)).filter(Boolean)
+      : [];
+  }
+  return node;
+}
+
+export function createFlowSection(overrides = {}) {
+  return createFlowNode(BLOCK_TYPES.SECTION, { layoutMode: LAYOUT_MODES.FLOW, ...overrides });
+}
+
+export function createRow(overrides = {}) {
+  return createFlowNode(BLOCK_TYPES.ROW, { layoutMode: LAYOUT_MODES.FLOW, ...overrides });
+}
+
+export function createFreeGroup(overrides = {}) {
+  return createFlowNode(BLOCK_TYPES.GROUP, { layoutMode: LAYOUT_MODES.FREE, ...overrides });
+}
+
+export function createFlowDesign() {
+  return {
+    version: CANVAS_FLOW_VERSION,
+    root: {
+      background: null,
+      groups: [],
+      guides: { vertical: [], horizontal: [] },
+      layout: 'flow',
+      sections: [createFlowSection({ name: 'Section' })],
+    },
+  };
+}
+
+// Normalize one flow node (recursive). Reuses normalizeBlock for the leaf
+// shape (so the CARD inset shim and __symbolChildren preservation keep working)
+// then layers on the flow-model fields. Containers recurse into children.
+function normalizeFlowNode(node) {
+  if (!node || typeof node !== 'object') return null;
+  const type = node.type || BLOCK_TYPES.BOX;
+  const leaf = normalizeBlock(node);
+  if (!leaf) return null;
+  const isContainer = isFlowContainerType(type);
+  const defaultMode = type === BLOCK_TYPES.GROUP ? LAYOUT_MODES.FREE : LAYOUT_MODES.FLOW;
+  const flowDefaults = type === BLOCK_TYPES.DYNAMIC_WIDGET
+    ? { heightMode: 'fixed', height: CANVAS_DYNAMIC_WIDGET_DEFAULT_GEOMETRY.h }
+    : {};
+  const flow = normalizeFlowProps({ ...flowDefaults, ...(node.flow || {}) });
+  if (type === BLOCK_TYPES.DYNAMIC_WIDGET) flow.heightMode = 'fixed';
+  const out = {
+    ...leaf,
+    layoutMode: isContainer
+      ? (node.layoutMode === LAYOUT_MODES.FREE || node.layoutMode === LAYOUT_MODES.FLOW
+        ? node.layoutMode
+        : defaultMode)
+      : LAYOUT_MODES.FLOW,
+    flow,
+    responsive: normalizeResponsive(node.responsive),
+  };
+  if (isContainer) {
+    out.children = Array.isArray(node.children)
+      ? node.children.map(normalizeFlowNode).filter(Boolean)
+      : [];
+  }
+  return out;
+}
+
+// Normalize a whole flow (v2) design. Top-level sections must be containers;
+// a non-container top-level node is wrapped defensively is not done here — the
+// converter (Step 4) is responsible for producing well-formed section roots.
+export function normalizeFlowDesign(design) {
+  if (!design || typeof design !== 'object') return createFlowDesign();
+  const root = design.root && typeof design.root === 'object' ? design.root : {};
+  let sections = Array.isArray(root.sections) && root.sections.length > 0
+    ? root.sections.map(normalizeFlowNode).filter(Boolean)
+    : [];
+  if (sections.length === 0) sections = [createFlowSection({ name: 'Section' })];
+  sections = ensureUniqueAdvancedAccordionAnchors(sections);
+
+  // Preserve the layer-group registry + editor guides exactly as the v1 path
+  // does (they remain valid organisational/authoring aids in the flow model).
+  const groups = Array.isArray(root.groups)
+    ? root.groups.map(normalizeGroup).filter(Boolean)
+    : [];
+  const guides = normalizeGuides(root.guides);
+
+  return {
+    version: CANVAS_FLOW_VERSION,
+    root: {
+      background: root.background ?? null,
+      groups,
+      guides,
+      layout: 'flow',
+      sections,
+    },
+  };
+}
+
+// DFS walk over every node in a flow design (sections first, then descendants).
+// `fn(node, { parent, depth, index })` is called for each node.
+export function forEachFlowNode(design, fn) {
+  const walk = (node, ctx) => {
+    fn(node, ctx);
+    if (Array.isArray(node.children)) {
+      node.children.forEach((child, index) => walk(child, { parent: node, depth: ctx.depth + 1, index }));
+    }
+  };
+  const sections = design?.root?.sections || [];
+  sections.forEach((section, index) => walk(section, { parent: null, depth: 0, index }));
+}
+
+export function getFlowSections(design) {
+  return design?.root?.sections || [];
+}
+
+// Task #2682 — append a flow node as the LAST child of a section so the flow
+// engine lays it out (a dropped element must never become a sibling of the
+// sections). `sectionId` selects the target section; when it is null or does
+// not match, the node lands in the FIRST section — the same section the
+// builder's shared edit handlers (getRootChildren/replaceChildren) operate on,
+// so the node stays selectable and editable. The whole design is re-run through
+// normalizeFlowDesign so the result is a well-formed, idempotent v2 document
+// (the appended node is normalized in place) and persists through save/reopen.
+export function insertFlowNode(design, node, options = {}) {
+  if (!node || typeof node !== 'object') return design;
+  const d = normalizeFlowDesign(design);
+  const sections = d.root.sections.map((s) => ({
+    ...s,
+    children: Array.isArray(s.children) ? [...s.children] : [],
+  }));
+  if (sections.length === 0) return d;
+  const { sectionId = null } = options;
+  let idx = sectionId ? sections.findIndex((s) => s.id === sectionId) : -1;
+  if (idx < 0) idx = 0;
+  sections[idx].children.push(node);
+  return normalizeFlowDesign({ ...d, root: { ...d.root, sections } });
+}
+
+// Leaf block types whose height is content-driven (measured at render time)
+// rather than pinned. Mirrors the registry `autoHeight: true` flags — kept here
+// in the React-free data layer so the v1->v2 converter (which also runs on the
+// server, without the JSX registry) knows which leaves must flow-size.
+export const AUTO_HEIGHT_LEAF_TYPES = new Set([
+  BLOCK_TYPES.TEXT,
+  BLOCK_TYPES.MEMBERSHIP_SUMMARY,
+  BLOCK_TYPES.PAYMENT_DETAILS,
+  BLOCK_TYPES.ACCORDION,
+  // Advanced Accordion is also content-driven: panel open/close changes
+  // its rendered height, so it must be measured rather than pinned.
+  BLOCK_TYPES.ADVANCED_ACCORDION,
+  BLOCK_TYPES.CARD,
+  BLOCK_TYPES.DATA_TABLE,
+  // Live member/group grids change height as records, pages, and responsive
+  // columns settle. Their measurements remain render-only.
+  BLOCK_TYPES.MEMBER_GROUP,
+  BLOCK_TYPES.MEMBER_GROUP_CARDS,
+  // Card Flip Grid pagination and responsive columns change the visible
+  // footprint at runtime. Keep those measurements viewer-only.
+  BLOCK_TYPES.CARD_FLIP_GRID,
+  // AI Compositions size to their generated content (Task #2849): the block
+  // reports its rendered height so the parent canvas reflows around it.
+  BLOCK_TYPES.AI_COMPOSITION,
+  // V2 code compositions are pure flowed HTML — always content-sized (#2904).
+  BLOCK_TYPES.AI_CODE_COMPOSITION,
+  // Registration is a complete, stateful event experience whose footprint
+  // changes as booking panels, validation and confirmation content appear.
+  BLOCK_TYPES.EVENT_REGISTRATION,
+]);
+
+// ---------------------------------------------------------------------------
+// Task #2570 — v1 (absolute) -> v2 (flow) converter.
+//
+// A v1 design positions every block absolutely inside a single root section.
+// The flow model stacks children vertically and lays out side-by-side blocks
+// as Row columns. A perfect 2-D -> 1-D conversion is not generally possible,
+// so this converter makes a faithful, deterministic best-effort:
+//   - Blocks are read from the v1 root's first section (the flat block list).
+//   - They are clustered into vertical BANDS: blocks whose desktop vertical
+//     extents substantially overlap belong to the same band (i.e. they sat
+//     side-by-side on the same visual row).
+//   - A single-block band becomes a stacked flow leaf. A multi-block band
+//     becomes a Row whose columns (left-to-right) carry each block's width as
+//     `flow.basis`, so relative widths are preserved.
+//   - Vertical rhythm is preserved via per-band `flow.marginTop` (the gap from
+//     the previous band's bottom); the section gap is 0 so margins are exact.
+//   - Auto-height leaves (text/accordion/card) flow-size; everything else pins
+//     its height to the authored desktop height.
+//
+// The result is run through `normalizeFlowDesign` so it is a well-formed,
+// idempotent v2 document. Converting an already-v2 design is a no-op
+// (normalize only). This is React-free so the admin opt-in endpoint can import
+// and run it server-side.
+// ---------------------------------------------------------------------------
+
+// Fraction of the shorter block height that two blocks' vertical extents must
+// overlap by to be treated as the same visual row (side-by-side columns).
+const FLOW_BAND_OVERLAP_RATIO = 0.5;
+
+function flowLeafFromBlock(block, { marginTop = 0, basis = null } = {}) {
+  const geom = resolveBlockAtBreakpoint(block, 'desktop');
+  const isAuto = AUTO_HEIGHT_LEAF_TYPES.has(block.type);
+  const height = Number.isFinite(geom.h) ? geom.h : null;
+  return normalizeFlowNode({
+    ...block,
+    layoutMode: LAYOUT_MODES.FLOW,
+    flow: {
+      ...(block.flow && typeof block.flow === 'object' ? block.flow : {}),
+      marginTop: Math.max(0, Math.round(marginTop)),
+      basis: basis == null ? null : Math.round(basis),
+      heightMode: isAuto ? 'auto' : 'fixed',
+      height: isAuto ? null : height,
+    },
+    responsive: {},
+  });
+}
+
+export function convertDesignToFlow(design) {
+  // Already a flow document: just normalize (idempotent no-op).
+  if (isFlowDesign(design)) return normalizeFlowDesign(design);
+
+  const v1 = normalizeCanvasDesign(design);
+  const root = (v1 && v1.root) || {};
+  const firstSection = Array.isArray(root.sections) ? root.sections[0] : null;
+  const rawBlocks = (firstSection && Array.isArray(firstSection.children))
+    ? firstSection.children
+    : [];
+
+  // Resolve desktop geometry once, then sort top-to-bottom then left-to-right
+  // so band clustering and column order are deterministic. Desktop-hidden
+  // blocks carry no meaningful position, so they are NOT band-clustered (they
+  // would distort visible rows); they are preserved as standalone leaves at the
+  // end so no authored content is lost by the migration.
+  const resolved = rawBlocks.map((block) => {
+    const g = resolveBlockAtBreakpoint(block, 'desktop');
+    return {
+      block,
+      x: Number.isFinite(g.x) ? g.x : 0,
+      y: Number.isFinite(g.y) ? g.y : 0,
+      w: Number.isFinite(g.w) ? g.w : 0,
+      h: Number.isFinite(g.h) ? g.h : 0,
+      hidden: !!g.hidden,
+    };
+  });
+  const items = resolved
+    .filter((it) => !it.hidden)
+    .sort((a, b) => (a.y - b.y) || (a.x - b.x));
+  const hiddenItems = resolved.filter((it) => it.hidden);
+
+  // Cluster into vertical bands by overlap of vertical extents.
+  const bands = [];
+  for (const it of items) {
+    const last = bands[bands.length - 1];
+    if (last) {
+      const overlap = Math.min(last.bottom, it.y + it.h) - Math.max(last.top, it.y);
+      const minH = Math.max(1, Math.min(last.bottom - last.top, it.h));
+      if (overlap > minH * FLOW_BAND_OVERLAP_RATIO) {
+        last.items.push(it);
+        last.top = Math.min(last.top, it.y);
+        last.bottom = Math.max(last.bottom, it.y + it.h);
+        continue;
+      }
+    }
+    bands.push({ items: [it], top: it.y, bottom: it.y + it.h });
+  }
+
+  let prevBottom = null;
+  const children = bands.map((band) => {
+    const marginTop = prevBottom == null ? 0 : Math.max(0, band.top - prevBottom);
+    prevBottom = band.bottom;
+
+    if (band.items.length === 1) {
+      return flowLeafFromBlock(band.items[0].block, { marginTop });
+    }
+
+    // Multi-block band -> Row of columns (left-to-right).
+    const cols = [...band.items].sort((a, b) => a.x - b.x);
+    const padLeft = Math.max(0, cols[0].x);
+    // Uniform inter-column gap approximated from the first adjacent pair.
+    let gap = 0;
+    if (cols.length >= 2) {
+      const between = cols[1].x - (cols[0].x + cols[0].w);
+      gap = Number.isFinite(between) ? Math.max(0, Math.round(between)) : 0;
+    }
+    const rowChildren = cols.map((c) => flowLeafFromBlock(c.block, { basis: c.w }));
+    return createRow({
+      name: 'Row',
+      flow: { marginTop: Math.max(0, Math.round(marginTop)), gap, padLeft, align: 'start' },
+      children: rowChildren,
+    });
+  });
+
+  // Preserve desktop-hidden blocks as trailing standalone leaves (their own
+  // per-breakpoint hidden flags carry over via normalizeFlowNode) so no content
+  // is dropped by the migration.
+  for (const it of hiddenItems) {
+    children.push(flowLeafFromBlock(it.block, { marginTop: 0 }));
+  }
+
+  const section = createFlowSection({
+    name: (firstSection && firstSection.name) || 'Section',
+    style: firstSection && firstSection.style ? firstSection.style : undefined,
+    flow: { gap: 0 },
+    children,
+  });
+
+  return normalizeFlowDesign({
+    version: CANVAS_FLOW_VERSION,
+    root: {
+      background: root.background ?? null,
+      groups: Array.isArray(root.groups) ? root.groups : [],
+      guides: root.guides,
+      layout: 'flow',
+      sections: [section],
+    },
+  });
+}
+
+// Formats a Date into the "YYYY-MM-DDTHH:mm" string an <input type="datetime-local">
+// expects, using the viewer's local timezone (matching how the Countdown
+// inspector captures and the renderer parses the value).
+export function toDatetimeLocalValue(date) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// Merges default + override content, injecting per-type dynamic defaults that
+// can't be expressed as static values. The Countdown block needs a target that
+// is in the future *relative to when the block is dropped*, so a newly placed
+// block immediately shows a live, ticking countdown rather than the
+// "set a date" placeholder. Stored/duplicated blocks that already carry a
+// targetDate are left untouched.
+function buildBlockContent(type, defaultContent, overrideContent) {
+  const merged = { ...(defaultContent || {}), ...(overrideContent || {}) };
+  if (type === BLOCK_TYPES.MEMBERSHIP_SUMMARY || type === BLOCK_TYPES.PAYMENT_DETAILS) {
+    return normalizeCanvasMembershipContent(merged, type);
+  }
+  if (type === BLOCK_TYPES.COUNTDOWN && !merged.targetDate && !merged.eventSlug && !merged.eventId) {
+    merged.targetDate = toDatetimeLocalValue(new Date(Date.now() + 24 * 60 * 60 * 1000));
+  }
+  // Palette-created Advanced Accordions need globally fresh item, child, and
+  // anchor identities. The static defaults are only a template; carrying those
+  // ids into every new block would make two accordions on one page ambiguous.
+  if (type === BLOCK_TYPES.ADVANCED_ACCORDION && !Array.isArray(overrideContent?.items)) {
+    merged.items = (Array.isArray(merged.items) ? merged.items : []).map((item) => {
+      const itemId = generateId('adv-acc-item');
+      return {
+        ...item,
+        id: itemId,
+        anchor: `accordion-${itemId}`,
+        children: (Array.isArray(item.children) ? item.children : [])
+          .map((child) => cloneCanvasBlockWithFreshIds(child)),
+      };
+    });
+  }
+  return merged;
+}
+
+export function createBlock(type = BLOCK_TYPES.BOX, overrides = {}) {
+  const defaults = getBlockDefaults(type);
+  const desktop = {
+    x: 40,
+    y: 40,
+    w: defaults.geom?.w ?? 200,
+    h: defaults.geom?.h ?? 120,
+    hidden: false,
+    // Task #2836 — a block type may declare per-breakpoint visibility
+    // defaults (e.g. Hero Carousel (Mobile) is hidden on desktop/tablet).
+    // Caller overrides still win.
+    ...(defaults.bp?.desktop || {}),
+    ...(overrides.desktop || {}),
+  };
+  const content = buildBlockContent(type, defaults.content, overrides.content);
+  return {
+    id: overrides.id || generateId(),
+    type,
+    name: overrides.name || defaults.name || 'Block',
+    // Task #1446: anchor links. An optional URL-safe slug that, when set,
+    // renders as a real HTML `id` on the public block wrapper so it can be
+    // an in-page scroll target. Defaults to '' (no anchor).
+    anchorId: sanitizeAnchorId(overrides.anchorId || ''),
+    locked: false,
+    // Task #1425: group membership. Defaults to null; only set when a
+    // block is explicitly placed into a group. New / duplicated / pasted
+    // blocks therefore start ungrouped.
+    groupId: overrides.groupId || null,
+    fullWidth: !!overrides.fullWidth,
+    style: { ...DEFAULT_STYLE, ...(defaults.style || {}), ...(overrides.style || {}) },
+    a11y: { ...DEFAULT_A11Y, ...(defaults.a11y || {}), ...(overrides.a11y || {}) },
+    content: type === BLOCK_TYPES.DYNAMIC_WIDGET
+      ? normalizeCanvasDynamicWidgetContent(content)
+      : deepClone(content),
+    bp: {
+      desktop,
+      tablet: { ...(defaults.bp?.tablet || {}), ...(overrides.tablet || {}) },
+      mobile: { ...(defaults.bp?.mobile || {}), ...(overrides.mobile || {}) },
+    },
+  };
+}
+
+function deepClone(v) {
+  if (v == null || typeof v !== 'object') return v;
+  if (Array.isArray(v)) return v.map(deepClone);
+  const o = {};
+  for (const k of Object.keys(v)) o[k] = deepClone(v[k]);
+  return o;
+}
+
+export function normalizeCanvasDesign(design) {
+  if (!design || typeof design !== 'object') return createEmptyCanvasDesign();
+  // Task #2558 — route flow (v2) designs into the flow normalizer. The v1
+  // path below is left byte-identical for existing (absolute-geometry) pages.
+  if (isFlowDesign(design)) return normalizeFlowDesign(design);
+  const root = design.root && typeof design.root === 'object' ? design.root : {};
+  let sections = Array.isArray(root.sections) && root.sections.length > 0
+    ? root.sections.map(normalizeSection)
+    : [{ id: 'root-section', children: [] }];
+  sections = ensureUniqueAdvancedAccordionAnchors(sections);
+
+  // Task #1425: normalize the group registry. Drop malformed entries, then
+  // reconcile against actual block membership so the document is always
+  // self-consistent: clear `groupId` references that point at a missing
+  // group, and prune group entries that have no remaining members (e.g.
+  // after their blocks were deleted). Legacy designs with no `groups` key
+  // load unchanged with an empty registry.
+  let groups = Array.isArray(root.groups)
+    ? root.groups.map(normalizeGroup).filter(Boolean)
+    : [];
+  const groupIds = new Set(groups.map((g) => g.id));
+  const memberCounts = {};
+  for (const section of sections) {
+    section.children = section.children.map((b) => {
+      if (b.groupId && !groupIds.has(b.groupId)) return { ...b, groupId: null };
+      if (b.groupId) memberCounts[b.groupId] = (memberCounts[b.groupId] || 0) + 1;
+      return b;
+    });
+  }
+  groups = groups.filter((g) => (memberCounts[g.id] || 0) > 0);
+
+  const guides = normalizeGuides(root.guides);
+
+  return {
+    version: typeof design.version === 'number' ? design.version : CANVAS_DESIGN_VERSION,
+    root: {
+      background: root.background ?? null,
+      groups,
+      guides,
+      sections,
+    },
+  };
+}
+
+// Task #1665 / #1667: normalize the editor-only ruler guides. Each guide is a
+// `{ pos, locked }` object: `pos` is a finite, non-negative, rounded stage
+// coordinate; `locked` is a boolean. Both axes are de-duplicated by `pos`
+// (locked wins on a collision) and sorted ascending by `pos`.
+//
+// Back-compat: legacy designs stored plain `number[]` arrays (Task #1665).
+// A bare number is coerced to `{ pos: n, locked: false }`, so old documents
+// load unchanged. Designs with no `guides` key load with empty arrays.
+function normalizeGuides(guides) {
+  const clean = (arr) => {
+    if (!Array.isArray(arr)) return [];
+    const byPos = new Map();
+    for (const entry of arr) {
+      let pos;
+      let locked = false;
+      if (entry && typeof entry === 'object') {
+        pos = Math.round(Number(entry.pos));
+        locked = !!entry.locked;
+      } else {
+        pos = Math.round(Number(entry));
+      }
+      if (!Number.isFinite(pos) || pos < 0) continue;
+      const existing = byPos.get(pos);
+      if (existing) {
+        existing.locked = existing.locked || locked;
+      } else {
+        byPos.set(pos, { pos, locked });
+      }
+    }
+    return Array.from(byPos.values()).sort((a, b) => a.pos - b.pos);
+  };
+  const g = guides && typeof guides === 'object' ? guides : {};
+  return { vertical: clean(g.vertical), horizontal: clean(g.horizontal) };
+}
+
+function normalizeGroup(group) {
+  if (!group || typeof group !== 'object') return null;
+  const id = typeof group.id === 'string' && group.id ? group.id : null;
+  if (!id) return null;
+  return {
+    id,
+    name: typeof group.name === 'string' && group.name.trim() ? group.name : 'Group',
+    collapsed: !!group.collapsed,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Advanced Accordion normalizer
+//
+// normalizeAdvancedAccordionItem normalizes a single item in an advanced
+// accordion. Each item carries:
+//   id       — stable string id; generated if missing or duplicate
+//   title    — display label for the panel trigger; defaults to 'Panel'
+//   anchor   — optional in-page anchor slug (sanitized); defaults to ''
+//   children — array of canvas leaf blocks (no nested advanced accordions);
+//              normalized via normalizeBlock but with advanced-accordion
+//              recursion suppressed.
+//
+// normalizeAdvancedAccordionContent normalizes the whole block's content:
+//   items    — normalized item array; if empty, seeded with one default item
+//   mode     — 'single' | 'multi'; invalid values default to 'single'
+//   initialId — '' or a valid item id; invalid references cleared to ''
+//   Other display fields (gap, color, typographyStyleId) are passed through.
+// ---------------------------------------------------------------------------
+
+// Types that CANNOT appear as children inside an Advanced Accordion item panel.
+// Advanced accordion recursion is disallowed to prevent pathological nesting.
+const ADVANCED_ACCORDION_DISALLOWED_CHILD_TYPES = new Set([
+  BLOCK_TYPES.ADVANCED_ACCORDION,
+]);
+
+let _advAccNormDepth = 0;
+
+const ADVANCED_ACCORDION_SIZED_CHILD_TYPES = new Set([
+  BLOCK_TYPES.BUTTON,
+  BLOCK_TYPES.VIDEO,
+]);
+
+function normalizeAdvancedAccordionChildLayout(layout) {
+  if (!layout || typeof layout !== 'object' || Array.isArray(layout)) return null;
+  const normalized = {};
+  for (const breakpoint of ['desktop', 'tablet', 'mobile']) {
+    const rawLayer = layout[breakpoint];
+    if (!rawLayer || typeof rawLayer !== 'object' || Array.isArray(rawLayer)) continue;
+    const layer = {};
+    if (rawLayer.mode === 'fill' || rawLayer.mode === 'custom') {
+      layer.mode = rawLayer.mode;
+    }
+    if (['left', 'center', 'right'].includes(rawLayer.align)) {
+      layer.align = rawLayer.align;
+    }
+    if (Object.keys(layer).length > 0) normalized[breakpoint] = layer;
+  }
+  return Object.keys(normalized).length > 0 ? normalized : null;
+}
+
+export function resolveAdvancedAccordionChildLayout(block, breakpoint = 'desktop') {
+  const layout = block?.accordionLayout;
+  const resolved = { mode: 'fill', align: 'left' };
+  if (!layout || typeof layout !== 'object' || Array.isArray(layout)) return resolved;
+  const breakpoints = breakpoint === 'mobile'
+    ? ['desktop', 'tablet', 'mobile']
+    : (breakpoint === 'tablet' ? ['desktop', 'tablet'] : ['desktop']);
+  for (const bp of breakpoints) {
+    const layer = layout[bp];
+    if (!layer || typeof layer !== 'object' || Array.isArray(layer)) continue;
+    if (layer.mode === 'fill' || layer.mode === 'custom') resolved.mode = layer.mode;
+    if (['left', 'center', 'right'].includes(layer.align)) resolved.align = layer.align;
+  }
+  return resolved;
+}
+
+function normalizeAdvancedAccordionChildBlock(block) {
+  if (!block || typeof block !== 'object') return null;
+  const type = block.type || BLOCK_TYPES.BOX;
+  // Prevent advanced accordion recursion: silently drop nested advanced
+  // accordions rather than silently embedding them without renderer support.
+  if (ADVANCED_ACCORDION_DISALLOWED_CHILD_TYPES.has(type)) return null;
+  // Guard against deep re-entrance (malformed data) — bail out to a plain
+  // text block stub so we never recurse infinitely.
+  if (_advAccNormDepth > 8) return null;
+  _advAccNormDepth += 1;
+  try {
+    const normalized = normalizeBlock(block);
+    if (!normalized) return null;
+    if (ADVANCED_ACCORDION_SIZED_CHILD_TYPES.has(type)) {
+      const accordionLayout = normalizeAdvancedAccordionChildLayout(block.accordionLayout);
+      if (accordionLayout) normalized.accordionLayout = accordionLayout;
+    }
+    const rawChildren = Array.isArray(block.children) ? block.children : [];
+    if (rawChildren.length > 0 || type === BLOCK_TYPES.ROW || type === BLOCK_TYPES.GROUP) {
+      normalized.children = rawChildren
+        .map(normalizeAdvancedAccordionChildBlock)
+        .filter(Boolean);
+      normalized.layoutMode = block.layoutMode === 'flow'
+        ? 'flow'
+        : (type === BLOCK_TYPES.ROW ? 'flow' : 'free');
+      normalized.flow = block.flow && typeof block.flow === 'object'
+        ? { ...block.flow }
+        : {};
+    }
+    return normalized;
+  } finally {
+    _advAccNormDepth -= 1;
+  }
+}
+
+function normalizeAdvancedAccordionItem(item, seenIds, seenAnchors) {
+  if (!item || typeof item !== 'object') return null;
+  // Stable id: must be a non-empty string, unique within the accordion.
+  let id = typeof item.id === 'string' && item.id.trim() ? item.id.trim() : '';
+  if (!id || seenIds.has(id)) {
+    // Generate a stable-enough replacement so the id uniqueness contract holds.
+    id = generateId('adv-acc-item');
+  }
+  seenIds.add(id);
+  const title = typeof item.title === 'string' && item.title ? item.title : 'Panel';
+  const subtitle = typeof item.subtitle === 'string' ? item.subtitle : '';
+  const badge = typeof item.badge === 'string' ? item.badge : '';
+  const leadingIcon = typeof item.leadingIcon === 'string' ? item.leadingIcon : '';
+  let anchor = sanitizeAnchorId(item.anchor || `accordion-${id}`);
+  if (!anchor) anchor = sanitizeAnchorId(`accordion-${id}`);
+  if (seenAnchors.has(anchor)) {
+    anchor = sanitizeAnchorId(`${anchor}-${id.slice(-6)}`);
+  }
+  seenAnchors.add(anchor);
+  const rawChildren = Array.isArray(item.children) ? item.children : [];
+  const children = rawChildren
+    .map(normalizeAdvancedAccordionChildBlock)
+    .filter(Boolean);
+  return { id, title, subtitle, badge, leadingIcon, anchor, children };
+}
+
+function normalizeAdvancedAccordionContent(content) {
+  const c = content && typeof content === 'object' ? content : {};
+  const rawItems = Array.isArray(c.items) ? c.items : [];
+  const seenIds = new Set();
+  const seenAnchors = new Set();
+  let items = rawItems
+    .map((item) => normalizeAdvancedAccordionItem(item, seenIds, seenAnchors))
+    .filter(Boolean);
+  if (items.length === 0) {
+    // Seed with a single default item so the block is always renderable.
+    const newId = generateId('adv-acc-item');
+    items = [{
+      id: newId,
+      title: 'Panel one',
+      subtitle: '',
+      badge: '',
+      leadingIcon: '',
+      anchor: `accordion-${newId}`,
+      children: [],
+    }];
+  }
+  const mode = c.mode === 'multiple' || c.mode === 'multi'
+    ? 'multiple'
+    : (c.mode === 'single-required' ? 'single-required' : 'single');
+  const itemIdSet = new Set(items.map((it) => it.id));
+  const rawInitialId = typeof c.initialId === 'string' ? c.initialId : '';
+  const initialId = rawInitialId && itemIdSet.has(rawInitialId) ? rawInitialId : '';
+  const rawIds = Array.isArray(c.initialOpenIds)
+    ? c.initialOpenIds.filter((id) => typeof id === 'string' && itemIdSet.has(id))
+    : (initialId ? [initialId] : []);
+  const initialOpenIds = Array.from(new Set(rawIds));
+  let initialState = ['all-closed', 'first', 'specific', 'multiple'].includes(c.initialState)
+    ? c.initialState
+    : (initialId ? 'specific' : 'all-closed');
+  if (mode === 'single-required' && initialState === 'all-closed') initialState = 'first';
+  if (mode !== 'multiple' && initialState === 'multiple') initialState = 'specific';
+  const defaults = BLOCK_DEFAULTS[BLOCK_TYPES.ADVANCED_ACCORDION].content.styles;
+  const rawStyles = c.styles && typeof c.styles === 'object' ? c.styles : {};
+  const styles = { ...defaults, ...rawStyles };
+  const numberKeys = [
+    'itemBorderWidth', 'itemBorderRadius', 'dividerWidth', 'headerPaddingX',
+    'headerPaddingY', 'headerMinHeight', 'titleFontSize', 'titleFontWeight',
+    'subtitleFontSize', 'panelPaddingX', 'panelPaddingY', 'panelBorderWidth',
+    'childGap', 'iconSize',
+  ];
+  numberKeys.forEach((key) => {
+    const n = Number(styles[key]);
+    styles[key] = Number.isFinite(n) ? Math.max(0, n) : defaults[key];
+  });
+  return {
+    items,
+    mode,
+    initialState,
+    initialOpenIds,
+    initialId,
+    indicator: ['plus-minus', 'chevron-down', 'chevron-right', 'arrow'].includes(c.indicator)
+      ? c.indicator
+      : 'plus-minus',
+    headingLevel: [2, 3, 4, 5, 6].includes(Number(c.headingLevel))
+      ? Number(c.headingLevel)
+      : 3,
+    syncHashOnOpen: !!c.syncHashOnOpen,
+    itemGap: Number.isFinite(Number(c.itemGap)) ? Number(c.itemGap) : 8,
+    styles,
+  };
+}
+
+// Advanced Accordion items render their anchor directly as an HTML id. Keep
+// those ids unique across the entire page, including collisions with ordinary
+// Canvas block anchors and anchors nested inside panel layout containers.
+// Ordinary block anchors are never rewritten here; item anchors receive a
+// stable item-id suffix when their requested slug is already reserved.
+function ensureUniqueAdvancedAccordionAnchors(sections) {
+  const reserved = new Set();
+  const safeSections = Array.isArray(sections) ? sections : [];
+
+  const collectBlockAnchors = (block, depth = 0) => {
+    if (!block || typeof block !== 'object' || depth > 64) return;
+    const anchor = sanitizeAnchorId(block.anchorId || '');
+    if (anchor) reserved.add(anchor);
+    if (block.type === BLOCK_TYPES.ADVANCED_ACCORDION) {
+      for (const item of (Array.isArray(block.content?.items) ? block.content.items : [])) {
+        for (const child of (Array.isArray(item?.children) ? item.children : [])) {
+          collectBlockAnchors(child, depth + 1);
+        }
+      }
+    }
+    for (const child of (Array.isArray(block.children) ? block.children : [])) {
+      collectBlockAnchors(child, depth + 1);
+    }
+  };
+
+  for (const section of safeSections) {
+    collectBlockAnchors(section);
+    for (const block of (Array.isArray(section?.children) ? section.children : [])) {
+      collectBlockAnchors(block);
+    }
+  }
+
+  const allocate = (requested, itemId) => {
+    const base = sanitizeAnchorId(requested || `accordion-${itemId}`) || 'accordion-panel';
+    if (!reserved.has(base)) {
+      reserved.add(base);
+      return base;
+    }
+    const suffix = sanitizeAnchorId(String(itemId || '').slice(-8)) || 'panel';
+    let candidate = sanitizeAnchorId(`${base}-${suffix}`);
+    let index = 2;
+    while (reserved.has(candidate)) {
+      candidate = sanitizeAnchorId(`${base}-${suffix}-${index}`);
+      index += 1;
+    }
+    reserved.add(candidate);
+    return candidate;
+  };
+
+  const rewriteBlock = (block, depth = 0) => {
+    if (!block || typeof block !== 'object' || depth > 64) return block;
+    let next = block;
+    if (block.type === BLOCK_TYPES.ADVANCED_ACCORDION) {
+      const items = (Array.isArray(block.content?.items) ? block.content.items : []).map((item) => ({
+        ...item,
+        anchor: allocate(item?.anchor, item?.id),
+        children: (Array.isArray(item?.children) ? item.children : [])
+          .map((child) => rewriteBlock(child, depth + 1)),
+      }));
+      next = { ...next, content: { ...next.content, items } };
+    }
+    if (Array.isArray(block.children)) {
+      next = {
+        ...next,
+        children: block.children.map((child) => rewriteBlock(child, depth + 1)),
+      };
+    }
+    return next;
+  };
+
+  return safeSections.map((section) => ({
+    ...section,
+    children: (Array.isArray(section?.children) ? section.children : [])
+      .map((block) => rewriteBlock(block)),
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Advanced Accordion CRUD helpers
+// ---------------------------------------------------------------------------
+
+// Add a new item to an advanced accordion block's content. Returns updated content.
+export function addAdvancedAccordionItem(content, overrides = {}) {
+  const c = normalizeAdvancedAccordionContent(content);
+  const id = overrides.id && typeof overrides.id === 'string' && overrides.id.trim()
+    ? overrides.id.trim()
+    : generateId('adv-acc-item');
+  // Ensure uniqueness.
+  const seenIds = new Set(c.items.map((it) => it.id));
+  const safeId = seenIds.has(id) ? generateId('adv-acc-item') : id;
+  const seenAnchors = new Set(c.items.map((it) => sanitizeAnchorId(it.anchor || '')).filter(Boolean));
+  let anchor = sanitizeAnchorId(overrides.anchor || `accordion-${safeId}`);
+  if (!anchor || seenAnchors.has(anchor)) {
+    anchor = sanitizeAnchorId(`${anchor || 'accordion'}-${safeId.slice(-6)}`);
+  }
+  const newItem = {
+    id: safeId,
+    title: overrides.title || 'New Panel',
+    subtitle: overrides.subtitle || '',
+    badge: overrides.badge || '',
+    leadingIcon: overrides.leadingIcon || '',
+    anchor,
+    children: Array.isArray(overrides.children)
+      ? overrides.children.map(normalizeAdvancedAccordionChildBlock).filter(Boolean)
+      : [],
+  };
+  return { ...c, items: [...c.items, newItem] };
+}
+
+// Remove an item by id. Returns updated content.
+export function removeAdvancedAccordionItem(content, itemId) {
+  const c = normalizeAdvancedAccordionContent(content);
+  const items = c.items.filter((it) => it.id !== itemId);
+  // Clear initialId if it pointed at the removed item.
+  const initialId = c.initialId === itemId ? '' : c.initialId;
+  const initialOpenIds = c.initialOpenIds.filter((id) => id !== itemId);
+  return { ...c, items, initialId, initialOpenIds };
+}
+
+// Update fields on an item by id. Returns updated content.
+export function updateAdvancedAccordionItem(content, itemId, patch, { reservedAnchors = [] } = {}) {
+  const c = normalizeAdvancedAccordionContent(content);
+  const occupiedAnchors = new Set([
+    ...c.items
+      .filter((item) => item.id !== itemId)
+      .map((item) => sanitizeAnchorId(item.anchor || ''))
+      .filter(Boolean),
+    ...(Array.isArray(reservedAnchors) ? reservedAnchors : [])
+      .map((anchor) => sanitizeAnchorId(anchor || ''))
+      .filter(Boolean),
+  ]);
+  const items = c.items.map((it) => {
+    if (it.id !== itemId) return it;
+    const updated = { ...it };
+    if (patch.title !== undefined) updated.title = patch.title || 'Panel';
+    if (patch.subtitle !== undefined) updated.subtitle = String(patch.subtitle || '');
+    if (patch.badge !== undefined) updated.badge = String(patch.badge || '');
+    if (patch.leadingIcon !== undefined) updated.leadingIcon = String(patch.leadingIcon || '');
+    if (patch.anchor !== undefined) {
+      const base = sanitizeAnchorId(patch.anchor) || sanitizeAnchorId(`accordion-${it.id}`);
+      let anchor = base;
+      if (occupiedAnchors.has(anchor)) {
+        const suffix = sanitizeAnchorId(String(it.id || '').slice(-8)) || 'panel';
+        anchor = sanitizeAnchorId(`${base}-${suffix}`);
+        let index = 2;
+        while (occupiedAnchors.has(anchor)) {
+          anchor = sanitizeAnchorId(`${base}-${suffix}-${index}`);
+          index += 1;
+        }
+      }
+      updated.anchor = anchor;
+      occupiedAnchors.add(anchor);
+    }
+    if (Array.isArray(patch.children)) {
+      updated.children = patch.children
+        .map(normalizeAdvancedAccordionChildBlock)
+        .filter(Boolean);
+    }
+    return updated;
+  });
+  return { ...c, items };
+}
+
+// Reorder items by supplying the desired new order of ids.
+// Missing ids are dropped; ids not in the list are appended at the end.
+export function reorderAdvancedAccordionItems(content, orderedIds) {
+  const c = normalizeAdvancedAccordionContent(content);
+  const byId = new Map(c.items.map((it) => [it.id, it]));
+  const seen = new Set();
+  const ordered = (Array.isArray(orderedIds) ? orderedIds : [])
+    .filter((id) => byId.has(id) && !seen.has(id))
+    .map((id) => { seen.add(id); return byId.get(id); });
+  // Append any items not covered by orderedIds (defensive).
+  for (const it of c.items) {
+    if (!seen.has(it.id)) ordered.push(it);
+  }
+  return { ...c, items: ordered };
+}
+
+function normalizeSection(section) {
+  if (!section || typeof section !== 'object') {
+    return { id: 'root-section', children: [] };
+  }
+  const children = Array.isArray(section.children)
+    ? section.children.map(normalizeBlock).filter(Boolean)
+    : [];
+  return {
+    id: section.id || 'root-section',
+    children,
+  };
+}
+
+function normalizeBlock(block) {
+  if (!block || typeof block !== 'object') return null;
+  const type = block.type || BLOCK_TYPES.BOX;
+  const defaults = getBlockDefaults(type);
+  const bp = block.bp && typeof block.bp === 'object' ? block.bp : {};
+  const desktop = {
+    x: 40, y: 40,
+    w: defaults.geom?.w ?? 200, h: defaults.geom?.h ?? 120,
+    hidden: false,
+    ...(bp.desktop && typeof bp.desktop === 'object' ? bp.desktop : {}),
+  };
+  const normalized = {
+    id: block.id || generateId(),
+    type,
+    name: block.name || defaults.name || 'Block',
+    // Task #1446: preserve + re-sanitize the anchor id across normalization.
+    anchorId: sanitizeAnchorId(block.anchorId || ''),
+    locked: !!block.locked,
+    // Task #1425: preserve group membership across normalization.
+    groupId: typeof block.groupId === 'string' && block.groupId ? block.groupId : null,
+    fullWidth: !!block.fullWidth,
+    style: { ...DEFAULT_STYLE, ...(defaults.style || {}), ...(block.style || {}) },
+    a11y: { ...DEFAULT_A11Y, ...(defaults.a11y || {}), ...(block.a11y || {}) },
+    content: { ...(defaults.content || {}), ...(block.content || {}) },
+    bp: {
+      desktop,
+      tablet: bp.tablet && typeof bp.tablet === 'object' ? bp.tablet : {},
+      mobile: bp.mobile && typeof bp.mobile === 'object' ? bp.mobile : {},
+    },
+  };
+
+  // Dynamic widgets persist only the dashboard widget id and the explicit
+  // viewer-local resize preference. In particular, never retain a copied
+  // dashboard title/config/data payload in the Canvas document where it could
+  // outlive its authorization scope.
+  if (type === BLOCK_TYPES.DYNAMIC_WIDGET) {
+    normalized.content = normalizeCanvasDynamicWidgetContent(block.content);
+  }
+  // These documents contain presentation only, never a viewer's summary.
+  if (type === BLOCK_TYPES.MEMBERSHIP_SUMMARY || type === BLOCK_TYPES.PAYMENT_DETAILS) {
+    normalized.content = normalizeCanvasMembershipContent(block.content, type);
+  }
+  if (type === BLOCK_TYPES.CUSTOM_HTML) {
+    normalized.content = normalizeMemberOnlyContent(normalized.content);
+  }
+
+  // CARD compatibility shim: cards used to carry their inset as outer block
+  // padding (old default 16 all round), which also pushed the header image
+  // off the edges. The card now keeps the image full-bleed and insets only
+  // the text/CTA via `content.contentPadding`. For legacy cards saved with
+  // outer padding but no `contentPadding`, move that padding inward and zero
+  // the outer padding so they render with a single inset + full-bleed image.
+  if (type === BLOCK_TYPES.CARD) {
+    const savedContentPadding = block.content && block.content.contentPadding;
+    const savedStyle = block.style || {};
+    const legacyOuter = Math.max(
+      Number(savedStyle.paddingTop) || 0,
+      Number(savedStyle.paddingRight) || 0,
+      Number(savedStyle.paddingBottom) || 0,
+      Number(savedStyle.paddingLeft) || 0,
+    );
+    if (savedContentPadding == null && legacyOuter > 0) {
+      normalized.content.contentPadding = legacyOuter;
+      normalized.style = {
+        ...normalized.style,
+        paddingTop: 0,
+        paddingRight: 0,
+        paddingBottom: 0,
+        paddingLeft: 0,
+      };
+    }
+  }
+  if (type === BLOCK_TYPES.DATA_TABLE) {
+    normalized.content = normalizeTableContent(normalized.content);
+  }
+  if (type === BLOCK_TYPES.ADVANCED_ACCORDION) {
+    normalized.content = normalizeAdvancedAccordionContent(normalized.content);
+  }
+  if (type === BLOCK_TYPES.MEMBER_GROUP_CARDS) {
+    normalized.content.selectedGroupIds = resolveSelectedMemberGroupIds(
+      normalized.content.selectedGroupIds,
+    );
+    normalized.content.selectedGroupRoles = resolveSelectedMemberGroupRoles(
+      normalized.content.selectedGroupRoles,
+      normalized.content.selectedGroupIds,
+    );
+  }
+
+  // Task #1675: preserve resolved symbol children across re-normalization.
+  // resolveSymbolsInDesign attaches a non-standard __symbolChildren array onto
+  // symbol blocks for the public renderer to splice in. normalizeBlock rebuilds
+  // each block from a fixed allow-list and would otherwise silently drop it, so
+  // any incidental re-normalization (e.g. getRootChildren) would strip the
+  // resolved content and the symbol would fall back to its placeholder.
+  if (Array.isArray(block.__symbolChildren)) {
+    normalized.__symbolChildren = block.__symbolChildren;
+  }
+
+  return normalized;
+}
+
+// Resolve geometry/visibility for a block at a given breakpoint by
+// cascading mobile -> tablet -> desktop. Returns { x, y, w, h, hidden }.
+//
+// If the block is marked `fullWidth`, x is pinned to 0 and w is forced to
+// the breakpoint's canvas width (overriding any stored bp values). The
+// stored bp.x / bp.w values are preserved on the block — turning the
+// toggle off restores manual sizing on top of whatever is currently
+// stored (or the inspector can snapshot the rendered geometry first).
+export function resolveBlockAtBreakpoint(block, breakpoint, options) {
+  const d = block.bp?.desktop || {};
+  const t = block.bp?.tablet || {};
+  const m = block.bp?.mobile || {};
+  const base = { x: 40, y: 40, w: 200, h: 120, hidden: false, ...d };
+  let geom;
+  if (breakpoint === 'desktop') {
+    geom = base;
+  } else if (breakpoint === 'tablet') {
+    geom = { ...base, ...stripUndefined(t) };
+  } else {
+    geom = { ...base, ...stripUndefined(t), ...stripUndefined(m) };
+  }
+  if (blockIsFullWidthLike(block)) {
+    const cw = options && Number.isFinite(options.canvasWidth)
+      ? options.canvasWidth
+      : (BREAKPOINT_WIDTHS[breakpoint] || BREAKPOINT_WIDTHS.desktop);
+    return { ...geom, x: 0, w: cw };
+  }
+  return geom;
+}
+
+// Task #2451 / #2460: display-only clamp for tablet/mobile rendering.
+// Desktop-authored geometry cascades down when a block has no explicit
+// tablet/mobile frame, so a 1200px-wide block would spill past the 375px
+// stage edge. Constrain the RENDERED geometry so x + w never exceeds the
+// stage width: clamp the width, and pull x back inside the stage if x alone
+// is past the edge. This never touches stored geometry — it is a no-op on
+// desktop and on frames that already fit. Shared by the editor stage
+// (CanvasStage), the published-page stylesheet (buildCanvasCss) and the
+// forced-breakpoint preview (CanvasPageRenderer) so the three surfaces
+// can't drift.
+export function clampGeomToStage(geom, breakpoint, canvasWidth) {
+  if (breakpoint === 'desktop') return geom;
+  if (!geom || geom.hidden) return geom;
+  if (!Number.isFinite(canvasWidth) || canvasWidth <= 0) return geom;
+  const x = Number.isFinite(geom.x) ? geom.x : 0;
+  const w = Number.isFinite(geom.w) ? geom.w : 0;
+  if (x + w <= canvasWidth) return geom;
+  let nx = x;
+  if (nx >= canvasWidth) nx = Math.max(0, canvasWidth - Math.min(w, canvasWidth));
+  const nw = Math.max(1, Math.min(w, canvasWidth - Math.max(0, nx)));
+  return { ...geom, x: nx, w: nw };
+}
+
+// Task #970: per-device raw-px values (font size, line spacing, icon size,
+// button size sub-fields). Stored either as a scalar number (no responsive
+// override — byte-identical to pre-#970 blocks) or as a partial object
+// `{ desktop?, tablet?, mobile? }`. At read time we cascade
+// mobile -> tablet -> desktop so tablet/mobile inherit when blank, matching
+// the Position panel's resolution pattern. Non-finite/empty inputs return
+// undefined so callers can fall back to their pre-existing defaults.
+export function resolveResponsiveValue(value, breakpoint) {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : undefined;
+  }
+  if (typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const d = Number.isFinite(value.desktop) ? value.desktop : undefined;
+  const t = Number.isFinite(value.tablet) ? value.tablet : undefined;
+  const m = Number.isFinite(value.mobile) ? value.mobile : undefined;
+  if (breakpoint === 'mobile') return m ?? t ?? d;
+  if (breakpoint === 'tablet') return t ?? d;
+  return d;
+}
+
+// True when the given responsive value has at least one finite numeric
+// entry at ANY breakpoint (scalar number, or object with desktop/tablet/
+// mobile keys). Public renderers use this to decide whether to switch a
+// block onto the inline / CSS-var styled path even when the current
+// resolved value happens to be undefined (e.g. only a mobile override
+// is set, but we're rendering at desktop). Blocks where this returns
+// false stay byte-identical to today.
+export function hasAnyResponsiveValue(value) {
+  if (value === null || value === undefined) return false;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (typeof value !== 'object' || Array.isArray(value)) return false;
+  return ['desktop', 'tablet', 'mobile'].some((k) => Number.isFinite(value[k]));
+}
+
+// True when the given responsive value has its own entry for `breakpoint`.
+// Scalar values count as a desktop entry; object values check for a finite
+// numeric value at that key. Anything else returns false.
+export function hasResponsiveOverride(value, breakpoint) {
+  if (value === null || value === undefined) return false;
+  if (typeof value === 'number') return breakpoint === 'desktop' && Number.isFinite(value);
+  if (typeof value !== 'object' || Array.isArray(value)) return false;
+  return Number.isFinite(value[breakpoint]);
+}
+
+// Write `next` (a finite number or null/undefined to clear) at `breakpoint`
+// onto a responsive value, returning the normalised next value. The result
+// is either a scalar number (only the desktop slot is set) or a partial
+// object — and `undefined` when no slot is set. This preserves byte-identity
+// for blocks that never use tablet/mobile overrides.
+export function writeResponsiveValue(current, breakpoint, next) {
+  let obj;
+  if (typeof current === 'number' && Number.isFinite(current)) {
+    obj = { desktop: current };
+  } else if (current && typeof current === 'object' && !Array.isArray(current)) {
+    obj = {};
+    for (const k of ['desktop', 'tablet', 'mobile']) {
+      if (Number.isFinite(current[k])) obj[k] = current[k];
+    }
+  } else {
+    obj = {};
+  }
+  const finite = Number.isFinite(next);
+  if (!finite) {
+    delete obj[breakpoint];
+  } else {
+    obj[breakpoint] = next;
+  }
+  const keys = Object.keys(obj);
+  if (keys.length === 0) return undefined;
+  if (keys.length === 1 && keys[0] === 'desktop') return obj.desktop;
+  return obj;
+}
+
+function stripUndefined(obj) {
+  const out = {};
+  for (const k of Object.keys(obj || {})) {
+    if (obj[k] !== undefined && obj[k] !== null) out[k] = obj[k];
+  }
+  return out;
+}
+
+// Returns true if the breakpoint has its own override for the given field.
+export function hasOverride(block, breakpoint, field) {
+  if (breakpoint === 'desktop') return true;
+  const bp = block.bp?.[breakpoint] || {};
+  return Object.prototype.hasOwnProperty.call(bp, field) && bp[field] !== undefined && bp[field] !== null;
+}
+
+// Immutably set a geometry field on the appropriate breakpoint layer.
+// Editing on desktop writes to desktop (always populated); editing on
+// tablet/mobile only writes the override. Pass undefined to clear an
+// override (only legal on tablet/mobile).
+export function setBlockBp(block, breakpoint, patch) {
+  const next = { ...block, bp: { ...block.bp } };
+  next.bp[breakpoint] = { ...(block.bp?.[breakpoint] || {}), ...patch };
+  return next;
+}
+
+export function clearBpOverride(block, breakpoint, field) {
+  if (breakpoint === 'desktop') return block;
+  const layer = { ...(block.bp?.[breakpoint] || {}) };
+  delete layer[field];
+  return { ...block, bp: { ...block.bp, [breakpoint]: layer } };
+}
+
+// Walk every child block in a design document.
+export function forEachBlock(design, fn) {
+  const d = normalizeCanvasDesign(design);
+  for (const section of d.root.sections) {
+    if (!section || !Array.isArray(section.children)) continue;
+    for (const child of section.children) {
+      if (child && typeof child === 'object') fn(child, section);
+    }
+  }
+}
+
+export function mapBlocks(design, fn) {
+  const d = normalizeCanvasDesign(design);
+  return {
+    ...d,
+    root: {
+      ...d.root,
+      sections: d.root.sections.map((s) => ({
+        ...s,
+        children: s.children.map((c) => fn(c) || c),
+      })),
+    },
+  };
+}
+
+export function getRootChildren(design) {
+  const d = normalizeCanvasDesign(design);
+  return d.root.sections[0]?.children || [];
+}
+
+export function setRootChildren(design, children) {
+  const d = normalizeCanvasDesign(design);
+  return {
+    ...d,
+    root: {
+      ...d.root,
+      sections: [
+        { ...d.root.sections[0], id: d.root.sections[0]?.id || 'root-section', children },
+        ...d.root.sections.slice(1),
+      ],
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Task #1425: layer groups
+//
+// Groups are a flat registry on `root.groups` keyed by id. A block belongs
+// to a group via its `groupId`. There is no nesting (v1). Helpers always
+// round-trip through normalizeCanvasDesign so the returned document has a
+// consistent groups registry (dangling refs cleared, empty groups pruned).
+// ---------------------------------------------------------------------------
+
+export function getGroups(design) {
+  return normalizeCanvasDesign(design).root.groups;
+}
+
+export function setGroups(design, groups) {
+  const d = normalizeCanvasDesign(design);
+  return {
+    ...d,
+    root: { ...d.root, groups: Array.isArray(groups) ? groups : [] },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Task #1665 / #1667: editor-only ruler guides
+//
+// `root.guides` is `{ vertical: Guide[], horizontal: Guide[] }` where each
+// Guide is `{ pos, locked }` in stage coordinates. Helpers round-trip through
+// normalizeCanvasDesign so the stored arrays are always cleaned (finite pos
+// >= 0, de-duplicated by pos, sorted ascending). The public renderer never
+// reads these, so they cannot leak into a live page.
+// ---------------------------------------------------------------------------
+
+export function getCanvasGuides(design) {
+  return normalizeCanvasDesign(design).root.guides;
+}
+
+export function setCanvasGuides(design, guides) {
+  const d = normalizeCanvasDesign(design);
+  return {
+    ...d,
+    root: { ...d.root, guides: normalizeGuides(guides) },
+  };
+}
+
+// Plain `{ vertical: number[], horizontal: number[] }` of guide positions,
+// for snap targets in the stage which don't care about lock state.
+export function getCanvasGuidePositions(design) {
+  const g = getCanvasGuides(design);
+  return {
+    vertical: g.vertical.map((x) => x.pos),
+    horizontal: g.horizontal.map((x) => x.pos),
+  };
+}
+
+// All member blocks of `groupId`, in document (z-order) order.
+export function getGroupMembers(children, groupId) {
+  if (!groupId || !Array.isArray(children)) return [];
+  return children.filter((b) => b && b.groupId === groupId);
+}
+
+// Create a new group from `memberIds`. Members that already belonged to
+// other groups are moved into the new group; any group left empty as a
+// result is pruned by normalization. Returns { design, groupId } or null
+// when fewer than two valid members are supplied.
+export function createGroup(design, memberIds, name) {
+  const d = normalizeCanvasDesign(design);
+  const children = d.root.sections[0]?.children || [];
+  const valid = (Array.isArray(memberIds) ? memberIds : []).filter((id) =>
+    children.some((b) => b.id === id));
+  const uniqueValid = Array.from(new Set(valid));
+  if (uniqueValid.length < 2) return null;
+
+  const groupId = generateId('group');
+  const groupName = name && String(name).trim()
+    ? String(name).trim()
+    : `Group ${d.root.groups.length + 1}`;
+  const idSet = new Set(uniqueValid);
+  const nextChildren = children.map((b) =>
+    idSet.has(b.id) ? { ...b, groupId } : b);
+  const nextGroups = [...d.root.groups, { id: groupId, name: groupName, collapsed: false }];
+  const next = {
+    ...d,
+    root: {
+      ...d.root,
+      groups: nextGroups,
+      sections: [{ ...d.root.sections[0], children: nextChildren }],
+    },
+  };
+  // Normalize to prune any group that just lost its last member.
+  return { design: normalizeCanvasDesign(next), groupId };
+}
+
+// Disband a group: clear `groupId` on its members and drop the registry
+// entry. No-op (returns a normalized copy) when the group does not exist.
+export function ungroup(design, groupId) {
+  const d = normalizeCanvasDesign(design);
+  if (!groupId) return d;
+  const children = d.root.sections[0]?.children || [];
+  const nextChildren = children.map((b) =>
+    b.groupId === groupId ? { ...b, groupId: null } : b);
+  const nextGroups = d.root.groups.filter((g) => g.id !== groupId);
+  return normalizeCanvasDesign({
+    ...d,
+    root: {
+      ...d.root,
+      groups: nextGroups,
+      sections: [{ ...d.root.sections[0], children: nextChildren }],
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Publish-time validation
+//
+// Each block can report missing-required fields. The lib walks every block
+// and accumulates errors so the editor can block publish with clear context.
+// ---------------------------------------------------------------------------
+
+export function validateBlock(block) {
+  if (!block || typeof block !== 'object') return [];
+  const errors = [];
+  const c = block.content || {};
+  switch (block.type) {
+    case BLOCK_TYPES.VERTICAL_DIVIDER:
+      // Vertical dividers are purely decorative; no required content. The
+      // explicit case registers the block type in the validator (matching the
+      // horizontal divider, which likewise carries no validation errors).
+      break;
+    case BLOCK_TYPES.SECTION:
+      // Task #3162: background focal point is optional (absent = centre),
+      // but when present each axis must be a finite 0–100 percentage so the
+      // renderers' objectPosition / fixed-crop maths stay valid.
+      if (c.bgFocalPoint != null) {
+        const fp = c.bgFocalPoint;
+        const badAxis = (v) => v != null && (!Number.isFinite(Number(v)) || Number(v) < 0 || Number(v) > 100);
+        if (typeof fp !== 'object' || badAxis(fp.x) || badAxis(fp.y)) {
+          errors.push('Section background focal point must use 0–100 percentages.');
+        }
+      }
+      break;
+    case BLOCK_TYPES.HERO:
+      if (!c.headline || !String(c.headline).trim()) {
+        errors.push('Hero requires a headline.');
+      }
+      if (c.bgType === 'image' && !c.bgImageUrl) {
+        errors.push('Hero background image is missing.');
+      }
+      if (c.bgType === 'video' && !c.bgVideoUrl) {
+        errors.push('Hero background video URL is missing.');
+      }
+      break;
+    case BLOCK_TYPES.IMAGE: {
+      const hasIcon = c.iconClass && String(c.iconClass).trim();
+      if (!c.src && !hasIcon) errors.push('Image source or icon is required.');
+      if (c.src && (!c.alt || !String(c.alt).trim())) {
+        errors.push('Image requires alt text for accessibility.');
+      }
+      // Task #3180: focal point is optional (absent = centre), but when
+      // present each axis must be a finite 0–100 percentage so the
+      // objectPosition / fixed-crop maths stay valid (mirrors the Section
+      // bgFocalPoint validation above).
+      if (c.focalPoint != null) {
+        const fp = c.focalPoint;
+        const badAxis = (v) => v != null && (!Number.isFinite(Number(v)) || Number(v) < 0 || Number(v) > 100);
+        if (typeof fp !== 'object' || badAxis(fp.x) || badAxis(fp.y)) {
+          errors.push('Image focal point must use 0–100 percentages.');
+        }
+      }
+      break;
+    }
+    case BLOCK_TYPES.BUTTON:
+      if (!c.label || !String(c.label).trim()) errors.push('Button requires a label.');
+      if (!c.href) errors.push('Button requires a link target.');
+      break;
+    case BLOCK_TYPES.VIDEO:
+      if (!c.url) errors.push('Video requires a URL.');
+      break;
+    case BLOCK_TYPES.CARD:
+      if (c.imageUrl && (!c.imageAlt || !String(c.imageAlt).trim())) {
+        errors.push('Card image requires alt text.');
+      }
+      break;
+    case BLOCK_TYPES.LOGO_STRIP:
+      (c.logos || []).forEach((l, i) => {
+        if (l?.src && (!l.alt || !String(l.alt).trim())) {
+          errors.push(`Logo #${i + 1} requires alt text.`);
+        }
+      });
+      break;
+    case BLOCK_TYPES.ICON:
+      if (!c.icon) errors.push('Icon requires a name.');
+      break;
+    case BLOCK_TYPES.MAP:
+      if (!c.query) errors.push('Map requires a location query.');
+      break;
+    case BLOCK_TYPES.CUSTOM_HTML:
+      if (!c.html || !String(c.html).trim()) errors.push('Custom HTML block is empty.');
+      break;
+    case BLOCK_TYPES.EVENT_TEASER:
+      if (!c.eventId && !c.eventSlug) errors.push('Event teaser requires an event.');
+      break;
+    case BLOCK_TYPES.EVENT_REGISTRATION:
+      if (!c.eventId && !c.eventSlug) errors.push('Event Registration requires an event.');
+      if (c.eventType && !['simple', 'complex'].includes(c.eventType)) {
+        errors.push('Event Registration has an invalid event type.');
+      }
+      break;
+    case BLOCK_TYPES.EVENT_SESSIONS:
+      if (!c.eventId) errors.push('Event sessions block requires a multi-session event.');
+      break;
+    case BLOCK_TYPES.SPEAKER_CAROUSEL:
+      if (!c.eventId) errors.push('Speaker carousel requires an event.');
+      break;
+    case BLOCK_TYPES.SPEAKER_GRID:
+      if (!c.eventId) errors.push('Speaker grid requires an event.');
+      break;
+    case BLOCK_TYPES.SPONSOR_GRID:
+      if (!c.eventId) errors.push('Sponsor grid requires an event.');
+      break;
+    case BLOCK_TYPES.SPONSOR_CAROUSEL:
+      if (!c.eventId) errors.push('Sponsor carousel requires an event.');
+      break;
+    case BLOCK_TYPES.DIRECTORY_CAROUSEL:
+      if (!c.directorySlug) errors.push('Directory carousel requires an organisation directory.');
+      break;
+    case BLOCK_TYPES.FORM_EMBED:
+      if (!c.formSlug) errors.push('Form embed requires a form.');
+      break;
+    case BLOCK_TYPES.CAMPAIGN_EMBED:
+      if (!c.campaignSlug) errors.push('Campaign embed requires a campaign.');
+      break;
+    case BLOCK_TYPES.DYNAMIC_WIDGET:
+      if (!c.widgetId) errors.push('Dashboard widget requires a shared widget.');
+      break;
+    case BLOCK_TYPES.AI_COMPOSITION:
+      // An empty compositionId is a legitimate authoring state (the element
+      // is added first, then a draft is generated and inserted from the
+      // inspector) — flag it so authors don't publish an empty placeholder.
+      if (!c.compositionId) errors.push('AI Composition has no generated design yet.');
+      break;
+    case BLOCK_TYPES.AI_CODE_COMPOSITION:
+      // Same authoring flow as V1: element first, design attached after.
+      if (!c.compositionId) errors.push('AI Composition (V2) has no design attached yet.');
+      break;
+    case BLOCK_TYPES.DYNAMIC_DIRECTORY_EMBED:
+      if (!c.directorySlug) errors.push('Dynamic directory embed requires a directory.');
+      break;
+    case BLOCK_TYPES.MEMBER_DIRECTORY_EMBED:
+      if (!c.directorySlug) errors.push('Member directory embed requires a directory.');
+      break;
+    case BLOCK_TYPES.MEMBER_GROUP: {
+      if (!c.groupId) errors.push('Member Group requires a group.');
+      const rows = Number(c.rows);
+      if (!Number.isInteger(rows) || rows < 1 || rows > 6) {
+        errors.push('Member Group rows must be a whole number from 1 to 6.');
+      }
+      const columns = c.columns && typeof c.columns === 'object' ? c.columns : {};
+      for (const breakpoint of ['desktop', 'tablet', 'mobile']) {
+        const value = Number(columns[breakpoint]);
+        if (!Number.isInteger(value) || value < 1 || value > 6) {
+          errors.push(`Member Group ${breakpoint} columns must be a whole number from 1 to 6.`);
+        }
+      }
+      const gap = Number(c.gap);
+      if (!Number.isFinite(gap) || gap < 0 || gap > 100) {
+        errors.push('Member Group gap must be from 0 to 100 pixels.');
+      }
+      if (!Array.isArray(c.roleFilter) || c.roleFilter.some((role) => typeof role !== 'string' || !role.trim())) {
+        errors.push('Member Group role filters are invalid.');
+      }
+      break;
+    }
+    case BLOCK_TYPES.MEMBER_GROUP_CARDS: {
+      const limit = Number(c.limit);
+      if (!Number.isInteger(limit) || limit < 1 || limit > 24) {
+        errors.push('Member Group Cards count must be a whole number from 1 to 24.');
+      }
+      if (c.columns !== undefined) {
+        if (!c.columns || typeof c.columns !== 'object' || Array.isArray(c.columns)) {
+          errors.push('Member Group Cards columns must be configured per breakpoint.');
+        } else {
+          for (const breakpoint of ['desktop', 'tablet', 'mobile']) {
+            const value = c.columns[breakpoint];
+            if (
+              typeof value !== 'number'
+              ||
+              !Number.isInteger(value)
+              || value < 1
+              || value > MAX_MEMBER_GROUP_CARD_COLUMNS
+            ) {
+              errors.push(
+                `Member Group Cards ${breakpoint} columns must be a whole number from 1 to ${MAX_MEMBER_GROUP_CARD_COLUMNS}.`,
+              );
+            }
+          }
+        }
+      }
+      if (c.source !== undefined && c.source !== 'self_join' && c.source !== 'selected') {
+        errors.push('Member Group Cards source must be self_join or selected.');
+      }
+      if (c.selectedGroupIds !== undefined) {
+        if (!Array.isArray(c.selectedGroupIds)) {
+          errors.push('Member Group Cards selected groups must be a list.');
+        } else {
+          const ids = c.selectedGroupIds.map((id) => String(id || '').trim()).filter(Boolean);
+          if (ids.length !== c.selectedGroupIds.length) {
+            errors.push('Member Group Cards selected groups must use non-empty IDs.');
+          }
+          if (ids.length > 24) errors.push('Member Group Cards can select at most 24 groups.');
+          if (new Set(ids).size !== ids.length) errors.push('Member Group Cards selected groups must be unique.');
+        }
+      }
+      if (c.selectedGroupRoles !== undefined) {
+        if (
+          !c.selectedGroupRoles
+          || typeof c.selectedGroupRoles !== 'object'
+          || Array.isArray(c.selectedGroupRoles)
+        ) {
+          errors.push('Member Group Cards selected group roles must be an object.');
+        } else {
+          const selectedIds = new Set(
+            Array.isArray(c.selectedGroupIds)
+              ? c.selectedGroupIds.map((id) => String(id || '').trim()).filter(Boolean)
+              : [],
+          );
+          for (const [groupId, role] of Object.entries(c.selectedGroupRoles)) {
+            if (!selectedIds.has(String(groupId).trim())) {
+              errors.push('Member Group Cards roles may only be configured for selected groups.');
+              break;
+            }
+            if (typeof role !== 'string' || !role.trim()) {
+              errors.push('Member Group Cards configured roles must use non-empty names.');
+              break;
+            }
+          }
+        }
+      }
+      break;
+    }
+    case BLOCK_TYPES.CARD_DECK:
+      if (!Array.isArray(c.cardIds) || c.cardIds.filter(Boolean).length === 0) {
+        errors.push('Card deck has no cards selected.');
+      }
+      break;
+    case BLOCK_TYPES.WALL_OF_FAME:
+      if (!c.sectionId) {
+        errors.push('Wall of Fame has no section selected.');
+      }
+      break;
+    case BLOCK_TYPES.GALLERY:
+      if (!c.gallerySlug) {
+        errors.push('Photo Gallery has no gallery selected.');
+      }
+      break;
+    case BLOCK_TYPES.CARD_FLIP_GRID: {
+      const cards = Array.isArray(c.cards) ? c.cards : [];
+      if (cards.length === 0) {
+        errors.push('Card Flip Grid has no cards.');
+      }
+      cards.forEach((card, i) => {
+        if (!card?.title || !String(card.title).trim()) {
+          errors.push(`Card #${i + 1} requires a title.`);
+        }
+        if (card?.image && (!card.imageAlt || !String(card.imageAlt).trim())) {
+          errors.push(`Card #${i + 1} image requires alt text.`);
+        }
+      });
+      // `columns` is either a legacy single number or a per-breakpoint
+      // object { desktop, tablet, mobile }. Accept either, requiring at
+      // least one valid (>=1) column value.
+      const colVals = (c.columns && typeof c.columns === 'object')
+        ? ['desktop', 'tablet', 'mobile'].map((bp) => Number(c.columns[bp]))
+        : [Number(c.columns)];
+      if (!colVals.some((n) => Number.isFinite(n) && n >= 1)) {
+        errors.push('Card Flip Grid needs at least 1 column.');
+      }
+      if (!(Number(c.rowsPerPage) >= 1)) errors.push('Card Flip Grid needs at least 1 row per page.');
+      if (c.titleAlignment != null && !['left', 'center', 'right'].includes(c.titleAlignment)) {
+        errors.push('Card Flip Grid title alignment must be left, center, or right.');
+      }
+      break;
+    }
+    case BLOCK_TYPES.ADVANCED_ACCORDION: {
+      const aaItems = Array.isArray(c.items) ? c.items : [];
+      if (aaItems.length === 0) {
+        errors.push('Advanced Accordion has no items.');
+      }
+      const aaIdSet = new Set();
+      const aaAnchorSet = new Set();
+      aaItems.forEach((it, i) => {
+        if (!it?.id || typeof it.id !== 'string' || !it.id.trim()) {
+          errors.push(`Advanced Accordion item #${i + 1} is missing a unique id.`);
+        } else if (aaIdSet.has(it.id)) {
+          errors.push(`Advanced Accordion item #${i + 1} has a duplicate id "${it.id}".`);
+        } else {
+          aaIdSet.add(it.id);
+        }
+        if (!it?.title || !String(it.title).trim()) {
+          errors.push(`Advanced Accordion item #${i + 1} requires a title.`);
+        }
+        const anchor = sanitizeAnchorId(it?.anchor || '');
+        if (anchor) {
+          if (aaAnchorSet.has(anchor)) {
+            errors.push(`Advanced Accordion item #${i + 1} anchor "#${anchor}" is duplicated within this block.`);
+          } else {
+            aaAnchorSet.add(anchor);
+          }
+        }
+        const visitChildren = (children, trail, depth = 0) => {
+          if (depth > 20) return;
+          (Array.isArray(children) ? children : []).forEach((child, childIndex) => {
+            if (!child || typeof child !== 'object') return;
+            const label = child.name || child.type || `Block ${childIndex + 1}`;
+            validateBlock(child).forEach((message) => {
+              errors.push(`Advanced Accordion item #${i + 1} (${trail} › ${label}): ${message}`);
+            });
+            visitChildren(child.children, `${trail} › ${label}`, depth + 1);
+          });
+        };
+        visitChildren(it?.children, it?.title || `Panel ${i + 1}`);
+      });
+      // initialId must reference an existing item (or be empty).
+      if (c.initialId && typeof c.initialId === 'string' && c.initialId.trim()) {
+        if (!aaIdSet.has(c.initialId)) {
+          errors.push(`Advanced Accordion initialId "${c.initialId}" does not match any item id.`);
+        }
+      }
+      break;
+    }
+    case BLOCK_TYPES.PRICING_TABLE: {
+      const tiers = Array.isArray(c.tiers) ? c.tiers : [];
+      if (tiers.length < 2) errors.push('Pricing table needs at least 2 tiers.');
+      if (tiers.length > 6) errors.push('Pricing table supports a maximum of 6 tiers.');
+      tiers.forEach((t, i) => {
+        if (!t?.name || !String(t.name).trim()) errors.push(`Pricing tier #${i + 1} requires a name.`);
+        if (t?.ctaLabel && !t?.ctaHref) errors.push(`Pricing tier #${i + 1} CTA needs a link.`);
+      });
+      if (tiers.filter((t) => t?.recommended).length > 1) {
+        errors.push('Only one pricing tier can be marked recommended.');
+      }
+      break;
+    }
+    case BLOCK_TYPES.DATA_TABLE: {
+      const columns = Array.isArray(c.columns) ? c.columns : [];
+      const rows = Array.isArray(c.rows) ? c.rows : [];
+      if (columns.length < 1) errors.push('Table needs at least one column.');
+      if (columns.length > TABLE_LIMITS.maxColumns) errors.push(`Table supports a maximum of ${TABLE_LIMITS.maxColumns} columns.`);
+      if (rows.length > TABLE_LIMITS.maxRows) errors.push(`Table supports a maximum of ${TABLE_LIMITS.maxRows} rows.`);
+      const ids = new Set();
+      columns.forEach((column, index) => {
+        if (!column?.id || ids.has(column.id)) errors.push(`Table column #${index + 1} has an invalid identifier.`);
+        ids.add(column?.id);
+        if (!String(column?.heading || '').trim()) errors.push(`Table column #${index + 1} requires a heading.`);
+      });
+      rows.forEach((row, index) => {
+        if (!row?.cells || typeof row.cells !== 'object') errors.push(`Table row #${index + 1} is invalid.`);
+        else if (Object.values(row.cells).some((value) => String(value ?? '').length > TABLE_LIMITS.maxCellChars)) {
+          errors.push(`Table row #${index + 1} contains a cell longer than ${TABLE_LIMITS.maxCellChars.toLocaleString()} characters.`);
+        }
+      });
+      break;
+    }
+    case BLOCK_TYPES.TESTIMONIAL_GRID: {
+      const items = Array.isArray(c.items) ? c.items : [];
+      items.forEach((t, i) => {
+        if (!t?.quote || !String(t.quote).trim()) errors.push(`Testimonial #${i + 1} requires a quote.`);
+        if (!t?.author || !String(t.author).trim()) errors.push(`Testimonial #${i + 1} requires an author name.`);
+        if (t?.avatarUrl && !String(t.avatarAlt || '').trim()) {
+          errors.push(`Testimonial #${i + 1} avatar requires alt text.`);
+        }
+        if (t?.companyLogoUrl && !String(t.companyLogoAlt || '').trim()) {
+          errors.push(`Testimonial #${i + 1} company logo requires alt text.`);
+        }
+      });
+      break;
+    }
+    case BLOCK_TYPES.MEGA_MENU: {
+      const items = Array.isArray(c.items) ? c.items : [];
+      items.forEach((it, i) => {
+        if (!it?.label || !String(it.label).trim()) {
+          errors.push(`Menu item #${i + 1} requires a label.`);
+        }
+        const cols = Array.isArray(it?.columns) ? it.columns : [];
+        // An explicit per-item toggle wins; otherwise infer a panel from
+        // populated dropdown/featured content (keep in sync with
+        // megaItemHasPanel in registry.jsx).
+        const hasPanel = typeof it?.hasPanel === 'boolean'
+          ? it.hasPanel
+          : (cols.length > 0
+            || !!it?.featuredImage
+            || !!(it?.featuredTitle && String(it.featuredTitle).trim())
+            || !!(it?.featuredText && String(it.featuredText).trim()));
+        if (!hasPanel && !it?.href) {
+          errors.push(`Menu item #${i + 1} needs a link or a dropdown.`);
+        }
+        cols.forEach((col, ci) => {
+          (Array.isArray(col?.links) ? col.links : []).forEach((ln, li) => {
+            if (!ln?.label || !String(ln.label).trim()) {
+              errors.push(`Menu item #${i + 1} column #${ci + 1} link #${li + 1} requires a label.`);
+            }
+            if (!ln?.href) {
+              errors.push(`Menu item #${i + 1} column #${ci + 1} link #${li + 1} requires a URL.`);
+            }
+          });
+        });
+        if (it?.featuredImage && !String(it?.featuredAlt || '').trim()) {
+          errors.push(`Menu item #${i + 1} featured image requires alt text.`);
+        }
+      });
+      break;
+    }
+    case BLOCK_TYPES.COUNTDOWN: {
+      const linkedToEvent = !!(c.eventSlug || c.eventId);
+      if (!linkedToEvent && (!c.targetDate || Number.isNaN(new Date(c.targetDate).getTime()))) {
+        errors.push('Countdown requires a valid target date and time.');
+      }
+      if (!c.showDays && !c.showHours && !c.showMinutes && !c.showSeconds) {
+        errors.push('Countdown must show at least one unit.');
+      }
+      break;
+    }
+    case BLOCK_TYPES.ACCORDION: {
+      const items = Array.isArray(c.items) ? c.items : [];
+      items.forEach((it, i) => {
+        const links = Array.isArray(it?.links) ? it.links : [];
+        links.forEach((l, j) => {
+          const hasLabel = !!(l?.label && String(l.label).trim());
+          const hasUrl = !!(l?.url && String(l.url).trim());
+          if (hasLabel && !hasUrl) {
+            errors.push(`Accordion item #${i + 1} link #${j + 1} needs a URL.`);
+          }
+          if (hasUrl && !hasLabel) {
+            errors.push(`Accordion item #${i + 1} link #${j + 1} needs a label.`);
+          }
+        });
+      });
+      break;
+    }
+    case BLOCK_TYPES.HERO_CAROUSEL:
+    case BLOCK_TYPES.HERO_CAROUSEL_MOBILE: {
+      // Task #2836 — the mobile companion block shares the exact same
+      // content model, so it shares this validation case.
+      const carouselLabel = block.type === BLOCK_TYPES.HERO_CAROUSEL_MOBILE
+        ? 'Hero Carousel (Mobile)'
+        : 'Hero Carousel';
+      const carouselSlides = Array.isArray(c.slides) ? c.slides : [];
+      if (carouselSlides.length === 0) {
+        errors.push(`${carouselLabel} has no slides.`);
+      }
+      // Height mode must be one of the known values when present.
+      if (c.height_type && !['auto', 'full', 'custom', 'aspect'].includes(c.height_type)) {
+        errors.push(`${carouselLabel} has an invalid height mode.`);
+      }
+      // Aspect-mode clamps (absent/0 = no clamp) must be non-negative finite
+      // numbers, and min must not exceed max when both are set.
+      ['aspect_min_height', 'aspect_max_height'].forEach((key) => {
+        const val = c[key];
+        if (val != null && (!Number.isFinite(Number(val)) || Number(val) < 0)) {
+          errors.push(`${carouselLabel} has an invalid ${key === 'aspect_min_height' ? 'minimum' : 'maximum'} aspect height clamp.`);
+        }
+      });
+      if (
+        Number(c.aspect_min_height) > 0 &&
+        Number(c.aspect_max_height) > 0 &&
+        Number(c.aspect_min_height) > Number(c.aspect_max_height)
+      ) {
+        errors.push(`${carouselLabel} aspect height clamp: minimum exceeds maximum.`);
+      }
+      // Persisted natural ratio of the tallest slide (Task #2826 —
+      // absent/null = unknown, first paint falls back to the min-height
+      // placeholder) must be positive finite numbers when present.
+      ['aspect_ratio_w', 'aspect_ratio_h'].forEach((key) => {
+        const val = c[key];
+        if (val != null && (!Number.isFinite(Number(val)) || Number(val) <= 0)) {
+          errors.push(`${carouselLabel} has an invalid stored aspect ratio ${key === 'aspect_ratio_w' ? 'width' : 'height'}.`);
+        }
+      });
+      // Per-slide padding overrides (absent/null = inherit block default)
+      // must be non-negative numbers when present.
+      carouselSlides.forEach((slide, i) => {
+        ['padding_vertical', 'padding_horizontal'].forEach((key) => {
+          const val = slide?.[key];
+          if (val != null && (!Number.isFinite(Number(val)) || Number(val) < 0)) {
+            errors.push(`${carouselLabel} slide ${i + 1} has an invalid ${key === 'padding_vertical' ? 'vertical' : 'horizontal'} padding override.`);
+          }
+        });
+        // Per-slide text offset overrides (absent/null = inherit block
+        // default) must be finite numbers when present (negatives allowed).
+        ['text_offset_x', 'text_offset_y'].forEach((key) => {
+          const val = slide?.[key];
+          if (val != null && !Number.isFinite(Number(val))) {
+            errors.push(`${carouselLabel} slide ${i + 1} has an invalid text offset ${key === 'text_offset_x' ? 'X' : 'Y'} override.`);
+          }
+        });
+        // Per-slide CTA alignment override (absent/'' = inherit slide text
+        // alignment) must be one of left/center/right when present.
+        if (slide?.ctaAlign && !['left', 'center', 'right'].includes(slide.ctaAlign)) {
+          errors.push(`${carouselLabel} slide ${i + 1} has an invalid CTA alignment override.`);
+        }
+        // Per-slide foreground image alignment (absent/'' = center) must be
+        // one of left/center/right when present.
+        if (slide?.foregroundAlign && !['left', 'center', 'right'].includes(slide.foregroundAlign)) {
+          errors.push(`${carouselLabel} slide ${i + 1} has an invalid foreground image alignment.`);
+        }
+      });
+      break;
+    }
+    default:
+      break;
+  }
+  return errors;
+}
+
+// ---------------------------------------------------------------------------
+// CSS emission for the public renderer
+//
+// The editor uses runtime JS to layout absolutely-positioned blocks at the
+// detected breakpoint. For public pages we instead emit a self-contained
+// per-page stylesheet with @media queries so layout is correct on the
+// initial render with zero JS — important for SSR, prerender, Lighthouse
+// LCP/CLS scores, and clients that block JS.
+// ---------------------------------------------------------------------------
+
+function escapeCssIdent(id) {
+  return String(id || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
+function fmtPx(n) {
+  return `${Math.round(Number(n) || 0)}px`;
+}
+
+// Hero Carousel "Auto (match image)" height mode: the block's rendered height
+// follows the tallest slide image's intrinsic aspect ratio at the rendered
+// width. Shared by the renderer (aspect-ratio sizing) and the reflow context
+// (signed grow/shrink relative to stored geometry).
+export function isAspectHeightCarousel(block) {
+  return (
+    !!block &&
+    (block.type === BLOCK_TYPES.HERO_CAROUSEL || block.type === BLOCK_TYPES.HERO_CAROUSEL_MOBILE) &&
+    (block.content?.height_type === 'aspect')
+  );
+}
+
+// Aspect-mode sizing for the block WRAPPER itself (Task #2829). The static
+// stylesheet used to pin the wrapper to the stored fixed px height and rely on
+// an inner aspect-ratio box + ResizeObserver reflow to fake auto-sizing — the
+// wrapper never actually changed height on the public page. Instead the
+// wrapper now sizes itself: `height:auto` plus CSS `aspect-ratio` from the
+// ratio persisted in content (aspect_ratio_w/h — Task #2826), with the
+// optional min/max clamps (0/absent = no clamp). Pages saved before the ratio
+// was persisted get `height:auto` with a min-height placeholder; the inner
+// runtime image-load box then drives the wrapper height once images load.
+// Returns null for every non-aspect block (byte-identical output for them).
+export function resolveAspectSizingStyle(block) {
+  if (!isAspectHeightCarousel(block)) return null;
+  const c = block.content || {};
+  const minH = Number(c.aspect_min_height) > 0 ? Number(c.aspect_min_height) : 0;
+  const maxH = Number(c.aspect_max_height) > 0 ? Number(c.aspect_max_height) : 0;
+  const w = Number(c.aspect_ratio_w);
+  const h = Number(c.aspect_ratio_h);
+  const hasRatio = w > 0 && h > 0;
+  return {
+    height: 'auto',
+    aspectRatio: hasRatio ? `${w} / ${h}` : undefined,
+    // Without a stored ratio the wrapper has no intrinsic height until the
+    // runtime image-load effect kicks in — hold space with the min clamp
+    // (or the 400px fallback, matching the renderer's placeholder).
+    minHeight: hasRatio ? (minH || undefined) : (minH || 400),
+    maxHeight: maxH || undefined,
+  };
+}
+
+// Task #2840 — reflow REFERENCE height for an aspect-mode Hero Carousel.
+//
+// The public signed reflow (AccordionReflowContext) measures a carousel's
+// rendered height and shifts blocks below by (measured − reference). Using the
+// stored geometry height as the reference is wrong for aspect carousels: the
+// editor stage renders them at their aspect-derived height (the wrapper is
+// height:auto + aspect-ratio), which can drift from the stored box height (the
+// stored h is only a snapshot). Authors align the blocks BELOW with what they
+// SEE — the aspect-derived bottom — so the reflow must measure growth from the
+// aspect-derived height at the breakpoint's stage width, not the stale stored
+// box. Otherwise the stored-vs-rendered mismatch is double-counted as a
+// constant gap (or overlap) on every viewport at that breakpoint.
+//
+// Reference width = what the editor stage rendered the block at:
+//   - fullBleed / fullWidth blocks span the stage → the breakpoint stage width
+//     (1200 / 768 / 375).
+//   - otherwise the stored width, display-clamped to the stage exactly like
+//     the editor and published CSS clamp it (clampGeomToStage).
+//
+// Returns the clamped aspect height (min/max applied), or null when the block
+// is not an aspect carousel or has no stored ratio — callers must then fall
+// back to the stored geometry height (legacy pages saved before the ratio was
+// persisted size themselves at runtime; their stored h is the best reference).
+export function resolveAspectReflowReferenceHeight(block, geom, breakpoint) {
+  if (!isAspectHeightCarousel(block)) return null;
+  const c = block.content || {};
+  const rw = Number(c.aspect_ratio_w);
+  const rh = Number(c.aspect_ratio_h);
+  if (!(rw > 0 && rh > 0)) return null;
+  const stageW = BREAKPOINT_WIDTHS[breakpoint] || BREAKPOINT_WIDTHS.desktop;
+  let refWidth;
+  if (blockIsFullWidthLike(block)) {
+    refWidth = stageW;
+  } else {
+    const g = clampGeomToStage(geom || {}, breakpoint, stageW);
+    refWidth = Number.isFinite(g?.w) && g.w > 0 ? g.w : stageW;
+  }
+  let h = (refWidth * rh) / rw;
+  const minH = Number(c.aspect_min_height) > 0 ? Number(c.aspect_min_height) : 0;
+  const maxH = Number(c.aspect_max_height) > 0 ? Number(c.aspect_max_height) : 0;
+  if (minH) h = Math.max(h, minH);
+  if (maxH) h = Math.min(h, maxH);
+  return Math.round(h);
+}
+
+// Task #2842 — bake the aspect-derived height into stored geometry.
+//
+// An aspect-mode Hero Carousel's stored per-breakpoint geometry `h` is only a
+// snapshot: the editor stage renders the wrapper at height:auto + aspect-ratio,
+// so the stored box drifts from what authors actually see (e.g. stored 552 vs
+// rendered 619). The public reflow compensates via
+// resolveAspectReflowReferenceHeight, but the stale stored box still drives
+// editor selection handles, layer-panel sizing and row-membership math.
+//
+// This helper rewrites each breakpoint's stored `h` to the aspect-derived
+// height at that breakpoint's stage width (same math as the reflow reference:
+// stage/clamped width × ratio, min/max clamps applied). Callers invoke it
+// whenever the ratio / clamps / slide images / width change so stored data
+// stays honest. It never moves blocks below — authors already align those
+// with the VISIBLE aspect bottom, so only the box height is corrected.
+//
+// Pure + immutable: returns the same block reference when nothing changes
+// (non-aspect blocks, no persisted ratio, or already-baked heights).
+export function bakeAspectCarouselGeometry(block) {
+  if (!isAspectHeightCarousel(block)) return block;
+  const c = block.content || {};
+  if (!(Number(c.aspect_ratio_w) > 0 && Number(c.aspect_ratio_h) > 0)) return block;
+  let next = block;
+  for (const bp of ['desktop', 'tablet', 'mobile']) {
+    const geom = resolveBlockAtBreakpoint(next, bp);
+    const refH = resolveAspectReflowReferenceHeight(next, geom, bp);
+    if (!Number.isFinite(refH) || refH <= 0) continue;
+    if (Math.round(geom.h) !== refH) next = setBlockBp(next, bp, { h: refH });
+  }
+  return next;
+}
+
+// CSS-string form of resolveAspectSizingStyle for the static stylesheet.
+export function resolveAspectSizingCss(block) {
+  const s = resolveAspectSizingStyle(block);
+  if (!s) return null;
+  const parts = ['height:auto;'];
+  if (s.aspectRatio) parts.push(`aspect-ratio:${s.aspectRatio};`);
+  if (s.minHeight) parts.push(`min-height:${fmtPx(s.minHeight)};`);
+  if (s.maxHeight) parts.push(`max-height:${fmtPx(s.maxHeight)};`);
+  return parts.join('');
+}
+
+// Resolve an explicit CSS height override for a block, or null to fall back to
+// the geometry height. Currently only the Image block supports this, and only
+// when full-bleed is on (see the Image block defaults). Returns a CSS length
+// string (e.g. '40vh', '300px') or null for the default 'auto' behaviour.
+export function resolveBlockHeightCss(block) {
+  const c = block && block.content;
+  if (!c) return null;
+  if (block.type !== BLOCK_TYPES.IMAGE || !c.fullBleed) return null;
+  const v = Number(c.heightValue);
+  if (!Number.isFinite(v) || v <= 0) return null;
+  if (c.heightMode === 'px') return fmtPx(v);
+  if (c.heightMode === 'vh') return `${v}vh`;
+  return null;
+}
+
+function geomRule(geom, { fullBleed, bleed, fullWidth, heightCss, aspectCss } = {}) {
+  if (geom.hidden) return 'display:none;';
+  // Aspect-mode carousels (Task #2829) replace the fixed height with
+  // height:auto + aspect-ratio + clamps so the wrapper itself tracks the
+  // viewport width; every other block keeps its fixed geometry height.
+  const heightDecl = aspectCss || `height:${heightCss || fmtPx(geom.h)};`;
+  if (fullBleed || bleed === 'full') {
+    return [
+      'display:block;',
+      'position:absolute;',
+      'left:50%;',
+      'transform:translateX(-50%);',
+      'width:100vw;',
+      `top:${fmtPx(geom.y)};`,
+      heightDecl,
+    ].join('');
+  }
+  // Task #3154: directional bleed — one edge at the viewport, the other at
+  // the stage edge. The rule is emitted relative to the centered
+  // `.canvas-stage` (width = stage width), so `50%` is half the stage and
+  // `50vw` is half the viewport: `calc(50% - 50vw)` lands exactly on the
+  // viewport's left edge, and `calc(50% + 50vw)` spans from one viewport
+  // edge to the opposite stage edge. Same 100vw-includes-scrollbar caveat
+  // as full bleed (the forced-breakpoint preview path compensates).
+  if (bleed === 'left') {
+    return [
+      'display:block;',
+      'position:absolute;',
+      'left:calc(50% - 50vw);',
+      'width:calc(50% + 50vw);',
+      `top:${fmtPx(geom.y)};`,
+      heightDecl,
+    ].join('');
+  }
+  if (bleed === 'right') {
+    return [
+      'display:block;',
+      'position:absolute;',
+      'left:0;',
+      'width:calc(50% + 50vw);',
+      `top:${fmtPx(geom.y)};`,
+      heightDecl,
+    ].join('');
+  }
+  if (fullWidth) {
+    return [
+      'display:block;',
+      'position:absolute;',
+      'left:0;',
+      'width:100%;',
+      `top:${fmtPx(geom.y)};`,
+      heightDecl,
+    ].join('');
+  }
+  return [
+    'display:block;',
+    'position:absolute;',
+    `left:${fmtPx(geom.x)};`,
+    `top:${fmtPx(geom.y)};`,
+    `width:${fmtPx(geom.w)};`,
+    aspectCss || `height:${fmtPx(geom.h)};`,
+  ].join('');
+}
+
+// Task #972: per-block CSS variable definitions for per-device text /
+// icon sizes added in task #970. The renderers (EventCarouselRender,
+// ButtonRender, IconRender) read these via `var(--name, fallback)` so
+// the per-page stylesheet drives layout on real public pages — no JS
+// needed for breakpoint resolution. The fallback in the renderer kicks
+// in whenever a block has no override at any breakpoint (the var is
+// simply never declared), keeping pre-#970 byte-identity intact.
+const RESPONSIVE_VAR_FIELDS = {
+  [BLOCK_TYPES.EVENT_CAROUSEL]: [
+    { contentKey: 'dateFontSize',        varName: '--cb-ev-date-fs',    unit: 'px' },
+    { contentKey: 'titleFontSize',       varName: '--cb-ev-title-fs',   unit: 'px' },
+    { contentKey: 'summaryFontSize',     varName: '--cb-ev-summary-fs', unit: 'px' },
+    { contentKey: 'titleLineHeight',     varName: '--cb-ev-title-lh',   unit: '' },
+    { contentKey: 'summaryLineHeight',   varName: '--cb-ev-summary-lh', unit: '' },
+    { contentKey: 'dateIconSize',        varName: '--cb-ev-date-icon',  unit: 'px' },
+    { contentKey: 'placeholderIconSize', varName: '--cb-ev-ph-icon',    unit: 'px' },
+  ],
+  [BLOCK_TYPES.SPEAKER_CAROUSEL]: [
+    { contentKey: 'nameFontSize',  varName: '--cb-sp-name-fs',  unit: 'px' },
+    { contentKey: 'titleFontSize', varName: '--cb-sp-title-fs', unit: 'px' },
+    { contentKey: 'orgFontSize',   varName: '--cb-sp-org-fs',   unit: 'px' },
+  ],
+  [BLOCK_TYPES.SPEAKER_GRID]: [
+    { contentKey: 'nameFontSize',  varName: '--cb-spgr-name-fs',  unit: 'px' },
+    { contentKey: 'titleFontSize', varName: '--cb-spgr-title-fs', unit: 'px' },
+    { contentKey: 'orgFontSize',   varName: '--cb-spgr-org-fs',   unit: 'px' },
+  ],
+  [BLOCK_TYPES.SPONSOR_GRID]: [
+    { contentKey: 'nameFontSize', varName: '--cb-spg-name-fs', unit: 'px' },
+    { contentKey: 'descFontSize', varName: '--cb-spg-desc-fs', unit: 'px' },
+  ],
+  [BLOCK_TYPES.SPONSOR_CAROUSEL]: [
+    { contentKey: 'nameFontSize', varName: '--cb-spc-name-fs', unit: 'px' },
+    { contentKey: 'descFontSize', varName: '--cb-spc-desc-fs', unit: 'px' },
+  ],
+  [BLOCK_TYPES.DIRECTORY_CAROUSEL]: [
+    { contentKey: 'nameFontSize', varName: '--cb-dirc-name-fs', unit: 'px' },
+    { contentKey: 'descFontSize', varName: '--cb-dirc-desc-fs', unit: 'px' },
+  ],
+  [BLOCK_TYPES.ICON]: [
+    { contentKey: 'size', varName: '--cb-icon-size', unit: 'px' },
+  ],
+};
+
+// Button is a special case: the four per-device sub-fields live inside
+// `content.size` (object), not as top-level content keys.
+const BUTTON_RESPONSIVE_SIZE_FIELDS = [
+  { sizeKey: 'paddingX', varName: '--cb-btn-px',   unit: 'px' },
+  { sizeKey: 'paddingY', varName: '--cb-btn-py',   unit: 'px' },
+  { sizeKey: 'fontSize', varName: '--cb-btn-fs',   unit: 'px' },
+  { sizeKey: 'iconSize', varName: '--cb-btn-icon', unit: 'px' },
+];
+
+function collectBlockResponsiveVars(block, breakpoint) {
+  const out = {};
+  const c = block.content || {};
+  const fields = RESPONSIVE_VAR_FIELDS[block.type];
+  if (fields) {
+    for (const { contentKey, varName, unit } of fields) {
+      const v = resolveResponsiveValue(c[contentKey], breakpoint);
+      if (Number.isFinite(v)) out[varName] = unit ? `${v}${unit}` : String(v);
+    }
+  }
+  if (block.type === BLOCK_TYPES.BUTTON) {
+    const sz = c.size;
+    if (sz && typeof sz === 'object' && !Array.isArray(sz)) {
+      for (const { sizeKey, varName, unit } of BUTTON_RESPONSIVE_SIZE_FIELDS) {
+        const v = resolveResponsiveValue(sz[sizeKey], breakpoint);
+        if (Number.isFinite(v)) out[varName] = unit ? `${v}${unit}` : String(v);
+      }
+    }
+  }
+  return out;
+}
+
+function varsRuleBody(vars) {
+  const entries = Object.entries(vars);
+  if (!entries.length) return '';
+  return entries.map(([k, v]) => `${k}:${v};`).join('');
+}
+
+export function stageHeightForBreakpoint(blocks, breakpoint, options) {
+  // `buffer` is empty space added below the lowest block. The editor keeps a
+  // default buffer so there is room to drag/drop new blocks below existing
+  // content, but the published render passes buffer:0 so the last element sits
+  // tight against the footer (no spurious gap).
+  const buffer = options && Number.isFinite(options.buffer) ? options.buffer : 80;
+  const minHeight = options && Number.isFinite(options.minHeight) ? options.minHeight : 240;
+  let h = minHeight;
+  for (const b of blocks) {
+    const g = resolveBlockAtBreakpoint(b, breakpoint);
+    if (g.hidden) continue;
+    h = Math.max(h, (g.y || 0) + (g.h || 0) + buffer);
+  }
+  return h;
+}
+
+/**
+ * Build a CSS stylesheet for a Canvas page. Scoped under `scope` (any CSS
+ * selector, e.g. `#canvas-abc123`) so multiple Canvas pages can coexist
+ * on a document without rule collisions.
+ */
+export function buildCanvasCss(blocks, scope) {
+  const lines = [];
+  const sc = scope || '.canvas-page';
+
+  // Stage heights per breakpoint. The published render uses buffer:0 so the
+  // last element sits tight to whatever follows (e.g. the footer); the editor
+  // computes its own stage height separately with the default buffer.
+  const hD = stageHeightForBreakpoint(blocks, 'desktop', { buffer: 0 });
+  const hT = stageHeightForBreakpoint(blocks, 'tablet', { buffer: 0 });
+  const hM = stageHeightForBreakpoint(blocks, 'mobile', { buffer: 0 });
+  const stageSel = `${sc} .canvas-stage`;
+  lines.push(`${stageSel}{position:relative;width:100%;max-width:${BREAKPOINT_WIDTHS.desktop}px;margin:0 auto;height:${fmtPx(hD)};--cb-content-width:${BREAKPOINT_WIDTHS.desktop}px;}`);
+
+  for (const b of blocks) {
+    const id = escapeCssIdent(b.id);
+    const sel = `${sc} [data-cb="${id}"]`;
+    const bleed = getBlockBleed(b);
+    const fullWidth = !!b.fullWidth;
+    const heightCss = resolveBlockHeightCss(b);
+    const aspectCss = resolveAspectSizingCss(b);
+    const dG = resolveBlockAtBreakpoint(b, 'desktop');
+    lines.push(`${sel}{${geomRule(dG, { bleed, fullWidth, heightCss, aspectCss })}}`);
+  }
+
+  // Task #972: per-block CSS variables for per-device text/icon sizes
+  // (Event Carousel, Button, Icon — see RESPONSIVE_VAR_FIELDS above).
+  // Desktop values are emitted unconditionally so the var resolves on
+  // wide viewports; tablet/mobile diffs are added to the @media blocks
+  // below. Blocks with no per-device overrides at any breakpoint emit
+  // nothing here, keeping their stylesheet output byte-identical to
+  // pre-#972.
+  for (const b of blocks) {
+    const dv = collectBlockResponsiveVars(b, 'desktop');
+    if (Object.keys(dv).length === 0) continue;
+    const id = escapeCssIdent(b.id);
+    lines.push(`${sc} [data-cb="${id}"]{${varsRuleBody(dv)}}`);
+  }
+
+  // Tablet overrides.
+  const tabletRules = [];
+  for (const b of blocks) {
+    const id = escapeCssIdent(b.id);
+    const sel = `${sc} [data-cb="${id}"]`;
+    const bleed = getBlockBleed(b);
+    const fullWidth = !!b.fullWidth;
+    const heightCss = resolveBlockHeightCss(b);
+    const dG = resolveBlockAtBreakpoint(b, 'desktop');
+    // Task #2460: clamp the rendered tablet geometry to the tablet stage
+    // width BEFORE comparing to desktop, so a desktop-cascaded over-wide
+    // block (identical stored frames) still emits a clamped override rule
+    // instead of letting the desktop width spill past the stage edge.
+    // Full-width/full-bleed blocks are skipped (x/w forced by geomRule).
+    const tG = clampGeomToStage(
+      resolveBlockAtBreakpoint(b, 'tablet'),
+      'tablet',
+      BREAKPOINT_WIDTHS.tablet,
+    );
+    // Full-width / full-bleed blocks have their x/w forced by geomRule
+    // (100% or 100vw), so per-breakpoint x/w differences (which only come
+    // from the breakpoint stage width) must not trigger a redundant
+    // override — compare y/h/hidden only for those.
+    const fwLike = fullWidth || !!bleed;
+    const geomDiffers = fwLike
+      ? (tG.y !== dG.y || tG.h !== dG.h || !!tG.hidden !== !!dG.hidden)
+      : (tG.x !== dG.x || tG.y !== dG.y || tG.w !== dG.w || tG.h !== dG.h || !!tG.hidden !== !!dG.hidden);
+    if (geomDiffers) {
+      tabletRules.push(`${sel}{${geomRule(tG, { bleed, fullWidth, heightCss, aspectCss: resolveAspectSizingCss(b) })}}`);
+    }
+  }
+  // Task #972: tablet var diffs — only emit keys that differ from the
+  // unconditional desktop rule so identical values don't double up.
+  for (const b of blocks) {
+    const dv = collectBlockResponsiveVars(b, 'desktop');
+    const tv = collectBlockResponsiveVars(b, 'tablet');
+    const diff = {};
+    for (const k of new Set([...Object.keys(dv), ...Object.keys(tv)])) {
+      if (tv[k] !== undefined && tv[k] !== dv[k]) diff[k] = tv[k];
+    }
+    if (Object.keys(diff).length) {
+      const id = escapeCssIdent(b.id);
+      tabletRules.push(`${sc} [data-cb="${id}"]{${varsRuleBody(diff)}}`);
+    }
+  }
+  if (tabletRules.length) {
+    lines.push(`@media (max-width: ${BREAKPOINT_MAX_PX.tablet}px){`);
+    lines.push(`${stageSel}{max-width:${BREAKPOINT_WIDTHS.tablet}px;height:${fmtPx(hT)};--cb-content-width:${BREAKPOINT_WIDTHS.tablet}px;}`);
+    lines.push(tabletRules.join(''));
+    lines.push('}');
+  } else {
+    lines.push(`@media (max-width: ${BREAKPOINT_MAX_PX.tablet}px){${stageSel}{max-width:${BREAKPOINT_WIDTHS.tablet}px;height:${fmtPx(hT)};--cb-content-width:${BREAKPOINT_WIDTHS.tablet}px;}}`);
+  }
+
+  // Mobile overrides.
+  const mobileRules = [];
+  for (const b of blocks) {
+    const id = escapeCssIdent(b.id);
+    const sel = `${sc} [data-cb="${id}"]`;
+    const bleed = getBlockBleed(b);
+    const fullWidth = !!b.fullWidth;
+    const heightCss = resolveBlockHeightCss(b);
+    // Task #2460: compare the clamped mobile geometry against the clamped
+    // tablet geometry — the tablet @media rule (which also matches at
+    // mobile widths) already renders the clamped tablet frame, so the
+    // mobile override only needs emitting when the clamped results differ.
+    const tG = clampGeomToStage(
+      resolveBlockAtBreakpoint(b, 'tablet'),
+      'tablet',
+      BREAKPOINT_WIDTHS.tablet,
+    );
+    const mG = clampGeomToStage(
+      resolveBlockAtBreakpoint(b, 'mobile'),
+      'mobile',
+      BREAKPOINT_WIDTHS.mobile,
+    );
+    const fwLike = fullWidth || !!bleed;
+    const geomDiffers = fwLike
+      ? (mG.y !== tG.y || mG.h !== tG.h || !!mG.hidden !== !!tG.hidden)
+      : (mG.x !== tG.x || mG.y !== tG.y || mG.w !== tG.w || mG.h !== tG.h || !!mG.hidden !== !!tG.hidden);
+    if (geomDiffers) {
+      mobileRules.push(`${sel}{${geomRule(mG, { bleed, fullWidth, heightCss, aspectCss: resolveAspectSizingCss(b) })}}`);
+    }
+  }
+  // Task #972: mobile var diffs — compare against tablet (which already
+  // cascades from desktop), so the mobile @media block only re-declares
+  // vars that change between tablet and mobile.
+  for (const b of blocks) {
+    const tv = collectBlockResponsiveVars(b, 'tablet');
+    const mv = collectBlockResponsiveVars(b, 'mobile');
+    const diff = {};
+    for (const k of new Set([...Object.keys(tv), ...Object.keys(mv)])) {
+      if (mv[k] !== undefined && mv[k] !== tv[k]) diff[k] = mv[k];
+    }
+    if (Object.keys(diff).length) {
+      const id = escapeCssIdent(b.id);
+      mobileRules.push(`${sc} [data-cb="${id}"]{${varsRuleBody(diff)}}`);
+    }
+  }
+  if (mobileRules.length) {
+    lines.push(`@media (max-width: ${BREAKPOINT_MAX_PX.mobile}px){`);
+    lines.push(`${stageSel}{max-width:${BREAKPOINT_WIDTHS.mobile}px;height:${fmtPx(hM)};--cb-content-width:${BREAKPOINT_WIDTHS.mobile}px;}`);
+    lines.push(mobileRules.join(''));
+    lines.push('}');
+  } else {
+    lines.push(`@media (max-width: ${BREAKPOINT_MAX_PX.mobile}px){${stageSel}{max-width:${BREAKPOINT_WIDTHS.mobile}px;height:${fmtPx(hM)};--cb-content-width:${BREAKPOINT_WIDTHS.mobile}px;}}`);
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * Identify the LCP-candidate block on a page. Heuristic: the first
+ * visible-at-desktop image-bearing block (hero w/ image background, image
+ * block w/ src, or card w/ image), reading in document order, top-down.
+ */
+export function findLcpBlockId(blocks) {
+  const candidates = blocks
+    .map((b) => ({ b, g: resolveBlockAtBreakpoint(b, 'desktop') }))
+    .filter(({ b, g }) => {
+      if (g.hidden) return false;
+      const c = b.content || {};
+      if (b.type === BLOCK_TYPES.HERO && c.bgType === 'image' && c.bgImageUrl) return true;
+      if (b.type === BLOCK_TYPES.IMAGE && c.src) return true;
+      if (b.type === BLOCK_TYPES.CARD && c.imageUrl) return true;
+      if (b.type === BLOCK_TYPES.HERO_CAROUSEL && (c.slides || []).some((s) => s.backgroundImage)) return true;
+      return false;
+    })
+    .sort((a, b) => (a.g.y || 0) - (b.g.y || 0));
+  return candidates.length ? candidates[0].b.id : null;
+}
+
+// ---------------------------------------------------------------------------
+// Task #1446: in-page anchor links ("jump links")
+//
+// Any block may carry an `anchorId` — a URL-safe slug rendered as a real
+// HTML `id` on the public block wrapper so links like `#contact` scroll to
+// it. These helpers centralise sanitization, the page-wide anchor list (used
+// by the link-field anchor pickers) and duplicate detection.
+// ---------------------------------------------------------------------------
+
+// Convert free text into a safe in-page anchor slug. Lowercased, spaces and
+// underscores collapse to hyphens, anything outside [a-z0-9-] is dropped,
+// leading/trailing hyphens trimmed, capped at 64 chars. Returns '' for empty
+// or fully-invalid input.
+export function sanitizeAnchorId(text) {
+  return String(text == null ? '' : text)
+    .toLowerCase()
+    .trim()
+    .replace(/[\s_]+/g, '-')
+    .replace(/[^a-z0-9-]/g, '')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64);
+}
+
+// Flat list of every block that has an anchor id, in document order.
+// Each entry: { blockId, anchorId, blockName, blockType, duplicate }.
+// `duplicate` is true for the 2nd+ occurrence of a repeated anchor id.
+// Advanced Accordion item anchors and their nested child block anchors are
+// included so in-page jump links to accordion panels resolve correctly.
+export function getPageAnchors(design) {
+  if (!design || typeof design !== 'object') return [];
+  const sections = Array.isArray(design?.root?.sections) ? design.root.sections : [];
+  const out = [];
+  const seen = new Set();
+
+  function pushAnchor(anchorId, blockId, blockName, blockType) {
+    if (!anchorId) return;
+    out.push({
+      blockId,
+      anchorId,
+      blockName,
+      blockType,
+      duplicate: seen.has(anchorId),
+    });
+    seen.add(anchorId);
+  }
+
+  // Depth guard prevents runaway recursion on malformed/deeply-nested trees.
+  // Track object references on the current ancestry path (not ids): duplicate
+  // ids are precisely the kind of malformed data anchor discovery must still
+  // inspect so it can report duplicate anchors rather than silently skipping.
+  const MAX_DEPTH = 64;
+
+  function visitBlock(block, labelPrefix, depth, ancestors) {
+    if (!block || typeof block !== 'object') return;
+    if (depth > MAX_DEPTH) return;
+    if (ancestors.has(block)) return;
+    ancestors.add(block);
+    const selfLabel = block.name || block.type || 'Block';
+    const anchorId = sanitizeAnchorId(block?.anchorId || '');
+    pushAnchor(
+      anchorId,
+      block.id,
+      labelPrefix ? `${labelPrefix} › ${selfLabel}` : selfLabel,
+      block.type,
+    );
+
+    // Advanced Accordion: emit anchors for each item panel plus every
+    // descendant block anchor (recursively, at arbitrary depth).
+    if (block.type === BLOCK_TYPES.ADVANCED_ACCORDION) {
+      const items = Array.isArray(block.content?.items) ? block.content.items : [];
+      for (const item of items) {
+        if (!item || typeof item !== 'object') continue;
+        const itemLabelBase = `${block.name || 'Advanced Accordion'} › ${item.title || 'Panel'}`;
+        const itemAnchor = sanitizeAnchorId(item?.anchor || '');
+        pushAnchor(itemAnchor, item.id || block.id, itemLabelBase, block.type);
+        const children = Array.isArray(item.children) ? item.children : [];
+        for (const child of children) {
+          visitBlock(child, itemLabelBase, depth + 1, ancestors);
+        }
+      }
+    }
+
+    // Generic flow-model containers: recurse into `children[]`.
+    if (Array.isArray(block.children)) {
+      const childPrefix = labelPrefix ? `${labelPrefix} › ${selfLabel}` : selfLabel;
+      for (const child of block.children) {
+        visitBlock(child, childPrefix, depth + 1, ancestors);
+      }
+    }
+    ancestors.delete(block);
+  }
+
+  for (const section of sections) {
+    for (const block of (section?.children || [])) {
+      visitBlock(block, '', 0, new Set());
+    }
+  }
+  return out;
+}
+
+// Set of anchor ids that appear on more than one block in the page.
+export function findDuplicateAnchorIds(design) {
+  const counts = {};
+  for (const a of getPageAnchors(design)) {
+    counts[a.anchorId] = (counts[a.anchorId] || 0) + 1;
+  }
+  return new Set(Object.keys(counts).filter((k) => counts[k] > 1));
+}
+
+export function validateCanvasDesign(design) {
+  const d = normalizeCanvasDesign(design);
+  const issues = [];
+  const duplicateAnchors = findDuplicateAnchorIds(d);
+  for (const section of d.root.sections) {
+    for (const block of section.children || []) {
+      const errs = validateBlock(block);
+      const blockAnchorIds = getPageAnchors({
+        root: { sections: [{ id: section.id, children: [block] }] },
+      }).map((entry) => entry.anchorId);
+      const duplicateInBlock = blockAnchorIds.find((anchorId) => duplicateAnchors.has(anchorId));
+      if (duplicateInBlock) {
+        errs.push(`Anchor ID "#${duplicateInBlock}" is used by more than one block — make it unique so jump links stay unambiguous.`);
+      }
+      if (errs.length > 0) {
+        issues.push({ blockId: block.id, blockName: block.name, blockType: block.type, errors: errs });
+      }
+    }
+  }
+  return issues;
+}

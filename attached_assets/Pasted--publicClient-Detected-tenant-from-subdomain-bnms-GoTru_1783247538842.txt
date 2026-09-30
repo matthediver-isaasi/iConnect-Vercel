@@ -1,0 +1,225 @@
+ [publicClient] Detected tenant from subdomain: bnms
+ GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.93.3) 2026-07-05T10:31:42.887Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+ [usePendingPurchaseOrders] memberInfo: null
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+ [Layout] hasPendingPOs: false count: 0 isLoading: false
+ [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+ [usePendingPurchaseOrders] Query running, memberInfo.id: f42f03b5-5ed7-441b-aac5-972038427e59
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+ [DynamicPage] slug: patient-information-leaflets
+ [DynamicPage] dynamicArticleRoute: null
+ [DynamicPage] mySlug: MyArticles isCustomSlug: false
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+ [DynamicPage] slug: patient-information-leaflets
+ [DynamicPage] dynamicArticleRoute: null
+ [DynamicPage] mySlug: MyArticles isCustomSlug: false
+ WebSocket connection to 'wss://lvmzliemqnieeoruhkik.supabase.co/realtime/v1/websocket?apikey=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx2bXpsaWVtcW5pZWVvcnVoa2lrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc4MDg3MzQsImV4cCI6MjA4MzM4NDczNH0.0Tq4NkOEaJeVr70sXkrqzmVSbtEJVt3zBcBNZpPvBo4&eventsPerSecond=2&vsn=2.0.0' failed: WebSocket is closed before the connection is established.
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+ [DynamicPage] slug: patient-information-leaflets
+ [DynamicPage] dynamicArticleRoute: null
+ [DynamicPage] mySlug: MyArticles isCustomSlug: false
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CFvAaCZJ.js:1940 [usePendingPurchaseOrders] memberInfo: Object
+index-CFvAaCZJ.js:1940 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CFvAaCZJ.js:1945 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CFvAaCZJ.js:1945 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CFvAaCZJ.js:4276 [DynamicPage] slug: patient-information-leaflets
+index-CFvAaCZJ.js:4276 [DynamicPage] dynamicArticleRoute: null
+index-CFvAaCZJ.js:4276 [DynamicPage] mySlug: MyArticles isCustomSlug: false
+index-CFvAaCZJ.js:1940 [usePendingPurchaseOrders] memberInfo: Object
+index-CFvAaCZJ.js:1940 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CFvAaCZJ.js:1945 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CFvAaCZJ.js:1945 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CFvAaCZJ.js:4276 [DynamicPage] slug: patient-information-leaflets
+index-CFvAaCZJ.js:4276 [DynamicPage] dynamicArticleRoute: null
+index-CFvAaCZJ.js:4276 [DynamicPage] mySlug: MyArticles isCustomSlug: false
+index-CFvAaCZJ.js:4276 [DynamicPage] slug: patient-information-leaflets
+index-CFvAaCZJ.js:4276 [DynamicPage] dynamicArticleRoute: null
+index-CFvAaCZJ.js:4276 [DynamicPage] mySlug: MyArticles isCustomSlug: false
+index-CFvAaCZJ.js:1940 [usePendingPurchaseOrders] memberInfo: Object
+index-CFvAaCZJ.js:1940 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CFvAaCZJ.js:1945 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CFvAaCZJ.js:1945 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CFvAaCZJ.js:4276 [DynamicPage] slug: patient-information-leaflets
+index-CFvAaCZJ.js:4276 [DynamicPage] dynamicArticleRoute: null
+index-CFvAaCZJ.js:4276 [DynamicPage] mySlug: MyArticles isCustomSlug: false
+index-CFvAaCZJ.js:1633 [useNavigationRealtime] Setting up realtime subscription for navigation_item table
+index-CFvAaCZJ.js:1940 [usePendingPurchaseOrders] memberInfo: Object
+index-CFvAaCZJ.js:1940 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CFvAaCZJ.js:1945 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CFvAaCZJ.js:1945 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CFvAaCZJ.js:4276 [DynamicPage] slug: patient-information-leaflets
+index-CFvAaCZJ.js:4276 [DynamicPage] dynamicArticleRoute: null
+index-CFvAaCZJ.js:4276 [DynamicPage] mySlug: MyArticles isCustomSlug: false
+index-CFvAaCZJ.js:4276 [DynamicPage] slug: patient-information-leaflets
+index-CFvAaCZJ.js:4276 [DynamicPage] dynamicArticleRoute: null
+index-CFvAaCZJ.js:4276 [DynamicPage] mySlug: MyArticles isCustomSlug: false
+index-CFvAaCZJ.js:1940 [usePendingPurchaseOrders] memberInfo: Object
+index-CFvAaCZJ.js:1940 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CFvAaCZJ.js:1945 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CFvAaCZJ.js:1945 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CFvAaCZJ.js:4276 [DynamicPage] slug: patient-information-leaflets
+index-CFvAaCZJ.js:4276 [DynamicPage] dynamicArticleRoute: null
+index-CFvAaCZJ.js:4276 [DynamicPage] mySlug: MyArticles isCustomSlug: false
+index-CFvAaCZJ.js:1940 [usePendingPurchaseOrders] memberInfo: Object
+index-CFvAaCZJ.js:1940 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CFvAaCZJ.js:1945 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CFvAaCZJ.js:1945 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CFvAaCZJ.js:4276 [DynamicPage] slug: patient-information-leaflets
+index-CFvAaCZJ.js:4276 [DynamicPage] dynamicArticleRoute: null
+index-CFvAaCZJ.js:4276 [DynamicPage] mySlug: MyArticles isCustomSlug: false
+index-CFvAaCZJ.js:1945 [Layout] Server session found: sharon@onlinem.co.uk
+index-CFvAaCZJ.js:1940 [usePendingPurchaseOrders] memberInfo: Object
+index-CFvAaCZJ.js:1940 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CFvAaCZJ.js:1945 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CFvAaCZJ.js:1945 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CFvAaCZJ.js:4276 [DynamicPage] slug: patient-information-leaflets
+index-CFvAaCZJ.js:4276 [DynamicPage] dynamicArticleRoute: null
+index-CFvAaCZJ.js:4276 [DynamicPage] mySlug: MyArticles isCustomSlug: false
+index-CFvAaCZJ.js:1940 [usePendingPurchaseOrders] memberInfo: Object
+index-CFvAaCZJ.js:1940 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CFvAaCZJ.js:1945 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CFvAaCZJ.js:1945 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CFvAaCZJ.js:4276 [DynamicPage] slug: patient-information-leaflets
+index-CFvAaCZJ.js:4276 [DynamicPage] dynamicArticleRoute: null
+index-CFvAaCZJ.js:4276 [DynamicPage] mySlug: MyArticles isCustomSlug: false
+index-CFvAaCZJ.js:1633 [useNavigationRealtime] Subscription status: SUBSCRIBED
+index-CFvAaCZJ.js:1940 [usePendingPurchaseOrders] Fetched bookings count: 0
+index-CFvAaCZJ.js:1940 [usePendingPurchaseOrders] Pending PO bookings: 0
+index-CFvAaCZJ.js:1940 [usePendingPurchaseOrders] memberInfo: Object
+index-CFvAaCZJ.js:1940 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CFvAaCZJ.js:1945 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CFvAaCZJ.js:1945 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CFvAaCZJ.js:4276 [DynamicPage] slug: patient-information-leaflets
+index-CFvAaCZJ.js:4276 [DynamicPage] dynamicArticleRoute: null
+index-CFvAaCZJ.js:4276 [DynamicPage] mySlug: MyArticles isCustomSlug: false
+index-CFvAaCZJ.js:4276 [DynamicPage] slug: patient-information-leaflets
+index-CFvAaCZJ.js:4276 [DynamicPage] dynamicArticleRoute: null
+index-CFvAaCZJ.js:4276 [DynamicPage] mySlug: MyArticles isCustomSlug: false
+index-CFvAaCZJ.js:1905 [PublicLayout] Fetching banners for page: _DynamicPage portalPageId: null isCustomSlug: false urlSlug: Articles
+index-CFvAaCZJ.js:1905 [PublicLayout] All banners found: 1
+index-CFvAaCZJ.js:1905 [PublicLayout] pageToPortalPageMap keys: Array(26)
+index-CFvAaCZJ.js:1905 [PublicLayout] Matched banners: 0
+index-CFvAaCZJ.js:4276 [DynamicPage] slug: patient-information-leaflets
+index-CFvAaCZJ.js:4276 [DynamicPage] dynamicArticleRoute: null
+index-CFvAaCZJ.js:4276 [DynamicPage] mySlug: MyArticles isCustomSlug: false
+index-CFvAaCZJ.js:4276 [DynamicPage] slug: patient-information-leaflets
+index-CFvAaCZJ.js:4276 [DynamicPage] dynamicArticleRoute: null
+index-CFvAaCZJ.js:4276 [DynamicPage] mySlug: MyArticles isCustomSlug: false
+index-CFvAaCZJ.js:41 Error: `Tooltip` must be used within `TooltipProvider`
+    at u (index-CFvAaCZJ.js:1547:120635)
+    at REe (index-CFvAaCZJ.js:1591:31297)
+    at nee (index-CFvAaCZJ.js:39:17075)
+    at ike (index-CFvAaCZJ.js:41:44289)
+    at nke (index-CFvAaCZJ.js:41:39985)
+    at CYe (index-CFvAaCZJ.js:41:39908)
+    at hD (index-CFvAaCZJ.js:41:39757)
+    at fG (index-CFvAaCZJ.js:41:36094)
+    at Soe (index-CFvAaCZJ.js:41:36901)
+    at Aj (index-CFvAaCZJ.js:39:3302)
+nG @ index-CFvAaCZJ.js:41
+index-CFvAaCZJ.js:41 Error: `Tooltip` must be used within `TooltipProvider`
+    at u (index-CFvAaCZJ.js:1547:120635)
+    at REe (index-CFvAaCZJ.js:1591:31297)
+    at nee (index-CFvAaCZJ.js:39:17075)
+    at ike (index-CFvAaCZJ.js:41:44289)
+    at nke (index-CFvAaCZJ.js:41:39985)
+    at CYe (index-CFvAaCZJ.js:41:39908)
+    at hD (index-CFvAaCZJ.js:41:39757)
+    at fG (index-CFvAaCZJ.js:41:36094)
+    at Soe (index-CFvAaCZJ.js:41:36901)
+    at Aj (index-CFvAaCZJ.js:39:3302)
+nG @ index-CFvAaCZJ.js:41
+index-CFvAaCZJ.js:41 Error: `Tooltip` must be used within `TooltipProvider`
+    at u (index-CFvAaCZJ.js:1547:120635)
+    at REe (index-CFvAaCZJ.js:1591:31297)
+    at nee (index-CFvAaCZJ.js:39:17075)
+    at ike (index-CFvAaCZJ.js:41:44289)
+    at nke (index-CFvAaCZJ.js:41:39985)
+    at CYe (index-CFvAaCZJ.js:41:39908)
+    at hD (index-CFvAaCZJ.js:41:39757)
+    at fG (index-CFvAaCZJ.js:41:36094)
+    at Soe (index-CFvAaCZJ.js:41:36901)
+    at Aj (index-CFvAaCZJ.js:39:3302)
+nG @ index-CFvAaCZJ.js:41
+index-CFvAaCZJ.js:41 Error: `Tooltip` must be used within `TooltipProvider`
+    at u (index-CFvAaCZJ.js:1547:120635)
+    at REe (index-CFvAaCZJ.js:1591:31297)
+    at nee (index-CFvAaCZJ.js:39:17075)
+    at ike (index-CFvAaCZJ.js:41:44289)
+    at nke (index-CFvAaCZJ.js:41:39985)
+    at CYe (index-CFvAaCZJ.js:41:39908)
+    at hD (index-CFvAaCZJ.js:41:39757)
+    at fG (index-CFvAaCZJ.js:41:36094)
+    at Soe (index-CFvAaCZJ.js:41:36901)
+    at Aj (index-CFvAaCZJ.js:39:3302)
+nG @ index-CFvAaCZJ.js:41
+index-CFvAaCZJ.js:41 Error: `Tooltip` must be used within `TooltipProvider`
+    at u (index-CFvAaCZJ.js:1547:120635)
+    at REe (index-CFvAaCZJ.js:1591:31297)
+    at nee (index-CFvAaCZJ.js:39:17075)
+    at ike (index-CFvAaCZJ.js:41:44289)
+    at nke (index-CFvAaCZJ.js:41:39985)
+    at CYe (index-CFvAaCZJ.js:41:39908)
+    at hD (index-CFvAaCZJ.js:41:39757)
+    at fG (index-CFvAaCZJ.js:41:36094)
+    at Soe (index-CFvAaCZJ.js:41:36901)
+    at Aj (index-CFvAaCZJ.js:39:3302)
+nG @ index-CFvAaCZJ.js:41
+index-CFvAaCZJ.js:41 Error: `Tooltip` must be used within `TooltipProvider`
+    at u (index-CFvAaCZJ.js:1547:120635)
+    at REe (index-CFvAaCZJ.js:1591:31297)
+    at nee (index-CFvAaCZJ.js:39:17075)
+    at ike (index-CFvAaCZJ.js:41:44289)
+    at nke (index-CFvAaCZJ.js:41:39985)
+    at CYe (index-CFvAaCZJ.js:41:39908)
+    at hD (index-CFvAaCZJ.js:41:39757)
+    at fG (index-CFvAaCZJ.js:41:36094)
+    at Soe (index-CFvAaCZJ.js:41:36901)
+    at Aj (index-CFvAaCZJ.js:39:3302)
+nG @ index-CFvAaCZJ.js:41
+index-CFvAaCZJ.js:39 Uncaught Error: `Tooltip` must be used within `TooltipProvider`
+    at u (index-CFvAaCZJ.js:1547:120635)
+    at REe (index-CFvAaCZJ.js:1591:31297)
+    at nee (index-CFvAaCZJ.js:39:17075)
+    at ike (index-CFvAaCZJ.js:41:44289)
+    at nke (index-CFvAaCZJ.js:41:39985)
+    at CYe (index-CFvAaCZJ.js:41:39908)
+    at hD (index-CFvAaCZJ.js:41:39757)
+    at fG (index-CFvAaCZJ.js:41:36094)
+    at Soe (index-CFvAaCZJ.js:41:36901)
+    at Aj (index-CFvAaCZJ.js:39:3302)
+index-CFvAaCZJ.js:1633 [useNavigationRealtime] Cleaning up realtime subscription
+index-CFvAaCZJ.js:1633 [useNavigationRealtime] Subscription status: CLOSED

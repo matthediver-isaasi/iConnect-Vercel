@@ -1,0 +1,26 @@
+{
+  "destination": "lvmzliemqnieeoruhkik",
+  "tenant": "ff2df806-b321-4254-b651-3af11fccf1db",
+  "matched": 320,
+  "alreadyMemberOnly": 161,
+  "changesNeeded": 159,
+  "classifications": [
+    {
+      "type": "Posters",
+      "count": 146
+    },
+    {
+      "type": "Presentation",
+      "count": 174
+    }
+  ],
+  "changed": 159,
+  "failed": 0,
+  "remainingPublicOrUnset": 0,
+  "repeatRunChangesNeeded": 0,
+  "unrelatedFieldsPreserved": true,
+  "otherTenantsUnchangedInTransaction": true,
+  "verifiedAt": "2026-09-20T14:45:40.967Z",
+  "schemaMigrationNeeded": false,
+  "auditDirectory": "reports/bnms-meeting-resource-restriction/2026-09-20T14-45-38.849Z"
+}

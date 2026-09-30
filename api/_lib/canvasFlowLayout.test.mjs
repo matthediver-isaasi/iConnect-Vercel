@@ -1,0 +1,558 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import {
+  BLOCK_TYPES,
+  LAYOUT_MODES,
+  CANVAS_DESIGN_VERSION,
+  CANVAS_FLOW_VERSION,
+  createBlock,
+  createEmptyCanvasDesign,
+  createFlowDesign,
+  createFlowSection,
+  createFlowNode,
+  createRow,
+  createFreeGroup,
+  isFlowDesign,
+  normalizeCanvasDesign,
+  normalizeFlowDesign,
+  forEachFlowNode,
+} from '../../client/src/lib/canvasDesign.js';
+import { resolveFlowLayout } from '../../client/src/lib/canvasFlowLayout.js';
+import { buildFlowDesign, buildNeutralFlowDesign } from './canvasLayoutEngine.js';
+
+// A fixed-height leaf so layout is deterministic without measurement.
+function leaf(height, overrides = {}) {
+  return createFlowNode(BLOCK_TYPES.TEXT, { flow: { heightMode: 'fixed', height }, ...overrides });
+}
+
+// ---------------------------------------------------------------------------
+// Schema coexistence: v1 and v2 documents both normalize, without cross-talk.
+// ---------------------------------------------------------------------------
+
+test('v1 designs are unaffected by the flow branch', () => {
+  const v1 = createEmptyCanvasDesign();
+  assert.equal(isFlowDesign(v1), false);
+  const norm = normalizeCanvasDesign(v1);
+  assert.equal(norm.version, CANVAS_DESIGN_VERSION);
+  assert.equal(norm.version, 1);
+  assert.equal(norm.root.sections[0].id, 'root-section');
+  assert.ok(!('layout' in norm.root));
+  assert.ok(!('children' in norm.root.sections[0].children));
+});
+
+test('a v1 design with real blocks keeps its absolute shape', () => {
+  const block = createBlock(BLOCK_TYPES.TEXT, { desktop: { x: 12, y: 34, w: 200, h: 80 } });
+  const v1 = { version: 1, root: { sections: [{ id: 'root-section', children: [block] }] } };
+  const norm = normalizeCanvasDesign(v1);
+  assert.equal(norm.version, 1);
+  const b = norm.root.sections[0].children[0];
+  assert.equal(b.bp.desktop.x, 12);
+  assert.equal(b.bp.desktop.y, 34);
+  // No flow-model fields leak onto v1 blocks.
+  assert.ok(!('layoutMode' in b));
+  assert.ok(!('flow' in b));
+});
+
+test('isFlowDesign detects version 2 and root.layout', () => {
+  assert.equal(isFlowDesign({ version: CANVAS_FLOW_VERSION, root: {} }), true);
+  assert.equal(isFlowDesign({ version: 1, root: { layout: 'flow' } }), true);
+  assert.equal(isFlowDesign({ version: 1, root: {} }), false);
+  assert.equal(isFlowDesign(null), false);
+});
+
+test('normalizeCanvasDesign routes flow designs to the flow normalizer', () => {
+  const flow = createFlowDesign();
+  assert.equal(isFlowDesign(flow), true);
+  const norm = normalizeCanvasDesign(flow);
+  assert.equal(norm.version, CANVAS_FLOW_VERSION);
+  assert.equal(norm.root.layout, 'flow');
+  assert.ok(Array.isArray(norm.root.sections));
+});
+
+test('normalizeFlowDesign is idempotent and fills defaults', () => {
+  const raw = {
+    root: {
+      layout: 'flow',
+      sections: [
+        { type: BLOCK_TYPES.SECTION, children: [{ type: BLOCK_TYPES.TEXT }] },
+      ],
+    },
+  };
+  const once = normalizeFlowDesign(raw);
+  const twice = normalizeFlowDesign(once);
+  assert.deepEqual(once, twice);
+  const section = once.root.sections[0];
+  assert.equal(section.layoutMode, LAYOUT_MODES.FLOW);
+  assert.ok(section.flow && typeof section.flow.gap === 'number');
+  assert.ok(section.responsive && section.responsive.tablet && section.responsive.mobile);
+  assert.equal(section.children[0].type, BLOCK_TYPES.TEXT);
+});
+
+test('groups default to free mode, sections/rows to flow', () => {
+  assert.equal(createFreeGroup().layoutMode, LAYOUT_MODES.FREE);
+  assert.equal(createFlowSection().layoutMode, LAYOUT_MODES.FLOW);
+  assert.equal(createRow().layoutMode, LAYOUT_MODES.FLOW);
+});
+
+// ---------------------------------------------------------------------------
+// Layout engine: vertical stack reflow.
+// ---------------------------------------------------------------------------
+
+test('flow section stacks children by order + height + gap', () => {
+  const a = leaf(100);
+  const b = leaf(50);
+  const section = createFlowSection({ children: [a, b], flow: { gap: 24 } });
+  const design = { version: CANVAS_FLOW_VERSION, root: { layout: 'flow', sections: [section] } };
+
+  const { boxes, height } = resolveFlowLayout(design, { containerWidth: 1000 });
+  assert.deepEqual(boxes[a.id], { x: 0, y: 0, w: 1000, h: 100 });
+  assert.deepEqual(boxes[b.id], { x: 0, y: 124, w: 1000, h: 50 });
+  assert.deepEqual(boxes[section.id], { x: 0, y: 0, w: 1000, h: 174 });
+  assert.equal(height, 174);
+});
+
+test('editing a block height reflows everything below it', () => {
+  // createFlowSection normalizes (clones) its children, so mutate the nodes
+  // that actually live in the tree, not the originals.
+  const section = createFlowSection({ children: [leaf(100), leaf(50)], flow: { gap: 10 } });
+  const [na, nb] = section.children;
+  const design = { version: CANVAS_FLOW_VERSION, root: { layout: 'flow', sections: [section] } };
+
+  const before = resolveFlowLayout(design, { containerWidth: 800 });
+  assert.equal(before.boxes[nb.id].y, 110);
+
+  // Grow A by 40px; B must shift down by exactly 40 and the section grows too.
+  na.flow.height = 140;
+  const after = resolveFlowLayout(design, { containerWidth: 800 });
+  assert.equal(after.boxes[nb.id].y, 150);
+  assert.equal(after.boxes[section.id].h, before.boxes[section.id].h + 40);
+});
+
+test('padding and maxWidth center + inset a container', () => {
+  const a = leaf(100);
+  const section = createFlowSection({
+    children: [a],
+    flow: { padTop: 20, padBottom: 30, padLeft: 40, padRight: 40, maxWidth: 600 },
+  });
+  const design = { version: CANVAS_FLOW_VERSION, root: { layout: 'flow', sections: [section] } };
+  const { boxes } = resolveFlowLayout(design, { containerWidth: 1000 });
+  // maxWidth 600 centered in 1000 -> x offset 200; padLeft 40 -> child x 240.
+  assert.equal(boxes[section.id].x, 200);
+  assert.equal(boxes[section.id].w, 600);
+  assert.equal(boxes[a.id].x, 240);
+  assert.equal(boxes[a.id].y, 20);
+  assert.equal(boxes[a.id].w, 600 - 80);
+  // Section height = padTop + content + padBottom.
+  assert.equal(boxes[section.id].h, 20 + 100 + 30);
+});
+
+test('hidden children are skipped in the stack', () => {
+  const a = leaf(100);
+  const b = leaf(50, { responsive: { mobile: { hidden: true } } });
+  const c = leaf(70);
+  const section = createFlowSection({ children: [a, b, c], flow: { gap: 0 } });
+  const design = { version: CANVAS_FLOW_VERSION, root: { layout: 'flow', sections: [section] } };
+
+  const mobile = resolveFlowLayout(design, { breakpoint: 'mobile', containerWidth: 375 });
+  assert.equal(mobile.boxes[b.id], undefined);
+  // c follows a directly (100), not after b.
+  assert.equal(mobile.boxes[c.id].y, 100);
+});
+
+// ---------------------------------------------------------------------------
+// Layout engine: row (horizontal columns).
+// ---------------------------------------------------------------------------
+
+test('row splits width across equal-grow columns and stretches height', () => {
+  const a = leaf(200, { flow: { heightMode: 'fixed', height: 200, grow: 1 } });
+  const b = leaf(100, { flow: { heightMode: 'fixed', height: 100, grow: 1 } });
+  const row = createRow({ children: [a, b], flow: { gap: 20, align: 'stretch' } });
+  const design = { version: CANVAS_FLOW_VERSION, root: { layout: 'flow', sections: [row] } };
+
+  const { boxes } = resolveFlowLayout(design, { containerWidth: 1000 });
+  // available = 1000 - 20 gap = 980 -> 490 each.
+  assert.equal(boxes[a.id].w, 490);
+  assert.equal(boxes[b.id].w, 490);
+  assert.equal(boxes[a.id].x, 0);
+  assert.equal(boxes[b.id].x, 510);
+  // stretch => both columns take the tallest height.
+  assert.equal(boxes[a.id].h, 200);
+  assert.equal(boxes[b.id].h, 200);
+  assert.equal(boxes[row.id].h, 200);
+});
+
+test('row honors fixed px basis and shares leftover with grow', () => {
+  const fixed = leaf(80, { flow: { heightMode: 'fixed', height: 80, basis: 200 } });
+  const flex = leaf(80, { flow: { heightMode: 'fixed', height: 80, grow: 1 } });
+  const row = createRow({ children: [fixed, flex], flow: { gap: 0, align: 'start' } });
+  const design = { version: CANVAS_FLOW_VERSION, root: { layout: 'flow', sections: [row] } };
+
+  const { boxes } = resolveFlowLayout(design, { containerWidth: 1000 });
+  assert.equal(boxes[fixed.id].w, 200);
+  assert.equal(boxes[flex.id].w, 800);
+  assert.equal(boxes[flex.id].x, 200);
+});
+
+test('row collapses to a vertical stack on mobile', () => {
+  const a = leaf(100, { flow: { heightMode: 'fixed', height: 100, grow: 1 } });
+  const b = leaf(60, { flow: { heightMode: 'fixed', height: 60, grow: 1 } });
+  const row = createRow({ children: [a, b], flow: { gap: 10 } });
+  const design = { version: CANVAS_FLOW_VERSION, root: { layout: 'flow', sections: [row] } };
+
+  const mobile = resolveFlowLayout(design, { breakpoint: 'mobile', containerWidth: 375 });
+  // Stacked: full width, b below a.
+  assert.equal(mobile.boxes[a.id].w, 375);
+  assert.equal(mobile.boxes[b.id].w, 375);
+  assert.equal(mobile.boxes[b.id].y, 110);
+});
+
+// ---------------------------------------------------------------------------
+// Layout engine: free group rigidity (overlap preserved).
+// ---------------------------------------------------------------------------
+
+test('free group places children by absolute geometry and preserves overlap', () => {
+  const c1 = createFlowNode(BLOCK_TYPES.IMAGE, { desktop: { x: 10, y: 10, w: 100, h: 100 } });
+  const c2 = createFlowNode(BLOCK_TYPES.TEXT, { desktop: { x: 50, y: 50, w: 100, h: 100 } });
+  const group = createFreeGroup({ children: [c1, c2] });
+  const section = createFlowSection({ children: [group] });
+  const design = { version: CANVAS_FLOW_VERSION, root: { layout: 'flow', sections: [section] } };
+
+  const { boxes } = resolveFlowLayout(design, { containerWidth: 1000 });
+  assert.deepEqual(boxes[c1.id], { x: 10, y: 10, w: 100, h: 100 });
+  assert.deepEqual(boxes[c2.id], { x: 50, y: 50, w: 100, h: 100 });
+  // Overlap: c2 starts inside c1's box.
+  assert.ok(boxes[c2.id].x < boxes[c1.id].x + boxes[c1.id].w);
+  // Group height = furthest child bottom (150), NOT a reflowed stack.
+  assert.equal(boxes[group.id].h, 150);
+});
+
+// ---------------------------------------------------------------------------
+// Task #2575: a decorative background box behind overlapping text grows taller
+// when that text's measured content exceeds its stored height, so the box stays
+// wrapped around the text. Card blocks are out of scope (row-equalized).
+// ---------------------------------------------------------------------------
+
+test('a background box grows to wrap overlapping text that measured taller', () => {
+  const box = createFlowNode(BLOCK_TYPES.BOX, { desktop: { x: 0, y: 0, w: 400, h: 120 } });
+  const text = createFlowNode(BLOCK_TYPES.TEXT, {
+    flow: { heightMode: 'auto' },
+    desktop: { x: 20, y: 20, w: 360, h: 60 },
+  });
+  const group = createFreeGroup({ children: [box, text] });
+  const section = createFlowSection({ children: [group] });
+  const [nbox, ntext] = group.children;
+  const design = { version: CANVAS_FLOW_VERSION, root: { layout: 'flow', sections: [section] } };
+
+  // No measurement: text stays at stored 60, box stays at stored 120.
+  const base = resolveFlowLayout(design, { containerWidth: 1000, measured: {} });
+  assert.equal(base.boxes[nbox.id].h, 120);
+  assert.equal(base.boxes[ntext.id].h, 60);
+  assert.equal(base.boxes[group.id].h, 120);
+
+  // Text measured taller (60 -> 160, excess 100): the box grows by the same
+  // excess (120 -> 220) and the group height tracks the grown box.
+  const grown = resolveFlowLayout(design, {
+    containerWidth: 1000,
+    measured: { [ntext.id]: { height: 160 } },
+  });
+  assert.equal(grown.boxes[ntext.id].h, 160);
+  assert.equal(grown.boxes[nbox.id].h, 220);
+  assert.equal(grown.boxes[group.id].h, 220);
+});
+
+test('a background box does NOT grow for text that is not inside its bounds', () => {
+  // Text sits below the box (not overlapping) -> box must not grow; only the
+  // container height reflects the taller text via push-down.
+  const box = createFlowNode(BLOCK_TYPES.BOX, { desktop: { x: 0, y: 0, w: 400, h: 100 } });
+  const text = createFlowNode(BLOCK_TYPES.TEXT, {
+    flow: { heightMode: 'auto' },
+    desktop: { x: 0, y: 120, w: 400, h: 40 },
+  });
+  const group = createFreeGroup({ children: [box, text] });
+  const section = createFlowSection({ children: [group] });
+  const [nbox, ntext] = group.children;
+  const design = { version: CANVAS_FLOW_VERSION, root: { layout: 'flow', sections: [section] } };
+
+  const grown = resolveFlowLayout(design, {
+    containerWidth: 1000,
+    measured: { [ntext.id]: { height: 140 } },
+  });
+  assert.equal(grown.boxes[nbox.id].h, 100);
+  assert.equal(grown.boxes[ntext.id].h, 140);
+});
+
+// ---------------------------------------------------------------------------
+// Task #2583: the reverse of #2575 — when overlapping text shrinks (or is
+// removed), a box that previously grew shrinks back toward its authored height,
+// bounded so it never shrinks below the contained content's stored footprint.
+// ---------------------------------------------------------------------------
+
+test('a background box shrinks back when overlapping text measured shorter', () => {
+  // Box stored 220, text stored 160 sitting inside it (y=20, bottom 180, so a
+  // 40px authored bottom inset). This mirrors a box baked to its grown height.
+  const box = createFlowNode(BLOCK_TYPES.BOX, { desktop: { x: 0, y: 0, w: 400, h: 220 } });
+  const text = createFlowNode(BLOCK_TYPES.TEXT, {
+    flow: { heightMode: 'auto' },
+    desktop: { x: 20, y: 20, w: 360, h: 160 },
+  });
+  const group = createFreeGroup({ children: [box, text] });
+  const section = createFlowSection({ children: [group] });
+  const [nbox, ntext] = group.children;
+  const design = { version: CANVAS_FLOW_VERSION, root: { layout: 'flow', sections: [section] } };
+
+  // No measurement: box stays at its stored/authored height exactly.
+  const base = resolveFlowLayout(design, { containerWidth: 1000, measured: {} });
+  assert.equal(base.boxes[nbox.id].h, 220);
+
+  // Text measured shorter (160 -> 40, deficit 120): the box shrinks by the same
+  // deficit (220 -> 100), preserving the authored 40px bottom inset. The group
+  // height tracks the shrunk box.
+  const shrunk = resolveFlowLayout(design, {
+    containerWidth: 1000,
+    measured: { [ntext.id]: { height: 40 } },
+  });
+  assert.equal(shrunk.boxes[ntext.id].h, 40);
+  assert.equal(shrunk.boxes[nbox.id].h, 100);
+  assert.equal(shrunk.boxes[group.id].h, 100);
+});
+
+test('a shrinking box never shrinks so far it clips its live content', () => {
+  // Box stored 200, text stored 120 at y=20 (measured bottom follows the live
+  // height). When the text renders very short the box shrinks by the deficit
+  // but is floored at the text's MEASURED bottom so the content is never clipped.
+  const box = createFlowNode(BLOCK_TYPES.BOX, { desktop: { x: 0, y: 0, w: 400, h: 200 } });
+  const text = createFlowNode(BLOCK_TYPES.TEXT, {
+    flow: { heightMode: 'auto' },
+    desktop: { x: 20, y: 20, w: 360, h: 120 },
+  });
+  const group = createFreeGroup({ children: [box, text] });
+  const section = createFlowSection({ children: [group] });
+  const [nbox, ntext] = group.children;
+  const design = { version: CANVAS_FLOW_VERSION, root: { layout: 'flow', sections: [section] } };
+
+  const removed = resolveFlowLayout(design, {
+    containerWidth: 1000,
+    measured: { [ntext.id]: { height: 4 } },
+  });
+  // Deepest live bottom 20 + 4 = 24; authored inset 200 - (20 + 120) = 60 ->
+  // box = 24 + 60 = 84, which still fully contains the live text (bottom 24).
+  assert.equal(removed.boxes[nbox.id].h, 84);
+  assert.ok(removed.boxes[nbox.id].h >= 20 + 4, 'box still contains the live text');
+});
+
+test('a box shrinks with the text even when it also wraps an unchanged fixed child', () => {
+  // Box stored 220 wrapping BOTH a fixed image (y=0, h=20, never measured) and
+  // an auto text (y=20, stored 160, bottom 180 -> 40px authored inset). The
+  // fixed child's zero height-delta must NOT cancel the text's shrink.
+  const box = createFlowNode(BLOCK_TYPES.BOX, { desktop: { x: 0, y: 0, w: 400, h: 220 } });
+  const image = createFlowNode(BLOCK_TYPES.IMAGE, { desktop: { x: 20, y: 0, w: 40, h: 20 } });
+  const text = createFlowNode(BLOCK_TYPES.TEXT, {
+    flow: { heightMode: 'auto' },
+    desktop: { x: 20, y: 20, w: 360, h: 160 },
+  });
+  const group = createFreeGroup({ children: [box, image, text] });
+  const section = createFlowSection({ children: [group] });
+  const [nbox, , ntext] = group.children;
+  const design = { version: CANVAS_FLOW_VERSION, root: { layout: 'flow', sections: [section] } };
+
+  const shrunk = resolveFlowLayout(design, {
+    containerWidth: 1000,
+    measured: { [ntext.id]: { height: 40 } },
+  });
+  // Deepest live bottom is the text at 20 + 40 = 60; inset 40 -> box 100.
+  // The unchanged image (bottom 20) neither blocks the shrink nor forces growth.
+  assert.equal(shrunk.boxes[nbox.id].h, 100);
+});
+
+test('a box with two texts tracks only the deepest live content', () => {
+  // Box stored 300 wrapping textA (y=20, bottom 120) and textB (y=150,
+  // bottom 250) -> 50px authored inset below the deepest (textB).
+  const box = createFlowNode(BLOCK_TYPES.BOX, { desktop: { x: 0, y: 0, w: 400, h: 300 } });
+  const textA = createFlowNode(BLOCK_TYPES.TEXT, {
+    flow: { heightMode: 'auto' },
+    desktop: { x: 20, y: 20, w: 360, h: 100 },
+  });
+  const textB = createFlowNode(BLOCK_TYPES.TEXT, {
+    flow: { heightMode: 'auto' },
+    desktop: { x: 20, y: 150, w: 360, h: 100 },
+  });
+  const group = createFreeGroup({ children: [box, textA, textB] });
+  const section = createFlowSection({ children: [group] });
+  const [nbox, nA, nB] = group.children;
+  const design = { version: CANVAS_FLOW_VERSION, root: { layout: 'flow', sections: [section] } };
+
+  // Only the SHALLOWER textA shrinks: the box wraps the unchanged deepest textB,
+  // so it stays at its authored height.
+  const shallowShrunk = resolveFlowLayout(design, {
+    containerWidth: 1000,
+    measured: { [nA.id]: { height: 40 } },
+  });
+  assert.equal(shallowShrunk.boxes[nbox.id].h, 300);
+
+  // The DEEPEST textB shrinks (100 -> 40, bottom 250 -> 190): the box shrinks to
+  // 190 + 50 inset = 240.
+  const deepShrunk = resolveFlowLayout(design, {
+    containerWidth: 1000,
+    measured: { [nB.id]: { height: 40 } },
+  });
+  assert.equal(deepShrunk.boxes[nbox.id].h, 240);
+});
+
+// ---------------------------------------------------------------------------
+// Autobuild flow emitter.
+// ---------------------------------------------------------------------------
+
+test('buildFlowDesign emits a normalizable, resolvable flow document', () => {
+  const spec = {
+    hero: { headline: 'Welcome' },
+    intro: { html: '<p>Intro</p>', h: 120, strapline: 'Hello' },
+    sections: [
+      { heading: 'Two up', type: 'columns', columns: [{ h3: 'A', html: '<p>a</p>', h: 100 }, { h3: 'B', html: '<p>b</p>', h: 100 }] },
+      { type: 'text', html: '<p>Body</p>', h: 140, buttons: ['Join', 'Learn'] },
+    ],
+    closingHero: { headline: 'Join us' },
+  };
+
+  const design = buildNeutralFlowDesign(spec);
+  assert.equal(isFlowDesign(design), true);
+  assert.equal(design.version, CANVAS_FLOW_VERSION);
+
+  // Emitted design must already be normalized (idempotent through normalize).
+  assert.deepEqual(normalizeCanvasDesign(design), design);
+
+  // Every node resolves to a box, and the page has positive height.
+  const { boxes, height } = resolveFlowLayout(design, { containerWidth: 1200 });
+  assert.ok(height > 0);
+  const ids = [];
+  forEachFlowNode(design, (node) => ids.push(node.id));
+  for (const id of ids) {
+    assert.ok(boxes[id], `missing box for node ${id}`);
+  }
+
+  // A Row was emitted for the two-column section.
+  let rows = 0;
+  forEachFlowNode(design, (n) => { if (n.type === BLOCK_TYPES.ROW) rows += 1; });
+  assert.ok(rows >= 1);
+});
+
+// ---------------------------------------------------------------------------
+// Task #2569 (Flow Step 3): live measurement feed.
+//
+// The builder produces a `measured` map ({ [id]: { height } }) from real DOM
+// heights and passes it to resolveFlowLayout. These tests pin the engine
+// contract that the measurement pass depends on: an auto-height leaf's height
+// comes from `measured`, and changing it reflows everything below in the same
+// deterministic way a fixed-height edit does.
+// ---------------------------------------------------------------------------
+
+// An auto-height leaf: no fixed height, so its height is driven by `measured`.
+function autoLeaf(overrides = {}) {
+  return createFlowNode(BLOCK_TYPES.TEXT, { flow: { heightMode: 'auto' }, ...overrides });
+}
+
+test('measured height drives an auto-height leaf and stacks siblings below it', () => {
+  const a = autoLeaf();
+  const b = autoLeaf();
+  const section = createFlowSection({ children: [a, b], flow: { gap: 16 } });
+  const [na, nb] = section.children;
+  const design = { version: CANVAS_FLOW_VERSION, root: { layout: 'flow', sections: [section] } };
+
+  const measured = { [na.id]: { height: 120 }, [nb.id]: { height: 40 } };
+  const { boxes, height } = resolveFlowLayout(design, { containerWidth: 900, measured });
+
+  assert.equal(boxes[na.id].h, 120);
+  assert.equal(boxes[nb.id].h, 40);
+  // b sits below a + gap.
+  assert.equal(boxes[nb.id].y, 120 + 16);
+  // section wraps both + gap.
+  assert.equal(boxes[section.id].h, 120 + 16 + 40);
+  assert.equal(height, 176);
+});
+
+test('re-measuring a leaf taller (accordion expand) pushes the blocks below down', () => {
+  const a = autoLeaf();
+  const b = autoLeaf();
+  const section = createFlowSection({ children: [a, b], flow: { gap: 10 } });
+  const [na, nb] = section.children;
+  const design = { version: CANVAS_FLOW_VERSION, root: { layout: 'flow', sections: [section] } };
+
+  const collapsed = resolveFlowLayout(design, {
+    containerWidth: 800,
+    measured: { [na.id]: { height: 60 }, [nb.id]: { height: 50 } },
+  });
+  assert.equal(collapsed.boxes[nb.id].y, 70);
+
+  // Accordion expands: a's measured height jumps to 200. b shifts by exactly
+  // the growth (140) and the section grows by the same amount.
+  const expanded = resolveFlowLayout(design, {
+    containerWidth: 800,
+    measured: { [na.id]: { height: 200 }, [nb.id]: { height: 50 } },
+  });
+  assert.equal(expanded.boxes[nb.id].y, 210);
+  assert.equal(
+    expanded.boxes[section.id].h,
+    collapsed.boxes[section.id].h + 140,
+  );
+});
+
+test('a missing measurement falls back to bp geometry height', () => {
+  // Before the ResizeObserver first fires, an auto leaf has no measured entry;
+  // the engine must fall back to the block's bp geometry height, not collapse.
+  const a = createFlowNode(BLOCK_TYPES.TEXT, {
+    flow: { heightMode: 'auto' },
+    desktop: { x: 0, y: 0, w: 300, h: 88 },
+  });
+  const section = createFlowSection({ children: [a] });
+  const [na] = section.children;
+  const design = { version: CANVAS_FLOW_VERSION, root: { layout: 'flow', sections: [section] } };
+
+  const { boxes } = resolveFlowLayout(design, { containerWidth: 600, measured: {} });
+  assert.equal(boxes[na.id].h, 88);
+
+  // Once measured, the live height wins over the stored geometry.
+  const live = resolveFlowLayout(design, {
+    containerWidth: 600,
+    measured: { [na.id]: { height: 132 } },
+  });
+  assert.equal(live.boxes[na.id].h, 132);
+});
+
+test('breakpoint switch re-derives width and independent measured heights', () => {
+  // The builder resets the measured map on a breakpoint switch and re-measures
+  // at the new width. The engine must honour both the new container width and
+  // the freshly-measured (breakpoint-specific) heights.
+  const a = autoLeaf();
+  const b = autoLeaf();
+  const section = createFlowSection({ children: [a, b], flow: { gap: 12 } });
+  const [na, nb] = section.children;
+  const design = { version: CANVAS_FLOW_VERSION, root: { layout: 'flow', sections: [section] } };
+
+  const desktop = resolveFlowLayout(design, {
+    breakpoint: 'desktop',
+    containerWidth: 1200,
+    measured: { [na.id]: { height: 80 }, [nb.id]: { height: 40 } },
+  });
+  assert.equal(desktop.boxes[na.id].w, 1200);
+  assert.equal(desktop.boxes[nb.id].y, 92);
+
+  // Narrower width => text wraps taller; the re-measured heights differ.
+  const mobile = resolveFlowLayout(design, {
+    breakpoint: 'mobile',
+    containerWidth: 375,
+    measured: { [na.id]: { height: 160 }, [nb.id]: { height: 90 } },
+  });
+  assert.equal(mobile.boxes[na.id].w, 375);
+  assert.equal(mobile.boxes[nb.id].y, 172);
+});
+
+test('buildFlowDesign sections appear in vertical document order', () => {
+  const design = buildNeutralFlowDesign({
+    hero: { headline: 'H' },
+    sections: [{ type: 'text', html: '<p>x</p>', h: 100 }],
+  });
+  const { boxes } = resolveFlowLayout(design, { containerWidth: 1200 });
+  const sectionYs = design.root.sections.map((s) => boxes[s.id].y);
+  const sorted = [...sectionYs].sort((a, b) => a - b);
+  assert.deepEqual(sectionYs, sorted);
+});

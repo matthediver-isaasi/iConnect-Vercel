@@ -1,0 +1,732 @@
+{
+  "slug": "patients-and-carers",
+  "pageId": "9c5ad41c-438f-4a1c-bfea-d862093ed556",
+  "tenantId": "ff2df806-b321-4254-b651-3af11fccf1db",
+  "capturedAt": "2026-07-04T11:16:01.344Z",
+  "canvas_design": {
+    "root": {
+      "groups": [],
+      "guides": {
+        "vertical": [],
+        "horizontal": []
+      },
+      "sections": [
+        {
+          "id": "root-section",
+          "children": [
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 600,
+                  "w": 1200,
+                  "x": 0,
+                  "y": 0,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqskjjjt-vgek1c",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Events hero",
+              "type": "hero",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-primary, #0f172a)",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 200,
+                "borderRadius": 0,
+                "paddingRight": 200,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "ctas": [
+                  {
+                    "href": "#",
+                    "label": "Explorer resources",
+                    "variant": "tenant:primary-no-icon",
+                    "labelTypographyStyleId": "5adf6d13-1d12-4613-ac55-b4bb1345c168"
+                  }
+                ],
+                "bgType": "image",
+                "bgColor": "var(--cb-color-primary, #0f172a)",
+                "darkWash": 0.4,
+                "headline": "Patients and Carers",
+                "alignment": "left",
+                "fullBleed": true,
+                "textColor": "var(--cb-color-on-primary, #ffffff)",
+                "bgImageUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1782403254623-b9wqrfb-shutterstock_2557820871.jpg",
+                "bgVideoUrl": "",
+                "subheadline": "Helping you understand nuclear medicine and prepare for your appointment with trusted information and support.",
+                "headingLevel": 1,
+                "overlayAngle": 0,
+                "overlayStops": [
+                  {
+                    "color": "#4169e1",
+                    "opacity": 1,
+                    "position": 19
+                  },
+                  {
+                    "color": "#000000",
+                    "opacity": 0,
+                    "position": 98
+                  }
+                ],
+                "overlayStyle": "gradient",
+                "overlayToColor": "",
+                "overlayDirection": "to-right",
+                "overlayFromColor": "#0055ff",
+                "overlayToOpacity": 0,
+                "overlayFromOpacity": 1,
+                "headlineTypographyStyleId": "7c9e9a3f-4c60-4ee9-a8ec-4bd83325f7e5",
+                "subheadlineTypographyStyleId": "8e020a66-1192-4266-a566-6d02f6d78a37"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 448,
+                  "w": 904,
+                  "x": 152,
+                  "y": 880,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqskl8rn-d7dajv",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: center;\"><span style=\"font-size: 20px;\">If you or someone you care for has been referred for a nuclear medicine scan or treatment, it's natural to have questions.</span></p><p style=\"text-align: center;\"><span style=\"font-size: 20px;\">This section has been created to help you understand what nuclear medicine is, what to expect during your appointment and where to find reliable information before and after your visit.</span></p><p style=\"text-align: center;\"><span style=\"font-size: 20px;\">Whether you're attending for your first scan, supporting a family member or looking for information about a specific procedure, you'll find a range of trusted resources to help you feel informed and reassured.</span></p><p style=\"text-align: center;\"><span style=\"font-size: 20px;\"><strong>Please note:</strong> The British Nuclear Medicine Society cannot provide individual medical advice. If you have questions about your appointment or treatment, please contact your Nuclear Medicine Department, the clinician who referred you or your GP.</span></p><p style=\"text-align: center;\"></p>",
+                "colorRole": "default",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "bulletIconPadLeft": null,
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 950,
+                  "x": 125,
+                  "y": 784,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqskl8rn-eii577",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: center;\">Welcome</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 136,
+                  "w": 144,
+                  "x": 528,
+                  "y": 648,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtpcuim-fxt83i",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 50,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-bullseye",
+                "iconColor": "#fa8300",
+                "objectFit": "cover"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 400,
+                  "w": 390,
+                  "x": 0,
+                  "y": 1392,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqv6jy5o-ahnpuu",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Card",
+              "type": "card",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-surface, #ffffff)",
+                "paddingTop": 0,
+                "borderColor": "var(--cb-color-border, #e2e8f0)",
+                "borderStyle": "solid",
+                "borderWidth": 1,
+                "paddingLeft": 0,
+                "borderRadius": 8,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "body": "<p><span style=\"font-size: 20px;\">Learn how nuclear medicine works, why it is used and how it helps diagnose and treat a wide range of medical conditions.</span></p>",
+                "shadow": "md",
+                "ctaHref": "#",
+                "heading": "Understanding Nuclear Medicine",
+                "ctaAlign": "right",
+                "ctaLabel": "Learn more",
+                "iconSize": 60,
+                "imageAlt": "",
+                "imageUrl": "",
+                "highlight": true,
+                "iconAlign": "left",
+                "iconClass": "fa-solid fa-brain",
+                "iconColor": "#fa8300",
+                "ctaEnabled": true,
+                "ctaVariant": "tenant:primary-no-icon",
+                "imageAlign": "center",
+                "headingLevel": 4,
+                "headerSpacing": 30,
+                "imageWidthPct": 100,
+                "contentPadding": 16,
+                "highlightColor": "#F4F7FF",
+                "imageDisplayMode": "inline",
+                "headingTypographyStyleId": "d16866a7-5cab-4854-8576-cb3d92081bc8"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 400,
+                  "w": 390,
+                  "x": 405,
+                  "y": 1392,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqv6jy5o-57k9uu",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Card",
+              "type": "card",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-surface, #ffffff)",
+                "paddingTop": 0,
+                "borderColor": "var(--cb-color-border, #e2e8f0)",
+                "borderStyle": "solid",
+                "borderWidth": 1,
+                "paddingLeft": 0,
+                "borderRadius": 8,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "body": "<p><span style=\"font-size: 20px;\">Find out what happens before, during and after your scan or treatment, including how to prepare and when you will receive your results.</span></p>",
+                "shadow": "md",
+                "ctaHref": "#",
+                "heading": "Preparing for Your Appointment",
+                "ctaAlign": "right",
+                "ctaLabel": "Get prepared",
+                "iconSize": 60,
+                "imageAlt": "",
+                "imageUrl": "",
+                "highlight": true,
+                "iconAlign": "left",
+                "iconClass": "fa-solid fa-hand",
+                "iconColor": "#fa8300",
+                "ctaEnabled": true,
+                "ctaVariant": "tenant:primary-no-icon",
+                "imageAlign": "center",
+                "headingLevel": 4,
+                "headerSpacing": 30,
+                "imageWidthPct": 100,
+                "contentPadding": 16,
+                "highlightColor": "#F4F7FF",
+                "imageDisplayMode": "inline",
+                "headingTypographyStyleId": "d16866a7-5cab-4854-8576-cb3d92081bc8"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 400,
+                  "w": 390,
+                  "x": 810,
+                  "y": 1392,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqv6jy5o-ngjs6z",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Card",
+              "type": "card",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-surface, #ffffff)",
+                "paddingTop": 0,
+                "borderColor": "var(--cb-color-border, #e2e8f0)",
+                "borderStyle": "solid",
+                "borderWidth": 1,
+                "paddingLeft": 0,
+                "borderRadius": 8,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "body": "<p><span style=\"font-size: 20px;\">Browse patient information leaflets, videos, downloadable guides and other trusted resources to help you understand your scan or treatment.</span></p>",
+                "shadow": "md",
+                "ctaHref": "#",
+                "heading": "Patient Resources",
+                "ctaAlign": "right",
+                "ctaLabel": "Explore resources",
+                "iconSize": 60,
+                "imageAlt": "",
+                "imageUrl": "",
+                "highlight": true,
+                "iconAlign": "left",
+                "iconClass": "fa-solid fa-book-medical",
+                "iconColor": "#fa8300",
+                "ctaEnabled": true,
+                "ctaVariant": "tenant:primary-no-icon",
+                "imageAlign": "center",
+                "headingLevel": 4,
+                "headerSpacing": 30,
+                "imageWidthPct": 100,
+                "contentPadding": 16,
+                "highlightColor": "#F4F7FF",
+                "imageDisplayMode": "inline",
+                "headingTypographyStyleId": "d16866a7-5cab-4854-8576-cb3d92081bc8"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 400,
+                  "w": 390,
+                  "x": 0,
+                  "y": 1816,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqv6jy5o-1mz65f",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Card",
+              "type": "card",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-surface, #ffffff)",
+                "paddingTop": 0,
+                "borderColor": "var(--cb-color-border, #e2e8f0)",
+                "borderStyle": "solid",
+                "borderWidth": 1,
+                "paddingLeft": 0,
+                "borderRadius": 8,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "body": "<p><span style=\"font-size: 20px;\">Access information and child-friendly resources to help prepare children and families for a nuclear medicine appointment.</span></p>",
+                "shadow": "md",
+                "ctaHref": "#",
+                "heading": "Children & Families",
+                "ctaAlign": "right",
+                "ctaLabel": "View resources",
+                "iconSize": 60,
+                "imageAlt": "",
+                "imageUrl": "",
+                "highlight": true,
+                "iconAlign": "left",
+                "iconClass": "fa-solid fa-children",
+                "iconColor": "#fa8300",
+                "ctaEnabled": true,
+                "ctaVariant": "tenant:primary-no-icon",
+                "imageAlign": "center",
+                "headingLevel": 4,
+                "headerSpacing": 30,
+                "imageWidthPct": 100,
+                "contentPadding": 16,
+                "highlightColor": "#F4F7FF",
+                "imageDisplayMode": "inline",
+                "headingTypographyStyleId": "d16866a7-5cab-4854-8576-cb3d92081bc8"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 400,
+                  "w": 390,
+                  "x": 409,
+                  "y": 1816,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqv6rviw-fcjc1v",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Card",
+              "type": "card",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-surface, #ffffff)",
+                "paddingTop": 0,
+                "borderColor": "var(--cb-color-border, #e2e8f0)",
+                "borderStyle": "solid",
+                "borderWidth": 1,
+                "paddingLeft": 0,
+                "borderRadius": 8,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "body": "<p><span style=\"font-size: 20px;\">Watch short videos explaining nuclear medicine procedures and what you can expect during your visit.</span></p>",
+                "shadow": "md",
+                "ctaHref": "#",
+                "heading": "Patient Videos",
+                "ctaAlign": "right",
+                "ctaLabel": "Watch now",
+                "iconSize": 60,
+                "imageAlt": "",
+                "imageUrl": "",
+                "highlight": true,
+                "iconAlign": "left",
+                "iconClass": "fa-brands fa-youtube",
+                "iconColor": "#fa8300",
+                "ctaEnabled": true,
+                "ctaVariant": "tenant:primary-no-icon",
+                "imageAlign": "center",
+                "headingLevel": 4,
+                "headerSpacing": 30,
+                "imageWidthPct": 100,
+                "contentPadding": 16,
+                "highlightColor": "#F4F7FF",
+                "imageDisplayMode": "inline",
+                "headingTypographyStyleId": "d16866a7-5cab-4854-8576-cb3d92081bc8"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 400,
+                  "w": 390,
+                  "x": 810,
+                  "y": 1816,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqv6rys7-mlw887",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Card",
+              "type": "card",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-surface, #ffffff)",
+                "paddingTop": 0,
+                "borderColor": "var(--cb-color-border, #e2e8f0)",
+                "borderStyle": "solid",
+                "borderWidth": 1,
+                "paddingLeft": 0,
+                "borderRadius": 8,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "body": "<p><span style=\"font-size: 20px;\">Help BNMS improve patient information and nuclear medicine services by sharing your experience.</span></p>",
+                "shadow": "md",
+                "ctaHref": "#",
+                "heading": "Share Your Experience",
+                "ctaAlign": "right",
+                "ctaLabel": "Share",
+                "iconSize": 60,
+                "imageAlt": "",
+                "imageUrl": "",
+                "highlight": true,
+                "iconAlign": "left",
+                "iconClass": "fa-brands fa-kakao-talk",
+                "iconColor": "#fa8300",
+                "ctaEnabled": true,
+                "ctaVariant": "tenant:primary-no-icon",
+                "imageAlign": "center",
+                "headingLevel": 4,
+                "headerSpacing": 30,
+                "imageWidthPct": 100,
+                "contentPadding": 16,
+                "highlightColor": "#F4F7FF",
+                "imageDisplayMode": "inline",
+                "headingTypographyStyleId": "d16866a7-5cab-4854-8576-cb3d92081bc8"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 450,
+                  "w": 1200,
+                  "x": 0,
+                  "y": 2272,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqv6tu8w-0vc1nn",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Events hero",
+              "type": "hero",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-primary, #0f172a)",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 200,
+                "borderRadius": 0,
+                "paddingRight": 200,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "ctas": [
+                  {
+                    "href": "#",
+                    "label": "Explorer resources",
+                    "variant": "tenant:primary-no-icon",
+                    "labelTypographyStyleId": "5adf6d13-1d12-4613-ac55-b4bb1345c168"
+                  }
+                ],
+                "bgType": "image",
+                "bgColor": "var(--cb-color-primary, #0f172a)",
+                "darkWash": 0.4,
+                "headline": "We're here to help",
+                "alignment": "left",
+                "fullBleed": true,
+                "textColor": "var(--cb-color-on-primary, #ffffff)",
+                "bgImageUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1782403254623-b9wqrfb-shutterstock_2557820871.jpg",
+                "bgVideoUrl": "",
+                "subheadline": "BNMS is committed to providing clear, trusted information to help patients and carers understand nuclear medicine.\nFor advice about your own care or treatment, please contact your Nuclear Medicine Department or healthcare professional.\n",
+                "headingLevel": 1,
+                "overlayAngle": 0,
+                "overlayStops": [
+                  {
+                    "color": "#4169e1",
+                    "opacity": 1,
+                    "position": 19
+                  },
+                  {
+                    "color": "#000000",
+                    "opacity": 0,
+                    "position": 98
+                  }
+                ],
+                "overlayStyle": "gradient",
+                "overlayToColor": "",
+                "overlayDirection": "to-right",
+                "overlayFromColor": "#0055ff",
+                "overlayToOpacity": 0,
+                "overlayFromOpacity": 1,
+                "headlineTypographyStyleId": "7c9e9a3f-4c60-4ee9-a8ec-4bd83325f7e5",
+                "subheadlineTypographyStyleId": "8e020a66-1192-4266-a566-6d02f6d78a37"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            }
+          ]
+        }
+      ],
+      "background": null
+    },
+    "version": 1
+  }
+}

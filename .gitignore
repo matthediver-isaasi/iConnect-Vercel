@@ -4,3 +4,26 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz
+tmp/exports/
+test-results/
+playwright-report/
+
+exports/
+attached_assets/Direct_debits_to_match_iConnect_to_GC_1790227062822.xlsx
+attached_assets/Direct_debits_to_match_iConnect_to_GC_1790344631532.xlsx
+attached_assets/traineeMandates_1789920168547.xlsx
+attached_assets/Additional_individuals_to_import_into_iConnect_18.09.26_1789834165856.xlsx
+attached_assets/Direct_debit_payers_to_import_31.08.26_1788197290796.csv
+attached_assets/*_to_import_*.csv
+attached_assets/Guest_Members_IMPORT_WITHOUT_UUIDs_PHONE_IMPORT_READY_06.09.2_1788682257637.xlsx
+
+# Private pilot inputs and operational reports: never include in code publication.
+attached_assets/DD_matched_different_emails_1789802289108.xlsx
+attached_assets/Pasted-For-the-tenant-British-Nuclear-Medicine-Society-we-now-_1789802408141.txt
+reports/bnms-dd-pilot-preflight.html
+
+# Received MIME sources contain private recipient headers and tracking tokens.
+attached_assets/Pasted-Delivered-To-*.txt
+attached_assets/BNMS_FINAL_79_INDIVIDUALS_TO_IMPORT_22.09.26_1790149675043.xlsx
+attached_assets/organisation-directory_1790191041866.csv
+attached_assets/Screenshot_2026-09-25_at_12.28.28_1790332112553.png

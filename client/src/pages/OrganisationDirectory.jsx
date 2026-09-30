@@ -1,34 +1,102 @@
-import React, { useState, useMemo, useEffect } from "react";
+import { Fragment, useState, useMemo, useEffect, useRef } from "react";
 import { base44 } from "@/api/base44Client";
-import { useQuery } from "@tanstack/react-query";
+import { safeLogoSrc } from "@/lib/safeLogoSrc";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Building2, Search, Globe, Users, Loader2, ChevronLeft, ChevronRight } from "lucide-react";
+import { Building2, Search, Globe, Users, Loader2, ChevronLeft, ChevronRight, ArrowDownAZ, ArrowUpZA, Pencil, Trash2, Upload, Download, ExternalLink, ClipboardList, Mail, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
+import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { toast } from "sonner";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
+import { isDeletedMember } from "@/utils";
+import { hasDirectoryFieldValue, enrichFieldForDirectory, isFieldInDirectory, getDirectoryOrderedFields, resolveBackFieldOrder, ORG_BACK_DEFAULT_ORDER, resolveCustomFieldsLabel } from "@/utils/directorySettings";
+import { buildOrganisationDirectoryMembersUrl, parseOrganisationViewMembersRoleIds, hasOrganisationViewMembersRoles } from "@/lib/organisationDirectoryMemberContext";
+import { isDirectoryEmbedLocation, useDirectoryObjectSources } from "@/hooks/useDirectoryObjectSources";
+import { DirectoryObjectSourceGroup, DirectoryObjectSourcesStatus, getDirectoryObjectSourceGroupId } from "@/components/directory/DirectoryObjectSourceField";
+import OrganisationPostalSummary, {
+  buildOrganisationPostalSummary,
+  ORGANISATION_POSTAL_ORDER_KEY,
+  placeOrganisationPostalSummary,
+} from "@/components/directory/OrganisationPostalSummary";
+import OrganisationDirectoryFilters from "@/components/directory/OrganisationDirectoryFilters";
+import OrganisationDirectoryGuest from "@/components/directory/OrganisationDirectoryGuest";
+import { useAuthoritativeDirectoryFilters, useOrganisationDirectoryMetadata, useOrganisationDirectoryResults } from "@/hooks/useOrganisationDirectory";
+
+// Helper to add cache-busting for JPG images which have loading issues
+const getLogoUrl = (url, orgId) => {
+  const safe = safeLogoSrc(url);
+  if (!safe) return null;
+  const lowerUrl = safe.toLowerCase();
+  // Add cache-busting timestamp for JPG/JPEG images
+  if (lowerUrl.includes('.jpg') || lowerUrl.includes('.jpeg')) {
+    const separator = safe.includes('?') ? '&' : '?';
+    return `${safe}${separator}cb=${orgId}`;
+  }
+  return safe;
+};
 
 export default function OrganisationDirectoryPage() {
+  const { memberInfo, authResolved } = useMemberAccess();
+  if (isDirectoryEmbedLocation()) {
+    return <div className="p-4 md:p-8 text-slate-600">The organisation directory is available in the authenticated application.</div>;
+  }
+  if (!authResolved) {
+    return <div className="px-4 py-8 md:py-12" role="status" aria-label="Loading directory"><Loader2 className="mx-auto w-6 h-6 animate-spin text-slate-500" /></div>;
+  }
+  if (!memberInfo?.id || !memberInfo?.tenant_id) return <OrganisationDirectoryGuest />;
+  return <AuthenticatedOrganisationDirectory />;
+}
+
+function AuthenticatedOrganisationDirectory() {
+  const { isAdmin, isFeatureExcluded, memberInfo, authResolved } = useMemberAccess();
+  const queryClient = useQueryClient();
+  
+  // Check if user can edit organisation logos (admin AND not excluded from feature)
+  const canEditLogos = isAdmin && !isFeatureExcluded('action_org_logo_edit');
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage] = useState(12);
+  const [sortOrder, setSortOrder] = useState("asc");
+  const [editingOrg, setEditingOrg] = useState(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isDownloadingCsv, setIsDownloadingCsv] = useState(false);
+  const fileInputRef = useRef(null);
+  
+  // State for organization profile modal
+  const [selectedOrg, setSelectedOrg] = useState(null);
+  const [directoryFilters, setDirectoryFilters] = useState({});
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const objectSourceQuery = useDirectoryObjectSources();
+  const objectSources = objectSourceQuery.isError || objectSourceQuery.isFetching
+    ? []
+    : (objectSourceQuery.data?.sources || []);
 
-  const { data: organizations = [], isLoading } = useQuery({
-    queryKey: ['organizations'],
-    queryFn: async () => {
-      return await base44.entities.Organization.list('name');
-    },
-    refetchOnMount: true
-  });
+  const directoryMetadataQuery = useOrganisationDirectoryMetadata();
 
   // Fetch display settings
   const { data: displaySettings } = useQuery({
     queryKey: ['organisation-directory-settings'],
     queryFn: async () => {
       const allSettings = await base44.entities.SystemSettings.list();
+      const headerSetting = allSettings.find(s => s.setting_key === 'org_directory_header');
       const logoSetting = allSettings.find(s => s.setting_key === 'org_directory_show_logo');
+      const titleSetting = allSettings.find(s => s.setting_key === 'org_directory_show_title');
       const domainsSetting = allSettings.find(s => s.setting_key === 'org_directory_show_domains');
       const memberCountSetting = allSettings.find(s => s.setting_key === 'org_directory_show_member_count');
+      const nameTooltipSetting = allSettings.find(s => s.setting_key === 'org_directory_show_name_tooltip');
+      const cardsPerRowSetting = allSettings.find(s => s.setting_key === 'org_directory_cards_per_row');
       const excludedOrgsSetting = allSettings.find(s => s.setting_key === 'org_directory_excluded_orgs');
-      
+      const allowedStatusesSetting = allSettings.find(s => s.setting_key === 'org_directory_allowed_application_statuses');
+      const visibleOrgTypesSetting = allSettings.find(s => s.setting_key === 'org_directory_visible_org_types');
+      const reverseCardRolesSetting = allSettings.find(s => s.setting_key === 'org_directory_reverse_card_role_ids');
+      const viewMembersRolesSetting = allSettings.find(s => s.setting_key === 'org_directory_view_members_role_ids');
+      const backOrderSetting = allSettings.find(s => s.setting_key === 'org_directory_back_field_order');
+      const customFieldsLabelSetting = allSettings.find(s => s.setting_key === 'org_directory_custom_fields_label');
+
       let excludedOrgIds = [];
       if (excludedOrgsSetting) {
         try {
@@ -37,103 +105,481 @@ export default function OrganisationDirectoryPage() {
           excludedOrgIds = [];
         }
       }
-      
+
+      let allowedApplicationStatuses = [];
+      if (allowedStatusesSetting) {
+        try {
+          allowedApplicationStatuses = JSON.parse(allowedStatusesSetting.setting_value);
+        } catch {
+          allowedApplicationStatuses = [];
+        }
+      }
+
+      let visibleOrgTypes = [];
+      if (visibleOrgTypesSetting) {
+        try {
+          visibleOrgTypes = JSON.parse(visibleOrgTypesSetting.setting_value);
+        } catch {
+          visibleOrgTypes = [];
+        }
+      }
+
+      let reverseCardRoleIds = [];
+      if (reverseCardRolesSetting) {
+        try {
+          const parsed = JSON.parse(reverseCardRolesSetting.setting_value);
+          reverseCardRoleIds = Array.isArray(parsed) ? parsed : [];
+        } catch {
+          reverseCardRoleIds = [];
+        }
+      }
+
       return {
+        header: headerSetting?.setting_value || 'Organisation Directory',
         showLogo: logoSetting?.setting_value !== 'false',
+        showTitle: titleSetting?.setting_value !== 'false',
         showDomains: domainsSetting?.setting_value !== 'false',
         showMemberCount: memberCountSetting?.setting_value !== 'false',
-        excludedOrgIds: excludedOrgIds
+        showNameTooltip: nameTooltipSetting?.setting_value === 'true',
+        cardsPerRow: cardsPerRowSetting?.setting_value || '3',
+        excludedOrgIds: excludedOrgIds,
+        allowedApplicationStatuses: allowedApplicationStatuses,
+        visibleOrgTypes: visibleOrgTypes,
+        reverseCardRoleIds: reverseCardRoleIds,
+        viewMembersRoleIds: parseOrganisationViewMembersRoleIds(viewMembersRolesSetting?.setting_value),
+        customFieldsLabel: customFieldsLabelSetting?.setting_value || null,
+        backFieldOrder: (() => {
+          if (!backOrderSetting?.setting_value) return null;
+          try {
+            const parsed = JSON.parse(backOrderSetting.setting_value);
+            return Array.isArray(parsed) ? parsed : null;
+          } catch {
+            return null;
+          }
+        })()
       };
     },
-    staleTime: 0,
-    refetchOnMount: true
+    staleTime: 5 * 60 * 1000 // Cache for 5 minutes to prevent refetch flickering
   });
 
-  const { data: members = [] } = useQuery({
-    queryKey: ['all-members'],
+  // Get grid class based on cards per row setting
+  const getGridClass = () => {
+    const cols = displaySettings?.cardsPerRow || '3';
+    switch (cols) {
+      case '2':
+        return 'grid grid-cols-1 md:grid-cols-2 gap-6';
+      case '3':
+        return 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6';
+      case '4':
+        return 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6';
+      case '5':
+        return 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6';
+      case '6':
+        return 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6';
+      default:
+        return 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6';
+    }
+  };
+
+  const { data: members = [], isLoading: isLoadingMembers } = useQuery({
+    queryKey: ['all-members-for-org-directory'],
     queryFn: async () => {
-      return await base44.entities.Member.list();
+      // Use listAll to handle Supabase's 1000 row limit with automatic pagination
+      const allMembers = await base44.entities.Member.listAll();
+      console.log(`[OrganisationDirectory] Loaded ${allMembers.length} total members`);
+      return allMembers;
+    },
+    staleTime: 2 * 60 * 1000, // Cache for 2 minutes to prevent refetch flickering
+    placeholderData: (previousData) => previousData // Keep previous data during refetches
+  });
+
+  // Fetch roles so reverse-card contact groups can be labelled by role name
+  const { data: roles = [] } = useQuery({
+    queryKey: ['roles'],
+    queryFn: async () => base44.entities.Role.list(),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Build the grouped contacts list for the currently selected organisation's reverse-card dialog.
+  // Members are grouped by role in the order admins selected those roles; within each role they
+  // are sorted alphabetically by last name then first name.
+  const reverseCardContactGroups = useMemo(() => {
+    const roleIds = displaySettings?.reverseCardRoleIds || [];
+    if (!selectedOrg || roleIds.length === 0 || members.length === 0) {
+      return [];
+    }
+    const orgMembers = members.filter(
+      (m) =>
+        m.organization_id === selectedOrg.id &&
+        m.email &&
+        m.role_id &&
+        roleIds.includes(m.role_id) &&
+        !isDeletedMember(m)
+    );
+    if (orgMembers.length === 0) return [];
+
+    const sortMembers = (a, b) => {
+      const lastA = (a.last_name || '').toLowerCase();
+      const lastB = (b.last_name || '').toLowerCase();
+      if (lastA !== lastB) return lastA.localeCompare(lastB);
+      return (a.first_name || '').toLowerCase().localeCompare((b.first_name || '').toLowerCase());
+    };
+
+    return roleIds
+      .map((roleId) => {
+        const role = roles.find((r) => r.id === roleId);
+        const groupMembers = orgMembers
+          .filter((m) => m.role_id === roleId)
+          .sort(sortMembers);
+        return { roleId, role, members: groupMembers };
+      })
+      .filter((g) => g.members.length > 0);
+  }, [displaySettings?.reverseCardRoleIds, selectedOrg, members, roles]);
+
+  const handleCopyMemberEmail = async (email) => {
+    if (!email) return;
+    try {
+      await navigator.clipboard.writeText(email);
+      toast.success('Email copied to clipboard');
+    } catch {
+      toast.error('Failed to copy email');
+    }
+  };
+
+  // Fetch organization-scoped custom fields
+  const { data: orgCustomFields = [] } = useQuery({
+    queryKey: ['/api/entities/PreferenceField', 'organization', 'directory'],
+    queryFn: async () => {
+      const parseVisibility = (field) => isFieldInDirectory(field, 'main', 'show_in_directory_card');
+      const enrich = (field) => enrichFieldForDirectory(field, 'main');
+      try {
+        const fields = await base44.entities.PreferenceField.list({
+          filter: { is_active: true, entity_scope: 'organization' },
+          sort: { display_order: 'asc' }
+        });
+        return (fields || []).filter(f => f.entity_scope === 'organization' && parseVisibility(f)).map(enrich);
+      } catch {
+        try {
+          const allFields = await base44.entities.PreferenceField.list({
+            filter: { is_active: true },
+            sort: { display_order: 'asc' }
+          });
+          return (allFields || []).filter(f => f.entity_scope === 'organization' && parseVisibility(f)).map(enrich);
+        } catch {
+          return [];
+        }
+      }
     }
   });
 
-  const organizationMemberCounts = useMemo(() => {
-    const counts = {};
-    members.forEach((member) => {
-      if (member.organization_id) {
-        counts[member.organization_id] = (counts[member.organization_id] || 0) + 1;
+  // Fetch custom field values for the selected organization
+  const { data: selectedOrgValues = [], isLoading: isLoadingOrgValues } = useQuery({
+    queryKey: ['/api/entities/OrganizationPreferenceValue', selectedOrg?.id],
+    enabled: !!selectedOrg?.id,
+    queryFn: async () => {
+      if (!selectedOrg?.id) return [];
+      try {
+        const values = await base44.entities.OrganizationPreferenceValue.list({
+          filter: { organization_id: selectedOrg.id }
+        });
+        return values || [];
+      } catch {
+        return [];
       }
-    });
-    return counts;
-  }, [members]);
-
-  const filteredOrganizations = useMemo(() => {
-    const excludedIds = displaySettings?.excludedOrgIds || [];
-    
-    // First filter out excluded organizations
-    let filtered = organizations.filter(org => 
-      !excludedIds.includes(org.id)
-    );
-    
-    // Then apply search filter
-    if (searchQuery) {
-      const searchLower = searchQuery.toLowerCase();
-      filtered = filtered.filter((org) =>
-        org.name?.toLowerCase().includes(searchLower) ||
-        org.domain?.toLowerCase().includes(searchLower)
-      );
     }
-    
-    return filtered;
-  }, [organizations, searchQuery, displaySettings?.excludedOrgIds]);
+  });
 
-  const totalPages = Math.ceil(filteredOrganizations.length / itemsPerPage);
-  const paginatedOrganizations = useMemo(() => {
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    return filteredOrganizations.slice(startIndex, startIndex + itemsPerPage);
-  }, [filteredOrganizations, currentPage, itemsPerPage]);
+  // The API owns filtering, sorting, authorization and pagination.
+  const columnsNum = parseInt(displaySettings?.cardsPerRow) || 3;
+  const itemsPerPage = columnsNum * 4;
+  const directoryRequest = useMemo(() => ({
+    filters: directoryFilters,
+    search: debouncedSearch,
+    sort: sortOrder,
+    page: currentPage,
+    pageSize: itemsPerPage,
+  }), [directoryFilters, debouncedSearch, sortOrder, currentPage, itemsPerPage]);
+  const directoryQuery = useOrganisationDirectoryResults(
+    directoryRequest,
+    directoryMetadataQuery.isSuccess,
+  );
+  const organizations = directoryQuery.data?.organizations || [];
+  const totalOrganizations = directoryQuery.data?.total || 0;
+  const totalPages = Math.max(1, Math.ceil(totalOrganizations / itemsPerPage));
+  const authoritativeFields = useAuthoritativeDirectoryFilters(
+    directoryMetadataQuery,
+    directoryQuery,
+    setDirectoryFilters,
+  );
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+      setCurrentPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery]);
+  }, [itemsPerPage]);
 
-  if (isLoading) {
+  // This also covers filters removed by a newer authoritative metadata
+  // response, rather than leaving the user on an out-of-range results page.
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [directoryFilters]);
+
+  useEffect(() => {
+    if (!directoryQuery.isError || ![400, 409, 422].includes(directoryQuery.error?.status)) return;
+    queryClient.invalidateQueries({ queryKey: ["organisation-directory-filters", memberInfo?.tenant_id, memberInfo?.id, "metadata"] });
+  }, [directoryQuery.isError, directoryQuery.error, queryClient, memberInfo?.tenant_id, memberInfo?.id]);
+
+  const resetAndSetFilters = (filters) => {
+    setDirectoryFilters(filters);
+    setCurrentPage(1);
+  };
+
+  const updateLogoMutation = useMutation({
+    mutationFn: async ({ orgId, logoUrl }) => {
+      return await base44.entities.Organization.update(orgId, { logo_url: logoUrl });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['organisation-directory-filters'] });
+      toast.success('Logo updated successfully');
+      setEditingOrg(null);
+    },
+    onError: (error) => {
+      toast.error('Failed to update logo: ' + error.message);
+    }
+  });
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !editingOrg) return;
+
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please select an image file');
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Image must be less than 5MB');
+      return;
+    }
+
+    setIsUploading(true);
+    try {
+      const result = await base44.integrations.Core.UploadFile({ file });
+      
+      if (result?.file_url) {
+        updateLogoMutation.mutate({ orgId: editingOrg.id, logoUrl: result.file_url });
+      } else {
+        toast.error('Upload failed: No file URL returned');
+      }
+    } catch (error) {
+      showUploadErrorToast(error, 'Failed to upload image');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleDeleteLogo = () => {
+    if (!editingOrg) return;
+    updateLogoMutation.mutate({ orgId: editingOrg.id, logoUrl: null });
+    setShowDeleteConfirm(false);
+  };
+
+  const openEditDialog = (e, org) => {
+    e.stopPropagation();
+    setEditingOrg(org);
+  };
+
+  const openDeleteConfirm = (e) => {
+    e.stopPropagation();
+    setShowDeleteConfirm(true);
+  };
+
+  const canDownloadCsv = Boolean(
+    authResolved
+    && memberInfo?.id
+    && memberInfo?.tenant_id
+    && !isDirectoryEmbedLocation()
+    && directoryMetadataQuery.data?.allowCsvDownload === true
+  );
+
+  const handleDownloadCsv = async () => {
+    if (!canDownloadCsv || isDownloadingCsv) return;
+
+    setIsDownloadingCsv(true);
+    let objectUrl = null;
+    try {
+      const response = await fetch("/api/organisation-directory/export-csv", {
+        credentials: "include",
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => "");
+        let message = "";
+        try {
+          const payload = JSON.parse(body);
+          message = payload?.error || payload?.message || "";
+        } catch {
+          message = body.trim();
+        }
+        throw new Error(message || "Failed to download directory CSV");
+      }
+
+      const contentType = response.headers.get("content-type") || "";
+      if (!/^text\/csv(?:\s*;|$)/i.test(contentType)) {
+        throw new Error("Directory CSV export returned an unexpected content type");
+      }
+
+      const blob = await response.blob();
+      objectUrl = URL.createObjectURL(blob);
+      const disposition = response.headers.get("content-disposition") || "";
+      const filenameMatch = disposition.match(/filename\*=(?:UTF-8'')?([^;]+)|filename="([^"]+)"|filename=([^;]+)/i);
+      const rawFilename = filenameMatch?.[1] || filenameMatch?.[2] || filenameMatch?.[3];
+      let decodedFilename = rawFilename?.trim() || "organisation-directory.csv";
+      try {
+        decodedFilename = decodeURIComponent(decodedFilename);
+      } catch {
+        // Keep the server-provided name when it is not URI encoded.
+      }
+      const filename = decodedFilename
+        .replace(/[/\\?%*:|"<>]/g, "-");
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = filename;
+      link.rel = "noopener";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (error) {
+      toast.error(error?.message || "Failed to download directory CSV");
+    } finally {
+      setIsDownloadingCsv(false);
+      if (objectUrl) {
+        const urlToRelease = objectUrl;
+        window.setTimeout(() => URL.revokeObjectURL(urlToRelease), 0);
+      }
+    }
+  };
+
+  // Metadata is intentionally disabled without an authenticated member, so
+  // only include its pending state in the authenticated loading gate.
+  if (isLoadingMembers || !displaySettings || directoryMetadataQuery.isPending) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-      </div>);
+      </div>
+    );
+  }
 
+  if (directoryMetadataQuery.isError) {
+    return (
+      <div className="min-h-screen p-4 md:p-8 flex flex-col gap-3 items-center justify-center">
+        <p className="text-red-700">{directoryMetadataQuery.error?.message || "Unable to load directory filters"}</p>
+        <Button variant="outline" onClick={() => directoryMetadataQuery.refetch()}>Retry</Button>
+      </div>
+    );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
-        <div className="mb-8">
-          <div className="flex items-center gap-3 mb-2">
-            <Building2 className="w-8 h-8 text-blue-600" />
-            <h1 className="text-3xl md:text-4xl font-bold text-slate-900">University Directory
-
-            </h1>
+        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <div className="flex items-center gap-3 mb-2">
+              <Building2 className="w-8 h-8 text-blue-600" />
+              <h1 className="text-3xl md:text-4xl font-bold text-slate-900">{displaySettings?.header || 'Organisation Directory'}</h1>
+            </div>
+            <p className="text-slate-600">
+              {totalOrganizations} {totalOrganizations === 1 ? 'organisation' : 'organisations'}
+            </p>
           </div>
-          <p className="text-slate-600">
-            {filteredOrganizations.length} {filteredOrganizations.length === 1 ? 'organisation' : 'organisations'}
-          </p>
+          {canDownloadCsv && (
+            <Button
+              variant="outline"
+              className="gap-2 shrink-0"
+              onClick={handleDownloadCsv}
+              disabled={isDownloadingCsv}
+              aria-busy={isDownloadingCsv}
+              data-testid="button-download-full-directory-csv"
+            >
+              {isDownloadingCsv
+                ? <Loader2 className="w-4 h-4 animate-spin" />
+                : <Download className="w-4 h-4" />}
+              Download full directory CSV
+            </Button>
+          )}
         </div>
 
         <Card className="mb-6 border-slate-200">
           <CardContent className="p-4">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <Input
-                placeholder="Search organisations by name or domain..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10" />
-
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col sm:flex-row gap-3">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <Input
+                    placeholder="Search organisations by name or domain..."
+                    value={searchQuery}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value);
+                    }}
+                    className="pl-10"
+                    data-testid="input-search-organisations"
+                  />
+                </div>
+                <Select value={sortOrder} onValueChange={(value) => {
+                  setSortOrder(value);
+                  setCurrentPage(1);
+                }}>
+                  <SelectTrigger className="w-full sm:w-36" data-testid="select-sort-order">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="asc">
+                      <span className="flex items-center gap-2">
+                        <ArrowDownAZ className="w-4 h-4" />
+                        A-Z
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="desc">
+                      <span className="flex items-center gap-2">
+                        <ArrowUpZA className="w-4 h-4" />
+                        Z-A
+                      </span>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <OrganisationDirectoryFilters
+                fields={authoritativeFields}
+                filters={directoryFilters}
+                onChange={resetAndSetFilters}
+                onClear={() => resetAndSetFilters({})}
+              />
             </div>
           </CardContent>
         </Card>
 
-        {filteredOrganizations.length === 0 ?
+        {directoryQuery.isPending || directoryQuery.isFetching ? (
+          <Card className="border-slate-200">
+            <CardContent className="p-12 flex justify-center">
+              <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+            </CardContent>
+          </Card>
+        ) : directoryQuery.isError ? (
+          <Card className="border-red-200">
+            <CardContent className="p-12 text-center space-y-3">
+              <p className="text-red-700">{directoryQuery.error?.message || "Unable to load organisations"}</p>
+              <Button variant="outline" onClick={() => directoryQuery.refetch()}>Retry</Button>
+            </CardContent>
+          </Card>
+        ) : organizations.length === 0 ?
         <Card className="border-slate-200">
             <CardContent className="p-12 text-center">
               <Building2 className="w-16 h-16 text-slate-300 mx-auto mb-4" />
@@ -145,56 +591,83 @@ export default function OrganisationDirectoryPage() {
           </Card> :
 
         <>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {paginatedOrganizations.map((org) => {
-              const memberCount = organizationMemberCounts[org.id] || 0;
-              const allDomains = [org.domain, ...(org.additional_verified_domains || [])].filter(Boolean);
+            <div key={`org-grid-page-${currentPage}`} className={getGridClass()}>
+              {organizations.map((org) => {
+              const memberCount = Number.isInteger(org.member_count) ? org.member_count : 0;
 
               return (
-                <Card key={org.id} className="border-slate-200 hover:shadow-lg transition-shadow">
-                    <CardHeader>
-                      <CardTitle className="flex items-start gap-3">
-                        {displaySettings.showLogo && (
-                          <div className="w-10 h-10 flex-shrink-0 rounded-lg overflow-hidden bg-slate-100 flex items-center justify-center">
-                            {org.logo_url ?
-                          <img
-                            src={org.logo_url}
-                            alt={org.name}
-                            className="w-full h-full object-cover" /> :
-
-
-                          <Building2 className="w-5 h-5 text-slate-400" />
-                          }
-                          </div>
-                        )}
-                        <span className="text-base line-clamp-2">{org.name}</span>
-                      </CardTitle>
+                <Card 
+                  key={org.id} 
+                  className="border-slate-200 hover:shadow-lg transition-shadow cursor-pointer"
+                  style={{ contain: 'layout paint' }}
+                  onClick={() => setSelectedOrg(org)}
+                  data-testid={`card-organisation-${org.id}`}
+                >
+                    <CardHeader className="flex flex-col items-center text-center pb-2">
+                      {displaySettings?.showLogo && (
+                        <div className="relative w-[90%] aspect-square rounded-lg overflow-hidden bg-slate-100 flex items-center justify-center mb-3 group">
+                          {(() => {
+                            const safeSrc = getLogoUrl(org.logo_url, org.id);
+                            return safeSrc ? (
+                              <img
+                                key={`logo-${org.id}-${safeSrc}`}
+                                src={safeSrc}
+                                alt={org.name}
+                                loading="eager"
+                                decoding="sync"
+                                style={{ willChange: 'opacity' }}
+                                className={`w-full h-full object-contain transition-opacity duration-300 ${displaySettings?.showNameTooltip ? 'group-hover:opacity-20' : ''}`}
+                              />
+                            ) : (
+                              <Building2 className={`w-16 h-16 text-slate-400 transition-opacity duration-300 ${displaySettings?.showNameTooltip ? 'group-hover:opacity-20' : ''}`} />
+                            );
+                          })()}
+                          {displaySettings?.showNameTooltip && (
+                            <div className="absolute inset-0 flex items-center justify-center p-3 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                              <span className="text-lg font-bold text-slate-800 text-center leading-tight line-clamp-4">
+                                {org.name}
+                              </span>
+                            </div>
+                          )}
+                          {canEditLogos && (
+                            <div className="absolute top-2 right-2 flex gap-1 invisible group-hover:visible z-10">
+                              <Button
+                                size="icon"
+                                variant="secondary"
+                                className="h-8 w-8 bg-white/90 hover:bg-white shadow-sm"
+                                onClick={(e) => openEditDialog(e, org)}
+                                data-testid={`button-edit-logo-${org.id}`}
+                              >
+                                <Pencil className="w-4 h-4 text-slate-600" />
+                              </Button>
+                              {org.logo_url && (
+                                <Button
+                                  size="icon"
+                                  variant="secondary"
+                                  className="h-8 w-8 bg-white/90 hover:bg-red-50 shadow-sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setEditingOrg(org);
+                                    setShowDeleteConfirm(true);
+                                  }}
+                                  data-testid={`button-delete-logo-${org.id}`}
+                                >
+                                  <Trash2 className="w-4 h-4 text-red-500" />
+                                </Button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {displaySettings?.showTitle !== false && !displaySettings?.showNameTooltip && (
+                        <CardTitle className="text-base line-clamp-2 w-full">{org.name}</CardTitle>
+                      )}
                     </CardHeader>
                     <CardContent className="space-y-3">
-                      {displaySettings.showDomains && allDomains.length > 0 &&
-                    <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <Globe className="w-4 h-4 text-slate-400" />
-                            <span className="text-sm font-medium text-slate-700">
-                              {allDomains.length > 1 ? 'Domains' : 'Domain'}
-                            </span>
-                          </div>
-                          <div className="flex flex-wrap gap-1 ml-6">
-                            {allDomains.map((domain, idx) =>
-                        <span key={idx} className="text-xs bg-slate-100 text-slate-700 px-2 py-1 rounded">
-                                @{domain}
-                              </span>
-                        )}
-                          </div>
-                        </div>
-                    }
-
-                      {displaySettings.showMemberCount && (
-                        <div className="flex items-center justify-between pt-2 border-t border-slate-200">
-                          <div className="flex items-center gap-2">
-                            <Users className="w-4 h-4 text-slate-400" />
-                            <span className="text-sm text-slate-600">Members</span>
-                          </div>
+                      {displaySettings?.showMemberCount && (
+                        <div className="flex items-center justify-center gap-2 pt-2 border-t border-slate-200">
+                          <Users className="w-4 h-4 text-slate-400" />
+                          <span className="text-sm text-slate-600">Members:</span>
                           <span className="text-sm font-semibold text-slate-900">{memberCount}</span>
                         </div>
                       )}
@@ -204,44 +677,406 @@ export default function OrganisationDirectoryPage() {
             })}
             </div>
 
-            {totalPages > 1 &&
-          <div className="mt-6 flex justify-center items-center gap-2">
+            {totalPages > 1 && (
+              <div className="mt-6 flex justify-center items-center gap-2">
                 <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              disabled={currentPage === 1}>
-
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  data-testid="button-prev-page-org-directory"
+                >
                   <ChevronLeft className="w-4 h-4" />
                 </Button>
-                
-                <div className="flex items-center gap-1">
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) =>
-              <Button
-                key={page}
-                variant={currentPage === page ? "default" : "outline"}
-                size="sm"
-                onClick={() => setCurrentPage(page)}
-                className="w-9">
-
-                      {page}
-                    </Button>
-              )}
-                </div>
-
+                <span className="text-sm text-slate-600">
+                  Page {currentPage} of {totalPages}
+                </span>
                 <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              disabled={currentPage === totalPages}>
-
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  data-testid="button-next-page-org-directory"
+                >
                   <ChevronRight className="w-4 h-4" />
                 </Button>
               </div>
-          }
+            )}
           </>
         }
       </div>
+
+      {/* Edit Logo Dialog */}
+      <Dialog open={!!editingOrg && !showDeleteConfirm} onOpenChange={(open) => !open && setEditingOrg(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Organisation Logo</DialogTitle>
+            <DialogDescription>
+              Upload a new logo for {editingOrg?.name}
+            </DialogDescription>
+            <p className="text-xs text-slate-500 mt-1">
+              Recommended size: 200 x 200 pixels (square)
+            </p>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="flex justify-center">
+              <div className="w-32 h-32 rounded-lg overflow-hidden bg-slate-100 flex items-center justify-center">
+                {(() => {
+                  const safeSrc = safeLogoSrc(editingOrg?.logo_url);
+                  return safeSrc ? (
+                    <img
+                      src={safeSrc}
+                      alt={editingOrg.name}
+                      className="w-full h-full object-contain"
+                    />
+                  ) : (
+                    <Building2 className="w-12 h-12 text-slate-400" />
+                  );
+                })()}
+              </div>
+            </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleFileUpload}
+              className="hidden"
+            />
+            <Button
+              className="w-full"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading || updateLogoMutation.isPending}
+            >
+              {isUploading || updateLogoMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Uploading...
+                </>
+              ) : (
+                <>
+                  <Upload className="w-4 h-4 mr-2" />
+                  Upload New Logo
+                </>
+              )}
+            </Button>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingOrg(null)}>
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Remove Logo</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to remove the logo for {editingOrg?.name}? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setShowDeleteConfirm(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteLogo}
+              disabled={updateLogoMutation.isPending}
+            >
+              {updateLogoMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Removing...
+                </>
+              ) : (
+                'Remove Logo'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Organization Profile Modal */}
+      <Dialog open={!!selectedOrg} onOpenChange={(open) => !open && setSelectedOrg(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <div className="flex items-center gap-4">
+              {displaySettings?.showLogo && (
+                <div className="w-16 h-16 rounded-lg overflow-hidden bg-slate-100 flex items-center justify-center flex-shrink-0">
+                  {(() => {
+                    const safeSrc = safeLogoSrc(selectedOrg?.logo_url);
+                    return safeSrc ? (
+                      <img
+                        src={safeSrc}
+                        alt={selectedOrg?.name}
+                        className="w-full h-full object-contain"
+                      />
+                    ) : (
+                      <Building2 className="w-8 h-8 text-slate-400" />
+                    );
+                  })()}
+                </div>
+              )}
+              <div>
+                {displaySettings?.showTitle !== false && (
+                  <DialogTitle className="text-xl">{selectedOrg?.name}</DialogTitle>
+                )}
+              </div>
+            </div>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <DirectoryObjectSourcesStatus query={objectSourceQuery} />
+            {(() => {
+              // Unified reverse-card ordering (tenant default → hardcoded
+              // default). Visibility settings still gate what renders.
+              const orderedOrgFields = getDirectoryOrderedFields(orgCustomFields, null);
+              const baseResolvedOrder = resolveBackFieldOrder({
+                directoryOrder: null,
+                tenantOrder: displaySettings?.backFieldOrder,
+                defaultOrder: ORG_BACK_DEFAULT_ORDER,
+                customFields: orderedOrgFields,
+                objectSources,
+              });
+              const postalSummary = buildOrganisationPostalSummary(
+                orderedOrgFields,
+                isLoadingOrgValues ? [] : selectedOrgValues,
+                selectedOrg?.invoicing_address,
+              );
+              const resolvedOrder = placeOrganisationPostalSummary(
+                baseResolvedOrder,
+                objectSources,
+                postalSummary,
+              );
+              const fieldById = new Map(orderedOrgFields.map(f => [String(f.id), f]));
+              const sourceByKey = new Map(objectSources.map(source => [source.key, source]));
+              const sourceOrder = new Map(resolvedOrder.map((key, index) => [key, index]));
+              const renderedSourceGroups = new Set();
+
+              const sections = [];
+              let pendingCustoms = [];
+              let batchIdx = 0;
+              const flushCustoms = () => {
+                if (pendingCustoms.length === 0) return;
+                const batch = pendingCustoms;
+                pendingCustoms = [];
+                const idx = batchIdx++;
+                if (isLoadingOrgValues) {
+                  sections.push(
+                    <div key={`org-customs-${idx}`} className="space-y-3 pt-2 border-t">
+                      <div className="flex items-center gap-2">
+                        <ClipboardList className="w-4 h-4 text-blue-600" />
+                        <h4 className="font-medium text-slate-900">{resolveCustomFieldsLabel(displaySettings?.customFieldsLabel)}</h4>
+                      </div>
+                      <div className="flex items-center justify-center py-4">
+                        <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+                      </div>
+                    </div>
+                  );
+                  return;
+                }
+                const populatedFields = batch
+                  .map((field) => {
+                    const valueRecord = selectedOrgValues.find(v => v.field_id === field.id);
+                    const rawValue = valueRecord?.value;
+                    if (!hasDirectoryFieldValue(field, rawValue)) return null;
+                    let displayValue = rawValue;
+                    if (field.field_type === 'picklist' && displayValue) {
+                      try {
+                        const parsed = JSON.parse(displayValue);
+                        if (Array.isArray(parsed) && field.options) {
+                          displayValue = parsed
+                            .map(v => field.options.find(o => o.value === v)?.label || v)
+                            .join(', ');
+                        }
+                      } catch {
+                        // Keep as is
+                      }
+                    }
+                    if (field.field_type === 'dropdown' && displayValue && field.options) {
+                      const option = field.options.find(o => o.value === displayValue);
+                      if (option) displayValue = option.label;
+                    }
+                    if (displayValue === '' || displayValue === null || displayValue === undefined) {
+                      return null;
+                    }
+                    return { field, displayValue };
+                  })
+                  .filter(Boolean);
+                if (populatedFields.length === 0) return;
+                sections.push(
+                  <div key={`org-customs-${idx}`} className="space-y-3 pt-2 border-t">
+                    <div className="flex items-center gap-2">
+                      <ClipboardList className="w-4 h-4 text-blue-600" />
+                      <h4 className="font-medium text-slate-900">{resolveCustomFieldsLabel(displaySettings?.customFieldsLabel)}</h4>
+                    </div>
+                    <div className="space-y-3">
+                      {populatedFields.map(({ field, displayValue }) => (
+                        <div key={field.id} className="flex justify-between items-start gap-4">
+                          <span className="text-sm text-slate-600">{field._displayLabel || field.label}</span>
+                          <span className="text-sm font-medium text-slate-900 text-right">
+                            {displayValue}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              };
+
+              for (const key of resolvedOrder) {
+                if (key === 'org_member_count') {
+                  if (!displaySettings?.showMemberCount) continue;
+                  flushCustoms();
+                  sections.push(
+                    <div key={key} className="flex items-center gap-2 text-slate-600">
+                      <Users className="w-4 h-4" />
+                       <span>{Number.isInteger(selectedOrg?.member_count) ? selectedOrg.member_count : 0} members</span>
+                    </div>
+                  );
+                } else if (key === 'org_members_list') {
+                  if (reverseCardContactGroups.length === 0) continue;
+                  flushCustoms();
+                  sections.push(
+                    <Fragment key={key}>
+              <div className="space-y-3 pt-2 border-t">
+                <div className="flex items-center gap-2">
+                  <Mail className="w-4 h-4 text-blue-600" />
+                  <h4 className="font-medium text-slate-900">Contacts</h4>
+                </div>
+                <div className="space-y-4">
+                  {reverseCardContactGroups.map((group) => (
+                    <div key={group.roleId} className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary" className="bg-blue-100 text-blue-700">
+                          {group.role?.name || 'Role'}
+                        </Badge>
+                      </div>
+                      <div className="space-y-2">
+                        {group.members.map((member) => {
+                          const fullName = `${member.first_name || ''} ${member.last_name || ''}`.trim() || 'Unnamed member';
+                          const initials = `${(member.first_name || '').charAt(0)}${(member.last_name || '').charAt(0)}`.toUpperCase() || '?';
+                          return (
+                            <div
+                              key={member.id}
+                              className="flex items-center gap-3 p-2 rounded-lg bg-slate-50"
+                              data-testid={`row-contact-member-${member.id}`}
+                            >
+                              <div className="flex-shrink-0">
+                                {member.profile_photo_url ? (
+                                  <img
+                                    src={member.profile_photo_url}
+                                    alt={fullName}
+                                    className="w-10 h-10 rounded-full object-cover border border-slate-200"
+                                  />
+                                ) : (
+                                  <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center text-xs font-medium text-slate-600">
+                                    {initials}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p
+                                  className="text-sm font-medium text-slate-900 truncate"
+                                  data-testid={`text-contact-name-${member.id}`}
+                                >
+                                  {fullName}
+                                </p>
+                                {member.job_title && (
+                                  <p className="text-xs text-slate-600 truncate">{member.job_title}</p>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 flex-shrink-0">
+                                <Button
+                                  size="sm"
+                                  asChild
+                                  className="bg-blue-600 hover:bg-blue-700 gap-1.5"
+                                  data-testid={`button-email-member-${member.id}`}
+                                >
+                                  <a href={`mailto:${member.email}`}>
+                                    <Mail className="w-3.5 h-3.5" />
+                                    Email
+                                  </a>
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="outline"
+                                  onClick={() => handleCopyMemberEmail(member.email)}
+                                  aria-label={`Copy email for ${fullName}`}
+                                  data-testid={`button-copy-email-${member.id}`}
+                                >
+                                  <Copy className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            
+                    </Fragment>
+                  );
+                } else if (key.startsWith('custom:')) {
+                  const field = fieldById.get(key.slice(7));
+                  if (!field || field._visBack === false) continue;
+                  pendingCustoms.push(field);
+                } else if (key === ORGANISATION_POSTAL_ORDER_KEY) {
+                  flushCustoms();
+                  sections.push(
+                    <OrganisationPostalSummary key={key} summary={postalSummary} />
+                  );
+                } else if (key.startsWith('object-field:')) {
+                  const source = sourceByKey.get(key);
+                  if (!source) continue;
+                  const sourceGroup = getDirectoryObjectSourceGroupId(source);
+                  if (!sourceGroup || renderedSourceGroups.has(sourceGroup)) continue;
+                  renderedSourceGroups.add(sourceGroup);
+                  flushCustoms();
+                  const groupedSources = objectSources
+                    .filter(item => getDirectoryObjectSourceGroupId(item) === sourceGroup)
+                    .sort((left, right) => (
+                      (sourceOrder.get(left.key) ?? Number.MAX_SAFE_INTEGER)
+                      - (sourceOrder.get(right.key) ?? Number.MAX_SAFE_INTEGER)
+                    ));
+                  sections.push(
+                    <DirectoryObjectSourceGroup
+                      key={sourceGroup}
+                      sources={groupedSources}
+                      organizationId={selectedOrg?.id}
+                    />
+                  );
+                }
+              }
+              flushCustoms();
+              return sections;
+            })()}
+
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button variant="outline" onClick={() => setSelectedOrg(null)}>
+              Close
+            </Button>
+            {hasOrganisationViewMembersRoles(displaySettings) && <Button
+              onClick={() => {
+                window.location.href = buildOrganisationDirectoryMembersUrl(selectedOrg?.id);
+              }}
+              className="bg-blue-600 hover:bg-blue-700 gap-2"
+              data-testid="button-view-members"
+            >
+              <Users className="w-4 h-4" />
+              View Members
+              <ExternalLink className="w-3 h-3" />
+            </Button>}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>);
 
 }

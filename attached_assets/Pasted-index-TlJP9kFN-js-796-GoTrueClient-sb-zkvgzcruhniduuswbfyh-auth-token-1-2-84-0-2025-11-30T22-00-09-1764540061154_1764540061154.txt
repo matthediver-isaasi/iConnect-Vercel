@@ -1,0 +1,73 @@
+index-TlJP9kFN.js:796 GoTrueClient@sb-zkvgzcruhniduuswbfyh-auth-token:1 (2.84.0) 2025-11-30T22:00:09.060Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+np @ index-TlJP9kFN.js:796
+ise @ index-TlJP9kFN.js:797
+_initSupabaseAuthClient @ index-TlJP9kFN.js:797
+lse @ index-TlJP9kFN.js:797
+KF @ index-TlJP9kFN.js:797
+(anonymous) @ index-TlJP9kFN.js:887
+(anonymous) @ index-TlJP9kFN.js:1
+(anonymous) @ index-TlJP9kFN.js:1230
+index-TlJP9kFN.js:887 [PageTour] Render - tourGroupName: Bookings viewId: null autoShow: true
+index-TlJP9kFN.js:887 [PageTour] State - isActive: true showPopup: true currentStep: 0
+index-TlJP9kFN.js:887 [PageTour] Data - tourGroup: undefined steps: 0
+index-TlJP9kFN.js:887 [PageTour] Return condition check - isActive: true showPopup: true mandatoryCheckComplete: false mandatoryElementMissing: false currentStep: 0 steps.length: 0
+index-TlJP9kFN.js:887 [PageTour] Returning null - not showing tour
+index-TlJP9kFN.js:887 [PageTour] autoShow useEffect triggered - autoShow: true steps.length: 0
+index-TlJP9kFN.js:887 [PageTour] Render - tourGroupName: Bookings viewId: null autoShow: true
+index-TlJP9kFN.js:887 [PageTour] State - isActive: true showPopup: true currentStep: 0
+index-TlJP9kFN.js:887 [PageTour] Data - tourGroup: undefined steps: 0
+index-TlJP9kFN.js:887 [PageTour] Return condition check - isActive: true showPopup: true mandatoryCheckComplete: false mandatoryElementMissing: false currentStep: 0 steps.length: 0
+index-TlJP9kFN.js:887 [PageTour] Returning null - not showing tour
+index-TlJP9kFN.js:887 [PageTour] autoShow useEffect triggered - autoShow: true steps.length: 0
+index-TlJP9kFN.js:887 [PageTour] Render - tourGroupName: Bookings viewId: null autoShow: true
+index-TlJP9kFN.js:887 [PageTour] State - isActive: true showPopup: true currentStep: 0
+index-TlJP9kFN.js:887 [PageTour] Data - tourGroup: undefined steps: 0
+index-TlJP9kFN.js:887 [PageTour] Return condition check - isActive: true showPopup: true mandatoryCheckComplete: false mandatoryElementMissing: false currentStep: 0 steps.length: 0
+index-TlJP9kFN.js:887 [PageTour] Returning null - not showing tour
+index-TlJP9kFN.js:887 [PageTour] autoShow useEffect triggered - autoShow: true steps.length: 0
+index-TlJP9kFN.js:887 [PageTour] Render - tourGroupName: Bookings viewId: null autoShow: true
+index-TlJP9kFN.js:887 [PageTour] State - isActive: true showPopup: true currentStep: 0
+index-TlJP9kFN.js:887 [PageTour] Data - tourGroup: undefined steps: 0
+index-TlJP9kFN.js:887 [PageTour] Return condition check - isActive: true showPopup: true mandatoryCheckComplete: false mandatoryElementMissing: false currentStep: 0 steps.length: 0
+index-TlJP9kFN.js:887 [PageTour] Returning null - not showing tour
+index-TlJP9kFN.js:887 [PageTour] autoShow useEffect triggered - autoShow: true steps.length: 0
+index-TlJP9kFN.js:887 [PageTour] All tour groups from DB: (7) [{…}, {…}, {…}, {…}, {…}, {…}, {…}]
+index-TlJP9kFN.js:887 [PageTour] Looking for - page_name: Bookings viewId: null
+index-TlJP9kFN.js:887 [PageTour] Checking group: c46c071d-cb9c-4c02-b004-3155506e73d4 {page_name: 'BuyProgramTickets', view_id: 'list', is_active: true, pageNameMatch: false, viewIdMatch: false, …}
+index-TlJP9kFN.js:887 [PageTour] Checking group: f6af2e63-97e0-4301-928c-07666190e5e1 {page_name: 'BuyProgramTickets', view_id: 'form', is_active: true, pageNameMatch: false, viewIdMatch: false, …}
+index-TlJP9kFN.js:887 [PageTour] Checking group: 9a24df11-23e5-4260-b815-a9095c05c355 {page_name: 'Events', view_id: null, is_active: true, pageNameMatch: false, viewIdMatch: true, …}
+index-TlJP9kFN.js:887 [PageTour] Checking group: ec064d83-7073-4021-aa29-58645b74a80f {page_name: 'EventDetails', view_id: null, is_active: true, pageNameMatch: false, viewIdMatch: true, …}
+index-TlJP9kFN.js:887 [PageTour] Checking group: a58258ae-31f1-46b6-94e6-7ac712d66649 {page_name: 'Bookings', view_id: null, is_active: true, pageNameMatch: true, viewIdMatch: true, …}
+index-TlJP9kFN.js:887 [PageTour] Found tour group: {id: 'a58258ae-31f1-46b6-94e6-7ac712d66649', name: 'Bookings', page_name: 'Bookings', view_id: null, is_active: true, …}
+index-TlJP9kFN.js:887 [PageTour] Render - tourGroupName: Bookings viewId: null autoShow: true
+index-TlJP9kFN.js:887 [PageTour] State - isActive: true showPopup: true currentStep: 0
+index-TlJP9kFN.js:887 [PageTour] Data - tourGroup: a58258ae-31f1-46b6-94e6-7ac712d66649 steps: 0
+index-TlJP9kFN.js:887 [PageTour] Return condition check - isActive: true showPopup: true mandatoryCheckComplete: false mandatoryElementMissing: false currentStep: 0 steps.length: 0
+index-TlJP9kFN.js:887 [PageTour] Returning null - not showing tour
+index-TlJP9kFN.js:887 [PageTour] autoShow useEffect triggered - autoShow: true steps.length: 0
+index-TlJP9kFN.js:887 [PageTour] All steps from DB: (26) [{…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}]
+index-TlJP9kFN.js:887 [PageTour] Filtered steps for group a58258ae-31f1-46b6-94e6-7ac712d66649 : (3) [{…}, {…}, {…}]
+index-TlJP9kFN.js:887 [PageTour] Render - tourGroupName: Bookings viewId: null autoShow: true
+index-TlJP9kFN.js:887 [PageTour] State - isActive: true showPopup: true currentStep: 0
+index-TlJP9kFN.js:887 [PageTour] Data - tourGroup: a58258ae-31f1-46b6-94e6-7ac712d66649 steps: 3
+index-TlJP9kFN.js:887 [PageTour] Return condition check - isActive: true showPopup: true mandatoryCheckComplete: false mandatoryElementMissing: false currentStep: 0 steps.length: 3
+index-TlJP9kFN.js:887 [PageTour] Returning null - not showing tour
+index-TlJP9kFN.js:887 [PageTour] autoShow useEffect triggered - autoShow: true steps.length: 3
+index-TlJP9kFN.js:887 [PageTour] Checking for mandatory selector: #first-booking-card
+index-TlJP9kFN.js:887 [PageTour] Mandatory element found, proceeding with tour
+index-TlJP9kFN.js:887 [PageTour] Setting isActive and showPopup to true
+index-TlJP9kFN.js:887 [PageTour] Render - tourGroupName: Bookings viewId: null autoShow: true
+index-TlJP9kFN.js:887 [PageTour] State - isActive: true showPopup: true currentStep: 0
+index-TlJP9kFN.js:887 [PageTour] Data - tourGroup: a58258ae-31f1-46b6-94e6-7ac712d66649 steps: 3
+index-TlJP9kFN.js:887 [PageTour] Return condition check - isActive: true showPopup: true mandatoryCheckComplete: true mandatoryElementMissing: false currentStep: 0 steps.length: 3
+index-TlJP9kFN.js:887 [PageTour] Rendering tour UI
+index-TlJP9kFN.js:887 [PageTour] Render - tourGroupName: Bookings viewId: null autoShow: true
+index-TlJP9kFN.js:887 [PageTour] State - isActive: true showPopup: true currentStep: 0
+index-TlJP9kFN.js:887 [PageTour] Data - tourGroup: a58258ae-31f1-46b6-94e6-7ac712d66649 steps: 3
+index-TlJP9kFN.js:887 [PageTour] Return condition check - isActive: true showPopup: true mandatoryCheckComplete: true mandatoryElementMissing: false currentStep: 0 steps.length: 3
+index-TlJP9kFN.js:887 [PageTour] Rendering tour UI
+index-TlJP9kFN.js:887 [PageTour] Render - tourGroupName: Bookings viewId: null autoShow: true
+index-TlJP9kFN.js:887 [PageTour] State - isActive: true showPopup: true currentStep: 0
+index-TlJP9kFN.js:887 [PageTour] Data - tourGroup: a58258ae-31f1-46b6-94e6-7ac712d66649 steps: 3
+index-TlJP9kFN.js:887 [PageTour] Return condition check - isActive: true showPopup: true mandatoryCheckComplete: true mandatoryElementMissing: false currentStep: 0 steps.length: 3
+index-TlJP9kFN.js:887 [PageTour] Rendering tour UI

@@ -1,0 +1,317 @@
+{
+  "name": "Submission",
+  "type": "object",
+  "properties": {
+    "application_uid": {
+      "type": "string",
+      "description": "Unique application identifier (UUID) used to link forms and track the application across systems"
+    },
+    "form_config_id": {
+      "type": "string",
+      "description": "Reference to FormConfig"
+    },
+    "zoho_submission_id": {
+      "type": "string",
+      "description": "Original Zoho submission ID"
+    },
+    "applicant_name": {
+      "type": "string",
+      "description": "Name of the applicant"
+    },
+    "applicant_email": {
+      "type": "string",
+      "description": "Email of the applicant"
+    },
+    "original_form_data": {
+      "type": "object",
+      "description": "Original unmodified form responses (never changes)",
+      "additionalProperties": true
+    },
+    "form_data": {
+      "type": "object",
+      "description": "Current form responses (can be amended during review)",
+      "additionalProperties": true
+    },
+    "status": {
+      "type": "string",
+      "description": "Current workflow stage ID - references the form's workflow_stages configuration"
+    },
+    "due_diligence_score": {
+      "type": "number",
+      "description": "Calculated score"
+    },
+    "risk_level": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ]
+    },
+    "dd_call_date": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Date and time when the due diligence call was booked"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Internal notes from due diligence calls"
+    },
+    "field_notes": {
+      "type": "object",
+      "description": "Notes per field",
+      "additionalProperties": true
+    },
+    "static_question_responses": {
+      "type": "object",
+      "description": "Responses to static traffic light questions (green/amber/red)",
+      "additionalProperties": true
+    },
+    "static_question_notes": {
+      "type": "object",
+      "description": "Notes per static question",
+      "additionalProperties": true
+    },
+    "agreements_status": {
+      "type": "array",
+      "description": "Status of each signature agreement associated with this submission",
+      "items": {
+        "type": "object",
+        "properties": {
+          "signature_field_name": {
+            "type": "string",
+            "description": "The name of the email field configured for signature"
+          },
+          "parent_subform_name": {
+            "type": "string",
+            "description": "If this is a subform signature, the parent subform field name"
+          },
+          "subform_entry_index": {
+            "type": "number",
+            "description": "If this is a subform signature, the index of the entry (0-based)"
+          },
+          "subform_entry_email": {
+            "type": "string",
+            "description": "The email address from the subform entry for this specific signature"
+          },
+          "is_signed": {
+            "type": "boolean",
+            "default": false,
+            "description": "True if this specific agreement has been signed"
+          },
+          "signed_date": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Timestamp when this agreement was signed"
+          },
+          "signed_by_email": {
+            "type": "string",
+            "description": "Email address of the person who signed this agreement"
+          },
+          "signed_form_data": {
+            "type": "object",
+            "description": "The complete form data from the signed agreement",
+            "additionalProperties": true
+          },
+          "signing_form_config_id": {
+            "type": "string",
+            "description": "The FormConfiguration ID of the signing form"
+          },
+          "request_sent_date": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Timestamp when the signature request was first sent"
+          },
+          "expires_on_date": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Calculated expiry date based on request_sent_date plus signature_expiry_days"
+          },
+          "resend_count": {
+            "type": "number",
+            "default": 0,
+            "description": "Number of times the signature request webhook has been triggered for this agreement"
+          }
+        },
+        "required": [
+          "signature_field_name"
+        ]
+      }
+    },
+    "crm_attachments_status": {
+      "type": "array",
+      "description": "Status of each CRM attachment linked to this submission",
+      "items": {
+        "type": "object",
+        "properties": {
+          "attachment_id": {
+            "type": "string",
+            "description": "Original ID of the attachment from Zoho CRM"
+          },
+          "file_name": {
+            "type": "string",
+            "description": "Name of the attached file"
+          },
+          "size": {
+            "type": "number",
+            "description": "File size in bytes"
+          },
+          "base44_file_uri": {
+            "type": "string",
+            "description": "Internal Base44 storage path for the uploaded file"
+          },
+          "is_approved": {
+            "type": "boolean",
+            "default": false,
+            "description": "True if the attachment has been approved during review"
+          },
+          "approved_by": {
+            "type": "string",
+            "description": "Email of the user who approved it"
+          },
+          "approved_date": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Timestamp of approval"
+          },
+          "is_logo_attachment": {
+            "type": "boolean",
+            "default": false,
+            "description": "True if this attachment is designated as the organization's logo"
+          }
+        },
+        "required": [
+          "attachment_id",
+          "file_name"
+        ]
+      }
+    },
+    "status_webhook_reminders_status": {
+      "type": "array",
+      "description": "Tracks the reminder status for each status change webhook",
+      "items": {
+        "type": "object",
+        "properties": {
+          "webhook_id": {
+            "type": "string",
+            "description": "ID of the webhook from FormConfiguration.status_change_webhooks"
+          },
+          "last_triggered_date": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When this webhook was last triggered"
+          },
+          "reminder_count": {
+            "type": "number",
+            "default": 0,
+            "description": "Number of times this webhook has been sent (0 = initial trigger, 1+ = reminders)"
+          }
+        },
+        "required": [
+          "webhook_id"
+        ]
+      }
+    },
+    "sent_webhook_messages": {
+      "type": "array",
+      "description": "Logs of custom messages sent via webhooks for this submission",
+      "items": {
+        "type": "object",
+        "properties": {
+          "webhook_id": {
+            "type": "string",
+            "description": "ID of the webhook that sent this message"
+          },
+          "webhook_name": {
+            "type": "string",
+            "description": "Name of the webhook for reference"
+          },
+          "message": {
+            "type": "string",
+            "description": "The custom message sent"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the message was sent"
+          },
+          "sent_by": {
+            "type": "string",
+            "description": "Email of the user who sent the message"
+          }
+        },
+        "required": [
+          "webhook_id",
+          "message",
+          "timestamp"
+        ]
+      },
+      "default": []
+    },
+    "history_log": {
+      "type": "array",
+      "description": "Comprehensive audit trail of all events for this submission",
+      "items": {
+        "type": "object",
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the event occurred"
+          },
+          "event_type": {
+            "type": "string",
+            "enum": [
+              "submission_received",
+              "status_changed",
+              "submission_updated",
+              "signature_requested",
+              "signature_completed",
+              "webhook_triggered",
+              "logo_uploaded",
+              "dd_call_booked",
+              "dd_call_cleared",
+              "submission_reset",
+              "score_calculated",
+              "attachment_approved",
+              "attachment_rejected"
+            ],
+            "description": "Type of event that occurred"
+          },
+          "user_email": {
+            "type": "string",
+            "description": "Email of the user who triggered this event, or 'System' for automated events"
+          },
+          "details": {
+            "type": "object",
+            "description": "Event-specific details",
+            "additionalProperties": true
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Additional context about the event",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "timestamp",
+          "event_type",
+          "user_email"
+        ]
+      },
+      "default": []
+    },
+    "reviewed_by": {
+      "type": "string",
+      "description": "Email of reviewer"
+    },
+    "reviewed_date": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "form_config_id"
+  ]
+}

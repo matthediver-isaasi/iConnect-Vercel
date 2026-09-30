@@ -31,7 +31,7 @@ export default function SocialIconsConfig() {
   const { data: settings, isLoading } = useQuery({
     queryKey: ['social-icons-config'],
     queryFn: async () => {
-      const allSettings = await base44.entities.SystemSettings.list();
+      const allSettings = await base44.entities.SystemSettings.list() || [];
       const setting = allSettings.find(s => s.setting_key === 'social_icons_config');
       
       if (setting?.setting_value) {

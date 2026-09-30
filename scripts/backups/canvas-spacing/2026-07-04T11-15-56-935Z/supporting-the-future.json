@@ -1,0 +1,2832 @@
+{
+  "slug": "supporting-the-future",
+  "pageId": "f572aeb9-773e-46c7-8c9d-a1ba2ee4961a",
+  "tenantId": "ff2df806-b321-4254-b651-3af11fccf1db",
+  "capturedAt": "2026-07-04T11:16:03.678Z",
+  "canvas_design": {
+    "root": {
+      "groups": [
+        {
+          "id": "group-mr4ucsii-w6welw",
+          "name": "Group 1",
+          "collapsed": false
+        },
+        {
+          "id": "group-mr4ucx5a-0uimb4",
+          "name": "Group 2",
+          "collapsed": false
+        },
+        {
+          "id": "group-mr4ud5fz-6n1t1c",
+          "name": "Group 3",
+          "collapsed": false
+        }
+      ],
+      "guides": {
+        "vertical": [
+          {
+            "pos": 640,
+            "locked": false
+          }
+        ],
+        "horizontal": []
+      },
+      "sections": [
+        {
+          "id": "root-section",
+          "children": [
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 600,
+                  "w": 1200,
+                  "x": 0,
+                  "y": 0,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqskjjjt-vgek1c",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Events hero",
+              "type": "hero",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-primary, #0f172a)",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 200,
+                "borderRadius": 0,
+                "paddingRight": 200,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "ctas": [
+                  {
+                    "href": "#",
+                    "label": "Donate now",
+                    "variant": "tenant:primary-no-icon",
+                    "labelTypographyStyleId": "5adf6d13-1d12-4613-ac55-b4bb1345c168"
+                  }
+                ],
+                "bgType": "image",
+                "bgColor": "var(--cb-color-primary, #0f172a)",
+                "darkWash": 0.4,
+                "headline": "Support the future of Nuclear Medicine",
+                "alignment": "left",
+                "fullBleed": true,
+                "textColor": "var(--cb-color-on-primary, #ffffff)",
+                "bgImageUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1783075948003-z3q9c8p-Learning_Nuclear_Medicine_Technology.png",
+                "bgVideoUrl": "",
+                "subheadline": "Your generosity helps advance education, research, professional development and patient care across the nuclear medicine community.",
+                "bgFocalPoint": {
+                  "x": 41,
+                  "y": 52
+                },
+                "headingLevel": 1,
+                "overlayAngle": 0,
+                "overlayStops": [
+                  {
+                    "color": "#4169e1",
+                    "opacity": 1,
+                    "position": 19
+                  },
+                  {
+                    "color": "#000000",
+                    "opacity": 0,
+                    "position": 98
+                  }
+                ],
+                "overlayStyle": "gradient",
+                "overlayToColor": "",
+                "overlayDirection": "to-right",
+                "overlayFromColor": "#0055ff",
+                "overlayToOpacity": 0,
+                "overlayFromOpacity": 1,
+                "headlineTypographyStyleId": "7c9e9a3f-4c60-4ee9-a8ec-4bd83325f7e5",
+                "subheadlineTypographyStyleId": "8e020a66-1192-4266-a566-6d02f6d78a37"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 296,
+                  "w": 900,
+                  "x": 150,
+                  "y": 880,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqskl8rn-d7dajv",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: left;\"><span style=\"font-size: 20px;\">Your support helps the British Nuclear Medicine Society invest in education, research, professional development and the future workforce of nuclear medicine.</span></p><p style=\"text-align: left;\"><span style=\"font-size: 20px;\">Every donation, sponsorship and gift helps us advance the specialty, support healthcare professionals and improve outcomes for patients across the UK.</span></p><p style=\"text-align: left;\"><span style=\"font-size: 20px;\">Whether you choose to support one of our dedicated funds, make a personal donation or partner with us as an organisation, your contribution makes a difference.</span></p><p style=\"text-align: left;\"></p>",
+                "colorRole": "default",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 950,
+                  "x": 125,
+                  "y": 784,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqskl8rn-eii577",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: center;\">Your support matters</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 968,
+                  "x": 0,
+                  "y": 2056,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqsknpvx-6e2060",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p>How to Claim</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 856,
+                  "w": 1200,
+                  "x": 0,
+                  "y": 1720,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtocu5g-rowy7x",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Section",
+              "type": "section",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "#F4F7FF",
+                "paddingTop": 24,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 24,
+                "borderRadius": 4,
+                "paddingRight": 24,
+                "paddingBottom": 24
+              },
+              "locked": false,
+              "content": {
+                "bgType": "color",
+                "maxWidth": 0,
+                "fullBleed": true,
+                "bgImageUrl": "",
+                "overlayType": "solid",
+                "overlayAngle": 180,
+                "overlayColor": "#000000",
+                "overlayOpacity": 0.4,
+                "overlayToColor": "#000000",
+                "overlayBlendMode": "normal",
+                "overlayEdgeColor": "#000000",
+                "overlayFromColor": "#000000",
+                "overlayToOpacity": 0,
+                "overlayCenterColor": "#000000",
+                "overlayEdgeOpacity": 0.6,
+                "overlayFromOpacity": 0.6,
+                "overlayCenterOpacity": 0
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 160,
+                  "w": 552,
+                  "x": 0,
+                  "y": 2008,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtocu5g-qr93ig",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<ul><li><p><span style=\"font-size: 20px;\">Supporting educational programmes, conferences, workshops and professional development opportunities for healthcare professionals working across nuclear medicine.</span></p></li></ul><p></p>",
+                "colorRole": "default",
+                "headingAs": "",
+                "bulletIcon": "fa-solid fa-arrow-right",
+                "bulletIconSize": 15,
+                "bulletIconColor": "#fa8300",
+                "bulletIconPadTop": 5,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "c6f2ef1a-0e3e-4823-9ccb-290876da2f98",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 160,
+                  "w": 560,
+                  "x": 640,
+                  "y": 2008,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtocu5g-4xz5f0",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<ul><li><p><span style=\"font-size: 20px;\">Encouraging innovation, sharing knowledge and helping advance the science and practice of nuclear medicine through collaboration and professional engagement.</span></p></li></ul><p></p>",
+                "colorRole": "default",
+                "headingAs": "",
+                "bulletIcon": "fa-solid fa-arrow-right",
+                "bulletIconSize": 15,
+                "bulletIconColor": "#fa8300",
+                "bulletIconPadTop": 5,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "c6f2ef1a-0e3e-4823-9ccb-290876da2f98",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 56,
+                  "w": 480,
+                  "x": 0,
+                  "y": 1916,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtocu5g-ha3i0k",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 28px;\">Education &amp; development</span></p>",
+                "colorRole": "default",
+                "headingAs": "3",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5adf6d13-1d12-4613-ac55-b4bb1345c168",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 56,
+                  "w": 480,
+                  "x": 640,
+                  "y": 1916,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtocu5g-t9sdey",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 28px;\">Research &amp; innovation</span></p>",
+                "colorRole": "default",
+                "headingAs": "3",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5adf6d13-1d12-4613-ac55-b4bb1345c168",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 136,
+                  "w": 144,
+                  "x": 528,
+                  "y": 648,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtpcuim-fxt83i",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 50,
+                "fullBleed": false,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-people-group",
+                "iconColor": "#fa8300",
+                "objectFit": "cover",
+                "heightMode": "auto",
+                "heightValue": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 64,
+                  "w": 48,
+                  "x": 0,
+                  "y": 1864,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtpkzwy-rs66wg",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 30,
+                "fullBleed": false,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-book-open-reader",
+                "iconColor": "#fa8300",
+                "objectFit": "cover",
+                "heightMode": "auto",
+                "heightValue": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 24,
+                  "w": 560,
+                  "x": 0,
+                  "y": 1948,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtpy4bh-8aqqye",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Divider",
+              "type": "divider",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "color": "#fa8300",
+                "lineStyle": "solid",
+                "thickness": 1
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 24,
+                  "w": 560,
+                  "x": 640,
+                  "y": 1948,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtpywzr-ne4zp3",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Divider",
+              "type": "divider",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "color": "#fa8300",
+                "lineStyle": "solid",
+                "thickness": 1
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 64,
+                  "w": 48,
+                  "x": 640,
+                  "y": 1856,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtq3twa-iyijkd",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 30,
+                "fullBleed": false,
+                "iconAlign": "center",
+                "iconClass": "fa-brands fa-google-scholar",
+                "iconColor": "#fa8300",
+                "objectFit": "cover",
+                "heightMode": "auto",
+                "heightValue": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 248,
+                  "w": 904,
+                  "x": 148,
+                  "y": 1416,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqts6dif-om5u82",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: left;\"><span style=\"font-size: 20px;\">The British Nuclear Medicine Society exists to promote excellence in nuclear medicine and molecular imaging through education, research, professional development and collaboration.</span></p><p style=\"text-align: left;\"><span style=\"font-size: 20px;\">As a registered charity, the Society relies on the generosity of members, supporters, industry partners and donors to help deliver its charitable objectives and support the future of the specialty.</span></p>",
+                "colorRole": "default",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 950,
+                  "x": 125,
+                  "y": 1316,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqts6dif-11tbky",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: center;\">Why support BNMS</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 136,
+                  "w": 144,
+                  "x": 528,
+                  "y": 1180,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqts6dif-qwnakx",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 50,
+                "fullBleed": false,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-question",
+                "iconColor": "#fa8300",
+                "objectFit": "cover",
+                "heightMode": "auto",
+                "heightValue": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 950,
+                  "x": 0,
+                  "y": 1760,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqts8mnx-9l1ea8",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p>How your support makes a difference</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 136,
+                  "w": 552,
+                  "x": 0,
+                  "y": 2372,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtsch1s-oqhbec",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<ul><li><p><span style=\"font-size: 20px;\">Developing guidance, promoting best practice and supporting high standards that contribute to safe, effective and patient-centred care.</span></p></li></ul><p></p>",
+                "colorRole": "default",
+                "headingAs": "",
+                "bulletIcon": "fa-solid fa-arrow-right",
+                "bulletIconSize": 15,
+                "bulletIconColor": "#fa8300",
+                "bulletIconPadTop": 5,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "c6f2ef1a-0e3e-4823-9ccb-290876da2f98",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 96,
+                  "w": 560,
+                  "x": 640,
+                  "y": 2388,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtsch1s-fd8flu",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<ul><li><p><span style=\"font-size: 20px;\">Developing guidance, improving standards and supporting better patient outcomes.</span></p></li></ul><p></p>",
+                "colorRole": "default",
+                "headingAs": "",
+                "bulletIcon": "fa-solid fa-arrow-right",
+                "bulletIconSize": 15,
+                "bulletIconColor": "#fa8300",
+                "bulletIconPadTop": 5,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "c6f2ef1a-0e3e-4823-9ccb-290876da2f98",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 56,
+                  "w": 480,
+                  "x": 0,
+                  "y": 2280,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtsch1s-7xds8x",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 28px;\">Students &amp; early career professionals</span></p>",
+                "colorRole": "default",
+                "headingAs": "3",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5adf6d13-1d12-4613-ac55-b4bb1345c168",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 56,
+                  "w": 480,
+                  "x": 640,
+                  "y": 2296,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtsch1s-orgjhq",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 28px;\">Standards &amp; patient care</span></p>",
+                "colorRole": "default",
+                "headingAs": "3",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5adf6d13-1d12-4613-ac55-b4bb1345c168",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 64,
+                  "w": 48,
+                  "x": 0,
+                  "y": 2228,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtsch1s-kyzign",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 30,
+                "fullBleed": false,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-user-pen",
+                "iconColor": "#fa8300",
+                "objectFit": "cover",
+                "heightMode": "auto",
+                "heightValue": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 24,
+                  "w": 560,
+                  "x": 0,
+                  "y": 2312,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtsch1s-6atqfc",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Divider",
+              "type": "divider",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "color": "#fa8300",
+                "lineStyle": "solid",
+                "thickness": 1
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 24,
+                  "w": 560,
+                  "x": 640,
+                  "y": 2328,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtsch1s-oba83c",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Divider",
+              "type": "divider",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "color": "#fa8300",
+                "lineStyle": "solid",
+                "thickness": 1
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 64,
+                  "w": 48,
+                  "x": 640,
+                  "y": 2236,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtsch1s-luwai0",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 30,
+                "fullBleed": false,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-hospital-user",
+                "iconColor": "#fa8300",
+                "objectFit": "cover",
+                "heightMode": "auto",
+                "heightValue": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 460,
+                  "w": 472,
+                  "x": 108,
+                  "y": 2616,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtsim7s-us6e9d",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Card",
+              "type": "card",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-surface, #ffffff)",
+                "paddingTop": 0,
+                "borderColor": "var(--cb-color-border, #e2e8f0)",
+                "borderStyle": "solid",
+                "borderWidth": 1,
+                "paddingLeft": 0,
+                "borderRadius": 8,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "body": "<p><span style=\"font-size: 20px;\">Providing flexible funding that allows BNMS to invest in areas where support is needed most.</span></p><p></p>",
+                "shadow": "md",
+                "ctaHref": "#",
+                "heading": "BNMS General Fund",
+                "ctaAlign": "right",
+                "ctaLabel": "Learn more",
+                "iconSize": 47,
+                "imageAlt": "",
+                "imageUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1783075998698-bpvxwog-Clinical_Collaboration_Across_Generations.png",
+                "highlight": true,
+                "iconAlign": "center",
+                "iconClass": "",
+                "iconColor": "#7f5ed9",
+                "ctaEnabled": true,
+                "ctaVariant": "tenant:primary-no-icon",
+                "imageAlign": "center",
+                "headingLevel": 4,
+                "headerSpacing": 20,
+                "imageWidthPct": 100,
+                "contentPadding": 16,
+                "highlightColor": "#F4F7FF",
+                "imageDisplayMode": "inline",
+                "headingTypographyStyleId": "d16866a7-5cab-4854-8576-cb3d92081bc8"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 460,
+                  "w": 472,
+                  "x": 620,
+                  "y": 2616,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtsim7s-odmbcu",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Card",
+              "type": "card",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-surface, #ffffff)",
+                "paddingTop": 0,
+                "borderColor": "var(--cb-color-border, #e2e8f0)",
+                "borderStyle": "solid",
+                "borderWidth": 1,
+                "paddingLeft": 0,
+                "borderRadius": 8,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "body": "<p><span style=\"font-size: 20px;\">Supporting BNMS through sponsorship, educational partnerships and conference involvement.</span></p><p></p>",
+                "shadow": "md",
+                "ctaHref": "#",
+                "heading": "Corporate Support",
+                "ctaAlign": "right",
+                "ctaLabel": "Learn more",
+                "iconSize": 47,
+                "imageAlt": "",
+                "imageUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1783076012962-dfn9y9e-patient_care.png",
+                "highlight": true,
+                "iconAlign": "center",
+                "iconClass": "",
+                "iconColor": "#7f5ed9",
+                "ctaEnabled": true,
+                "ctaVariant": "tenant:primary-no-icon",
+                "imageAlign": "center",
+                "headingLevel": 4,
+                "headerSpacing": 20,
+                "imageWidthPct": 100,
+                "contentPadding": 16,
+                "highlightColor": "#F4F7FF",
+                "imageDisplayMode": "inline",
+                "headingTypographyStyleId": "d16866a7-5cab-4854-8576-cb3d92081bc8",
+                "ctaLabelTypographyStyleId": ""
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 968,
+                  "x": 0,
+                  "y": 3488,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtskudy-o3han7",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p>How to Claim</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 848,
+                  "w": 1200,
+                  "x": 0,
+                  "y": 3120,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtskudy-msc85g",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Section",
+              "type": "section",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "#F4F7FF",
+                "paddingTop": 24,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 24,
+                "borderRadius": 4,
+                "paddingRight": 24,
+                "paddingBottom": 24
+              },
+              "locked": false,
+              "content": {
+                "bgType": "color",
+                "maxWidth": 0,
+                "fullBleed": true,
+                "bgImageUrl": "",
+                "overlayType": "solid",
+                "overlayAngle": 180,
+                "overlayColor": "#000000",
+                "overlayOpacity": 0.4,
+                "overlayToColor": "#000000",
+                "overlayBlendMode": "normal",
+                "overlayEdgeColor": "#000000",
+                "overlayFromColor": "#000000",
+                "overlayToOpacity": 0,
+                "overlayCenterColor": "#000000",
+                "overlayEdgeOpacity": 0.6,
+                "overlayFromOpacity": 0.6,
+                "overlayCenterOpacity": 0
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 160,
+                  "w": 552,
+                  "x": 0,
+                  "y": 3440,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtskudy-eg63ux",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<ul><li><p><span style=\"font-size: 20px;\">Every donation helps BNMS invest in education, research, professional development and patient care.</span></p></li></ul><p></p>",
+                "colorRole": "default",
+                "headingAs": "",
+                "bulletIcon": "fa-solid fa-arrow-right",
+                "bulletIconSize": 15,
+                "bulletIconColor": "#fa8300",
+                "bulletIconPadTop": 5,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "c6f2ef1a-0e3e-4823-9ccb-290876da2f98",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 160,
+                  "w": 560,
+                  "x": 640,
+                  "y": 3440,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtskudy-mvirc5",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<ul><li><p><span style=\"font-size: 20px;\">Your contribution helps ensure that nuclear medicine continues to thrive for future generations.</span></p></li></ul><p></p>",
+                "colorRole": "default",
+                "headingAs": "",
+                "bulletIcon": "fa-solid fa-arrow-right",
+                "bulletIconSize": 15,
+                "bulletIconColor": "#fa8300",
+                "bulletIconPadTop": 5,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "c6f2ef1a-0e3e-4823-9ccb-290876da2f98",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 56,
+                  "w": 480,
+                  "x": 0,
+                  "y": 3316,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtskudy-ubfc38",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 28px;\">Todays support</span></p>",
+                "colorRole": "default",
+                "headingAs": "3",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5adf6d13-1d12-4613-ac55-b4bb1345c168",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 56,
+                  "w": 480,
+                  "x": 640,
+                  "y": 3316,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtskudy-zz9f9w",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 28px;\">Tomorrows impact</span></p>",
+                "colorRole": "default",
+                "headingAs": "3",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5adf6d13-1d12-4613-ac55-b4bb1345c168",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 64,
+                  "w": 48,
+                  "x": 0,
+                  "y": 3256,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtskudy-e4knjs",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 30,
+                "fullBleed": false,
+                "iconAlign": "center",
+                "iconClass": "fa-brands fa-supportnow",
+                "iconColor": "#fa8300",
+                "objectFit": "cover",
+                "heightMode": "auto",
+                "heightValue": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 24,
+                  "w": 560,
+                  "x": 0,
+                  "y": 3348,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtskudy-jeg3ax",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Divider",
+              "type": "divider",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "color": "#fa8300",
+                "lineStyle": "solid",
+                "thickness": 1
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 24,
+                  "w": 560,
+                  "x": 640,
+                  "y": 3348,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtskudy-cavwt9",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Divider",
+              "type": "divider",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "color": "#fa8300",
+                "lineStyle": "solid",
+                "thickness": 1
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 64,
+                  "w": 48,
+                  "x": 640,
+                  "y": 3256,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtskudy-ao1gup",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 30,
+                "fullBleed": false,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-meteor",
+                "iconColor": "#fa8300",
+                "objectFit": "cover",
+                "heightMode": "auto",
+                "heightValue": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 950,
+                  "x": 0,
+                  "y": 3160,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtskudy-dzbfzv",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p>Every contribution matters</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 136,
+                  "w": 904,
+                  "x": 160,
+                  "y": 3776,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtsmx58-svqrrs",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: center;\"><span style=\"font-size: 20px;\">Large or small, every gift makes a difference.</span></p><p style=\"text-align: center;\"><span style=\"font-size: 20px;\">Your support allows the Society to invest in people, knowledge, innovation and the future of the specialty.</span></p>",
+                "colorRole": "default",
+                "headingAs": "",
+                "bulletIcon": "fa-solid fa-arrow-right",
+                "bulletIconSize": 15,
+                "bulletIconColor": "#fa8300",
+                "bulletIconPadTop": 5,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "c6f2ef1a-0e3e-4823-9ccb-290876da2f98",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 24,
+                  "w": 560,
+                  "x": 320,
+                  "y": 3588,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtsnmc5-bbiauu",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Divider",
+              "type": "divider",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "color": "#fa8300",
+                "lineStyle": "solid",
+                "thickness": 1
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 128,
+                  "w": 904,
+                  "x": 148,
+                  "y": 4232,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtsoovc-ayf3s3",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: left;\"><span style=\"font-size: 20px;\">You can support BNMS every time you shop online through Give As You Live. Thousands of retailers donate a percentage of every purchase to BNMS at no extra cost to you, making it an easy way to support the Society through your everyday shopping.</span></p>",
+                "colorRole": "default",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": "group-mr4ud5fz-6n1t1c",
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 950,
+                  "x": 125,
+                  "y": 4128,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtsoovc-tngwmk",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: center;\">Shop online and support BNMS</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": "group-mr4ud5fz-6n1t1c",
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 136,
+                  "w": 144,
+                  "x": 528,
+                  "y": 3992,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtsoovc-gzpx3x",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 50,
+                "fullBleed": false,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-cart-shopping",
+                "iconColor": "#fa8300",
+                "objectFit": "cover",
+                "heightMode": "auto",
+                "heightValue": null
+              },
+              "groupId": "group-mr4ud5fz-6n1t1c",
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 176,
+                  "w": 904,
+                  "x": 148,
+                  "y": 5244,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqumpdsg-4p7s0i",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: center;\"><span style=\"font-size: 20px;\">Thank you for supporting the work of the British Nuclear Medicine Society.</span></p><p style=\"text-align: center;\"><span style=\"font-size: 20px;\">Together we can continue to advance nuclear medicine for the benefit of healthcare professionals, patients and future generations.</span></p><p style=\"text-align: center;\"></p>",
+                "colorRole": "default",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": "group-mr4ucx5a-0uimb4",
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 950,
+                  "x": 125,
+                  "y": 5144,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqumpdsg-7ejwez",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: center;\">Thank you</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": "group-mr4ucx5a-0uimb4",
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 136,
+                  "w": 144,
+                  "x": 528,
+                  "y": 5008,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqumpdsg-t9cajo",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 50,
+                "fullBleed": false,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-face-grin",
+                "iconColor": "#fa8300",
+                "objectFit": "cover",
+                "heightMode": "auto",
+                "heightValue": null
+              },
+              "groupId": "group-mr4ucx5a-0uimb4",
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 48,
+                  "w": 184,
+                  "x": 508,
+                  "y": 4376,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqumqzn3-j739vg",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Button",
+              "type": "button",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "href": "#",
+                "icon": "",
+                "size": {
+                  "fontSize": 20
+                },
+                "label": "Learn more",
+                "newTab": false,
+                "variant": "tenant:primary-no-icon",
+                "ariaLabel": "",
+                "sizeClass": "lg",
+                "typographyStyleId": "8e020a66-1192-4266-a566-6d02f6d78a37"
+              },
+              "groupId": "group-mr4ud5fz-6n1t1c",
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 128,
+                  "w": 904,
+                  "x": 148,
+                  "y": 4760,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqumvwm7-qpq7gi",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: left;\"><span style=\"font-size: 20px;\">We are committed to raising funds with honesty, transparency and respect. Learn more about our fundraising principles and how we ensure every contribution is managed responsibly and helps support the future of nuclear medicine.</span></p>",
+                "colorRole": "default",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": "group-mr4ucsii-w6welw",
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 950,
+                  "x": 125,
+                  "y": 4656,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqumvwm7-dgrgp3",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: center;\">Our commitment to responsible fundraising</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": "group-mr4ucsii-w6welw",
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 136,
+                  "w": 144,
+                  "x": 528,
+                  "y": 4520,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqumvwm7-pmor5h",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 50,
+                "fullBleed": false,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-shield",
+                "iconColor": "#fa8300",
+                "objectFit": "cover",
+                "heightMode": "auto",
+                "heightValue": null
+              },
+              "groupId": "group-mr4ucsii-w6welw",
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 48,
+                  "w": 224,
+                  "x": 488,
+                  "y": 4904,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqumvwm7-iulo0o",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Button",
+              "type": "button",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "href": "#",
+                "icon": "",
+                "size": {
+                  "fontSize": 20
+                },
+                "label": "Find out more",
+                "newTab": false,
+                "variant": "tenant:primary-no-icon",
+                "ariaLabel": "",
+                "sizeClass": "lg",
+                "typographyStyleId": "8e020a66-1192-4266-a566-6d02f6d78a37"
+              },
+              "groupId": "group-mr4ucsii-w6welw",
+              "anchorId": "",
+              "fullWidth": false
+            }
+          ]
+        }
+      ],
+      "background": null
+    },
+    "version": 1
+  }
+}

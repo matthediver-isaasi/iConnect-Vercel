@@ -1,0 +1,123 @@
+index-BYaGIYgR.js:1685 [publicClient] Detected tenant from subdomain: gsf
+index-BYaGIYgR.js:1770 GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.93.3) 2026-08-26T04:51:54.379Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+AF @ index-BYaGIYgR.js:1770
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] memberInfo: null
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BYaGIYgR.js:2089 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BYaGIYgR.js:2089 [Layout] currentPageName: CommunicationsManagement currentPortalPageId: null
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] memberInfo: Object
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BYaGIYgR.js:2089 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BYaGIYgR.js:2089 [Layout] currentPageName: CommunicationsManagement currentPortalPageId: null
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] Query running, memberInfo.id: 49f0b578-2e2f-46f8-a151-2c4c08cc570c
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] memberInfo: Object
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BYaGIYgR.js:2089 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BYaGIYgR.js:2089 [Layout] currentPageName: CommunicationsManagement currentPortalPageId: null
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] memberInfo: Object
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BYaGIYgR.js:2089 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BYaGIYgR.js:2089 [Layout] currentPageName: CommunicationsManagement currentPortalPageId: null
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] memberInfo: Object
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BYaGIYgR.js:2089 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BYaGIYgR.js:2089 [Layout] currentPageName: CommunicationsManagement currentPortalPageId: null
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] memberInfo: Object
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BYaGIYgR.js:2089 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BYaGIYgR.js:2089 [Layout] currentPageName: CommunicationsManagement currentPortalPageId: null
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] memberInfo: Object
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BYaGIYgR.js:2089 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BYaGIYgR.js:2089 [Layout] currentPageName: CommunicationsManagement currentPortalPageId: null
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] memberInfo: Object
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BYaGIYgR.js:2089 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BYaGIYgR.js:2089 [Layout] currentPageName: CommunicationsManagement currentPortalPageId: null
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] memberInfo: Object
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BYaGIYgR.js:2089 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BYaGIYgR.js:2089 [Layout] currentPageName: CommunicationsManagement currentPortalPageId: null
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] memberInfo: Object
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BYaGIYgR.js:2089 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BYaGIYgR.js:2089 [Layout] currentPageName: CommunicationsManagement currentPortalPageId: null
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] memberInfo: Object
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BYaGIYgR.js:2089 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BYaGIYgR.js:2089 [Layout] currentPageName: CommunicationsManagement currentPortalPageId: null
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] memberInfo: Object
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BYaGIYgR.js:2089 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BYaGIYgR.js:2089 [Layout] currentPageName: CommunicationsManagement currentPortalPageId: null
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] memberInfo: Object
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BYaGIYgR.js:2089 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BYaGIYgR.js:2089 [Layout] currentPageName: CommunicationsManagement currentPortalPageId: null
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] memberInfo: Object
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BYaGIYgR.js:2089 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BYaGIYgR.js:2089 [Layout] currentPageName: CommunicationsManagement currentPortalPageId: null
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] Fetched bookings count: 3
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] Pending PO bookings: 0
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] memberInfo: Object
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BYaGIYgR.js:2089 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BYaGIYgR.js:2089 [Layout] currentPageName: CommunicationsManagement currentPortalPageId: null
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] memberInfo: Object
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BYaGIYgR.js:2089 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BYaGIYgR.js:2089 [Layout] currentPageName: CommunicationsManagement currentPortalPageId: null
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] memberInfo: Object
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BYaGIYgR.js:2089 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BYaGIYgR.js:2089 [Layout] currentPageName: CommunicationsManagement currentPortalPageId: null
+index-BYaGIYgR.js:2089 [Layout] Server session found: sharon@onlinem.co.uk
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] memberInfo: Object
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BYaGIYgR.js:2089 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BYaGIYgR.js:2089 [Layout] currentPageName: CommunicationsManagement currentPortalPageId: null
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] memberInfo: Object
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BYaGIYgR.js:2089 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BYaGIYgR.js:2089 [Layout] currentPageName: CommunicationsManagement currentPortalPageId: null
+api/zoho-campaigns/sync-job:1  Failed to load resource: the server responded with a status of 403 ()
+api/zoho-campaigns/sync-job:1  Failed to load resource: the server responded with a status of 403 ()
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] memberInfo: Object
+index-BYaGIYgR.js:2078 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BYaGIYgR.js:2089 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BYaGIYgR.js:2089 [Layout] currentPageName: CommunicationsManagement currentPortalPageId: null
+index-BYaGIYgR.js:38 Uncaught ReferenceError: setOptedOutPage is not defined
+    at Tn (index-BYaGIYgR.js:4762:24807)
+    at onClick (index-BYaGIYgR.js:4814:9731)
+    at Object.ylt (index-BYaGIYgR.js:38:9909)
+    at jlt (index-BYaGIYgR.js:38:10066)
+    at _lt (index-BYaGIYgR.js:38:10126)
+    at Ffe (index-BYaGIYgR.js:38:31727)
+    at jFe (index-BYaGIYgR.js:38:32147)
+    at index-BYaGIYgR.js:38:37115
+    at $ie (index-BYaGIYgR.js:41:37136)
+    at HOe (index-BYaGIYgR.js:38:9040)
+index-BYaGIYgR.js:41 ReferenceError: optedOutPage is not defined
+    at Ba (index-BYaGIYgR.js:4762:25480)
+    at index-BYaGIYgR.js:4814:28694
+    at art (index-BYaGIYgR.js:4814:30679)
+    at Aie (index-BYaGIYgR.js:39:17091)
+    at BZ (index-BYaGIYgR.js:41:3159)
+    at jMe (index-BYaGIYgR.js:41:45092)
+    at bMe (index-BYaGIYgR.js:41:40005)
+    at Xot (index-BYaGIYgR.js:41:39928)
+    at fB (index-BYaGIYgR.js:41:39776)
+    at JZ (index-BYaGIYgR.js:41:36109)
+LZ @ index-BYaGIYgR.js:41
+index-BYaGIYgR.js:39 Uncaught ReferenceError: optedOutPage is not defined
+    at Ba (index-BYaGIYgR.js:4762:25480)
+    at index-BYaGIYgR.js:4814:28694
+    at art (index-BYaGIYgR.js:4814:30679)
+    at Aie (index-BYaGIYgR.js:39:17091)
+    at BZ (index-BYaGIYgR.js:41:3159)
+    at jMe (index-BYaGIYgR.js:41:45092)
+    at bMe (index-BYaGIYgR.js:41:40005)
+    at Xot (index-BYaGIYgR.js:41:39928)
+    at fB (index-BYaGIYgR.js:41:39776)
+    at JZ (index-BYaGIYgR.js:41:36109)

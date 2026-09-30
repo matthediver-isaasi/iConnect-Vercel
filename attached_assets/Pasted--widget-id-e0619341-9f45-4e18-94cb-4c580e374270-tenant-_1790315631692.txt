@@ -1,0 +1,112 @@
+{
+    "widget": {
+        "id": "e0619341-9f45-4e18-94cb-4c580e374270",
+        "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+        "scope": "shared",
+        "owner_member_id": null,
+        "title": "HE Membership value",
+        "widget_type": "stat",
+        "width": "third",
+        "config": {
+            "color": "default",
+            "source": "organisation_membership",
+            "filters": [
+                {
+                    "field": null,
+                    "stage": null,
+                    "value": "University",
+                    "fieldId": "e5ac547d-edb1-4ff1-83ab-fc82c1813065",
+                    "operator": "eq",
+                    "orgField": null,
+                    "fieldKind": "custom",
+                    "regionScheme": null
+                }
+            ],
+            "groupBy": null,
+            "measure": {
+                "field": null,
+                "fieldId": null,
+                "fieldKind": null,
+                "aggregator": "count"
+            },
+            "seriesBy": null,
+            "conversion": null,
+            "cumulative": false,
+            "helperText": null,
+            "timeBucket": null,
+            "numberFormat": null,
+            "membershipValue": {
+                "bandIds": [],
+                "currency": null,
+                "configIds": [],
+                "startYear": 2026,
+                "startMonth": 8
+            }
+        },
+        "display_order": 24,
+        "created_by": "9ac39222-22b8-457e-a5df-dfca45a99eb6",
+        "created_at": "2026-09-24T17:54:40.984503+00:00",
+        "updated_at": "2026-09-24T17:54:40.984503+00:00",
+        "height": "medium"
+    },
+    "data": {
+        "rows": [
+            {
+                "key": "total",
+                "value": 490855.61
+            }
+        ],
+        "type": "scalar",
+        "total": 166,
+        "value": 490855.61,
+        "period": {
+            "end": "2027-07-31",
+            "label": "2026-08-01 – 2027-07-31",
+            "start": "2026-08-01",
+            "endExclusive": "2027-08-01"
+        },
+        "currency": "GBP",
+        "warnings": [],
+        "available": true,
+        "periodLabel": "2026-08-01 – 2027-07-31",
+        "allocationBasis": "membership_structure_effective_from_half_open",
+        "membershipValue": {
+            "period": {
+                "end": "2027-07-31",
+                "label": "2026-08-01 – 2027-07-31",
+                "start": "2026-08-01",
+                "endExclusive": "2027-08-01"
+            },
+            "source": "organisation_membership",
+            "currency": "GBP",
+            "netOfVat": true,
+            "warnings": [],
+            "allocation": "membership_structure_effective_from_half_open",
+            "exactValue": "490855.61",
+            "excludedRecords": {
+                "period": 165,
+                "lifecycle": 0,
+                "selection": 0,
+                "classification": 20,
+                "knownLifecycle": 0,
+                "unknownLifecycle": 0
+            },
+            "includedRecords": 166
+        },
+        "allocationBasisLabel": "Recorded value allocated by membership structure effective date"
+    },
+    "cache": {
+        "status": "failed",
+        "updatedAt": "2026-09-24T17:56:41.634647+00:00",
+        "pending": true,
+        "requestId": "5d16056b-6d73-40a9-b04d-7734ae593b3d",
+        "completedRequestId": "256e48bb-14ed-4eec-b30e-6a7dfd8c7166",
+        "completedRequestOutcome": "success",
+        "refresh": {
+            "outcome": "queued",
+            "requestId": "5d16056b-6d73-40a9-b04d-7734ae593b3d"
+        },
+        "error": "Unable to refresh widget. Please try again later.",
+        "retryAfterSeconds": 1959
+    }
+}

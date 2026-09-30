@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from "react";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -35,12 +36,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
+import { publicClient } from "@/api/publicClient";
+import {
+  normalizeFloaterSiteTargets,
+  selectedFloaterTargetIds,
+  serializeFloaterSiteTargets,
+} from "@/lib/floaterSiteTargets";
 
 export default function FloaterManagementPage() {
-  const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isAdmin, isFeatureExcluded, isAccessReady, authResolved, sessionValidated } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -60,6 +68,8 @@ export default function FloaterManagementPage() {
     popup_width: 800,
     popup_height: 600,
     display_location: "both",
+    device_target: "both",
+    audience_target: "both",
     position: "bottom-right",
     offset_x: 20,
     offset_y: 20,
@@ -67,11 +77,17 @@ export default function FloaterManagementPage() {
     height: 80,
     show_background: true,
     is_active: true,
-    display_order: 0
+    display_order: 0,
+    selected_site_targets: [],
+    preserve_legacy_site_targets: false
   });
 
   const queryClient = useQueryClient();
 
+  // SECURITY: Only consider authenticated when auth check complete AND session validated
+  const isAuthenticated = authResolved && sessionValidated;
+
+  // SECURITY: Gate query on auth to prevent fetching before tenant context is ready
   const { data: floaters = [], isLoading } = useQuery({
     queryKey: ['floaters'],
     queryFn: async () => {
@@ -79,14 +95,36 @@ export default function FloaterManagementPage() {
       return allFloaters.sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
     },
     staleTime: 0, // Admin views need instant freshness after edits
+    enabled: isAuthenticated,
   });
 
+  // SECURITY: Gate on auth to prevent cross-tenant data leakage
   const { data: forms = [] } = useQuery({
     queryKey: ['forms'],
     queryFn: async () => {
       return await base44.entities.Form.list();
-    }
+    },
+    enabled: isAuthenticated,
   });
+
+  // Public microsites are already tenant-scoped by the host and this endpoint
+  // only returns active sites, which are the available floater targets.
+  const { data: activeMicrosites = [], isLoading: micrositesLoading } = useQuery({
+    queryKey: ['floater-active-microsites'],
+    queryFn: async () => {
+      const result = await publicClient.listMicrosites();
+      return Array.isArray(result?.microsites) ? result.microsites : [];
+    },
+    enabled: isAuthenticated,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const allSiteTargetIds = () => ['main-site', ...activeMicrosites.map((microsite) => microsite.id)];
+
+  const siteTargetLabel = (targetId) => {
+    if (targetId === 'main-site') return 'Main site';
+    return activeMicrosites.find((microsite) => microsite.id === targetId)?.name || 'Unavailable microsite';
+  };
 
   const createFloaterMutation = useMutation({
     mutationFn: async (floaterData) => {
@@ -133,13 +171,13 @@ export default function FloaterManagementPage() {
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_FloaterManagement')) {
+      if (isFeatureExcluded('page_FloaterManagement')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const handleOpenDialog = (floater = null) => {
     if (floater) {
@@ -156,6 +194,8 @@ export default function FloaterManagementPage() {
         popup_width: floater.popup_width || 800,
         popup_height: floater.popup_height || 600,
         display_location: floater.display_location || "both",
+        device_target: ['desktop', 'mobile', 'both'].includes(floater.device_target) ? floater.device_target : "both",
+        audience_target: ['authenticated', 'public', 'both'].includes(floater.audience_target) ? floater.audience_target : "both",
         position: floater.position || "bottom-right",
         offset_x: floater.offset_x ?? 20,
         offset_y: floater.offset_y ?? 20,
@@ -163,7 +203,9 @@ export default function FloaterManagementPage() {
         height: floater.height || 80,
         show_background: floater.show_background ?? true,
         is_active: floater.is_active ?? true,
-        display_order: floater.display_order || 0
+        display_order: floater.display_order || 0,
+        selected_site_targets: selectedFloaterTargetIds(floater.site_targets, activeMicrosites),
+        preserve_legacy_site_targets: !normalizeFloaterSiteTargets(floater.site_targets)
       });
     } else {
       setEditingFloater(null);
@@ -179,6 +221,8 @@ export default function FloaterManagementPage() {
         popup_width: 800,
         popup_height: 600,
         display_location: "both",
+        device_target: "both",
+        audience_target: "both",
         position: "bottom-right",
         offset_x: 20,
         offset_y: 20,
@@ -186,7 +230,9 @@ export default function FloaterManagementPage() {
         height: 80,
         show_background: true,
         is_active: true,
-        display_order: 0
+        display_order: 0,
+        selected_site_targets: allSiteTargetIds(),
+        preserve_legacy_site_targets: false
       });
     }
     setDialogOpen(true);
@@ -207,6 +253,8 @@ export default function FloaterManagementPage() {
       popup_width: 800,
       popup_height: 600,
       display_location: "both",
+      device_target: "both",
+      audience_target: "both",
       position: "bottom-right",
       offset_x: 20,
       offset_y: 20,
@@ -214,7 +262,9 @@ export default function FloaterManagementPage() {
       height: 80,
       show_background: true,
       is_active: true,
-      display_order: 0
+      display_order: 0,
+      selected_site_targets: [],
+      preserve_legacy_site_targets: false
     });
   };
 
@@ -233,7 +283,7 @@ export default function FloaterManagementPage() {
       setFormData(prev => ({ ...prev, image_url: result.file_url }));
       toast.success('Image uploaded successfully');
     } catch (error) {
-      toast.error('Failed to upload image');
+      showUploadErrorToast(error, 'Failed to upload image');
     } finally {
       setIsUploadingImage(false);
     }
@@ -260,6 +310,11 @@ export default function FloaterManagementPage() {
       return;
     }
 
+    if (formData.selected_site_targets.length === 0) {
+      toast.error('Select at least one public site target');
+      return;
+    }
+
     const floaterData = {
       name: formData.name,
       description: formData.description,
@@ -272,6 +327,8 @@ export default function FloaterManagementPage() {
       popup_width: Number(formData.popup_width),
       popup_height: Number(formData.popup_height),
       display_location: formData.display_location,
+      device_target: formData.device_target,
+      audience_target: formData.audience_target,
       position: formData.position,
       offset_x: Number(formData.offset_x),
       offset_y: Number(formData.offset_y),
@@ -279,7 +336,11 @@ export default function FloaterManagementPage() {
       height: Number(formData.height),
       show_background: formData.show_background,
       is_active: formData.is_active,
-      display_order: Number(formData.display_order)
+      display_order: Number(formData.display_order),
+      site_targets: serializeFloaterSiteTargets(
+        formData.selected_site_targets,
+        formData.preserve_legacy_site_targets,
+      )
     };
 
     if (editingFloater) {
@@ -307,16 +368,26 @@ export default function FloaterManagementPage() {
     }
   };
 
+  const getSiteTargetBadges = (floater) => {
+    const targets = normalizeFloaterSiteTargets(floater.site_targets);
+    if (!targets) return [{ id: 'legacy-all-sites', label: 'All sites (legacy)' }];
+    const selectedIds = [
+      ...(targets.main_site ? ['main-site'] : []),
+      ...targets.microsite_ids,
+    ];
+    return selectedIds.map((targetId) => ({ id: targetId, label: siteTargetLabel(targetId) }));
+  };
+
   if (!accessChecked || isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-8">
           <div>
@@ -327,6 +398,7 @@ export default function FloaterManagementPage() {
           </div>
           <Button
             onClick={() => handleOpenDialog()}
+            disabled={micrositesLoading}
             className="bg-blue-600 hover:bg-blue-700"
           >
             <Plus className="w-4 h-4 mr-2" />
@@ -340,7 +412,11 @@ export default function FloaterManagementPage() {
               <MousePointer2 className="w-16 h-16 text-slate-300 mx-auto mb-4" />
               <h3 className="text-xl font-semibold text-slate-900 mb-2">No floaters yet</h3>
               <p className="text-slate-600 mb-6">Create your first floating widget to get started</p>
-              <Button onClick={() => handleOpenDialog()} className="bg-blue-600 hover:bg-blue-700">
+              <Button
+                onClick={() => handleOpenDialog()}
+                disabled={micrositesLoading}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
                 <Plus className="w-4 h-4 mr-2" />
                 Create Floater
               </Button>
@@ -393,6 +469,11 @@ export default function FloaterManagementPage() {
                               </>
                             )}
                           </Badge>
+                           {getSiteTargetBadges(floater).map((target) => (
+                             <Badge key={target.id} variant="outline" className="bg-amber-50 text-amber-800 border-amber-200">
+                               {target.label}
+                             </Badge>
+                           ))}
                         </div>
                       </div>
                       {floater.image_url && (
@@ -423,6 +504,17 @@ export default function FloaterManagementPage() {
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-slate-600">Position:</span>
                       <Badge variant="secondary">{floater.position}</Badge>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-slate-600">Devices:</span>
+                      <Badge variant="secondary" className="capitalize">{floater.device_target || 'both'}</Badge>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-slate-600">Audience:</span>
+                      <Badge variant="secondary">
+                        {floater.audience_target === 'authenticated' ? 'Authenticated users' :
+                         floater.audience_target === 'public' ? 'Public viewers' : 'Both'}
+                      </Badge>
                     </div>
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-slate-600">Size:</span>
@@ -642,7 +734,7 @@ export default function FloaterManagementPage() {
                   </SelectContent>
                 </Select>
                 {forms.length === 0 && (
-                  <p className="text-xs text-amber-600">No forms available. Create a form first.</p>
+                  <p className="text-xs text-warning">No forms available. Create a form first.</p>
                 )}
                 <p className="text-xs text-slate-500">The form to open when the floater is clicked</p>
               </div>
@@ -682,6 +774,87 @@ export default function FloaterManagementPage() {
                     <SelectItem value="top-left">Top Left</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="device_target">Devices *</Label>
+                <Select
+                  value={formData.device_target}
+                  onValueChange={(value) => setFormData({ ...formData, device_target: value })}
+                >
+                  <SelectTrigger id="device_target">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="desktop">Desktop</SelectItem>
+                    <SelectItem value="mobile">Mobile</SelectItem>
+                    <SelectItem value="both">Both</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="audience_target">Viewer Audience *</Label>
+                <Select
+                  value={formData.audience_target}
+                  onValueChange={(value) => setFormData({ ...formData, audience_target: value })}
+                >
+                  <SelectTrigger id="audience_target">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="authenticated">Authenticated users</SelectItem>
+                    <SelectItem value="public">Public viewers</SelectItem>
+                    <SelectItem value="both">Both</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-slate-500">
+                  Uses the viewer's validated login session on portal and public pages.
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Public Site Targets *</Label>
+              <p className="text-xs text-slate-500">
+                Choose where this floater appears on public pages. Portal display remains controlled by Display Location.
+              </p>
+              <div className="space-y-2 rounded-md border border-slate-200 p-3">
+                {micrositesLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-slate-500">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Loading available sites…
+                  </div>
+                ) : (
+                  [
+                    { id: 'main-site', name: 'Main site' },
+                    ...activeMicrosites,
+                  ].map((site) => {
+                    const checked = formData.selected_site_targets.includes(site.id);
+                    return (
+                      <div key={site.id} className="flex items-center gap-2">
+                        <Checkbox
+                          id={`floater-site-${site.id}`}
+                          checked={checked}
+                          onCheckedChange={(nextChecked) => {
+                            setFormData((current) => ({
+                              ...current,
+                              preserve_legacy_site_targets: false,
+                              selected_site_targets: nextChecked
+                                ? [...new Set([...current.selected_site_targets, site.id])]
+                                : current.selected_site_targets.filter((id) => id !== site.id),
+                            }));
+                          }}
+                        />
+                        <Label htmlFor={`floater-site-${site.id}`} className="font-normal cursor-pointer">
+                          {site.name}{site.path_prefix ? ` (/${site.path_prefix})` : ''}
+                        </Label>
+                      </div>
+                    );
+                  })
+                )}
               </div>
             </div>
 
@@ -766,6 +939,7 @@ export default function FloaterManagementPage() {
             </Button>
             <Button
               onClick={handleSubmit}
+               disabled={micrositesLoading}
               className="bg-blue-600 hover:bg-blue-700"
             >
               {editingFloater ? 'Update' : 'Create'} Floater

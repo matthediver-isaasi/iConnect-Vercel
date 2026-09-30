@@ -1,0 +1,475 @@
+{
+  "measuredAt": "2026-09-22T06:37:41.491Z",
+  "environment": "same already-running development preview with controlled API interception; not production",
+  "criticalFixtureDelayMs": 200,
+  "repetitions": 3,
+  "restoration": "Original pathname-scoped session lifecycle restored only in transformed browser modules",
+  "variants": {
+    "original-lifecycle": {
+      "runs": [
+        {
+          "steps": [
+            {
+              "name": "cold-document",
+              "visibleContentMs": 6134,
+              "loadingFallbackAppearances": 0,
+              "requests": {
+                "auth": 1,
+                "role": 1,
+                "page": 3
+              }
+            },
+            {
+              "name": "same-context-reload",
+              "visibleContentMs": 6287,
+              "loadingFallbackAppearances": 0,
+              "requests": {
+                "auth": 1,
+                "role": 1,
+                "page": 3
+              }
+            },
+            {
+              "name": "navigate-forward",
+              "visibleContentMs": 1898,
+              "loadingFallbackAppearances": 0,
+              "requests": {
+                "auth": 1,
+                "role": 1,
+                "page": 4
+              }
+            },
+            {
+              "name": "browser-back",
+              "visibleContentMs": 1692,
+              "loadingFallbackAppearances": 0,
+              "requests": {
+                "auth": 1,
+                "role": 1,
+                "page": 4
+              }
+            },
+            {
+              "name": "browser-forward",
+              "visibleContentMs": 1567,
+              "loadingFallbackAppearances": 0,
+              "requests": {
+                "auth": 1,
+                "role": 1,
+                "page": 4
+              }
+            }
+          ],
+          "totals": {
+            "auth": 5,
+            "role": 5,
+            "page": 18
+          }
+        },
+        {
+          "steps": [
+            {
+              "name": "cold-document",
+              "visibleContentMs": 5127,
+              "loadingFallbackAppearances": 0,
+              "requests": {
+                "auth": 1,
+                "role": 1,
+                "page": 3
+              }
+            },
+            {
+              "name": "same-context-reload",
+              "visibleContentMs": 5292,
+              "loadingFallbackAppearances": 0,
+              "requests": {
+                "auth": 1,
+                "role": 1,
+                "page": 3
+              }
+            },
+            {
+              "name": "navigate-forward",
+              "visibleContentMs": 1895,
+              "loadingFallbackAppearances": 0,
+              "requests": {
+                "auth": 1,
+                "role": 1,
+                "page": 4
+              }
+            },
+            {
+              "name": "browser-back",
+              "visibleContentMs": 1608,
+              "loadingFallbackAppearances": 0,
+              "requests": {
+                "auth": 1,
+                "role": 1,
+                "page": 4
+              }
+            },
+            {
+              "name": "browser-forward",
+              "visibleContentMs": 1519,
+              "loadingFallbackAppearances": 0,
+              "requests": {
+                "auth": 1,
+                "role": 1,
+                "page": 4
+              }
+            }
+          ],
+          "totals": {
+            "auth": 5,
+            "role": 5,
+            "page": 18
+          }
+        },
+        {
+          "steps": [
+            {
+              "name": "cold-document",
+              "visibleContentMs": 7140,
+              "loadingFallbackAppearances": 0,
+              "requests": {
+                "auth": 1,
+                "role": 1,
+                "page": 3
+              }
+            },
+            {
+              "name": "same-context-reload",
+              "visibleContentMs": 7422,
+              "loadingFallbackAppearances": 0,
+              "requests": {
+                "auth": 1,
+                "role": 1,
+                "page": 3
+              }
+            },
+            {
+              "name": "navigate-forward",
+              "visibleContentMs": 1644,
+              "loadingFallbackAppearances": 0,
+              "requests": {
+                "auth": 1,
+                "role": 1,
+                "page": 4
+              }
+            },
+            {
+              "name": "browser-back",
+              "visibleContentMs": 1881,
+              "loadingFallbackAppearances": 0,
+              "requests": {
+                "auth": 1,
+                "role": 1,
+                "page": 4
+              }
+            },
+            {
+              "name": "browser-forward",
+              "visibleContentMs": 1816,
+              "loadingFallbackAppearances": 0,
+              "requests": {
+                "auth": 1,
+                "role": 1,
+                "page": 4
+              }
+            }
+          ],
+          "totals": {
+            "auth": 5,
+            "role": 5,
+            "page": 18
+          }
+        }
+      ],
+      "summary": [
+        {
+          "name": "cold-document",
+          "medianVisibleContentMs": 6134,
+          "medianLoadingFallbackAppearances": 0,
+          "medianRequests": {
+            "auth": 1,
+            "role": 1,
+            "page": 3
+          }
+        },
+        {
+          "name": "same-context-reload",
+          "medianVisibleContentMs": 6287,
+          "medianLoadingFallbackAppearances": 0,
+          "medianRequests": {
+            "auth": 1,
+            "role": 1,
+            "page": 3
+          }
+        },
+        {
+          "name": "navigate-forward",
+          "medianVisibleContentMs": 1895,
+          "medianLoadingFallbackAppearances": 0,
+          "medianRequests": {
+            "auth": 1,
+            "role": 1,
+            "page": 4
+          }
+        },
+        {
+          "name": "browser-back",
+          "medianVisibleContentMs": 1692,
+          "medianLoadingFallbackAppearances": 0,
+          "medianRequests": {
+            "auth": 1,
+            "role": 1,
+            "page": 4
+          }
+        },
+        {
+          "name": "browser-forward",
+          "medianVisibleContentMs": 1567,
+          "medianLoadingFallbackAppearances": 0,
+          "medianRequests": {
+            "auth": 1,
+            "role": 1,
+            "page": 4
+          }
+        }
+      ]
+    },
+    "current-lifecycle": {
+      "runs": [
+        {
+          "steps": [
+            {
+              "name": "cold-document",
+              "visibleContentMs": 5505,
+              "loadingFallbackAppearances": 0,
+              "requests": {
+                "auth": 1,
+                "role": 1,
+                "page": 3
+              }
+            },
+            {
+              "name": "same-context-reload",
+              "visibleContentMs": 6064,
+              "loadingFallbackAppearances": 0,
+              "requests": {
+                "auth": 1,
+                "role": 1,
+                "page": 3
+              }
+            },
+            {
+              "name": "navigate-forward",
+              "visibleContentMs": 450,
+              "loadingFallbackAppearances": 0,
+              "requests": {
+                "auth": 0,
+                "role": 0,
+                "page": 1
+              }
+            },
+            {
+              "name": "browser-back",
+              "visibleContentMs": 421,
+              "loadingFallbackAppearances": 0,
+              "requests": {
+                "auth": 0,
+                "role": 0,
+                "page": 1
+              }
+            },
+            {
+              "name": "browser-forward",
+              "visibleContentMs": 397,
+              "loadingFallbackAppearances": 0,
+              "requests": {
+                "auth": 0,
+                "role": 0,
+                "page": 1
+              }
+            }
+          ],
+          "totals": {
+            "auth": 2,
+            "role": 2,
+            "page": 9
+          }
+        },
+        {
+          "steps": [
+            {
+              "name": "cold-document",
+              "visibleContentMs": 5683,
+              "loadingFallbackAppearances": 0,
+              "requests": {
+                "auth": 1,
+                "role": 1,
+                "page": 3
+              }
+            },
+            {
+              "name": "same-context-reload",
+              "visibleContentMs": 6408,
+              "loadingFallbackAppearances": 0,
+              "requests": {
+                "auth": 1,
+                "role": 1,
+                "page": 3
+              }
+            },
+            {
+              "name": "navigate-forward",
+              "visibleContentMs": 504,
+              "loadingFallbackAppearances": 0,
+              "requests": {
+                "auth": 0,
+                "role": 0,
+                "page": 1
+              }
+            },
+            {
+              "name": "browser-back",
+              "visibleContentMs": 432,
+              "loadingFallbackAppearances": 0,
+              "requests": {
+                "auth": 0,
+                "role": 0,
+                "page": 1
+              }
+            },
+            {
+              "name": "browser-forward",
+              "visibleContentMs": 428,
+              "loadingFallbackAppearances": 0,
+              "requests": {
+                "auth": 0,
+                "role": 0,
+                "page": 1
+              }
+            }
+          ],
+          "totals": {
+            "auth": 2,
+            "role": 2,
+            "page": 9
+          }
+        },
+        {
+          "steps": [
+            {
+              "name": "cold-document",
+              "visibleContentMs": 6885,
+              "loadingFallbackAppearances": 0,
+              "requests": {
+                "auth": 1,
+                "role": 1,
+                "page": 3
+              }
+            },
+            {
+              "name": "same-context-reload",
+              "visibleContentMs": 6130,
+              "loadingFallbackAppearances": 0,
+              "requests": {
+                "auth": 1,
+                "role": 1,
+                "page": 3
+              }
+            },
+            {
+              "name": "navigate-forward",
+              "visibleContentMs": 469,
+              "loadingFallbackAppearances": 0,
+              "requests": {
+                "auth": 0,
+                "role": 0,
+                "page": 1
+              }
+            },
+            {
+              "name": "browser-back",
+              "visibleContentMs": 644,
+              "loadingFallbackAppearances": 0,
+              "requests": {
+                "auth": 0,
+                "role": 0,
+                "page": 1
+              }
+            },
+            {
+              "name": "browser-forward",
+              "visibleContentMs": 583,
+              "loadingFallbackAppearances": 0,
+              "requests": {
+                "auth": 0,
+                "role": 0,
+                "page": 1
+              }
+            }
+          ],
+          "totals": {
+            "auth": 2,
+            "role": 2,
+            "page": 9
+          }
+        }
+      ],
+      "summary": [
+        {
+          "name": "cold-document",
+          "medianVisibleContentMs": 5683,
+          "medianLoadingFallbackAppearances": 0,
+          "medianRequests": {
+            "auth": 1,
+            "role": 1,
+            "page": 3
+          }
+        },
+        {
+          "name": "same-context-reload",
+          "medianVisibleContentMs": 6130,
+          "medianLoadingFallbackAppearances": 0,
+          "medianRequests": {
+            "auth": 1,
+            "role": 1,
+            "page": 3
+          }
+        },
+        {
+          "name": "navigate-forward",
+          "medianVisibleContentMs": 469,
+          "medianLoadingFallbackAppearances": 0,
+          "medianRequests": {
+            "auth": 0,
+            "role": 0,
+            "page": 1
+          }
+        },
+        {
+          "name": "browser-back",
+          "medianVisibleContentMs": 432,
+          "medianLoadingFallbackAppearances": 0,
+          "medianRequests": {
+            "auth": 0,
+            "role": 0,
+            "page": 1
+          }
+        },
+        {
+          "name": "browser-forward",
+          "medianVisibleContentMs": 428,
+          "medianLoadingFallbackAppearances": 0,
+          "medianRequests": {
+            "auth": 0,
+            "role": 0,
+            "page": 1
+          }
+        }
+      ]
+    }
+  }
+}

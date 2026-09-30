@@ -1,0 +1,261 @@
+import crypto from 'crypto';
+import { getSessionTenantUser } from '../_lib/session.js';
+import { supabase } from '../_lib/database.js';
+
+export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const origin = req.headers.origin || '';
+  const referer = req.headers.referer || '';
+  const host = req.headers.host || '';
+  
+  // Allow requests from iconn.app and any *.iconn.app subdomain
+  const isIconnAppOrigin = (url) => {
+    if (!url) return false;
+    try {
+      const parsed = new URL(url);
+      return parsed.hostname === 'iconn.app' || 
+             parsed.hostname === 'www.iconn.app' ||
+             parsed.hostname.endsWith('.iconn.app');
+    } catch {
+      return false;
+    }
+  };
+  
+  let isAllowedOrigin = isIconnAppOrigin(origin);
+  let isAllowedReferer = !referer || isIconnAppOrigin(referer);
+  
+  if (process.env.NODE_ENV === 'development') {
+    isAllowedOrigin = isAllowedOrigin || origin.startsWith('http://localhost:5000') || origin.startsWith(`http://${host}`);
+    isAllowedReferer = isAllowedReferer || !referer || referer.startsWith('http://localhost:5000');
+  }
+  
+  if (!isAllowedOrigin && origin) {
+    console.log('[Portal Session] CSRF blocked - invalid origin:', origin);
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  if (!isAllowedReferer) {
+    console.log('[Portal Session] CSRF blocked - invalid referer:', referer);
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  if (!supabase) {
+    return res.status(503).json({ error: 'Database not configured' });
+  }
+
+  const tenantUser = await getSessionTenantUser(req);
+  
+  if (!tenantUser) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  try {
+    let memberId = null;
+    
+    // Get identity_id from either unified identity system or session metadata
+    const identityId = tenantUser._isUnifiedIdentity 
+      ? tenantUser.id 
+      : (tenantUser._sessionIdentityId || tenantUser.identity_id);
+    
+    console.log('[Portal Session] Checking portal access for tenantUser:', {
+      id: tenantUser.id,
+      isUnifiedIdentity: !!tenantUser._isUnifiedIdentity,
+      identityId: identityId,
+      tenantId: tenantUser.tenant_id
+    });
+    
+    // Check tenant_membership table if we have an identity_id
+    if (identityId) {
+      const { data: membership, error: membershipError } = await supabase
+        .from('tenant_membership')
+        .select('member_id')
+        .eq('identity_id', identityId)
+        .eq('tenant_id', tenantUser.tenant_id)
+        .single();
+      
+      if (membership?.member_id) {
+        memberId = membership.member_id;
+        console.log('[Portal Session] Found member_id via tenant_membership:', memberId);
+      }
+    }
+    
+    // Fallback: check legacy tenant_user_member_link table
+    if (!memberId) {
+      const { data: link, error: linkError } = await supabase
+        .from('tenant_user_member_link')
+        .select('member_id')
+        .eq('tenant_user_id', tenantUser.id)
+        .eq('tenant_id', tenantUser.tenant_id)
+        .single();
+      
+      if (link?.member_id) {
+        memberId = link.member_id;
+        console.log('[Portal Session] Found member_id via tenant_user_member_link:', memberId);
+      }
+    }
+    
+    // Final fallback: try to find a member by email match
+    if (!memberId && tenantUser.email) {
+      const { data: memberByEmail, error: memberByEmailError } = await supabase
+        .from('member')
+        .select('id, login_enabled, status')
+        .eq('email', tenantUser.email.toLowerCase())
+        .eq('tenant_id', tenantUser.tenant_id)
+        .single();
+      
+      if (memberByEmail?.id && memberByEmail.login_enabled && memberByEmail.status === 'active') {
+        memberId = memberByEmail.id;
+        console.log('[Portal Session] Found member_id via email match:', memberId);
+        
+        // Auto-link for future lookups if we have an identityId
+        if (identityId) {
+          await supabase
+            .from('tenant_membership')
+            .update({ member_id: memberId })
+            .eq('identity_id', identityId)
+            .eq('tenant_id', tenantUser.tenant_id);
+          console.log('[Portal Session] Auto-linked member_id to tenant_membership');
+        }
+      }
+    }
+
+    if (!memberId) {
+      return res.status(404).json({ 
+        error: 'No portal access configured',
+        message: 'Your SaaS account is not linked to a portal member account'
+      });
+    }
+
+    const { data: member, error: memberError } = await supabase
+      .from('member')
+      .select('id, email, first_name, last_name, login_enabled, status')
+      .eq('id', memberId)
+      .single();
+
+    if (memberError || !member) {
+      return res.status(404).json({ error: 'Linked member account not found' });
+    }
+
+    if (!member.login_enabled || member.status !== 'active') {
+      return res.status(403).json({ error: 'Portal access is disabled for this account' });
+    }
+
+    const { data: tenant, error: tenantError } = await supabase
+      .from('tenant')
+      .select('slug, domain, status')
+      .eq('id', tenantUser.tenant_id)
+      .single();
+
+    if (tenantError || !tenant) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+
+    if (tenant.status !== 'active') {
+      return res.status(403).json({ error: 'Tenant is not active' });
+    }
+
+    const ssoToken = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+
+    // For unified identity users, tenantUser.id is the identity_id, not tenant_user_id
+    // We need to find the actual tenant_user_id for the foreign key constraint (if available)
+    // tenant_user_id is now optional - unified identity users may not have a legacy tenant_user record
+    let tenantUserIdForToken = null;
+    
+    console.log('[Portal Session] Determining tenant_user_id for token:', {
+      isUnifiedIdentity: !!tenantUser._isUnifiedIdentity,
+      identityId,
+      tenantUserEmail: tenantUser.email,
+      tenantId: tenantUser.tenant_id
+    });
+    
+    if (tenantUser._isUnifiedIdentity && identityId) {
+      // Look up the tenant_user record linked to this identity
+      const { data: linkedTenantUser, error: linkError } = await supabase
+        .from('tenant_user')
+        .select('id, identity_id, email')
+        .eq('identity_id', identityId)
+        .eq('tenant_id', tenantUser.tenant_id)
+        .limit(1)
+        .maybeSingle();
+      
+      console.log('[Portal Session] Lookup by identity_id:', { 
+        linkedTenantUser, 
+        linkError: linkError?.message 
+      });
+      
+      if (linkedTenantUser?.id) {
+        tenantUserIdForToken = linkedTenantUser.id;
+        console.log('[Portal Session] Found linked tenant_user_id:', tenantUserIdForToken);
+      } else {
+        // No tenant_user record linked by identity_id - try by email
+        console.log('[Portal Session] No tenant_user by identity_id, trying email:', tenantUser.email?.toLowerCase());
+        
+        const { data: tenantUserByEmail, error: emailError } = await supabase
+          .from('tenant_user')
+          .select('id, identity_id, email')
+          .eq('email', tenantUser.email?.toLowerCase())
+          .eq('tenant_id', tenantUser.tenant_id)
+          .limit(1)
+          .maybeSingle();
+        
+        console.log('[Portal Session] Lookup by email:', { 
+          tenantUserByEmail, 
+          emailError: emailError?.message 
+        });
+        
+        if (tenantUserByEmail?.id) {
+          tenantUserIdForToken = tenantUserByEmail.id;
+          console.log('[Portal Session] Found tenant_user_id by email:', tenantUserIdForToken);
+          
+          // Auto-link identity_id for future lookups if not already set
+          if (!tenantUserByEmail.identity_id && identityId) {
+            await supabase
+              .from('tenant_user')
+              .update({ identity_id: identityId })
+              .eq('id', tenantUserByEmail.id);
+            console.log('[Portal Session] Auto-linked identity_id to tenant_user:', tenantUserByEmail.id);
+          }
+        } else {
+          console.log('[Portal Session] No tenant_user record found - proceeding with null tenant_user_id (unified identity user)');
+        }
+      }
+    } else {
+      // Legacy tenant_user session - use the id directly
+      tenantUserIdForToken = tenantUser.id;
+      console.log('[Portal Session] Using legacy tenant_user.id:', tenantUserIdForToken);
+    }
+
+    const { error: tokenError } = await supabase
+      .from('portal_sso_token')
+      .insert({
+        token: ssoToken,
+        tenant_user_id: tenantUserIdForToken, // Can be null for unified identity users
+        member_id: member.id,
+        tenant_id: tenantUser.tenant_id,
+        expires_at: expiresAt.toISOString()
+      });
+
+    if (tokenError) {
+      console.error('[Portal Session] Error creating SSO token:', tokenError);
+      return res.status(500).json({ error: 'Failed to create portal session' });
+    }
+
+    const portalDomain = tenant.domain || `${tenant.slug}.iconn.app`;
+    const portalUrl = `https://${portalDomain}/api/auth/portal-sso?token=${ssoToken}`;
+
+    console.log(`[Portal Session] SSO token created for tenant_user ${tenantUser.id} -> member ${member.id}`);
+
+    res.json({ 
+      success: true, 
+      redirectUrl: portalUrl,
+      expiresAt: expiresAt.toISOString()
+    });
+  } catch (error) {
+    console.error('[Portal Session] Error:', error);
+    res.status(500).json({ error: 'Failed to create portal session' });
+  }
+}

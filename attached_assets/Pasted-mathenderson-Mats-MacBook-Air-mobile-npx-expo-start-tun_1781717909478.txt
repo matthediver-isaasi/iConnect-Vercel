@@ -1,0 +1,24 @@
+mathenderson@Mats-MacBook-Air mobile % npx expo start --tunnel
+Starting project at /Users/mathenderson/Downloads/iConnect-Vercel-iso2/mobile
+Starting Metro Bundler
+✔ The package @expo/ngrok@^4.1.0 is required to use tunnels, would you like to install it globally? … yes
+Installing @expo/ngrok@^4.1.0...
+> npm install --global @expo/ngrok@^4.1.0
+Error: Failed to install @expo/ngrok@^4.1.0 globally: npm install --global @expo/ngrok@^4.1.0 exited with non-zero code: 243
+Error: npm install --global @expo/ngrok@^4.1.0 exited with non-zero code: 243
+    at ChildProcess.completionListener (/Users/mathenderson/Downloads/iConnect-Vercel-iso2/mobile/node_modules/@expo/spawn-async/src/spawnAsync.ts:167:13)
+    at Object.onceWrapper (node:events:631:26)
+    at ChildProcess.emit (node:events:509:28)
+    at maybeClose (node:internal/child_process:1124:16)
+    at Process.ChildProcess._handle.onexit (node:internal/child_process:306:5)
+    ...
+    at spawnAsync (/Users/mathenderson/Downloads/iConnect-Vercel-iso2/mobile/node_modules/@expo/spawn-async/src/spawnAsync.ts:39:21)
+    at NpmPackageManager.runAsync (/Users/mathenderson/Downloads/iConnect-Vercel-iso2/mobile/node_modules/@expo/package-manager/src/node/BasePackageManager.ts:73:22)
+    at NpmPackageManager.addGlobalAsync (/Users/mathenderson/Downloads/iConnect-Vercel-iso2/mobile/node_modules/@expo/package-manager/src/node/NpmPackageManager.ts:72:17)
+    at NgrokResolver.installAsync (/Users/mathenderson/Downloads/iConnect-Vercel-iso2/mobile/node_modules/@expo/cli/src/start/doctor/ngrok/ExternalModule.ts:122:32)
+    at processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at AsyncNgrok.startAsync (/Users/mathenderson/Downloads/iConnect-Vercel-iso2/mobile/node_modules/@expo/cli/src/start/server/AsyncNgrok.ts:74:5)
+    at MetroBundlerDevServer._startTunnelAsync (/Users/mathenderson/Downloads/iConnect-Vercel-iso2/mobile/node_modules/@expo/cli/src/start/server/BundlerDevServer.ts:256:5)
+    at MetroBundlerDevServer.postStartAsync (/Users/mathenderson/Downloads/iConnect-Vercel-iso2/mobile/node_modules/@expo/cli/src/start/server/BundlerDevServer.ts:229:7)
+    at MetroBundlerDevServer.startAsync (/Users/mathenderson/Downloads/iConnect-Vercel-iso2/mobile/node_modules/@expo/cli/src/start/server/BundlerDevServer.ts:164:5)
+    at DevServerManager.startAsync (/Users/mathenderson/Downloads/iConnect-Vercel-iso2/mobile/node_modules/@expo/cli/src/start/server/DevServerManager.ts:184:7)

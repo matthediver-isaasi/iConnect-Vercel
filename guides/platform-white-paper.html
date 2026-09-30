@@ -1,0 +1,1237 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>iConnect Platform — Technology &amp; Capability Overview</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="https://cdn.simplecss.org/simple.min.css" />
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">iConnect Platform — Technology &amp; Capability
+Overview</h1>
+<p class="subtitle">A Comprehensive White Paper for Prospective
+Clients</p>
+<p class="date">February 2026</p>
+</header>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#iconnect-platform" id="toc-iconnect-platform">iConnect
+Platform</a>
+<ul>
+<li><a href="#technology-capability-overview"
+id="toc-technology-capability-overview">Technology &amp; Capability
+Overview</a></li>
+<li><a href="#table-of-contents" id="toc-table-of-contents">Table of
+Contents</a></li>
+<li><a href="#executive-summary" id="toc-executive-summary">1. Executive
+Summary</a></li>
+<li><a href="#platform-overview" id="toc-platform-overview">2. Platform
+Overview</a>
+<ul>
+<li><a href="#what-iconnect-does" id="toc-what-iconnect-does">What
+iConnect Does</a></li>
+<li><a href="#who-its-for" id="toc-who-its-for">Who It’s For</a></li>
+<li><a href="#how-its-delivered" id="toc-how-its-delivered">How It’s
+Delivered</a></li>
+</ul></li>
+<li><a href="#core-architecture" id="toc-core-architecture">3. Core
+Architecture</a>
+<ul>
+<li><a href="#multi-tenant-design"
+id="toc-multi-tenant-design">Multi-Tenant Design</a></li>
+<li><a href="#modern-technology-stack"
+id="toc-modern-technology-stack">Modern Technology Stack</a></li>
+<li><a href="#data-import-migration" id="toc-data-import-migration">Data
+Import &amp; Migration</a></li>
+</ul></li>
+<li><a href="#member-organisation-management"
+id="toc-member-organisation-management">4. Member &amp; Organisation
+Management</a>
+<ul>
+<li><a href="#organisation-records"
+id="toc-organisation-records">Organisation Records</a></li>
+<li><a href="#member-records" id="toc-member-records">Member
+Records</a></li>
+<li><a href="#resource-management" id="toc-resource-management">Resource
+Management</a></li>
+</ul></li>
+<li><a href="#membership-financial-management"
+id="toc-membership-financial-management">5. Membership &amp; Financial
+Management</a>
+<ul>
+<li><a href="#flexible-pricing-structures"
+id="toc-flexible-pricing-structures">Flexible Pricing
+Structures</a></li>
+<li><a href="#pro-rata-rollover-calculations"
+id="toc-pro-rata-rollover-calculations">Pro-Rata &amp; Rollover
+Calculations</a></li>
+<li><a href="#invoicing-modes" id="toc-invoicing-modes">Invoicing
+Modes</a></li>
+<li><a href="#fee-approval-workflow" id="toc-fee-approval-workflow">Fee
+Approval Workflow</a></li>
+<li><a href="#fee-notification-email"
+id="toc-fee-notification-email">Fee Notification &amp; Email</a></li>
+<li><a href="#member-payment-portal"
+id="toc-member-payment-portal">Member Payment Portal</a></li>
+<li><a href="#accounting-integration"
+id="toc-accounting-integration">Accounting Integration</a></li>
+<li><a href="#cost-preview-simulation"
+id="toc-cost-preview-simulation">Cost Preview &amp; Simulation</a></li>
+</ul></li>
+<li><a href="#events-bookings-ticketing"
+id="toc-events-bookings-ticketing">6. Events, Bookings &amp;
+Ticketing</a>
+<ul>
+<li><a href="#event-management" id="toc-event-management">Event
+Management</a></li>
+<li><a href="#booking-system" id="toc-booking-system">Booking
+System</a></li>
+<li><a href="#ticketing-commerce" id="toc-ticketing-commerce">Ticketing
+&amp; Commerce</a></li>
+</ul></li>
+<li><a href="#content-management-publishing"
+id="toc-content-management-publishing">7. Content Management &amp;
+Publishing</a>
+<ul>
+<li><a href="#dynamic-page-builder"
+id="toc-dynamic-page-builder">Dynamic Page Builder</a></li>
+<li><a href="#articles-news" id="toc-articles-news">Articles &amp;
+News</a></li>
+<li><a href="#blog-posts" id="toc-blog-posts">Blog Posts</a></li>
+<li><a href="#resources-file-management"
+id="toc-resources-file-management">Resources &amp; File
+Management</a></li>
+</ul></li>
+<li><a href="#communication-engagement"
+id="toc-communication-engagement">8. Communication &amp; Engagement</a>
+<ul>
+<li><a href="#email-integration" id="toc-email-integration">Email
+Integration</a></li>
+<li><a href="#email-marketing" id="toc-email-marketing">Email
+Marketing</a></li>
+<li><a href="#email-templates-placeholders"
+id="toc-email-templates-placeholders">Email Templates &amp;
+Placeholders</a></li>
+<li><a href="#communication-preferences"
+id="toc-communication-preferences">Communication Preferences</a></li>
+</ul></li>
+<li><a href="#workflow-automation" id="toc-workflow-automation">9.
+Workflow Automation</a>
+<ul>
+<li><a href="#overview" id="toc-overview">Overview</a></li>
+<li><a href="#available-workflow-actions"
+id="toc-available-workflow-actions">Available Workflow Actions</a></li>
+<li><a href="#intelligent-processing"
+id="toc-intelligent-processing">Intelligent Processing</a></li>
+</ul></li>
+<li><a href="#due-diligence-compliance"
+id="toc-due-diligence-compliance">10. Due Diligence &amp; Compliance</a>
+<ul>
+<li><a href="#overview-1" id="toc-overview-1">Overview</a></li>
+<li><a href="#key-capabilities" id="toc-key-capabilities">Key
+Capabilities</a></li>
+<li><a href="#compliance-features"
+id="toc-compliance-features">Compliance Features</a></li>
+</ul></li>
+<li><a href="#fundraising-donations" id="toc-fundraising-donations">11.
+Fundraising &amp; Donations</a>
+<ul>
+<li><a href="#campaign-management" id="toc-campaign-management">Campaign
+Management</a></li>
+<li><a href="#payment-processing" id="toc-payment-processing">Payment
+Processing</a></li>
+</ul></li>
+<li><a href="#community-forums" id="toc-community-forums">12. Community
+Forums</a>
+<ul>
+<li><a href="#discussion-platform"
+id="toc-discussion-platform">Discussion Platform</a></li>
+<li><a href="#moderation-safety" id="toc-moderation-safety">Moderation
+&amp; Safety</a></li>
+</ul></li>
+<li><a href="#job-board" id="toc-job-board">13. Job Board</a>
+<ul>
+<li><a href="#overview-2" id="toc-overview-2">Overview</a></li>
+<li><a href="#key-capabilities-1" id="toc-key-capabilities-1">Key
+Capabilities</a></li>
+</ul></li>
+<li><a href="#identity-access-management"
+id="toc-identity-access-management">14. Identity &amp; Access
+Management</a>
+<ul>
+<li><a href="#unified-identity-system"
+id="toc-unified-identity-system">Unified Identity System</a></li>
+<li><a href="#role-based-access-control"
+id="toc-role-based-access-control">Role-Based Access Control</a></li>
+<li><a href="#dual-session-support" id="toc-dual-session-support">Dual
+Session Support</a></li>
+<li><a href="#masquerade-impersonation"
+id="toc-masquerade-impersonation">Masquerade (Impersonation)</a></li>
+</ul></li>
+<li><a href="#customisation-branding"
+id="toc-customisation-branding">15. Customisation &amp; Branding</a>
+<ul>
+<li><a href="#per-tenant-branding"
+id="toc-per-tenant-branding">Per-Tenant Branding</a></li>
+<li><a href="#custom-forms" id="toc-custom-forms">Custom Forms</a></li>
+<li><a href="#dynamic-page-builder-1"
+id="toc-dynamic-page-builder-1">Dynamic Page Builder</a></li>
+</ul></li>
+<li><a href="#security-data-protection"
+id="toc-security-data-protection">16. Security &amp; Data Protection</a>
+<ul>
+<li><a href="#data-isolation" id="toc-data-isolation">Data
+Isolation</a></li>
+<li><a href="#authentication-security"
+id="toc-authentication-security">Authentication Security</a></li>
+<li><a href="#payment-security" id="toc-payment-security">Payment
+Security</a></li>
+<li><a href="#infrastructure-security"
+id="toc-infrastructure-security">Infrastructure Security</a></li>
+<li><a href="#access-control" id="toc-access-control">Access
+Control</a></li>
+</ul></li>
+<li><a href="#integration-ecosystem" id="toc-integration-ecosystem">17.
+Integration Ecosystem</a>
+<ul>
+<li><a href="#financial-accounting"
+id="toc-financial-accounting">Financial &amp; Accounting</a></li>
+<li><a href="#communication"
+id="toc-communication">Communication</a></li>
+<li><a href="#collaboration-video"
+id="toc-collaboration-video">Collaboration &amp; Video</a></li>
+<li><a href="#infrastructure"
+id="toc-infrastructure">Infrastructure</a></li>
+<li><a href="#integration-philosophy"
+id="toc-integration-philosophy">Integration Philosophy</a></li>
+</ul></li>
+<li><a href="#deployment-reliability-scalability"
+id="toc-deployment-reliability-scalability">18. Deployment, Reliability
+&amp; Scalability</a>
+<ul>
+<li><a href="#cloud-native-deployment"
+id="toc-cloud-native-deployment">Cloud-Native Deployment</a></li>
+<li><a href="#domain-architecture" id="toc-domain-architecture">Domain
+Architecture</a></li>
+<li><a href="#reliability" id="toc-reliability">Reliability</a></li>
+<li><a href="#data-backup-recovery" id="toc-data-backup-recovery">Data
+Backup &amp; Recovery</a></li>
+</ul></li>
+<li><a href="#summary-next-steps" id="toc-summary-next-steps">19.
+Summary &amp; Next Steps</a>
+<ul>
+<li><a href="#platform-summary" id="toc-platform-summary">Platform
+Summary</a></li>
+<li><a href="#next-steps" id="toc-next-steps">Next Steps</a></li>
+</ul></li>
+</ul></li>
+</ul>
+</nav>
+<h1 id="iconnect-platform">iConnect Platform</h1>
+<h2 id="technology-capability-overview">Technology &amp; Capability
+Overview</h2>
+<p><strong>A Comprehensive White Paper for Prospective
+Clients</strong></p>
+<p><em>February 2026 — Version 1.0</em></p>
+<p><em>Classification: Commercial in Confidence</em></p>
+<hr />
+<h2 id="table-of-contents">Table of Contents</h2>
+<ol type="1">
+<li><a href="#1-executive-summary">Executive Summary</a></li>
+<li><a href="#2-platform-overview">Platform Overview</a></li>
+<li><a href="#3-core-architecture">Core Architecture</a></li>
+<li><a href="#4-member--organisation-management">Member &amp;
+Organisation Management</a></li>
+<li><a href="#5-membership--financial-management">Membership &amp;
+Financial Management</a></li>
+<li><a href="#6-events-bookings--ticketing">Events, Bookings &amp;
+Ticketing</a></li>
+<li><a href="#7-content-management--publishing">Content Management &amp;
+Publishing</a></li>
+<li><a href="#8-communication--engagement">Communication &amp;
+Engagement</a></li>
+<li><a href="#9-workflow-automation">Workflow Automation</a></li>
+<li><a href="#10-due-diligence--compliance">Due Diligence &amp;
+Compliance</a></li>
+<li><a href="#11-fundraising--donations">Fundraising &amp;
+Donations</a></li>
+<li><a href="#12-community-forums">Community Forums</a></li>
+<li><a href="#13-job-board">Job Board</a></li>
+<li><a href="#14-identity--access-management">Identity &amp; Access
+Management</a></li>
+<li><a href="#15-customisation--branding">Customisation &amp;
+Branding</a></li>
+<li><a href="#16-security--data-protection">Security &amp; Data
+Protection</a></li>
+<li><a href="#17-integration-ecosystem">Integration Ecosystem</a></li>
+<li><a href="#18-deployment-reliability--scalability">Deployment,
+Reliability &amp; Scalability</a></li>
+<li><a href="#19-summary--next-steps">Summary &amp; Next Steps</a></li>
+</ol>
+<hr />
+<h2 id="executive-summary">1. Executive Summary</h2>
+<p>iConnect is a modern, cloud-hosted membership management platform
+designed to help organisations streamline operations, engage their
+members, and manage financial processes — all from a single, unified
+system.</p>
+<p>Built as a multi-tenant Software-as-a-Service (SaaS) solution,
+iConnect serves membership bodies, trade associations, professional
+institutes, and similar organisations that need to manage complex member
+relationships, tiered pricing structures, event programmes, and
+regulatory compliance — without the overhead of managing separate tools
+for each function.</p>
+<p><strong>Key benefits at a glance:</strong></p>
+<ul>
+<li><strong>Unified Platform</strong> — Members, organisations, events,
+content, finances, and communications in one place</li>
+<li><strong>Multi-Tenant by Design</strong> — Each client operates in a
+fully isolated environment with their own branding, data, and
+configuration</li>
+<li><strong>Flexible Membership Pricing</strong> — Tiered, flat-rate, or
+custom pricing with pro-rata calculations, discounts, and rollover
+support</li>
+<li><strong>Automated Workflows</strong> — Reduce manual effort by
+automating renewals, onboarding, emails, and compliance processes</li>
+<li><strong>Enterprise-Grade Security</strong> — Role-based access
+control, encrypted credentials, tenant data isolation, and secure
+payment processing</li>
+<li><strong>Seamless Integrations</strong> — Native connections to
+Stripe, Xero, Microsoft Outlook, Mailgun, and more</li>
+</ul>
+<hr />
+<h2 id="platform-overview">2. Platform Overview</h2>
+<h3 id="what-iconnect-does">What iConnect Does</h3>
+<p>iConnect is a purpose-built platform for organisations that manage
+memberships. It replaces the patchwork of spreadsheets, email tools,
+payment systems, and disconnected databases that many membership bodies
+rely on today.</p>
+<p>The platform provides a comprehensive suite of tools covering:</p>
+<ul>
+<li>Member and organisation record management</li>
+<li>Membership tier pricing and renewals</li>
+<li>Event management and ticketing</li>
+<li>Content publishing (articles, news, resources, blogs)</li>
+<li>Email marketing and communication preferences</li>
+<li>Custom forms and data collection</li>
+<li>Workflow automation</li>
+<li>Fundraising and donation campaigns</li>
+<li>Community discussion forums</li>
+<li>Job board for member vacancies</li>
+<li>Due diligence and compliance processes</li>
+<li>Financial integration with accounting software</li>
+<li>Data import and migration tools</li>
+</ul>
+<h3 id="who-its-for">Who It’s For</h3>
+<p>iConnect is designed for any organisation that manages a membership
+base, including:</p>
+<ul>
+<li>Trade associations and industry bodies</li>
+<li>Professional institutes and regulatory bodies</li>
+<li>Chambers of commerce</li>
+<li>Charitable organisations with membership programmes</li>
+<li>Networks and consortia</li>
+<li>Any body managing organisational or individual memberships</li>
+</ul>
+<h3 id="how-its-delivered">How It’s Delivered</h3>
+<p>iConnect is delivered as a fully managed cloud service. There is no
+software to install, no servers to maintain, and no upgrades to
+schedule. Each client receives their own branded portal accessible via a
+custom subdomain, with all infrastructure, security patches, and
+performance optimisations handled by the iConnect team.</p>
+<hr />
+<h2 id="core-architecture">3. Core Architecture</h2>
+<h3 id="multi-tenant-design">Multi-Tenant Design</h3>
+<p>iConnect is built from the ground up as a multi-tenant platform. This
+means multiple client organisations share the same underlying
+infrastructure, but each operates in a completely isolated environment.
+No client can ever see, access, or affect another client’s data.</p>
+<p><strong>Three-Tier Hierarchy:</strong></p>
+<p>The platform organises data across three distinct levels:</p>
+<table>
+<colgroup>
+<col style="width: 24%" />
+<col style="width: 44%" />
+<col style="width: 31%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Level</th>
+<th>Description</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Tenant</strong></td>
+<td>The subscribing client — the top-level boundary</td>
+<td>“UK Manufacturing Association”</td>
+</tr>
+<tr class="even">
+<td><strong>Organisation</strong></td>
+<td>Member companies or entities within the tenant</td>
+<td>“Acme Engineering Ltd”</td>
+</tr>
+<tr class="odd">
+<td><strong>Member</strong></td>
+<td>Individual people associated with organisations</td>
+<td>“Jane Smith, Director”</td>
+</tr>
+</tbody>
+</table>
+<p>This hierarchy ensures that every piece of data — from member records
+to invoices to event registrations — is correctly scoped and
+isolated.</p>
+<h3 id="modern-technology-stack">Modern Technology Stack</h3>
+<p>The platform is built using industry-standard, proven
+technologies:</p>
+<ul>
+<li><strong>Responsive Interface:</strong> A modern web application that
+works seamlessly across desktop, tablet, and mobile browsers</li>
+<li><strong>Secure Backend:</strong> A robust backend handling business
+logic, data validation, and secure communications</li>
+<li><strong>Enterprise-Grade Database:</strong> Reliable, transactional
+data storage ensuring data integrity at all times</li>
+<li><strong>Live Collaboration:</strong> Changes made by one
+administrator are immediately visible to others — no manual refreshing
+required</li>
+<li><strong>Cloud Infrastructure:</strong> Hosted on globally
+distributed cloud infrastructure with automatic scaling</li>
+</ul>
+<h3 id="data-import-migration">Data Import &amp; Migration</h3>
+<p>iConnect includes robust tools for onboarding and data
+management:</p>
+<ul>
+<li><strong>Data Import:</strong> Bulk import member, organisation, and
+related data from spreadsheets or existing systems</li>
+<li><strong>Migration Framework:</strong> A structured migration system
+for safely updating data models as your requirements evolve</li>
+<li><strong>Server-Side Pagination:</strong> Large datasets are handled
+efficiently, ensuring fast load times even with tens of thousands of
+records</li>
+</ul>
+<hr />
+<h2 id="member-organisation-management">4. Member &amp; Organisation
+Management</h2>
+<h3 id="organisation-records">Organisation Records</h3>
+<p>Each member organisation has a comprehensive profile that can be
+tailored to capture the specific data points your organisation needs.
+Standard fields include company name, registration details, contact
+information, and sector classification, but the system supports fully
+customisable fields to match your data model.</p>
+<p><strong>Key capabilities:</strong></p>
+<ul>
+<li><strong>Custom Fields:</strong> Define any number of additional data
+fields specific to your sector or requirements</li>
+<li><strong>Organisation Directory:</strong> A searchable, filterable
+directory of member organisations, configurable for both public and
+member-only access</li>
+<li><strong>Team Management:</strong> Track the individuals associated
+with each organisation, including their roles and contact details</li>
+<li><strong>Notes &amp; Activity History:</strong> Maintain internal
+notes and a full audit trail of interactions with each organisation</li>
+</ul>
+<h3 id="member-records">Member Records</h3>
+<p>Individual member profiles capture personal details, contact
+information, communication preferences, and membership history. Each
+member’s record is linked to their parent organisation(s), providing a
+clear view of the people within your membership base.</p>
+<p><strong>Key capabilities:</strong></p>
+<ul>
+<li><strong>Member Directory:</strong> Searchable directory with
+configurable visibility based on member roles</li>
+<li><strong>Communication Preferences:</strong> Members control how and
+when they receive communications</li>
+<li><strong>Self-Service Portal:</strong> Members can update their own
+details, view events, access resources, and manage their preferences
+through a branded portal</li>
+<li><strong>Bookmarking:</strong> Members can bookmark content,
+resources, and events for quick access, with drag-and-drop
+organisation</li>
+</ul>
+<h3 id="resource-management">Resource Management</h3>
+<p>Upload and manage documents, files, and resources for your
+membership:</p>
+<ul>
+<li><strong>View Tracking:</strong> The system tracks unique views per
+resource, providing insights into which materials are most accessed</li>
+<li><strong>Analytics Dashboard:</strong> Resource cards display view
+counts at a glance, with detailed analytics reports available showing
+who accessed what and when</li>
+<li><strong>Usage Reporting:</strong> Administrators can generate
+reports on resource engagement across their membership base, helping
+inform content strategy</li>
+</ul>
+<hr />
+<h2 id="membership-financial-management">5. Membership &amp; Financial
+Management</h2>
+<h3 id="flexible-pricing-structures">Flexible Pricing Structures</h3>
+<p>iConnect supports sophisticated membership pricing models to
+accommodate virtually any fee structure:</p>
+<ul>
+<li><strong>Tiered Pricing:</strong> Fees based on organisation
+attributes such as size, turnover, or employee count, with configurable
+bands and rates</li>
+<li><strong>Flat-Rate Pricing:</strong> A single fixed cost for all
+members, regardless of attributes</li>
+<li><strong>Multiple Active Structures:</strong> Run several pricing
+configurations simultaneously, optionally scoped to specific
+organisation segments</li>
+<li><strong>Historical Versioning:</strong> Maintain a complete history
+of pricing changes for audit and reference purposes</li>
+<li><strong>Custom Discounts:</strong> Configure discount rules based on
+organisation attributes, with multiple rules that stack and apply
+automatically</li>
+</ul>
+<h3 id="pro-rata-rollover-calculations">Pro-Rata &amp; Rollover
+Calculations</h3>
+<p>The platform handles the complex arithmetic of mid-year joins and
+renewals:</p>
+<ul>
+<li><strong>Pro-Rata Pricing:</strong> Automatically calculates
+partial-year fees for organisations joining mid-cycle</li>
+<li><strong>Free Periods:</strong> Configurable free periods at the
+start of membership</li>
+<li><strong>Rollover Discounts:</strong> Automatic discounts applied
+when a membership crosses from one year into the next</li>
+<li><strong>Go-Live Date Logic:</strong> The system intelligently
+determines how discounts apply based on when an organisation’s
+membership becomes active</li>
+</ul>
+<h3 id="invoicing-modes">Invoicing Modes</h3>
+<p>Administrators have full control over how and when invoices are
+generated:</p>
+<table>
+<colgroup>
+<col style="width: 31%" />
+<col style="width: 68%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Mode</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Automatic</strong></td>
+<td>Invoices are generated and sent automatically based on the go-live
+date</td>
+</tr>
+<tr class="even">
+<td><strong>Scheduled</strong></td>
+<td>Invoices are queued for batch processing at a designated time</td>
+</tr>
+<tr class="odd">
+<td><strong>Manual</strong></td>
+<td>Administrators trigger invoicing on a per-organisation basis</td>
+</tr>
+</tbody>
+</table>
+<p>Each invoicing mode operates independently per membership year,
+giving administrators granular control over the renewal cycle.</p>
+<h3 id="fee-approval-workflow">Fee Approval Workflow</h3>
+<p>For organisations requiring additional oversight, iConnect includes a
+configurable fee approval system:</p>
+<ul>
+<li><strong>Approval Toggle:</strong> Administrators can require that
+all membership fees are reviewed and approved before being sent to
+members</li>
+<li><strong>Admin-Level Control:</strong> The approval requirement is
+enforced across all processing paths — automated renewals, manual
+renewals, and workflow-triggered renewals</li>
+<li><strong>Approval Queue:</strong> Pending fees are presented in a
+clear queue for administrators to review, approve, or reject</li>
+</ul>
+<h3 id="fee-notification-email">Fee Notification &amp; Email</h3>
+<p>Administrators can send branded fee notification emails directly to
+organisation finance contacts:</p>
+<ul>
+<li><strong>One-Click Sending:</strong> The “Email Fees” function
+generates a secure, personalised email to the relevant finance
+contact</li>
+<li><strong>Branded Content:</strong> Fee emails are styled with the
+tenant’s branding and include a full cost breakdown</li>
+<li><strong>Secure Payment Link:</strong> Each email contains a unique,
+time-limited link directing the recipient to the payment portal</li>
+</ul>
+<h3 id="member-payment-portal">Member Payment Portal</h3>
+<p>A branded, public-facing payment page allows organisation finance
+contacts to:</p>
+<ul>
+<li>View a detailed breakdown of their membership fees (tier, discounts,
+pro-rata adjustments)</li>
+<li>Submit purchase order numbers for their records</li>
+<li>Pay securely online via Stripe</li>
+<li>Receive automatic confirmation upon payment</li>
+</ul>
+<p>The payment portal uses secure, time-limited links (30-day expiry)
+and tracks the full lifecycle of each fee notification — from initial
+email through to payment completion. Statuses include pending, purchase
+order submitted, paid, expired, and cancelled.</p>
+<h3 id="accounting-integration">Accounting Integration</h3>
+<p>Membership fees integrate directly with Xero accounting software:</p>
+<ul>
+<li>Invoices are created automatically in Xero when fees are
+processed</li>
+<li>Purchase order numbers flow through to Xero invoice references</li>
+<li>Membership history records are created alongside invoices for a
+complete audit trail</li>
+<li>Support for VAT calculations based on membership tier and band</li>
+</ul>
+<h3 id="cost-preview-simulation">Cost Preview &amp; Simulation</h3>
+<p>Administrators can preview membership costs before committing:</p>
+<ul>
+<li><strong>Rolling Two-Year View:</strong> See current year and next
+year costs side by side</li>
+<li><strong>Full Breakdown:</strong> Tier, discounts, pro-rata, and
+rollover amounts displayed clearly</li>
+<li><strong>Simulation Mode:</strong> Run “what-if” scenarios to see how
+changes affect pricing</li>
+<li><strong>Override Capability:</strong> Manually override calculated
+costs where exceptions are needed, with full audit trail</li>
+</ul>
+<hr />
+<h2 id="events-bookings-ticketing">6. Events, Bookings &amp;
+Ticketing</h2>
+<h3 id="event-management">Event Management</h3>
+<p>Create and manage events with comprehensive detail:</p>
+<ul>
+<li>Event descriptions, dates, times, and locations</li>
+<li>Multiple ticket types with individual pricing</li>
+<li>Speaker and agenda management</li>
+<li>Timezone-aware scheduling with automatic display adjustments</li>
+<li>Zoom integration for virtual events</li>
+</ul>
+<h3 id="booking-system">Booking System</h3>
+<p>An integrated booking system allows members to schedule appointments
+and meetings:</p>
+<ul>
+<li><strong>Agent-Based Booking:</strong> Define booking agents with
+their own availability profiles</li>
+<li><strong>Meeting Templates:</strong> Tenant-specific meeting types
+with configurable durations and descriptions</li>
+<li><strong>Availability Management:</strong> Agents set their own
+availability windows</li>
+<li><strong>Automated Confirmations:</strong> Booking confirmations and
+reminders sent automatically</li>
+</ul>
+<h3 id="ticketing-commerce">Ticketing &amp; Commerce</h3>
+<ul>
+<li>Discount code management for promotional pricing</li>
+<li>Ticket sales analytics and reporting</li>
+<li>Member balance tracking and transaction history</li>
+<li>Invoice generation for ticket purchases</li>
+</ul>
+<hr />
+<h2 id="content-management-publishing">7. Content Management &amp;
+Publishing</h2>
+<h3 id="dynamic-page-builder">Dynamic Page Builder</h3>
+<p>iConnect includes a visual page builder that allows administrators to
+create custom pages without any technical knowledge. Pages can include
+text, images, forms, and interactive elements, all arranged through a
+drag-and-drop interface.</p>
+<h3 id="articles-news">Articles &amp; News</h3>
+<p>A full content management system for publishing articles, news
+updates, and thought leadership content:</p>
+<ul>
+<li>Rich text editing with media embedding</li>
+<li>Category and tag management</li>
+<li>Article follow functionality — members can follow topics of
+interest</li>
+<li>Publishing workflows with draft and published states</li>
+<li>Configurable visibility based on member roles</li>
+</ul>
+<h3 id="blog-posts">Blog Posts</h3>
+<p>A dedicated blog module for regular content publishing, supporting
+the same rich editing and categorisation features as the articles
+system.</p>
+<h3 id="resources-file-management">Resources &amp; File Management</h3>
+<p>Upload, organise, and distribute documents, guides, and other files
+to your membership:</p>
+<ul>
+<li>Categorised file library</li>
+<li>View tracking with per-resource analytics</li>
+<li>Role-based access control — restrict certain resources to specific
+member groups</li>
+<li>Award and recognition management for content contributors</li>
+</ul>
+<hr />
+<h2 id="communication-engagement">8. Communication &amp; Engagement</h2>
+<h3 id="email-integration">Email Integration</h3>
+<p>iConnect provides multiple channels for member communication:</p>
+<ul>
+<li><strong>Outlook Integration:</strong> Send emails directly through
+your organisation’s existing Outlook account, maintaining your
+established email identity and reputation</li>
+<li><strong>Dedicated Email Domains:</strong> High-deliverability
+transactional and marketing email through dedicated, tenant-specific
+sending domains</li>
+<li><strong>Automated Setup:</strong> Each tenant receives their own
+verified email sending domain, fully configured and ready to use without
+manual technical steps</li>
+</ul>
+<h3 id="email-marketing">Email Marketing</h3>
+<p>A built-in email marketing system:</p>
+<ul>
+<li>Campaign creation with rich content editing</li>
+<li>Scheduled sending</li>
+<li>Preview and test send capabilities</li>
+<li>Unsubscribe management</li>
+<li>Footer customisation per campaign</li>
+</ul>
+<h3 id="email-templates-placeholders">Email Templates &amp;
+Placeholders</h3>
+<p>A sophisticated template system allows administrators to create
+reusable email templates with dynamic placeholders. Placeholders are
+automatically replaced with member-specific data (name, organisation,
+membership details, etc.) when emails are sent, ensuring personalised
+communication at scale.</p>
+<h3 id="communication-preferences">Communication Preferences</h3>
+<p>Members have full control over their communication preferences:</p>
+<ul>
+<li>Opt-in and opt-out management</li>
+<li>Preference syncing with external email marketing platforms where
+applicable</li>
+<li>Compliance with data protection regulations regarding consent</li>
+</ul>
+<hr />
+<h2 id="workflow-automation">9. Workflow Automation</h2>
+<h3 id="overview">Overview</h3>
+<p>iConnect’s workflow engine allows administrators to automate
+repetitive processes, reducing manual effort and ensuring consistency.
+Workflows are tenant-scoped, meaning each client configures their own
+automation rules independently.</p>
+<h3 id="available-workflow-actions">Available Workflow Actions</h3>
+<p>Workflows can be configured to perform a wide range of actions
+automatically:</p>
+<table>
+<colgroup>
+<col style="width: 38%" />
+<col style="width: 61%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Action</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Send Email</strong></td>
+<td>Trigger personalised emails using templates and placeholders</td>
+</tr>
+<tr class="even">
+<td><strong>Update Fields</strong></td>
+<td>Automatically update member or organisation data fields</td>
+</tr>
+<tr class="odd">
+<td><strong>Create Contracts</strong></td>
+<td>Generate contracts or agreements based on templates</td>
+</tr>
+<tr class="even">
+<td><strong>Create Memberships</strong></td>
+<td>Initiate membership records with full cost calculation</td>
+</tr>
+<tr class="odd">
+<td><strong>Set Go-Live Dates</strong></td>
+<td>Activate organisation memberships on specified dates</td>
+</tr>
+<tr class="even">
+<td><strong>Password Setup</strong></td>
+<td>Generate and send secure password setup links for new members</td>
+</tr>
+</tbody>
+</table>
+<h3 id="intelligent-processing">Intelligent Processing</h3>
+<p>The workflow engine includes safeguards to prevent errors:</p>
+<ul>
+<li>Checks invoicing mode before creating membership records — only
+proceeds when appropriate</li>
+<li>Validates organisation status (e.g., go-live date) before
+processing</li>
+<li>Prevents duplicate record creation at both application and database
+levels</li>
+<li>Full audit logging of all automated actions</li>
+</ul>
+<hr />
+<h2 id="due-diligence-compliance">10. Due Diligence &amp;
+Compliance</h2>
+<h3 id="overview-1">Overview</h3>
+<p>For organisations that require compliance checks on prospective or
+existing members, iConnect provides a comprehensive due diligence
+module.</p>
+<h3 id="key-capabilities">Key Capabilities</h3>
+<ul>
+<li><strong>Submission Management:</strong> Track due diligence
+submissions through configurable stages</li>
+<li><strong>Document Collection:</strong> Collect and store required
+documents securely</li>
+<li><strong>Scoring System:</strong> Automated scoring based on
+configurable criteria</li>
+<li><strong>Review Workflows:</strong> Multi-reviewer support with
+structured review forms</li>
+<li><strong>Stage Actions:</strong> Define actions that trigger when
+submissions move between stages</li>
+<li><strong>Schedule Management:</strong> Track submission deadlines and
+timelines</li>
+<li><strong>Reminder System:</strong> Automated reminders for pending
+reviews and approaching deadlines</li>
+<li><strong>Timeout Handling:</strong> Configurable timeout actions for
+overdue submissions</li>
+</ul>
+<h3 id="compliance-features">Compliance Features</h3>
+<ul>
+<li>Full audit trail of all due diligence activities</li>
+<li>Secure document storage with access controls</li>
+<li>Configurable stage gates to enforce process compliance</li>
+<li>Status tracking from initiation through to final decision</li>
+</ul>
+<hr />
+<h2 id="fundraising-donations">11. Fundraising &amp; Donations</h2>
+<h3 id="campaign-management">Campaign Management</h3>
+<p>iConnect includes a purpose-built fundraising module:</p>
+<ul>
+<li><strong>Campaign Creation:</strong> Set up fundraising campaigns
+with targets, descriptions, and timelines</li>
+<li><strong>Team Fundraising:</strong> Assign team members to campaigns,
+each with their own unique donation page</li>
+<li><strong>Donation Pages:</strong> Branded, public-facing donation
+pages with secure payment processing</li>
+<li><strong>UK Gift Aid Support:</strong> Capture Gift Aid declarations
+to maximise charitable donations</li>
+</ul>
+<h3 id="payment-processing">Payment Processing</h3>
+<p>All donations are processed securely through Stripe:</p>
+<ul>
+<li>PCI-compliant payment handling</li>
+<li>Support for one-off donations</li>
+<li>Automatic receipt generation</li>
+<li>Full donation tracking and reporting</li>
+</ul>
+<hr />
+<h2 id="community-forums">12. Community Forums</h2>
+<h3 id="discussion-platform">Discussion Platform</h3>
+<p>A built-in forum system for member engagement and knowledge
+sharing:</p>
+<ul>
+<li><strong>Tenant-Scoped Forums:</strong> Each client has their own
+private forum space</li>
+<li><strong>Threaded Discussions:</strong> Full support for nested reply
+threads</li>
+<li><strong>Reactions:</strong> Members can react to posts and
+comments</li>
+<li><strong>Role-Based Access:</strong> Forum access is controlled
+through the platform’s role management system</li>
+</ul>
+<h3 id="moderation-safety">Moderation &amp; Safety</h3>
+<ul>
+<li><strong>Content Reporting:</strong> Members can flag inappropriate
+content for review</li>
+<li><strong>Moderation Suite:</strong> Administrators have full
+moderation controls including post removal and user management</li>
+<li><strong>Audit Logging:</strong> All moderation actions are logged
+for accountability</li>
+<li><strong>Soft Deletion:</strong> Removed content preserves the reply
+thread structure, maintaining conversation context</li>
+</ul>
+<hr />
+<h2 id="job-board">13. Job Board</h2>
+<h3 id="overview-2">Overview</h3>
+<p>iConnect includes a built-in job board that allows member
+organisations to advertise vacancies to the wider membership
+community.</p>
+<h3 id="key-capabilities-1">Key Capabilities</h3>
+<ul>
+<li><strong>Job Posting Management:</strong> Organisations can create
+and manage job listings with full descriptions, requirements, and
+application details</li>
+<li><strong>Member Listings:</strong> Individual members can post and
+manage their own job listings</li>
+<li><strong>Category &amp; Filtering:</strong> Jobs can be categorised
+and filtered to help candidates find relevant opportunities</li>
+<li><strong>Role-Based Access:</strong> Administrators control which
+roles can post and view job listings</li>
+<li><strong>Tenant-Scoped:</strong> Each client’s job board is private
+to their membership, ensuring relevance and quality</li>
+</ul>
+<hr />
+<h2 id="identity-access-management">14. Identity &amp; Access
+Management</h2>
+<h3 id="unified-identity-system">Unified Identity System</h3>
+<p>iConnect operates a unified identity system that provides:</p>
+<ul>
+<li><strong>Single Identity, Multiple Tenants:</strong> A person who
+belongs to multiple organisations across different tenants uses one
+identity with separate, isolated access to each</li>
+<li><strong>Per-Tenant Password Isolation:</strong> Passwords are stored
+and validated independently for each tenant, so a password change in one
+tenant does not affect access to another</li>
+<li><strong>Social Sign-In:</strong> Members can sign in using their
+existing Google account for convenience and faster access</li>
+<li><strong>Secure Password Management:</strong> Industry-standard
+encryption protects all credentials, with automatic account lockout
+after failed attempts and secure, time-limited password reset flows</li>
+</ul>
+<h3 id="role-based-access-control">Role-Based Access Control</h3>
+<p>A sophisticated role management system provides granular control over
+what each user can see and do:</p>
+<ul>
+<li><strong>Feature-Based Permissions:</strong> Access is controlled at
+the feature level — administrators define which features each role can
+access</li>
+<li><strong>Protected System Roles:</strong> Core system roles cannot be
+accidentally modified or deleted</li>
+<li><strong>Field-Level Access Control:</strong> Control visibility and
+editability of individual data fields based on the user’s role</li>
+<li><strong>Admin vs. Member Portals:</strong> Separate permission sets
+for the administrative dashboard and the member-facing portal</li>
+</ul>
+<h3 id="dual-session-support">Dual Session Support</h3>
+<p>The platform supports two distinct session types:</p>
+<table>
+<colgroup>
+<col style="width: 36%" />
+<col style="width: 25%" />
+<col style="width: 38%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Session Type</th>
+<th>Purpose</th>
+<th>Access Level</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Tenant User</strong></td>
+<td>Administrative staff managing the platform</td>
+<td>Full dashboard access based on role</td>
+</tr>
+<tr class="even">
+<td><strong>Member</strong></td>
+<td>Individual members using the portal</td>
+<td>Self-service access to their own data and permitted features</td>
+</tr>
+</tbody>
+</table>
+<h3 id="masquerade-impersonation">Masquerade (Impersonation)</h3>
+<p>For support purposes, authorised administrators can temporarily view
+the platform as a specific member would see it, without requiring the
+member’s credentials. This feature includes full audit logging.</p>
+<hr />
+<h2 id="customisation-branding">15. Customisation &amp; Branding</h2>
+<h3 id="per-tenant-branding">Per-Tenant Branding</h3>
+<p>Every tenant can customise the appearance of their member-facing
+portal:</p>
+<ul>
+<li>Logo and colour scheme</li>
+<li>Custom styling for public-facing pages</li>
+<li>Branded email templates</li>
+<li>Personalised login and registration pages</li>
+</ul>
+<h3 id="custom-forms">Custom Forms</h3>
+<p>A powerful form builder with:</p>
+<ul>
+<li>Drag-and-drop form creation</li>
+<li>Conditional logic — show or hide fields based on previous
+answers</li>
+<li>Field mapping — automatically populate member or organisation
+records from form submissions</li>
+<li>Unique value validation — ensure submitted data doesn’t conflict
+with existing records</li>
+<li>Submission notifications and acknowledgement emails</li>
+<li>Embeddable forms — deploy forms on external websites while
+maintaining data flow back to iConnect</li>
+</ul>
+<h3 id="dynamic-page-builder-1">Dynamic Page Builder</h3>
+<p>Create custom pages within the platform using a visual editor:</p>
+<ul>
+<li>Component-based design with reusable elements</li>
+<li>Typography and button styling controls</li>
+<li>Template library for common page layouts</li>
+<li>No technical knowledge required</li>
+</ul>
+<hr />
+<h2 id="security-data-protection">16. Security &amp; Data
+Protection</h2>
+<h3 id="data-isolation">Data Isolation</h3>
+<p>Security is fundamental to iConnect’s architecture:</p>
+<ul>
+<li><strong>Tenant Isolation:</strong> Every database query is scoped to
+the authenticated tenant. There is no mechanism by which one tenant’s
+data can be accessed by another</li>
+<li><strong>Organisation Scoping:</strong> Within a tenant, data can be
+further isolated to specific organisations where appropriate</li>
+<li><strong>Enforced Boundaries:</strong> All data access passes through
+a centralised security layer that enforces tenant boundaries before any
+information is returned</li>
+</ul>
+<h3 id="authentication-security">Authentication Security</h3>
+<ul>
+<li><strong>Encrypted Passwords:</strong> All passwords are protected
+using industry-standard, one-way encryption — they cannot be read or
+reversed, even by system administrators</li>
+<li><strong>Tamper-Proof Sessions:</strong> User sessions are
+cryptographically secured to prevent unauthorised access or
+manipulation</li>
+<li><strong>Account Lockout:</strong> Automatic lockout after repeated
+failed login attempts, protecting against brute-force attacks</li>
+<li><strong>Secure Token Systems:</strong> Time-limited, single-use
+tokens for password resets, email verification, and payment links — each
+expires automatically after a defined period</li>
+<li><strong>Seamless Portal Navigation:</strong> Secure session
+management enables seamless movement between the administrative
+dashboard and member portal without re-authentication</li>
+</ul>
+<h3 id="payment-security">Payment Security</h3>
+<ul>
+<li><strong>PCI Compliance:</strong> All payment processing is handled
+through Stripe, a PCI DSS Level 1 certified provider. No card details
+are ever stored on iConnect’s servers</li>
+<li><strong>Secure Payment Links:</strong> Fee payment URLs use
+cryptographically generated tokens with automatic expiry</li>
+<li><strong>Token Lifecycle Tracking:</strong> Every payment token is
+tracked through its full lifecycle (pending, submitted, paid, expired,
+cancelled)</li>
+</ul>
+<h3 id="infrastructure-security">Infrastructure Security</h3>
+<ul>
+<li><strong>HTTPS Everywhere:</strong> All communications between users
+and the platform are encrypted in transit</li>
+<li><strong>Secure Credential Storage:</strong> All sensitive
+credentials, API keys, and service tokens are stored in encrypted vaults
+— never in plain text or application code</li>
+<li><strong>Credential Isolation:</strong> Each tenant’s third-party
+service credentials (e.g., payment provider, accounting software) are
+stored and used independently</li>
+</ul>
+<h3 id="access-control">Access Control</h3>
+<ul>
+<li><strong>Role-Based Permissions:</strong> Fine-grained control over
+which users can access which features and data</li>
+<li><strong>Field-Level Security:</strong> Sensitive data fields can be
+restricted to specific roles</li>
+<li><strong>Audit Trails:</strong> Key actions (moderation, overrides,
+financial operations) are logged with timestamps and user
+attribution</li>
+<li><strong>Protected System Roles:</strong> Critical system roles are
+locked against modification to prevent accidental security
+degradation</li>
+</ul>
+<hr />
+<h2 id="integration-ecosystem">17. Integration Ecosystem</h2>
+<p>iConnect connects seamlessly with industry-leading third-party
+services:</p>
+<h3 id="financial-accounting">Financial &amp; Accounting</h3>
+<table>
+<colgroup>
+<col style="width: 59%" />
+<col style="width: 40%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Integration</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Stripe</strong></td>
+<td>Secure online payment processing for membership fees, event tickets,
+and donations</td>
+</tr>
+<tr class="even">
+<td><strong>Xero</strong></td>
+<td>Automated invoice generation, with purchase order references and VAT
+handling</td>
+</tr>
+</tbody>
+</table>
+<h3 id="communication">Communication</h3>
+<table>
+<colgroup>
+<col style="width: 59%" />
+<col style="width: 40%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Integration</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Microsoft Outlook</strong></td>
+<td>Send emails through your organisation’s existing Outlook account,
+preserving your email identity</td>
+</tr>
+<tr class="even">
+<td><strong>Mailgun</strong></td>
+<td>High-deliverability transactional email with automated
+tenant-specific domain provisioning</td>
+</tr>
+<tr class="odd">
+<td><strong>Zoho Campaigns</strong></td>
+<td>Synchronise member communication preferences with your email
+marketing platform</td>
+</tr>
+</tbody>
+</table>
+<h3 id="collaboration-video">Collaboration &amp; Video</h3>
+<table>
+<thead>
+<tr class="header">
+<th>Integration</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Zoom</strong></td>
+<td>Virtual event hosting with automatic timezone handling</td>
+</tr>
+</tbody>
+</table>
+<h3 id="infrastructure">Infrastructure</h3>
+<p>The platform leverages enterprise-grade cloud services for:</p>
+<ul>
+<li><strong>Database Hosting:</strong> Managed, enterprise-grade
+relational database with automated backups and real-time
+capabilities</li>
+<li><strong>File Storage:</strong> Secure, scalable cloud storage for
+documents, images, and uploaded files</li>
+<li><strong>Global Deployment:</strong> Edge-network hosting for fast,
+reliable access from anywhere in the world</li>
+</ul>
+<h3 id="integration-philosophy">Integration Philosophy</h3>
+<p>All integrations are designed with the following principles:</p>
+<ul>
+<li><strong>Credential Isolation:</strong> Each tenant’s integration
+credentials are stored and used independently</li>
+<li><strong>Graceful Degradation:</strong> If an external service is
+temporarily unavailable, the platform continues to operate and queues
+actions for retry</li>
+<li><strong>Minimal Data Exposure:</strong> Only the data necessary for
+each integration is shared with third-party services</li>
+<li><strong>Audit Logging:</strong> All integration actions are logged
+for transparency and troubleshooting</li>
+</ul>
+<hr />
+<h2 id="deployment-reliability-scalability">18. Deployment, Reliability
+&amp; Scalability</h2>
+<h3 id="cloud-native-deployment">Cloud-Native Deployment</h3>
+<p>iConnect is hosted on globally distributed cloud infrastructure:</p>
+<ul>
+<li><strong>Global Availability:</strong> The platform is served from
+multiple locations worldwide, ensuring fast load times regardless of the
+user’s location</li>
+<li><strong>Automatic Scaling:</strong> Infrastructure scales
+automatically to handle peak loads without manual intervention</li>
+<li><strong>Zero-Downtime Updates:</strong> Platform updates are
+deployed without service interruption</li>
+</ul>
+<h3 id="domain-architecture">Domain Architecture</h3>
+<p>Each tenant operates under their own branded subdomain:</p>
+<ul>
+<li><strong>Admin Portal:</strong> Accessible via the primary platform
+domain for tenant management</li>
+<li><strong>Member Portal:</strong> Each tenant receives a dedicated
+subdomain for their member-facing portal (e.g.,
+<code>yourorganisation.example.com</code>)</li>
+<li><strong>Custom Domains:</strong> Support for custom domain mapping
+where required</li>
+<li><strong>Automatic Routing:</strong> The platform automatically
+identifies which tenant a user belongs to based on the domain they
+access, ensuring seamless, branded experiences</li>
+</ul>
+<h3 id="reliability">Reliability</h3>
+<ul>
+<li><strong>Managed Database:</strong> Enterprise-grade database with
+automated backups and point-in-time recovery</li>
+<li><strong>Health Monitoring:</strong> Automated health checks ensure
+the platform is continuously available</li>
+<li><strong>Independent Scaling:</strong> Each functional area of the
+platform scales independently, preventing load in one area from
+affecting others</li>
+<li><strong>Scheduled Task Processing:</strong> Automated tasks (such as
+membership renewals and reminders) run on reliable, managed
+infrastructure</li>
+</ul>
+<h3 id="data-backup-recovery">Data Backup &amp; Recovery</h3>
+<ul>
+<li>Automated daily database backups</li>
+<li>Point-in-time recovery capability</li>
+<li>Geographically distributed storage for resilience</li>
+</ul>
+<hr />
+<h2 id="summary-next-steps">19. Summary &amp; Next Steps</h2>
+<h3 id="platform-summary">Platform Summary</h3>
+<p>iConnect is a comprehensive, secure, and scalable platform designed
+to meet the complex needs of modern membership organisations. By
+consolidating member management, financial operations, communications,
+events, content publishing, and compliance into a single platform,
+iConnect eliminates the inefficiencies of managing multiple disconnected
+systems.</p>
+<p><strong>Core Strengths:</strong></p>
+<ul>
+<li><strong>Purpose-Built for Membership Bodies</strong> — Every feature
+is designed with the specific challenges of membership management in
+mind</li>
+<li><strong>Enterprise-Grade Security</strong> — Multi-layered security
+with tenant isolation, encrypted credentials, role-based access, and
+PCI-compliant payment processing</li>
+<li><strong>Intelligent Automation</strong> — Reduce administrative
+burden through configurable workflows that handle renewals, onboarding,
+communications, and compliance</li>
+<li><strong>Financial Sophistication</strong> — Flexible pricing models,
+automated invoicing, and direct accounting integration streamline
+revenue management</li>
+<li><strong>Scalable Architecture</strong> — Cloud-native design ensures
+the platform grows with your organisation</li>
+<li><strong>Integration-Ready</strong> — Native connections to Stripe,
+Xero, Outlook, Mailgun, Zoom, and more</li>
+</ul>
+<h3 id="next-steps">Next Steps</h3>
+<p>We would welcome the opportunity to discuss how iConnect can support
+your organisation’s specific requirements. Suggested next steps
+include:</p>
+<ol type="1">
+<li><strong>Discovery Call</strong> — A conversation to understand your
+current processes, pain points, and objectives</li>
+<li><strong>Platform Demonstration</strong> — A guided walkthrough of
+the platform tailored to your use cases</li>
+<li><strong>Pilot Programme</strong> — A structured trial period to
+evaluate the platform with real data and workflows</li>
+<li><strong>Implementation Plan</strong> — A detailed onboarding and
+migration plan designed around your timeline</li>
+</ol>
+<hr />
+<p><em>For further information, please contact the iConnect
+team.</em></p>
+<p><em>This document is provided for evaluation purposes and is
+classified as Commercial in Confidence. It should not be distributed
+without prior consent.</em></p>
+<hr />
+<p><strong>iConnect Platform — Technology &amp; Capability
+Overview</strong> <em>Version 1.0 — February 2026</em></p>
+</body>
+</html>

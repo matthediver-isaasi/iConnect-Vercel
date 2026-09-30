@@ -1,14 +1,22 @@
 
-import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import { base44, getActiveTenantId, subscribeToActiveTenantId } from "@/api/base44Client";
+import { isTenantUuid, publicClient } from "@/api/publicClient";
+import { adminFetch } from "@/lib/adminFetch";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import RepeatableRowOptionsEditor from "@/components/forms/RepeatableRowOptionsEditor";
+import RepeatableRowVisibilityEditor from "@/components/forms/RepeatableRowVisibilityEditor";
+import ProtectedFormActionDialog from "@/components/forms/ProtectedFormActionDialog";
+import ApplicantContinuationLinkGenerator from "@/components/forms/ApplicantContinuationLinkGenerator";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, Plus, Trash2, GripVertical, Save, ArrowLeft } from "lucide-react";
+import { Loader2, Plus, Trash2, GripVertical, Save, ArrowLeft, FileText, ChevronDown, ChevronUp, Edit2, X, Eye, EyeOff, Lock, Unlock, UserCheck, UserMinus, Users, UserPlus, Mail, Copy, Code, ExternalLink, Filter, FileSignature, AlertCircle, Paperclip, ImageIcon, Upload } from "lucide-react";
+import { uploadFileWithProgress, UPLOAD_TYPES } from '@/lib/tenantUpload';
 import {
   Select,
   SelectContent,
@@ -17,48 +25,10815 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { FLAG_COLOR_OPTIONS, getFlagColorClasses } from "@/lib/flagColors";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { createPageUrl } from "@/utils";
 import { Link } from "react-router-dom";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { Columns2, Columns3, ArrowRight, Settings2, Wand2, Building2, CreditCard } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Check, ChevronsUpDown } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { isProtectedDepartmentForm } from "@shared/protectedDepartmentForm.js";
+import { duplicateFormField } from "../../../shared/formFieldDuplication.js";
+import { protectedFormUpdateHeaders } from "@/lib/protectedFormActions";
+import { formRoleValidationError, unavailableRoleLabel } from "@/lib/formRoleValidationError";
+import ReactQuill from 'react-quill';
+import 'react-quill/dist/quill.snow.css';
+import { COUNTRIES } from '@/data/countries';
+import { TimezoneAwareDateTimeInput } from "@/components/events/TimezoneAwareDateTimeInput";
+import TimezoneSelect from "@/components/TimezoneSelect";
+import FormOwnersSelector from "@/components/forms/FormOwnersSelector";
+import { SCORE_CONDITION_OPERATORS } from "@/lib/surveyConditions";
+import { hasMembershipStructureAction, findUnrevealedHidden } from "@/lib/formHiddenReachability";
+import ScoreField from "@/components/forms/ScoreField";
+import { validateScoreFieldConfig, validateSurveyForPublish, getScoreRange, getScoreWeight } from "../../../api/_lib/surveyScoring.js";
+import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
+import SurveyEventAssignmentsPanel from "@/components/surveys/SurveyEventAssignmentsPanel";
+import {
+  getEligibleRelationshipParents,
+  getRelationshipDependentFields,
+  isRelationshipCompatibleWithParent,
+  normalizeEligibleRelationships,
+  formBuilderRelationshipLabel,
+  relationshipFieldConfig,
+  compatibleRowSourceFilterPairs,
+  rowSourceInputDomain,
+  rowSourceObjectFieldDomain,
+  validateRowSourceConfiguration,
+  validateRowSourceEditorConfiguration,
+  eligibleRelationshipDiscoveryQueryKey,
+} from "@/lib/formRelationshipDropdown";
+import {
+  CONDITIONAL_COPY_MODE_DISPLAY_NAME,
+  CONDITIONAL_COPY_MODE_STORED_VALUE,
+  displayNameCopyConfigurationError,
+  isSupportedDisplayNameCopySource,
+  isSupportedDisplayNameCopyTarget,
+} from "@/lib/formConditionalCopyMode";
+import {
+  relationshipEndpointDescriptor,
+  relationshipEndpointLabel,
+  structuredEndpointReferenceValue,
+  structuredRelationshipEndpointOptions,
+} from "@/lib/structuredRelationshipActions";
+import { applyStructuredMappingSourceSelection } from "@/lib/structuredActionMappings";
+import {
+  configuredOrganizationFilterOptions,
+  mergeOrganizationFilterOptions,
+} from "@/lib/formConditionalFilters";
+import {
+  FORM_NOT_LISTED_VALUE,
+  formNotListedChoiceLabel,
+  prependFormNotListedOption,
+  supportsFormNotListedChoice,
+} from "../../../shared/formNotListedChoice.js";
+import {
+  relationshipSelectionMode,
+  RELATIONSHIP_SELECTION_MULTIPLE,
+  RELATIONSHIP_SELECTION_SINGLE,
+} from "../../../shared/formRelationshipSelection.js";
+import {
+  getFormLogicConditionOptions,
+  isOnlyFormNotListedConditionOption,
+} from "@/lib/formLogicConditions";
+import {
+  FORM_NO_RELATIONSHIP_VALUE,
+  formNoRelationshipLabel,
+} from "../../../shared/formNoRelationshipChoice.js";
+import {
+  RESOLVE_RECORD_REFERENCE_OPERATION,
+  RESOLVE_RECORD_REFERENCES_OPERATION,
+  compatibleRecordReferencePickers,
+  NOT_LISTED_POLICY_INCLUDE,
+  NOT_LISTED_POLICY_SKIP,
+  notListedPolicy,
+  recordReferenceConfigurationWarning,
+  withoutNotListedPolicy,
+  withNotListedPolicy,
+} from "../../../shared/formRecordReferenceResolver.js";
+import {
+  formRoleFieldOptions,
+  isFormRoleMappingField,
+} from "../../../api/_lib/formMemberRoleAssignment.js";
+import { isEligibleFormFieldPrefillSource, validateFormFieldPrefillConfig } from "@/lib/formFieldPrefill";
+import {
+  FORM_MAPPING_FALLBACK_VERSION,
+  isExplicitFallbackMapping,
+  mappingTargetKey,
+  validateExplicitFallbackGroups,
+} from "../../../api/_lib/formMappingFallbacks.js";
+import {
+  isCrmNoteSourceField,
+  normalizePipelineMappingEntities,
+} from "../../../shared/formCrmNotes.js";
+import {
+  STRIPE_ADDRESS_SOURCES,
+  stripeAddressDestinationOptions,
+  validateStripeAddressMappings,
+} from "../../../shared/formStripeAddressMappings.js";
+import {
+  isRepeatableRowField,
+  normalizeRepeatableRowField,
+  repeatableRowChildren,
+  repeatableRowAddLabelEditorValue,
+  supportsRepeatableRowStaticOptions,
+  REPEATABLE_ROW_CHILD_TYPES,
+  REPEATABLE_ROW_DEPENDENCY_TYPES,
+  REPEATABLE_ROW_EXCLUSION_TYPES,
+  REPEATABLE_ROW_LAYOUT_CARDS,
+  REPEATABLE_ROW_LAYOUT_SPREADSHEET,
+  REPEATABLE_ROW_SCHEMA_VERSION,
+  repeatableRowFieldConfigUpdate,
+  repeatableExclusionSourceFields,
+  repeatableEmptyAvailabilitySupport,
+  validateRepeatableRowVisibilityConfiguration,
+} from "../../../shared/formRepeatableRows.js";
+import { tomorrowUtcDate } from "../../../shared/formFutureDates.js";
+import { repeatableDateHelp } from "../../../shared/formRepeatableDates.js";
+import { normalizeFormWidth } from "../../../shared/formWidth.js";
+import {
+  assessFormMutationAccess,
+  FORM_MUTATION_ACCESS_MODES,
+  supportsApplicantContinuationIssuance,
+  validateFormMutationAccessSave,
+} from "../../../shared/formMutationContract.js";
+import {
+  areFormTransitionFieldsCompatible,
+  isFormTransitionField,
+  normalizeFormTransitionMappings,
+} from "../../../shared/formOpenTransition.js";
+import {
+  ADDRESS_ENTRY_MODE_OPERATORS,
+  addressEntryModeSourceFields,
+  addressLookupVisibleComponents,
+  validateAddressEntryModeRule,
+  validateAddressLookupMappingComponent,
+} from "../../../shared/formAddressLookup.js";
 
-const FIELD_TYPES = [
-  { value: 'text', label: 'Text Input' },
+const BADGE_STYLE_DEFAULTS = {
+  background_color: '#ffffff',
+  border_color: '#e2e8f0',
+  accent_color: '#3b82f6',
+  width: 400,
+  height: 280,
+};
+
+const STANDARD_FIELD_TYPES = [
+  { value: 'text', label: 'Text (Single Line)' },
+  { value: 'textarea', label: 'Multi-line Text' },
   { value: 'email', label: 'Email' },
+  { value: 'url', label: 'Website URL' },
   { value: 'number', label: 'Number' },
   { value: 'tel', label: 'Phone' },
-  { value: 'textarea', label: 'Text Area' },
   { value: 'select', label: 'Dropdown' },
   { value: 'radio', label: 'Radio Buttons' },
   { value: 'checkbox', label: 'Checkboxes' },
+  { value: 'boolean', label: 'Boolean (Toggle)' },
+  { value: 'terms_conditions', label: 'Terms & Conditions' },
+  { value: 'list', label: 'List (User-Defined Values)' },
   { value: 'date', label: 'Date' },
   { value: 'time', label: 'Time' },
   { value: 'file', label: 'File Upload' },
+  { value: 'country', label: 'Country' },
+  { value: 'countries', label: 'Countries (Multi-Select)' },
+  { value: 'percentage', label: 'Percentage' },
+  { value: 'currency', label: 'Currency' },
+  { value: 'contact', label: 'Contact (Composite)' },
+  { value: 'address_lookup', label: 'UK Postcode Address Lookup' },
+  { value: 'grouped_question', label: 'Grouped Question' },
+  { value: 'repeatable_rows', label: 'Repeatable Rows' },
+  { value: 'instructions', label: 'Instructions (Display Only)' },
+  { value: 'image', label: 'Image (Display Only)' },
+  { value: 'image_buttons', label: 'Image Buttons' },
+  { value: 'signature', label: 'Signature' },
+];
+
+const PREPOPULATE_FIELD_TYPES = [
+  { value: 'organisation_dropdown', label: 'Organisation Dropdown' },
+  { value: 'organisation_group_dropdown', label: 'Organisation Group Dropdown' },
+  { value: 'relationship_dropdown', label: 'Relationship Dropdown' },
+  { value: 'category_multiselect', label: 'Category Multi-Select' },
+  { value: 'category_dropdown', label: 'Category Dropdown' },
+  { value: 'communication_preferences', label: 'Communication Preferences' },
+];
+
+const AUTO_FIELD_TYPES = [
   { value: 'user_name', label: 'User Name (Auto)' },
   { value: 'user_email', label: 'User Email (Auto)' },
-  { value: 'user_organization', label: 'User Organization (Auto)' },
+  { value: 'user_organization', label: 'User Organisation (Auto)' },
   { value: 'user_job_title', label: 'User Job Title (Auto)' },
 ];
 
+const PAYMENT_FIELD_TYPES = [
+  { value: 'membership_payment', label: 'Membership Payment' },
+  { value: 'payment', label: 'Payment' },
+];
+
+// Searchable combobox for picking the form's linked event. Type-ahead filters
+// events by title; the list arrives already alphabetised from the caller.
+function LinkedEventCombobox({ eventOptions, value, onChange, includesPastEvents }) {
+  const [open, setOpen] = useState(false);
+  const selected = eventOptions.find(ev => ev.id === value) || null;
+  const placeholder = includesPastEvents ? "Select an event..." : "Select an upcoming event...";
+  const emptyLabel = includesPastEvents ? "No events found" : "No upcoming events found";
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="w-full justify-between font-normal"
+          data-testid="select-related-event"
+        >
+          <span className={cn("truncate", !selected && "text-muted-foreground")}>
+            {selected
+              ? `${selected.title}${selected.start_date ? ` — ${new Date(selected.start_date).toLocaleDateString()}` : ''}`
+              : placeholder}
+          </span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+        <Command>
+          <CommandInput placeholder="Search events..." data-testid="input-related-event-search" />
+          <CommandList>
+            <CommandEmpty>{emptyLabel}</CommandEmpty>
+            {eventOptions.map(event => (
+              <CommandItem
+                key={event.id}
+                value={`${event.title || ''} ${event.id}`}
+                onSelect={() => {
+                  onChange(event.id === value ? null : event.id);
+                  setOpen(false);
+                }}
+                data-testid={`option-event-${event.id}`}
+              >
+                <Check className={cn("h-4 w-4", event.id === value ? "opacity-100" : "opacity-0")} />
+                <span className="truncate">
+                  {event.title}
+                  {event.start_date ? ` — ${new Date(event.start_date).toLocaleDateString()}` : ''}
+                </span>
+              </CommandItem>
+            ))}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function PolicyMultiSelect({ options, value = [], onChange, placeholder, testId }) {
+  const selected = new Set(value);
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button type="button" variant="outline" className="w-full justify-between font-normal" data-testid={testId}>
+          <span className={cn("truncate", value.length === 0 && "text-muted-foreground")}>
+            {value.length === 0
+              ? placeholder
+              : value.length === 1
+                ? options.find(option => option.value === value[0])?.label || "1 selected"
+                : `${value.length} selected`}
+          </span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+        <Command>
+          <CommandInput placeholder="Search…" />
+          <CommandList>
+            <CommandEmpty>No options found.</CommandEmpty>
+            {value.length > 0 && (
+              <CommandItem onSelect={() => onChange([])} data-testid={`${testId}-clear`}>
+                <X className="mr-2 h-4 w-4" /> Clear selection
+              </CommandItem>
+            )}
+            {options.map(option => (
+              <CommandItem
+                key={option.value}
+                value={`${option.label} ${option.value}`}
+                onSelect={() => onChange(selected.has(option.value)
+                  ? value.filter(item => item !== option.value)
+                  : [...value, option.value])}
+              >
+                <Check className={cn("mr-2 h-4 w-4", selected.has(option.value) ? "opacity-100" : "opacity-0")} />
+                {option.label}
+              </CommandItem>
+            ))}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function FormAccessPolicyEditor({ policy, onChange, groups, roles }) {
+  const rules = Array.isArray(policy?.group_rules) ? policy.group_rules : [];
+  const selectedRoleIds = Array.isArray(policy?.rbac_role_ids) ? policy.rbac_role_ids : [];
+  const groupOptions = groups.map(group => ({ value: group.id, label: group.name || "Unnamed group" }));
+  const roleOptions = roles.map(role => ({ value: role.id, label: role.name || "Unnamed role" }));
+  const usedGroups = new Set(rules.map(rule => rule.group_id));
+
+  const nextPolicy = (updates) => ({
+    version: 1,
+    group_rules: rules,
+    rbac_role_ids: selectedRoleIds,
+    operator: policy?.operator || "or",
+    ...updates,
+  });
+  const updateRule = (groupId, updates) => {
+    onChange(nextPolicy({
+      group_rules: rules.map(rule => rule.group_id === groupId ? { ...rule, ...updates } : rule)
+    }));
+  };
+  const addRule = (groupId) => {
+    if (!groupId || usedGroups.has(groupId)) return;
+    onChange(nextPolicy({
+      group_rules: [...rules, {
+        group_id: groupId,
+        role_names: [],
+      }],
+    }));
+  };
+
+  return (
+    <div className="mt-6 space-y-4 border-t border-slate-100 pt-5" data-testid="form-access-policy-editor">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <Label className="text-base font-medium">Form access policy</Label>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Restrict this form to active member groups, optionally matching a group role, tenant role, or both.
+            A viewer matches the group side when any configured group rule matches.
+          </p>
+        </div>
+        {(rules.length > 0 || selectedRoleIds.length > 0) && (
+          <Button type="button" variant="ghost" size="sm" onClick={() => onChange(null)} data-testid="button-clear-form-access-policy">
+            <X className="mr-1 h-4 w-4" /> Clear policy
+          </Button>
+        )}
+      </div>
+
+      {rules.map((rule, index) => {
+        const group = groups.find(item => item.id === rule.group_id);
+        const groupRoleOptions = (Array.isArray(group?.roles) ? group.roles : [])
+          .filter(Boolean)
+          .map(name => ({ value: name, label: name }));
+        return (
+          <div key={rule.group_id} className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4" data-testid={`form-access-rule-${index}`}>
+            <div className="flex items-center justify-between gap-2">
+              <p className="font-medium text-slate-800">{group?.name || "Unavailable group"}</p>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  const remainingRules = rules.filter(item => item.group_id !== rule.group_id);
+                  if (remainingRules.length === 0 && selectedRoleIds.length === 0) onChange(null);
+                  else onChange(nextPolicy({ group_rules: remainingRules }));
+                }}
+                aria-label={`Remove ${group?.name || "group"} rule`}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Group roles (optional)</Label>
+                <PolicyMultiSelect
+                  options={groupRoleOptions}
+                  value={rule.role_names || []}
+                  onChange={roleNames => updateRule(rule.group_id, { role_names: roleNames })}
+                  placeholder={groupRoleOptions.length ? "Any role in this group" : "This group has no roles"}
+                  testId={`select-access-group-roles-${index}`}
+                />
+              </div>
+            </div>
+          </div>
+        );
+      })}
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label className="text-xs">Add member group rule</Label>
+          <Select value="" onValueChange={addRule}>
+            <SelectTrigger data-testid="select-add-form-access-group">
+              <SelectValue placeholder="Add an active member group…" />
+            </SelectTrigger>
+            <SelectContent>
+              {groupOptions.filter(group => !usedGroups.has(group.value)).map(group => (
+                <SelectItem key={group.value} value={group.value}>{group.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {groups.length === 0 && <p className="text-sm text-muted-foreground">No active member groups are available.</p>}
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs">Tenant RBAC roles (optional)</Label>
+          <PolicyMultiSelect
+            options={roleOptions}
+            value={selectedRoleIds}
+            onChange={(roleIds) => {
+              if (rules.length === 0 && roleIds.length === 0) onChange(null);
+              else onChange(nextPolicy({ rbac_role_ids: roleIds }));
+            }}
+            placeholder="Select tenant roles…"
+            testId="select-access-rbac-roles"
+          />
+        </div>
+      </div>
+
+      {rules.length > 0 && selectedRoleIds.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3 rounded-md border border-slate-200 p-3">
+          <Label className="text-sm">Allow viewers who match</Label>
+          <Select
+            value={policy?.operator || "or"}
+            onValueChange={operator => onChange(nextPolicy({ operator }))}
+          >
+            <SelectTrigger className="w-48" data-testid="select-access-operator">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="and">Both group AND role</SelectItem>
+              <SelectItem value="or">Either group OR role</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Survey-only field types (Task #3330). Only offered when form_type === 'survey'.
+const SURVEY_FIELD_TYPES = [
+  { value: 'score', label: 'Score / Rating' },
+];
+
+const SCORE_STYLE_OPTIONS = [
+  { value: 'stars', label: 'Stars' },
+  { value: 'smileys', label: 'Smiley faces' },
+  { value: 'numbers', label: 'Numbered buttons' },
+  { value: 'descriptive', label: 'Descriptive buttons' },
+  { value: 'slider', label: 'Slider' },
+  { value: 'nps', label: 'NPS preset (0–10)' },
+];
+
+const FIELD_TYPES = [...STANDARD_FIELD_TYPES, ...PREPOPULATE_FIELD_TYPES, ...AUTO_FIELD_TYPES, ...PAYMENT_FIELD_TYPES, ...SURVEY_FIELD_TYPES];
+const REPEATABLE_DATE_PRECISION_OPTIONS = [
+  { value: 'day', label: 'Day, month and year' },
+  { value: 'month', label: 'Month and year' },
+  { value: 'year', label: 'Year only' },
+];
+const REPEATABLE_DATE_RESTRICTION_OPTIONS = [
+  { value: 'any', label: 'Any date' },
+  { value: 'future', label: 'Future dates only' },
+  { value: 'past', label: 'Past dates only (including current period)' },
+];
+const ADDRESS_LOOKUP_COMPONENTS = [
+  { value: 'line_1', label: 'Address line 1' },
+  { value: 'line_2', label: 'Address line 2' },
+  { value: 'line_3', label: 'Address line 3' },
+  { value: 'post_town', label: 'City / town' },
+  { value: 'county', label: 'County / region' },
+  { value: 'postcode', label: 'Postcode' },
+  { value: 'country', label: 'Country' },
+];
+const ADDRESS_LOOKUP_COMPONENT_VALUES = new Set(ADDRESS_LOOKUP_COMPONENTS.map(component => component.value));
+const addressLookupRequiredComponents = (field) => {
+  const visible = new Set(addressLookupVisibleComponents(field));
+  return [...new Set(Array.isArray(field?.required_components) ? field.required_components : [])]
+    .filter(component => visible.has(component) && ADDRESS_LOOKUP_COMPONENT_VALUES.has(component));
+};
+const addressLookupDefaults = {
+  label: 'Address',
+  placeholder: 'Enter a UK postcode',
+  visible_components: ADDRESS_LOOKUP_COMPONENTS.map(component => component.value),
+  required_components: ['line_1', 'post_town', 'postcode'],
+  manual_entry: true,
+};
+const relationshipSelectionKey = (relationship) => `${relationship.id}:${relationship.relationship_parent_side || relationship.organization_side || relationship.side || 'default'}`;
+
+const getFieldTypeCategory = (fieldType) => {
+  if (STANDARD_FIELD_TYPES.find(f => f.value === fieldType)) return 'standard';
+  if (PREPOPULATE_FIELD_TYPES.find(f => f.value === fieldType)) return 'prepopulate';
+  if (AUTO_FIELD_TYPES.find(f => f.value === fieldType)) return 'auto';
+  if (PAYMENT_FIELD_TYPES.find(f => f.value === fieldType)) return 'payment';
+  if (SURVEY_FIELD_TYPES.find(f => f.value === fieldType)) return 'survey';
+  return 'standard';
+};
+
+const TRANSFORMATIONS = [
+  { value: 'none', label: 'No transformation', description: 'Use value as-is' },
+  { value: 'trim', label: 'Trim whitespace', description: 'Remove leading/trailing spaces' },
+  { value: 'uppercase', label: 'UPPERCASE', description: 'Convert to uppercase' },
+  { value: 'lowercase', label: 'lowercase', description: 'Convert to lowercase' },
+  { value: 'titlecase', label: 'Title Case', description: 'Capitalize first letter of each word' },
+  { value: 'extract_domain', label: 'Extract domain', description: 'Get domain from a website URL or email' },
+  { value: 'extract_username', label: 'Extract username', description: 'Get username from email (before @)' },
+  { value: 'first_word', label: 'First word', description: 'Extract first word only' },
+  { value: 'last_word', label: 'Last word', description: 'Extract last word only' },
+  { value: 'remove_spaces', label: 'Remove spaces', description: 'Strip all spaces' },
+  { value: 'numbers_only', label: 'Numbers only', description: 'Keep only numeric characters' },
+  { value: 'current_date', label: 'Current date', description: 'Use current date (ignores source field)' },
+];
+
+const MEMBER_CORE_FIELDS = [
+  { value: 'email', label: 'Email' },
+  { value: 'first_name', label: 'First Name' },
+  { value: 'last_name', label: 'Last Name' },
+  { value: 'full_name', label: 'Full Name' },
+  { value: 'phone', label: 'Phone' },
+  { value: 'mobile', label: 'Mobile' },
+  { value: 'landline', label: 'Landline' },
+  { value: 'job_title', label: 'Job Title' },
+  { value: 'organization_id', label: 'Organisation' },
+  { value: 'organization_group_id', label: 'Organisation Group' },
+  { value: 'show_in_directory', label: 'Show in Member Directory' },
+];
+
+export function MemberRoleAssignmentEditor({ member, fields, roles, onChange, memberIndex }) {
+  const assignment = member.role_assignment;
+  const mode = assignment?.mode === 'from_field' ? 'from_field' : 'fixed';
+  const eligibleFields = fields.filter(isFormRoleMappingField);
+  const sourceField = eligibleFields.find(field => field.id === assignment?.source_field_id) || null;
+  const sourceOptions = sourceField ? formRoleFieldOptions(sourceField) : [];
+  const valueMap = assignment?.value_to_role_id && typeof assignment.value_to_role_id === 'object'
+    ? assignment.value_to_role_id
+    : {};
+  const availableRoleIds = new Set(roles.map(role => role.id));
+  const fixedRoleUnavailable = mode === 'fixed'
+    && member.role_id
+    && !['__clear__', '__keep__'].includes(member.role_id)
+    && !availableRoleIds.has(member.role_id);
+  const fallbackRoleUnavailable = assignment?.fallback === 'fixed'
+    && assignment?.fallback_role_id
+    && !availableRoleIds.has(assignment.fallback_role_id);
+
+  const updateAssignment = (updates) => {
+    onChange({
+      ...member,
+      role_assignment: {
+        mode: 'from_field',
+        source_field_id: assignment?.source_field_id || '',
+        value_to_role_id: valueMap,
+        fallback: assignment?.fallback || 'default',
+        fallback_role_id: assignment?.fallback_role_id || null,
+        ...updates,
+      },
+    });
+  };
+
+  return (
+    <div className="mb-4 rounded-md border border-slate-200 bg-white p-3 space-y-3" data-testid={`member-role-assignment-${memberIndex}`}>
+      <div className="grid gap-3 md:grid-cols-2">
+        <div className="space-y-1">
+          <Label className="text-xs">Role assignment</Label>
+          <Select
+            value={mode}
+            onValueChange={(nextMode) => {
+              if (nextMode === 'fixed') {
+                onChange({ ...member, role_assignment: { mode: 'fixed' } });
+                return;
+              }
+              const firstField = eligibleFields[0];
+              onChange({
+                ...member,
+                role_assignment: {
+                  mode: 'from_field',
+                  source_field_id: firstField?.id || '',
+                  value_to_role_id: {},
+                  fallback: 'default',
+                  fallback_role_id: null,
+                },
+              });
+            }}
+          >
+            <SelectTrigger className="h-9" data-testid={`select-member-role-mode-${memberIndex}`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="fixed">Use one fixed role</SelectItem>
+              <SelectItem value="from_field">Choose role from a form answer</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {mode === 'fixed' ? (
+          <div className="space-y-1">
+            <Label className="text-xs">Fixed role</Label>
+            <Select
+              value={
+                member.role_id === "__clear__" ? "clear"
+                  : (member.role_id === "__keep__" || !member.role_id) ? "keep"
+                  : member.role_id
+              }
+              onValueChange={(value) => onChange({
+                ...member,
+                role_id: value === "keep" ? null : (value === "clear" ? "__clear__" : value),
+              })}
+            >
+              <SelectTrigger className="h-9" data-testid={`select-member-role-${memberIndex}`}>
+                <SelectValue placeholder="Select role..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="keep">-- Don't change role --</SelectItem>
+                <SelectItem value="clear" className="text-warning">Clear role (set to none)</SelectItem>
+                {fixedRoleUnavailable && (
+                  <SelectItem value={member.role_id} className="text-warning">
+                    {unavailableRoleLabel(member.role_id)}
+                  </SelectItem>
+                )}
+                {roles.map(role => (
+                  <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ) : (
+          <div className="space-y-1">
+            <Label className="text-xs">Answer field</Label>
+            <Select
+              value={assignment?.source_field_id || undefined}
+              onValueChange={(source_field_id) => updateAssignment({
+                source_field_id,
+                value_to_role_id: {},
+              })}
+            >
+              <SelectTrigger className="h-9" data-testid={`select-member-role-field-${memberIndex}`}>
+                <SelectValue placeholder="Select a dropdown or radio field..." />
+              </SelectTrigger>
+              <SelectContent>
+                {eligibleFields.map(field => (
+                  <SelectItem key={field.id} value={field.id}>{field.label || field.type}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {eligibleFields.length === 0 && (
+              <p className="text-xs text-warning">
+                Add a Dropdown or Radio Buttons field with options before using answer-driven roles.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {mode === 'from_field' && sourceField && (
+        <>
+          <div className="space-y-2">
+            <Label className="text-xs">Answer-to-role mapping</Label>
+            {sourceOptions.map((option) => {
+              const isMapped = Object.prototype.hasOwnProperty.call(valueMap, option.value);
+              const mappedRole = isMapped
+                ? (valueMap[option.value] === null ? '__none__' : valueMap[option.value])
+                : '__unmapped__';
+              const mappedRoleUnavailable = isMapped
+                && typeof valueMap[option.value] === 'string'
+                && !availableRoleIds.has(valueMap[option.value]);
+              return (
+                <div key={option.value} className="grid items-center gap-2 sm:grid-cols-[minmax(0,1fr)_24px_minmax(0,1fr)]">
+                  <div className="truncate rounded border bg-slate-50 px-3 py-2 text-sm">{option.label}</div>
+                  <ArrowRight className="mx-auto h-4 w-4 text-slate-400" />
+                  <Select
+                    value={mappedRole}
+                    onValueChange={(roleId) => {
+                      const nextMap = { ...valueMap };
+                      if (roleId === '__unmapped__') delete nextMap[option.value];
+                      else nextMap[option.value] = roleId === '__none__' ? null : roleId;
+                      updateAssignment({ value_to_role_id: nextMap });
+                    }}
+                  >
+                    <SelectTrigger className="h-9" data-testid={`select-member-role-map-${memberIndex}-${option.value}`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__unmapped__">Use fallback</SelectItem>
+                      <SelectItem value="__none__">No role</SelectItem>
+                      {mappedRoleUnavailable && (
+                        <SelectItem value={valueMap[option.value]} className="text-warning">
+                          {unavailableRoleLabel(valueMap[option.value])}
+                        </SelectItem>
+                      )}
+                      {roles.map(role => (
+                        <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="grid gap-3 border-t border-slate-100 pt-3 md:grid-cols-2">
+            <div className="space-y-1">
+              <Label className="text-xs">Blank or unmapped answers</Label>
+              <Select
+                value={assignment?.fallback || 'default'}
+                onValueChange={(fallback) => updateAssignment({
+                  fallback,
+                  fallback_role_id: fallback === 'fixed' ? assignment?.fallback_role_id || null : null,
+                })}
+              >
+                <SelectTrigger className="h-9" data-testid={`select-member-role-fallback-${memberIndex}`}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="default">Use existing form / tenant default</SelectItem>
+                  <SelectItem value="none">Assign no role</SelectItem>
+                  <SelectItem value="fixed">Use a fixed fallback role</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {assignment?.fallback === 'fixed' && (
+              <div className="space-y-1">
+                <Label className="text-xs">Fallback role</Label>
+                <Select
+                  value={assignment?.fallback_role_id || undefined}
+                  onValueChange={(fallback_role_id) => updateAssignment({ fallback_role_id })}
+                >
+                  <SelectTrigger className="h-9" data-testid={`select-member-role-fallback-role-${memberIndex}`}>
+                    <SelectValue placeholder="Select fallback role..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {fallbackRoleUnavailable && (
+                      <SelectItem value={assignment.fallback_role_id} className="text-warning">
+                        {unavailableRoleLabel(assignment.fallback_role_id)}
+                      </SelectItem>
+                    )}
+                    {roles.map(role => (
+                      <SelectItem key={role.id} value={role.id}>{role.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+          <p className="text-xs text-slate-500">
+            Submitted answers are matched to this saved table; the answer itself is never treated as a role ID.
+            Answer-driven roles are applied only when a new member is created.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Canonical list of organisation core columns safe to expose for prefill.
+// Cross-referenced with OrganisationDetailView.jsx editable formData, the
+// WHITELISTED_ORG_FIELDS array in api/public/form/prefill-booking.js, and
+// the organization-table migrations (e.g. 20260410_add_tags_to_member_and_organization.sql).
+// Keep this list in sync with ORG_PREFILL_FIELDS below and WHITELISTED_ORG_FIELDS in the API.
+const ORG_CORE_FIELDS = [
+  { value: 'name', label: 'Organisation Name' },
+  { value: 'description', label: 'Description' },
+  { value: 'logo_url', label: 'Logo' },
+  { value: 'invoicing_email', label: 'Invoicing Email' },
+  { value: 'invoicing_address', label: 'Invoicing Address' },
+  { value: 'phone', label: 'Phone' },
+  { value: 'website_url', label: 'Website URL' },
+  { value: 'tags', label: 'Tags' },
+];
+const ORG_GROUP_PREFILL_FIELDS = [
+  { value: 'name', label: 'Group Name' },
+  { value: 'description', label: 'Description' },
+  { value: 'logo_url', label: 'Logo' },
+];
+
+const STRUCTURED_ACTIONS_VERSION = 1;
+const STRUCTURED_ACTION_TARGETS = [
+  { value: 'member', label: 'Member' },
+  { value: 'organization', label: 'Organisation' },
+  { value: 'organization_group', label: 'Organisation Group' },
+  { value: 'custom_object', label: 'Custom Object' },
+];
+const STRUCTURED_CORE_FIELDS = {
+  member: MEMBER_CORE_FIELDS.filter(field => !['full_name', 'phone'].includes(field.value)),
+  organization: ORG_CORE_FIELDS,
+  organization_group: [
+    { value: 'name', label: 'Group name' },
+    { value: 'description', label: 'Description' },
+  ],
+};
+const NON_MAPPING_FORM_FIELD_TYPES = new Set([
+  'instructions', 'image', 'signature', 'file', 'payment', 'membership_payment',
+  'repeatable_rows', 'repeatable_row', 'repeatable_grid',
+]);
+const NON_MAPPING_TARGET_TYPES = new Set(['file']);
+const RECORD_REFERENCE_SOURCE_KINDS = {
+  member_dropdown: 'member',
+  organisation_dropdown: 'organization',
+  organization_dropdown: 'organization',
+  organisation_group_dropdown: 'organization_group',
+  organization_group_dropdown: 'organization_group',
+  relationship_dropdown: 'custom_object',
+  custom_object_relationship: 'custom_object',
+};
+const mappingTypeFamily = (field) => {
+  const type = String(field?.type || field?.field_type || '').toLowerCase();
+  if (RECORD_REFERENCE_SOURCE_KINDS[type]) return `reference:${RECORD_REFERENCE_SOURCE_KINDS[type]}`;
+  if (['text', 'textarea', 'url', 'tel', 'phone', 'contact'].includes(type)) return 'text';
+  if (type === 'email') return 'email';
+  if (['number', 'percentage', 'currency', 'decimal'].includes(type)) return 'number';
+  if (['date', 'time'].includes(type)) return type;
+  if (type === 'boolean') return 'boolean';
+  if (['checkbox', 'checkboxes', 'list', 'multiselect', 'countries', 'category_multiselect'].includes(type)) return 'list';
+  return 'choice';
+};
+const isCompatibleStructuredMapping = (source, target) => {
+  if (!source || !target) return false;
+  const sourceFamily = mappingTypeFamily(source);
+  const targetFamily = target?.reference_kind ? `reference:${target.reference_kind}` : mappingTypeFamily(target);
+  if (sourceFamily.startsWith('reference:') || targetFamily.startsWith('reference:')) return sourceFamily === targetFamily;
+  if (targetFamily === 'text') return ['text', 'email', 'choice'].includes(sourceFamily);
+  if (targetFamily === 'choice') return ['text', 'email', 'choice'].includes(sourceFamily);
+  return sourceFamily === targetFamily;
+};
+const structuredMappingSource = (field, mapping) => {
+  if (field?.type !== 'address_lookup') return field;
+  const component = mapping?.source_component;
+  return addressLookupVisibleComponents(field).includes(component)
+    ? { ...field, type: 'text' }
+    : null;
+};
+const structuredMappingSourceLabel = (field, mapping) => {
+  const component = ADDRESS_LOOKUP_COMPONENTS.find(item => item.value === mapping?.source_component);
+  return component ? `${field.label || field.id} — ${component.label}` : (field.label || field.id);
+};
+const resolvedRecordLabelOptionValue = (source) => {
+  if (source?.type === 'primary_pipeline_output' && source.kind) return `label:primary:${source.kind}`;
+  if (source?.type === 'action_output' && source.action_id) return `label:action:${source.action_id}`;
+  return '';
+};
+const isResolvedRecordLabelsMapping = (mapping) => mapping?.source_type === 'resolved_record_labels';
+
+function resolvedRecordLabelOptions(actions, actionIndex, action, entityPipelines) {
+  const options = [];
+  if ((entityPipelines?.members || []).length) {
+    options.push({ value: 'label:primary:member', label: 'Resolved name: Primary Member', source: { type: 'primary_pipeline_output', kind: 'member' } });
+  }
+  if ((entityPipelines?.organisations || []).length) {
+    options.push({ value: 'label:primary:organization', label: 'Resolved name: Primary Organisation', source: { type: 'primary_pipeline_output', kind: 'organization' } });
+  }
+  for (const candidate of actions.slice(0, actionIndex)) {
+    if (candidate.operation === 'link_relationship' || candidate.operation === RESOLVE_RECORD_REFERENCES_OPERATION) continue;
+    if (candidate.source?.scope !== action.source?.scope) continue;
+    if (action.source?.scope === 'repeatable_row'
+      && candidate.source?.repeatable_field_id !== action.source?.repeatable_field_id) continue;
+    options.push({
+      value: `label:action:${candidate.id}`,
+      label: `Resolved name: ${candidate.label || candidate.id}`,
+      source: { type: 'action_output', action_id: candidate.id },
+    });
+  }
+  return options;
+}
+const structuredUpsertFields = (action, fields) => {
+  const kind = action?.target?.kind;
+  if (kind === 'member') return fields.filter(field => field.target_type === 'core' && field.value === 'email');
+  if (kind === 'organization') return fields.filter(field => field.target_type === 'core' && field.value === 'name');
+  if (kind === 'organization_group') return fields.filter(field => field.target_type === 'core' && field.value === 'name');
+  if (kind === 'custom_object') {
+    const eligibleTypes = new Set(['text', 'email', 'url', 'number', 'decimal', 'date', 'dropdown', 'country']);
+    return fields.filter(field => field.target_type === 'custom'
+      && eligibleTypes.has(String(field.type || '').toLowerCase()));
+  }
+  return [];
+};
+
+const structuredActionSourceFields = (fields, action) => {
+  if (action?.source?.scope === 'repeatable_row') {
+    const container = (fields || []).find(field => field.id === action.source.repeatable_field_id);
+    return container ? repeatableRowChildren(container) : [];
+  }
+  return (fields || []).filter(field => !NON_MAPPING_FORM_FIELD_TYPES.has(field.type));
+};
+
+const structuredTargetFields = (action, customFields, customObjectFields) => {
+  const kind = action?.target?.kind;
+  if (kind === 'custom_object') {
+    return (customObjectFields[action?.target?.custom_object_id] || [])
+      .filter(field => field.is_active !== false && !NON_MAPPING_TARGET_TYPES.has(field.type || field.field_type))
+      .map(field => ({ value: field.id, label: field.label || field.name || field.key, type: field.type || field.field_type, required: field.is_required === true, target_type: 'custom' }));
+  }
+  const requiredCoreField = kind === 'member' ? 'email' : 'name';
+  const core = (STRUCTURED_CORE_FIELDS[kind] || []).map(field => ({
+    ...field,
+    required: field.value === requiredCoreField,
+    reference_kind: kind === 'member' && field.value === 'organization_id'
+      ? 'organization'
+      : kind === 'member' && field.value === 'organization_group_id'
+        ? 'organization_group'
+        : null,
+    target_type: 'core',
+  }));
+  const preferences = kind === 'member' || kind === 'organization' || kind === 'organization_group'
+    ? (customFields || []).filter(field => {
+        const scope = field.entity_scope || field.target_entity || field.entity_type;
+        return field.is_active !== false
+          && !NON_MAPPING_TARGET_TYPES.has(field.type || field.field_type)
+          && (scope === kind || (kind === 'member' && !scope)
+            || (kind === 'organization' && scope === 'organisation')
+            || (kind === 'organization_group' && scope === 'organisation_group'));
+      }).map(field => ({ value: field.id, label: field.label || field.name, type: field.type || field.field_type, required: field.is_required === true, target_type: 'custom' }))
+    : [];
+  return [...core, ...preferences];
+};
+
+const relationshipSupportsTarget = (definition, action) => {
+  if (!definition || definition.status !== 'active') return false;
+  const kind = action?.target?.kind;
+  const objectId = action?.target?.custom_object_id;
+  const endpoints = [
+    { kind: definition.source_kind, objectId: definition.source_custom_object_id },
+    { kind: definition.target_kind, objectId: definition.target_custom_object_id },
+  ];
+  return endpoints.some(endpoint => endpoint.kind === kind
+    && (kind !== 'custom_object' || endpoint.objectId === objectId));
+};
+const structuredFieldRecordDescriptor = (field) => {
+  const kind = RECORD_REFERENCE_SOURCE_KINDS[field?.type];
+  if (!kind) return null;
+  return {
+    kind: ['relationship_dropdown', 'custom_object_relationship'].includes(field.type)
+      ? (field.related_kind || 'custom_object')
+      : kind,
+    objectId: ['relationship_dropdown', 'custom_object_relationship'].includes(field.type)
+      ? (field.related_custom_object_id || field.custom_object_id || null)
+      : null,
+  };
+};
+const structuredRelationshipSide = (definition, action) => ['source', 'target'].find(side =>
+  definition?.[`${side}_kind`] === action?.target?.kind
+  && (action?.target?.kind !== 'custom_object'
+    || definition?.[`${side}_custom_object_id`] === action?.target?.custom_object_id));
+
+const pipelineRelatedRecordTarget = (entityKind, definition, field) => {
+  const primarySide = ['source', 'target'].find(side =>
+    definition?.[`${side}_kind`] === entityKind
+    && definition?.[`${side}_custom_object_id`] == null);
+  const relatedSide = primarySide === 'source' ? 'target' : primarySide === 'target' ? 'source' : null;
+  const descriptor = structuredFieldRecordDescriptor(field);
+  if (!relatedSide || !descriptor
+    || descriptor.kind !== definition?.[`${relatedSide}_kind`]
+    || (descriptor.kind === 'custom_object'
+      && String(descriptor.objectId || '') !== String(definition?.[`${relatedSide}_custom_object_id`] || ''))) {
+    return null;
+  }
+  return {
+    kind: descriptor.kind,
+    custom_object_id: descriptor.kind === 'custom_object' ? descriptor.objectId : null,
+  };
+};
+
+function pipelineRelatedRecordCreationError({
+  link,
+  entityKind,
+  fields,
+  relationshipDefinitions,
+  customFields,
+  customObjectFields,
+}) {
+  const sourceField = (fields || []).find(field => String(field?.id) === String(link?.source_field_id));
+  const policy = notListedPolicy(link, NOT_LISTED_POLICY_SKIP);
+  if (policy === NOT_LISTED_POLICY_SKIP) return '';
+  if (!formNotListedChoiceLabel(sourceField)) {
+    return 'This link is set to create entered values, but its submitted field no longer offers Not listed / Other. Re-enable Not listed / Other for that field or change this link to Skip.';
+  }
+  const definition = (relationshipDefinitions || []).find(item =>
+    String(item?.id) === String(link?.relationship_definition_id));
+  const target = pipelineRelatedRecordTarget(entityKind, definition, sourceField);
+  if (!target) return 'Select a compatible related-record field before configuring entered values.';
+  const targetFields = structuredTargetFields({ target }, customFields, customObjectFields);
+  const identity = link?.identity_mapping;
+  const identityTarget = targetFields.find(field =>
+    field.value === identity?.target_field_id && field.target_type === identity?.target_type);
+  if (!identityTarget || identity?.source_type !== 'not_listed_text'
+    || String(identity?.source_field_id) !== String(sourceField?.id)) {
+    return 'Map the entered Not listed / Other text to an active identity field.';
+  }
+  if (!['create', 'upsert'].includes(link?.not_listed_operation)) {
+    return 'Choose whether the entered value creates a record or reuses one by identity.';
+  }
+  if (link.not_listed_operation === 'upsert'
+    && !structuredUpsertFields({ target }, targetFields).some(field =>
+      field.value === identity.target_field_id && field.target_type === identity.target_type)) {
+    return 'Choose an identity field that can be used to reuse an existing record.';
+  }
+  if (link.not_listed_operation === 'upsert'
+    && String(link.uniqueness_field || '') !== String(identity.target_field_id || '')) {
+    return 'Use the entered-value identity field as the upsert uniqueness field.';
+  }
+  const companions = Array.isArray(link?.companion_mappings) ? link.companion_mappings : [];
+  const sourceFields = structuredActionSourceFields(fields, { source: { scope: 'top_level' } });
+  const mappedTargets = new Set([`${identity.target_type}:${identity.target_field_id}`]);
+  for (const mapping of companions) {
+    const targetField = targetFields.find(field =>
+      field.value === mapping?.target_field_id && field.target_type === mapping?.target_type);
+    const source = mapping?.source_type === 'static'
+      ? { type: 'text' }
+      : structuredMappingSource(sourceFields.find(field => field.id === mapping?.source_field_id), mapping);
+    if (!mapping?.id || !targetField || !source || !isCompatibleStructuredMapping(source, targetField)) {
+      return 'Each companion mapping needs compatible source and target fields.';
+    }
+    const targetKey = `${mapping.target_type}:${mapping.target_field_id}`;
+    if (mappedTargets.has(targetKey)) return 'Map each entered-value target field only once.';
+    mappedTargets.add(targetKey);
+  }
+  const missingRequired = targetFields.find(field =>
+    field.required && !mappedTargets.has(`${field.target_type}:${field.value}`));
+  return missingRequired
+    ? `Map required target field "${missingRequired.label}" for entered values.`
+    : '';
+}
+
+function PipelineRelatedRecordCreationConfig({
+  link,
+  entityKind,
+  fields,
+  relationshipDefinitions,
+  customFields,
+  customObjectFields,
+  onChange,
+  testId,
+}) {
+  const sourceField = (fields || []).find(field => String(field?.id) === String(link?.source_field_id));
+  const sourceNotListedLabel = formNotListedChoiceLabel(sourceField);
+  const configurationError = pipelineRelatedRecordCreationError({
+    link, entityKind, fields, relationshipDefinitions, customFields, customObjectFields,
+  });
+  if (!sourceNotListedLabel) {
+    return configurationError ? (
+      <p className="text-xs font-medium text-amber-700 md:col-span-2" role="alert">
+        {configurationError}
+      </p>
+    ) : null;
+  }
+  const definition = (relationshipDefinitions || []).find(item =>
+    String(item?.id) === String(link?.relationship_definition_id));
+  const target = pipelineRelatedRecordTarget(entityKind, definition, sourceField);
+  const targetFields = target ? structuredTargetFields({ target }, customFields, customObjectFields) : [];
+  const identityTargets = target ? structuredUpsertFields({ target }, targetFields) : [];
+  const sourceFields = structuredActionSourceFields(fields, { source: { scope: 'top_level' } });
+  const companions = Array.isArray(link.companion_mappings) ? link.companion_mappings : [];
+  const policy = notListedPolicy(link, NOT_LISTED_POLICY_SKIP);
+  const updateCompanions = (next) => onChange({ ...link, companion_mappings: next });
+
+  return (
+    <div className="space-y-3 rounded-md border border-blue-200 bg-blue-50 p-3 md:col-span-2">
+      <div className="space-y-1">
+        <Label className="text-xs font-semibold">When Not listed / Other</Label>
+        <Select value={policy} onValueChange={not_listed_policy => onChange(
+          withNotListedPolicy(link, not_listed_policy, { defaultPolicy: NOT_LISTED_POLICY_SKIP }),
+        )}>
+          <SelectTrigger data-testid={`select-related-records-not-listed-policy-${testId}`}><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NOT_LISTED_POLICY_INCLUDE}>Create and link the entered value</SelectItem>
+            <SelectItem value={NOT_LISTED_POLICY_SKIP}>Skip Not listed / Other</SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-slate-600">
+          This applies only to “{sourceNotListedLabel}”. Listed records still link normally.
+        </p>
+      </div>
+      {policy === NOT_LISTED_POLICY_INCLUDE && (
+        <>
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-1">
+              <Label className="text-xs">Entered-value identity field</Label>
+              <Select value={link.identity_mapping?.target_field_id || ''} onValueChange={target_field_id => {
+                const selected = identityTargets.find(field => field.value === target_field_id);
+                onChange({
+                  ...link,
+                  identity_mapping: {
+                    id: link.identity_mapping?.id || `related_identity_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                    source_type: 'not_listed_text',
+                    source_field_id: sourceField.id,
+                    target_field_id,
+                    target_type: selected?.target_type || 'custom',
+                  },
+                  uniqueness_field: link.not_listed_operation === 'upsert' ? target_field_id : null,
+                });
+              }}>
+                <SelectTrigger data-testid={`select-related-records-identity-${testId}`}><SelectValue placeholder="Map entered text…" /></SelectTrigger>
+                <SelectContent>{identityTargets.map(field => (
+                  <SelectItem key={`${field.target_type}:${field.value}`} value={field.value}>{field.label}</SelectItem>
+                ))}</SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">When creating the entered value</Label>
+              <Select value={link.not_listed_operation || 'upsert'} onValueChange={not_listed_operation => onChange({
+                ...link,
+                not_listed_operation,
+                uniqueness_field: not_listed_operation === 'upsert'
+                  ? (link.identity_mapping?.target_field_id || null)
+                  : null,
+              })}>
+                <SelectTrigger data-testid={`select-related-records-not-listed-operation-${testId}`}><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="create">Create a new record</SelectItem>
+                  <SelectItem value="upsert">Reuse or create by identity</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <Label className="text-xs font-semibold">Companion field mappings</Label>
+                <p className="text-xs text-slate-600">Map every required target field not supplied by the entered-value identity.</p>
+              </div>
+              <Button type="button" variant="outline" size="sm" disabled={!targetFields.length}
+                onClick={() => updateCompanions([...companions, {
+                  id: `related_mapping_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                  source_field_id: '',
+                  target_field_id: '',
+                  target_type: 'core',
+                }])}>
+                <Plus className="mr-1 h-3 w-3" /> Mapping
+              </Button>
+            </div>
+            {companions.map((mapping, mappingIndex) => (
+              <div className="grid grid-cols-[1fr_1fr_auto] gap-2" key={mapping.id || mappingIndex}>
+                <Select value={mapping.source_type === 'static' ? 'static' : (mapping.source_field_id || '')}
+                  onValueChange={source_field_id => {
+                    const next = [...companions];
+                    next[mappingIndex] = applyStructuredMappingSourceSelection({
+                      mapping,
+                      sourceFieldId: source_field_id,
+                    });
+                    updateCompanions(next);
+                  }}>
+                  <SelectTrigger><SelectValue placeholder="Source field…" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="static">Static value</SelectItem>
+                    {sourceFields.map(field => <SelectItem key={field.id} value={field.id}>{field.label || field.id}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Select value={mapping.target_field_id || ''} onValueChange={target_field_id => {
+                  const selected = targetFields.find(field => field.value === target_field_id);
+                  const next = [...companions];
+                  next[mappingIndex] = {
+                    ...next[mappingIndex],
+                    target_field_id,
+                    target_type: selected?.target_type || 'custom',
+                  };
+                  updateCompanions(next);
+                }}>
+                  <SelectTrigger><SelectValue placeholder="Target field…" /></SelectTrigger>
+                  <SelectContent>{targetFields.map(field => (
+                    <SelectItem key={`${field.target_type}:${field.value}`} value={field.value}>
+                      {field.label}{field.required ? ' (required)' : ''}
+                    </SelectItem>
+                  ))}</SelectContent>
+                </Select>
+                <Button type="button" variant="ghost" size="icon" className="text-red-500"
+                  aria-label={`Remove entered-value companion mapping ${mappingIndex + 1}`}
+                  onClick={() => updateCompanions(companions.filter((_, index) => index !== mappingIndex))}>
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+                {mapping.source_type === 'static' && (
+                  <Input className="col-span-2" value={mapping.static_value || ''} placeholder="Static value"
+                    onChange={event => {
+                      const next = [...companions];
+                      next[mappingIndex] = { ...next[mappingIndex], static_value: event.target.value };
+                      updateCompanions(next);
+                    }} />
+                )}
+              </div>
+            ))}
+          </div>
+          {configurationError && <p className="text-xs font-medium text-amber-700" role="alert">{configurationError}</p>}
+        </>
+      )}
+    </div>
+  );
+}
+
+function PipelineRelatedRecordsEditor({
+  entityKind,
+  pipeline,
+  fields,
+  relationshipDefinitions,
+  customFields,
+  customObjectFields,
+  metadataLoading,
+  metadataError,
+  onChange,
+}) {
+  const links = Array.isArray(pipeline?.related_records) ? pipeline.related_records : [];
+  const referenceFields = (fields || []).filter(field =>
+    field?.type === 'relationship_dropdown' && Boolean(structuredFieldRecordDescriptor(field)));
+  const compatibleDefinitions = (relationshipDefinitions || []).filter(definition =>
+    relationshipSupportsTarget(definition, { target: { kind: entityKind } }));
+  const fieldSupportsDefinition = (field, definition) => {
+    const descriptor = structuredFieldRecordDescriptor(field);
+    const primarySide = ['source', 'target'].find(side =>
+      definition?.[`${side}_kind`] === entityKind && definition?.[`${side}_custom_object_id`] == null);
+    const relatedSide = primarySide === 'source' ? 'target' : primarySide === 'target' ? 'source' : null;
+    return descriptor && relatedSide
+      && descriptor.kind === definition?.[`${relatedSide}_kind`]
+      && String(descriptor.objectId || '') === String(definition?.[`${relatedSide}_custom_object_id`] || '');
+  };
+  const updateLink = (index, updates) => {
+    const next = links.map((link, linkIndex) => linkIndex === index ? { ...link, ...updates } : link);
+    onChange(next);
+  };
+  const replaceLink = (index, nextLink) => {
+    onChange(links.map((link, linkIndex) => linkIndex === index ? nextLink : link));
+  };
+  return (
+    <div className="mt-4 space-y-3 border-t border-slate-200 pt-4" data-testid={`related-records-${entityKind}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <Label className="text-sm font-semibold">Related Records</Label>
+          <p className="mt-1 text-xs text-slate-500">
+            Link the exact primary {entityKind === 'member' ? 'Member' : 'Organisation'} created or updated above
+            to a record selected in this submission.
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={metadataLoading || Boolean(metadataError) || compatibleDefinitions.length === 0}
+          onClick={() => onChange([...links, {
+            id: `related_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            relationship_definition_id: null,
+            source_field_id: null,
+          }])}
+        >
+          <Plus className="mr-1 h-3.5 w-3.5" /> Add link
+        </Button>
+      </div>
+      {metadataError && <p className="text-xs text-red-600">Relationship metadata could not be loaded.</p>}
+      {!metadataLoading && !metadataError && compatibleDefinitions.length === 0 && (
+        <p className="text-xs text-slate-500">No active relationships are compatible with this record type.</p>
+      )}
+      {links.map((link, index) => {
+        const definition = compatibleDefinitions.find(item => item.id === link.relationship_definition_id);
+        const eligibleFields = definition
+          ? referenceFields.filter(field => fieldSupportsDefinition(field, definition))
+          : [];
+        return (
+          <div key={link.id || index} className="grid gap-3 rounded-md border border-slate-200 bg-white p-3 md:grid-cols-[1fr_1fr_auto]">
+            <div className="space-y-1">
+              <Label className="text-xs">Relationship</Label>
+              <Select
+                value={link.relationship_definition_id || ''}
+                onValueChange={relationship_definition_id => replaceLink(index, {
+                  ...withoutNotListedPolicy(link),
+                  relationship_definition_id,
+                  source_field_id: null,
+                })}
+              >
+                <SelectTrigger><SelectValue placeholder="Select an active relationship…" /></SelectTrigger>
+                <SelectContent>
+                  {compatibleDefinitions.map(item => (
+                    <SelectItem key={item.id} value={item.id}>
+                      {item.source_label || item.relationship_key} ↔ {item.target_label || item.relationship_key}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Submitted related record field</Label>
+              <Select
+                value={link.source_field_id || ''}
+                disabled={!definition}
+                onValueChange={source_field_id => {
+                  const sourceField = eligibleFields.find(field => field.id === source_field_id);
+                  const resetLink = {
+                    ...withoutNotListedPolicy(link),
+                    source_field_id,
+                  };
+                  // New Other-capable mappings are intentionally explicit.
+                  // Existing mappings remain absent and retain legacy skip.
+                  replaceLink(index, formNotListedChoiceLabel(sourceField)
+                    ? withNotListedPolicy(resetLink, NOT_LISTED_POLICY_SKIP, {
+                        defaultPolicy: NOT_LISTED_POLICY_SKIP,
+                      })
+                    : resetLink);
+                }}
+              >
+                <SelectTrigger><SelectValue placeholder="Select a record field…" /></SelectTrigger>
+                <SelectContent>
+                  {eligibleFields.map(field => (
+                    <SelectItem key={field.id} value={field.id}>{field.label || field.name || field.id}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {definition && eligibleFields.length === 0 && (
+                <p className="text-xs text-amber-700">Add a compatible relationship field to this form first.</p>
+              )}
+            </div>
+            <Button type="button" variant="ghost" size="icon" className="self-end text-red-500"
+              onClick={() => onChange(links.filter((_, linkIndex) => linkIndex !== index))}>
+              <Trash2 className="h-4 w-4" />
+            </Button>
+            <PipelineRelatedRecordCreationConfig
+              link={link}
+              entityKind={entityKind}
+              fields={fields}
+              relationshipDefinitions={relationshipDefinitions}
+              customFields={customFields}
+              customObjectFields={customObjectFields}
+              testId={`${entityKind}-${index}`}
+              onChange={nextLink => replaceLink(index, nextLink)}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function StructuredRecordActionsEditor({
+  value,
+  onChange,
+  fields,
+  customFields,
+  customObjects,
+  customObjectFields,
+  relationshipDefinitions,
+  entityPipelines,
+  metadataLoading,
+  metadataError,
+}) {
+  const actions = Array.isArray(value?.actions) ? value.actions : [];
+  const updateActions = (next) => onChange({ version: STRUCTURED_ACTIONS_VERSION, actions: next });
+  const updateAction = (index, updates) => {
+    const next = [...actions];
+    next[index] = { ...next[index], ...updates };
+    updateActions(next);
+  };
+  const replaceAction = (index, nextAction) => {
+    const next = [...actions];
+    next[index] = nextAction;
+    updateActions(next);
+  };
+  const moveAction = (index, direction) => {
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= actions.length) return;
+    const next = [...actions];
+    [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+    updateActions(next);
+  };
+  const repeatables = (fields || []).filter(isRepeatableRowField);
+  const recordActionRelationships = (relationshipDefinitions || [])
+    .filter(definition => !definition.status || definition.status === 'active');
+  const activeRelationships = Array.from(new Map([
+    ...normalizeEligibleRelationships(relationshipDefinitions),
+    ...recordActionRelationships.filter(definition => (
+      definition.id && definition.source_kind && definition.target_kind
+    )),
+  ].map(definition => [definition.id, definition])).values());
+  const resolverInitialConfig = (() => {
+    const targets = [
+      ...STRUCTURED_ACTION_TARGETS.filter(target => target.value !== 'custom_object')
+        .map(target => ({ kind: target.value, custom_object_id: null })),
+      ...customObjects.map(object => ({ kind: 'custom_object', custom_object_id: object.id })),
+    ];
+    const scopes = [
+      { scope: 'top_level', repeatable_field_id: null },
+      ...repeatables.map(field => ({ scope: 'repeatable_row', repeatable_field_id: field.id })),
+    ];
+    for (const source of scopes) {
+      for (const target of targets) {
+        const picker = compatibleRecordReferencePickers(fields, source, target)[0];
+        if (picker) return { source, target, reference_field_id: picker.id };
+      }
+    }
+    return null;
+  })();
+
+  return (
+    <div className="space-y-3 pb-5 border-b border-slate-200" data-testid="structured-record-actions">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <Label className="text-sm font-semibold">Structured Record Actions</Label>
+          <p className="text-xs text-slate-500 mt-1">Create or update a record once per submission, or once for every repeatable row. Actions run from top to bottom, so create an Organisation Group before an Organisation that uses it. This versioned configuration is additive to the legacy member and organisation pipelines below.</p>
+        </div>
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={() => updateActions([...actions, {
+            id: `record_action_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            source: { scope: 'top_level', repeatable_field_id: null },
+            target: { kind: 'member', custom_object_id: null },
+            operation: 'upsert',
+            relationship_definition_id: null,
+            uniqueness_field: 'email',
+            mappings: [],
+          }])} data-testid="button-add-structured-action">
+            <Plus className="w-4 h-4 mr-2" /> Add record action
+          </Button>
+          <Button type="button" variant="outline" size="sm"
+            disabled={metadataLoading || Boolean(metadataError) || !resolverInitialConfig}
+            onClick={() => updateActions([...actions, withNotListedPolicy({
+              id: `resolve_reference_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+              label: '',
+              source: resolverInitialConfig.source,
+              target: resolverInitialConfig.target,
+              operation: RESOLVE_RECORD_REFERENCE_OPERATION,
+              reference_field_id: resolverInitialConfig.reference_field_id,
+              mappings: [],
+            }, NOT_LISTED_POLICY_INCLUDE)])} data-testid="button-add-resolve-record-reference">
+            <Plus className="w-4 h-4 mr-2" /> Resolve record reference
+          </Button>
+          <Button type="button" variant="outline" size="sm" disabled={metadataLoading || Boolean(metadataError) || activeRelationships.length === 0}
+            onClick={() => updateActions([...actions, {
+              id: `relationship_action_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+              label: '',
+              source: { scope: 'top_level', repeatable_field_id: null },
+              operation: 'link_relationship',
+              relationship_definition_id: null,
+              source_endpoint: null,
+              target_endpoint: null,
+              mappings: [],
+            }])} data-testid="button-add-link-related-records">
+            <Plus className="w-4 h-4 mr-2" /> Link related records
+          </Button>
+        </div>
+      </div>
+      {metadataLoading && <p className="text-xs text-slate-500"><Loader2 className="inline w-3 h-3 mr-1 animate-spin" />Loading active Custom Object metadata…</p>}
+      {metadataError && <p className="text-xs text-red-600" role="alert">Custom Object metadata could not be loaded: {metadataError.message}</p>}
+      {actions.length === 0 && <div className="rounded-lg border border-dashed p-4 text-center text-sm text-slate-400">No structured actions configured</div>}
+      {actions.map((action, actionIndex) => {
+        if (action.operation === 'link_relationship') {
+          const definition = activeRelationships.find(item => item.id === action.relationship_definition_id);
+          const endpointOptions = Object.fromEntries(['source', 'target'].map(side => [side,
+            structuredRelationshipEndpointOptions({
+              fields,
+              actions,
+              actionIndex,
+              action,
+              definition,
+              side,
+              entityPipelines,
+            }).filter(option => {
+              if (option.reference?.type !== 'action_output') return true;
+              const candidate = actions.find(item => item.id === option.reference.action_id);
+              if (candidate?.operation !== RESOLVE_RECORD_REFERENCES_OPERATION) return true;
+              const otherSide = side === 'source' ? 'target' : 'source';
+              const otherSource = action[`${otherSide}_endpoint`]?.source;
+              const otherAction = otherSource?.type === 'action_output'
+                ? actions.find(item => item.id === otherSource.action_id)
+                : null;
+              return otherAction?.operation !== RESOLVE_RECORD_REFERENCES_OPERATION;
+            }),
+          ]));
+          return (
+            <div key={action.id || actionIndex} className="rounded-lg border bg-slate-50 p-4 space-y-4" data-testid={`structured-action-${actionIndex}`}>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold">Link related records</p>
+                  <p className="text-xs text-slate-500">Link two submitted or earlier-action records using an active Data Studio relationship.</p>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Button type="button" variant="ghost" size="icon" className="h-8 w-8"
+                    disabled={actionIndex === 0} onClick={() => moveAction(actionIndex, -1)}
+                    aria-label={`Move action ${actionIndex + 1} earlier`}><ChevronUp className="w-4 h-4" /></Button>
+                  <Button type="button" variant="ghost" size="icon" className="h-8 w-8"
+                    disabled={actionIndex === actions.length - 1} onClick={() => moveAction(actionIndex, 1)}
+                    aria-label={`Move action ${actionIndex + 1} later`}><ChevronDown className="w-4 h-4" /></Button>
+                  <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-red-500"
+                    onClick={() => updateActions(actions.filter((_, index) => index !== actionIndex))}
+                    aria-label={`Remove action ${actionIndex + 1}`}><Trash2 className="w-4 h-4" /></Button>
+                </div>
+              </div>
+              <Input className="max-w-xs h-8" value={action.label || ''} placeholder={`Action ${actionIndex + 1} label (optional)`}
+                onChange={event => updateAction(actionIndex, { label: event.target.value })} />
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-1">
+                  <Label className="text-xs">Execution scope</Label>
+                  <Select value={action.source?.scope || 'top_level'} onValueChange={scope => updateAction(actionIndex, {
+                    source: { scope, repeatable_field_id: scope === 'repeatable_row' ? (repeatables[0]?.id || null) : null },
+                    source_endpoint: null,
+                    target_endpoint: null,
+                  })}>
+                    <SelectTrigger data-testid={`select-link-source-${actionIndex}`}><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="top_level">Once per submission</SelectItem>
+                      <SelectItem value="repeatable_row" disabled={!repeatables.length}>Once per repeatable row</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {action.source?.scope === 'repeatable_row' && (
+                  <div className="space-y-1">
+                    <Label className="text-xs">Repeatable field</Label>
+                    <Select value={action.source?.repeatable_field_id || ''} onValueChange={repeatable_field_id => updateAction(actionIndex, {
+                      source: { scope: 'repeatable_row', repeatable_field_id },
+                      source_endpoint: null,
+                      target_endpoint: null,
+                    })}>
+                      <SelectTrigger data-testid={`select-link-repeatable-${actionIndex}`}><SelectValue placeholder="Select repeatable rows…" /></SelectTrigger>
+                      <SelectContent>{repeatables.map(field => <SelectItem key={field.id} value={field.id}>{field.label || field.id}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Active Data Studio relationship</Label>
+                <Select value={action.relationship_definition_id || ''} onValueChange={relationship_definition_id => updateAction(actionIndex, {
+                  relationship_definition_id,
+                  source_endpoint: null,
+                  target_endpoint: null,
+                })}>
+                  <SelectTrigger data-testid={`select-link-relationship-${actionIndex}`}><SelectValue placeholder="Select an active relationship…" /></SelectTrigger>
+                  <SelectContent>{activeRelationships.map(item => (
+                    <SelectItem key={item.id} value={item.id}>
+                      {relationshipEndpointLabel(item, 'source')} ↔ {relationshipEndpointLabel(item, 'target')}
+                    </SelectItem>
+                  ))}</SelectContent>
+                </Select>
+              </div>
+              {definition && (
+                <div className="grid gap-3 md:grid-cols-2">
+                  {['source', 'target'].map(side => {
+                    const options = endpointOptions[side];
+                    return (
+                      <div className="space-y-1" key={side}>
+                        <Label className="text-xs">{relationshipEndpointLabel(definition, side)}</Label>
+                        <Select value={structuredEndpointReferenceValue(
+                          action[`${side}_endpoint`]?.source,
+                          action.source?.scope === 'repeatable_row' ? action.source.repeatable_field_id : null,
+                        )}
+                          onValueChange={value => updateAction(actionIndex, {
+                            [`${side}_endpoint`]: {
+                              ...relationshipEndpointDescriptor(definition, side),
+                              custom_object_id: relationshipEndpointDescriptor(definition, side)?.customObjectId || null,
+                              customObjectId: undefined,
+                              source: (() => {
+                                const selected = options.find(option => option.value === value)?.reference;
+                                return selected?.type === 'primary_pipeline_output'
+                                  ? { ...selected, kind: relationshipEndpointDescriptor(definition, side)?.kind }
+                                  : selected || null;
+                              })(),
+                            },
+                          })}>
+                          <SelectTrigger data-testid={`select-link-endpoint-${side}-${actionIndex}`}><SelectValue placeholder="Select a compatible record…" /></SelectTrigger>
+                          <SelectContent>{options.map(option => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
+                        </Select>
+                        {options.length === 0 && <p className="text-xs text-amber-700">No compatible submitted field or earlier action is available.</p>}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {action.source?.scope === 'repeatable_row' && (
+                <p className="text-xs text-slate-500">Choose an earlier form field or a field in this same row. Row-scoped action outputs must come from this same repeatable row.</p>
+              )}
+            </div>
+          );
+        }
+        const sourceFields = structuredActionSourceFields(fields, action);
+        const targetFields = structuredTargetFields(action, customFields, customObjectFields);
+        const relationships = recordActionRelationships.filter(definition => relationshipSupportsTarget(definition, action));
+        const organizationGroupOptions = action.target?.kind === 'organization'
+          ? structuredRelationshipEndpointOptions({
+              fields,
+              actions,
+              actionIndex,
+              action,
+              definition: { source_kind: 'organization_group', source_custom_object_id: null },
+              side: 'source',
+            }).filter(option => {
+              if (option.reference?.type !== 'action_output') return true;
+              const producer = actions.find(item => item.id === option.reference.action_id);
+              return producer?.operation !== RESOLVE_RECORD_REFERENCES_OPERATION;
+            })
+          : [];
+        const selectorFields = sourceFields.filter(field => {
+          const descriptor = structuredFieldRecordDescriptor(field);
+          return field.type === 'relationship_dropdown'
+            && descriptor?.kind === action.target?.kind
+            && (descriptor.kind !== 'custom_object' || descriptor.objectId === action.target?.custom_object_id)
+            && relationships.some(definition => definition.id === field.relationship_definition_id);
+        });
+        const selectedRelationship = relationships.find(definition => definition.id === action.relationship_definition_id);
+        const targetSide = structuredRelationshipSide(selectedRelationship, action);
+        const parentSide = targetSide === 'source' ? 'target' : targetSide === 'target' ? 'source' : null;
+        const relationshipParentFields = sourceFields.filter(field => {
+          const descriptor = structuredFieldRecordDescriptor(field);
+          return descriptor && parentSide
+            && descriptor.kind === selectedRelationship?.[`${parentSide}_kind`]
+            && (descriptor.kind !== 'custom_object'
+              || descriptor.objectId === selectedRelationship?.[`${parentSide}_custom_object_id`]);
+        });
+        const upsertFields = structuredUpsertFields(action, targetFields);
+        const singleResolverPickers = compatibleRecordReferencePickers(
+          fields, action.source, action.target, RELATIONSHIP_SELECTION_SINGLE,
+        );
+        const multiResolverPickers = compatibleRecordReferencePickers(
+          fields, action.source, action.target, RELATIONSHIP_SELECTION_MULTIPLE,
+        );
+        const resolverPickers = action.operation === RESOLVE_RECORD_REFERENCES_OPERATION
+          ? multiResolverPickers
+          : singleResolverPickers;
+        const resolverWarning = recordReferenceConfigurationWarning(action, fields);
+        const isResolver = [RESOLVE_RECORD_REFERENCE_OPERATION, RESOLVE_RECORD_REFERENCES_OPERATION]
+          .includes(action.operation);
+        const resolverPolicy = notListedPolicy(action, NOT_LISTED_POLICY_INCLUDE);
+        const resolverIncludesNotListed = isResolver && resolverPolicy === NOT_LISTED_POLICY_INCLUDE;
+        const resolverIdentityTargets = structuredUpsertFields(action, targetFields);
+        const displayedMappings = isResolver
+          ? (resolverIncludesNotListed ? (action.companion_mappings || []) : [])
+          : (action.mappings || []);
+        const recordLabelOptions = action.target?.kind === 'custom_object' && action.operation === 'create'
+          ? resolvedRecordLabelOptions(actions, actionIndex, action, entityPipelines)
+          : [];
+        const mappingUpdates = (mappings) => isResolver
+          ? { mappings, companion_mappings: mappings }
+          : { mappings };
+        return (
+          <div key={action.id || actionIndex} className="rounded-lg border bg-slate-50 p-4 space-y-4" data-testid={`structured-action-${actionIndex}`}>
+            <div className="flex justify-between gap-3">
+              <Input className="max-w-xs h-8" value={action.label || ''} placeholder={`Action ${actionIndex + 1} label (optional)`} onChange={event => updateAction(actionIndex, { label: event.target.value })} />
+              <div className="flex items-center gap-1">
+                <Button type="button" variant="ghost" size="icon" className="h-8 w-8"
+                  disabled={actionIndex === 0} onClick={() => moveAction(actionIndex, -1)}
+                  aria-label={`Move action ${actionIndex + 1} earlier`}><ChevronUp className="w-4 h-4" /></Button>
+                <Button type="button" variant="ghost" size="icon" className="h-8 w-8"
+                  disabled={actionIndex === actions.length - 1} onClick={() => moveAction(actionIndex, 1)}
+                  aria-label={`Move action ${actionIndex + 1} later`}><ChevronDown className="w-4 h-4" /></Button>
+                <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-red-500" onClick={() => updateActions(actions.filter((_, index) => index !== actionIndex))} aria-label={`Remove action ${actionIndex + 1}`}><Trash2 className="w-4 h-4" /></Button>
+              </div>
+            </div>
+            <div className="grid md:grid-cols-3 gap-3">
+              <div className="space-y-1"><Label className="text-xs">Source scope</Label>
+                <Select value={action.source?.scope || 'top_level'} onValueChange={scope => replaceAction(actionIndex, { ...withoutNotListedPolicy(action), source: { scope, repeatable_field_id: scope === 'repeatable_row' ? (repeatables[0]?.id || null) : null }, organization_group_source: null, reference_field_id: null, mappings: [] })}>
+                  <SelectTrigger data-testid={`select-action-source-${actionIndex}`}><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="top_level">Top-level submission</SelectItem><SelectItem value="repeatable_row" disabled={!repeatables.length}>Each repeatable row</SelectItem></SelectContent>
+                </Select>
+              </div>
+              {action.source?.scope === 'repeatable_row' && <div className="space-y-1"><Label className="text-xs">Repeatable field</Label>
+                <Select value={action.source?.repeatable_field_id || ''} onValueChange={repeatable_field_id => replaceAction(actionIndex, { ...withoutNotListedPolicy(action), source: { scope: 'repeatable_row', repeatable_field_id }, organization_group_source: null, reference_field_id: null, mappings: [] })}>
+                  <SelectTrigger><SelectValue placeholder="Select repeatable rows…" /></SelectTrigger>
+                  <SelectContent>{repeatables.map(field => <SelectItem key={field.id} value={field.id}>{field.label || field.id}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>}
+              <div className="space-y-1"><Label className="text-xs">Target</Label>
+                 <Select value={action.target?.kind || ''} onValueChange={kind => replaceAction(actionIndex, { ...withoutNotListedPolicy(action), target: { kind, custom_object_id: null }, relationship_definition_id: null, organization_group_source: null, reference_field_id: null, mappings: [] })}>
+                  <SelectTrigger data-testid={`select-action-target-${actionIndex}`}><SelectValue placeholder="Select target…" /></SelectTrigger>
+                  <SelectContent>{STRUCTURED_ACTION_TARGETS.map(target => <SelectItem key={target.value} value={target.value}>{target.label}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              {action.target?.kind === 'custom_object' && <div className="space-y-1"><Label className="text-xs">Custom Object</Label>
+                <Select value={action.target?.custom_object_id || ''} onValueChange={custom_object_id => replaceAction(actionIndex, { ...withoutNotListedPolicy(action), target: { kind: 'custom_object', custom_object_id }, relationship_definition_id: null, reference_field_id: null, mappings: [] })}>
+                  <SelectTrigger data-testid={`select-action-object-${actionIndex}`}><SelectValue placeholder="Select active object…" /></SelectTrigger>
+                  <SelectContent>{customObjects.map(object => <SelectItem key={object.id} value={object.id}>{object.plural_label || object.singular_label || object.object_key}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>}
+            </div>
+            {action.target?.kind === 'organization' && (
+              <div className="rounded-md border border-blue-200 bg-blue-50 p-3 space-y-2" data-testid={`organization-group-assignment-${actionIndex}`}>
+                <div>
+                  <Label className="text-xs font-semibold">Assign to Organisation Group (optional)</Label>
+                  <p className="mt-1 text-xs text-slate-600">
+                    Set the Organisation&apos;s built-in parent group from a submitted field or an earlier Organisation Group action.
+                    This is separate from a Data Studio relationship.
+                  </p>
+                </div>
+                <Select
+                  value={structuredEndpointReferenceValue(
+                    action.organization_group_source,
+                    action.source?.scope === 'repeatable_row' ? action.source.repeatable_field_id : null,
+                  ) || 'none'}
+                  onValueChange={value => updateAction(actionIndex, {
+                    organization_group_source: value === 'none'
+                      ? null
+                      : organizationGroupOptions.find(option => option.value === value)?.reference || null,
+                  })}
+                >
+                  <SelectTrigger data-testid={`select-organization-group-source-${actionIndex}`}>
+                    <SelectValue placeholder="Do not assign a group" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Do not assign a group</SelectItem>
+                    {organizationGroupOptions.map(option => (
+                      <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {organizationGroupOptions.length === 0 && (
+                  <p className="text-xs text-amber-700">Add an Organisation Group Dropdown or an earlier Organisation Group action to assign a parent group.</p>
+                )}
+              </div>
+            )}
+            {action.target?.kind === 'member' && (
+              <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-xs text-slate-700" data-testid={`member-organization-group-guidance-${actionIndex}`}>
+                Direct Organisation Group assignment applies only to members without an Organisation.
+                Members with an Organisation derive their group from that Organisation. Organisation Group
+                Dropdown values are persisted Organisation Group IDs, not display names.
+              </div>
+            )}
+            <div className="grid md:grid-cols-3 gap-3">
+              <div className="space-y-1"><Label className="text-xs">Record operation</Label>
+                <Select value={action.operation || ''} onValueChange={operation => {
+                  const base = {
+                    ...withoutNotListedPolicy(action),
+                    operation,
+                    selector_field_id: operation === 'update_selected' ? (selectorFields[0]?.id || null) : null,
+                    uniqueness_field: operation === 'upsert' ? (upsertFields[0]?.value || null) : null,
+                    mappings: [],
+                  };
+                  const isReferenceOperation = [RESOLVE_RECORD_REFERENCE_OPERATION, RESOLVE_RECORD_REFERENCES_OPERATION]
+                    .includes(operation);
+                  replaceAction(actionIndex, isReferenceOperation
+                    ? withNotListedPolicy({
+                        ...base,
+                        reference_field_id: (
+                          operation === RESOLVE_RECORD_REFERENCES_OPERATION
+                            ? multiResolverPickers
+                            : singleResolverPickers
+                        )[0]?.id || null,
+                      }, NOT_LISTED_POLICY_INCLUDE)
+                    : { ...base, reference_field_id: null });
+                }}>
+                  <SelectTrigger data-testid={`select-action-operation-${actionIndex}`}><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="create">Create new</SelectItem><SelectItem value="update_selected">Update selected related record</SelectItem><SelectItem value="upsert" disabled={!upsertFields.length}>Upsert by unique field</SelectItem><SelectItem value={RESOLVE_RECORD_REFERENCE_OPERATION} disabled={!singleResolverPickers.length}>Resolve one record reference</SelectItem><SelectItem value={RESOLVE_RECORD_REFERENCES_OPERATION} disabled={!multiResolverPickers.length}>Resolve several record references</SelectItem></SelectContent>
+                </Select>
+              </div>
+              {isResolver && <div className="space-y-1"><Label className="text-xs">Record-backed picker</Label>
+                <Select value={action.reference_field_id || ''} onValueChange={reference_field_id => replaceAction(
+                  actionIndex,
+                  withNotListedPolicy({
+                    ...withoutNotListedPolicy(action),
+                    reference_field_id,
+                    mappings: [],
+                  }, resolverPolicy),
+                )}>
+                   <SelectTrigger data-testid={`select-action-reference-field-${actionIndex}`}><SelectValue placeholder={action.operation === RESOLVE_RECORD_REFERENCES_OPERATION ? "Select a multi-record picker…" : "Select a single-record picker…"} /></SelectTrigger>
+                  <SelectContent>{resolverPickers.map(field => <SelectItem key={field.id} value={field.id}>{field.label || field.id}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>}
+               {isResolver && <div className="space-y-1"><Label className="text-xs">When Not listed / Other</Label>
+                 <Select value={resolverPolicy} onValueChange={not_listed_policy => replaceAction(
+                   actionIndex,
+                   withNotListedPolicy(action, not_listed_policy),
+                 )}>
+                   <SelectTrigger data-testid={`select-action-not-listed-policy-${actionIndex}`}><SelectValue /></SelectTrigger>
+                   <SelectContent>
+                     <SelectItem value={NOT_LISTED_POLICY_INCLUDE}>Create and link the entered value</SelectItem>
+                     <SelectItem value={NOT_LISTED_POLICY_SKIP}>Skip Not listed / Other</SelectItem>
+                   </SelectContent>
+                 </Select>
+               </div>}
+               {resolverIncludesNotListed && <div className="space-y-1"><Label className="text-xs">Not-listed identity field</Label>
+                <Select value={action.identity_mapping?.target_field_id || ''} onValueChange={target_field_id => {
+                  const selected = resolverIdentityTargets.find(field => field.value === target_field_id);
+                  updateAction(actionIndex, {
+                    identity_mapping: {
+                      id: action.identity_mapping?.id || `identity_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                      source_type: 'not_listed_text',
+                      source_field_id: action.reference_field_id,
+                      target_field_id,
+                      target_type: selected?.target_type || 'custom',
+                    },
+                    uniqueness_field: action.not_listed_operation === 'upsert' ? target_field_id : null,
+                  });
+                }}>
+                  <SelectTrigger data-testid={`select-action-reference-identity-${actionIndex}`}><SelectValue placeholder="Map Not listed text…" /></SelectTrigger>
+                  <SelectContent>{resolverIdentityTargets.map(field => <SelectItem key={`${field.target_type}:${field.value}`} value={field.value}>{field.label}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>}
+               {resolverIncludesNotListed && <div className="space-y-1"><Label className="text-xs">When creating the entered value</Label>
+                <Select value={action.not_listed_operation || 'upsert'} onValueChange={not_listed_operation => updateAction(actionIndex, {
+                  not_listed_operation,
+                  uniqueness_field: not_listed_operation === 'upsert'
+                    ? (action.identity_mapping?.target_field_id || null)
+                    : null,
+                })}>
+                  <SelectTrigger data-testid={`select-action-not-listed-operation-${actionIndex}`}><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="create">Create a new record</SelectItem><SelectItem value="upsert">Reuse or create by identity</SelectItem></SelectContent>
+                </Select>
+              </div>}
+              {action.operation === 'update_selected' && <div className="space-y-1"><Label className="text-xs">Selected-record field</Label>
+                <Select value={action.selector_field_id || ''} onValueChange={selector_field_id => {
+                  const selector = selectorFields.find(field => field.id === selector_field_id);
+                  updateAction(actionIndex, { selector_field_id, relationship_definition_id: selector?.relationship_definition_id || null });
+                }}>
+                  <SelectTrigger data-testid={`select-action-selector-field-${actionIndex}`}><SelectValue placeholder="Select relationship field…" /></SelectTrigger>
+                  <SelectContent>{selectorFields.map(field => <SelectItem key={field.id} value={field.id}>{field.label || field.id}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>}
+              <div className="space-y-1"><Label className="text-xs">Relationship {action.operation === 'update_selected' ? '(derived from selector)' : '(optional)'}</Label>
+                <Select value={action.relationship_definition_id || 'none'} onValueChange={relationship_definition_id => updateAction(actionIndex, { relationship_definition_id: relationship_definition_id === 'none' ? null : relationship_definition_id, relationship_parent_field_id: null })}>
+                  <SelectTrigger disabled={action.operation === 'update_selected'} data-testid={`select-action-relationship-${actionIndex}`}><SelectValue placeholder="No relationship" /></SelectTrigger>
+                  <SelectContent><SelectItem value="none">No relationship</SelectItem>{relationships.map(definition => <SelectItem key={definition.id} value={definition.id}>{definition.source_label || definition.relationship_key} ↔ {definition.target_label || definition.relationship_key}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              {action.operation !== 'update_selected' && action.relationship_definition_id && <div className="space-y-1"><Label className="text-xs">Relationship parent field</Label>
+                <Select value={action.relationship_parent_field_id || ''} onValueChange={relationship_parent_field_id => updateAction(actionIndex, { relationship_parent_field_id })}>
+                  <SelectTrigger data-testid={`select-action-relationship-parent-${actionIndex}`}><SelectValue placeholder="Select parent record field…" /></SelectTrigger>
+                  <SelectContent>{relationshipParentFields.map(field => <SelectItem key={field.id} value={field.id}>{field.label || field.id}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>}
+              {action.operation === 'upsert' && <div className="space-y-1"><Label className="text-xs">Uniqueness field</Label>
+                <Select value={action.uniqueness_field || ''} onValueChange={uniqueness_field => updateAction(actionIndex, { uniqueness_field })}>
+                  <SelectTrigger data-testid={`select-action-unique-${actionIndex}`}><SelectValue placeholder="Select field…" /></SelectTrigger>
+                  <SelectContent>{upsertFields.map(field => <SelectItem key={`${field.target_type}:${field.value}`} value={field.value}>{field.label}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>}
+            </div>
+            {isResolver && (
+              <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-xs text-slate-700">
+                A compatible single-record picker resolves one authoritative record. The several-record operation resolves each selected value independently with a stable retry identity and emits a canonical collection for later relationship actions. {resolverIncludesNotListed ? 'For Not listed / Other, the identity mapping and companion field mappings below create or upsert the target.' : 'Not listed / Other is retained in the submission but does not create a record or relationship.'} Companion values are read only from this action&apos;s submission or current-row scope.
+                {resolverWarning && <p className="mt-2 font-medium text-amber-700" role="alert">{resolverWarning}</p>}
+              </div>
+            )}
+            {(!isResolver || resolverIncludesNotListed) && <div className="space-y-2">
+              <div className="flex justify-between items-center"><Label className="text-xs font-semibold">{isResolver ? 'Companion field mappings' : 'Field mappings'}</Label>
+                <Button type="button" variant="outline" size="sm" disabled={(!sourceFields.length && !recordLabelOptions.length) || !targetFields.length} onClick={() => {
+                  const mappings = [...displayedMappings, { id: `mapping_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, source_field_id: '', target_field_id: '', target_type: 'core' }];
+                  updateAction(actionIndex, mappingUpdates(mappings));
+                }}><Plus className="w-3 h-3 mr-1" />Mapping</Button>
+              </div>
+              {displayedMappings.map((mapping, mappingIndex) => (
+                <div className="grid grid-cols-[1fr_auto_1fr_auto] gap-2 items-center" key={mapping.id || mappingIndex}>
+                  <div className="space-y-2">
+                    <Select disabled={mapping.source_type === 'clear'} value={
+                      isResolvedRecordLabelsMapping(mapping)
+                        ? resolvedRecordLabelOptionValue(mapping.record_sources?.[0] || {})
+                        : mapping.source_type === 'static'
+                        ? 'static'
+                        : mapping.source_field_id || ''
+                    } onValueChange={source_field_id => {
+                       const recordLabelOption = recordLabelOptions.find(option => option.value === source_field_id);
+                      const selectedField = sourceFields.find(source => source.id === source_field_id);
+                      const firstComponent = selectedField?.type === 'address_lookup'
+                        ? addressLookupVisibleComponents(selectedField)[0] || undefined
+                        : undefined;
+                       const mappings = [...displayedMappings];
+                      mappings[mappingIndex] = applyStructuredMappingSourceSelection({
+                        mapping,
+                        sourceFieldId: source_field_id,
+                        addressComponent: firstComponent,
+                        resolvedRecordSource: recordLabelOption?.source || null,
+                      });
+                       updateAction(actionIndex, mappingUpdates(mappings));
+                    }}><SelectTrigger><SelectValue placeholder={mapping.source_type === 'clear' ? 'Explicit clear' : 'Source field or resolved name…'} /></SelectTrigger><SelectContent><SelectItem value="static">Static value</SelectItem>{recordLabelOptions.map(option => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}{sourceFields.filter(source => {
+                      const candidates = source.type === 'address_lookup'
+                        ? addressLookupVisibleComponents(source).map(component => ({ ...source, type: 'text', source_component: component }))
+                        : [source];
+                      return candidates.some(candidate => targetFields.some(target => isCompatibleStructuredMapping(candidate, target)));
+                    }).map(field => <SelectItem key={field.id} value={field.id}>{structuredMappingSourceLabel(field, mapping)}</SelectItem>)}</SelectContent></Select>
+                    {mapping.source_type === 'static' && (
+                      <Input value={mapping.static_value ?? ''} placeholder="Static value…" onChange={event => {
+                        const mappings = [...displayedMappings];
+                        mappings[mappingIndex] = { ...mapping, static_value: event.target.value };
+                        updateAction(actionIndex, mappingUpdates(mappings));
+                      }} />
+                    )}
+                    {isResolvedRecordLabelsMapping(mapping) && (
+                      <Select value={resolvedRecordLabelOptionValue(mapping.record_sources?.[1] || {}) || 'none'} onValueChange={value => {
+                        const option = recordLabelOptions.find(item => item.value === value);
+                        const mappings = [...displayedMappings];
+                        mappings[mappingIndex] = {
+                          ...mapping,
+                          record_sources: value === 'none'
+                            ? [mapping.record_sources[0]]
+                            : [mapping.record_sources[0], option.source],
+                        };
+                        updateAction(actionIndex, mappingUpdates(mappings));
+                      }}>
+                        <SelectTrigger><SelectValue placeholder="Add second resolved name…" /></SelectTrigger>
+                        <SelectContent><SelectItem value="none">No second resolved name</SelectItem>{recordLabelOptions
+                          .filter(option => option.value !== resolvedRecordLabelOptionValue(mapping.record_sources?.[0] || {}))
+                          .map(option => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
+                      </Select>
+                    )}
+                    {sourceFields.find(source => source.id === mapping.source_field_id)?.type === 'address_lookup' && (
+                      <Select value={mapping.source_component || ''} onValueChange={source_component => {
+                         const mappings = [...displayedMappings];
+                        mappings[mappingIndex] = { ...mapping, source_component, target_field_id: '', target_type: 'core' };
+                         updateAction(actionIndex, mappingUpdates(mappings));
+                      }}>
+                        <SelectTrigger><SelectValue placeholder="Address component…" /></SelectTrigger>
+                        <SelectContent>{ADDRESS_LOOKUP_COMPONENTS
+                          .filter(component => addressLookupVisibleComponents(sourceFields.find(source => source.id === mapping.source_field_id)).includes(component.value))
+                          .map(component => <SelectItem key={component.value} value={component.value}>{component.label}</SelectItem>)}</SelectContent>
+                      </Select>
+                    )}
+                  </div>
+                  <ArrowRight className="w-4 h-4 text-slate-400" />
+                   <Select value={mapping.target_field_id || ''} onValueChange={target_field_id => { const selected = targetFields.find(field => field.value === target_field_id); const mappings = [...displayedMappings]; mappings[mappingIndex] = { ...mapping, target_field_id, target_type: selected?.target_type || 'custom' }; updateAction(actionIndex, mappingUpdates(mappings)); }}><SelectTrigger><SelectValue placeholder="Target field…" /></SelectTrigger><SelectContent>{targetFields.filter(field => ['static', 'resolved_record_labels'].includes(mapping.source_type) ? field.type === 'text' : isCompatibleStructuredMapping(structuredMappingSource(sourceFields.find(source => source.id === mapping.source_field_id), mapping), field)).map(field => <SelectItem key={`${field.target_type}:${field.value}`} value={field.value}>{field.target_type === 'custom' ? 'Custom: ' : ''}{field.label}</SelectItem>)}</SelectContent></Select>
+                   <Button type="button" variant="ghost" size="icon" className="text-red-500" onClick={() => updateAction(actionIndex, mappingUpdates(displayedMappings.filter((_, index) => index !== mappingIndex)))}><Trash2 className="w-4 h-4" /></Button>
+                  <div className="col-span-4 flex flex-wrap items-center justify-between gap-2 border-t pt-2">
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        checked={isExplicitFallbackMapping(mapping)}
+                        disabled={!mapping.target_field_id}
+                        onCheckedChange={(checked) => {
+                          const groupId = mapping.fallback_group?.id;
+                           const matchingMappings = displayedMappings.filter(item =>
+                            item.target_type === mapping.target_type
+                              && item.target_field_id === mapping.target_field_id);
+                          if (checked && matchingMappings.length < 2) {
+                            toast.error('Add at least two mappings to the same destination before enabling an ordered fallback.');
+                            return;
+                          }
+                           const mappings = displayedMappings.map(item => {
+                            const sameTarget = item.target_type === mapping.target_type
+                              && item.target_field_id === mapping.target_field_id;
+                            if (!checked) {
+                              return item.fallback_group?.id === groupId
+                                ? { ...item, fallback_group: undefined }
+                                : item;
+                            }
+                            if (item.id !== mapping.id && !sameTarget) return item;
+                            return { ...item, fallback_group: { version: FORM_MAPPING_FALLBACK_VERSION, id: `fallback:${mapping.target_type}:${mapping.target_field_id}` } };
+                          });
+                           updateAction(actionIndex, mappingUpdates(mappings));
+                        }}
+                        data-testid={`switch-structured-fallback-${actionIndex}-${mappingIndex}`}
+                      />
+                      <span className="text-[11px] text-slate-500">Ordered fallback: first visible, non-empty source wins</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button type="button" variant="ghost" size="icon" disabled={mappingIndex === 0} onClick={() => {
+                         const mappings = [...displayedMappings];
+                        [mappings[mappingIndex - 1], mappings[mappingIndex]] = [mappings[mappingIndex], mappings[mappingIndex - 1]];
+                         updateAction(actionIndex, mappingUpdates(mappings));
+                      }} aria-label="Move mapping earlier"><ChevronUp className="w-4 h-4" /></Button>
+                       <Button type="button" variant="ghost" size="icon" disabled={mappingIndex === displayedMappings.length - 1} onClick={() => {
+                         const mappings = [...displayedMappings];
+                        [mappings[mappingIndex + 1], mappings[mappingIndex]] = [mappings[mappingIndex], mappings[mappingIndex + 1]];
+                         updateAction(actionIndex, mappingUpdates(mappings));
+                      }} aria-label="Move mapping later"><ChevronDown className="w-4 h-4" /></Button>
+                      <Button type="button" variant="ghost" size="sm" onClick={() => {
+                         const mappings = [...displayedMappings];
+                        mappings[mappingIndex] = mapping.source_type === 'clear'
+                          ? { ...mapping, source_type: 'field' }
+                          : { ...mapping, source_type: 'clear', source_field_id: '', source_component: undefined };
+                         updateAction(actionIndex, mappingUpdates(mappings));
+                      }}>{mapping.source_type === 'clear' ? 'Use field' : 'Clear'}</Button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {!displayedMappings.length && <p className="text-xs text-slate-400">{isResolver ? 'Companion mappings are optional; the explicit Not-listed identity mapping is required.' : 'Add at least one mapping from a field in the selected source scope.'}</p>}
+            </div>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+const BOOKING_CORE_FIELDS = [
+  { value: 'attendee_first_name', label: 'Attendee First Name' },
+  { value: 'attendee_last_name', label: 'Attendee Last Name' },
+  { value: 'attendee_email', label: 'Attendee Email' },
+  { value: 'attendee_phone', label: 'Attendee Phone' },
+  { value: 'attendee_job_title', label: 'Attendee Job Title' },
+  { value: 'guest_organisation_name', label: 'Guest Organisation Name' },
+  { value: 'event_name', label: 'Event Name' },
+  { value: 'ticket_class_name', label: 'Ticket Class' },
+  { value: 'booking_reference', label: 'Booking Reference' },
+];
+
+const COMPARISON_MODES = [
+  { value: 'equals', label: 'Equals (exact match)', forEmail: true, forText: true },
+  { value: 'equals_lowercase', label: 'Equals (case insensitive)', forEmail: true, forText: true },
+  { value: 'contains', label: 'Contains', forEmail: false, forText: true },
+  { value: 'starts_with', label: 'Starts with', forEmail: false, forText: true },
+  { value: 'ends_with', label: 'Ends with', forEmail: false, forText: true },
+  { value: 'domain_equals', label: 'Domain equals (email or URL)', forEmail: true, forText: true },
+  { value: 'url_equals', label: 'URL match (ignores http/www)', forEmail: false, forText: true },
+];
+
+const UNIQUENESS_TARGET_FIELDS = {
+  member: [
+    { value: 'member.email', label: 'Member Email', isEmail: true },
+    { value: 'member.full_name', label: 'Member Full Name', isEmail: false },
+    { value: 'member.phone', label: 'Member Phone', isEmail: false },
+    { value: 'member.mobile', label: 'Member Mobile', isEmail: false },
+    { value: 'member.landline', label: 'Member Landline', isEmail: false },
+  ],
+  organization: [
+    { value: 'organization.name', label: 'Organisation Name', isEmail: false },
+    { value: 'organization.invoicing_email', label: 'Invoicing Email', isEmail: true },
+    { value: 'organization.invoicing_address', label: 'Invoicing Address', isEmail: false },
+    { value: 'organization.phone', label: 'Organisation Phone', isEmail: false },
+    { value: 'organization.website_url', label: 'Website URL', isEmail: false },
+  ]
+};
+
+function FieldMappingSection({ 
+  fields, 
+  fieldMappings = [], 
+  onMappingsChange,
+  applicationLevel = "member",
+  customFields = [],
+  communicationCategories = [],  // Communication categories for marketing preferences
+  resourceCategories = [],
+  // New props for entity pipeline use
+  fixedTargetEntity = null,  // 'member' or 'organization' - locks entity selection
+  showHeader = true,         // Whether to show the header with title and add button
+  compact = false            // Compact mode for inline use
+}) {
+  const effectiveEntity = fixedTargetEntity || (applicationLevel === 'member' ? 'member' : 'organization');
+  const normalizedMappings = fixedTargetEntity
+    ? normalizePipelineMappingEntities(fieldMappings, fixedTargetEntity)
+    : fieldMappings;
+
+  useEffect(() => {
+    if (!fixedTargetEntity) return;
+    const needsNormalization = fieldMappings.some(mapping => mapping?.target_entity !== fixedTargetEntity);
+    if (needsNormalization) {
+      onMappingsChange(normalizePipelineMappingEntities(fieldMappings, fixedTargetEntity));
+    }
+  }, [fieldMappings, fixedTargetEntity, onMappingsChange]);
+  
+  const addMapping = () => {
+    const newMapping = {
+      id: `mapping_${Date.now()}`,
+      source_type: 'field', // 'field' or 'static'
+      source_field_id: '',
+      static_value: '',
+      target_type: 'core', // 'core' or 'custom'
+      target_entity: effectiveEntity,
+      target_field: '',
+      transformation: 'none',
+      ignore_if_hidden: false,
+    };
+    onMappingsChange([...normalizedMappings, newMapping]);
+  };
+
+  const updateMapping = (mappingId, updates) => {
+    console.log('[FieldMapping] updateMapping called:', mappingId, updates);
+    try {
+      const newMappings = normalizedMappings.map(m =>
+        m.id === mappingId
+          ? { ...m, ...updates, ...(fixedTargetEntity ? { target_entity: fixedTargetEntity } : {}) }
+          : m
+      );
+      console.log('[FieldMapping] New mappings:', newMappings);
+      onMappingsChange(newMappings);
+    } catch (error) {
+      console.error('[FieldMapping] Error updating mapping:', error);
+      toast.error(`Failed to update mapping: ${error.message}`);
+    }
+  };
+
+  const removeMapping = (mappingId) => {
+    onMappingsChange(normalizedMappings.filter(m => m.id !== mappingId));
+  };
+
+  const toggleFallback = (mapping, enabled) => {
+    if (!enabled) {
+      const groupId = mapping.fallback_group?.id;
+      onMappingsChange(normalizedMappings.map(item => (
+        item.fallback_group?.id === groupId ? { ...item, fallback_group: undefined } : item
+      )));
+      return;
+    }
+    const targetKey = mappingTargetKey(mapping);
+    const matchingMappings = normalizedMappings.filter(item => mappingTargetKey(item) === targetKey);
+    if (matchingMappings.length < 2) {
+      toast.error('Add at least two mappings to the same destination before enabling an ordered fallback.');
+      return;
+    }
+    const groupId = `fallback:${targetKey}`;
+    onMappingsChange(normalizedMappings.map(item => (
+      item.id === mapping.id || mappingTargetKey(item) === targetKey
+        ? { ...item, fallback_group: { version: FORM_MAPPING_FALLBACK_VERSION, id: groupId } }
+        : item
+    )));
+  };
+
+  const getAvailableCoreFields = (targetEntity) => {
+    return targetEntity === 'member' ? MEMBER_CORE_FIELDS : ORG_CORE_FIELDS;
+  };
+
+  const getAvailableCustomFields = (targetEntity) => {
+    return customFields.filter(cf => cf.entity_scope === targetEntity);
+  };
+
+  const getAvailableCommunicationCategories = () => {
+    return communicationCategories || [];
+  };
+
+  const getCustomFieldById = (fieldId) => {
+    return customFields.find(cf => cf.id === fieldId);
+  };
+
+  return (
+    <div className={compact ? "space-y-3" : "space-y-4"}>
+      {showHeader && (
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-medium flex items-center gap-2">
+              <Settings2 className="w-4 h-4" />
+              Field Mappings
+            </h3>
+            <p className="text-xs text-slate-500 mt-1">
+              Map form fields or set fixed values for member/organisation records
+            </p>
+          </div>
+          <Button 
+            onClick={addMapping} 
+            size="sm" 
+            variant="outline"
+            data-testid="button-add-mapping"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Add Mapping
+          </Button>
+        </div>
+      )}
+
+      {normalizedMappings.length === 0 ? (
+        <div className={`text-center ${compact ? 'py-4' : 'py-8'} text-slate-400 border border-dashed border-slate-200 rounded-lg`}>
+          <Wand2 className={`${compact ? 'w-6 h-6' : 'w-8 h-8'} mx-auto mb-2 opacity-50`} />
+          <p className="text-sm">No field mappings defined</p>
+          <p className="text-xs mt-1">
+            {fixedTargetEntity 
+              ? `Add mappings to save form data to ${fixedTargetEntity === 'member' ? 'member' : 'organisation'} profile`
+              : 'Add mappings to save form data to member/organisation profiles'
+            }
+          </p>
+          {!showHeader && (
+            <Button 
+              onClick={addMapping} 
+              size="sm" 
+              variant="outline"
+              className="mt-3"
+              data-testid="button-add-first-mapping"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Add Mapping
+            </Button>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {normalizedMappings.map((mapping, index) => {
+            const sourceType = mapping.source_type || 'field';
+            const selectedSourceField = fields.find(f => f.id === mapping.source_field_id);
+            const mappingTargetEntity = fixedTargetEntity || mapping.target_entity || effectiveEntity;
+            const isOrganizationGroupTarget = mappingTargetEntity === 'member'
+              && mapping.target_type === 'core'
+              && mapping.target_field === 'organization_group_id';
+            const availableSourceFields = fields.filter(field => {
+              if (['instructions', 'image', 'image_buttons'].includes(field.type)) return false;
+              // Organisation Group Dropdown answers are persisted group IDs.
+              // Do not offer ordinary text fields for this reference target:
+              // their labels/names are not valid member group assignments.
+              return !isOrganizationGroupTarget || sourceType !== 'field'
+                || ['organisation_group_dropdown', 'organization_group_dropdown'].includes(field.type);
+            });
+            const isCategorySource = sourceType === 'field'
+              && ['category_dropdown', 'category_multiselect'].includes(selectedSourceField?.type);
+            const canTargetResourceCategory = isCategorySource
+              && mappingTargetEntity === 'member';
+            const canTargetCrmNotes = sourceType === 'field'
+              && isCrmNoteSourceField(selectedSourceField)
+              && ['member', 'organization'].includes(mappingTargetEntity);
+            const compatibleResourceCategories = selectedSourceField?.type === 'category_dropdown'
+              ? resourceCategories.filter(category => category.id === selectedSourceField.category_id)
+              : selectedSourceField?.allowed_category_ids?.length > 0
+                ? resourceCategories.filter(category => selectedSourceField.allowed_category_ids.includes(category.id))
+                : resourceCategories;
+            const targetCustomField = mapping.target_type === 'custom' ? getCustomFieldById(mapping.target_field) : null;
+            const hasOptions = targetCustomField && targetCustomField.options && targetCustomField.options.length > 0;
+            
+            return (
+              <div 
+                key={mapping.id} 
+                className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-3"
+                data-testid={`mapping-row-${index}`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <Label className="text-xs">Ordered fallback</Label>
+                    <p className="text-[11px] text-slate-500">For matching destinations, the first visible, non-empty source wins. Empty groups do not clear data.</p>
+                  </div>
+                  <Switch
+                    checked={isExplicitFallbackMapping(mapping)}
+                    disabled={!mapping.target_field}
+                    onCheckedChange={(checked) => toggleFallback(mapping, checked)}
+                    data-testid={`switch-mapping-fallback-${index}`}
+                  />
+                </div>
+                {/* First row: Source Type Selection + Source Value */}
+                <div className="flex flex-wrap items-end gap-3">
+                  {/* Source Type */}
+                  <div className="space-y-1 min-w-[100px]">
+                    <Label className="text-xs">Source</Label>
+                    <Select
+                      value={sourceType}
+                      onValueChange={(value) => updateMapping(mapping.id, {
+                        source_type: value,
+                        source_field_id: '',
+                         source_component: undefined,
+                        source_category_id: '',
+                        target_type: mapping.target_type === 'resource_category' && value !== 'field'
+                          ? 'core'
+                          : mapping.target_type === 'crm_note' && value !== 'field'
+                            ? 'core'
+                          : mapping.target_type,
+                        target_field: ['resource_category', 'crm_note'].includes(mapping.target_type) && value !== 'field'
+                          ? ''
+                          : mapping.target_field,
+                        static_value: value === 'clear' ? '__clear__' : '',
+                        transformation: value === 'current_date' ? 'current_date' : 'none'
+                      })}
+                    >
+                      <SelectTrigger className="h-9" data-testid={`select-source-type-${index}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="field">Form Field</SelectItem>
+                        <SelectItem value="static">Fixed Value</SelectItem>
+                        <SelectItem value="current_date">Current Date</SelectItem>
+                        <SelectItem value="clear">Clear Field</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Source Field or Static Value or Clear indicator */}
+                  {sourceType === 'field' ? (
+                    <>
+                    <div className="space-y-1 min-w-[160px] flex-1">
+                      <Label className="text-xs">Form Field</Label>
+                      <Select
+                        value={mapping.source_field_id || undefined}
+                        onValueChange={(value) => {
+                          console.log('[FieldMapping] Source field changed to:', value);
+                          if (value) {
+                            const selectedField = fields.find(f => f.id === value);
+                           const visibleAddressComponents = selectedField?.type === 'address_lookup'
+                             ? addressLookupVisibleComponents(selectedField)
+                             : [];
+                           const updates = {
+                             source_field_id: value,
+                             source_component: visibleAddressComponents[0],
+                           };
+                            if (selectedField?.type !== 'communication_preferences') {
+                              updates.source_category_id = '';
+                            }
+                           if (selectedField?.type === 'address_lookup' || mapping.source_component !== undefined) {
+                             updates.target_field = '';
+                           }
+                            if (mapping.target_type === 'resource_category') {
+                              updates.target_field = '';
+                              if (!['category_dropdown', 'category_multiselect'].includes(selectedField?.type)) {
+                                updates.target_type = 'core';
+                              }
+                            }
+                            if (mapping.target_type === 'crm_note'
+                              && !isCrmNoteSourceField(selectedField)) {
+                              updates.target_type = 'core';
+                              updates.target_field = '';
+                            }
+                            updateMapping(mapping.id, updates);
+                          }
+                        }}
+                      >
+                        <SelectTrigger className="h-9" data-testid={`select-source-${index}`}>
+                          <SelectValue placeholder="Select field..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {availableSourceFields.map(field => (
+                            <SelectItem key={field.id} value={field.id}>
+                              <span className="inline-flex items-center gap-2">
+                                <span>{field.label || field.type}</span>
+                                {field.starts_hidden && (
+                                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground border border-border rounded px-1 py-0.5">hidden</span>
+                                )}
+                              </span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                     {selectedSourceField?.type === 'address_lookup' && (
+                       <div className="space-y-1 min-w-[160px] flex-1">
+                         <Label className="text-xs">Address component</Label>
+                         <Select
+                           value={mapping.source_component || undefined}
+                           onValueChange={(source_component) => updateMapping(mapping.id, {
+                             source_component,
+                             target_field: '',
+                           })}
+                         >
+                           <SelectTrigger className="h-9" data-testid={`select-source-component-${index}`}>
+                             <SelectValue placeholder="Select component..." />
+                           </SelectTrigger>
+                           <SelectContent>
+                             {ADDRESS_LOOKUP_COMPONENTS
+                               .filter(component => addressLookupVisibleComponents(selectedSourceField).includes(component.value))
+                               .map(component => (
+                                 <SelectItem key={component.value} value={component.value}>
+                                   {component.label}
+                                 </SelectItem>
+                               ))}
+                           </SelectContent>
+                         </Select>
+                       </div>
+                     )}
+                    {(() => {
+                      const selectedSourceField = fields.find(f => f.id === mapping.source_field_id);
+                      if (selectedSourceField?.type === 'communication_preferences' && communicationCategories.length > 0) {
+                        return (
+                          <div className="space-y-1 min-w-[140px]">
+                            <Label className="text-xs">Source Category</Label>
+                            <Select
+                              value={mapping.source_category_id || undefined}
+                              onValueChange={(value) => {
+                                if (value) {
+                                  updateMapping(mapping.id, { source_category_id: value });
+                                }
+                              }}
+                            >
+                              <SelectTrigger className="h-9" data-testid={`select-source-category-${index}`}>
+                                <SelectValue placeholder="Select category..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {communicationCategories.map(cat => (
+                                  <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
+                    </>
+                  ) : sourceType === 'current_date' ? (
+                    <div className="space-y-1 min-w-[160px] flex-1">
+                      <Label className="text-xs">Value</Label>
+                      <div className="h-9 px-3 flex items-center text-sm text-muted-foreground bg-slate-100 border rounded-md">
+                        Will use current date when form is submitted
+                      </div>
+                    </div>
+                  ) : sourceType === 'clear' ? (
+                    <div className="space-y-1 min-w-[160px] flex-1">
+                      <Label className="text-xs">Action</Label>
+                      <div className="h-9 px-3 flex items-center text-sm text-muted-foreground bg-slate-100 border rounded-md">
+                        Will clear/remove existing value
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-1 min-w-[160px] flex-1">
+                      <Label className="text-xs">Fixed Value</Label>
+                      {targetCustomField?.field_type === 'boolean' ? (
+                        <div className="flex items-center h-9 gap-3">
+                          <Switch
+                            checked={mapping.static_value === 'true' || mapping.static_value === true}
+                            onCheckedChange={(checked) => updateMapping(mapping.id, { static_value: checked ? 'true' : 'false' })}
+                            data-testid={`switch-static-value-${index}`}
+                          />
+                          <span className="text-sm text-slate-600">
+                            {mapping.static_value === 'true' || mapping.static_value === true ? 'Yes' : 'No'}
+                          </span>
+                        </div>
+                      ) : hasOptions ? (
+                        <Select
+                          value={mapping.static_value || ''}
+                          onValueChange={(value) => updateMapping(mapping.id, { static_value: value })}
+                        >
+                          <SelectTrigger className="h-9" data-testid={`select-static-value-${index}`}>
+                            <SelectValue placeholder="Select value..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {targetCustomField.options.map((opt, optIdx) => (
+                              <SelectItem key={optIdx} value={opt.value}>
+                                {opt.label || opt.value}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Input
+                          value={mapping.static_value || ''}
+                          onChange={(e) => updateMapping(mapping.id, { static_value: e.target.value })}
+                          placeholder="Enter value..."
+                          className="h-9"
+                          data-testid={`input-static-value-${index}`}
+                        />
+                      )}
+                    </div>
+                  )}
+
+                  {/* Arrow */}
+                  <div className="hidden sm:flex items-center justify-center pb-2">
+                    <ArrowRight className="w-4 h-4 text-slate-400" />
+                  </div>
+
+                  {/* Target Type */}
+                  <div className="space-y-1 min-w-[100px]">
+                    <Label className="text-xs">Type</Label>
+                    <Select
+                      value={mapping.target_type}
+                      onValueChange={(value) => {
+                        const updates = { 
+                          target_type: value, 
+                          target_field: '',
+                          static_value: ''
+                        };
+                        if (value === 'communication') {
+                          updates.target_entity = 'member';
+                        }
+                        if (value === 'resource_category') {
+                          updates.target_entity = 'member';
+                        }
+                        if (value === 'crm_note') {
+                          updates.target_entity = effectiveEntity;
+                        }
+                        updateMapping(mapping.id, updates);
+                      }}
+                    >
+                      <SelectTrigger className="h-9" data-testid={`select-target-type-${index}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="core">Core</SelectItem>
+                        <SelectItem value="custom">Custom</SelectItem>
+                        {(mapping.target_entity === 'member' || effectiveEntity === 'member') && communicationCategories.length > 0 && (
+                          <SelectItem value="communication">Communication</SelectItem>
+                        )}
+                        {canTargetResourceCategory && (
+                          <SelectItem value="resource_category">Resource Category</SelectItem>
+                        )}
+                        {canTargetCrmNotes && (
+                          <SelectItem value="crm_note">CRM Notes</SelectItem>
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Target Entity - hidden when fixedTargetEntity is set */}
+                  {!fixedTargetEntity && (
+                    <div className="space-y-1 min-w-[110px]">
+                      <Label className="text-xs">Entity</Label>
+                      <Select
+                        value={mapping.target_entity}
+                        onValueChange={(value) => updateMapping(mapping.id, {
+                          target_entity: value,
+                          target_type: mapping.target_type === 'resource_category' && value !== 'member'
+                            ? 'core'
+                            : mapping.target_type,
+                          target_field: '',
+                          static_value: ''
+                        })}
+                      >
+                        <SelectTrigger className="h-9" data-testid={`select-target-entity-${index}`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="member">Member</SelectItem>
+                          <SelectItem value="organization">Organisation</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+
+                  {/* Target Field */}
+                  <div className="space-y-1 min-w-[140px] flex-1">
+                    <Label className="text-xs">
+                       {mapping.target_type === 'crm_note'
+                         ? 'Destination'
+                         : mapping.target_type === 'communication'
+                        ? 'Category'
+                        : mapping.target_type === 'resource_category'
+                          ? 'Resource Category'
+                          : 'Target Field'}
+                    </Label>
+                    <Select
+                      value={mapping.target_field || undefined}
+                      onValueChange={(value) => {
+                        console.log('[FieldMapping] Target field changed to:', value);
+                        if (value && value !== '__none') {
+                           const updates = { target_field: value, static_value: '' };
+                           if (value === 'organization_group_id'
+                             && mappingTargetEntity === 'member'
+                             && sourceType === 'field'
+                             && !['organisation_group_dropdown', 'organization_group_dropdown'].includes(selectedSourceField?.type)) {
+                             updates.source_field_id = '';
+                           }
+                           updateMapping(mapping.id, updates);
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="h-9" data-testid={`select-target-field-${index}`}>
+                        <SelectValue placeholder="Select..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {mapping.target_type === 'crm_note' ? (
+                          <SelectItem value="notes">
+                            {(fixedTargetEntity || mapping.target_entity || effectiveEntity) === 'member'
+                              ? 'Member CRM Notes'
+                              : 'Organisation CRM Notes'}
+                          </SelectItem>
+                        ) : mapping.target_type === 'core' ? (
+                          getAvailableCoreFields(mappingTargetEntity).map(f => (
+                            <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+                          ))
+                        ) : mapping.target_type === 'resource_category' ? (
+                          compatibleResourceCategories.length === 0 ? (
+                            <SelectItem value="__none" disabled>No compatible resource categories available</SelectItem>
+                          ) : (
+                            compatibleResourceCategories.map(category => (
+                              <SelectItem key={category.id} value={category.id}>{category.name}</SelectItem>
+                            ))
+                          )
+                        ) : mapping.target_type === 'communication' ? (
+                          getAvailableCommunicationCategories().length === 0 ? (
+                            <SelectItem value="__none" disabled>No communication categories available</SelectItem>
+                          ) : (
+                            getAvailableCommunicationCategories().map(cat => (
+                              <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
+                            ))
+                          )
+                        ) : (
+                          getAvailableCustomFields(mappingTargetEntity).length === 0 ? (
+                            <SelectItem value="__none" disabled>No custom fields available</SelectItem>
+                          ) : (
+                            getAvailableCustomFields(mappingTargetEntity).map(f => (
+                              <SelectItem key={f.id} value={f.id}>{f.label}</SelectItem>
+                            ))
+                          )
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {isOrganizationGroupTarget && (
+                    <p className="text-xs text-blue-700" data-testid={`member-organization-group-guidance-${index}`}>
+                      Direct Organisation Group assignment applies only to members without an Organisation.
+                      Members with an Organisation derive their group from that Organisation. The dropdown value
+                      is the persisted Organisation Group ID, not its display name.
+                    </p>
+                  )}
+
+                  {/* Delete */}
+                  <div className="flex items-end pb-0.5">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeMapping(mapping.id)}
+                      className="h-9 w-9 text-red-600 hover:text-red-700 hover:bg-red-50"
+                      data-testid={`button-delete-mapping-${index}`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+
+                {sourceType === 'field' && mapping.source_field_id && (
+                  <div className="flex items-center justify-between gap-3 pt-2 border-t border-slate-200">
+                    <div>
+                      <Label className="text-xs">Ignore if hidden</Label>
+                      <p className="text-[11px] text-slate-500">
+                        Skip this mapping when form rules hide its source field for the submitted answers.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={mapping.ignore_if_hidden === true}
+                      onCheckedChange={(checked) => updateMapping(mapping.id, { ignore_if_hidden: checked })}
+                      data-testid={`switch-ignore-hidden-${index}`}
+                    />
+                  </div>
+                )}
+
+                {/* Transformation row - only show for field mappings */}
+                {sourceType === 'field' && (
+                  <div className="flex items-center gap-3 pt-2 border-t border-slate-200">
+                    <Wand2 className="w-4 h-4 text-slate-400" />
+                    <Label className="text-xs text-slate-600 whitespace-nowrap">Transform:</Label>
+                    <Select
+                      value={mapping.transformation}
+                      onValueChange={(value) => updateMapping(mapping.id, { transformation: value })}
+                    >
+                      <SelectTrigger className="h-8 flex-1 max-w-xs" data-testid={`select-transformation-${index}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {TRANSFORMATIONS.map(t => (
+                          <SelectItem key={t.value} value={t.value}>
+                            <span>{t.label}</span>
+                            <span className="text-xs text-slate-400 ml-2">- {t.description}</span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          
+          {/* Add Mapping button at bottom when header is hidden */}
+          {!showHeader && (
+            <Button 
+              onClick={addMapping} 
+              size="sm" 
+              variant="outline"
+              className="w-full"
+              data-testid="button-add-more-mappings"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Add Mapping
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const VISIBILITY_OPERATORS = [
+  { value: 'equals', label: 'Equals' },
+  { value: 'not_equals', label: 'Does not equal' },
+  { value: 'contains', label: 'Contains' },
+  { value: 'not_empty', label: 'Is not empty' },
+  { value: 'is_empty', label: 'Is empty' },
+];
+
+// LMIC operators (Task #3477): offered only for country-shaped fields
+// (`country` / `countries`). Compared against the tenant's saved LMIC list
+// at view time; no value input needed.
+const LMIC_CONDITION_OPERATOR_OPTIONS = [
+  { value: 'is_lmic', label: 'Is an LMIC country' },
+  { value: 'is_not_lmic', label: 'Is not an LMIC country' },
+];
+
+const isLmicConditionOperator = (operator) =>
+  operator === 'is_lmic' || operator === 'is_not_lmic';
+
+const BOOLEAN_OPERATORS = [
+  { value: 'equals', label: 'Equals' },
+  { value: 'not_equals', label: 'Does not equal' },
+];
+
+const BOOLEAN_VALUE_OPTIONS = [
+  { value: 'true', label: 'True' },
+  { value: 'false', label: 'False' },
+];
+
+const isBooleanOperatorAllowed = (operator) =>
+  BOOLEAN_OPERATORS.some(op => op.value === operator);
+
+const isBooleanValueAllowed = (value) =>
+  BOOLEAN_VALUE_OPTIONS.some(opt => opt.value === value);
+
+const RULE_TYPES = [
+  { value: 'visibility', label: 'Show/Hide Fields', icon: Eye, description: 'Control field visibility' },
+  { value: 'set_value', label: 'Set Field Value', icon: Edit2, description: 'Set a field value' },
+];
+
+function OpenFormActionSettings({
+  action,
+  ruleId,
+  fields,
+  destinationForms,
+  updateAction,
+  index,
+  actionIndex,
+}) {
+  const destination = destinationForms.find(form => String(form.id) === String(action.destination_form_id));
+  const sourceFields = fields.filter(isFormTransitionField);
+  const targetFields = (destination?.fields || []).filter(isFormTransitionField);
+  const mappings = Array.isArray(action.mappings) ? action.mappings : [];
+  const usedTargets = new Set(mappings.map(mapping => mapping.target_field_id).filter(Boolean));
+
+  const updateMapping = (mappingId, updates) => {
+    updateAction(ruleId, action.id, {
+      mappings: mappings.map(mapping => mapping.id === mappingId ? { ...mapping, ...updates } : mapping),
+    });
+  };
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-slate-500">
+        Replace this form in place when the rule matches. Only explicitly mapped answers carry across.
+      </p>
+      <div className="space-y-1">
+        <Label className="text-xs text-slate-600">Destination form</Label>
+        <Select
+          value={action.destination_form_id || undefined}
+          onValueChange={(value) => updateAction(ruleId, action.id, {
+            destination_form_id: value,
+            mappings: [],
+          })}
+        >
+          <SelectTrigger className="h-9" data-testid={`select-open-form-destination-${index}-${actionIndex}`}>
+            <SelectValue placeholder="Choose a form…" />
+          </SelectTrigger>
+          <SelectContent>
+            {destinationForms.map(form => (
+              <SelectItem key={form.id} value={form.id}>{form.name || form.slug}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {destination && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <Label className="text-xs text-slate-600">Answer mappings</Label>
+              <p className="text-[11px] text-slate-500">Unmapped answers are discarded.</p>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              onClick={() => updateAction(ruleId, action.id, {
+                mappings: [...mappings, {
+                  id: `mapping_${Date.now()}`,
+                  source_field_id: '',
+                  target_field_id: '',
+                }],
+              })}
+              disabled={sourceFields.length === 0 || targetFields.length === 0}
+              data-testid={`button-add-open-form-mapping-${index}-${actionIndex}`}
+            >
+              <Plus className="mr-1 h-3 w-3" /> Add mapping
+            </Button>
+          </div>
+          {mappings.map((mapping, mappingIndex) => {
+            const source = sourceFields.find(field => field.id === mapping.source_field_id);
+            const compatibleTargets = source
+              ? targetFields.filter(field => areFormTransitionFieldsCompatible(source, field))
+              : targetFields;
+            return (
+              <div
+                key={mapping.id}
+                className="grid grid-cols-[1fr,auto,1fr,auto] items-center gap-2 rounded border border-slate-200 bg-white p-2"
+                data-testid={`open-form-mapping-${index}-${actionIndex}-${mappingIndex}`}
+              >
+                <Select
+                  value={mapping.source_field_id || undefined}
+                  onValueChange={(value) => {
+                    const nextSource = sourceFields.find(field => field.id === value);
+                    const currentTarget = targetFields.find(field => field.id === mapping.target_field_id);
+                    updateMapping(mapping.id, {
+                      source_field_id: value,
+                      target_field_id: currentTarget && areFormTransitionFieldsCompatible(nextSource, currentTarget)
+                        ? mapping.target_field_id
+                        : '',
+                    });
+                  }}
+                >
+                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Source field" /></SelectTrigger>
+                  <SelectContent>
+                    {sourceFields.map(field => (
+                      <SelectItem key={field.id} value={field.id}>{field.label || field.type}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <ArrowRight className="h-4 w-4 text-slate-400" />
+                <Select
+                  value={mapping.target_field_id || undefined}
+                  onValueChange={(value) => updateMapping(mapping.id, { target_field_id: value })}
+                  disabled={!source}
+                >
+                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Destination field" /></SelectTrigger>
+                  <SelectContent>
+                    {compatibleTargets.map(field => (
+                      <SelectItem
+                        key={field.id}
+                        value={field.id}
+                        disabled={usedTargets.has(field.id) && field.id !== mapping.target_field_id}
+                      >
+                        {field.label || field.type}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-red-500"
+                  onClick={() => updateAction(ruleId, action.id, {
+                    mappings: mappings.filter(candidate => candidate.id !== mapping.id),
+                  })}
+                  aria-label="Remove mapping"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LogicRulesSection({ 
+  fields, 
+  visibilityRules = [], 
+  onRulesChange,
+  prefillSource = 'none',
+  prefillSourceFieldId = null,
+  customFields = [],
+  categories = [],
+  communicationCategories = [],
+  organizations = [],
+  organizationGroups = [],
+  roles = [],
+  pages = [],
+  entityPipelines = null,
+  destinationForms = []
+}) {
+  // Track the last rules JSON we migrated to detect new data
+  const lastMigratedJsonRef = React.useRef(null);
+  const [expandedActionRuleIds, setExpandedActionRuleIds] = useState(() => new Set());
+  const toggleRuleActions = (ruleId) => {
+    setExpandedActionRuleIds((current) => {
+      const next = new Set(current);
+      if (next.has(ruleId)) next.delete(ruleId);
+      else next.add(ruleId);
+      return next;
+    });
+  };
+
+  // Migrate and consolidate visibility actions (legacy + duplicates)
+  const consolidateVisibilityActions = (actions, ruleId) => {
+    if (!actions || !Array.isArray(actions)) return { actions: actions || [], migrated: false };
+    
+    // Check if there are any legacy or multiple visibility actions to consolidate
+    const legacyActions = actions.filter(a => 
+      ['show', 'hide', 'enable', 'disable'].includes(a.action_type)
+    );
+    const visibilityActions = actions.filter(a => a.action_type === 'visibility');
+    
+    // No consolidation needed if no legacy actions and at most one visibility action
+    if (legacyActions.length === 0 && visibilityActions.length <= 1) {
+      return { actions, migrated: false };
+    }
+    
+    // Find the first visibility action to use as base (preserve all its properties)
+    const baseVisibilityAction = visibilityActions[0];
+    const field_states = baseVisibilityAction?.field_states ? { ...baseVisibilityAction.field_states } : {};
+    
+    // Merge additional visibility actions' field_states (if duplicates exist)
+    for (let i = 1; i < visibilityActions.length; i++) {
+      const extraAction = visibilityActions[i];
+      if (extraAction.field_states) {
+        for (const [fieldId, state] of Object.entries(extraAction.field_states)) {
+          if (!field_states[fieldId]) {
+            field_states[fieldId] = { visible: null, enabled: null };
+          }
+          // Later actions override earlier ones
+          if (state.visible !== null && state.visible !== undefined) {
+            field_states[fieldId].visible = state.visible;
+          }
+          if (state.enabled !== null && state.enabled !== undefined) {
+            field_states[fieldId].enabled = state.enabled;
+          }
+        }
+      }
+    }
+    
+    // Merge legacy actions into field_states
+    for (const action of legacyActions) {
+      const fieldIds = action.target_field_ids || [];
+      for (const fieldId of fieldIds) {
+        if (!field_states[fieldId]) {
+          field_states[fieldId] = { visible: null, enabled: null };
+        }
+        
+        if (action.action_type === 'show') {
+          field_states[fieldId].visible = true;
+        } else if (action.action_type === 'hide') {
+          field_states[fieldId].visible = false;
+        } else if (action.action_type === 'enable') {
+          field_states[fieldId].enabled = true;
+        } else if (action.action_type === 'disable') {
+          field_states[fieldId].enabled = false;
+        }
+      }
+    }
+    
+    // Filter out all legacy and visibility actions
+    const otherActions = actions.filter(a => 
+      !['show', 'hide', 'enable', 'disable', 'visibility'].includes(a.action_type)
+    );
+    
+    // Add the consolidated visibility action, preserving base action properties
+    if (Object.keys(field_states).length > 0 || baseVisibilityAction) {
+      otherActions.unshift({
+        ...(baseVisibilityAction || {}),
+        id: baseVisibilityAction?.id || `action_vis_${ruleId}`,
+        action_type: 'visibility',
+        field_states
+      });
+    }
+    
+    return { actions: otherActions, migrated: true };
+  };
+
+  // Build a compact signature of which fields are booleans so we re-run the
+  // boolean auto-correction step when a field's type changes.
+  const booleanFieldsSignature = (fields || [])
+    .filter(f => f && f.type === 'boolean')
+    .map(f => f.id)
+    .join('|');
+
+  // Normalize and migrate rules on initial load or when rules change
+  useEffect(() => {
+    if (!visibilityRules || visibilityRules.length === 0) return;
+    
+    // Use JSON comparison to detect new data (handles cached array references).
+    // Include the boolean-fields signature so changing a field's type to/from
+    // boolean re-triggers the auto-correction below.
+    const currentJson = `${booleanFieldsSignature}::${JSON.stringify(visibilityRules)}`;
+    if (lastMigratedJsonRef.current === currentJson) return;
+    
+    let needsUpdate = false;
+    const migratedRules = visibilityRules.map(rule => {
+      // Preserve all existing rule properties
+      let normalizedRule = { ...rule };
+      
+      // First normalize to actions array format if needed
+      if (!rule.actions || !Array.isArray(rule.actions)) {
+        needsUpdate = true;
+        const actions = [];
+        if (rule.rule_type === 'set_value' || rule.action === 'set_value') {
+          actions.push({
+            id: `action_${rule.id}_1`,
+            action_type: 'set_value',
+            target_field_id: rule.target_field_id || '',
+            set_value_source: rule.set_value_source || 'static',
+            set_value: rule.set_value || '',
+            set_value_field_id: rule.set_value_field_id || '',
+            ...(Object.hasOwn(rule, 'copy_mode') ? { copy_mode: rule.copy_mode } : {}),
+            set_value_prefill_field: rule.set_value_prefill_field || '',
+            set_value_prefill_source_field_id: rule.set_value_prefill_source_field_id || ''
+          });
+        } else if (rule.target_field_ids && rule.target_field_ids.length > 0) {
+          // Has old visibility format - convert directly to new visibility action
+          const field_states = {};
+          for (const fieldId of rule.target_field_ids) {
+            field_states[fieldId] = { visible: null, enabled: null };
+            if (rule.action === 'show') {
+              field_states[fieldId].visible = true;
+            } else if (rule.action === 'hide') {
+              field_states[fieldId].visible = false;
+            } else if (rule.action === 'enable') {
+              field_states[fieldId].enabled = true;
+            } else if (rule.action === 'disable') {
+              field_states[fieldId].enabled = false;
+            }
+          }
+          actions.push({
+            id: `action_vis_${rule.id}`,
+            action_type: 'visibility',
+            field_states
+          });
+        }
+        normalizedRule = { ...normalizedRule, actions };
+      }
+      
+      // Consolidate any legacy or duplicate visibility actions
+      const { actions: consolidatedActions, migrated } = consolidateVisibilityActions(
+        normalizedRule.actions, 
+        normalizedRule.id
+      );
+      if (migrated) {
+        needsUpdate = true;
+        normalizedRule = { ...normalizedRule, actions: consolidatedActions };
+      }
+      
+      // Migrate legacy trigger_field_id/operator/value to conditions array format
+      if (!normalizedRule.conditions || !Array.isArray(normalizedRule.conditions)) {
+        needsUpdate = true;
+        const conditions = normalizedRule.trigger_field_id ? [{
+          id: `cond_${normalizedRule.id}_0`,
+          field_id: normalizedRule.trigger_field_id,
+          operator: normalizedRule.operator || 'equals',
+          value: normalizedRule.value || ''
+        }] : [{
+          id: `cond_${normalizedRule.id}_0`,
+          field_id: '',
+          operator: 'equals',
+          value: ''
+        }];
+        
+        normalizedRule = {
+          ...normalizedRule,
+          logic: normalizedRule.logic || 'and',
+          conditions
+        };
+      }
+
+      // Auto-correct conditions whose reference field is boolean but the saved
+      // operator/value is no longer valid for booleans. This keeps already-saved
+      // rules in a valid state when they're loaded into the editor.
+      if (normalizedRule.conditions && Array.isArray(normalizedRule.conditions)) {
+        let conditionsChanged = false;
+        const correctedConditions = normalizedRule.conditions.map(cond => {
+          if (!cond.field_id) return cond;
+          const refField = fields.find(f => f.id === cond.field_id);
+          if (!refField || refField.type !== 'boolean') return cond;
+          let updated = cond;
+          if (!isBooleanOperatorAllowed(cond.operator)) {
+            updated = { ...updated, operator: 'equals' };
+            conditionsChanged = true;
+          }
+          if (!isBooleanValueAllowed(updated.value)) {
+            updated = { ...updated, value: 'true' };
+            conditionsChanged = true;
+          }
+          return updated;
+        });
+        if (conditionsChanged) {
+          needsUpdate = true;
+          normalizedRule = { ...normalizedRule, conditions: correctedConditions };
+        }
+      }
+
+      return normalizedRule;
+    });
+    
+    // Mark as migrated before calling onRulesChange to prevent re-entry
+    lastMigratedJsonRef.current = currentJson;
+    
+    if (needsUpdate) {
+      console.log('[FormBuilder] Migrating legacy visibility rules to new format');
+      // Update the ref to the new JSON so we don't re-trigger
+      lastMigratedJsonRef.current = `${booleanFieldsSignature}::${JSON.stringify(migratedRules)}`;
+      onRulesChange(migratedRules);
+    }
+  }, [visibilityRules, onRulesChange, booleanFieldsSignature]);
+
+  // Simple normalize for rendering - ensures default values exist
+  // The actual migration is done in the useEffect above which persists the changes
+  const normalizeRule = (rule) => {
+    return {
+      ...rule,
+      actions: rule.actions || [],
+      conditions: rule.conditions || [],
+      logic: rule.logic || 'and'
+    };
+  };
+
+  const addRule = () => {
+    const newRule = {
+      id: `rule_${Date.now()}`,
+      logic: 'and', // Default to AND logic
+      conditions: [{
+        id: `cond_${Date.now()}`,
+        field_id: '',
+        operator: 'equals',
+        value: ''
+      }],
+      actions: [] // Start with empty actions, user adds them
+    };
+    onRulesChange([...visibilityRules, newRule]);
+  };
+
+  const addCondition = (ruleId) => {
+    const rule = visibilityRules.find(r => r.id === ruleId);
+    if (!rule) return;
+    
+    const normalizedRule = normalizeRule(rule);
+    const newCondition = {
+      id: `cond_${Date.now()}`,
+      field_id: '',
+      operator: 'equals',
+      value: ''
+    };
+    
+    const updatedConditions = [...(normalizedRule.conditions || []), newCondition];
+    updateRule(ruleId, { conditions: updatedConditions });
+  };
+
+  const updateCondition = (ruleId, conditionId, updates) => {
+    const rule = visibilityRules.find(r => r.id === ruleId);
+    if (!rule) return;
+    
+    const normalizedRule = normalizeRule(rule);
+    const updatedConditions = (normalizedRule.conditions || []).map(c =>
+      c.id === conditionId ? { ...c, ...updates } : c
+    );
+    updateRule(ruleId, { conditions: updatedConditions });
+  };
+
+  const removeCondition = (ruleId, conditionId) => {
+    const rule = visibilityRules.find(r => r.id === ruleId);
+    if (!rule) return;
+    
+    const normalizedRule = normalizeRule(rule);
+    const updatedConditions = (normalizedRule.conditions || []).filter(c => c.id !== conditionId);
+    
+    // Ensure at least one condition remains
+    if (updatedConditions.length === 0) {
+      toast.info('At least one condition is required per rule');
+      return;
+    }
+    
+    updateRule(ruleId, { conditions: updatedConditions });
+  };
+
+  const getConditionFieldOptions = (fieldId) => {
+    const field = fields.find(f => f.id === fieldId);
+    return getFormLogicConditionOptions({
+      field,
+      categories,
+      communicationCategories,
+      customFields,
+      organizations,
+      organizationGroups,
+    });
+  };
+
+  const isBooleanReferenceField = (fieldId) => {
+    const field = fields.find(f => f.id === fieldId);
+    return field?.type === 'boolean';
+  };
+
+  // Country-shaped fields get the extra LMIC operators (Task #3477).
+  const isCountryReferenceField = (fieldId) => {
+    const field = fields.find(f => f.id === fieldId);
+    return field?.type === 'country' || field?.type === 'countries';
+  };
+
+  const addAction = (ruleId, actionType = 'visibility') => {
+    const rule = visibilityRules.find(r => r.id === ruleId);
+    if (!rule) return;
+    
+    const normalizedRule = normalizeRule(rule);
+    let newAction;
+    
+    if (actionType === 'set_value') {
+      newAction = {
+        id: `action_${Date.now()}`,
+        action_type: 'set_value',
+        target_field_id: '',
+        set_value_source: 'static',
+        copy_mode: CONDITIONAL_COPY_MODE_STORED_VALUE,
+        set_value: '',
+        set_value_field_id: '',
+        set_value_prefill_field: '',
+        formula_operand_a_mode: 'field',
+        formula_operand_a_field_id: '',
+        formula_operand_a_value: '',
+        formula_operator: 'add',
+        formula_operand_b_mode: 'field',
+        formula_operand_b_field_id: '',
+        formula_operand_b_value: ''
+      };
+    } else if (actionType === 'visibility') {
+      // Consolidated visibility action - check if one already exists
+      const existingVisibilityAction = (normalizedRule.actions || []).find(a => a.action_type === 'visibility');
+      if (existingVisibilityAction) {
+        toast.info('A visibility action already exists for this rule');
+        return;
+      }
+      newAction = {
+        id: `action_vis_${Date.now()}`,
+        action_type: 'visibility',
+        // field_states maps fieldId -> { visible: true/false/null, enabled: true/false/null }
+        // null means inherit (no change)
+        field_states: {}
+      };
+    } else if (actionType === 'submit_control') {
+      // One submit-control action per rule keeps semantics obvious
+      const existingSubmitAction = (normalizedRule.actions || []).find(a => a.action_type === 'submit_control');
+      if (existingSubmitAction) {
+        toast.info('A submit button action already exists for this rule');
+        return;
+      }
+      newAction = {
+        id: `action_submit_${Date.now()}`,
+        action_type: 'submit_control',
+        // 'disable' blocks submission while the rule's conditions match;
+        // 'enable' re-enables submit even if another matched rule disables it.
+        submit_state: 'disable',
+        message: ''
+      };
+    } else if (actionType === 'membership_structure') {
+      // One membership action per rule; the FIRST matched rule wins at
+      // payment time, so a single action per rule keeps precedence obvious.
+      const existingMembershipAction = (normalizedRule.actions || []).find(a => a.action_type === 'membership_structure');
+      if (existingMembershipAction) {
+        toast.info('A membership action already exists for this rule');
+        return;
+      }
+      newAction = {
+        id: `action_membership_${Date.now()}`,
+        action_type: 'membership_structure',
+        config_id: '',
+        // Maps membership calculation inputs (preference field ids or
+        // core:<name> keys) to form field ids.
+        field_mappings: {}
+      };
+    } else if (actionType === 'open_form') {
+      const existingOpenFormAction = (normalizedRule.actions || []).find(a => a.action_type === 'open_form');
+      if (existingOpenFormAction) {
+        toast.info('An open form action already exists for this rule');
+        return;
+      }
+      newAction = {
+        id: `action_open_form_${Date.now()}`,
+        action_type: 'open_form',
+        destination_form_id: '',
+        mappings: [],
+      };
+    } else {
+      // Unknown action type
+      toast.error('Unknown action type');
+      return;
+    }
+    
+    const updatedActions = [...(normalizedRule.actions || []), newAction];
+    updateRule(ruleId, { actions: updatedActions });
+  };
+
+  const updateAction = (ruleId, actionId, updates) => {
+    const rule = visibilityRules.find(r => r.id === ruleId);
+    if (!rule) return;
+    
+    const normalizedRule = normalizeRule(rule);
+    const updatedActions = (normalizedRule.actions || []).map(a => 
+      a.id === actionId ? { ...a, ...updates } : a
+    );
+    updateRule(ruleId, { actions: updatedActions });
+  };
+
+  const removeAction = (ruleId, actionId) => {
+    const rule = visibilityRules.find(r => r.id === ruleId);
+    if (!rule) return;
+    
+    const normalizedRule = normalizeRule(rule);
+    const updatedActions = (normalizedRule.actions || []).filter(a => a.id !== actionId);
+    updateRule(ruleId, { actions: updatedActions });
+  };
+
+  const toggleTargetFieldInAction = (ruleId, actionId, fieldId) => {
+    const rule = visibilityRules.find(r => r.id === ruleId);
+    if (!rule) return;
+    
+    const normalizedRule = normalizeRule(rule);
+    const action = (normalizedRule.actions || []).find(a => a.id === actionId);
+    if (!action) return;
+    
+    const currentTargets = action.target_field_ids || [];
+    const newTargets = currentTargets.includes(fieldId)
+      ? currentTargets.filter(id => id !== fieldId)
+      : [...currentTargets, fieldId];
+    
+    updateAction(ruleId, actionId, { target_field_ids: newTargets });
+  };
+
+  // Update visibility state for a field in the consolidated visibility action
+  const updateFieldVisibilityState = (ruleId, actionId, fieldId, property, value) => {
+    const rule = visibilityRules.find(r => r.id === ruleId);
+    if (!rule) return;
+    
+    const normalizedRule = normalizeRule(rule);
+    const action = (normalizedRule.actions || []).find(a => a.id === actionId);
+    if (!action || action.action_type !== 'visibility') return;
+    
+    const currentStates = action.field_states || {};
+    const fieldState = currentStates[fieldId] || { visible: null, enabled: null };
+    
+    const newFieldState = { ...fieldState, [property]: value };
+    
+    // If both are null, remove the field entirely to keep payload clean
+    const newStates = { ...currentStates };
+    if (newFieldState.visible === null && newFieldState.enabled === null) {
+      delete newStates[fieldId];
+    } else {
+      newStates[fieldId] = newFieldState;
+    }
+    
+    updateAction(ruleId, actionId, { field_states: newStates });
+  };
+  
+  const getPrefillFields = (sourceFieldId = null) => {
+    if (prefillSource === 'none') return [];
+    if (prefillSource === 'form_field') {
+      const source = fields.find(field => String(field.id) === String(
+        sourceFieldId || prefillSourceFieldId
+      ));
+      if (!source) return [];
+      const isGroup = source.type === 'organisation_group_dropdown';
+      const coreFields = isGroup ? ORG_GROUP_PREFILL_FIELDS : ORG_CORE_FIELDS;
+      const scope = isGroup ? 'organization_group' : 'organization';
+      const entityCustomFields = customFields.filter(cf => cf.entity_scope === scope);
+      return [
+        ...coreFields.map(f => ({ value: `core.${f.value}`, label: f.label })),
+        ...entityCustomFields.map(f => ({ value: `custom.${f.id}`, label: f.label })),
+      ];
+    }
+    
+    if (prefillSource === 'booking') {
+      const memberCustomFields = customFields.filter(cf => !cf.entity_scope || cf.entity_scope === 'member');
+      const orgCustomFields = customFields.filter(cf => cf.entity_scope === 'organization');
+      return [
+        ...BOOKING_CORE_FIELDS.map(f => ({ value: `core.${f.value}`, label: f.label, group: 'Booking Fields' })),
+        ...MEMBER_CORE_FIELDS.map(f => ({ value: `core.${f.value}`, label: f.label, group: 'Member Fields (if linked)' })),
+        ...memberCustomFields.map(f => ({ value: `custom.${f.id}`, label: f.label, group: 'Member Custom Fields (if linked)' })),
+        ...ORG_CORE_FIELDS.map(f => ({ value: `core.${f.value}`, label: f.label, group: 'Organisation Fields (if linked)' })),
+        ...orgCustomFields.map(f => ({ value: `custom.${f.id}`, label: f.label, group: 'Organisation Custom Fields (if linked)' })),
+      ];
+    }
+    
+    const coreFields = prefillSource === 'member' ? MEMBER_CORE_FIELDS : ORG_CORE_FIELDS;
+    const entityCustomFields = customFields.filter(cf => cf.entity_scope === (prefillSource === 'member' ? 'member' : 'organization'));
+    
+    return [
+      ...coreFields.map(f => ({ value: `core.${f.value}`, label: f.label, group: 'Core Fields' })),
+      ...entityCustomFields.map(f => ({ value: `custom.${f.id}`, label: f.label, group: 'Custom Fields' }))
+    ];
+  };
+
+  const updateRule = (ruleId, updates) => {
+    const newRules = visibilityRules.map(r => 
+      r.id === ruleId ? { ...r, ...updates } : r
+    );
+    onRulesChange(newRules);
+  };
+
+  const removeRule = (ruleId) => {
+    onRulesChange(visibilityRules.filter(r => r.id !== ruleId));
+  };
+
+  // Reorder rules via drag-and-drop. Rules are evaluated in array order, so
+  // this lets users control the evaluation sequence.
+  const handleRuleDragEnd = (result) => {
+    if (!result.destination) return;
+    if (result.destination.index === result.source.index) return;
+    const reordered = Array.from(visibilityRules);
+    const [moved] = reordered.splice(result.source.index, 1);
+    reordered.splice(result.destination.index, 0, moved);
+    onRulesChange(reordered);
+  };
+
+  // Legacy function - kept for potential backward compatibility but no longer used
+  const toggleTargetField = (ruleId, fieldId) => {
+    const rule = visibilityRules.find(r => r.id === ruleId);
+    if (!rule) return;
+    
+    const currentTargets = rule.target_field_ids || [];
+    const newTargets = currentTargets.includes(fieldId)
+      ? currentTargets.filter(id => id !== fieldId)
+      : [...currentTargets, fieldId];
+    
+    updateRule(ruleId, { target_field_ids: newTargets });
+  };
+
+  const getTriggerFieldOptions = (triggerFieldId) => {
+    const field = fields.find(f => f.id === triggerFieldId);
+    if (!field) return [];
+    
+    if (field.type === 'select' || field.type === 'radio') {
+      return field.options || [];
+    }
+    if (field.type === 'checkbox') {
+      return field.options || [];
+    }
+    return [];
+  };
+
+  const getTargetFieldOptions = (targetFieldId) => {
+    const field = fields.find(f => f.id === targetFieldId);
+    if (!field) return { type: 'text', options: [] };
+    
+    const hasOptions = ['select', 'radio', 'checkbox'].includes(field.type);
+    return {
+      type: field.type,
+      options: hasOptions ? (field.options || []) : []
+    };
+  };
+
+  const renderSetValueInput = (ruleId, action, actionIndex) => {
+    const targetInfo = getTargetFieldOptions(action.target_field_id);
+    const sourceType = action.set_value_source || 'static';
+    const availableSourceFields = fields.filter(f => f.id !== action.target_field_id);
+    const selectedSourceField = fields.find(f => f.id === action.set_value_field_id);
+    const selectedTargetField = fields.find(f => f.id === action.target_field_id);
+    const supportsDisplayNameCopy = isSupportedDisplayNameCopySource(selectedSourceField)
+      && isSupportedDisplayNameCopyTarget(selectedTargetField);
+    const eligiblePrefillSources = fields.filter(isEligibleFormFieldPrefillSource);
+    const selectedPrefillSourceId = action.set_value_prefill_source_field_id
+      || prefillSourceFieldId;
+    const prefillFields = getPrefillFields(selectedPrefillSourceId);
+    const hasPrefill = prefillSource !== 'none';
+    
+    if (!action.target_field_id) {
+      return <p className="text-xs text-slate-400">Select a target field first</p>;
+    }
+
+    // Instructions-only targets: replace the displayed rich-text content. Only
+    // static rich text is supported (no field/prefill/formula sources), so we
+    // render the same rich-text editor used to author instructions content.
+    if (targetInfo.type === 'instructions') {
+      return (
+        <div className="space-y-2">
+          <p className="text-xs text-slate-500">
+            Replace the instructions content shown to users when this rule's conditions are met.
+          </p>
+          <div className="bg-white rounded border border-slate-200">
+            <ReactQuill
+              theme="snow"
+              value={typeof action.set_value === 'string' ? action.set_value : ''}
+              onChange={(value) => updateAction(ruleId, action.id, { set_value: value })}
+              placeholder="Enter the instructions content to display..."
+              modules={{
+                toolbar: [
+                  [{ 'header': [1, 2, 3, false] }],
+                  ['bold', 'italic', 'underline'],
+                  [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                  ['link'],
+                  ['clean']
+                ]
+              }}
+              data-testid={`richtext-set-value-${actionIndex}`}
+            />
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Label className="text-xs text-slate-600 whitespace-nowrap">Value from:</Label>
+          <div className="flex gap-1 flex-wrap">
+            <Button
+              variant={sourceType === 'static' ? 'default' : 'outline'}
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => updateAction(ruleId, action.id, {
+                set_value_source: 'static',
+                set_value_field_id: '',
+                set_value_prefill_field: '',
+                set_value_prefill_source_field_id: '',
+              })}
+              data-testid={`button-source-static-${actionIndex}`}
+            >
+              Enter Text
+            </Button>
+            <Button
+              variant={sourceType === 'field' ? 'default' : 'outline'}
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => updateAction(ruleId, action.id, {
+                set_value_source: 'field',
+                set_value: '',
+                set_value_prefill_field: '',
+                set_value_prefill_source_field_id: '',
+              })}
+              data-testid={`button-source-field-${actionIndex}`}
+            >
+              From Field
+            </Button>
+            {hasPrefill && (
+              <Button
+                variant={sourceType === 'prefill' ? 'default' : 'outline'}
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => updateAction(ruleId, action.id, {
+                  set_value_source: 'prefill',
+                  set_value: '',
+                  set_value_field_id: '',
+                  ...(eligiblePrefillSources.some(field => field.id === action.target_field_id)
+                    ? { target_field_id: '' }
+                    : {}),
+                })}
+                data-testid={`button-source-prefill-${actionIndex}`}
+              >
+                From Pre-fill Data
+              </Button>
+            )}
+            <Button
+              variant={sourceType === 'formula' ? 'default' : 'outline'}
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => updateAction(ruleId, action.id, { 
+                set_value_source: 'formula', 
+                set_value: '', 
+                set_value_field_id: '',
+                set_value_prefill_field: '',
+                 set_value_prefill_source_field_id: '',
+                formula_operand_a_mode: 'field',
+                formula_operand_a_field_id: '',
+                formula_operand_a_value: '',
+                formula_operator: 'add',
+                formula_operand_b_mode: 'field',
+                formula_operand_b_field_id: '',
+                formula_operand_b_value: ''
+              })}
+              data-testid={`button-source-formula-${actionIndex}`}
+            >
+              Formula
+            </Button>
+          </div>
+        </div>
+
+        {sourceType === 'formula' ? (
+          <div className="space-y-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <Label className="text-xs font-medium text-blue-800">Calculate: Operand A {'{operator}'} Operand B</Label>
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Operand A */}
+              <div className="flex items-center gap-1">
+                <div className="flex gap-0.5">
+                  <Button
+                    variant={(action.formula_operand_a_mode || 'field') === 'field' ? 'default' : 'outline'}
+                    size="sm"
+                    className="h-7 text-xs px-2 rounded-r-none"
+                    onClick={() => updateAction(ruleId, action.id, { formula_operand_a_mode: 'field', formula_operand_a_value: '' })}
+                    data-testid={`button-operand-a-field-${actionIndex}`}
+                  >
+                    Field
+                  </Button>
+                  <Button
+                    variant={(action.formula_operand_a_mode || 'field') === 'value' ? 'default' : 'outline'}
+                    size="sm"
+                    className="h-7 text-xs px-2 rounded-l-none"
+                    onClick={() => updateAction(ruleId, action.id, { formula_operand_a_mode: 'value', formula_operand_a_field_id: '' })}
+                    data-testid={`button-operand-a-value-${actionIndex}`}
+                  >
+                    Value
+                  </Button>
+                </div>
+                {(action.formula_operand_a_mode || 'field') === 'field' ? (
+                  <Select
+                    value={action.formula_operand_a_field_id || action.formula_field_a || undefined}
+                    onValueChange={(value) => updateAction(ruleId, action.id, { formula_operand_a_field_id: value })}
+                  >
+                    <SelectTrigger className="h-9 w-32" data-testid={`select-formula-field-a-${actionIndex}`}>
+                      <SelectValue placeholder="Select..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableSourceFields.filter(f => ['number', 'percentage', 'currency'].includes(f.type)).map(field => (
+                        <SelectItem key={field.id} value={field.id}>
+                          {field.label || field.type}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input
+                    type="number"
+                    step="any"
+                    value={action.formula_operand_a_value || ''}
+                    onChange={(e) => updateAction(ruleId, action.id, { formula_operand_a_value: e.target.value })}
+                    placeholder="0"
+                    className="h-9 w-24"
+                    data-testid={`input-formula-value-a-${actionIndex}`}
+                  />
+                )}
+              </div>
+              
+              <Select
+                value={action.formula_operator || 'add'}
+                onValueChange={(value) => updateAction(ruleId, action.id, { formula_operator: value })}
+              >
+                <SelectTrigger className="h-9 w-24" data-testid={`select-formula-operator-${actionIndex}`}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="add">+ Add</SelectItem>
+                  <SelectItem value="subtract">− Subtract</SelectItem>
+                  <SelectItem value="multiply">× Multiply</SelectItem>
+                  <SelectItem value="divide">÷ Divide</SelectItem>
+                </SelectContent>
+              </Select>
+              
+              {/* Operand B */}
+              <div className="flex items-center gap-1">
+                <div className="flex gap-0.5">
+                  <Button
+                    variant={(action.formula_operand_b_mode || 'field') === 'field' ? 'default' : 'outline'}
+                    size="sm"
+                    className="h-7 text-xs px-2 rounded-r-none"
+                    onClick={() => updateAction(ruleId, action.id, { formula_operand_b_mode: 'field', formula_operand_b_value: '' })}
+                    data-testid={`button-operand-b-field-${actionIndex}`}
+                  >
+                    Field
+                  </Button>
+                  <Button
+                    variant={(action.formula_operand_b_mode || 'field') === 'value' ? 'default' : 'outline'}
+                    size="sm"
+                    className="h-7 text-xs px-2 rounded-l-none"
+                    onClick={() => updateAction(ruleId, action.id, { formula_operand_b_mode: 'value', formula_operand_b_field_id: '' })}
+                    data-testid={`button-operand-b-value-${actionIndex}`}
+                  >
+                    Value
+                  </Button>
+                </div>
+                {(action.formula_operand_b_mode || 'field') === 'field' ? (
+                  <Select
+                    value={action.formula_operand_b_field_id || action.formula_field_b || undefined}
+                    onValueChange={(value) => updateAction(ruleId, action.id, { formula_operand_b_field_id: value })}
+                  >
+                    <SelectTrigger className="h-9 w-32" data-testid={`select-formula-field-b-${actionIndex}`}>
+                      <SelectValue placeholder="Select..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableSourceFields.filter(f => ['number', 'percentage', 'currency'].includes(f.type)).map(field => (
+                        <SelectItem key={field.id} value={field.id}>
+                          {field.label || field.type}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input
+                    type="number"
+                    step="any"
+                    value={action.formula_operand_b_value || ''}
+                    onChange={(e) => updateAction(ruleId, action.id, { formula_operand_b_value: e.target.value })}
+                    placeholder="0"
+                    className="h-9 w-24"
+                    data-testid={`input-formula-value-b-${actionIndex}`}
+                  />
+                )}
+              </div>
+            </div>
+            <p className="text-xs text-blue-600">
+              Result will be calculated when conditions are met. Use Field to reference form values or Value for fixed numbers.
+            </p>
+          </div>
+        ) : sourceType === 'prefill' ? (
+          <div className="space-y-2">
+            {prefillSource === 'form_field' && (
+              <Select
+                value={selectedPrefillSourceId || undefined}
+                onValueChange={(value) => updateAction(ruleId, action.id, {
+                  set_value_prefill_source_field_id: value,
+                  set_value_prefill_field: '',
+                })}
+              >
+                <SelectTrigger className="h-9" data-testid={`select-prefill-source-field-${actionIndex}`}>
+                  <SelectValue placeholder="Select record source dropdown..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {eligiblePrefillSources.map(field => (
+                    <SelectItem key={field.id} value={field.id}>
+                      {field.label || 'Untitled field'} — {field.type === 'organisation_group_dropdown' ? 'Organisation Group' : 'Organisation'}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <Select
+              value={action.set_value_prefill_field || undefined}
+              onValueChange={(value) => updateAction(ruleId, action.id, { set_value_prefill_field: value })}
+              disabled={prefillSource === 'form_field' && !selectedPrefillSourceId}
+            >
+              <SelectTrigger className="h-9" data-testid={`select-prefill-field-${actionIndex}`}>
+                <SelectValue placeholder="Select pre-fill field..." />
+              </SelectTrigger>
+              <SelectContent>
+                {prefillFields.map(field => (
+                  <SelectItem key={field.value} value={field.value}>
+                    {field.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ) : sourceType === 'field' ? (
+          <div className="space-y-2">
+            <Select
+              value={action.set_value_field_id || undefined}
+              onValueChange={(value) => {
+                const source = fields.find(field => field.id === value);
+                updateAction(ruleId, action.id, {
+                  set_value_field_id: value,
+                  ...(action.copy_mode === CONDITIONAL_COPY_MODE_DISPLAY_NAME
+                    && (!isSupportedDisplayNameCopySource(source)
+                      || !isSupportedDisplayNameCopyTarget(selectedTargetField))
+                    ? { copy_mode: CONDITIONAL_COPY_MODE_STORED_VALUE }
+                    : {}),
+                });
+              }}
+            >
+              <SelectTrigger className="h-9" data-testid={`select-source-field-${actionIndex}`}>
+                <SelectValue placeholder="Select field to copy value from..." />
+              </SelectTrigger>
+              <SelectContent>
+                {availableSourceFields.map(field => (
+                  <SelectItem key={field.id} value={field.id}>
+                    {field.label || field.type}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {supportsDisplayNameCopy ? (
+              <Select
+                value={action.copy_mode || CONDITIONAL_COPY_MODE_STORED_VALUE}
+                onValueChange={(copy_mode) => updateAction(ruleId, action.id, { copy_mode })}
+              >
+                <SelectTrigger className="h-9" data-testid={`select-copy-mode-${actionIndex}`}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={CONDITIONAL_COPY_MODE_STORED_VALUE}>Stored value (ID)</SelectItem>
+                  <SelectItem value={CONDITIONAL_COPY_MODE_DISPLAY_NAME}>Selected record display name</SelectItem>
+                </SelectContent>
+              </Select>
+            ) : action.copy_mode === CONDITIONAL_COPY_MODE_DISPLAY_NAME ? (
+              <p className="text-xs text-red-600">
+                Display-name copying is only available from a top-level single record selection into text or textarea.
+              </p>
+            ) : null}
+          </div>
+        ) : (
+          <>
+            {targetInfo.options.length > 0 ? (
+              targetInfo.type === 'checkbox' ? (
+                <div className="space-y-2">
+                  <Label className="text-xs text-slate-600">Select values to set:</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {targetInfo.options.map((opt, optIdx) => {
+                      const optValue = typeof opt === 'string' ? opt : (opt.value || opt);
+                      const optLabel = typeof opt === 'string' ? opt : (opt.label || opt.value || opt);
+                      const currentValues = Array.isArray(action.set_value) ? action.set_value : [];
+                      const isSelected = currentValues.includes(optValue);
+                      return (
+                        <Button
+                          key={optIdx}
+                          variant={isSelected ? "default" : "outline"}
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={() => {
+                            const newValues = isSelected
+                              ? currentValues.filter(v => v !== optValue)
+                              : [...currentValues, optValue];
+                            updateAction(ruleId, action.id, { set_value: newValues });
+                          }}
+                          data-testid={`button-set-value-option-${actionIndex}-${optIdx}`}
+                        >
+                          {optLabel}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <Select
+                  value={action.set_value || undefined}
+                  onValueChange={(value) => updateAction(ruleId, action.id, { set_value: value })}
+                >
+                  <SelectTrigger className="h-9" data-testid={`select-set-value-${actionIndex}`}>
+                    <SelectValue placeholder="Select value to set..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {targetInfo.options.map((opt, optIdx) => (
+                      <SelectItem 
+                        key={optIdx} 
+                        value={typeof opt === 'string' ? opt : (opt.value || opt)}
+                      >
+                        {typeof opt === 'string' ? opt : (opt.label || opt.value || opt)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )
+            ) : targetInfo.type === 'boolean' ? (
+              <div className="flex gap-2">
+                <Button
+                  variant={action.set_value === true || action.set_value === 'true' ? 'default' : 'outline'}
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => updateAction(ruleId, action.id, { set_value: true })}
+                  data-testid={`button-set-value-true-${actionIndex}`}
+                >
+                  True (Yes)
+                </Button>
+                <Button
+                  variant={action.set_value === false || action.set_value === 'false' ? 'default' : 'outline'}
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => updateAction(ruleId, action.id, { set_value: false })}
+                  data-testid={`button-set-value-false-${actionIndex}`}
+                >
+                  False (No)
+                </Button>
+              </div>
+            ) : targetInfo.type === 'date' ? (
+              <Input
+                type="date"
+                value={action.set_value || ''}
+                onChange={(e) => updateAction(ruleId, action.id, { set_value: e.target.value })}
+                className="h-9"
+                data-testid={`input-set-value-date-${actionIndex}`}
+              />
+            ) : targetInfo.type === 'number' ? (
+              <Input
+                type="number"
+                value={action.set_value || ''}
+                onChange={(e) => updateAction(ruleId, action.id, { set_value: e.target.value })}
+                placeholder="Enter number..."
+                className="h-9"
+                data-testid={`input-set-value-number-${actionIndex}`}
+              />
+            ) : (
+              <Input
+                value={action.set_value || ''}
+                onChange={(e) => updateAction(ruleId, action.id, { set_value: e.target.value })}
+                placeholder="Enter value to set..."
+                className="h-9"
+                data-testid={`input-set-value-${actionIndex}`}
+              />
+            )}
+          </>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-medium flex items-center gap-2">
+            <Settings2 className="w-4 h-4" />
+            Conditional Logic Rules
+          </h3>
+          <p className="text-xs text-slate-500 mt-1">
+            Define conditions that trigger one or more actions (show/hide fields or set values)
+          </p>
+        </div>
+        <Button 
+          onClick={addRule} 
+          size="sm" 
+          variant="outline"
+          data-testid="button-add-rule"
+        >
+          <Plus className="w-4 h-4 mr-2" />
+          Add Rule
+        </Button>
+      </div>
+
+      {visibilityRules.length === 0 ? (
+        <div className="text-center py-8 text-slate-400 border border-dashed border-slate-200 rounded-lg">
+          <Settings2 className="w-8 h-8 mx-auto mb-2 opacity-50" />
+          <p className="text-sm">No conditional logic rules defined</p>
+          <p className="text-xs mt-1">Add rules to show/hide fields or set values based on user responses</p>
+        </div>
+      ) : (
+        <DragDropContext onDragEnd={handleRuleDragEnd}>
+          <Droppable droppableId="logic-rules">
+            {(dropProvided) => (
+              <div
+                className="space-y-3"
+                ref={dropProvided.innerRef}
+                {...dropProvided.droppableProps}
+              >
+                {visibilityRules.map((rule, index) => {
+                  const normalizedRule = normalizeRule(rule);
+                  const conditions = normalizedRule.conditions || [];
+                  const conditionFieldIds = conditions.map(c => c.field_id).filter(Boolean);
+                  // For visibility actions, exclude condition fields
+                  const availableTargetFields = fields.filter(f => !conditionFieldIds.includes(f.id));
+                  // For set_value actions, include ALL fields (including locked ones) - locked fields are prime targets for conditional value setting
+                  const availableSetValueTargetFields = fields;
+                  const actions = normalizedRule.actions || [];
+                  const actionsExpanded = expandedActionRuleIds.has(rule.id);
+
+                  return (
+                    <Draggable key={rule.id} draggableId={rule.id} index={index}>
+                      {(dragProvided) => (
+              <div 
+                ref={dragProvided.innerRef}
+                {...dragProvided.draggableProps}
+                className="p-4 border rounded-lg space-y-3 bg-slate-50 border-slate-200"
+                data-testid={`rule-row-${index}`}
+              >
+                {/* Rule Header */}
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <div
+                      {...dragProvided.dragHandleProps}
+                      className="cursor-move flex-shrink-0"
+                      data-testid={`drag-handle-rule-${index}`}
+                    >
+                      <GripVertical className="w-4 h-4 text-slate-400" />
+                    </div>
+                    <div className="flex items-center gap-2 px-1 py-1">
+                      <Settings2 className="w-4 h-4 text-slate-600" />
+                      <span className="text-xs font-medium text-slate-600">
+                        Rule #{index + 1} ({conditions.length} condition{conditions.length !== 1 ? 's' : ''}, {actions.length} action{actions.length !== 1 ? 's' : ''})
+                      </span>
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => removeRule(rule.id)}
+                    className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
+                    data-testid={`button-delete-rule-${index}`}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </div>
+
+                <div className="space-y-3" data-testid={`rule-editor-${index}`}>
+                {/* AND/OR Logic Toggle - shown when multiple conditions */}
+                {conditions.length > 1 && (
+                  <div className="flex items-center gap-2 pb-2">
+                    <Label className="text-xs text-slate-600">Match:</Label>
+                    <div className="flex gap-1">
+                      <Button
+                        variant={normalizedRule.logic === 'and' ? 'default' : 'outline'}
+                        size="sm"
+                        className="h-7 text-xs px-3"
+                        onClick={() => updateRule(rule.id, { logic: 'and' })}
+                        data-testid={`button-logic-and-${index}`}
+                      >
+                        ALL conditions (AND)
+                      </Button>
+                      <Button
+                        variant={normalizedRule.logic === 'or' ? 'default' : 'outline'}
+                        size="sm"
+                        className="h-7 text-xs px-3"
+                        onClick={() => updateRule(rule.id, { logic: 'or' })}
+                        data-testid={`button-logic-or-${index}`}
+                      >
+                        ANY condition (OR)
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Conditions */}
+                <div className="space-y-2">
+                  {conditions.map((condition, condIndex) => {
+                    const conditionField = fields.find(f => f.id === condition.field_id);
+                    const isBooleanRef = isBooleanReferenceField(condition.field_id);
+                    const isScoreRef = fields.find(f => f.id === condition.field_id)?.type === 'score';
+                    const isCountryRef = isCountryReferenceField(condition.field_id);
+                    const conditionOptions = getConditionFieldOptions(condition.field_id);
+                    const notListedLabel = formNotListedChoiceLabel(conditionField);
+                    const syntheticRelationshipValues = new Set([
+                      FORM_NOT_LISTED_VALUE,
+                      FORM_NO_RELATIONSHIP_VALUE,
+                    ]);
+                    const useManualNotListedPicker = isOnlyFormNotListedConditionOption(conditionOptions)
+                      || (
+                        conditionField?.type === 'relationship_dropdown'
+                        && conditionOptions.length > 0
+                        && conditionOptions.every(option => syntheticRelationshipValues.has(option?.value))
+                      );
+                    const selectedSyntheticOption = conditionOptions.find(option => (
+                      syntheticRelationshipValues.has(option?.value)
+                      && option.value === condition.value
+                    ));
+                    const operatorOptions = isBooleanRef
+                      ? BOOLEAN_OPERATORS
+                      : (isScoreRef
+                        ? SCORE_CONDITION_OPERATORS
+                        : (isCountryRef
+                          ? [...VISIBILITY_OPERATORS, ...LMIC_CONDITION_OPERATOR_OPTIONS]
+                          : VISIBILITY_OPERATORS));
+                    // For booleans, only equals/not_equals are allowed and both need a value.
+                    const needsValueInput = isBooleanRef
+                      ? true
+                      : (condition.operator !== 'is_empty' && condition.operator !== 'not_empty' &&
+                        !isLmicConditionOperator(condition.operator));
+                    
+                    return (
+                      <div key={condition.id} className="flex flex-wrap items-end gap-2 p-2 bg-white rounded border border-slate-200">
+                        {/* Condition prefix label */}
+                        <div className="flex items-center h-9 min-w-[50px]">
+                          <span className="text-xs font-medium text-slate-500">
+                            {condIndex === 0 ? 'When' : (normalizedRule.logic === 'and' ? 'AND' : 'OR')}
+                          </span>
+                        </div>
+                        
+                        {/* Field selector - exclude instructions type (display-only, not a data source) */}
+                        <div className="space-y-1 min-w-[120px] flex-1">
+                          <Select
+                            value={condition.field_id || undefined}
+                            onValueChange={(value) => {
+                              if (!value) return;
+                              const newField = fields.find(f => f.id === value);
+                              if (newField?.type === 'boolean') {
+                                // Auto-correct: booleans only support equals/not_equals
+                                // and need a true/false value (default to "true").
+                                updateCondition(rule.id, condition.id, {
+                                  field_id: value,
+                                  operator: isBooleanOperatorAllowed(condition.operator) ? condition.operator : 'equals',
+                                  value: 'true',
+                                });
+                              } else if (
+                                isLmicConditionOperator(condition.operator) &&
+                                newField?.type !== 'country' && newField?.type !== 'countries'
+                              ) {
+                                // LMIC operators only apply to country fields —
+                                // auto-correct when switching to another type.
+                                updateCondition(rule.id, condition.id, { field_id: value, operator: 'equals', value: '' });
+                              } else {
+                                updateCondition(rule.id, condition.id, { field_id: value, value: '' });
+                              }
+                            }}
+                          >
+                            <SelectTrigger className="h-9" data-testid={`select-condition-field-${index}-${condIndex}`}>
+                              <SelectValue placeholder="Select field..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {fields.filter(f => f.type !== 'instructions' && f.type !== 'image').map(field => (
+                                <SelectItem key={field.id} value={field.id}>
+                                  {field.label || field.type}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {/* Operator selector */}
+                        <div className="space-y-1 min-w-[100px]">
+                          <Select
+                            value={condition.operator}
+                            onValueChange={(value) => updateCondition(rule.id, condition.id, { operator: value })}
+                          >
+                            <SelectTrigger className="h-9" data-testid={`select-condition-operator-${index}-${condIndex}`}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {operatorOptions.map(op => (
+                                <SelectItem key={op.value} value={op.value}>{op.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {/* Value input */}
+                        {needsValueInput && (
+                          <div className="space-y-1 min-w-[120px] flex-1">
+                            {useManualNotListedPicker ? (
+                              <div className="flex gap-2">
+                                <Input
+                                  value={selectedSyntheticOption ? '' : (condition.value || '')}
+                                  onChange={(event) => updateCondition(rule.id, condition.id, { value: event.target.value })}
+                                  placeholder={selectedSyntheticOption?.label || 'Enter value...'}
+                                  className="h-9 min-w-0 flex-1"
+                                  data-testid={`input-condition-value-${index}-${condIndex}`}
+                                />
+                                {conditionOptions
+                                  .filter(option => syntheticRelationshipValues.has(option?.value))
+                                  .map(option => (
+                                    <Button
+                                      key={option.value}
+                                      type="button"
+                                      variant={condition.value === option.value ? 'secondary' : 'outline'}
+                                      className="h-9 shrink-0"
+                                      onClick={() => updateCondition(rule.id, condition.id, { value: option.value })}
+                                      data-testid={option.value === FORM_NOT_LISTED_VALUE
+                                        ? `button-condition-not-listed-${index}-${condIndex}`
+                                        : `button-condition-no-relationship-${index}-${condIndex}`}
+                                    >
+                                      {option.label}
+                                    </Button>
+                                  ))}
+                              </div>
+                            ) : conditionOptions.length > 0 ? (
+                              <Select
+                                value={condition.value === '' || condition.value == null ? undefined : String(condition.value)}
+                                onValueChange={(value) => updateCondition(rule.id, condition.id, { value })}
+                              >
+                                <SelectTrigger className="h-9" data-testid={`select-condition-value-${index}-${condIndex}`}>
+                                  <SelectValue placeholder="Select value..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {conditionOptions.map((opt, optIdx) => (
+                                    <SelectItem key={optIdx} value={String(typeof opt === 'string' ? opt : opt.value ?? opt)}>
+                                      {typeof opt === 'string' ? opt : opt.label ?? opt.value ?? opt}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <Input
+                                value={condition.value || ''}
+                                onChange={(e) => updateCondition(rule.id, condition.id, { value: e.target.value })}
+                                placeholder="Enter value..."
+                                className="h-9"
+                                data-testid={`input-condition-value-${index}-${condIndex}`}
+                              />
+                            )}
+                          </div>
+                        )}
+
+                        {/* Remove condition button - only if more than 1 condition */}
+                        {conditions.length > 1 && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => removeCondition(rule.id, condition.id)}
+                            className="h-9 w-9 text-slate-400 hover:text-red-600 hover:bg-red-50"
+                            data-testid={`button-remove-condition-${index}-${condIndex}`}
+                          >
+                            <X className="w-4 h-4" />
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })}
+                  
+                  {/* Add condition button */}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => addCondition(rule.id)}
+                    data-testid={`button-add-condition-${index}`}
+                  >
+                    <Plus className="w-3 h-3 mr-1" /> Add Condition
+                  </Button>
+                </div>
+
+                {/* Actions Section */}
+                <div className="pt-3 border-t border-slate-200 space-y-3">
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between rounded px-1 py-1 text-left hover:bg-slate-100"
+                    onClick={() => toggleRuleActions(rule.id)}
+                    aria-expanded={actionsExpanded}
+                    aria-controls={`rule-actions-${rule.id}`}
+                    data-testid={`button-toggle-rule-actions-${index}`}
+                  >
+                    <span className="text-xs font-medium text-slate-600">
+                      Actions ({actions.length})
+                    </span>
+                    {actionsExpanded
+                      ? <ChevronUp className="h-4 w-4 text-slate-500" />
+                      : <ChevronDown className="h-4 w-4 text-slate-500" />}
+                  </button>
+
+                  {actionsExpanded && (
+                    <div
+                      id={`rule-actions-${rule.id}`}
+                      className="space-y-3"
+                      data-testid={`rule-actions-${index}`}
+                    >
+                      <div className="flex flex-wrap justify-end gap-1">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => addAction(rule.id, 'visibility')}
+                        data-testid={`button-add-visibility-action-${index}`}
+                      >
+                        <Eye className="w-3 h-3 mr-1" /> Visibility
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => addAction(rule.id, 'set_value')}
+                        data-testid={`button-add-setvalue-action-${index}`}
+                      >
+                        <Edit2 className="w-3 h-3 mr-1" /> Set Value
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => addAction(rule.id, 'submit_control')}
+                        data-testid={`button-add-submit-action-${index}`}
+                      >
+                        <Lock className="w-3 h-3 mr-1" /> Submit Button
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => addAction(rule.id, 'membership_structure')}
+                        data-testid={`button-add-membership-action-${index}`}
+                      >
+                        <CreditCard className="w-3 h-3 mr-1" /> Membership
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => addAction(rule.id, 'open_form')}
+                        data-testid={`button-add-open-form-action-${index}`}
+                      >
+                        <ArrowRight className="w-3 h-3 mr-1" /> Open Form
+                      </Button>
+                    </div>
+
+                    {actions.length === 0 ? (
+                      <div className="text-center py-4 text-slate-400 border border-dashed border-slate-200 rounded-lg">
+                        <p className="text-xs">No actions defined. Add an action above.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                      {actions.map((action, actionIndex) => {
+                        const isLegacyVisibilityAction = action.action_type === 'show' || action.action_type === 'hide';
+                        const isLegacyDisabilityAction = action.action_type === 'disable' || action.action_type === 'enable';
+                        const isLegacyFieldTargetAction = isLegacyVisibilityAction || isLegacyDisabilityAction;
+                        const isConsolidatedVisibility = action.action_type === 'visibility';
+                        const isSubmitControlAction = action.action_type === 'submit_control';
+                        const isMembershipAction = action.action_type === 'membership_structure';
+                        const isOpenFormAction = action.action_type === 'open_form';
+                        // Determine card styling
+                        let cardClass = 'p-3 rounded-lg border ';
+                        if (isConsolidatedVisibility) {
+                          cardClass += 'bg-slate-50 border-slate-300';
+                        } else if (isMembershipAction) {
+                          cardClass += 'bg-emerald-50 border-emerald-200';
+                        } else if (isSubmitControlAction) {
+                          cardClass += 'bg-purple-50 border-purple-200';
+                        } else if (isOpenFormAction) {
+                          cardClass += 'bg-cyan-50 border-cyan-200';
+                        } else if (isLegacyVisibilityAction) {
+                          cardClass += 'bg-white border-slate-200';
+                        } else if (isLegacyDisabilityAction) {
+                          cardClass += 'bg-warning/10 border-warning/30';
+                        } else {
+                          cardClass += 'bg-blue-50 border-blue-200';
+                        }
+                        
+                        return (
+                          <div 
+                            key={action.id} 
+                            className={cardClass}
+                            data-testid={`action-row-${index}-${actionIndex}`}
+                          >
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-2">
+                                {action.action_type === 'visibility' && <Eye className="w-3 h-3 text-slate-600" />}
+                                {action.action_type === 'show' && <Eye className="w-3 h-3 text-green-600" />}
+                                {action.action_type === 'hide' && <EyeOff className="w-3 h-3 text-slate-600" />}
+                                {action.action_type === 'set_value' && <Edit2 className="w-3 h-3 text-blue-600" />}
+                                {action.action_type === 'disable' && <Lock className="w-3 h-3 text-warning" />}
+                                {action.action_type === 'enable' && <Unlock className="w-3 h-3 text-teal-600" />}
+                                {action.action_type === 'submit_control' && (
+                                  action.submit_state === 'enable'
+                                    ? <Unlock className="w-3 h-3 text-purple-600" />
+                                    : <Lock className="w-3 h-3 text-purple-600" />
+                                )}
+                                {action.action_type === 'membership_structure' && <CreditCard className="w-3 h-3 text-emerald-600" />}
+                                {action.action_type === 'open_form' && <ArrowRight className="w-3 h-3 text-cyan-700" />}
+                                <span className="text-xs font-medium">
+                                  {action.action_type === 'membership_structure' && 'Membership'}
+                                  {action.action_type === 'submit_control' && 'Submit Button'}
+                                  {action.action_type === 'visibility' && 'Field Visibility & State'}
+                                  {action.action_type === 'show' && 'Show Fields (Legacy)'}
+                                  {action.action_type === 'hide' && 'Hide Fields (Legacy)'}
+                                  {action.action_type === 'set_value' && 'Set Field Value'}
+                                  {action.action_type === 'disable' && 'Disable Fields (Legacy)'}
+                                  {action.action_type === 'enable' && 'Enable Fields (Legacy)'}
+                                  {action.action_type === 'open_form' && 'Open Another Form'}
+                                </span>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => removeAction(rule.id, action.id)}
+                                className="h-6 w-6 text-red-500 hover:text-red-600 hover:bg-red-50"
+                                data-testid={`button-delete-action-${index}-${actionIndex}`}
+                              >
+                                <X className="w-3 h-3" />
+                              </Button>
+                            </div>
+
+                            {isOpenFormAction ? (
+                              <OpenFormActionSettings
+                                action={action}
+                                ruleId={rule.id}
+                                fields={fields}
+                                destinationForms={destinationForms}
+                                updateAction={updateAction}
+                                index={index}
+                                actionIndex={actionIndex}
+                              />
+                            ) : isMembershipAction ? (
+                              <MembershipStructureActionSettings
+                                action={action}
+                                ruleId={rule.id}
+                                fields={fields}
+                                updateAction={updateAction}
+                                index={index}
+                                actionIndex={actionIndex}
+                                entityPipelines={entityPipelines}
+                              />
+                            ) : isSubmitControlAction ? (
+                              <div className="space-y-2">
+                                <p className="text-xs text-slate-500">
+                                  Control the Submit button while this rule's conditions match. "Disable submit" blocks submission; "Enable submit" overrides a disable from another rule.
+                                </p>
+                                <div className="flex items-center gap-2">
+                                  <Select
+                                    value={action.submit_state || 'disable'}
+                                    onValueChange={(value) => updateAction(rule.id, action.id, { submit_state: value })}
+                                  >
+                                    <SelectTrigger className="h-8 text-xs w-40" data-testid={`select-submit-state-${index}-${actionIndex}`}>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="disable">Disable submit</SelectItem>
+                                      <SelectItem value="enable">Enable submit</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                {(action.submit_state || 'disable') === 'disable' && (
+                                  <div>
+                                    <Label className="text-xs text-slate-600">Message shown near the Submit button (optional)</Label>
+                                    <Input
+                                      value={action.message || ''}
+                                      onChange={(e) => updateAction(rule.id, action.id, { message: e.target.value })}
+                                      placeholder="e.g. Please review your answers before submitting"
+                                      className="h-8 text-xs mt-1"
+                                      data-testid={`input-submit-message-${index}-${actionIndex}`}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            ) : isConsolidatedVisibility ? (
+                              <div>
+                                <p className="text-xs text-slate-500 mb-3">
+                                  Configure visibility and enabled state for each field or page. Leave as "Inherit" for no change.
+                                </p>
+                                {availableTargetFields.length === 0 && pages.length === 0 ? (
+                                  <p className="text-xs text-slate-400">Add more fields to configure visibility</p>
+                                ) : (
+                                  <div className="border rounded-lg overflow-hidden">
+                                    <div className="grid grid-cols-[1fr,120px,120px] gap-2 bg-slate-100 px-3 py-2 text-xs font-medium text-slate-600 border-b">
+                                      <div>Target</div>
+                                      <div className="text-center">Visibility</div>
+                                      <div className="text-center">State</div>
+                                    </div>
+                                    <div className="max-h-80 overflow-y-auto">
+                                      {pages.length > 0 && (
+                                        <>
+                                          <div className="px-3 py-1.5 bg-blue-50 border-b border-blue-100">
+                                            <span className="text-xs font-semibold text-blue-700 flex items-center gap-1">
+                                              <FileText className="w-3 h-3" />
+                                              Pages
+                                            </span>
+                                          </div>
+                                          {pages.map((page, pageIdx) => {
+                                            const pageState = (action.field_states || {})[page.id] || { visible: null };
+                                            return (
+                                              <div
+                                                key={page.id}
+                                                className={`grid grid-cols-[1fr,120px,120px] gap-2 px-3 py-2 text-xs items-center ${pageIdx % 2 === 0 ? 'bg-blue-50/30' : 'bg-white'}`}
+                                                data-testid={`visibility-row-page-${index}-${actionIndex}-${page.id}`}
+                                              >
+                                                <div className="font-medium truncate flex items-center gap-1" title={page.title}>
+                                                  <FileText className="w-3 h-3 text-blue-500 flex-shrink-0" />
+                                                  {page.title || `Page ${pageIdx + 1}`}
+                                                </div>
+                                                <div className="flex justify-center">
+                                                  <div className="inline-flex rounded-md border border-slate-200 overflow-hidden">
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => updateFieldVisibilityState(rule.id, action.id, page.id, 'visible', true)}
+                                                      className={`px-2 py-1 text-xs ${pageState.visible === true ? 'bg-green-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                                                      title="Show page when condition is met"
+                                                      data-testid={`btn-show-page-${index}-${actionIndex}-${page.id}`}
+                                                    >
+                                                      <Eye className="w-3 h-3" />
+                                                    </button>
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => updateFieldVisibilityState(rule.id, action.id, page.id, 'visible', null)}
+                                                      className={`px-2 py-1 text-xs border-l border-r border-slate-200 ${pageState.visible === null ? 'bg-slate-200 text-slate-700' : 'bg-white text-slate-400 hover:bg-slate-50'}`}
+                                                      title="Inherit (no change)"
+                                                      data-testid={`btn-inherit-vis-page-${index}-${actionIndex}-${page.id}`}
+                                                    >
+                                                      —
+                                                    </button>
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => updateFieldVisibilityState(rule.id, action.id, page.id, 'visible', false)}
+                                                      className={`px-2 py-1 text-xs ${pageState.visible === false ? 'bg-red-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                                                      title="Hide page when condition is met"
+                                                      data-testid={`btn-hide-page-${index}-${actionIndex}-${page.id}`}
+                                                    >
+                                                      <EyeOff className="w-3 h-3" />
+                                                    </button>
+                                                  </div>
+                                                </div>
+                                                <div className="flex justify-center">
+                                                  <span className="text-xs text-slate-400">—</span>
+                                                </div>
+                                              </div>
+                                            );
+                                          })}
+                                          <div className="px-3 py-1.5 bg-slate-50 border-b border-t border-slate-100">
+                                            <span className="text-xs font-semibold text-slate-600">Fields</span>
+                                          </div>
+                                        </>
+                                      )}
+                                      {availableTargetFields.map((field, fieldIdx) => {
+                                        const fieldState = (action.field_states || {})[field.id] || { visible: null, enabled: null };
+                                        return (
+                                          <div 
+                                            key={field.id} 
+                                            className={`grid grid-cols-[1fr,120px,120px] gap-2 px-3 py-2 text-xs items-center ${fieldIdx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}`}
+                                            data-testid={`visibility-row-${index}-${actionIndex}-${field.id}`}
+                                          >
+                                            <div className="font-medium truncate" title={field.label || field.type}>
+                                              {field.label || field.type}
+                                            </div>
+                                            <div className="flex justify-center">
+                                              <div className="inline-flex rounded-md border border-slate-200 overflow-hidden">
+                                                <button
+                                                  type="button"
+                                                  onClick={() => updateFieldVisibilityState(rule.id, action.id, field.id, 'visible', true)}
+                                                  className={`px-2 py-1 text-xs ${fieldState.visible === true ? 'bg-green-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                                                  title="Show"
+                                                  data-testid={`btn-show-${index}-${actionIndex}-${field.id}`}
+                                                >
+                                                  <Eye className="w-3 h-3" />
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => updateFieldVisibilityState(rule.id, action.id, field.id, 'visible', null)}
+                                                  className={`px-2 py-1 text-xs border-l border-r border-slate-200 ${fieldState.visible === null ? 'bg-slate-200 text-slate-700' : 'bg-white text-slate-400 hover:bg-slate-50'}`}
+                                                  title="Inherit (no change)"
+                                                  data-testid={`btn-inherit-vis-${index}-${actionIndex}-${field.id}`}
+                                                >
+                                                  —
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => updateFieldVisibilityState(rule.id, action.id, field.id, 'visible', false)}
+                                                  className={`px-2 py-1 text-xs ${fieldState.visible === false ? 'bg-red-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                                                  title="Hide"
+                                                  data-testid={`btn-hide-${index}-${actionIndex}-${field.id}`}
+                                                >
+                                                  <EyeOff className="w-3 h-3" />
+                                                </button>
+                                              </div>
+                                            </div>
+                                            <div className="flex justify-center">
+                                              <div className="inline-flex rounded-md border border-slate-200 overflow-hidden">
+                                                <button
+                                                  type="button"
+                                                  onClick={() => updateFieldVisibilityState(rule.id, action.id, field.id, 'enabled', true)}
+                                                  className={`px-2 py-1 text-xs ${fieldState.enabled === true ? 'bg-green-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                                                  title="Enable"
+                                                  data-testid={`btn-enable-${index}-${actionIndex}-${field.id}`}
+                                                >
+                                                  <Unlock className="w-3 h-3" />
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => updateFieldVisibilityState(rule.id, action.id, field.id, 'enabled', null)}
+                                                  className={`px-2 py-1 text-xs border-l border-r border-slate-200 ${fieldState.enabled === null ? 'bg-slate-200 text-slate-700' : 'bg-white text-slate-400 hover:bg-slate-50'}`}
+                                                  title="Inherit (no change)"
+                                                  data-testid={`btn-inherit-state-${index}-${actionIndex}-${field.id}`}
+                                                >
+                                                  —
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => updateFieldVisibilityState(rule.id, action.id, field.id, 'enabled', false)}
+                                                  className={`px-2 py-1 text-xs ${fieldState.enabled === false ? 'bg-warning text-warning-foreground' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                                                  title="Disable"
+                                                  data-testid={`btn-disable-${index}-${actionIndex}-${field.id}`}
+                                                >
+                                                  <Lock className="w-3 h-3" />
+                                                </button>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            ) : isLegacyFieldTargetAction ? (
+                              <div>
+                                <Label className="text-xs text-slate-600 mb-2 block">
+                                  Target Fields ({(action.target_field_ids || []).length} selected)
+                                </Label>
+                                {availableTargetFields.length === 0 ? (
+                                  <p className="text-xs text-slate-400">Add more fields to select targets</p>
+                                ) : (
+                                  <div className="flex flex-wrap gap-2">
+                                    {availableTargetFields.map(field => {
+                                      const isSelected = (action.target_field_ids || []).includes(field.id);
+                                      // Determine background color based on action type and selection
+                                      let buttonClass = "h-7 text-xs ";
+                                      if (isSelected) {
+                                        if (action.action_type === 'show' || action.action_type === 'enable') {
+                                          // Green for show/enable actions
+                                          buttonClass += "bg-green-600 hover:bg-green-700 text-white border-green-600";
+                                        } else if (action.action_type === 'hide' || action.action_type === 'disable') {
+                                          // Red for hide/disable actions
+                                          buttonClass += "bg-red-600 hover:bg-red-700 text-white border-red-600";
+                                        }
+                                      }
+                                      return (
+                                        <Button
+                                          key={field.id}
+                                          variant={isSelected ? "default" : "outline"}
+                                          size="sm"
+                                          className={buttonClass}
+                                          onClick={() => toggleTargetFieldInAction(rule.id, action.id, field.id)}
+                                          data-testid={`button-action-target-${index}-${actionIndex}-${field.id}`}
+                                        >
+                                          {field.label || field.type}
+                                        </Button>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="space-y-3">
+                                <div className="space-y-1">
+                                  <Label className="text-xs text-slate-600">Target Field</Label>
+                                  <Select
+                                    value={action.target_field_id || undefined}
+                                    onValueChange={(value) => {
+                                      if (value) {
+                                        const targetField = fields.find(f => f.id === value);
+                                        const isInstructionsTarget = targetField?.type === 'instructions';
+                                        updateAction(rule.id, action.id, {
+                                          target_field_id: value,
+                                          set_value: '',
+                                          ...(action.copy_mode === CONDITIONAL_COPY_MODE_DISPLAY_NAME
+                                            && !isSupportedDisplayNameCopyTarget(targetField)
+                                            ? { copy_mode: CONDITIONAL_COPY_MODE_STORED_VALUE }
+                                            : {}),
+                                          // Instructions targets only support static rich-text content
+                                          ...(isInstructionsTarget ? {
+                                            set_value_source: 'static',
+                                            set_value_field_id: '',
+                                            set_value_prefill_field: ''
+                                          } : {})
+                                        });
+                                      }
+                                    }}
+                                  >
+                                    <SelectTrigger className="h-9" data-testid={`select-action-target-${index}-${actionIndex}`}>
+                                      <SelectValue placeholder="Select field to set..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {availableSetValueTargetFields
+                                        .filter(field => (
+                                          (action.set_value_source || 'static') !== 'prefill'
+                                          || prefillSource !== 'form_field'
+                                          || !isEligibleFormFieldPrefillSource(field)
+                                        ))
+                                        .map(field => (
+                                        <SelectItem key={field.id} value={field.id}>
+                                          {field.label || field.type} ({field.type}){field.locked ? ' [Locked]' : ''}
+                                        </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div className="space-y-1">
+                                  <Label className="text-xs text-slate-600">Set To</Label>
+                                  {renderSetValueInput(rule.id, action, actionIndex)}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                      </div>
+                    )}
+                    </div>
+                  )}
+                </div>
+                  </div>
+              </div>
+                      )}
+                    </Draggable>
+                  );
+                })}
+                {dropProvided.placeholder}
+              </div>
+            )}
+          </Droppable>
+        </DragDropContext>
+      )}
+    </div>
+  );
+}
+
+// Define prefill source fields
+const MEMBER_PREFILL_FIELDS = [
+  { value: 'email', label: 'Email' },
+  { value: 'first_name', label: 'First Name' },
+  { value: 'last_name', label: 'Last Name' },
+  { value: 'full_name', label: 'Full Name' },
+  { value: 'phone', label: 'Phone' },
+  { value: 'job_title', label: 'Job Title' },
+];
+
+// Keep in sync with the top-level ORG_CORE_FIELDS constant and the API's
+// WHITELISTED_ORG_FIELDS — see comment above ORG_CORE_FIELDS.
+const ORG_PREFILL_FIELDS = [
+  { value: 'name', label: 'Organisation Name' },
+  { value: 'description', label: 'Description' },
+  { value: 'logo_url', label: 'Logo' },
+  { value: 'invoicing_email', label: 'Invoicing Email' },
+  { value: 'invoicing_address', label: 'Invoicing Address' },
+  { value: 'phone', label: 'Phone' },
+  { value: 'website_url', label: 'Website URL' },
+  { value: 'tags', label: 'Tags' },
+];
+
+const BOOKING_PREFILL_FIELDS = [
+  { value: 'attendee_first_name', label: 'Attendee First Name' },
+  { value: 'attendee_last_name', label: 'Attendee Last Name' },
+  { value: 'attendee_email', label: 'Attendee Email' },
+  { value: 'attendee_phone', label: 'Attendee Phone' },
+  { value: 'attendee_job_title', label: 'Attendee Job Title' },
+  { value: 'guest_organisation_name', label: 'Guest Organisation Name' },
+  { value: 'event_name', label: 'Event Name' },
+  { value: 'ticket_class_name', label: 'Ticket Class' },
+  { value: 'booking_reference', label: 'Booking Reference' },
+];
+
+// EmailCard component for configuring individual email notifications
+function EmailCard({
+  email,
+  index,
+  emailTemplates,
+  formFields,
+  onUpdate,
+  onRemove,
+  hasMembershipPaymentField
+}) {
+  const selectedTemplate = emailTemplates.find(t => t.id === email.template_id);
+  
+  // Extract placeholders from template
+  const extractPlaceholders = (text) => {
+    if (!text) return [];
+    const regex = /\{\{([^}]+)\}\}/g;
+    const placeholders = [];
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      const placeholder = match[1].trim();
+      if (!placeholders.includes(placeholder)) {
+        placeholders.push(placeholder);
+      }
+    }
+    return placeholders;
+  };
+  
+  const SYSTEM_PREFIXES = ['member.', 'organization.', 'form.', 'submission.'];
+  const isSystemPlaceholder = (p) => SYSTEM_PREFIXES.some(prefix => p.startsWith(prefix));
+  
+  const allPlaceholders = selectedTemplate ? [...new Set([
+    ...extractPlaceholders(selectedTemplate.subject),
+    ...extractPlaceholders(selectedTemplate.body)
+  ])] : [];
+  
+  const customPlaceholders = allPlaceholders.filter(p => !isSystemPlaceholder(p));
+  
+  // Get email fields from form
+  const emailFields = formFields.filter(f => f.type === 'email' || f.type === 'user_email');
+  
+  // Helper to parse recipient field value
+  const parseRecipientValue = (value) => {
+    if (!value) return { type: '_custom', fieldId: null };
+    if (value.startsWith('{{') && value.endsWith('}}')) {
+      return { type: 'field', fieldId: value.slice(2, -2) };
+    }
+    return { type: '_custom', fieldId: null };
+  };
+  
+  const recipientInfo = parseRecipientValue(email.recipient);
+  const ccInfo = parseRecipientValue(email.cc);
+  const bccInfo = parseRecipientValue(email.bcc);
+  
+  return (
+    <Card className="border-blue-200 bg-blue-50/30">
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Mail className="w-4 h-4 text-blue-600" />
+            <span className="text-sm font-medium">Email {index + 1}</span>
+            {selectedTemplate && (
+              <Badge variant="outline" className="text-xs">
+                {selectedTemplate.name}
+              </Badge>
+            )}
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onRemove}
+            className="h-7 w-7 text-red-600 hover:text-red-700 hover:bg-red-50"
+            data-testid={`button-remove-email-${email.id}`}
+          >
+            <Trash2 className="w-4 h-4" />
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Template Selection */}
+        <div className="space-y-1">
+          <Label className="text-xs text-slate-600">Email Template</Label>
+          <Select
+            value={email.template_id || '_none'}
+            onValueChange={(val) => onUpdate({ 
+              template_id: val === '_none' ? null : val,
+              field_mapping: {} // Reset mappings when template changes
+            })}
+          >
+            <SelectTrigger data-testid={`select-email-template-${email.id}`}>
+              <SelectValue placeholder="Select template" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="_none">Select template...</SelectItem>
+              {emailTemplates.map(t => (
+                <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        
+        {email.template_id && (
+          <>
+            {/* Recipient (To) */}
+            <div className="space-y-1">
+              <Label className="text-xs text-slate-600">Send To</Label>
+              <div className="space-y-2">
+                <Select
+                  value={recipientInfo.type === 'field' ? recipientInfo.fieldId : '_custom'}
+                  onValueChange={(val) => {
+                    if (val === '_custom') {
+                      onUpdate({ recipient: '' });
+                    } else {
+                      onUpdate({ recipient: `{{${val}}}` });
+                    }
+                  }}
+                >
+                  <SelectTrigger data-testid={`select-email-recipient-${email.id}`}>
+                    <SelectValue placeholder="Select source" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {emailFields.length > 0 && emailFields.map(field => (
+                      <SelectItem key={field.id} value={field.id}>
+                        {field.label || field.id}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="_custom">Custom email address</SelectItem>
+                  </SelectContent>
+                </Select>
+                {recipientInfo.type === '_custom' && (
+                  <Input
+                    value={email.recipient || ''}
+                    onChange={(e) => onUpdate({ recipient: e.target.value })}
+                    placeholder="recipient@example.com"
+                    data-testid={`input-email-recipient-${email.id}`}
+                  />
+                )}
+              </div>
+            </div>
+            
+            {/* CC */}
+            <div className="space-y-1">
+              <Label className="text-xs text-slate-600">CC (Optional)</Label>
+              <div className="space-y-2">
+                <Select
+                  value={ccInfo.type === 'field' ? ccInfo.fieldId : (email.cc ? '_custom' : '_none')}
+                  onValueChange={(val) => {
+                    if (val === '_none') {
+                      onUpdate({ cc: '' });
+                    } else if (val === '_custom') {
+                      onUpdate({ cc: '' });
+                    } else {
+                      onUpdate({ cc: `{{${val}}}` });
+                    }
+                  }}
+                >
+                  <SelectTrigger data-testid={`select-email-cc-${email.id}`}>
+                    <SelectValue placeholder="None" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="_none">None</SelectItem>
+                    {emailFields.map(field => (
+                      <SelectItem key={field.id} value={field.id}>
+                        {field.label || field.id}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="_custom">Custom email address</SelectItem>
+                  </SelectContent>
+                </Select>
+                {(ccInfo.type === '_custom' || (email.cc && !email.cc.startsWith('{{'))) && (
+                  <Input
+                    value={email.cc || ''}
+                    onChange={(e) => onUpdate({ cc: e.target.value })}
+                    placeholder="cc@example.com"
+                    data-testid={`input-email-cc-${email.id}`}
+                  />
+                )}
+              </div>
+            </div>
+            
+            {/* BCC */}
+            <div className="space-y-1">
+              <Label className="text-xs text-slate-600">BCC (Optional)</Label>
+              <div className="space-y-2">
+                <Select
+                  value={bccInfo.type === 'field' ? bccInfo.fieldId : (email.bcc ? '_custom' : '_none')}
+                  onValueChange={(val) => {
+                    if (val === '_none') {
+                      onUpdate({ bcc: '' });
+                    } else if (val === '_custom') {
+                      onUpdate({ bcc: '' });
+                    } else {
+                      onUpdate({ bcc: `{{${val}}}` });
+                    }
+                  }}
+                >
+                  <SelectTrigger data-testid={`select-email-bcc-${email.id}`}>
+                    <SelectValue placeholder="None" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="_none">None</SelectItem>
+                    {emailFields.map(field => (
+                      <SelectItem key={field.id} value={field.id}>
+                        {field.label || field.id}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="_custom">Custom email address</SelectItem>
+                  </SelectContent>
+                </Select>
+                {(bccInfo.type === '_custom' || (email.bcc && !email.bcc.startsWith('{{'))) && (
+                  <Input
+                    value={email.bcc || ''}
+                    onChange={(e) => onUpdate({ bcc: e.target.value })}
+                    placeholder="bcc@example.com"
+                    data-testid={`input-email-bcc-${email.id}`}
+                  />
+                )}
+              </div>
+            </div>
+            
+            {/* Placeholder Field Mappings */}
+            {customPlaceholders.length > 0 && (
+              <div className="p-3 bg-slate-50 rounded-lg space-y-3">
+                <div>
+                  <Label className="text-xs font-medium">Map Placeholders</Label>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Map template placeholders to form fields
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  {customPlaceholders.map(placeholder => {
+                    const currentMapping = email.field_mapping?.[placeholder] || '';
+                    return (
+                      <div key={placeholder} className="flex items-center gap-2">
+                        <Badge variant="outline" className="font-mono text-xs shrink-0">
+                          {`{{${placeholder}}}`}
+                        </Badge>
+                        <Select
+                          value={currentMapping || '_none'}
+                          onValueChange={(val) => {
+                            onUpdate({
+                              field_mapping: {
+                                ...email.field_mapping,
+                                [placeholder]: val === '_none' ? '' : val
+                              }
+                            });
+                          }}
+                        >
+                          <SelectTrigger className="flex-1" data-testid={`select-placeholder-${email.id}-${placeholder}`}>
+                            <SelectValue placeholder="Select field" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="_none">Not mapped</SelectItem>
+                            {formFields.filter(f => f.type !== 'instructions' && f.type !== 'image' && f.type !== 'image_buttons').map(field => (
+                              <SelectItem key={field.id} value={field.id}>
+                                <span className="inline-flex items-center gap-2">
+                                  <span>{field.label || field.id}</span>
+                                  {field.starts_hidden && (
+                                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground border border-border rounded px-1 py-0.5">hidden</span>
+                                  )}
+                                </span>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            
+            {/* Send Condition */}
+            <div className="p-3 bg-warning/10 border border-warning/30 rounded-lg space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <Label className="text-xs font-medium flex items-center gap-1">
+                    <Filter className="w-3 h-3" />
+                    Send Condition
+                  </Label>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Only send this email when a field value matches
+                  </p>
+                </div>
+                <Switch
+                  checked={!!email.condition}
+                  onCheckedChange={(checked) => {
+                    if (checked) {
+                      onUpdate({ 
+                        condition: { 
+                          field_id: '', 
+                          operator: 'equals', 
+                          value: '' 
+                        } 
+                      });
+                    } else {
+                      onUpdate({ condition: null });
+                    }
+                  }}
+                  data-testid={`switch-email-condition-${email.id}`}
+                />
+              </div>
+              
+              {email.condition && (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-3 gap-2">
+                    <Select
+                      value={email.condition.field_id || '_none'}
+                      onValueChange={(val) => {
+                        onUpdate({
+                          condition: {
+                            ...email.condition,
+                            field_id: val === '_none' ? '' : val
+                          }
+                        });
+                      }}
+                    >
+                      <SelectTrigger data-testid={`select-condition-field-${email.id}`}>
+                        <SelectValue placeholder="Select field" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="_none">Select field...</SelectItem>
+                        {formFields.filter(f => 
+                          ['text', 'email', 'select', 'radio', 'checkbox', 'number', 'phone', 'url'].includes(f.type)
+                        ).map(field => (
+                          <SelectItem key={field.id} value={field.id}>
+                            <span className="inline-flex items-center gap-2">
+                              <span>{field.label || field.id}</span>
+                              {field.starts_hidden && (
+                                <span className="text-[10px] uppercase tracking-wide text-muted-foreground border border-border rounded px-1 py-0.5">hidden</span>
+                              )}
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    
+                    <Select
+                      value={email.condition.operator || 'equals'}
+                      onValueChange={(val) => {
+                        onUpdate({
+                          condition: {
+                            ...email.condition,
+                            operator: val
+                          }
+                        });
+                      }}
+                    >
+                      <SelectTrigger data-testid={`select-condition-operator-${email.id}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="equals">Equals</SelectItem>
+                        <SelectItem value="not_equals">Does not equal</SelectItem>
+                        <SelectItem value="contains">Contains</SelectItem>
+                        <SelectItem value="not_contains">Does not contain</SelectItem>
+                        <SelectItem value="is_empty">Is empty</SelectItem>
+                        <SelectItem value="is_not_empty">Is not empty</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    
+                    {!['is_empty', 'is_not_empty'].includes(email.condition.operator) && (
+                      <Input
+                        value={email.condition.value || ''}
+                        onChange={(e) => {
+                          onUpdate({
+                            condition: {
+                              ...email.condition,
+                              value: e.target.value
+                            }
+                          });
+                        }}
+                        placeholder="Value to match"
+                        data-testid={`input-condition-value-${email.id}`}
+                      />
+                    )}
+                  </div>
+                  
+                  {email.condition.field_id && (
+                    <p className="text-xs text-warning">
+                      Email will only send when{' '}
+                      <span className="font-medium">
+                        {formFields.find(f => f.id === email.condition.field_id)?.label || email.condition.field_id}
+                      </span>
+                      {' '}
+                      {email.condition.operator === 'equals' && `equals "${email.condition.value}"`}
+                      {email.condition.operator === 'not_equals' && `does not equal "${email.condition.value}"`}
+                      {email.condition.operator === 'contains' && `contains "${email.condition.value}"`}
+                      {email.condition.operator === 'not_contains' && `does not contain "${email.condition.value}"`}
+                      {email.condition.operator === 'is_empty' && 'is empty'}
+                      {email.condition.operator === 'is_not_empty' && 'is not empty'}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {hasMembershipPaymentField && (
+              <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <Label className="text-xs font-medium flex items-center gap-1">
+                      <Paperclip className="w-3 h-3" />
+                      Attach Invoice
+                    </Label>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Attach the Xero invoice PDF to this email
+                    </p>
+                  </div>
+                  <Switch
+                    checked={!!email.attach_invoice}
+                    onCheckedChange={(checked) => {
+                      onUpdate({ attach_invoice: checked });
+                    }}
+                    data-testid={`switch-email-attach-invoice-${email.id}`}
+                  />
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// Task #3483: inspector for the generic Payment field. Shows only the
+// providers actually configured for the tenant (via the secrets-free
+// detection endpoint); unconfigured providers appear disabled with a hint
+// to set them up in Integrations. The amount always derives from another
+// form field (number/currency-type) chosen here.
+const PAYMENT_PRICE_SOURCE_TYPES = new Set(['number', 'currency', 'percentage', 'select', 'radio', 'custom_field']);
+
+function PaymentFieldSettings({
+  field,
+  originalIndex,
+  allFields,
+  updateField,
+  customFields,
+  entityPipelines,
+  applicationLevel,
+  fieldMappings,
+  formConfig,
+}) {
+  const [providers, setProviders] = useState(null);
+  const savedAddressMappings = Array.isArray(field.stripe_billing_address_mappings)
+    ? field.stripe_billing_address_mappings
+    : [];
+  const [addressMappings, setAddressMappings] = useState(savedAddressMappings);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/public/form-payment-providers', { credentials: 'include' })
+      .then(res => res.ok ? res.json() : { providers: [] })
+      .then(json => { if (!cancelled) setProviders(json.providers || []); })
+      .catch(() => { if (!cancelled) setProviders([]); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const enabled = Array.isArray(field.payment_providers) ? field.payment_providers : [];
+  const toggleProvider = (id, checked) => {
+    const next = checked ? [...new Set([...enabled, id])] : enabled.filter(p => p !== id);
+    updateField(originalIndex, { payment_providers: next });
+  };
+
+  const priceSourceFields = allFields.filter(f =>
+    f.id !== field.id && PAYMENT_PRICE_SOURCE_TYPES.has(f.type)
+  );
+  const mappingForm = formConfig || {
+    fields: allFields,
+    entity_pipelines: entityPipelines,
+    application_level: applicationLevel,
+    field_mappings: fieldMappings,
+  };
+  const destinationGroups = stripeAddressDestinationOptions({
+    form: mappingForm,
+    customFields,
+  });
+  const updateAddressMapping = (index, updates) => {
+    setAddressMappings(current => current.map((mapping, mappingIndex) => (
+      mappingIndex === index ? { ...mapping, ...updates } : mapping
+    )));
+  };
+  const applyAddressMappings = () => {
+    const result = validateStripeAddressMappings({
+      form: mappingForm,
+      mappings: addressMappings,
+      customFields,
+    });
+    if (!result.valid) {
+      toast.error(result.errors[0]);
+      return;
+    }
+    updateField(originalIndex, { stripe_billing_address_mappings: addressMappings });
+    toast.success('Stripe billing address mappings saved to this payment field.');
+  };
+
+  return (
+    <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+      <Label className="text-xs font-medium">Payment Settings</Label>
+
+      <div className="space-y-2">
+        <Label className="text-xs">Payment methods</Label>
+        {providers === null ? (
+          <p className="text-xs text-slate-400">Checking configured providers…</p>
+        ) : (
+          providers.map(p => (
+            <div key={p.id} className="flex items-start gap-2">
+              <Checkbox
+                id={`payment-provider-${p.id}-${field.id}`}
+                checked={enabled.includes(p.id)}
+                disabled={!p.configured}
+                onCheckedChange={(checked) => toggleProvider(p.id, checked === true)}
+                data-testid={`checkbox-payment-provider-${p.id}-${field.id}`}
+              />
+              <div>
+                <Label htmlFor={`payment-provider-${p.id}-${field.id}`} className={`text-xs ${!p.configured ? 'text-slate-400' : ''}`}>
+                  {p.name}
+                </Label>
+                {!p.configured && (
+                  <p className="text-xs text-slate-400">Not configured — set this up in Integrations to enable it.</p>
+                )}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {enabled.includes('stripe') && (
+        <div className="space-y-2 border-t border-slate-200 pt-3" data-testid={`stripe-address-mappings-${field.id}`}>
+          <div>
+            <Label className="text-xs font-medium">Stripe billing address mappings</Label>
+            <p className="text-xs text-slate-500 mt-1">
+              After a successful Stripe payment, copy address details to the single primary Member or Organisation resolved by this form.
+              Destinations already written by another form mapping cannot be selected.
+            </p>
+            <p className="text-xs text-slate-500 mt-1">
+              Non-empty Stripe values replace existing values. Missing optional address parts leave existing values unchanged.
+              Save these mappings, then save the form to publish the changes.
+            </p>
+          </div>
+          {addressMappings.length === 0 && (
+            <p className="text-xs text-slate-400">No billing address details are mapped.</p>
+          )}
+          {addressMappings.map((mapping, mappingIndex) => {
+            const selectedGroup = destinationGroups.find(group => group.value === mapping.target_entity);
+            return (
+              <div key={`${mappingIndex}-${mapping.source}`} className="grid min-w-0 grid-cols-1 sm:grid-cols-2 gap-2 items-end rounded border bg-white p-2">
+                <div className="min-w-0 space-y-1">
+                  <Label className="text-[11px]">Stripe value</Label>
+                  <Select
+                    value={mapping.source}
+                    onValueChange={source => updateAddressMapping(mappingIndex, { source })}
+                  >
+                    <SelectTrigger className="h-8" data-testid={`stripe-address-source-${mappingIndex}`}>
+                      <SelectValue placeholder="Choose value" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {STRIPE_ADDRESS_SOURCES.map(option => (
+                        <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="min-w-0 space-y-1">
+                  <Label className="text-[11px]">Resolved record</Label>
+                  <Select
+                    value={mapping.target_entity}
+                    onValueChange={target_entity => updateAddressMapping(mappingIndex, {
+                      target_entity,
+                      target_type: '',
+                      target_field: '',
+                    })}
+                  >
+                    <SelectTrigger className="h-8" data-testid={`stripe-address-entity-${mappingIndex}`}>
+                      <SelectValue placeholder="Choose record" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {destinationGroups.map(group => (
+                        <SelectItem key={group.value} value={group.value} disabled={!group.available}>
+                          {group.label}{group.ambiguous ? ' (ambiguous)' : !group.available ? ' (not resolved)' : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="min-w-0 space-y-1">
+                  <Label className="text-[11px]">Destination field</Label>
+                  <Select
+                    value={mapping.target_type && mapping.target_field
+                      ? `${mapping.target_type}:${mapping.target_field}`
+                      : undefined}
+                    onValueChange={value => {
+                      const separator = value.indexOf(':');
+                      updateAddressMapping(mappingIndex, {
+                        target_type: value.slice(0, separator),
+                        target_field: value.slice(separator + 1),
+                      });
+                    }}
+                    disabled={!selectedGroup?.available}
+                  >
+                    <SelectTrigger className="h-8" data-testid={`stripe-address-target-${mappingIndex}`}>
+                      <SelectValue placeholder="Choose field" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(selectedGroup?.options || []).map(option => (
+                        <SelectItem key={option.value} value={option.value} disabled={option.conflict}>
+                          {option.label} ({option.target_type})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-red-600"
+                  onClick={() => setAddressMappings(current => current.filter((_, index) => index !== mappingIndex))}
+                  aria-label={`Remove Stripe address mapping ${mappingIndex + 1}`}
+                  data-testid={`remove-stripe-address-mapping-${mappingIndex}`}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              </div>
+            );
+          })}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setAddressMappings(current => [...current, {
+                source: 'line1',
+                target_entity: 'member',
+                target_type: '',
+                target_field: '',
+              }])}
+              data-testid="add-stripe-address-mapping"
+            >
+              <Plus className="w-3 h-3 mr-1" /> Add mapping
+            </Button>
+            <Button type="button" size="sm" onClick={applyAddressMappings} data-testid="save-stripe-address-mappings">
+              <Save className="w-3 h-3 mr-1" /> Save mappings
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setAddressMappings(savedAddressMappings)}
+              data-testid="reload-stripe-address-mappings"
+            >
+              Reload saved
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-2">
+        <Label htmlFor={`payment-price-field-${field.id}`} className="text-xs">Price source field</Label>
+        <p className="text-xs text-slate-500">
+          The amount charged is taken from this field's answer (validated on the server).
+        </p>
+        <Select
+          value={field.price_field_id || '_none'}
+          onValueChange={(val) => updateField(originalIndex, { price_field_id: val === '_none' ? null : val })}
+        >
+          <SelectTrigger id={`payment-price-field-${field.id}`} data-testid={`select-payment-price-field-${field.id}`}>
+            <SelectValue placeholder="Select a field" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="_none">— Select a field —</SelectItem>
+            {priceSourceFields.map(f => (
+              <SelectItem key={f.id} value={f.id}>{f.label || f.id} ({f.type})</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {priceSourceFields.length === 0 && (
+          <p className="text-xs text-warning">Add a number or currency field to this form to use as the price source.</p>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor={`payment-currency-${field.id}`} className="text-xs">Currency</Label>
+        <Select
+          value={field.payment_currency || 'GBP'}
+          onValueChange={(val) => updateField(originalIndex, { payment_currency: val })}
+        >
+          <SelectTrigger id={`payment-currency-${field.id}`} data-testid={`select-payment-currency-${field.id}`}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {['GBP', 'USD', 'EUR', 'AUD', 'NZD'].map(c => (
+              <SelectItem key={c} value={c}>{c}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor={`payment-label-${field.id}`} className="text-xs">Payment label (optional)</Label>
+        <Input
+          id={`payment-label-${field.id}`}
+          value={field.payment_label || ''}
+          onChange={(e) => updateField(originalIndex, { payment_label: e.target.value })}
+          placeholder="e.g. Registration fee"
+          data-testid={`input-payment-label-${field.id}`}
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor={`payment-description-${field.id}`} className="text-xs">Payment description (optional)</Label>
+        <Input
+          id={`payment-description-${field.id}`}
+          value={field.payment_description || ''}
+          onChange={(e) => updateField(originalIndex, { payment_description: e.target.value })}
+          placeholder="Shown to the person paying"
+          data-testid={`input-payment-description-${field.id}`}
+        />
+      </div>
+    </div>
+  );
+}
+
+// Task #3497: non-blocking, dismissible builder warning for starts-hidden
+// pages/fields that no visibility rule ever reveals — they can never appear
+// on the public form.
+function UnreachableHiddenWarning({ fields, pages, visibilityRules }) {
+  // Dismissal is keyed to the current finding set: if new unreachable
+  // pages/fields appear after dismissing, the warning comes back.
+  const [dismissedKey, setDismissedKey] = useState(null);
+  const unreachable = findUnrevealedHidden(fields, pages, visibilityRules);
+  const findingKey = [...unreachable.pages.map(p => p.id), ...unreachable.fields.map(f => f.id)].sort().join('|');
+  if (dismissedKey === findingKey || (unreachable.pages.length === 0 && unreachable.fields.length === 0)) return null;
+  return (
+    <div className="border border-amber-300 bg-amber-50 rounded-lg p-3 flex items-start gap-2" data-testid="unreachable-hidden-warning">
+      <AlertCircle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+      <div className="text-xs text-amber-800 space-y-1 flex-1">
+        <p className="font-medium">Some hidden pages or fields can never be shown</p>
+        <p>They start hidden, but no conditional-logic rule ever makes them visible, so they will never appear on the public form:</p>
+        <ul className="list-disc pl-4">
+          {unreachable.pages.map(p => (
+            <li key={p.id}>Page "{p.title}"</li>
+          ))}
+          {unreachable.fields.map(f => (
+            <li key={f.id}>Field "{f.label}"</li>
+          ))}
+        </ul>
+        <p>Add a visibility rule that shows them, or untick "starts hidden".</p>
+      </div>
+      <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={() => setDismissedKey(findingKey)} data-testid="dismiss-unreachable-hidden-warning">
+        <X className="w-3 h-3" />
+      </Button>
+    </div>
+  );
+}
+
+// Conditional-logic "Membership" action (Task #3489): selects a membership
+// structure; when the rule matches at payment time, the server derives the
+// membership fee for that structure, charges it, and creates the paid
+// membership record after successful payment.
+function MembershipStructureActionSettings({ action, ruleId, fields, updateAction, index, actionIndex, entityPipelines }) {
+  const [tierConfigs, setTierConfigs] = useState([]);
+  const [requiredFields, setRequiredFields] = useState([]);
+  const [autoConfigs, setAutoConfigs] = useState(null); // null = loading
+  const [loadingFields, setLoadingFields] = useState(false);
+
+  // Auto-resolve mode (Task #3659): instead of pinning one structure, the
+  // server matches the mapped answer against each active member-scoped
+  // structure's match value at quote/charge time.
+  const isAutoMode = action.resolve_mode === 'auto';
+
+  useEffect(() => {
+    fetch('/api/membership/tiers', { credentials: 'include' })
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data?.activeConfigs) setTierConfigs(data.activeConfigs);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (isAutoMode) {
+      setLoadingFields(true);
+      fetch('/api/membership/tier-required-fields?auto=1&scope=member', { credentials: 'include' })
+        .then(res => res.ok ? res.json() : null)
+        .then(data => {
+          setRequiredFields(data?.requiredFields || []);
+          setAutoConfigs(data?.configs || []);
+        })
+        .catch(() => { setRequiredFields([]); setAutoConfigs([]); })
+        .finally(() => setLoadingFields(false));
+      return;
+    }
+    setAutoConfigs(null);
+    const configId = action.config_id;
+    if (!configId) {
+      setRequiredFields([]);
+      return;
+    }
+    setLoadingFields(true);
+    fetch(`/api/membership/tier-required-fields?configId=${encodeURIComponent(configId)}`, { credentials: 'include' })
+      .then(res => res.ok ? res.json() : null)
+      .then(data => setRequiredFields(data?.requiredFields || []))
+      .catch(() => setRequiredFields([]))
+      .finally(() => setLoadingFields(false));
+  }, [action.config_id, isAutoMode]);
+
+  const fieldMappings = action.field_mappings || {};
+  const selectedConfig = tierConfigs.find(c => c.id === action.config_id);
+  const hasPaymentField = fields.some(f => f.type === 'payment');
+  // Scope-to-pipeline check: the membership attaches to the entity the
+  // form's processing pipelines resolve, so the scopes must match. The
+  // server enforces the same rule before creating any charge.
+  const hasMemberPipeline = (entityPipelines?.members?.length || 0) > 0;
+  const hasOrgPipeline = (entityPipelines?.organisations?.length || 0) > 0;
+  const selectedScope = isAutoMode
+    ? 'member'
+    : selectedConfig ? (selectedConfig.structure_scope_type === 'member' ? 'member' : 'organization') : null;
+  const scopeMismatch = selectedScope === 'member'
+    ? !hasMemberPipeline
+    : selectedScope === 'organization'
+      ? !hasOrgPipeline
+      : false;
+
+  // Auto-mode validation: the structure-scoping field(s) MUST be mapped —
+  // without the mapped answer the server can never resolve a structure.
+  const structureFields = requiredFields.filter(rf => rf.usage === 'structure');
+  const unmappedStructureFields = isAutoMode
+    ? structureFields.filter(rf => !fieldMappings[rf.field_id])
+    : [];
+
+  const updateMapping = (dbFieldId, formFieldId) => {
+    const newMappings = { ...fieldMappings };
+    if (formFieldId === '_none') {
+      delete newMappings[dbFieldId];
+    } else {
+      newMappings[dbFieldId] = formFieldId;
+    }
+    updateAction(ruleId, action.id, { field_mappings: newMappings });
+  };
+
+  const mappableFormFields = fields.filter(f => f.type !== 'payment' && f.type !== 'membership_payment' && f.type !== 'instructions' && f.type !== 'image' && f.type !== 'image_buttons');
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-slate-500">
+        When this rule matches, the payment amount is the membership fee for the selected structure, and a paid membership record (with its invoice) is created automatically once the payment succeeds.
+      </p>
+      {!hasPaymentField && (
+        <p className="text-xs text-amber-600" data-testid="membership-action-no-payment-warning">
+          {fields.some(f => f.type === 'membership_payment') ? (
+            <>
+              This form has a <strong>Membership Payment</strong> field, but that is a separate mechanism for charging <em>existing members</em>. This action charges new applicants through the generic <strong>Payment</strong> field — add one (its price source can stay empty; the fee comes from the selected structure).
+            </>
+          ) : (
+            <>This form has no Payment field. Add one — the membership fee is charged through it.</>
+          )}
+        </p>
+      )}
+      <div className="space-y-2">
+        <Label className="text-xs">Structure selection</Label>
+        <Select
+          value={isAutoMode ? '_auto_resolve' : '_specific'}
+          onValueChange={(val) => {
+            if (val === '_auto_resolve') {
+              updateAction(ruleId, action.id, { resolve_mode: 'auto', config_id: '', field_mappings: {} });
+            } else {
+              updateAction(ruleId, action.id, { resolve_mode: null, config_id: '', field_mappings: {} });
+            }
+          }}
+        >
+          <SelectTrigger className="h-8 text-xs" data-testid={`select-membership-mode-${index}-${actionIndex}`}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="_specific">Specific structure</SelectItem>
+            <SelectItem value="_auto_resolve">Auto-resolve from mapped field</SelectItem>
+          </SelectContent>
+        </Select>
+        {isAutoMode && (
+          <p className="text-xs text-slate-500">
+            The structure is chosen at payment time by matching the applicant's mapped answer against each active member-scoped structure's match value (case-insensitive). Newly added structures work automatically.
+          </p>
+        )}
+        {!isAutoMode && (
+          <Select
+            value={action.config_id || ''}
+            onValueChange={(val) => updateAction(ruleId, action.id, { config_id: val, field_mappings: {} })}
+          >
+            <SelectTrigger className="h-8 text-xs" data-testid={`select-membership-config-${index}-${actionIndex}`}>
+              <SelectValue placeholder="Select a membership structure…" />
+            </SelectTrigger>
+            <SelectContent>
+              {tierConfigs.map(cfg => (
+                <SelectItem key={cfg.id} value={cfg.id}>
+                  {cfg.name || 'Unnamed'} ({cfg.structure_scope_type === 'member' ? 'member' : 'organisation'})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        {isAutoMode && autoConfigs !== null && (
+          autoConfigs.length === 0 ? (
+            <p className="text-xs text-red-600" data-testid={`warning-membership-auto-none-${index}-${actionIndex}`}>
+              No member-scoped membership structures are currently in effect, so nothing can be auto-resolved. Create structures with a match value first.
+            </p>
+          ) : (
+            <div className="space-y-1" data-testid={`membership-auto-preview-${index}-${actionIndex}`}>
+              <p className="text-xs text-slate-500">Structures this rule can currently resolve to:</p>
+              <ul className="text-xs text-slate-500 list-disc pl-4 space-y-0.5">
+                {autoConfigs.map(cfg => (
+                  <li key={cfg.id}>
+                    {cfg.name}{cfg.structure_match_value ? <> — matches "<span className="font-medium">{cfg.structure_match_value}</span>"</> : <> — fallback (no match value)</>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )
+        )}
+        {isAutoMode && unmappedStructureFields.length > 0 && (
+          <p className="text-xs text-red-600" data-testid={`warning-membership-auto-unmapped-${index}-${actionIndex}`}>
+            Auto-resolve requires the {unmappedStructureFields.map(rf => `"${rf.field_label}"`).join(', ')} answer to be mapped to a form field below — payments will fail until it is mapped.
+          </p>
+        )}
+        {selectedConfig && (
+          <p className="text-xs text-slate-400">
+            Membership will be created for the {selectedScope === 'member' ? 'member' : 'organisation'} resolved by this form's processing pipelines.
+          </p>
+        )}
+        {scopeMismatch && (
+          <p className="text-xs text-red-600" data-testid={`warning-membership-scope-${index}-${actionIndex}`}>
+            {selectedScope === 'member'
+              ? 'This structure creates a member membership, but the form has no member-creating processing pipeline (Form Processing tab). Payments will be blocked until one is added.'
+              : 'This structure creates an organisation membership, but the form has no organisation-creating processing pipeline (Form Processing tab). Payments will be blocked unless the form is opened with an organisation prefill link.'}
+          </p>
+        )}
+      </div>
+
+      {(action.config_id || isAutoMode) && (
+        <div className="space-y-2">
+          <Label className="text-xs font-medium">Fee calculation mappings</Label>
+          <p className="text-xs text-slate-500">
+            {isAutoMode
+              ? 'Map the answers used to pick the structure and calculate its fee. The structure-selection mapping is required in auto-resolve mode.'
+              : 'Map the values used in the fee calculation to form fields, so the fee can be worked out from the applicant\'s answers before their record exists.'}
+          </p>
+          {loadingFields ? (
+            <p className="text-xs text-slate-400">Loading required fields…</p>
+          ) : requiredFields.length === 0 ? (
+            <p className="text-xs text-slate-400">{isAutoMode ? 'No active member-scoped structures need mapped answers yet.' : 'This structure needs no mapped answers (flat rate).'}</p>
+          ) : (
+            <div className="space-y-2">
+              {requiredFields.map(rf => (
+                <div key={`${rf.field_id}-${rf.usage}`} className="space-y-1">
+                  <div className="flex items-center gap-1 flex-wrap">
+                    <Label className="text-xs">{rf.field_label}</Label>
+                    <span className="text-xs text-slate-400">
+                      ({rf.usage === 'structure' ? 'tier selection' : rf.usage === 'band' ? 'pricing band' : 'discount'})
+                    </span>
+                  </div>
+                  <Select
+                    value={fieldMappings[rf.field_id] || '_none'}
+                    onValueChange={(val) => updateMapping(rf.field_id, val)}
+                  >
+                    <SelectTrigger className="h-8 text-xs" data-testid={`select-membership-mapping-${index}-${actionIndex}-${rf.field_id}`}>
+                      <SelectValue placeholder="Not mapped" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="_none">Not mapped</SelectItem>
+                      {mappableFormFields.map(f => (
+                        <SelectItem key={f.id} value={f.id}>{f.label || f.type}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MembershipPaymentSettings({ field, originalIndex, allFields, updateField }) {
+  const [tierConfigs, setTierConfigs] = useState([]);
+  const [requiredFields, setRequiredFields] = useState([]);
+  const [loadingFields, setLoadingFields] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/membership/tiers', { credentials: 'include' })
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data?.activeConfigs) {
+          setTierConfigs(data.activeConfigs);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const configId = field.membership_config_id;
+    if (!configId) {
+      setRequiredFields([]);
+      return;
+    }
+    setLoadingFields(true);
+    fetch(`/api/membership/tier-required-fields?configId=${encodeURIComponent(configId)}`, { credentials: 'include' })
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data?.requiredFields) {
+          setRequiredFields(data.requiredFields);
+        } else {
+          setRequiredFields([]);
+        }
+      })
+      .catch(() => setRequiredFields([]))
+      .finally(() => setLoadingFields(false));
+  }, [field.membership_config_id]);
+
+  const fieldMappings = field.field_mappings || {};
+
+  const updateMapping = (dbFieldId, formFieldId) => {
+    const newMappings = { ...fieldMappings };
+    if (formFieldId === '_none') {
+      delete newMappings[dbFieldId];
+    } else {
+      newMappings[dbFieldId] = formFieldId;
+    }
+    updateField(originalIndex, { field_mappings: newMappings });
+  };
+
+  const mappableFormFields = allFields.filter(f => f.id !== field.id && f.type !== 'membership_payment' && f.type !== 'instructions' && f.type !== 'image' && f.type !== 'image_buttons');
+
+  return (
+    <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+      <Label className="text-xs font-medium">Membership Payment Settings</Label>
+
+      <div className="space-y-2">
+        <Label htmlFor={`membership-schedule-${field.id}`} className="text-xs">Membership Schedule</Label>
+        <p className="text-xs text-slate-500">
+          Select which membership schedule to use for fee calculation. Required to enable field mapping.
+        </p>
+        <Select
+          value={field.membership_config_id || '_auto'}
+          onValueChange={(val) => {
+            const newConfigId = val === '_auto' ? null : val;
+            const updates = { membership_config_id: newConfigId };
+            if (!newConfigId) updates.field_mappings = {};
+            updateField(originalIndex, updates);
+          }}
+        >
+          <SelectTrigger id={`membership-schedule-${field.id}`} data-testid={`select-membership-schedule-${field.id}`}>
+            <SelectValue placeholder="Auto-detect" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="_auto">Auto-detect (from member/org data)</SelectItem>
+            {tierConfigs.map(cfg => (
+              <SelectItem key={cfg.id} value={cfg.id}>
+                {cfg.name || 'Unnamed'} ({cfg.structure_scope_type || 'organization'})
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {field.membership_config_id && requiredFields.length > 0 && (
+        <div className="space-y-2">
+          <Label className="text-xs font-medium">Field Mappings</Label>
+          <p className="text-xs text-slate-500">
+            Map database fields used in fee calculation to form fields. This ensures the fee is calculated correctly using values from this form before they are saved to the database.
+          </p>
+          {loadingFields ? (
+            <p className="text-xs text-slate-400">Loading required fields...</p>
+          ) : (
+            <div className="space-y-2">
+              {requiredFields.map(rf => (
+                <div key={`${rf.field_id}-${rf.usage}`} className="space-y-1">
+                  <div className="flex items-center gap-1 flex-wrap">
+                    <Label className="text-xs">{rf.field_label}</Label>
+                    <span className="text-xs text-slate-400">
+                      ({rf.usage === 'structure' ? 'tier selection' : rf.usage === 'band' ? 'pricing band' : 'discount'})
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400">{rf.usage_detail}</p>
+                  <Select
+                    value={fieldMappings[rf.field_id] || '_none'}
+                    onValueChange={(val) => updateMapping(rf.field_id, val)}
+                  >
+                    <SelectTrigger data-testid={`select-field-mapping-${rf.field_id}-${field.id}`}>
+                      <SelectValue placeholder="Not mapped (use database value)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="_none">Not mapped (use database value)</SelectItem>
+                      {mappableFormFields.map(f => (
+                        <SelectItem key={f.id} value={f.id}>{f.label || 'Untitled Field'}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {field.membership_config_id && !loadingFields && requiredFields.length === 0 && (
+        <p className="text-xs text-slate-400">
+          This schedule uses flat-rate pricing with no field-driven configuration. No mappings needed.
+        </p>
+      )}
+
+      <div className="space-y-2">
+        <Label htmlFor={`invoice-address-field-${field.id}`} className="text-xs">Invoice Address Field</Label>
+        <p className="text-xs text-slate-500">
+          Select a form field to use as the invoice address. This is needed when the address is collected on the same form as the payment, since the form hasn't been submitted yet when the invoice is created.
+        </p>
+        <Select
+          value={field.invoice_address_field_id || '_none'}
+          onValueChange={(val) => updateField(originalIndex, { invoice_address_field_id: val === '_none' ? null : val })}
+        >
+          <SelectTrigger id={`invoice-address-field-${field.id}`} data-testid={`select-invoice-address-field-${field.id}`}>
+            <SelectValue placeholder="None (use membership schedule setting)" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="_none">None (use membership schedule setting)</SelectItem>
+            {allFields
+              .filter(f => f.id !== field.id && ['text', 'textarea', 'address'].includes(f.type))
+              .map(f => (
+                <SelectItem key={f.id} value={f.id}>{f.label || 'Untitled Field'}</SelectItem>
+              ))
+            }
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
+  );
+}
+
+function OrgFieldValueSelector({ fieldType, fieldName, selectedValues, onChange, fieldId }) {
+  const { data: distinctValues = [], isLoading, isError } = useQuery({
+    queryKey: ['org-field-values', fieldType, fieldName],
+    queryFn: async () => await publicClient.listOrganizationFieldValues(fieldType, fieldName) || [],
+    enabled: !!fieldType && !!fieldName,
+    staleTime: 2 * 60 * 1000
+  });
+
+  if (isLoading) {
+    return (
+      <div className="p-2 text-xs text-slate-500 flex items-center gap-2">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Loading values...
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
+        Failed to load values. Please try again.
+      </div>
+    );
+  }
+
+  if (distinctValues.length === 0) {
+    return (
+      <div className="p-2 bg-warning/10 border border-warning/30 rounded text-xs text-warning">
+        No values found for this field in the database.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2 max-h-48 overflow-y-auto">
+      {distinctValues.map((val) => {
+        const isSelected = selectedValues.includes(val);
+        return (
+          <div
+            key={val}
+            className="flex items-center gap-2 p-2 bg-white rounded border border-slate-200 hover:bg-slate-50 transition-colors"
+          >
+            <Checkbox
+              id={`org-fv-${fieldId}-${val}`}
+              checked={isSelected}
+              onCheckedChange={(checked) => {
+                const newVals = checked
+                  ? [...selectedValues, val]
+                  : selectedValues.filter(s => s !== val);
+                onChange(newVals);
+              }}
+              data-testid={`checkbox-org-fv-${fieldId}-${String(val).toLowerCase().replace(/\s+/g, '-')}`}
+            />
+            <Label
+              htmlFor={`org-fv-${fieldId}-${val}`}
+              className="text-xs font-medium cursor-pointer flex-1"
+            >
+              {val}
+            </Label>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Interactive live preview for the Score field config (Task #3330)
+function ScoreFieldPreview({ field }) {
+  const [previewValue, setPreviewValue] = useState(null);
+  return (
+    <ScoreField
+      field={{ ...field, label: '' }}
+      value={previewValue}
+      onChange={setPreviewValue}
+    />
+  );
+}
+
+const CONDITIONAL_FILTER_TARGET_TYPES = new Set([
+  'select',
+  'radio',
+  'checkbox',
+  'image_buttons',
+  'country',
+  'countries',
+  'category_multiselect',
+  'category_dropdown',
+  'communication_preferences',
+  'organisation_dropdown',
+  'organisation_group_dropdown',
+  'relationship_dropdown',
+  'custom_field',
+]);
+
+const CONDITIONAL_FILTER_OPERATORS = {
+  text: [
+    ['equals', 'Equals'],
+    ['not_equals', 'Does not equal'],
+    ['includes', 'Includes'],
+    ['not_includes', 'Does not include'],
+    ['in', 'Is one of'],
+    ['not_in', 'Is not one of'],
+    ['is_empty', 'Is empty'],
+    ['is_not_empty', 'Is not empty'],
+  ],
+  multi: [
+    ['includes', 'Includes'],
+    ['not_includes', 'Does not include'],
+    ['in', 'Contains any of'],
+    ['not_in', 'Contains none of'],
+    ['is_empty', 'Is empty'],
+    ['is_not_empty', 'Is not empty'],
+  ],
+  number: [
+    ['equals', 'Equals'],
+    ['not_equals', 'Does not equal'],
+    ['in', 'Is one of'],
+    ['not_in', 'Is not one of'],
+    ['greater_than', 'Greater than'],
+    ['greater_or_equal', 'Greater than or equal'],
+    ['less_than', 'Less than'],
+    ['less_or_equal', 'Less than or equal'],
+    ['is_empty', 'Is empty'],
+    ['is_not_empty', 'Is not empty'],
+  ],
+};
+
+const conditionalOption = (option) => {
+  if (option && typeof option === 'object') {
+    const value = option.value ?? option.id ?? '';
+    return { value, label: option.label || option.name || String(value) };
+  }
+  return { value: option, label: String(option ?? '') };
+};
+
+function getConditionalFieldOptions(field, categories, communicationCategories, customFields = [], organizationGroups = []) {
+  if (!field) return [];
+  let options;
+  if (['select', 'radio', 'checkbox'].includes(field.type)) {
+    return (field.options || []).filter(option => option !== '').map(conditionalOption);
+  }
+  if (field.type === 'image_buttons') {
+    return (field.image_options || []).filter(option => option?.value !== '').map(conditionalOption);
+  }
+  if (['country', 'countries'].includes(field.type)) {
+    const allowed = field.all_countries === false ? new Set(field.selected_countries || []) : null;
+    options = COUNTRIES
+      .filter(country => !allowed || allowed.has(country.code))
+      .map(country => ({ value: country.name, label: country.name }));
+    return prependFormNotListedOption(field, options);
+  }
+  if (field.type === 'category_multiselect') {
+    const allowed = new Set(field.allowed_category_ids || []);
+    options = categories
+      .filter(category => allowed.size === 0 || allowed.has(category.id))
+      .flatMap(category => (category.subcategories || category.children || category.options || [])
+        .map(subcategory => conditionalOption(subcategory)));
+    return prependFormNotListedOption(field, options);
+  }
+  if (field.type === 'category_dropdown') {
+    const category = categories.find(item => item.id === field.category_id);
+    const children = category?.subcategories || category?.children || category?.options || [];
+    return prependFormNotListedOption(field, children.map(conditionalOption));
+  }
+  if (field.type === 'communication_preferences') {
+    const allowed = new Set(field.allowed_category_ids || []);
+    return communicationCategories
+      .filter(category => allowed.size === 0 || allowed.has(category.id))
+      .map(category => ({ value: category.id, label: category.name }));
+  }
+  if (field.type === 'organisation_group_dropdown') {
+    return organizationGroups.map(group => ({ value: group.id, label: group.name || group.id }));
+  }
+  if (field.type === 'custom_field') {
+    const customField = customFields.find(item => item.id === field.custom_field_id);
+    if (['country', 'countries'].includes(customField?.field_type)) {
+      const allowed = customField.all_countries === false
+        ? new Set(customField.selected_countries || [])
+        : null;
+      return COUNTRIES
+        .filter(country => !allowed || allowed.has(country.code))
+        .map(country => ({ value: country.name, label: country.name }));
+    }
+    return (customField?.options || field.options || []).map(conditionalOption);
+  }
+  options = (field.options || []).map(conditionalOption);
+  return prependFormNotListedOption(field, options);
+}
+
+function getConditionalOperatorGroup(field) {
+  if (['number', 'percentage', 'currency', 'score', 'date', 'time'].includes(field?.type)) return 'number';
+  if (['checkbox', 'countries', 'category_multiselect', 'communication_preferences', 'list'].includes(field?.type)) return 'multi';
+  return 'text';
+}
+
+function ConditionalOrgFilterValues({ type, fieldName, values, onChange, customFields, ruleId }) {
+  const configuredOptions = useMemo(
+    () => configuredOrganizationFilterOptions(type, fieldName, customFields),
+    [type, fieldName, customFields],
+  );
+  const usesConfiguredOptions = configuredOptions.length > 0;
+  const { data: distinctValues = [], isLoading, isError } = useQuery({
+    queryKey: ['org-field-values', type, fieldName],
+    queryFn: async () => await publicClient.listOrganizationFieldValues(type, fieldName) || [],
+    enabled: !!type && !!fieldName && !usesConfiguredOptions,
+    staleTime: 2 * 60 * 1000,
+  });
+  const options = useMemo(
+    () => mergeOrganizationFilterOptions(
+      usesConfiguredOptions ? configuredOptions : distinctValues,
+      values,
+    ),
+    [configuredOptions, distinctValues, usesConfiguredOptions, values],
+  );
+
+  if (!usesConfiguredOptions && isLoading) {
+    return (
+      <div className="flex items-center gap-2 rounded border border-slate-200 p-2 text-xs text-slate-500">
+        <Loader2 className="h-3 w-3 animate-spin" /> Loading values…
+      </div>
+    );
+  }
+  if (!usesConfiguredOptions && isError) {
+    return (
+      <div className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+        Failed to load values. Existing selections have not been changed.
+      </div>
+    );
+  }
+  if (options.length === 0) {
+    return (
+      <div className="rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-700">
+        No values are available for this field.
+      </div>
+    );
+  }
+  return (
+    <PolicyMultiSelect
+      options={options}
+      value={values.map(item => String(item))}
+      onChange={onChange}
+      placeholder="Choose allowed values…"
+      testId={`select-conditional-org-filter-values-${ruleId}`}
+    />
+  );
+}
+
+function ConditionalOrgFilterEditor({ value, onChange, customFields, ruleId, allowSourceValue, sourceLabel }) {
+  const coreFields = [
+    ['name', 'Name'],
+    ['slug', 'Slug'],
+    ['description', 'Description'],
+    ['website_url', 'Website URL'],
+    ['email', 'Email'],
+    ['phone', 'Phone'],
+    ['address', 'Address'],
+    ['city', 'City'],
+    ['country', 'Country'],
+    ['postcode', 'Postcode'],
+    ['status', 'Status'],
+    ['external_id', 'External ID'],
+    ['is_active', 'Is Active'],
+  ];
+  const orgCustomFields = customFields.filter(customField => customField.entity_scope === 'organization');
+  const type = value?.type || 'none';
+  const fieldName = value?.field || '';
+  const values = Array.isArray(value?.values) ? value.values : [];
+  const mode = value?.mode || 'include';
+  const valueSource = value?.value_source === 'source' && allowSourceValue ? 'source' : 'fixed';
+  const setFilter = (updates) => {
+    if (updates.type === 'none') {
+      onChange(null);
+      return;
+    }
+    onChange({ type, field: fieldName, values, mode, value_source: valueSource, ...updates });
+  };
+
+  return (
+    <div className="space-y-2 rounded border border-slate-200 bg-white p-2">
+      <Label className="text-xs">Organisation result filter</Label>
+      <Select value={type} onValueChange={nextType => setFilter({
+        type: nextType,
+        field: '',
+        values: [],
+      })}>
+        <SelectTrigger className="h-8 text-xs" data-testid={`select-conditional-org-filter-type-${ruleId}`}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="none">No organisation filter</SelectItem>
+          <SelectItem value="core">Core organisation field</SelectItem>
+          <SelectItem value="custom">Custom organisation field</SelectItem>
+        </SelectContent>
+      </Select>
+      {type !== 'none' && (
+        <>
+          <Select value={mode} onValueChange={nextMode => setFilter({ mode: nextMode })}>
+            <SelectTrigger className="h-8 text-xs" data-testid={`select-conditional-org-filter-mode-${ruleId}`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="include">Include only selected values</SelectItem>
+              <SelectItem value="exclude">Exclude selected values</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select
+            value={valueSource}
+            onValueChange={nextValueSource => setFilter({ value_source: nextValueSource })}
+          >
+            <SelectTrigger className="h-8 text-xs" data-testid={`select-conditional-org-filter-value-source-${ruleId}`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="fixed">Use selected values</SelectItem>
+              {allowSourceValue && (
+                <SelectItem value="source">Match earlier field answer</SelectItem>
+              )}
+            </SelectContent>
+          </Select>
+          <Select value={fieldName} onValueChange={field => setFilter({ field, values: [] })}>
+            <SelectTrigger className="h-8 text-xs" data-testid={`select-conditional-org-filter-field-${ruleId}`}>
+              <SelectValue placeholder="Choose a field…" />
+            </SelectTrigger>
+            <SelectContent>
+              {(type === 'core' ? coreFields : orgCustomFields.map(customField => [
+                customField.name,
+                customField.label || customField.name,
+              ])).map(([field, label]) => (
+                <SelectItem key={field} value={field}>{label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {fieldName && valueSource === 'fixed' && (
+            <ConditionalOrgFilterValues
+              type={type}
+              fieldName={fieldName}
+              values={values}
+              onChange={nextValues => setFilter({ values: nextValues })}
+              customFields={customFields}
+              ruleId={ruleId}
+            />
+          )}
+          {fieldName && valueSource === 'source' && (
+            <p className="rounded border border-blue-200 bg-blue-50 p-2 text-xs text-blue-700">
+              Organisation records will be compared with the current answer to {sourceLabel || 'the earlier source field'}.
+              An empty answer shows no organisations.
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function ConditionalFilterRuleEditor({
+  field,
+  originalIndex,
+  allFields,
+  categories,
+  communicationCategories,
+  customFields,
+  organizationGroups,
+  updateField,
+}) {
+  if (!CONDITIONAL_FILTER_TARGET_TYPES.has(field.type)) return null;
+
+  const rules = Array.isArray(field.conditional_filters?.rules) ? field.conditional_filters.rules : [];
+  const sourceFields = allFields.slice(0, originalIndex).filter(source =>
+    source.id && !['instructions', 'image', 'signature', 'file', 'payment', 'membership_payment'].includes(source.type)
+  );
+  const allowedOptions = getConditionalFieldOptions(
+    field,
+    categories,
+    communicationCategories,
+    customFields,
+    organizationGroups,
+  );
+  const persistRules = (nextRules) => updateField(originalIndex, {
+    conditional_filters: { version: 1, rules: nextRules.map(rule => ({
+      id: rule.id,
+      source_field_id: rule.source_field_id || '',
+      source_field_type: rule.source_field_type || null,
+      operator: rule.operator || 'equals',
+      value: rule.value ?? '',
+      is_fallback: rule.is_fallback === true,
+      allowed_values: Array.isArray(rule.allowed_values) ? rule.allowed_values : [],
+      allowed_values_mode: rule.allowed_values_mode || 'include',
+      org_filter: rule.org_filter || null,
+    })) },
+  });
+  const addRule = (isFallback = false) => persistRules([...rules, {
+    id: `conditional_filter_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    source_field_id: '',
+    operator: 'equals',
+    value: '',
+    is_fallback: isFallback,
+    allowed_values: [],
+    allowed_values_mode: 'include',
+    org_filter: null,
+  }]);
+  const updateRule = (index, updates) => persistRules(rules.map((rule, ruleIndex) =>
+    ruleIndex === index ? { ...rule, ...updates } : rule
+  ));
+  const moveRule = (index, direction) => {
+    const target = index + direction;
+    if (target < 0 || target >= rules.length) return;
+    const next = [...rules];
+    [next[index], next[target]] = [next[target], next[index]];
+    persistRules(next);
+  };
+
+  return (
+    <div className="space-y-3 rounded-lg border border-blue-200 bg-blue-50/40 p-3" data-testid={`conditional-filter-editor-${field.id}`}>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <Label className="text-sm font-medium">Conditional option filters</Label>
+          <p className="mt-1 text-xs text-slate-500">
+            Rules run top to bottom. The first match wins; otherwise the first fallback is used. With rules but no match or fallback, no options are shown.
+          </p>
+        </div>
+        <div className="flex gap-1">
+          <Button type="button" size="sm" variant="outline" onClick={() => addRule(false)} disabled={sourceFields.length === 0}>
+            <Plus className="mr-1 h-3 w-3" /> Rule
+          </Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => addRule(true)}>
+            <Plus className="mr-1 h-3 w-3" /> Fallback
+          </Button>
+        </div>
+      </div>
+      {sourceFields.length === 0 && rules.length === 0 && (
+        <p className="text-xs text-amber-700">Add an answer field earlier in the form to create a matching rule. You can still add a fallback.</p>
+      )}
+      {rules.map((rule, ruleIndex) => {
+        const source = sourceFields.find(sourceField => sourceField.id === rule.source_field_id);
+        const operatorGroup = getConditionalOperatorGroup(source);
+        const numericSource = ['number', 'percentage', 'currency', 'score'].includes(source?.type);
+        const operators = CONDITIONAL_FILTER_OPERATORS[operatorGroup];
+        const sourceOptions = getConditionalFieldOptions(
+          source,
+          categories,
+          communicationCategories,
+          customFields,
+          organizationGroups,
+        );
+        const hasValue = !['is_empty', 'is_not_empty'].includes(rule.operator);
+        const multiValue = ['in', 'not_in'].includes(rule.operator);
+        return (
+          <div key={rule.id} className="space-y-3 rounded-md border border-slate-200 bg-white p-3" data-testid={`conditional-filter-rule-${field.id}-${ruleIndex}`}>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Badge variant={rule.is_fallback ? 'secondary' : 'outline'}>
+                  {rule.is_fallback ? 'Fallback' : `Rule ${ruleIndex + 1}`}
+                </Badge>
+                <div className="flex">
+                  <Button type="button" variant="ghost" size="icon" className="h-7 w-7" disabled={ruleIndex === 0} onClick={() => moveRule(ruleIndex, -1)} aria-label="Move rule up">
+                    <ChevronUp className="h-3 w-3" />
+                  </Button>
+                  <Button type="button" variant="ghost" size="icon" className="h-7 w-7" disabled={ruleIndex === rules.length - 1} onClick={() => moveRule(ruleIndex, 1)} aria-label="Move rule down">
+                    <ChevronDown className="h-3 w-3" />
+                  </Button>
+                </div>
+              </div>
+              <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => persistRules(rules.filter((_, index) => index !== ruleIndex))} aria-label="Remove rule">
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id={`conditional-fallback-${rule.id}`}
+                checked={rule.is_fallback === true}
+                onCheckedChange={checked => updateRule(ruleIndex, {
+                  is_fallback: checked === true,
+                  org_filter: checked === true && rule.org_filter?.value_source === 'source'
+                    ? { ...rule.org_filter, value_source: 'fixed', values: [] }
+                    : rule.org_filter,
+                })}
+              />
+              <Label htmlFor={`conditional-fallback-${rule.id}`} className="text-xs">Use as fallback (does not evaluate a source value)</Label>
+            </div>
+
+            {!rule.is_fallback && (
+              <div className="grid gap-2 md:grid-cols-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Earlier source field</Label>
+                  <Select value={rule.source_field_id || ''} onValueChange={source_field_id => {
+                    const selectedSource = sourceFields.find(item => item.id === source_field_id);
+                    const selectedCustomField = selectedSource?.type === 'custom_field'
+                      ? customFields.find(item => item.id === selectedSource.custom_field_id)
+                      : null;
+                    updateRule(ruleIndex, {
+                      source_field_id,
+                      source_field_type: selectedCustomField?.field_type || selectedSource?.type || null,
+                      operator: 'equals',
+                      value: '',
+                    });
+                  }}>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Choose source…" /></SelectTrigger>
+                    <SelectContent>
+                      {sourceFields.map(sourceField => (
+                        <SelectItem key={sourceField.id} value={sourceField.id}>{sourceField.label || 'Untitled field'}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Operator</Label>
+                  <Select value={rule.operator || 'equals'} onValueChange={operator => updateRule(ruleIndex, {
+                    operator,
+                    value: ['is_empty', 'is_not_empty'].includes(operator) ? null : '',
+                  })}>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {operators.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {hasValue && (
+                  <div className="space-y-1">
+                    <Label className="text-xs">Value</Label>
+                    {source?.type === 'boolean' ? (
+                      <Select value={String(rule.value)} onValueChange={value => updateRule(ruleIndex, { value: value === 'true' })}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Choose value…" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="true">Yes</SelectItem>
+                          <SelectItem value="false">No</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : sourceOptions.length > 0 && multiValue ? (
+                      <PolicyMultiSelect
+                        options={sourceOptions}
+                        value={Array.isArray(rule.value) ? rule.value : []}
+                        onChange={value => updateRule(ruleIndex, { value })}
+                        placeholder="Choose values…"
+                        testId={`select-conditional-source-values-${rule.id}`}
+                      />
+                    ) : sourceOptions.length > 0 ? (
+                      <Select value={rule.value === '' ? undefined : String(rule.value)} onValueChange={value => {
+                        const option = sourceOptions.find(item => String(item.value) === value);
+                        updateRule(ruleIndex, { value: option?.value ?? value });
+                      }}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Choose value…" /></SelectTrigger>
+                        <SelectContent>
+                          {sourceOptions.map(option => <SelectItem key={String(option.value)} value={String(option.value)}>{option.label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        type={!multiValue && numericSource
+                          ? 'number'
+                          : !multiValue && source?.type === 'date'
+                            ? 'date'
+                            : !multiValue && source?.type === 'time'
+                              ? 'time'
+                              : 'text'}
+                        className="h-8 text-xs"
+                        value={Array.isArray(rule.value) ? rule.value.join(', ') : (rule.value ?? '')}
+                        onChange={event => updateRule(ruleIndex, {
+                          value: multiValue
+                            ? event.target.value.split(',').map(item => item.trim()).filter(Boolean)
+                            : numericSource && event.target.value !== ''
+                              ? Number(event.target.value)
+                              : event.target.value,
+                        })}
+                        placeholder={multiValue ? 'Values, separated by commas' : 'Comparison value'}
+                      />
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {allowedOptions.length > 0 && (
+              <div className="space-y-1">
+                <Label className="text-xs">Target value filter</Label>
+                <Select
+                  value={rule.allowed_values_mode || 'include'}
+                  onValueChange={allowed_values_mode => updateRule(ruleIndex, { allowed_values_mode })}
+                >
+                  <SelectTrigger className="h-8 text-xs" data-testid={`select-conditional-target-mode-${rule.id}`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="include">Include only selected values</SelectItem>
+                    <SelectItem value="exclude">Exclude selected values</SelectItem>
+                  </SelectContent>
+                </Select>
+                <PolicyMultiSelect
+                  options={allowedOptions}
+                  value={rule.allowed_values || []}
+                  onChange={allowed_values => updateRule(ruleIndex, { allowed_values })}
+                  placeholder={rule.allowed_values_mode === 'exclude' ? 'No excluded values' : 'No additional restriction'}
+                  testId={`select-conditional-allowed-values-${rule.id}`}
+                />
+                <p className="text-xs text-slate-500">
+                  {rule.allowed_values_mode === 'exclude'
+                    ? 'Selected values are removed from the field’s existing eligible choices.'
+                    : 'Selected values are intersected with the field’s existing choices.'}
+                </p>
+              </div>
+            )}
+
+            {field.type === 'organisation_dropdown' && (
+              <ConditionalOrgFilterEditor
+                value={rule.org_filter}
+                onChange={org_filter => updateRule(ruleIndex, { org_filter })}
+                customFields={customFields}
+                ruleId={rule.id}
+                allowSourceValue={!rule.is_fallback && !!source}
+                sourceLabel={source?.label || source?.name}
+              />
+            )}
+          </div>
+        );
+      })}
+      {rules.length > 0 && (
+        <Button type="button" variant="ghost" size="sm" className="text-slate-500" onClick={() => updateField(originalIndex, { conditional_filters: undefined })}>
+          <X className="mr-1 h-3 w-3" /> Remove conditional filtering
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function findInvalidNotListedField(fields) {
+  for (const field of fields || []) {
+    if (supportsFormNotListedChoice(field)
+        && field.not_listed_choice?.enabled === true
+        && !field.not_listed_choice?.label?.trim()) {
+      return field;
+    }
+    if (!isRepeatableRowField(field)) continue;
+    const invalidChild = normalizeRepeatableRowField(field).children.find(child =>
+      supportsFormNotListedChoice(child)
+      && child.not_listed_choice?.enabled === true
+      && !child.not_listed_choice?.label?.trim()
+    );
+    if (invalidChild) return invalidChild;
+  }
+  return null;
+}
+
+function RepeatableRowsSettings({
+  field,
+  originalIndex,
+  updateField,
+  eligibleRelationships = [],
+  relationshipsLoading = false,
+  relationshipsError = null,
+  relationshipsFetched = false,
+  retryRelationships = null,
+  formId = null,
+  allFields = [],
+  customFields = [],
+  customObjects = [],
+}) {
+  const config = normalizeRepeatableRowField(field);
+  const addRowLabelEditorValue = repeatableRowAddLabelEditorValue(field);
+  const children = config.children;
+  const emptyAvailabilitySupport = repeatableEmptyAvailabilitySupport(field);
+  const updateConfig = updates => updateField(
+    originalIndex,
+    repeatableRowFieldConfigUpdate(field, updates),
+  );
+  const updateChildren = children => updateConfig({
+    repeatable_rows_version: REPEATABLE_ROW_SCHEMA_VERSION,
+    version: REPEATABLE_ROW_SCHEMA_VERSION,
+    children,
+  });
+  const updateChild = (childIndex, updates) => updateChildren(children.map((child, index) => (
+    index === childIndex ? { ...child, ...updates } : child
+  )));
+  const addChild = () => updateChildren([...children, {
+    id: `row_field_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    type: 'text',
+    label: 'New row field',
+    required: false,
+    options: [],
+  }]);
+  const moveChild = (childIndex, direction) => {
+    const target = childIndex + direction;
+    if (target < 0 || target >= children.length) return;
+    const next = [...children];
+    [next[childIndex], next[target]] = [next[target], next[childIndex]];
+    updateChildren(next);
+  };
+  const safeTypes = FIELD_TYPES.filter(option => REPEATABLE_ROW_CHILD_TYPES.includes(option.value));
+
+  useEffect(() => {
+    const nextChildren = children.map(child => {
+      if (!child.exclude_values_from) return child;
+      const sourceId = child.exclude_values_from.source_field_id;
+      const remainsEligible = repeatableExclusionSourceFields(allFields, field, child)
+        .some(source => String(source.id) === String(sourceId));
+      return remainsEligible ? child : { ...child, exclude_values_from: undefined };
+    });
+    if (nextChildren.some((child, index) => child !== children[index])) {
+      updateChildren(nextChildren);
+    }
+  }, [allFields, field.id, children]);
+
+  useEffect(() => {
+    const nextChildren = children.map(child => {
+      if (!child.option_source?.custom_object_id) return child;
+      const object = customObjects.find(candidate => (
+        String(candidate.id) === String(child.option_source.custom_object_id)
+      ));
+      if (!object?.primary_display_field_id
+          || String(child.option_source.primary_display_field_id) === String(object.primary_display_field_id)) {
+        return child;
+      }
+      return {
+        ...child,
+        option_source: {
+          ...child.option_source,
+          primary_display_field_id: object.primary_display_field_id,
+        },
+      };
+    });
+    if (nextChildren.some((child, index) => child !== children[index])) {
+      updateChildren(nextChildren);
+    }
+  }, [children, customObjects]);
+
+  return (
+    <div className="space-y-4 rounded-lg border border-blue-200 bg-blue-50/30 p-4" data-testid={`repeatable-rows-config-${field.id}`}>
+      <div>
+        <Label className="text-sm font-medium">Repeatable row settings</Label>
+        <p className="mt-1 text-xs text-slate-500">Respondents can add ordered rows. Dependencies only read earlier fields in the same row.</p>
+      </div>
+      <div className="grid gap-3 md:grid-cols-3">
+        <div className="space-y-1">
+          <Label className="text-xs">Minimum rows</Label>
+          <Input
+            type="number"
+            min="0"
+            max={config.max_rows}
+            value={config.min_rows}
+            onChange={event => updateConfig({ min_rows: Math.max(0, Number(event.target.value) || 0) })}
+            className="h-9"
+            data-testid={`input-repeatable-min-${field.id}`}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Maximum rows</Label>
+          <Input
+            type="number"
+            min={Math.max(1, config.min_rows)}
+            value={config.max_rows}
+            onChange={event => updateConfig({ max_rows: Math.max(1, Number(event.target.value) || 1) })}
+            className="h-9"
+            data-testid={`input-repeatable-max-${field.id}`}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Add button label</Label>
+          <Input
+            value={addRowLabelEditorValue}
+            onChange={event => updateConfig({ add_row_label: event.target.value })}
+            placeholder="Add row"
+            className="h-9"
+            data-testid={`input-repeatable-add-label-${field.id}`}
+          />
+        </div>
+      </div>
+      <div className="space-y-1">
+        <Label className="text-xs">Row layout</Label>
+        <Select
+          value={config.layout}
+          onValueChange={layout => updateConfig({ layout })}
+        >
+          <SelectTrigger
+            className="h-9 md:w-64"
+            data-testid={`select-repeatable-layout-${field.id}`}
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={REPEATABLE_ROW_LAYOUT_CARDS}>Cards</SelectItem>
+            <SelectItem value={REPEATABLE_ROW_LAYOUT_SPREADSHEET}>Spreadsheet</SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-slate-500">
+          Spreadsheet shows column headings once and keeps repeated entries in aligned rows.
+        </p>
+      </div>
+      <div className="flex items-center gap-2">
+        <Switch
+          id={`repeatable-initial-required-${field.id}`}
+          checked={config.first_row_required}
+          onCheckedChange={initial_row_required => updateConfig({
+            initial_row_required,
+            first_row_required: initial_row_required,
+          })}
+        />
+        <Label htmlFor={`repeatable-initial-required-${field.id}`} className="text-xs">Validate required fields in the initial row even when untouched</Label>
+      </div>
+      <div className="flex items-start gap-2">
+        <Switch
+          id={`repeatable-hide-empty-${field.id}`}
+          checked={config.hide_when_first_column_empty}
+          disabled={!emptyAvailabilitySupport.supported}
+          onCheckedChange={hide_when_first_column_empty => updateConfig({
+            hide_when_first_column_empty,
+          })}
+          data-testid={`switch-repeatable-hide-empty-${field.id}`}
+        />
+        <div>
+          <Label htmlFor={`repeatable-hide-empty-${field.id}`} className="text-xs">
+            Hide when no first-column organisations are available
+          </Label>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Keep this repeatable section out of the form when the organisation
+            resolver confirms an empty domain. Loading, errors, prerequisites,
+            and row-level choice exhaustion leave it visible.
+          </p>
+          {!emptyAvailabilitySupport.supported && (
+            <p className="mt-0.5 text-xs text-amber-700">
+              Available for an Organisation Dropdown first column with a form-level group restriction only.
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <Label className="text-sm font-medium">Row fields</Label>
+        <Button type="button" size="sm" variant="outline" onClick={addChild}>
+          <Plus className="mr-1 h-4 w-4" /> Add field
+        </Button>
+      </div>
+      {children.length === 0 && <p className="text-xs text-amber-700">Add at least one field to make this row usable.</p>}
+      {children.map((child, childIndex) => {
+        const preceding = children.slice(0, childIndex);
+        const scalarPreceding = preceding.filter(item => rowSourceInputDomain(item, {
+          customFields,
+          customObjects,
+        }));
+        const rowSource = child.option_source;
+        const selectedSourceObject = customObjects.find(object => object.id === rowSource?.custom_object_id);
+        const sourceObjectFields = (selectedSourceObject?.fields
+          || selectedSourceObject?.custom_fields
+          || []).filter(sourceField => !['picklist', 'dropdown'].includes(sourceField.field_type));
+        const filterPairs = compatibleRowSourceFilterPairs(
+          sourceObjectFields,
+          scalarPreceding,
+          { customFields, customObjects },
+        );
+        const filterObjectFields = sourceObjectFields.filter(sourceField => (
+          filterPairs.some(pair => pair.objectField.id === sourceField.id)
+        ));
+        const rowSourceValidation = validateRowSourceEditorConfiguration(child, children);
+        const containerIndex = allFields.findIndex(candidate => candidate?.id === field.id);
+        const formPreceding = (containerIndex < 0 ? allFields : allFields.slice(0, containerIndex));
+        const parentScope = rowSource ? 'row' : (child.parent_field_scope || 'row');
+        const groupParentScope = child.organisation_group_parent_scope || 'row';
+        const relationshipParents = (parentScope === 'form'
+          ? getEligibleRelationshipParents(formPreceding)
+          : getEligibleRelationshipParents(preceding))
+          .filter(parent => parent.option_source?.kind !== 'distinct');
+        const organisationGroupParents = (groupParentScope === 'form' ? formPreceding : preceding)
+          .filter(candidate => candidate?.type === 'organisation_group_dropdown' && candidate.id);
+        const selectedRelationshipParent = relationshipParents.find(parent => parent.id === child.parent_field_id);
+        const compatibleRelationships = selectedRelationshipParent
+          ? eligibleRelationships.filter(item => {
+              if (!isRelationshipCompatibleWithParent(item, selectedRelationshipParent)) return false;
+              if (!rowSource?.custom_object_id) return true;
+              const config = relationshipFieldConfig(item, selectedRelationshipParent);
+              return config.related_kind === 'custom_object'
+                && String(config.related_custom_object_id || '') === String(rowSource.custom_object_id);
+            })
+          : [];
+        const dependency = child.conditional_filters?.rules?.find(rule => !rule.is_fallback);
+        const dependencySource = preceding.find(item => item.id === dependency?.source_field_id);
+        const dependencySourceCustomField = dependencySource?.type === 'custom_field'
+          ? customFields.find(item => item.id === dependencySource.custom_field_id)
+          : null;
+        const dependencyNotListedLabel = dependencySource
+          ? formNotListedChoiceLabel(dependencySource)
+          : '';
+        const optionsType = supportsRepeatableRowStaticOptions(child);
+        const exclusionSources = repeatableExclusionSourceFields(allFields, field, child);
+        const exclusionSourceId = child.exclude_values_from?.source_field_id || '__none__';
+        const relationshipDependents = getRelationshipDependentFields(allFields, child.id, {
+          containerFieldId: field.id,
+        });
+        const updateRepeatableDateRestriction = date_restriction => {
+          const nextChild = { ...child, date_restriction };
+          delete nextChild.future_only;
+          delete nextChild.past_only;
+          updateChildren(children.map((candidate, index) => (
+            index === childIndex ? nextChild : candidate
+          )));
+        };
+        return (
+          <div key={child.id} className="space-y-3 rounded-md border border-slate-200 bg-white p-3" data-testid={`repeatable-child-${field.id}-${childIndex}`}>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-slate-500">Column {childIndex + 1}</span>
+              <div className="flex">
+                <Button type="button" variant="ghost" size="icon" className="h-7 w-7" disabled={childIndex === 0} onClick={() => moveChild(childIndex, -1)} aria-label="Move row field left">
+                  <ChevronUp className="h-3.5 w-3.5" />
+                </Button>
+                <Button type="button" variant="ghost" size="icon" className="h-7 w-7" disabled={childIndex === children.length - 1} onClick={() => moveChild(childIndex, 1)} aria-label="Move row field right">
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </Button>
+                <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-red-500" onClick={() => updateChildren(children.filter((_, index) => index !== childIndex))} aria-label="Remove row field">
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Label</Label>
+                <Input className="h-9" value={child.label || ''} onChange={event => updateChild(childIndex, { label: event.target.value })} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Type</Label>
+                <Select value={child.type} onValueChange={type => updateChild(childIndex, {
+                  type,
+                  ...(type === 'date' ? {
+                    date_precision: child.date_precision || 'day',
+                    date_restriction: child.date_restriction || (child.future_only === true ? 'future' : 'any'),
+                    future_only: child.future_only === true ? true : undefined,
+                    past_only: child.past_only === true ? true : undefined,
+                  } : {}),
+                  parent_field_id: type === 'relationship_dropdown' ? child.parent_field_id : undefined,
+                  parent_field_scope: type === 'relationship_dropdown' ? child.parent_field_scope : undefined,
+                  option_source: type === 'relationship_dropdown' ? child.option_source : undefined,
+                  relationship_definition_id: type === 'relationship_dropdown' ? child.relationship_definition_id : undefined,
+                  relationship_parent_side: type === 'relationship_dropdown' ? child.relationship_parent_side : undefined,
+                  relationship_parent_kind: type === 'relationship_dropdown' ? child.relationship_parent_kind : undefined,
+                  relationship_parent_custom_object_id: type === 'relationship_dropdown' ? child.relationship_parent_custom_object_id : undefined,
+                  parent_custom_object_id: type === 'relationship_dropdown' ? child.parent_custom_object_id : undefined,
+                  organization_side: type === 'relationship_dropdown' ? child.organization_side : undefined,
+                  related_kind: type === 'relationship_dropdown' ? child.related_kind : undefined,
+                  related_custom_object_id: type === 'relationship_dropdown' ? child.related_custom_object_id : undefined,
+                  related_primary_display_field_id: type === 'relationship_dropdown' ? child.related_primary_display_field_id : undefined,
+                  custom_object_id: type === 'relationship_dropdown' ? child.custom_object_id : undefined,
+                  custom_object_name: type === 'relationship_dropdown' ? child.custom_object_name : undefined,
+                  custom_object_primary_display_field_id: type === 'relationship_dropdown' ? child.custom_object_primary_display_field_id : undefined,
+                  relationship_definition: type === 'relationship_dropdown' ? child.relationship_definition : undefined,
+                  relationship_key: type === 'relationship_dropdown' ? child.relationship_key : undefined,
+                  not_listed_choice: type === 'relationship_dropdown' ? child.not_listed_choice : undefined,
+                  organisation_group_parent_field_id: type === 'organisation_dropdown'
+                    ? child.organisation_group_parent_field_id
+                    : undefined,
+                  conditional_filters: undefined,
+                  exclude_values_from: REPEATABLE_ROW_EXCLUSION_TYPES.includes(type)
+                    ? child.exclude_values_from
+                    : undefined,
+                })}>
+                  <SelectTrigger className="h-9" data-testid={`select-repeatable-child-type-${field.id}-${child.id}`}><SelectValue /></SelectTrigger>
+                  <SelectContent className="max-h-64">
+                    {safeTypes.map(option => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+              <div className="flex items-center gap-2">
+                <Switch id={`repeatable-child-required-${child.id}`} checked={child.required === true} onCheckedChange={required => updateChild(childIndex, { required })} />
+                <Label htmlFor={`repeatable-child-required-${child.id}`} className="text-xs">Required in active rows</Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch
+                  id={`repeatable-child-unique-${child.id}`}
+                  checked={child.unique_across_rows === true}
+                  onCheckedChange={unique_across_rows => updateChild(childIndex, { unique_across_rows })}
+                  data-testid={`switch-repeatable-child-unique-${child.id}`}
+                />
+                <Label htmlFor={`repeatable-child-unique-${child.id}`} className="text-xs">
+                  Unique across rows
+                </Label>
+              </div>
+              {child.type === 'date' && (
+                <div className="col-span-full grid gap-3 rounded border border-slate-200 bg-slate-50 p-3 md:grid-cols-2" data-testid={`repeatable-date-settings-${field.id}-${child.id}`}>
+                  <div className="space-y-1">
+                    <Label htmlFor={`repeatable-date-precision-${child.id}`} className="text-xs">Date precision</Label>
+                    <Select
+                      value={REPEATABLE_DATE_PRECISION_OPTIONS.some(option => option.value === child.date_precision)
+                        ? child.date_precision : 'day'}
+                      onValueChange={date_precision => updateChild(childIndex, { date_precision })}
+                    >
+                      <SelectTrigger id={`repeatable-date-precision-${child.id}`} className="h-9" data-testid={`select-repeatable-date-precision-${child.id}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {REPEATABLE_DATE_PRECISION_OPTIONS.map(option => (
+                          <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor={`repeatable-date-restriction-${child.id}`} className="text-xs">Allowed dates</Label>
+                    <Select
+                      value={REPEATABLE_DATE_RESTRICTION_OPTIONS.some(option => option.value === child.date_restriction)
+                        ? child.date_restriction
+                        : (child.future_only === true ? 'future' : (child.past_only === true ? 'past' : 'any'))}
+                      onValueChange={updateRepeatableDateRestriction}
+                    >
+                      <SelectTrigger id={`repeatable-date-restriction-${child.id}`} className="h-9" data-testid={`select-repeatable-date-restriction-${child.id}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {REPEATABLE_DATE_RESTRICTION_OPTIONS.map(option => (
+                          <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <p className="text-xs text-slate-500 md:col-span-2">{repeatableDateHelp(child)}</p>
+                </div>
+              )}
+            </div>
+            <RepeatableRowVisibilityEditor
+              field={field}
+              child={child}
+              onChange={row_visibility => updateChild(childIndex, { row_visibility })}
+            />
+            {supportsFormNotListedChoice(child) && child.type !== 'relationship_dropdown' && (
+              <div className="space-y-3 rounded border border-slate-200 bg-slate-50 p-3" data-testid={`repeatable-not-listed-config-${field.id}-${child.id}`}>
+                <div className="flex items-center gap-2">
+                  <Switch
+                    id={`repeatable-not-listed-enabled-${field.id}-${child.id}`}
+                    checked={child.not_listed_choice?.enabled === true}
+                    onCheckedChange={enabled => updateChild(childIndex, {
+                      not_listed_choice: {
+                        ...(child.not_listed_choice || {}),
+                        enabled,
+                        label: child.not_listed_choice?.label || 'Not listed',
+                      },
+                    })}
+                    data-testid={`switch-repeatable-not-listed-${field.id}-${child.id}`}
+                  />
+                  <Label htmlFor={`repeatable-not-listed-enabled-${field.id}-${child.id}`} className="text-xs font-medium">
+                    Add a “not listed” choice
+                  </Label>
+                </div>
+                {child.not_listed_choice?.enabled === true && (
+                  <div className="space-y-1">
+                    <Label htmlFor={`repeatable-not-listed-label-${field.id}-${child.id}`} className="text-xs">Choice label</Label>
+                    <Input
+                      id={`repeatable-not-listed-label-${field.id}-${child.id}`}
+                      value={child.not_listed_choice?.label || ''}
+                      onChange={event => updateChild(childIndex, {
+                        not_listed_choice: {
+                          ...(child.not_listed_choice || {}),
+                          enabled: true,
+                          label: event.target.value,
+                        },
+                      })}
+                      placeholder="e.g. My organisation isn’t in the list"
+                      className="h-9"
+                      data-testid={`input-repeatable-not-listed-label-${field.id}-${child.id}`}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+            {optionsType && (
+              <RepeatableRowOptionsEditor
+                id={`textarea-repeatable-child-options-${field.id}-${child.id}`}
+                options={child.options}
+                onChange={options => updateChild(childIndex, { options })}
+              />
+            )}
+            {REPEATABLE_ROW_EXCLUSION_TYPES.includes(child.type) && (
+              <div className="space-y-1 rounded border border-slate-200 bg-slate-50 p-3">
+                <Label className="text-xs">Exclude values from earlier field (optional)</Label>
+                <Select
+                  value={exclusionSources.some(source => source.id === exclusionSourceId)
+                    ? exclusionSourceId : '__none__'}
+                  onValueChange={source_field_id => updateChild(childIndex, {
+                    exclude_values_from: source_field_id === '__none__'
+                      ? undefined
+                      : { scope: 'form', source_field_id },
+                  })}
+                >
+                  <SelectTrigger
+                    className="h-9"
+                    data-testid={`select-repeatable-exclusion-source-${field.id}-${child.id}`}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Do not exclude an earlier answer</SelectItem>
+                    {exclusionSources.map(source => (
+                      <SelectItem key={source.id} value={source.id}>
+                        {source.label || source.name || 'Untitled field'}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-slate-500">
+                  Values selected in this earlier field will not be available in any row.
+                </p>
+              </div>
+            )}
+            {child.type === 'relationship_dropdown' && (
+              <div className="grid gap-3 rounded border border-slate-200 bg-slate-50 p-3 md:grid-cols-2">
+                <div className="space-y-3 rounded border border-blue-200 bg-blue-50 p-3 md:col-span-2">
+                  <div>
+                    <Label className="text-xs font-medium">Option data source</Label>
+                    {!formId && (
+                      <p
+                        className="mt-1 rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800"
+                        data-testid={`repeatable-row-source-save-first-${field.id}-${child.id}`}
+                      >
+                        Save this form before choosing Records from a custom object or Distinct related values.
+                        Related records remains available while drafting.
+                      </p>
+                    )}
+                    <Select
+                      value={rowSource?.kind || 'relationship'}
+                      onValueChange={kind => {
+                        if (kind === 'relationship') {
+                          updateChild(childIndex, { option_source: undefined });
+                          return;
+                        }
+                        updateChild(childIndex, {
+                          option_source: {
+                            version: 1,
+                            kind,
+                            custom_object_id: rowSource?.custom_object_id || '',
+                            primary_display_field_id: rowSource?.primary_display_field_id || '',
+                            ...(kind === 'distinct' ? { value_field_id: rowSource?.value_field_id || '' } : {}),
+                            filters: rowSource?.filters || [],
+                          },
+                          selection_mode: RELATIONSHIP_SELECTION_SINGLE,
+                          not_listed_choice: undefined,
+                          parent_field_scope: child.parent_field_id ? 'row' : undefined,
+                          ...(child.parent_field_scope === 'form' ? {
+                            parent_field_id: undefined,
+                            relationship_definition_id: undefined,
+                            relationship_parent_side: undefined,
+                            relationship_parent_kind: undefined,
+                            relationship_parent_custom_object_id: undefined,
+                            parent_custom_object_id: undefined,
+                            organization_side: undefined,
+                            related_kind: undefined,
+                            related_custom_object_id: undefined,
+                            related_primary_display_field_id: undefined,
+                            custom_object_id: undefined,
+                            custom_object_name: undefined,
+                            custom_object_primary_display_field_id: undefined,
+                            relationship_definition: undefined,
+                            relationship_key: undefined,
+                          } : {}),
+                        });
+                      }}
+                    >
+                      <SelectTrigger className="mt-1 h-9" data-testid={`select-row-option-source-${field.id}-${child.id}`}><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="relationship">Related records (legacy)</SelectItem>
+                        <SelectItem value="records" disabled={!formId}>Records from a custom object</SelectItem>
+                        <SelectItem value="distinct" disabled={!formId}>Distinct related field values</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {rowSource && (
+                    <>
+                      {formId && relationshipsLoading && (
+                        <p
+                          className="flex items-center gap-2 rounded border border-slate-200 bg-slate-50 p-2 text-xs text-slate-600"
+                          role="status"
+                          data-testid={`repeatable-row-source-loading-${field.id}-${child.id}`}
+                        >
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          Loading eligible Custom Objects…
+                        </p>
+                      )}
+                      {formId && relationshipsError && (
+                        <div
+                          className="flex items-center justify-between gap-3 rounded border border-red-200 bg-red-50 p-2 text-xs text-red-800"
+                          role="alert"
+                          data-testid={`repeatable-row-source-error-${field.id}-${child.id}`}
+                        >
+                          <span>Unable to load eligible Custom Objects. Check your access and retry.</span>
+                          {retryRelationships && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-7 shrink-0 border-red-300 bg-white text-red-800"
+                              onClick={() => retryRelationships()}
+                            >
+                              Retry
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                      {formId && relationshipsFetched && !relationshipsLoading && !relationshipsError
+                        && customObjects.length === 0 && (
+                        <p
+                          className="rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800"
+                          data-testid={`repeatable-row-source-empty-${field.id}-${child.id}`}
+                        >
+                          No eligible Custom Objects are available for this author.
+                        </p>
+                      )}
+                      <p className="text-xs text-blue-800">
+                        This publishes the selected object, label and filter field configuration to the public form.
+                        Respondent answers are sent only for the equality filters listed below.
+                      </p>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div className="space-y-1">
+                          <Label className="text-xs">Custom object</Label>
+                            <Select
+                              value={rowSource.custom_object_id || ''}
+                              disabled={!formId || relationshipsLoading || !!relationshipsError || !relationshipsFetched}
+                              onValueChange={custom_object_id => {
+                            const object = customObjects.find(item => item.id === custom_object_id);
+                             updateChild(childIndex, {
+                               option_source: {
+                                 ...rowSource,
+                                 custom_object_id,
+                                 primary_display_field_id: object?.primary_display_field_id || '',
+                                 ...(rowSource.kind === 'distinct' ? { value_field_id: '' } : {}),
+                                 filters: [],
+                               },
+                               parent_field_id: undefined,
+                               parent_field_scope: undefined,
+                               relationship_definition_id: undefined,
+                               relationship_parent_side: undefined,
+                               relationship_parent_kind: undefined,
+                               relationship_parent_custom_object_id: undefined,
+                               parent_custom_object_id: undefined,
+                               organization_side: undefined,
+                               related_kind: undefined,
+                               related_custom_object_id: undefined,
+                               related_primary_display_field_id: undefined,
+                               custom_object_id: undefined,
+                               custom_object_name: undefined,
+                               custom_object_primary_display_field_id: undefined,
+                               relationship_definition: undefined,
+                               relationship_key: undefined,
+                             });
+                           }}>
+                             <SelectTrigger className="h-9" data-testid={`select-row-source-object-${field.id}-${child.id}`}>
+                               <SelectValue
+                                 placeholder={!formId
+                                   ? 'Save form first'
+                                   : relationshipsLoading
+                                     ? 'Loading objects…'
+                                     : relationshipsError
+                                       ? 'Unable to load objects'
+                                       : !relationshipsFetched
+                                         ? 'Loading objects…'
+                                         : customObjects.length === 0
+                                           ? 'No eligible objects'
+                                           : 'Choose object…'}
+                               />
+                             </SelectTrigger>
+                            <SelectContent>{customObjects.map(object => <SelectItem key={object.id} value={object.id}>{object.plural_label || object.singular_label || object.name || object.object_key}</SelectItem>)}</SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Primary label field</Label>
+                          <div className="flex h-9 items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-sm" data-testid={`row-source-primary-label-${field.id}-${child.id}`}>
+                            {sourceObjectFields.find(sourceField => sourceField.id === selectedSourceObject?.primary_display_field_id)?.label
+                              || sourceObjectFields.find(sourceField => sourceField.id === selectedSourceObject?.primary_display_field_id)?.name
+                              || 'Select a custom object'}
+                          </div>
+                        </div>
+                        {rowSource.kind === 'distinct' && <div className="space-y-1 md:col-span-2">
+                          <Label className="text-xs">Projected field (distinct values)</Label>
+                          <Select value={rowSource.value_field_id || ''} onValueChange={value_field_id => updateChild(childIndex, { option_source: { ...rowSource, value_field_id } })}>
+                            <SelectTrigger className="h-9" data-testid={`select-row-source-value-${field.id}-${child.id}`}><SelectValue placeholder="Choose projected field…" /></SelectTrigger>
+                            <SelectContent>{sourceObjectFields.map(sourceField => <SelectItem key={sourceField.id} value={sourceField.id}>{sourceField.label || sourceField.name || sourceField.field_key}</SelectItem>)}</SelectContent>
+                          </Select>
+                        </div>}
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <Label className="text-xs">Equality filters</Label>
+                          <Button type="button" size="sm" variant="outline" data-testid={`add-row-source-filter-${field.id}-${child.id}`} disabled={!filterPairs.length} onClick={() => updateChild(childIndex, { option_source: {
+                            ...rowSource,
+                            filters: [...(rowSource.filters || []), {
+                              field_id: filterPairs[0]?.objectField.id || '',
+                              source_field_id: filterPairs[0]?.input.id || '',
+                            }],
+                          } })}><Plus className="mr-1 h-3 w-3" /> Add filter</Button>
+                        </div>
+                        {(rowSource.filters || []).map((filter, filterIndex) => {
+                          const targetDomain = rowSourceObjectFieldDomain(sourceObjectFields.find(sourceField => sourceField.id === filter.field_id));
+                          const compatibleInputs = scalarPreceding.filter(input => (
+                            rowSourceInputDomain(input, { customFields, customObjects }) === targetDomain
+                          ));
+                          return <div key={`${filterIndex}-${filter.field_id}`} className="grid grid-cols-[1fr_auto_1fr_auto] items-center gap-2">
+                          <Select value={filter.field_id || ''} onValueChange={field_id => {
+                            const domain = rowSourceObjectFieldDomain(sourceObjectFields.find(sourceField => sourceField.id === field_id));
+                            const compatible = scalarPreceding.filter(input => (
+                              rowSourceInputDomain(input, { customFields, customObjects }) === domain
+                            ));
+                            const source_field_id = compatible.some(input => input.id === filter.source_field_id)
+                              ? filter.source_field_id : compatible[0]?.id || '';
+                            updateChild(childIndex, { option_source: { ...rowSource, filters: rowSource.filters.map((item, index) => index === filterIndex ? { ...item, field_id, source_field_id } : item) } });
+                          }}>
+                            <SelectTrigger className="h-8" data-testid={`select-row-filter-target-${field.id}-${child.id}-${filterIndex}`}><SelectValue placeholder="Object field" /></SelectTrigger>
+                            <SelectContent>{filterObjectFields.map(sourceField => <SelectItem key={sourceField.id} value={sourceField.id}>{sourceField.label || sourceField.name || sourceField.field_key}</SelectItem>)}</SelectContent>
+                          </Select>
+                          <span className="text-xs">equals</span>
+                          <Select value={filter.source_field_id || ''} onValueChange={source_field_id => updateChild(childIndex, { option_source: { ...rowSource, filters: rowSource.filters.map((item, index) => index === filterIndex ? { ...item, source_field_id } : item) } })}>
+                            <SelectTrigger className="h-8" data-testid={`select-row-filter-input-${field.id}-${child.id}-${filterIndex}`}><SelectValue placeholder="Earlier column" /></SelectTrigger>
+                            <SelectContent>{compatibleInputs.map(source => <SelectItem key={source.id} value={source.id}>{source.label || source.name}</SelectItem>)}</SelectContent>
+                          </Select>
+                          <Button type="button" variant="ghost" size="icon" data-testid={`remove-row-source-filter-${field.id}-${child.id}-${filterIndex}`} className="h-8 w-8" onClick={() => updateChild(childIndex, { option_source: { ...rowSource, filters: rowSource.filters.filter((_, index) => index !== filterIndex) } })}><X className="h-3 w-3" /></Button>
+                        </div>;
+                        })}
+                      </div>
+                      {!rowSourceValidation.valid && <p className="text-xs text-amber-700">{rowSourceValidation.errors[0]?.message}</p>}
+                    </>
+                  )}
+                </div>
+                {!rowSource && <><div className="space-y-1 md:col-span-2">
+                  <Label className="text-xs">Selection control</Label>
+                  <Select
+                    value={relationshipSelectionMode(child)}
+                    onValueChange={(selection_mode) => {
+                      if (selection_mode === RELATIONSHIP_SELECTION_MULTIPLE
+                          && relationshipDependents.length > 0) return;
+                      updateChild(childIndex, { selection_mode });
+                    }}
+                  >
+                    <SelectTrigger className="h-9" data-testid={`select-repeatable-relationship-mode-${field.id}-${child.id}`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={RELATIONSHIP_SELECTION_SINGLE}>Dropdown (one record)</SelectItem>
+                      <SelectItem
+                        value={RELATIONSHIP_SELECTION_MULTIPLE}
+                        disabled={relationshipDependents.length > 0}
+                      >
+                        Multi-select (multiple records)
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {relationshipDependents.length > 0 && (
+                    <p className="text-xs text-amber-700">
+                      Keep this as a dropdown because a later row field depends on its selected record.
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-3 rounded border border-slate-200 bg-white p-3 md:col-span-2" data-testid={`repeatable-relationship-not-listed-config-${field.id}-${child.id}`}>
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id={`repeatable-relationship-not-listed-enabled-${field.id}-${child.id}`}
+                        checked={child.not_listed_choice?.enabled === true}
+                        onCheckedChange={enabled => updateChild(childIndex, {
+                          not_listed_choice: {
+                            ...(child.not_listed_choice || {}),
+                            enabled,
+                            label: child.not_listed_choice?.label || 'Other (not listed)',
+                          },
+                        })}
+                        data-testid={`switch-repeatable-relationship-not-listed-${field.id}-${child.id}`}
+                      />
+                      <Label htmlFor={`repeatable-relationship-not-listed-enabled-${field.id}-${child.id}`} className="text-xs font-medium">
+                        Allow an “Other / not listed” choice
+                      </Label>
+                    </div>
+                    {child.not_listed_choice?.enabled === true && (
+                      <div className="space-y-1">
+                        <Label htmlFor={`repeatable-relationship-not-listed-label-${field.id}-${child.id}`} className="text-xs">Other choice label</Label>
+                        <Input
+                          id={`repeatable-relationship-not-listed-label-${field.id}-${child.id}`}
+                          value={child.not_listed_choice?.label || ''}
+                          onChange={event => updateChild(childIndex, {
+                            not_listed_choice: { ...(child.not_listed_choice || {}), enabled: true, label: event.target.value },
+                          })}
+                          placeholder="e.g. Other department"
+                          className="h-9"
+                          data-testid={`input-repeatable-relationship-not-listed-label-${field.id}-${child.id}`}
+                        />
+                      </div>
+                    )}
+                  {relationshipSelectionMode(child) === RELATIONSHIP_SELECTION_MULTIPLE && (
+                    <p className="text-xs text-slate-500">Other can be selected alongside related records.</p>
+                  )}
+                </div></>}
+                <div className="space-y-1">
+                  <Label className="text-xs">Parent field scope</Label>
+                  <Select disabled={Boolean(rowSource)} value={rowSource ? 'row' : parentScope} onValueChange={parent_field_scope => updateChild(childIndex, {
+                    parent_field_scope,
+                    parent_field_id: undefined,
+                    relationship_definition_id: undefined,
+                  })}>
+                    <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="row">Same row</SelectItem>
+                      {!rowSource && <SelectItem value="form">Earlier form field</SelectItem>}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Parent field</Label>
+                  <Select value={child.parent_field_id || '__none__'} onValueChange={parent_field_id => updateChild(childIndex, {
+                    parent_field_id: parent_field_id === '__none__' ? undefined : parent_field_id,
+                    parent_field_scope: rowSource ? 'row' : child.parent_field_scope,
+                    relationship_definition_id: undefined,
+                    relationship_parent_side: undefined,
+                    relationship_parent_kind: undefined,
+                    relationship_parent_custom_object_id: undefined,
+                    parent_custom_object_id: undefined,
+                    organization_side: undefined,
+                    related_kind: undefined,
+                    related_custom_object_id: undefined,
+                    related_primary_display_field_id: undefined,
+                    custom_object_id: undefined,
+                    custom_object_name: undefined,
+                    custom_object_primary_display_field_id: undefined,
+                    relationship_definition: undefined,
+                    relationship_key: undefined,
+                  })}>
+                    <SelectTrigger className="h-9" data-testid={`select-row-relationship-parent-${field.id}-${child.id}`}><SelectValue placeholder="Choose earlier field…" /></SelectTrigger>
+                    <SelectContent>
+                      {rowSource?.kind === 'records' && <SelectItem value="__none__">No relationship constraint</SelectItem>}
+                      {relationshipParents.map(parent => <SelectItem key={parent.id} value={parent.id}>{parent.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Relationship</Label>
+                  <Select disabled={!selectedRelationshipParent} value={child.relationship_definition_id ? `${child.relationship_definition_id}:${child.relationship_parent_side || child.organization_side || 'default'}` : ''} onValueChange={selectionKey => {
+                    const relationship = compatibleRelationships.find(item => relationshipSelectionKey(item) === selectionKey);
+                    if (relationship) updateChild(childIndex, relationshipFieldConfig(relationship, selectedRelationshipParent));
+                  }}>
+                    <SelectTrigger className="h-9" data-testid={`select-row-relationship-definition-${field.id}-${child.id}`}><SelectValue placeholder="Choose relationship…" /></SelectTrigger>
+                    <SelectContent>
+                      {compatibleRelationships.map(item => <SelectItem key={relationshipSelectionKey(item)} value={relationshipSelectionKey(item)}>{formBuilderRelationshipLabel(item, selectedRelationshipParent)}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
+            {child.type === 'organisation_dropdown' && (
+              <div className="space-y-1 rounded border border-slate-200 bg-slate-50 p-3">
+                <Label className="text-xs">Organisation Group parent scope</Label>
+                <Select value={groupParentScope} onValueChange={organisation_group_parent_scope => updateChild(childIndex, {
+                  organisation_group_parent_scope,
+                  organisation_group_parent_field_id: undefined,
+                })}>
+                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="row">Same row</SelectItem>
+                    <SelectItem value="form">Earlier form field</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Label className="text-xs">Filter by Organisation Group field (optional)</Label>
+                <Select
+                  value={child.organisation_group_parent_field_id || '__none__'}
+                  onValueChange={organisation_group_parent_field_id => updateChild(childIndex, {
+                    organisation_group_parent_field_id: organisation_group_parent_field_id === '__none__'
+                      ? undefined
+                      : organisation_group_parent_field_id,
+                  })}
+                >
+                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No group dependency</SelectItem>
+                    {organisationGroupParents.map(parent => (
+                      <SelectItem key={parent.id} value={parent.id}>{parent.label || 'Organisation Group'}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {organisationGroupParents.length === 0 && (
+                  <p className="text-xs text-slate-500">Add an Organisation Group field earlier in this row first.</p>
+                )}
+              </div>
+            )}
+            {preceding.length > 0 && REPEATABLE_ROW_DEPENDENCY_TYPES.includes(child.type) && (
+              <div className="space-y-2 rounded border border-slate-200 bg-slate-50 p-3">
+                <Label className="text-xs font-medium">Dependent options (optional)</Label>
+                <Select value={dependency?.source_field_id || '__none__'} onValueChange={source_field_id => updateChild(childIndex, {
+                  conditional_filters: source_field_id === '__none__' ? undefined : {
+                    version: 1,
+                    rules: [{
+                      id: `row_dependency_${child.id}`,
+                      source_field_id,
+                      source_field_type: (() => {
+                        const selectedSource = preceding.find(item => item.id === source_field_id);
+                        if (selectedSource?.type !== 'custom_field') return selectedSource?.type || null;
+                        return customFields.find(item => item.id === selectedSource.custom_field_id)?.field_type
+                          || selectedSource.custom_field_type
+                          || selectedSource.field_type
+                          || selectedSource.type;
+                      })(),
+                      operator: 'equals',
+                      value: '',
+                      is_fallback: false,
+                      allowed_values: [],
+                      allowed_values_mode: 'include',
+                      org_filter: null,
+                    }],
+                  },
+                })}>
+                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No dependency</SelectItem>
+                    {preceding.map(source => <SelectItem key={source.id} value={source.id}>{source.label || 'Untitled field'}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                {dependency && (
+                  <div className="space-y-2">
+                    {child.type === 'organisation_dropdown' && (
+                      <Select
+                        value={dependency.operator || 'equals'}
+                        onValueChange={operator => updateChild(childIndex, { conditional_filters: {
+                          version: 1,
+                          rules: [{
+                            ...dependency,
+                            operator,
+                            value: operator === 'is_not_empty' ? null : '',
+                          }],
+                        } })}
+                      >
+                        <SelectTrigger className="h-9" aria-label="Organisation dependency condition">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="equals">When source equals a value</SelectItem>
+                          <SelectItem value="is_not_empty">Whenever source has a value</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
+                    <div className="grid gap-2 md:grid-cols-3">
+                    {dependency.operator !== 'is_not_empty' && (
+                    <Input
+                      className="h-9"
+                      value={Array.isArray(dependency.value) ? dependency.value.join(', ') : (dependency.value ?? '')}
+                      onChange={event => updateChild(childIndex, { conditional_filters: {
+                        version: 1,
+                        rules: [{ ...dependency, value: event.target.value }],
+                      } })}
+                      placeholder="When source equals…"
+                      aria-label="Dependency source value"
+                    />
+                    )}
+                    {dependencyNotListedLabel && (
+                      <Button
+                        type="button"
+                        variant={dependency.value === FORM_NOT_LISTED_VALUE ? 'default' : 'outline'}
+                        size="sm"
+                        aria-pressed={dependency.value === FORM_NOT_LISTED_VALUE}
+                        onClick={() => updateChild(childIndex, { conditional_filters: {
+                          version: 1,
+                          rules: [{
+                            ...dependency,
+                            value: dependency.value === FORM_NOT_LISTED_VALUE ? '' : FORM_NOT_LISTED_VALUE,
+                          }],
+                        } })}
+                        data-testid={`button-repeatable-dependency-not-listed-${field.id}-${child.id}`}
+                      >
+                        {dependency.value === FORM_NOT_LISTED_VALUE
+                          ? `Using “${dependencyNotListedLabel}”`
+                          : `Use “${dependencyNotListedLabel}”`}
+                      </Button>
+                    )}
+                    <Input
+                      className="h-9"
+                      value={(dependency.allowed_values || []).join(', ')}
+                      onChange={event => updateChild(childIndex, { conditional_filters: {
+                        version: 1,
+                        rules: [{ ...dependency, allowed_values: event.target.value.split(',').map(item => item.trim()).filter(Boolean) }],
+                      } })}
+                      placeholder="Allowed options, comma separated"
+                      aria-label="Allowed dependent options"
+                    />
+                    <Select
+                      value={dependency.allowed_values_mode || 'include'}
+                      onValueChange={allowed_values_mode => updateChild(childIndex, { conditional_filters: {
+                        version: 1,
+                        rules: [{ ...dependency, allowed_values_mode }],
+                      } })}
+                    >
+                      <SelectTrigger className="h-9" aria-label="Dependent option filter mode">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="include">Include only</SelectItem>
+                        <SelectItem value="exclude">Exclude selected</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    </div>
+                    {child.type === 'organisation_dropdown' && (
+                      <ConditionalOrgFilterEditor
+                        value={dependency.org_filter}
+                        onChange={org_filter => updateChild(childIndex, { conditional_filters: {
+                          version: 1,
+                          rules: [{ ...dependency, org_filter }],
+                        } })}
+                        customFields={customFields}
+                        ruleId={dependency.id}
+                        allowSourceValue={!!dependencySource}
+                        sourceLabel={dependencySource?.label || dependencySource?.name}
+                      />
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function FieldCard({ 
+  field, 
+  index, 
+  originalIndex, 
+  updateField, 
+  removeField, 
+  duplicateField,
+  duplicateRestriction,
+  FIELD_TYPES, 
+  categories = [],
+  communicationCategories = [],
+  customFields = [],
+  organizations = [],
+  organizationGroups = [],
+  applicationLevel = "member",
+  uniquenessChecks = [],
+  onUniquenessChange,
+  prefillSource = "none",
+  prefillSourceFieldId = null,
+  isDrawerOpen = false,
+  onOpenDrawer,
+  onCloseDrawer,
+  contractForms = [],
+  allFields = [],
+  formType = 'standard',
+  scoringLocked = false,
+  formId = null,
+  idealPostcodesAvailable = false,
+  idealPostcodesLoading = false,
+  entityPipelines = { members: [], organisations: [] },
+  fieldMappings = [],
+  formConfig = null,
+  relationshipDiscoveryContext = {},
+}) {
+  const isEmailType = field.type === 'email' || field.type === 'user_email';
+  const isSurveyForm = formType === 'survey';
+  const isUrlType = field.type === 'url';
+  const [bulkImportOpen, setBulkImportOpen] = useState(false);
+  const [bulkImportText, setBulkImportText] = useState('');
+  const uniquenessCheck = uniquenessChecks.find(u => u.field_id === field.id);
+  const isUniquenessEnabled = !!uniquenessCheck;
+  const targetField = uniquenessCheck?.target_field || '';
+  const comparisonMode = uniquenessCheck?.comparison_mode || 'equals_lowercase';
+  const relationshipParents = getEligibleRelationshipParents(allFields, field.id);
+  const relationshipDependents = getRelationshipDependentFields(allFields, field.id);
+  const fieldIndex = allFields.findIndex(candidate => candidate?.id === field.id);
+  const formFieldPrefillSource = allFields.find(candidate => candidate?.id === prefillSourceFieldId);
+  const formFieldPrefillSourceIndex = allFields.findIndex(candidate => candidate?.id === prefillSourceFieldId);
+  const isFormFieldPrefillTarget = prefillSource === 'form_field'
+    && formFieldPrefillSourceIndex >= 0
+    && fieldIndex > formFieldPrefillSourceIndex;
+  const isGroupFormFieldPrefill = formFieldPrefillSource?.type === 'organisation_group_dropdown';
+  const formFieldPrefillPrefixes = isGroupFormFieldPrefill
+    ? ['org_group:', 'organization_group:', 'organisation_group:', 'group:', 'org_group_custom:', 'organization_group_custom:', 'organisation_group_custom:', 'group_custom:']
+    : ['org:', 'organization:', 'organisation:', 'org_custom:', 'organization_custom:', 'organisation_custom:'];
+  const isFormFieldPrefillMappingCompatible = !field.prefill_field
+    || formFieldPrefillPrefixes.some(prefix => field.prefill_field.startsWith(prefix));
+  const organisationGroupParents = (fieldIndex < 0 ? allFields : allFields.slice(0, fieldIndex))
+    .filter(candidate => candidate?.type === 'organisation_group_dropdown' && candidate.id);
+  const {
+    data: relationshipDiscovery,
+    isLoading: relationshipsLoading,
+    isError: relationshipsError,
+    isFetched: relationshipsFetched,
+    refetch: retryRelationships,
+  } = useQuery({
+    queryKey: eligibleRelationshipDiscoveryQueryKey({
+      tenantId: relationshipDiscoveryContext.tenantId,
+      formId,
+      principalId: relationshipDiscoveryContext.principalId,
+      authorId: relationshipDiscoveryContext.authorId,
+      roleId: relationshipDiscoveryContext.roleId,
+      mode: relationshipDiscoveryContext.mode,
+    }),
+    queryFn: () => publicClient.listEligibleFormRelationships(formId, {
+      tenantId: relationshipDiscoveryContext.tenantId,
+    }),
+    enabled: (field.type === 'relationship_dropdown' || isRepeatableRowField(field))
+      && !!formId
+      && relationshipDiscoveryContext.enabled !== false,
+    staleTime: 5 * 60 * 1000,
+  });
+  const eligibleRelationships = normalizeEligibleRelationships(relationshipDiscovery);
+  const discoveredCustomObjects = (
+    relationshipDiscovery?.custom_objects || relationshipDiscovery?.objects || []
+  ).map(object => ({
+    ...object,
+    fields: object.fields || object.custom_fields
+      || relationshipDiscovery?.custom_object_fields?.[object.id]
+      || relationshipDiscovery?.fields?.[object.id]
+      || [],
+  }));
+  const selectedRelationshipParent = relationshipParents.find(parent => parent.id === field.parent_field_id);
+  const compatibleRelationships = selectedRelationshipParent
+    ? eligibleRelationships.filter(item => isRelationshipCompatibleWithParent(item, selectedRelationshipParent))
+    : [];
+
+  // Get available target fields based on application level
+  const availableTargets = [
+    ...UNIQUENESS_TARGET_FIELDS.member,
+    ...UNIQUENESS_TARGET_FIELDS.organization
+  ];
+  
+  // Determine if current target field is email type
+  const currentTargetConfig = availableTargets.find(t => t.value === targetField);
+  const isTargetEmail = currentTargetConfig?.isEmail || false;
+  
+  // Filter comparison modes based on target field type
+  const availableComparisonModes = COMPARISON_MODES.filter(mode => 
+    isTargetEmail ? mode.forEmail : mode.forText
+  );
+
+  const handleUniquenessToggle = (enabled) => {
+    if (onUniquenessChange) {
+      // Smart defaults based on field type and application level
+      let defaultTarget;
+      let defaultComparison;
+      
+      if (isEmailType) {
+        defaultTarget = applicationLevel === 'member' ? 'member.email' : 'organization.invoicing_email';
+        defaultComparison = 'equals_lowercase';
+      } else if (isUrlType) {
+        // URL fields default to URL match against website_url
+        defaultTarget = applicationLevel === 'organization' ? 'organization.website_url' : 'member.email';
+        defaultComparison = applicationLevel === 'organization' ? 'url_equals' : 'domain_equals';
+      } else {
+        defaultTarget = applicationLevel === 'member' ? 'member.full_name' : 'organization.name';
+        defaultComparison = 'equals_lowercase';
+      }
+      
+      onUniquenessChange(field.id, enabled, { target_field: defaultTarget, comparison_mode: defaultComparison });
+    }
+  };
+
+  const handleUniquenessUpdate = (updates) => {
+    if (onUniquenessChange) {
+      let newTargetField = updates.target_field ?? targetField;
+      let newComparisonMode = updates.comparison_mode ?? comparisonMode;
+      let newErrorMessage = updates.error_message !== undefined ? updates.error_message : (uniquenessCheck?.error_message || '');
+      
+      // If target field changed, validate comparison mode is still valid
+      if (updates.target_field) {
+        const newTargetConfig = availableTargets.find(t => t.value === updates.target_field);
+        const isNewTargetEmail = newTargetConfig?.isEmail || false;
+        const validModes = COMPARISON_MODES.filter(m => isNewTargetEmail ? m.forEmail : m.forText);
+        
+        // Reset to default if current mode is invalid for new target
+        if (!validModes.find(m => m.value === newComparisonMode)) {
+          newComparisonMode = 'equals_lowercase';
+        }
+      }
+      
+      onUniquenessChange(field.id, true, { 
+        target_field: newTargetField, 
+        comparison_mode: newComparisonMode,
+        error_message: newErrorMessage
+      });
+    }
+  };
+
+  const fieldTypeLabel = FIELD_TYPES.find(t => t.value === field.type)?.label || field.type;
+
+  return (
+    <Draggable draggableId={field.id} index={index}>
+      {(provided) => (
+        <div
+          ref={provided.innerRef}
+          {...provided.draggableProps}
+          className="bg-white rounded-lg px-3 py-2 border border-slate-200 shadow-sm"
+        >
+          {/* Collapsed row - always visible */}
+          <div className="flex items-center gap-2">
+            <div {...provided.dragHandleProps} className="cursor-move flex-shrink-0">
+              <GripVertical className="w-4 h-4 text-slate-400" />
+            </div>
+            <div className="flex-1 min-w-0 flex items-center gap-2">
+              {field.type === 'image' && field.image_url ? (
+                <img src={field.image_url} alt={field.image_alt || ''} className="w-8 h-8 object-cover rounded flex-shrink-0" />
+              ) : field.type === 'image' ? (
+                <ImageIcon className="w-4 h-4 text-slate-400 flex-shrink-0" />
+              ) : field.type === 'image_buttons' ? (
+                <ImageIcon className="w-4 h-4 text-blue-400 flex-shrink-0" />
+              ) : null}
+              <span className="text-sm font-medium text-slate-700 truncate">
+                {field.label || 'Untitled Field'}
+              </span>
+              <Badge variant="outline" className="text-xs flex-shrink-0">
+                {fieldTypeLabel}
+              </Badge>
+              {field.required && (
+                <Badge variant="secondary" className="text-xs flex-shrink-0">
+                  Required
+                </Badge>
+              )}
+              {field.starts_hidden && (
+                <EyeOff className="w-3 h-3 text-slate-400 flex-shrink-0" />
+              )}
+              {field.locked && (
+                <Lock className="w-3 h-3 text-slate-400 flex-shrink-0" />
+              )}
+              {field.due_diligence && (
+                <Badge variant="outline" className="text-xs flex-shrink-0 border-warning/30 text-warning bg-warning/10">
+                  DD
+                </Badge>
+              )}
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onOpenDrawer}
+              className="h-8 w-8 text-slate-500 hover:text-slate-700"
+              aria-label={`Configure ${field.label || 'Untitled Field'}`}
+              data-testid={`button-configure-field-${field.id}`}
+            >
+              <Settings2 className="w-4 h-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => duplicateField(field.id)}
+              className="h-8 w-8 text-slate-500 hover:text-slate-700"
+              aria-label={`Duplicate field: ${field.label || 'Untitled Field'}`}
+              aria-disabled={!!duplicateRestriction}
+              aria-describedby={duplicateRestriction ? `duplicate-restriction-${field.id}` : undefined}
+              title={duplicateRestriction || 'Duplicate field'}
+              data-testid={`button-duplicate-field-${field.id}`}
+            >
+              <Copy className="w-4 h-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => removeField(originalIndex)}
+              className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50"
+              aria-label={`Delete ${field.label || 'Untitled Field'}`}
+              data-testid={`button-delete-field-${field.id}`}
+            >
+              <Trash2 className="w-4 h-4" />
+            </Button>
+            {duplicateRestriction && <span id={`duplicate-restriction-${field.id}`} className="sr-only">{duplicateRestriction}</span>}
+          </div>
+
+          {/* Field Configuration Drawer */}
+          <Sheet open={isDrawerOpen} onOpenChange={(open) => { if (!open) onCloseDrawer?.(); }}>
+            <SheetContent side="right" className="w-[70vw] sm:max-w-[70vw] overflow-y-auto">
+              <SheetHeader className="mb-6">
+                <SheetTitle className="flex items-center gap-2">
+                  <Settings2 className="w-5 h-5" />
+                  Configure Field
+                </SheetTitle>
+                <SheetDescription>
+                  {field.label || 'Untitled Field'} - {fieldTypeLabel}
+                </SheetDescription>
+              </SheetHeader>
+
+              <div className="space-y-4">
+                {/* Field Type Selection */}
+                <div className={`grid ${isSurveyForm ? 'grid-cols-5' : 'grid-cols-4'} gap-3`}>
+                  {isSurveyForm && (
+                    <div className="space-y-1">
+                      <Label className="text-xs">Survey Fields</Label>
+                      <Select
+                        value={getFieldTypeCategory(field.type) === 'survey' ? field.type : ''}
+                        onValueChange={(value) => {
+                          if (value === 'score' && field.type !== 'score') {
+                            updateField(originalIndex, {
+                              type: 'score',
+                              score_style: 'stars',
+                              score_min: 1,
+                              score_max: 5,
+                              weight: 1,
+                              include_in_overall: true,
+                              reverse_scoring: false,
+                              allow_na: false
+                            });
+                          } else if (value) {
+                            updateField(originalIndex, { type: value });
+                          }
+                        }}
+                        disabled={scoringLocked}
+                      >
+                        <SelectTrigger className="h-9" data-testid={`select-survey-type-${field.id}`}>
+                          <SelectValue placeholder="Select..." />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-60 overflow-y-auto">
+                          {SURVEY_FIELD_TYPES.map(type => (
+                            <SelectItem key={type.value} value={type.value}>
+                              {type.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                  <div className="space-y-1">
+                    <Label className="text-xs">Standard Fields</Label>
+                    <Select
+                      value={getFieldTypeCategory(field.type) === 'standard'
+                        ? (isRepeatableRowField(field) ? 'repeatable_rows' : field.type)
+                        : ''}
+                      onValueChange={(value) => {
+                        if (value) {
+                          const updates = { type: value };
+                          if (value === 'image_buttons' && (!field.image_options || field.image_options.length < 2)) {
+                            updates.image_options = [
+                              { image_url: null, label: '', value: 'option_1' },
+                              { image_url: null, label: '', value: 'option_2' }
+                            ];
+                            updates.auto_advance = true;
+                            updates.hide_next_button = false;
+                          }
+                          if (value === 'repeatable_rows' && !isRepeatableRowField(field)) {
+                            updates.repeatable_rows_version = REPEATABLE_ROW_SCHEMA_VERSION;
+                            updates.child_fields = [];
+                            updates.min_rows = 0;
+                            updates.max_rows = 10;
+                            updates.initial_row_required = false;
+                            updates.add_row_label = 'Add row';
+                            updates.layout = REPEATABLE_ROW_LAYOUT_CARDS;
+                          }
+                          if (value === 'date' && field.future_only === undefined) {
+                            updates.future_only = false;
+                          }
+                          if (value === 'address_lookup' && field.type !== 'address_lookup') {
+                            Object.assign(updates, addressLookupDefaults);
+                          }
+                          updateField(originalIndex, updates);
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="h-9" data-testid={`select-standard-type-${field.id}`}>
+                        <SelectValue placeholder="Select..." />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-60 overflow-y-auto">
+                          {STANDARD_FIELD_TYPES.map(type => (
+                            <SelectItem key={type.value} value={type.value} disabled={type.value === 'address_lookup' && !idealPostcodesAvailable}>
+                            {type.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Pre-populate Fields</Label>
+                  <Select
+                    value={
+                      field.type === 'custom_field' 
+                        ? `custom_field:${field.custom_field_id}` 
+                        : (getFieldTypeCategory(field.type) === 'prepopulate' ? field.type : '')
+                    }
+                    onValueChange={(value) => {
+                      if (value) {
+                        if (value.startsWith('custom_field:')) {
+                          const customFieldId = value.replace('custom_field:', '');
+                          const cf = customFields.find(c => c.id === customFieldId);
+                          updateField(originalIndex, { 
+                            type: 'custom_field', 
+                            custom_field_id: customFieldId,
+                            label: cf?.label || field.label
+                          });
+                        } else {
+                          updateField(originalIndex, { type: value, custom_field_id: null });
+                        }
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="h-9" data-testid={`select-prepopulate-type-${field.id}`}>
+                      <SelectValue placeholder="Select..." />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-60 overflow-y-auto">
+                      {PREPOPULATE_FIELD_TYPES.map(type => (
+                        <SelectItem key={type.value} value={type.value}>
+                          {type.label}
+                        </SelectItem>
+                      ))}
+                      {customFields.length > 0 && (
+                        <>
+                          <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50 border-t">
+                            Custom Fields
+                          </div>
+                          {customFields.map(cf => (
+                            <SelectItem key={`custom_field:${cf.id}`} value={`custom_field:${cf.id}`}>
+                              {cf.label}
+                            </SelectItem>
+                          ))}
+                        </>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Auto-populate Fields</Label>
+                  <Select
+                    value={getFieldTypeCategory(field.type) === 'auto' ? field.type : ''}
+                    onValueChange={(value) => {
+                      if (value) updateField(originalIndex, { type: value });
+                    }}
+                  >
+                    <SelectTrigger className="h-9" data-testid={`select-auto-type-${field.id}`}>
+                      <SelectValue placeholder="Select..." />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-60 overflow-y-auto">
+                      {AUTO_FIELD_TYPES.map(type => (
+                        <SelectItem key={type.value} value={type.value}>
+                          {type.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Payment Fields</Label>
+                  <Select
+                    value={getFieldTypeCategory(field.type) === 'payment' ? field.type : ''}
+                    onValueChange={(value) => {
+                      if (value) updateField(originalIndex, {
+                        type: value,
+                        ...(value === 'membership_payment'
+                          ? { stripe_billing_address_mappings: undefined }
+                          : {}),
+                      });
+                    }}
+                  >
+                    <SelectTrigger className="h-9" data-testid={`select-payment-type-${field.id}`}>
+                      <SelectValue placeholder="Select..." />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-60 overflow-y-auto">
+                      {PAYMENT_FIELD_TYPES.map(type => (
+                        <SelectItem key={type.value} value={type.value}>
+                          {type.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Label</Label>
+                <Input
+                  value={field.label}
+                  onChange={(e) => updateField(originalIndex, { label: e.target.value })}
+                  className="h-9"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs">Placeholder</Label>
+                <Input
+                  value={field.placeholder}
+                  onChange={(e) => updateField(originalIndex, { placeholder: e.target.value })}
+                  className="h-9"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs">Description (Optional)</Label>
+                <Textarea
+                  value={field.description || ''}
+                  onChange={(e) => updateField(originalIndex, { description: e.target.value })}
+                  placeholder="Help text displayed below the field label"
+                  className="text-sm min-h-[60px]"
+                  rows={2}
+                />
+              </div>
+
+              {field.type === 'address_lookup' && (() => {
+                const visibleComponents = addressLookupVisibleComponents(field);
+                const requiredComponents = new Set(addressLookupRequiredComponents(field));
+                const modeSourceFields = addressEntryModeSourceFields(allFields, field.id);
+                const modeRule = field.address_entry_mode_rule;
+                const modeSource = modeSourceFields.find(source => source.id === modeRule?.source_field_id);
+                const modeOptions = modeSource ? getFormLogicConditionOptions({
+                  field: modeSource,
+                  categories,
+                  communicationCategories,
+                  customFields,
+                  organizations,
+                  organizationGroups,
+                }) : [];
+                const updateComponent = (component, updates) => {
+                  const isVisible = updates.visible ?? visibleComponents.includes(component);
+                  const nextVisible = isVisible
+                    ? [...new Set([...visibleComponents, component])]
+                    : visibleComponents.filter(value => value !== component);
+                  const nextRequired = updates.required === true && isVisible
+                    ? [...new Set([...requiredComponents, component])]
+                    : updates.required === false || !isVisible
+                      ? [...requiredComponents].filter(value => value !== component)
+                      : [...requiredComponents];
+                  updateField(originalIndex, {
+                    visible_components: nextVisible,
+                    required_components: nextRequired,
+                  });
+                };
+                return (
+                  <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4" data-testid={`address-lookup-config-${field.id}`}>
+                    <div>
+                      <h4 className="text-sm font-semibold text-slate-700">Address lookup settings</h4>
+                      <p className="text-xs text-slate-500">Choose which editable address values to collect after postcode lookup.</p>
+                    </div>
+                    {!idealPostcodesAvailable && !idealPostcodesLoading && (
+                      <p className="rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
+                        Ideal Postcodes is currently disabled. This field remains configurable but lookup will be unavailable until it is enabled.
+                      </p>
+                    )}
+                    {ADDRESS_LOOKUP_COMPONENTS.map(component => {
+                      const visible = visibleComponents.includes(component.value);
+                      const required = requiredComponents.has(component.value);
+                      return (
+                        <div key={component.value} className="grid grid-cols-[minmax(9rem,1fr)_auto_auto] items-end gap-3">
+                          <div className="space-y-1">
+                            <Label className="text-xs">{component.label} label</Label>
+                            <Input
+                              value={field.component_labels?.[component.value] || component.label}
+                              onChange={event => updateField(originalIndex, {
+                                component_labels: {
+                                  ...(field.component_labels || {}),
+                                  [component.value]: event.target.value,
+                                },
+                              })}
+                              className="h-8"
+                              data-testid={`input-address-label-${field.id}-${component.value}`}
+                            />
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <Switch
+                              checked={visible}
+                              disabled={component.value === 'postcode'}
+                              onCheckedChange={checked => updateComponent(component.value, { visible: checked })}
+                            />
+                            <span className="text-xs text-slate-500">Visible</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <Switch checked={required} disabled={!visible} onCheckedChange={checked => updateComponent(component.value, { required: checked })} />
+                            <span className="text-xs text-slate-500">Required</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <div className="flex items-center gap-2 border-t border-slate-200 pt-3">
+                      <Switch
+                        id={`address-manual-entry-${field.id}`}
+                        checked={field.manual_entry !== false && field.allow_manual_entry !== false}
+                        onCheckedChange={manual_entry => updateField(originalIndex, { manual_entry })}
+                      />
+                      <Label htmlFor={`address-manual-entry-${field.id}`} className="text-xs">
+                        Allow manual address entry when lookup is unavailable or unsuitable
+                      </Label>
+                    </div>
+                    <div className="space-y-3 border-t border-slate-200 pt-3">
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          id={`address-conditional-manual-${field.id}`}
+                          checked={!!modeRule}
+                          onCheckedChange={enabled => updateField(originalIndex, {
+                            address_entry_mode_rule: enabled
+                              ? { source_field_id: modeSourceFields[0]?.id || '', operator: 'not_equals', value: '' }
+                              : undefined,
+                          })}
+                          data-testid={`switch-address-conditional-manual-${field.id}`}
+                        />
+                        <Label htmlFor={`address-conditional-manual-${field.id}`} className="text-xs font-medium">
+                          Switch to manual-only entry when an earlier answer matches
+                        </Label>
+                      </div>
+                      {modeRule && (
+                        <div className="grid gap-3 md:grid-cols-3" data-testid={`address-entry-mode-rule-${field.id}`}>
+                          <div className="space-y-1">
+                            <Label className="text-xs">Earlier field</Label>
+                            <Select value={modeRule.source_field_id || ''} onValueChange={source_field_id => updateField(originalIndex, {
+                              address_entry_mode_rule: { ...modeRule, source_field_id, value: '' },
+                            })}>
+                              <SelectTrigger><SelectValue placeholder="Select a field…" /></SelectTrigger>
+                              <SelectContent>
+                                {modeSourceFields.map(source => <SelectItem key={source.id} value={source.id}>{source.label || 'Untitled field'}</SelectItem>)}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">Comparison</Label>
+                            <Select value={modeRule.operator || 'not_equals'} onValueChange={operator => updateField(originalIndex, {
+                              address_entry_mode_rule: { ...modeRule, operator },
+                            })}>
+                              <SelectTrigger><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                {ADDRESS_ENTRY_MODE_OPERATORS.map(operator => (
+                                  <SelectItem key={operator} value={operator}>{operator === 'equals' ? 'Equals' : 'Does not equal'}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">Value</Label>
+                            {modeOptions.length > 0 ? (
+                              <Select value={String(modeRule.value ?? '')} onValueChange={value => updateField(originalIndex, {
+                                address_entry_mode_rule: { ...modeRule, value },
+                              })}>
+                                <SelectTrigger><SelectValue placeholder="Select a value…" /></SelectTrigger>
+                                <SelectContent>{modeOptions.map(option => <SelectItem key={String(option.value)} value={String(option.value)}>{option.label}</SelectItem>)}</SelectContent>
+                              </Select>
+                            ) : (
+                              <Input value={String(modeRule.value ?? '')} onChange={event => updateField(originalIndex, {
+                                address_entry_mode_rule: { ...modeRule, value: event.target.value },
+                              })} />
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-500 md:col-span-3">
+                            When this condition matches, postcode lookup is hidden and the full manual address is opened immediately.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {supportsFormNotListedChoice(field) && field.type !== 'relationship_dropdown' && (
+                <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-3" data-testid={`not-listed-config-${field.id}`}>
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id={`not-listed-enabled-${field.id}`}
+                      checked={field.not_listed_choice?.enabled === true}
+                      onCheckedChange={(enabled) => updateField(originalIndex, {
+                        not_listed_choice: {
+                          ...(field.not_listed_choice || {}),
+                          enabled,
+                          label: field.not_listed_choice?.label || 'Not listed',
+                        },
+                      })}
+                      data-testid={`switch-not-listed-${field.id}`}
+                    />
+                    <Label htmlFor={`not-listed-enabled-${field.id}`} className="text-xs font-medium">
+                      Add a “not listed” choice
+                    </Label>
+                  </div>
+                  {field.not_listed_choice?.enabled === true && (
+                    <div className="space-y-1">
+                      <Label htmlFor={`not-listed-label-${field.id}`} className="text-xs">Choice label</Label>
+                      <Input
+                        id={`not-listed-label-${field.id}`}
+                        value={field.not_listed_choice?.label || ''}
+                        onChange={(event) => updateField(originalIndex, {
+                          not_listed_choice: {
+                            ...(field.not_listed_choice || {}),
+                            enabled: true,
+                            label: event.target.value,
+                          },
+                        })}
+                        placeholder="e.g. My organisation isn’t in the list"
+                        className="h-9"
+                        data-testid={`input-not-listed-label-${field.id}`}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <ConditionalFilterRuleEditor
+                field={field}
+                originalIndex={originalIndex}
+                allFields={allFields}
+                categories={categories}
+                communicationCategories={communicationCategories}
+                customFields={customFields}
+                organizationGroups={organizationGroups}
+                updateField={updateField}
+              />
+
+              {isRepeatableRowField(field) && (
+                <RepeatableRowsSettings
+                  field={field}
+                  originalIndex={originalIndex}
+                  updateField={updateField}
+                  eligibleRelationships={eligibleRelationships}
+                  relationshipsLoading={relationshipsLoading}
+                  relationshipsError={relationshipsError}
+                  relationshipsFetched={relationshipsFetched}
+                  retryRelationships={retryRelationships}
+                  formId={formId}
+                  customObjects={discoveredCustomObjects}
+                  allFields={allFields}
+                  customFields={customFields}
+                />
+              )}
+
+              {/* Currency configuration (Task #3480) */}
+              {field.type === 'currency' && (() => {
+                const PRESET_SYMBOLS = ['£', '$', '€'];
+                const currentSymbol = field.currency_symbol || '£';
+                const isPreset = PRESET_SYMBOLS.includes(currentSymbol);
+                return (
+                  <div className="border rounded-lg p-4 space-y-3 bg-slate-50/50" data-testid={`currency-config-${field.id}`}>
+                    <h4 className="text-sm font-semibold text-slate-700">Currency settings</h4>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Currency Symbol</Label>
+                        <Select
+                          value={isPreset ? currentSymbol : '__custom__'}
+                          onValueChange={(value) => {
+                            if (value === '__custom__') {
+                              updateField(originalIndex, { currency_symbol: isPreset ? '' : currentSymbol });
+                            } else {
+                              updateField(originalIndex, { currency_symbol: value });
+                            }
+                          }}
+                        >
+                          <SelectTrigger className="h-9" data-testid={`select-currency-symbol-${field.id}`}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="£">£ (Pound)</SelectItem>
+                            <SelectItem value="$">$ (Dollar)</SelectItem>
+                            <SelectItem value="€">€ (Euro)</SelectItem>
+                            <SelectItem value="__custom__">Custom...</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {!isPreset && (
+                        <div className="space-y-1">
+                          <Label className="text-xs">Custom Symbol</Label>
+                          <Input
+                            value={field.currency_symbol || ''}
+                            onChange={(e) => updateField(originalIndex, { currency_symbol: e.target.value })}
+                            placeholder="e.g. CHF"
+                            maxLength={5}
+                            className="h-9"
+                            data-testid={`input-currency-custom-symbol-${field.id}`}
+                          />
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      Shown beside the input. Values accept up to 2 decimal places (e.g. 1234.56).
+                    </p>
+                  </div>
+                );
+              })()}
+
+              {/* Score / Rating configuration (survey forms, Task #3330) */}
+              {field.type === 'score' && (() => {
+                const { errors: scoreErrors, warnings: scoreWarnings } = validateScoreFieldConfig(field);
+                const isNps = (field.score_style || 'stars') === 'nps';
+                const { min: scoreMin, max: scoreMax } = getScoreRange(field);
+                const rangeCount = scoreMax - scoreMin + 1;
+                const perValueEditable = rangeCount > 1 && rangeCount <= 11;
+                const existingCategories = [...new Set(
+                  allFields
+                    .filter(f => f.type === 'score' && f.id !== field.id && f.reporting_category)
+                    .map(f => f.reporting_category)
+                )];
+                const setLabels = (updates) => updateField(originalIndex, {
+                  score_labels: { ...(field.score_labels || {}), ...updates }
+                });
+                return (
+                  <div className="border rounded-lg p-4 space-y-4 bg-slate-50/50" data-testid={`score-config-${field.id}`}>
+                    <h4 className="text-sm font-semibold text-slate-700">Score / Rating settings</h4>
+                    {scoringLocked && (
+                      <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+                        This survey already has responses — scoring settings are locked. Use "Duplicate as New Version" to make scoring changes.
+                      </p>
+                    )}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Reporting Name</Label>
+                        <Input
+                          value={field.reporting_name || ''}
+                          onChange={(e) => updateField(originalIndex, { reporting_name: e.target.value })}
+                          placeholder="Short name used in reports"
+                          className="h-9"
+                          data-testid={`input-reporting-name-${field.id}`}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Reporting Category</Label>
+                        <Input
+                          value={field.reporting_category || ''}
+                          onChange={(e) => updateField(originalIndex, { reporting_category: e.target.value })}
+                          placeholder="Pick existing or type new"
+                          className="h-9"
+                          list={`score-categories-${field.id}`}
+                          data-testid={`input-reporting-category-${field.id}`}
+                        />
+                        <datalist id={`score-categories-${field.id}`}>
+                          {existingCategories.map(cat => <option key={cat} value={cat} />)}
+                        </datalist>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Rendering Style</Label>
+                        <Select
+                          value={field.score_style || 'stars'}
+                          onValueChange={(value) => updateField(originalIndex, { score_style: value })}
+                          disabled={scoringLocked}
+                        >
+                          <SelectTrigger className="h-9" data-testid={`select-score-style-${field.id}`}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {SCORE_STYLE_OPTIONS.map(opt => (
+                              <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <Label className="text-xs">Minimum</Label>
+                          <Input
+                            type="number"
+                            step="1"
+                            value={isNps ? 0 : (field.score_min ?? 1)}
+                            onChange={(e) => updateField(originalIndex, { score_min: e.target.value === '' ? '' : Number(e.target.value) })}
+                            disabled={isNps || scoringLocked}
+                            className="h-9"
+                            data-testid={`input-score-min-${field.id}`}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Maximum</Label>
+                          <Input
+                            type="number"
+                            step="1"
+                            value={isNps ? 10 : (field.score_max ?? 5)}
+                            onChange={(e) => updateField(originalIndex, { score_max: e.target.value === '' ? '' : Number(e.target.value) })}
+                            disabled={isNps || scoringLocked}
+                            className="h-9"
+                            data-testid={`input-score-max-${field.id}`}
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Low-end Label</Label>
+                        <Input
+                          value={field.score_labels?.low || ''}
+                          onChange={(e) => setLabels({ low: e.target.value })}
+                          placeholder="e.g. Poor"
+                          className="h-9"
+                          data-testid={`input-score-label-low-${field.id}`}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">High-end Label</Label>
+                        <Input
+                          value={field.score_labels?.high || ''}
+                          onChange={(e) => setLabels({ high: e.target.value })}
+                          placeholder="e.g. Excellent"
+                          className="h-9"
+                          data-testid={`input-score-label-high-${field.id}`}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Weighting</Label>
+                        <Input
+                          type="number"
+                          step="0.1"
+                          min="0.1"
+                          value={field.weight ?? 1}
+                          onChange={(e) => updateField(originalIndex, { weight: e.target.value === '' ? '' : Number(e.target.value) })}
+                          disabled={scoringLocked}
+                          className="h-9"
+                          data-testid={`input-score-weight-${field.id}`}
+                        />
+                      </div>
+                      {field.allow_na === true && (
+                        <div className="space-y-1">
+                          <Label className="text-xs">"Not Applicable" Label</Label>
+                          <Input
+                            value={field.na_label || ''}
+                            onChange={(e) => updateField(originalIndex, { na_label: e.target.value })}
+                            placeholder="Not applicable"
+                            className="h-9"
+                            data-testid={`input-score-na-label-${field.id}`}
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {perValueEditable && ['numbers', 'descriptive', 'nps'].includes(field.score_style || 'stars') && (
+                      <div className="space-y-1">
+                        <Label className="text-xs">Per-value Labels (optional)</Label>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                          {Array.from({ length: rangeCount }, (_, i) => scoreMin + i).map(v => (
+                            <div key={v} className="flex items-center gap-1.5">
+                              <span className="text-xs text-slate-500 w-6 text-right">{v}</span>
+                              <Input
+                                value={field.score_labels?.values?.[String(v)] || ''}
+                                onChange={(e) => setLabels({
+                                  values: { ...(field.score_labels?.values || {}), [String(v)]: e.target.value }
+                                })}
+                                className="h-8 text-xs"
+                                data-testid={`input-score-value-label-${field.id}-${v}`}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap gap-x-6 gap-y-2">
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={field.include_in_overall !== false}
+                          onCheckedChange={(checked) => updateField(originalIndex, { include_in_overall: checked })}
+                          disabled={scoringLocked}
+                          data-testid={`switch-include-overall-${field.id}`}
+                        />
+                        <Label className="text-xs">Include in overall score</Label>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={field.reverse_scoring === true}
+                          onCheckedChange={(checked) => updateField(originalIndex, { reverse_scoring: checked })}
+                          disabled={scoringLocked}
+                          data-testid={`switch-reverse-scoring-${field.id}`}
+                        />
+                        <Label className="text-xs">Reverse scoring</Label>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={field.allow_na === true}
+                          onCheckedChange={(checked) => updateField(originalIndex, { allow_na: checked })}
+                          data-testid={`switch-allow-na-${field.id}`}
+                        />
+                        <Label className="text-xs">Offer "Not Applicable"</Label>
+                      </div>
+                    </div>
+
+                    {scoreErrors.length > 0 && (
+                      <div className="space-y-1" data-testid={`score-errors-${field.id}`}>
+                        {scoreErrors.map((msg, i) => (
+                          <p key={i} className="text-xs text-red-600">• {msg}</p>
+                        ))}
+                      </div>
+                    )}
+                    {scoreWarnings.length > 0 && (
+                      <div className="space-y-1" data-testid={`score-warnings-${field.id}`}>
+                        {scoreWarnings.map((msg, i) => (
+                          <p key={i} className="text-xs text-amber-600">• {msg}</p>
+                        ))}
+                      </div>
+                    )}
+
+                    {scoreErrors.length === 0 && (
+                      <div className="space-y-1">
+                        <Label className="text-xs">Live Preview</Label>
+                        <div className="bg-white border rounded-md p-3">
+                          <p className="text-sm font-medium text-slate-700 mb-2">{field.label || 'Untitled question'}</p>
+                          {field.description && <p className="text-xs text-slate-500 mb-2">{field.description}</p>}
+                          <ScoreFieldPreview field={field} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Pre-fill Field Selection - When prefill is enabled */}
+              {prefillSource !== "none" && prefillSource !== 'form_field' && (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg space-y-2">
+                  <Label className="text-xs font-medium text-blue-800">Pre-fill from {prefillSource === 'booking' ? 'Booking, Member or Organisation' : 'Member or Organisation'} data</Label>
+                  <Select
+                    value={field.prefill_field || "_none"}
+                    onValueChange={(value) => updateField(originalIndex, { prefill_field: value === "_none" ? null : value })}
+                  >
+                    <SelectTrigger className="h-8 text-xs" data-testid={`select-prefill-field-${field.id}`}>
+                      <SelectValue placeholder="Select field to pre-fill from..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="_none">No pre-fill</SelectItem>
+                      {prefillSource === 'booking' && (
+                        <>
+                          <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">
+                            Booking Fields
+                          </div>
+                          {BOOKING_PREFILL_FIELDS.map(f => (
+                            <SelectItem key={`booking:${f.value}`} value={`booking:${f.value}`}>{f.label}</SelectItem>
+                          ))}
+                        </>
+                      )}
+                      <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">
+                        {prefillSource === 'booking' ? 'Member Core Fields (if linked)' : 'Member Core Fields'}
+                      </div>
+                      {MEMBER_PREFILL_FIELDS.map(f => (
+                        <SelectItem key={`member:${f.value}`} value={`member:${f.value}`}>{f.label}</SelectItem>
+                      ))}
+                      {customFields.filter(cf => !cf.entity_scope || cf.entity_scope === 'member').length > 0 && (
+                        <>
+                          <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">
+                            {prefillSource === 'booking' ? 'Member Custom Fields (if linked)' : 'Member Custom Fields'}
+                          </div>
+                          {customFields.filter(cf => !cf.entity_scope || cf.entity_scope === 'member').map(cf => (
+                            <SelectItem key={`member_custom:${cf.id}`} value={`member_custom:${cf.id}`}>{cf.label}</SelectItem>
+                          ))}
+                        </>
+                      )}
+                      <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">
+                        {prefillSource === 'booking' ? 'Organisation Core Fields (if linked)' : 'Organisation Core Fields'}
+                      </div>
+                      {ORG_PREFILL_FIELDS.map(f => (
+                        <SelectItem key={`org:${f.value}`} value={`org:${f.value}`}>{f.label}</SelectItem>
+                      ))}
+                      {customFields.filter(cf => cf.entity_scope === 'organization').length > 0 && (
+                        <>
+                          <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">
+                            {prefillSource === 'booking' ? 'Organisation Custom Fields (if linked)' : 'Organisation Custom Fields'}
+                          </div>
+                          {customFields.filter(cf => cf.entity_scope === 'organization').map(cf => (
+                            <SelectItem key={`org_custom:${cf.id}`} value={`org_custom:${cf.id}`}>{cf.label}</SelectItem>
+                          ))}
+                        </>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {prefillSource === 'form_field' && (isFormFieldPrefillTarget || field.prefill_field) && (
+                <div className={`p-3 border rounded-lg space-y-2 ${isFormFieldPrefillTarget && isFormFieldPrefillMappingCompatible ? 'bg-blue-50 border-blue-200' : 'bg-amber-50 border-amber-300'}`}>
+                  <Label className="text-xs font-medium">
+                    {isFormFieldPrefillTarget
+                      ? `Pre-fill from selected ${isGroupFormFieldPrefill ? 'organisation group' : 'organisation'}`
+                      : 'Unavailable pre-fill mapping'}
+                  </Label>
+                  {(!isFormFieldPrefillTarget || !isFormFieldPrefillMappingCompatible) && (
+                    <p className="text-xs text-amber-700">
+                      This saved mapping is stale because the source or mapping is incompatible, missing, or no longer before this field. Remove it below.
+                    </p>
+                  )}
+                  <Select
+                    value={field.prefill_field || "_none"}
+                    onValueChange={(value) => updateField(originalIndex, { prefill_field: value === "_none" ? null : value })}
+                  >
+                    <SelectTrigger className="h-8 text-xs" data-testid={`select-prefill-field-${field.id}`}>
+                      <SelectValue placeholder="Select data field…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="_none">No pre-fill</SelectItem>
+                      {(!isFormFieldPrefillTarget || !isFormFieldPrefillMappingCompatible) && field.prefill_field && (
+                        <SelectItem value={field.prefill_field}>Unavailable: {field.prefill_field}</SelectItem>
+                      )}
+                      {isFormFieldPrefillTarget && (
+                        <>
+                          <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">
+                            {isGroupFormFieldPrefill ? 'Organisation Group Core Fields' : 'Organisation Core Fields'}
+                          </div>
+                          {(isGroupFormFieldPrefill ? ORG_GROUP_PREFILL_FIELDS : ORG_PREFILL_FIELDS).map(option => (
+                            <SelectItem
+                              key={`${isGroupFormFieldPrefill ? 'org_group' : 'org'}:${option.value}`}
+                              value={`${isGroupFormFieldPrefill ? 'org_group' : 'org'}:${option.value}`}
+                            >
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                          {customFields.filter(customField => {
+                            const scope = customField.entity_scope || customField.target_entity || customField.entity_type;
+                            return customField.is_active !== false && (isGroupFormFieldPrefill
+                              ? ['organization_group', 'organisation_group'].includes(scope)
+                              : ['organization', 'organisation'].includes(scope));
+                          }).length > 0 && (
+                            <>
+                              <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">
+                                {isGroupFormFieldPrefill ? 'Organisation Group Custom Fields' : 'Organisation Custom Fields'}
+                              </div>
+                              {customFields.filter(customField => {
+                                const scope = customField.entity_scope || customField.target_entity || customField.entity_type;
+                                return customField.is_active !== false && (isGroupFormFieldPrefill
+                                  ? ['organization_group', 'organisation_group'].includes(scope)
+                                  : ['organization', 'organisation'].includes(scope));
+                              }).map(customField => (
+                                <SelectItem
+                                  key={`${isGroupFormFieldPrefill ? 'org_group_custom' : 'org_custom'}:${customField.id}`}
+                                  value={`${isGroupFormFieldPrefill ? 'org_group_custom' : 'org_custom'}:${customField.id}`}
+                                >
+                                  {customField.label || customField.name}
+                                </SelectItem>
+                              ))}
+                            </>
+                          )}
+                        </>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {/* Uniqueness Check */}
+              <div className="p-3 bg-warning/10 border border-warning/30 rounded-lg space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id={`uniqueness-${field.id}`}
+                      checked={isUniquenessEnabled}
+                      onCheckedChange={handleUniquenessToggle}
+                      data-testid={`checkbox-uniqueness-${field.id}`}
+                    />
+                    <Label htmlFor={`uniqueness-${field.id}`} className="text-xs font-medium cursor-pointer">
+                      Check for uniqueness
+                    </Label>
+                  </div>
+                  
+                  {isUniquenessEnabled && (
+                    <div className="ml-6 space-y-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs text-slate-600">Compare against:</Label>
+                        <Select
+                          value={targetField}
+                          onValueChange={(value) => handleUniquenessUpdate({ target_field: value })}
+                        >
+                          <SelectTrigger className="h-8 text-xs" data-testid={`select-uniqueness-target-${field.id}`}>
+                            <SelectValue placeholder="Select target field..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">
+                              Member Fields
+                            </div>
+                            {UNIQUENESS_TARGET_FIELDS.member.map(t => (
+                              <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                            ))}
+                            <div className="px-2 py-1 text-xs font-medium text-slate-500 bg-slate-50">
+                              Organisation Fields
+                            </div>
+                            {UNIQUENESS_TARGET_FIELDS.organization.map(t => (
+                              <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      
+                      <div className="space-y-1">
+                        <Label className="text-xs text-slate-600">Comparison logic:</Label>
+                        <Select
+                          value={comparisonMode}
+                          onValueChange={(value) => handleUniquenessUpdate({ comparison_mode: value })}
+                        >
+                          <SelectTrigger className="h-8 text-xs" data-testid={`select-uniqueness-comparison-${field.id}`}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {availableComparisonModes.map(mode => (
+                              <SelectItem key={mode.value} value={mode.value}>
+                                {mode.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      
+                      <div className="space-y-1">
+                        <Label className="text-xs text-slate-600">Custom error message (optional):</Label>
+                        <Input
+                          type="text"
+                          value={uniquenessCheck?.error_message || ''}
+                          onChange={(e) => handleUniquenessUpdate({ error_message: e.target.value })}
+                          placeholder="e.g., An organisation with this name already exists"
+                          className="h-8 text-xs"
+                          data-testid={`input-uniqueness-error-message-${field.id}`}
+                        />
+                        <p className="text-xs text-slate-500">Leave blank to use the default message</p>
+                      </div>
+                      
+                      {targetField && (
+                        <p className="text-xs text-warning">
+                          Will check if submitted value already exists in {targetField.replace('.', ' → ')}
+                        </p>
+                      )}
+                    </div>
+                  )}
+              </div>
+
+              {field.type === 'boolean' && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                    <div>
+                      <Label className="text-xs font-medium">Default Value</Label>
+                      <p className="text-xs text-slate-500 mt-0.5">Initial state when form loads</p>
+                    </div>
+                    <Switch
+                      checked={field.default_value === true}
+                      onCheckedChange={(checked) => updateField(originalIndex, { default_value: checked })}
+                      data-testid={`switch-default-value-${field.id}`}
+                    />
+                  </div>
+                  <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <Label className="text-xs font-medium">Flag on check-in</Label>
+                        <p className="text-xs text-slate-500 mt-0.5">Warn check-in staff when an event attendee answers Yes</p>
+                      </div>
+                      <Switch
+                        checked={field.flag_on_checkin === true}
+                        onCheckedChange={(checked) => updateField(originalIndex, { flag_on_checkin: checked })}
+                        data-testid={`switch-flag-on-checkin-${field.id}`}
+                      />
+                    </div>
+                    {field.flag_on_checkin && (
+                      <div className="space-y-1">
+                        <Label className="text-xs font-medium">Flag label</Label>
+                        <Input
+                          type="text"
+                          value={field.flag_label || ''}
+                          onChange={(e) => updateField(originalIndex, { flag_label: e.target.value })}
+                          placeholder={`e.g. Attendee has ${field.label || 'special requirements'}`}
+                          className="h-8 text-xs"
+                          data-testid={`input-flag-label-${field.id}`}
+                        />
+                        <p className="text-xs text-slate-500">Shown to check-in staff. Defaults to the field label when left blank.</p>
+                      </div>
+                    )}
+                    {field.flag_on_checkin && (
+                      <div className="space-y-1">
+                        <Label className="text-xs font-medium">Flag colour</Label>
+                        <Select
+                          value={field.flag_color || 'default'}
+                          onValueChange={(value) => updateField(originalIndex, { flag_color: value })}
+                        >
+                          <SelectTrigger className="h-8 text-xs" data-testid={`select-flag-color-${field.id}`}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {FLAG_COLOR_OPTIONS.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value} data-testid={`option-flag-color-${field.id}-${opt.value}`}>
+                                <span className="flex items-center gap-2">
+                                  <span className={`inline-block h-3 w-3 rounded-full ${getFlagColorClasses(opt.value).swatch}`} />
+                                  {opt.label}
+                                </span>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-slate-500">Helps check-in staff spot this flag quickly on the scanner.</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {field.type === 'terms_conditions' && (
+                <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                  <div className="space-y-1">
+                    <Label className="text-xs font-medium">Terms & Conditions URL</Label>
+                    <Input
+                      type="url"
+                      value={field.terms_url || ''}
+                      onChange={(e) => updateField(originalIndex, { terms_url: e.target.value })}
+                      placeholder="https://example.com/terms"
+                      className="h-8 text-xs"
+                      data-testid={`input-terms-url-${field.id}`}
+                    />
+                    <p className="text-xs text-slate-500">Link to your terms & conditions page</p>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs font-medium">Link Display Text</Label>
+                    <Input
+                      type="text"
+                      value={field.terms_link_text || ''}
+                      onChange={(e) => updateField(originalIndex, { terms_link_text: e.target.value })}
+                      placeholder="View Terms & Conditions"
+                      className="h-8 text-xs"
+                      data-testid={`input-terms-link-text-${field.id}`}
+                    />
+                    <p className="text-xs text-slate-500">Text shown for the link (default: "View Terms & Conditions")</p>
+                  </div>
+                </div>
+              )}
+
+              {field.type === 'email' && (
+                <div className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                  <div>
+                    <Label className="text-xs font-medium">Restrict to Organisation Domain</Label>
+                    <p className="text-xs text-slate-500 mt-0.5">Email must match organisation's verified domains</p>
+                  </div>
+                  <Switch
+                    checked={field.validate_org_domain === true}
+                    onCheckedChange={(checked) => updateField(originalIndex, { validate_org_domain: checked })}
+                    data-testid={`switch-validate-org-domain-${field.id}`}
+                  />
+                </div>
+              )}
+
+              {field.type === 'organisation_dropdown' && (() => {
+                const ORG_CORE_FIELDS = [
+                  { key: 'name', label: 'Name' },
+                  { key: 'slug', label: 'Slug' },
+                  { key: 'description', label: 'Description' },
+                  { key: 'website_url', label: 'Website URL' },
+                  { key: 'email', label: 'Email' },
+                  { key: 'phone', label: 'Phone' },
+                  { key: 'address', label: 'Address' },
+                  { key: 'city', label: 'City' },
+                  { key: 'country', label: 'Country' },
+                  { key: 'postcode', label: 'Postcode' },
+                  { key: 'status', label: 'Status' },
+                  { key: 'external_id', label: 'External ID' },
+                  { key: 'is_active', label: 'Is Active' },
+                  { key: 'twitter_url', label: 'Twitter URL' },
+                  { key: 'linkedin_url', label: 'LinkedIn URL' },
+                  { key: 'facebook_url', label: 'Facebook URL' },
+                  { key: 'instagram_url', label: 'Instagram URL' },
+                ];
+                const orgCustomFields = customFields.filter(cf => cf.entity_scope === 'organization');
+
+                let orgFilter = field.org_filter || null;
+                if (!orgFilter && field.allowed_org_statuses?.length > 0) {
+                  orgFilter = { type: 'custom', field: 'application_status', values: field.allowed_org_statuses };
+                }
+                const filterType = orgFilter?.type || 'none';
+                const filterField = orgFilter?.field || '';
+                const filterValues = orgFilter?.values || [];
+                const filterMode = orgFilter?.mode || 'include';
+
+                const setOrgFilter = (update) => {
+                  const current = orgFilter || { type: 'none', field: '', values: [], mode: 'include' };
+                  const newFilter = { ...current, ...update };
+                  if (newFilter.type === 'none') {
+                    updateField(originalIndex, { org_filter: null, allowed_org_statuses: [] });
+                  } else {
+                    updateField(originalIndex, { org_filter: newFilter, allowed_org_statuses: [] });
+                  }
+                };
+
+                const selectedCustomField = filterType === 'custom'
+                  ? orgCustomFields.find(cf => cf.name === filterField)
+                  : null;
+                const hasPicklistOptions = selectedCustomField &&
+                  (selectedCustomField.field_type === 'picklist' || selectedCustomField.field_type === 'dropdown') &&
+                  selectedCustomField.options?.length > 0;
+                const picklistOptions = hasPicklistOptions
+                  ? selectedCustomField.options.map(opt =>
+                      typeof opt === 'string' ? { value: opt, label: opt } : { value: opt.value || opt, label: opt.label || opt.value || opt }
+                    )
+                  : [];
+
+                return (
+                  <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                    <div className="space-y-2 border-b border-slate-200 pb-3">
+                      <Label className="text-xs font-medium">Filter by Organisation Group field</Label>
+                      <p className="text-xs text-slate-500">
+                        Optionally show only organisations belonging to the group selected in an earlier field.
+                      </p>
+                      <Select
+                        value={field.organisation_group_parent_field_id || '__none__'}
+                        onValueChange={(value) => updateField(originalIndex, {
+                          organisation_group_parent_field_id: value === '__none__' ? undefined : value,
+                        })}
+                      >
+                        <SelectTrigger data-testid={`select-org-group-parent-${field.id}`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">No group dependency</SelectItem>
+                          {organisationGroupParents.map(parent => (
+                            <SelectItem key={parent.id} value={parent.id}>{parent.label || 'Organisation Group'}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {organisationGroupParents.length === 0 && (
+                        <p className="text-xs text-amber-700">Add an Organisation Group dropdown before this field first.</p>
+                      )}
+                      {field.organisation_group_parent_field_id
+                        && !organisationGroupParents.some(parent => parent.id === field.organisation_group_parent_field_id) && (
+                        <div className="flex items-center justify-between gap-2 rounded border border-amber-300 bg-amber-50 p-2">
+                          <p className="text-xs text-amber-800">
+                            The saved group field is no longer before this Organisation field. Choose another field or clear the dependency.
+                          </p>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => updateField(originalIndex, { organisation_group_parent_field_id: undefined })}
+                          >
+                            Clear
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                    <Label className="text-xs font-medium">Filter Organisations</Label>
+                    <p className="text-xs text-slate-500">
+                      Restrict which organisations appear in this dropdown. If set to "No filter", all organisations will appear.
+                    </p>
+                    <Select
+                      value={filterType}
+                      onValueChange={(v) => setOrgFilter({ type: v, field: '', values: [] })}
+                    >
+                      <SelectTrigger data-testid={`select-org-filter-type-${field.id}`}>
+                        <SelectValue placeholder="Select filter type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">No filter</SelectItem>
+                        <SelectItem value="core">Core organisation field</SelectItem>
+                        <SelectItem value="custom">Custom organisation field</SelectItem>
+                      </SelectContent>
+                    </Select>
+
+                    {filterType === 'core' && (
+                      <div className="space-y-2">
+                        <Select value={filterMode} onValueChange={(mode) => setOrgFilter({ mode })}>
+                          <SelectTrigger data-testid={`select-org-filter-mode-${field.id}`}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="include">Include only selected values</SelectItem>
+                            <SelectItem value="exclude">Exclude selected values</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Label className="text-xs">Select field</Label>
+                        <Select
+                          value={filterField}
+                          onValueChange={(v) => setOrgFilter({ field: v, values: [] })}
+                        >
+                          <SelectTrigger data-testid={`select-org-filter-core-field-${field.id}`}>
+                            <SelectValue placeholder="Choose a field..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {ORG_CORE_FIELDS.map(cf => (
+                              <SelectItem key={cf.key} value={cf.key}>{cf.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {filterField && filterField === 'is_active' && (
+                          <Select
+                            value={filterValues[0] || ''}
+                            onValueChange={(v) => setOrgFilter({ values: [v] })}
+                          >
+                            <SelectTrigger data-testid={`select-org-filter-bool-${field.id}`}>
+                              <SelectValue placeholder="Select value" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="true">Yes (Active)</SelectItem>
+                              <SelectItem value="false">No (Inactive)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        )}
+                        {filterField && filterField !== 'is_active' && (
+                          <OrgFieldValueSelector
+                            fieldType="core"
+                            fieldName={filterField}
+                            selectedValues={filterValues}
+                            onChange={(vals) => setOrgFilter({ values: vals })}
+                            fieldId={field.id}
+                          />
+                        )}
+                      </div>
+                    )}
+
+                    {filterType === 'custom' && (
+                      <div className="space-y-2">
+                        <Select value={filterMode} onValueChange={(mode) => setOrgFilter({ mode })}>
+                          <SelectTrigger data-testid={`select-org-filter-mode-${field.id}`}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="include">Include only selected values</SelectItem>
+                            <SelectItem value="exclude">Exclude selected values</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Label className="text-xs">Select custom field</Label>
+                        {orgCustomFields.length === 0 ? (
+                          <div className="p-2 bg-warning/10 border border-warning/30 rounded text-xs text-warning">
+                            No custom fields found for organisations. Create one in Preference Settings to enable filtering.
+                          </div>
+                        ) : (
+                          <>
+                            <Select
+                              value={filterField}
+                              onValueChange={(v) => setOrgFilter({ field: v, values: [] })}
+                            >
+                              <SelectTrigger data-testid={`select-org-filter-custom-field-${field.id}`}>
+                                <SelectValue placeholder="Choose a custom field..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {orgCustomFields.map(cf => (
+                                  <SelectItem key={cf.id} value={cf.name}>{cf.label || cf.name}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            {filterField && hasPicklistOptions && (
+                              <div className="space-y-2 max-h-48 overflow-y-auto">
+                                {picklistOptions.map((opt) => {
+                                  const isSelected = filterValues.includes(opt.value);
+                                  return (
+                                    <div
+                                      key={opt.value}
+                                      className="flex items-center gap-2 p-2 bg-white rounded border border-slate-200 hover:bg-slate-50 transition-colors"
+                                    >
+                                      <Checkbox
+                                        id={`org-cf-${field.id}-${opt.value}`}
+                                        checked={isSelected}
+                                        onCheckedChange={(checked) => {
+                                          const newVals = checked
+                                            ? [...filterValues, opt.value]
+                                            : filterValues.filter(s => s !== opt.value);
+                                          setOrgFilter({ values: newVals });
+                                        }}
+                                        data-testid={`checkbox-org-cf-${field.id}-${String(opt.value).toLowerCase().replace(/\s+/g, '-')}`}
+                                      />
+                                      <Label
+                                        htmlFor={`org-cf-${field.id}-${opt.value}`}
+                                        className="text-xs font-medium cursor-pointer flex-1"
+                                      >
+                                        {opt.label}
+                                      </Label>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                            {filterField && !hasPicklistOptions && (
+                              <OrgFieldValueSelector
+                                fieldType="custom"
+                                fieldName={filterField}
+                                selectedValues={filterValues}
+                                onChange={(vals) => setOrgFilter({ values: vals })}
+                                fieldId={field.id}
+                              />
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    <p className="text-xs text-slate-500 mt-1">
+                      {filterType === 'none'
+                        ? "No filter applied — all organisations will be shown"
+                        : filterValues.length === 0
+                          ? "Select filter values to apply the filter"
+                          : `Filtering by ${filterType === 'core' ? 'core' : 'custom'} field "${filterField}": ${filterValues.join(', ')}`}
+                    </p>
+                  </div>
+                );
+              })()}
+
+              {field.type === 'relationship_dropdown' && (
+                <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50 p-3" data-testid={`relationship-dropdown-config-${field.id}`}>
+                  <div>
+                    <Label className="text-xs font-medium">Selection control</Label>
+                    <Select
+                      value={relationshipSelectionMode(field)}
+                      onValueChange={(selection_mode) => {
+                        if (selection_mode === RELATIONSHIP_SELECTION_MULTIPLE
+                            && relationshipDependents.length > 0) return;
+                        updateField(originalIndex, { selection_mode });
+                      }}
+                    >
+                      <SelectTrigger className="mt-2" data-testid={`select-relationship-mode-${field.id}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={RELATIONSHIP_SELECTION_SINGLE}>Dropdown (one record)</SelectItem>
+                        <SelectItem
+                          value={RELATIONSHIP_SELECTION_MULTIPLE}
+                          disabled={relationshipDependents.length > 0}
+                        >
+                          Multi-select (multiple records)
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {relationshipDependents.length > 0
+                        ? 'Keep this as a dropdown because another relationship field depends on its selected record.'
+                        : 'Existing relationship fields remain single-select unless multi-select is chosen.'}
+                    </p>
+                  </div>
+                  <div className="space-y-3 rounded border border-slate-200 bg-white p-3" data-testid={`relationship-not-listed-config-${field.id}`}>
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          id={`relationship-not-listed-enabled-${field.id}`}
+                          checked={field.not_listed_choice?.enabled === true}
+                          onCheckedChange={enabled => updateField(originalIndex, {
+                            not_listed_choice: {
+                              ...(field.not_listed_choice || {}),
+                              enabled,
+                              label: field.not_listed_choice?.label || 'Other (not listed)',
+                            },
+                          })}
+                          data-testid={`switch-relationship-not-listed-${field.id}`}
+                        />
+                        <Label htmlFor={`relationship-not-listed-enabled-${field.id}`} className="text-xs font-medium">
+                          Allow an “Other / not listed” choice
+                        </Label>
+                      </div>
+                      {field.not_listed_choice?.enabled === true && (
+                        <div className="space-y-1">
+                          <Label htmlFor={`relationship-not-listed-label-${field.id}`} className="text-xs">Other choice label</Label>
+                          <Input
+                            id={`relationship-not-listed-label-${field.id}`}
+                            value={field.not_listed_choice?.label || ''}
+                            onChange={event => updateField(originalIndex, {
+                              not_listed_choice: { ...(field.not_listed_choice || {}), enabled: true, label: event.target.value },
+                            })}
+                            placeholder="e.g. Other department"
+                            data-testid={`input-relationship-not-listed-label-${field.id}`}
+                          />
+                        </div>
+                      )}
+                    {relationshipSelectionMode(field) === RELATIONSHIP_SELECTION_MULTIPLE && (
+                      <p className="text-xs text-slate-500">Other can be selected alongside related records.</p>
+                    )}
+                  </div>
+                  <div>
+                    <Label htmlFor={`no-relationship-label-${field.id}`} className="text-xs font-medium">
+                      No related records label
+                    </Label>
+                    <Input
+                      id={`no-relationship-label-${field.id}`}
+                      value={field.no_relationship_found_label || ''}
+                      onChange={(event) => updateField(originalIndex, {
+                        no_relationship_found_label: event.target.value,
+                      })}
+                      placeholder={formNoRelationshipLabel({ ...field, no_relationship_found_label: '' })}
+                      className="mt-2 h-9"
+                      data-testid={`input-no-relationship-label-${field.id}`}
+                    />
+                    <p className="mt-1 text-xs text-slate-500">
+                      Shown inside and below this field when the selected parent record has no related records.
+                    </p>
+                  </div>
+                  <div>
+                    <Label className="text-xs font-medium">Parent field</Label>
+                    <p className="mt-1 text-xs text-slate-500">Choose an earlier organisation, organisation group, or relationship field.</p>
+                    <Select
+                      value={field.parent_field_id || ''}
+                      onValueChange={(parent_field_id) => updateField(originalIndex, {
+                        parent_field_id,
+                        parent_field_scope: 'form',
+                        relationship_definition_id: undefined,
+                      })}
+                    >
+                      <SelectTrigger className="mt-2" data-testid={`select-relationship-parent-${field.id}`}>
+                        <SelectValue placeholder="Choose an earlier field…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {relationshipParents.map((parent) => (
+                          <SelectItem key={parent.id} value={parent.id}>{parent.label || parent.type}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {relationshipParents.length === 0 && (
+                      <p className="mt-2 text-xs text-amber-700">Add a compatible field before this field first.</p>
+                    )}
+                  </div>
+
+                  <div>
+                    <Label className="text-xs font-medium">Relationship</Label>
+                    <Select
+                      value={field.relationship_definition_id ? `${field.relationship_definition_id}:${field.relationship_parent_side || field.organization_side || 'default'}` : ''}
+                      disabled={!formId || relationshipsLoading || relationshipsError}
+                      onValueChange={(selectionKey) => {
+                        const relationship = compatibleRelationships.find((item) => relationshipSelectionKey(item) === selectionKey);
+                        if (relationship) updateField(originalIndex, relationshipFieldConfig(relationship, selectedRelationshipParent));
+                      }}
+                    >
+                      <SelectTrigger className="mt-2" data-testid={`select-relationship-definition-${field.id}`}>
+                        <SelectValue placeholder={relationshipsLoading ? 'Loading relationships…' : 'Choose an active relationship…'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {compatibleRelationships.map((relationship) => (
+                          <SelectItem key={relationshipSelectionKey(relationship)} value={relationshipSelectionKey(relationship)}>
+                            {formBuilderRelationshipLabel(relationship, selectedRelationshipParent)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {relationshipsError && <p className="mt-2 text-xs text-red-600">Relationships could not be loaded. Please try again.</p>}
+                    {!relationshipsLoading && !relationshipsError && eligibleRelationships.length === 0 && (
+                      <p className="mt-2 text-xs text-slate-500">
+                        {formId ? 'No eligible active Organisation relationships are available.' : 'Save the form before choosing a relationship.'}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {field.type === 'category_multiselect' && (
+                <div className="space-y-2">
+                  <Label className="text-xs">Select Categories to Include</Label>
+                  {categories.length === 0 ? (
+                    <div className="p-2 bg-slate-50 border border-slate-200 rounded text-xs text-slate-500">
+                      Loading categories...
+                    </div>
+                  ) : (
+                    <>
+                      <div className="p-2 bg-slate-50 border border-slate-200 rounded space-y-2 max-h-48 overflow-y-auto">
+                        {categories.map((category) => {
+                          const isSelected = (field.allowed_category_ids || []).includes(category.id);
+                          return (
+                            <div key={category.id} className="flex items-start gap-2">
+                              <Checkbox
+                                id={`cat-${field.id}-${category.id}`}
+                                checked={isSelected}
+                                onCheckedChange={(checked) => {
+                                  const currentIds = field.allowed_category_ids || [];
+                                  const newIds = checked
+                                    ? [...currentIds, category.id]
+                                    : currentIds.filter(id => id !== category.id);
+                                  updateField(originalIndex, { allowed_category_ids: newIds });
+                                }}
+                              />
+                              <div className="flex-1">
+                                <Label 
+                                  htmlFor={`cat-${field.id}-${category.id}`} 
+                                  className="text-xs font-medium cursor-pointer"
+                                >
+                                  {category.name}
+                                </Label>
+                                {category.description && (
+                                  <p className="text-xs text-slate-500">{category.description}</p>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        {(field.allowed_category_ids || []).length === 0 
+                          ? "No categories selected - all categories will be shown"
+                          : `${(field.allowed_category_ids || []).length} category(ies) selected`}
+                      </p>
+                      
+                      <div className="pt-3 border-t border-slate-200 mt-3">
+                        <Label className="text-xs font-medium text-slate-700">Selection Limits (Optional)</Label>
+                        <div className="grid grid-cols-2 gap-2 mt-2">
+                          <div className="space-y-1">
+                            <Label className="text-xs text-slate-500">Minimum</Label>
+                            <Input
+                              type="number"
+                              min="0"
+                              value={field.min_selections ?? ''}
+                              onChange={(e) => updateField(originalIndex, { 
+                                min_selections: e.target.value ? parseInt(e.target.value, 10) : null 
+                              })}
+                              placeholder="No min"
+                              className="h-8 text-xs"
+                              data-testid={`input-min-selections-${field.id}`}
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs text-slate-500">Maximum</Label>
+                            <Input
+                              type="number"
+                              min="0"
+                              value={field.max_selections ?? ''}
+                              onChange={(e) => updateField(originalIndex, { 
+                                max_selections: e.target.value ? parseInt(e.target.value, 10) : null 
+                              })}
+                              placeholder="No max"
+                              className="h-8 text-xs"
+                              data-testid={`input-max-selections-${field.id}`}
+                            />
+                          </div>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-1">
+                          Leave blank for no limits
+                        </p>
+                      </div>
+
+                      <div className="pt-3 border-t border-slate-200 mt-3">
+                        <div className="flex items-start gap-2 p-2 bg-blue-50 border border-blue-200 rounded-md">
+                          <div className="text-blue-600 mt-0.5">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                          </div>
+                          <div>
+                            <p className="text-xs font-medium text-blue-800">Auto-saved to Member Preferences</p>
+                            <p className="text-xs text-blue-600 mt-0.5">
+                              Category selections are automatically saved to the member's preferences. No manual mapping required.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {field.type === 'communication_preferences' && (
+                <div className="space-y-2">
+                  <Label className="text-xs">Select Categories to Include</Label>
+                  {communicationCategories.length === 0 ? (
+                    <div className="p-2 bg-slate-50 border border-slate-200 rounded text-xs text-slate-500">
+                      No communication categories defined yet.
+                    </div>
+                  ) : (
+                    <>
+                      <div className="p-2 bg-slate-50 border border-slate-200 rounded space-y-2 max-h-48 overflow-y-auto">
+                        {communicationCategories.map((category) => {
+                          const isSelected = (field.allowed_category_ids || []).includes(category.id);
+                          const isIncluded = (field.allowed_category_ids || []).length === 0 || isSelected;
+                          const isDefaultSelected = (field.default_selected_category_ids || []).includes(category.id);
+                          return (
+                            <div key={category.id} className="flex items-start justify-between gap-3">
+                              <div className="flex-1">
+                                <p className="text-xs font-medium">{category.name}</p>
+                                {category.description && (
+                                  <p className="text-xs text-slate-500">{category.description}</p>
+                                )}
+                              </div>
+                              <div className="flex shrink-0 items-center gap-3">
+                                <div className="flex items-center gap-1.5">
+                                  <Checkbox
+                                    id={`commpref-${field.id}-${category.id}`}
+                                    checked={isSelected}
+                                    onCheckedChange={(checked) => {
+                                      const currentIds = field.allowed_category_ids || [];
+                                      const newIds = checked
+                                        ? [...currentIds, category.id]
+                                        : currentIds.filter(id => id !== category.id);
+                                      const defaults = checked
+                                        ? (field.default_selected_category_ids || [])
+                                        : (field.default_selected_category_ids || []).filter(id => id !== category.id);
+                                      updateField(originalIndex, {
+                                        allowed_category_ids: newIds,
+                                        default_selected_category_ids: defaults,
+                                      });
+                                    }}
+                                    data-testid={`checkbox-commpref-allowed-${field.id}-${category.id}`}
+                                  />
+                                  <Label htmlFor={`commpref-${field.id}-${category.id}`} className="text-xs cursor-pointer">
+                                    Include
+                                  </Label>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  <Checkbox
+                                    id={`commpref-default-${field.id}-${category.id}`}
+                                    checked={isDefaultSelected}
+                                    disabled={!isIncluded}
+                                    onCheckedChange={(checked) => {
+                                      const currentIds = field.default_selected_category_ids || [];
+                                      updateField(originalIndex, {
+                                        default_selected_category_ids: checked
+                                          ? [...currentIds, category.id]
+                                          : currentIds.filter(id => id !== category.id),
+                                      });
+                                    }}
+                                    data-testid={`checkbox-commpref-default-${field.id}-${category.id}`}
+                                  />
+                                  <Label
+                                    htmlFor={`commpref-default-${field.id}-${category.id}`}
+                                    className={`text-xs ${isIncluded ? 'cursor-pointer' : 'text-slate-400'}`}
+                                  >
+                                    Selected by default
+                                  </Label>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        {(field.allowed_category_ids || []).length === 0
+                          ? "No categories selected - all categories will be shown"
+                          : `${(field.allowed_category_ids || []).length} category(ies) included`}
+                      </p>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {field.type === 'category_dropdown' && (
+                <div className="space-y-2">
+                  <Label className="text-xs">Select Category</Label>
+                  {categories.length === 0 ? (
+                    <div className="p-2 bg-slate-50 border border-slate-200 rounded text-xs text-slate-500">
+                      Loading categories...
+                    </div>
+                  ) : (
+                    <>
+                      <Select
+                        value={field.category_id || ''}
+                        onValueChange={(value) => updateField(originalIndex, { category_id: value })}
+                      >
+                        <SelectTrigger className="h-8 text-xs" data-testid={`select-category-${field.id}`}>
+                          <SelectValue placeholder="Choose a category..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {categories.map((category) => (
+                            <SelectItem key={category.id} value={category.id}>
+                              {category.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {field.category_id && (
+                        <p className="text-xs text-slate-500">
+                          The subcategories of "{categories.find(c => c.id === field.category_id)?.name}" will be shown as options.
+                        </p>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+
+              {['select', 'radio', 'checkbox'].includes(field.type) && (
+                <div className="space-y-2">
+                  <Label className="text-xs">Options</Label>
+                  <div className="space-y-1">
+                    {(field.options || []).map((option, optIndex) => (
+                      <div key={optIndex} className="flex items-center gap-1">
+                        <div className="flex flex-col">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-5 w-5 text-slate-400"
+                            disabled={optIndex === 0}
+                            onClick={() => {
+                              const newOptions = [...(field.options || [])];
+                              const target = optIndex - 1;
+                              [newOptions[optIndex], newOptions[target]] = [newOptions[target], newOptions[optIndex]];
+                              updateField(originalIndex, { options: newOptions });
+                            }}
+                            data-testid={`button-move-up-option-${field.id}-${optIndex}`}
+                          >
+                            <ChevronUp className="w-3 h-3" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-5 w-5 text-slate-400"
+                            disabled={optIndex === (field.options || []).length - 1}
+                            onClick={() => {
+                              const newOptions = [...(field.options || [])];
+                              const target = optIndex + 1;
+                              [newOptions[optIndex], newOptions[target]] = [newOptions[target], newOptions[optIndex]];
+                              updateField(originalIndex, { options: newOptions });
+                            }}
+                            data-testid={`button-move-down-option-${field.id}-${optIndex}`}
+                          >
+                            <ChevronDown className="w-3 h-3" />
+                          </Button>
+                        </div>
+                        <Input
+                          value={option}
+                          onChange={(e) => {
+                            const newOptions = [...(field.options || [])];
+                            newOptions[optIndex] = e.target.value;
+                            updateField(originalIndex, { options: newOptions });
+                          }}
+                          className="h-7 text-sm flex-1"
+                          placeholder={`Option ${optIndex + 1}`}
+                          data-testid={`input-option-${field.id}-${optIndex}`}
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                          onClick={() => {
+                            const newOptions = (field.options || []).filter((_, i) => i !== optIndex);
+                            updateField(originalIndex, { options: newOptions });
+                          }}
+                          data-testid={`button-remove-option-${field.id}-${optIndex}`}
+                        >
+                          <X className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs flex-1"
+                      onClick={() => {
+                        const newOptions = [...(field.options || []), ''];
+                        updateField(originalIndex, { options: newOptions });
+                      }}
+                    >
+                      <Plus className="w-3 h-3 mr-1" />
+                      Add Option
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs flex-1"
+                      onClick={() => {
+                        setBulkImportText('');
+                        setBulkImportOpen(true);
+                      }}
+                      data-testid={`button-bulk-import-${field.id}`}
+                    >
+                      <Upload className="w-3 h-3 mr-1" />
+                      Bulk import
+                    </Button>
+                  </div>
+                  <Dialog open={bulkImportOpen} onOpenChange={setBulkImportOpen}>
+                    <DialogContent className="sm:max-w-md">
+                      <DialogHeader>
+                        <DialogTitle>Bulk import options</DialogTitle>
+                        <DialogDescription>
+                          Paste one option per line (commas also accepted). Empty lines and duplicates of existing or repeated values will be skipped.
+                        </DialogDescription>
+                      </DialogHeader>
+                      {(() => {
+                        const existing = field.options || [];
+                        const existingSet = new Set(existing.map(o => (o || '').trim()).filter(Boolean));
+                        const seen = new Set();
+                        const parsed = [];
+                        bulkImportText
+                          .split(/[\n,]/)
+                          .map(s => s.trim())
+                          .filter(Boolean)
+                          .forEach(v => {
+                            if (existingSet.has(v) || seen.has(v)) return;
+                            seen.add(v);
+                            parsed.push(v);
+                          });
+                        return (
+                          <>
+                            <Textarea
+                              value={bulkImportText}
+                              onChange={(e) => setBulkImportText(e.target.value)}
+                              placeholder={'Option 1\nOption 2\nOption 3'}
+                              rows={10}
+                              className="font-mono text-sm"
+                              data-testid={`textarea-bulk-import-${field.id}`}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              {parsed.length} option{parsed.length === 1 ? '' : 's'} will be added.
+                            </p>
+                            <DialogFooter>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setBulkImportOpen(false);
+                                  setBulkImportText('');
+                                }}
+                              >
+                                Cancel
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                disabled={parsed.length === 0}
+                                onClick={() => {
+                                  updateField(originalIndex, { options: [...existing, ...parsed] });
+                                  setBulkImportOpen(false);
+                                  setBulkImportText('');
+                                }}
+                                data-testid={`button-bulk-import-confirm-${field.id}`}
+                              >
+                                Add {parsed.length} option{parsed.length === 1 ? '' : 's'}
+                              </Button>
+                            </DialogFooter>
+                          </>
+                        );
+                      })()}
+                    </DialogContent>
+                  </Dialog>
+                </div>
+              )}
+
+              {/* File Upload Field Configuration */}
+              {field.type === 'file' && (
+                <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                  <Label className="text-xs font-medium">File Upload Options</Label>
+                  
+                  {/* Public Access Toggle */}
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id={`public-access-${field.id}`}
+                      checked={field.public_access === true}
+                      onCheckedChange={(checked) => {
+                        updateField(originalIndex, { public_access: checked });
+                      }}
+                      data-testid={`checkbox-public-access-${field.id}`}
+                    />
+                    <div>
+                      <Label htmlFor={`public-access-${field.id}`} className="text-xs">
+                        Public access
+                      </Label>
+                      <p className="text-xs text-slate-500">
+                        Enable for files that need to be publicly accessible (e.g., logos for external websites)
+                      </p>
+                    </div>
+                  </div>
+                  
+                  {/* Allowed File Types */}
+                  <div className="space-y-2">
+                    <Label className="text-xs">Allowed File Types</Label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { value: 'images', label: 'Images' },
+                        { value: 'pdf', label: 'PDF' },
+                        { value: 'word', label: 'Word' },
+                        { value: 'excel', label: 'Excel' },
+                        { value: 'powerpoint', label: 'PowerPoint' },
+                        { value: 'text', label: 'Text' },
+                        { value: 'zip', label: 'Archives' },
+                        { value: 'video', label: 'Video' },
+                        { value: 'audio', label: 'Audio' }
+                      ].map((fileType) => (
+                        <div key={fileType.value} className="flex items-center gap-1">
+                          <Checkbox
+                            id={`file-type-${field.id}-${fileType.value}`}
+                            checked={(field.allowed_file_types || []).includes(fileType.value)}
+                            onCheckedChange={(checked) => {
+                              const current = field.allowed_file_types || [];
+                              const updated = checked 
+                                ? [...current, fileType.value]
+                                : current.filter(t => t !== fileType.value);
+                              updateField(originalIndex, { allowed_file_types: updated });
+                            }}
+                            data-testid={`checkbox-file-type-${field.id}-${fileType.value}`}
+                          />
+                          <Label htmlFor={`file-type-${field.id}-${fileType.value}`} className="text-xs">
+                            {fileType.label}
+                          </Label>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      {(field.allowed_file_types || []).length === 0 
+                        ? 'All file types allowed' 
+                        : `${(field.allowed_file_types || []).length} type(s) selected`}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Country Field Configuration */}
+              {field.type === 'country' && (
+                <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                  <Label className="text-xs font-medium">Country Options</Label>
+                  
+                  {/* All Countries Toggle */}
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id={`all-countries-${field.id}`}
+                      checked={field.all_countries !== false}
+                      onCheckedChange={(checked) => {
+                        updateField(originalIndex, { 
+                          all_countries: checked,
+                          selected_countries: checked ? [] : (field.selected_countries || [])
+                        });
+                      }}
+                    />
+                    <Label htmlFor={`all-countries-${field.id}`} className="text-xs">
+                      Include all countries
+                    </Label>
+                  </div>
+                  
+                  {/* Country Selection (when not all) */}
+                  {field.all_countries === false && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs text-slate-500">Select countries to include:</Label>
+                        <button
+                          type="button"
+                          className="text-xs text-primary hover:underline"
+                          data-testid={`toggle-all-selected-countries-${field.id}`}
+                          onClick={() => {
+                            const allCodes = COUNTRIES.map(c => c.code);
+                            const allSelected = allCodes.every(code => (field.selected_countries || []).includes(code));
+                            updateField(originalIndex, { selected_countries: allSelected ? [] : allCodes });
+                          }}
+                        >
+                          {COUNTRIES.every(c => (field.selected_countries || []).includes(c.code)) ? 'Deselect All' : 'Select All'}
+                        </button>
+                      </div>
+                      <div className="max-h-48 overflow-y-auto border border-slate-200 rounded bg-white p-2 space-y-1">
+                        {COUNTRIES.map((country) => (
+                          <div key={country.code} className="flex items-center gap-2">
+                            <Checkbox
+                              id={`country-${field.id}-${country.code}`}
+                              checked={(field.selected_countries || []).includes(country.code)}
+                              onCheckedChange={(checked) => {
+                                const current = field.selected_countries || [];
+                                const updated = checked 
+                                  ? [...current, country.code]
+                                  : current.filter(c => c !== country.code);
+                                updateField(originalIndex, { selected_countries: updated });
+                              }}
+                            />
+                            <Label htmlFor={`country-${field.id}-${country.code}`} className="text-xs">
+                              {country.name}
+                            </Label>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        {(field.selected_countries || []).length} countries selected
+                      </p>
+                    </div>
+                  )}
+                  
+                  {/* Default Country */}
+                  <div className="space-y-1">
+                    <Label className="text-xs">Default Country</Label>
+                    <Select
+                      value={field.default_country || '__none__'}
+                      onValueChange={(value) => updateField(originalIndex, { default_country: value === '__none__' ? '' : value })}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue placeholder="No default" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-60 overflow-y-auto">
+                        <SelectItem value="__none__">No default</SelectItem>
+                        {(field.all_countries !== false ? COUNTRIES : COUNTRIES.filter(c => (field.selected_countries || []).includes(c.code))).map((country) => (
+                          <SelectItem key={country.code} value={country.code}>
+                            {country.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              )}
+
+              {/* Countries (Multi-Select) Field Configuration */}
+              {field.type === 'countries' && (
+                <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                  <Label className="text-xs font-medium">Countries Options (Multi-Select)</Label>
+                  
+                  {/* All Countries Toggle */}
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id={`all-countries-multi-${field.id}`}
+                      checked={field.all_countries !== false}
+                      onCheckedChange={(checked) => {
+                        updateField(originalIndex, { 
+                          all_countries: checked,
+                          selected_countries: checked ? [] : (field.selected_countries || [])
+                        });
+                      }}
+                    />
+                    <Label htmlFor={`all-countries-multi-${field.id}`} className="text-xs">
+                      Include all countries
+                    </Label>
+                  </div>
+                  
+                  {/* Country Selection (when not all) */}
+                  {field.all_countries === false && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs text-slate-500">Select countries to include:</Label>
+                        <button
+                          type="button"
+                          className="text-xs text-primary hover:underline"
+                          data-testid={`toggle-all-selected-countries-multi-${field.id}`}
+                          onClick={() => {
+                            const allCodes = COUNTRIES.map(c => c.code);
+                            const allSelected = allCodes.every(code => (field.selected_countries || []).includes(code));
+                            updateField(originalIndex, { selected_countries: allSelected ? [] : allCodes });
+                          }}
+                        >
+                          {COUNTRIES.every(c => (field.selected_countries || []).includes(c.code)) ? 'Deselect All' : 'Select All'}
+                        </button>
+                      </div>
+                      <div className="max-h-48 overflow-y-auto border border-slate-200 rounded bg-white p-2 space-y-1">
+                        {COUNTRIES.map((country) => (
+                          <div key={country.code} className="flex items-center gap-2">
+                            <Checkbox
+                              id={`countries-${field.id}-${country.code}`}
+                              checked={(field.selected_countries || []).includes(country.code)}
+                              onCheckedChange={(checked) => {
+                                const current = field.selected_countries || [];
+                                const updated = checked 
+                                  ? [...current, country.code]
+                                  : current.filter(c => c !== country.code);
+                                updateField(originalIndex, { selected_countries: updated });
+                              }}
+                            />
+                            <Label htmlFor={`countries-${field.id}-${country.code}`} className="text-xs">
+                              {country.name}
+                            </Label>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        {(field.selected_countries || []).length} countries selected
+                      </p>
+                    </div>
+                  )}
+                  
+                  {/* Default Countries */}
+                  <div className="space-y-1">
+                    {(() => {
+                      const availableDefaults = field.all_countries !== false ? COUNTRIES : COUNTRIES.filter(c => (field.selected_countries || []).includes(c.code));
+                      const allDefaultsSelected = availableDefaults.length > 0 && availableDefaults.every(c => (field.default_countries || []).includes(c.code));
+                      return (
+                        <>
+                          <div className="flex items-center justify-between">
+                            <Label className="text-xs">Default Countries</Label>
+                            <button
+                              type="button"
+                              className="text-xs text-primary hover:underline"
+                              data-testid={`toggle-all-default-countries-${field.id}`}
+                              onClick={() => {
+                                const allCodes = availableDefaults.map(c => c.code);
+                                updateField(originalIndex, { default_countries: allDefaultsSelected ? [] : allCodes });
+                              }}
+                            >
+                              {allDefaultsSelected ? 'Deselect All' : 'Select All'}
+                            </button>
+                          </div>
+                          <div className="max-h-32 overflow-y-auto border border-slate-200 rounded bg-white p-2 space-y-1">
+                            {availableDefaults.map((country) => (
+                              <div key={country.code} className="flex items-center gap-2">
+                                <Checkbox
+                                  id={`default-countries-${field.id}-${country.code}`}
+                                  checked={(field.default_countries || []).includes(country.code)}
+                                  onCheckedChange={(checked) => {
+                                    const current = field.default_countries || [];
+                                    const updated = checked 
+                                      ? [...current, country.code]
+                                      : current.filter(c => c !== country.code);
+                                    updateField(originalIndex, { default_countries: updated });
+                                  }}
+                                />
+                                <Label htmlFor={`default-countries-${field.id}-${country.code}`} className="text-xs">
+                                  {country.name}
+                                </Label>
+                              </div>
+                            ))}
+                          </div>
+                          <p className="text-xs text-slate-500">
+                            {(field.default_countries || []).length} default countries selected
+                          </p>
+                        </>
+                      );
+                    })()}
+                  </div>
+                </div>
+              )}
+
+              {field.type === 'membership_payment' && (
+                <MembershipPaymentSettings
+                  field={field}
+                  originalIndex={originalIndex}
+                  allFields={allFields}
+                  updateField={updateField}
+                />
+              )}
+
+              {field.type === 'payment' && (
+                <PaymentFieldSettings
+                  field={field}
+                  originalIndex={originalIndex}
+                  allFields={allFields}
+                  updateField={updateField}
+                  customFields={customFields}
+                  entityPipelines={entityPipelines}
+                  applicationLevel={applicationLevel}
+                  fieldMappings={fieldMappings}
+                  formConfig={formConfig}
+                />
+              )}
+
+              {/* Instructions Content - Rich text editor for display-only content */}
+              {field.type === 'instructions' && (
+                <div className="space-y-2">
+                  <Label className="text-xs font-medium">Instructions Content</Label>
+                  <p className="text-xs text-slate-500 mb-2">This content will be displayed to users (not editable by them)</p>
+                  <div className="bg-white rounded border border-slate-200">
+                    <ReactQuill
+                      theme="snow"
+                      value={field.content || ''}
+                      onChange={(value) => updateField(originalIndex, { content: value })}
+                      placeholder="Enter instructions, guidance, or informational text..."
+                      modules={{
+                        toolbar: [
+                          [{ 'header': [1, 2, 3, false] }],
+                          ['bold', 'italic', 'underline'],
+                          [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                          ['link'],
+                          ['clean']
+                        ]
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Image Display - Upload and settings for display-only image */}
+              {field.type === 'image' && (
+                <div className="space-y-3">
+                  <Label className="text-xs font-medium">Image Settings</Label>
+                  <p className="text-xs text-slate-500 mb-2">Upload an image to display on the form (not editable by users)</p>
+                  
+                  {field.image_url ? (
+                    <div className="space-y-2">
+                      <div className="relative rounded-lg border border-slate-200 overflow-hidden bg-slate-50">
+                        <img 
+                          src={field.image_url} 
+                          alt={field.image_alt || 'Form image'} 
+                          className="w-full max-h-48 object-contain"
+                          data-testid={`img-preview-${field.id}`}
+                        />
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => updateField(originalIndex, { image_url: null })}
+                        data-testid={`button-remove-image-${field.id}`}
+                      >
+                        <Trash2 className="w-3 h-3 mr-1" />
+                        Remove Image
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <label 
+                        className="flex flex-col items-center justify-center gap-2 p-6 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer hover:border-slate-400 hover:bg-slate-50 transition-colors"
+                        data-testid={`label-upload-image-${field.id}`}
+                      >
+                        <Upload className="w-6 h-6 text-slate-400" />
+                        <span className="text-sm text-slate-500">Click to upload an image</span>
+                        <span className="text-xs text-slate-400">PNG, JPG, GIF, SVG, WebP</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          data-testid={`input-upload-image-${field.id}`}
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            try {
+                              const result = await uploadFileWithProgress(file, {
+                                type: UPLOAD_TYPES.PAGE,
+                                onProgress: null
+                              });
+                              updateField(originalIndex, { image_url: result.file_url });
+                              toast.success('Image uploaded successfully');
+                            } catch (err) {
+                              showUploadErrorToast(err, 'Failed to upload image');
+                            }
+                          }}
+                        />
+                      </label>
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium">Alt Text</Label>
+                    <Input
+                      value={field.image_alt || ''}
+                      onChange={(e) => updateField(originalIndex, { image_alt: e.target.value })}
+                      placeholder="Describe the image for accessibility..."
+                      data-testid={`input-image-alt-${field.id}`}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium">Image Fit</Label>
+                    <Select
+                      value={field.image_fit || 'cover'}
+                      onValueChange={(value) => updateField(originalIndex, { image_fit: value })}
+                    >
+                      <SelectTrigger className="h-9" data-testid={`select-image-fit-${field.id}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="cover">Cover (fill area, crop if needed)</SelectItem>
+                        <SelectItem value="contain">Contain (fit entire image)</SelectItem>
+                        <SelectItem value="fill">Fill (stretch to fit)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium">Max Height (px)</Label>
+                    <Input
+                      type="number"
+                      value={field.image_max_height || 300}
+                      onChange={(e) => updateField(originalIndex, { image_max_height: parseInt(e.target.value) || 300 })}
+                      min={50}
+                      max={800}
+                      placeholder="300"
+                      data-testid={`input-image-max-height-${field.id}`}
+                    />
+                  </div>
+                </div>
+              )}
+
+
+              {/* Image Buttons Field Configuration */}
+              {field.type === 'image_buttons' && (
+                <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                  <Label className="text-xs font-medium">Image Button Options</Label>
+                  <p className="text-xs text-slate-500 mb-2">Configure 2-5 clickable image options. Each records a value like a radio button.</p>
+                  
+                  {(field.image_options || []).map((option, optIndex) => (
+                    <div key={optIndex} className="space-y-2 p-3 bg-white border border-slate-200 rounded-lg">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-medium text-slate-600">Option {optIndex + 1}</span>
+                        {(field.image_options || []).length > 2 && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              const newOptions = [...(field.image_options || [])];
+                              newOptions.splice(optIndex, 1);
+                              updateField(originalIndex, { image_options: newOptions });
+                            }}
+                            data-testid={`button-remove-image-option-${field.id}-${optIndex}`}
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        )}
+                      </div>
+
+                      {option.image_url ? (
+                        <div className="space-y-2">
+                          <div className="relative rounded-lg border border-slate-200 overflow-hidden bg-slate-50">
+                            <img 
+                              src={option.image_url} 
+                              alt={option.label || `Option ${optIndex + 1}`} 
+                              className="w-full max-h-32 object-contain"
+                              data-testid={`img-option-preview-${field.id}-${optIndex}`}
+                            />
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              const newOptions = [...(field.image_options || [])];
+                              newOptions[optIndex] = { ...newOptions[optIndex], image_url: null };
+                              updateField(originalIndex, { image_options: newOptions });
+                            }}
+                            data-testid={`button-remove-option-image-${field.id}-${optIndex}`}
+                          >
+                            <Trash2 className="w-3 h-3 mr-1" />
+                            Remove Image
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <label 
+                            className="flex flex-col items-center justify-center gap-1 p-4 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer hover:border-slate-400 hover:bg-slate-50 transition-colors"
+                            data-testid={`label-upload-option-image-${field.id}-${optIndex}`}
+                          >
+                            <Upload className="w-5 h-5 text-slate-400" />
+                            <span className="text-xs text-slate-500">Upload image</span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              data-testid={`input-upload-option-image-${field.id}-${optIndex}`}
+                              onChange={async (e) => {
+                                const file = e.target.files?.[0];
+                                if (!file) return;
+                                try {
+                                  const result = await uploadFileWithProgress(file, {
+                                    type: UPLOAD_TYPES.PAGE,
+                                    onProgress: null
+                                  });
+                                  const newOptions = [...(field.image_options || [])];
+                                  newOptions[optIndex] = { ...newOptions[optIndex], image_url: result.file_url };
+                                  updateField(originalIndex, { image_options: newOptions });
+                                  toast.success('Image uploaded successfully');
+                                } catch (err) {
+                                  showUploadErrorToast(err, 'Failed to upload image');
+                                }
+                              }}
+                            />
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-slate-400">or</span>
+                            <Input
+                              placeholder="Paste image URL and press Enter..."
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  const url = e.target.value.trim();
+                                  if (url) {
+                                    const newOptions = [...(field.image_options || [])];
+                                    newOptions[optIndex] = { ...newOptions[optIndex], image_url: url };
+                                    updateField(originalIndex, { image_options: newOptions });
+                                  }
+                                }
+                              }}
+                              onBlur={(e) => {
+                                const url = e.target.value.trim();
+                                if (url) {
+                                  const newOptions = [...(field.image_options || [])];
+                                  newOptions[optIndex] = { ...newOptions[optIndex], image_url: url };
+                                  updateField(originalIndex, { image_options: newOptions });
+                                }
+                              }}
+                              data-testid={`input-option-image-url-${field.id}-${optIndex}`}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="space-y-1">
+                        <Label className="text-xs">Label (caption)</Label>
+                        <Input
+                          value={option.label || ''}
+                          onChange={(e) => {
+                            const newOptions = [...(field.image_options || [])];
+                            newOptions[optIndex] = { ...newOptions[optIndex], label: e.target.value };
+                            updateField(originalIndex, { image_options: newOptions });
+                          }}
+                          placeholder="Optional caption..."
+                          data-testid={`input-option-label-${field.id}-${optIndex}`}
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <Label className="text-xs">Value (for logic)</Label>
+                        <Input
+                          value={option.value || ''}
+                          onChange={(e) => {
+                            const newOptions = [...(field.image_options || [])];
+                            newOptions[optIndex] = { ...newOptions[optIndex], value: e.target.value };
+                            updateField(originalIndex, { image_options: newOptions });
+                          }}
+                          placeholder="Value recorded on selection..."
+                          data-testid={`input-option-value-${field.id}-${optIndex}`}
+                        />
+                      </div>
+                    </div>
+                  ))}
+
+                  {(field.image_options || []).length < 5 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const current = field.image_options || [];
+                        if (current.length >= 5) return;
+                        const newOptions = [...current, { image_url: null, label: '', value: `option_${current.length + 1}` }];
+                        updateField(originalIndex, { image_options: newOptions });
+                      }}
+                      data-testid={`button-add-image-option-${field.id}`}
+                    >
+                      <Plus className="w-3 h-3 mr-1" />
+                      Add Option
+                    </Button>
+                  )}
+
+                  {(!field.image_options || field.image_options.length < 2) && (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const defaultOptions = [
+                            { image_url: null, label: '', value: 'option_1' },
+                            { image_url: null, label: '', value: 'option_2' }
+                          ];
+                          updateField(originalIndex, { image_options: defaultOptions });
+                        }}
+                        data-testid={`button-init-image-options-${field.id}`}
+                      >
+                        <Plus className="w-3 h-3 mr-1" />
+                        Initialize Options (min 2)
+                      </Button>
+                    </div>
+                  )}
+
+                  <div className="space-y-2 pt-2 border-t border-slate-200">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <Label className="text-xs font-medium">Auto-advance on click</Label>
+                        <p className="text-xs text-slate-500">Automatically go to the next page when an image is clicked</p>
+                      </div>
+                      <Switch
+                        checked={field.auto_advance !== false}
+                        onCheckedChange={(checked) => updateField(originalIndex, { auto_advance: checked })}
+                        data-testid={`switch-auto-advance-${field.id}`}
+                      />
+                    </div>
+
+                    {field.auto_advance !== false && (
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <Label className="text-xs font-medium">Hide Next button</Label>
+                          <p className="text-xs text-slate-500">Hide the Next button when auto-advance is enabled</p>
+                        </div>
+                        <Switch
+                          checked={field.hide_next_button === true}
+                          onCheckedChange={(checked) => updateField(originalIndex, { hide_next_button: checked })}
+                          data-testid={`switch-hide-next-${field.id}`}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Contact Field - Contract Template Selection */}
+              {field.type === 'contact' && (
+                <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <Users className="w-4 h-4 text-blue-600" />
+                    <Label className="text-xs font-medium">Sub-Field Configuration</Label>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Choose which sub-fields are visible and which are required
+                  </p>
+                  <div className="space-y-2">
+                    {[
+                      { key: 'firstName', label: 'First name', defaultVisible: true, defaultRequired: true },
+                      { key: 'lastName', label: 'Last name', defaultVisible: true, defaultRequired: true },
+                      { key: 'jobTitle', label: 'Job title', defaultVisible: true, defaultRequired: false },
+                      { key: 'organisation', label: 'Organisation', defaultVisible: true, defaultRequired: false },
+                      { key: 'email', label: 'Email', defaultVisible: true, defaultRequired: true },
+                    ].map((sf) => {
+                      const subConfig = field.contact_sub_fields?.[sf.key] || { visible: sf.defaultVisible, required: sf.defaultRequired };
+                      const isVisible = subConfig.visible !== false;
+                      const isRequired = subConfig.required === true;
+                      return (
+                        <div key={sf.key} className="flex items-center justify-between gap-2 py-1.5 px-2 bg-white border border-slate-100 rounded-md" data-testid={`contact-subfield-config-${sf.key}-${field.id}`}>
+                          <span className="text-xs font-medium text-slate-700 min-w-[80px]">{sf.label}</span>
+                          <div className="flex items-center gap-4">
+                            <div className="flex items-center gap-1.5">
+                              <Eye className="w-3 h-3 text-slate-400" />
+                              <Label className="text-xs text-slate-500">Visible</Label>
+                              <Switch
+                                checked={isVisible}
+                                onCheckedChange={(checked) => {
+                                  const current = field.contact_sub_fields || {
+                                    firstName: { visible: true, required: true },
+                                    lastName: { visible: true, required: true },
+                                    jobTitle: { visible: true, required: false },
+                                    organisation: { visible: true, required: false },
+                                    email: { visible: true, required: true },
+                                  };
+                                  updateField(originalIndex, {
+                                    contact_sub_fields: {
+                                      ...current,
+                                      [sf.key]: { ...current[sf.key], visible: checked }
+                                    }
+                                  });
+                                }}
+                                data-testid={`switch-contact-visible-${sf.key}-${field.id}`}
+                              />
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <Lock className="w-3 h-3 text-slate-400" />
+                              <Label className="text-xs text-slate-500">Required</Label>
+                              <Switch
+                                checked={isRequired}
+                                disabled={!isVisible}
+                                onCheckedChange={(checked) => {
+                                  const current = field.contact_sub_fields || {
+                                    firstName: { visible: true, required: true },
+                                    lastName: { visible: true, required: true },
+                                    jobTitle: { visible: true, required: false },
+                                    organisation: { visible: true, required: false },
+                                    email: { visible: true, required: true },
+                                  };
+                                  updateField(originalIndex, {
+                                    contact_sub_fields: {
+                                      ...current,
+                                      [sf.key]: { ...current[sf.key], required: checked }
+                                    }
+                                  });
+                                }}
+                                data-testid={`switch-contact-required-${sf.key}-${field.id}`}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {field.type === 'contact' && (
+                <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <FileSignature className="w-4 h-4 text-blue-600" />
+                    <Label className="text-xs font-medium">Contract Template (Optional)</Label>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Select a contract to send to this contact after form submission
+                  </p>
+                  <Select
+                    value={field.contract_form_id || '__none__'}
+                    onValueChange={(value) => updateField(originalIndex, { 
+                      contract_form_id: value === '__none__' ? null : value 
+                    })}
+                  >
+                    <SelectTrigger className="text-xs" data-testid={`select-contract-template-${field.id}`}>
+                      <SelectValue placeholder="No contract template" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__" data-testid={`option-contract-none-${field.id}`}>No contract template</SelectItem>
+                      {contractForms.map((form) => (
+                        <SelectItem key={form.id} value={form.id} data-testid={`option-contract-${form.id}`}>
+                          <div className="flex items-center gap-2">
+                            <FileSignature className="w-3 h-3 text-blue-500" />
+                            <span>{form.name}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {field.contract_form_id && (
+                    <div className="flex items-start gap-2 p-2 bg-blue-50 border border-blue-200 rounded-md">
+                      <div className="text-blue-600 mt-0.5">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium text-blue-800">Contract will be sent to contact</p>
+                        <p className="text-xs text-blue-600 mt-0.5">
+                          When the form is submitted, the selected contract can be sent to the contact details (name and email) captured in this field.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  {contractForms.length === 0 && (
+                    <p className="text-xs text-warning">
+                      No contract templates available. Create a form with "Contract Mode" enabled to use this feature.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Grouped Question Field - Sub-Question Configuration */}
+              {field.type === 'grouped_question' && (() => {
+                const subQuestions = Array.isArray(field.sub_questions) ? field.sub_questions : [];
+                const rawMin = Number(field.min_completed);
+                const minRequired = Number.isFinite(rawMin)
+                  ? Math.max(0, Math.min(rawMin, subQuestions.length))
+                  : subQuestions.length;
+                const rawMax = Number(field.max_completed);
+                const maxAllowed = Number.isFinite(rawMax)
+                  ? Math.max(minRequired, Math.min(rawMax, subQuestions.length))
+                  : subQuestions.length;
+
+                const updateSubQuestions = (nextSubs) => {
+                  const boundedMin = Math.max(0, Math.min(minRequired, nextSubs.length));
+                  const boundedMax = Math.max(boundedMin, Math.min(maxAllowed, nextSubs.length));
+                  updateField(originalIndex, {
+                    sub_questions: nextSubs,
+                    min_completed: boundedMin,
+                    max_completed: boundedMax,
+                  });
+                };
+
+                const addSubQuestion = () => {
+                  const newSub = {
+                    id: `sq_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                    label: '',
+                  };
+                  updateSubQuestions([...subQuestions, newSub]);
+                };
+
+                const removeSubQuestion = (index) => {
+                  updateSubQuestions(subQuestions.filter((_, i) => i !== index));
+                };
+
+                const updateSubQuestionLabel = (index, label) => {
+                  const next = subQuestions.map((sq, i) => i === index ? { ...sq, label } : sq);
+                  updateField(originalIndex, { sub_questions: next });
+                };
+
+                const moveSubQuestion = (index, direction) => {
+                  const target = index + direction;
+                  if (target < 0 || target >= subQuestions.length) return;
+                  const next = [...subQuestions];
+                  [next[index], next[target]] = [next[target], next[index]];
+                  updateField(originalIndex, { sub_questions: next });
+                };
+
+                return (
+                  <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <Users className="w-4 h-4 text-blue-600" />
+                      <Label className="text-xs font-medium">Sub-Questions</Label>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      Each sub-question renders as a multi-line text input. Set how many must be answered for this field to be complete.
+                    </p>
+                    <div className="space-y-2">
+                      {subQuestions.length === 0 && (
+                        <p className="text-xs text-slate-400 italic">No sub-questions yet. Add one to get started.</p>
+                      )}
+                      {subQuestions.map((sq, index) => (
+                        <div
+                          key={sq.id}
+                          className="flex items-center gap-2 py-1.5 px-2 bg-white border border-slate-100 rounded-md"
+                          data-testid={`grouped-subquestion-config-${field.id}-${index}`}
+                        >
+                          <div className="flex flex-col">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-5 w-5 text-slate-400"
+                              disabled={index === 0}
+                              onClick={() => moveSubQuestion(index, -1)}
+                              data-testid={`button-move-up-subquestion-${field.id}-${index}`}
+                            >
+                              <ChevronUp className="w-3 h-3" />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-5 w-5 text-slate-400"
+                              disabled={index === subQuestions.length - 1}
+                              onClick={() => moveSubQuestion(index, 1)}
+                              data-testid={`button-move-down-subquestion-${field.id}-${index}`}
+                            >
+                              <ChevronDown className="w-3 h-3" />
+                            </Button>
+                          </div>
+                          <Input
+                            value={sq.label || ''}
+                            onChange={(e) => updateSubQuestionLabel(index, e.target.value)}
+                            placeholder={`Sub-question ${index + 1} label`}
+                            className="h-8 text-xs flex-1"
+                            data-testid={`input-subquestion-label-${field.id}-${index}`}
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50"
+                            onClick={() => removeSubQuestion(index)}
+                            data-testid={`button-delete-subquestion-${field.id}-${index}`}
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={addSubQuestion}
+                      className="text-xs"
+                      data-testid={`button-add-subquestion-${field.id}`}
+                    >
+                      <Plus className="w-3 h-3 mr-1" />
+                      Add Sub-Question
+                    </Button>
+                    <div className="pt-3 border-t border-slate-200 space-y-1.5">
+                      <Label className="text-xs font-medium">Minimum answers required</Label>
+                      <p className="text-xs text-slate-500">
+                        How many sub-questions must be answered for this field to count as complete.
+                      </p>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={subQuestions.length}
+                        value={minRequired}
+                        onChange={(e) => {
+                          const parsed = parseInt(e.target.value, 10);
+                          const safe = Number.isFinite(parsed) ? parsed : 0;
+                          const bounded = Math.max(0, Math.min(safe, subQuestions.length));
+                          const nextMax = Math.max(bounded, maxAllowed);
+                          updateField(originalIndex, { min_completed: bounded, max_completed: nextMax });
+                        }}
+                        className="h-8 text-xs w-24"
+                        disabled={subQuestions.length === 0}
+                        data-testid={`input-min-completed-${field.id}`}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-medium">Maximum answers allowed</Label>
+                      <p className="text-xs text-slate-500">
+                        Once this many sub-questions are answered, the remaining ones are disabled.
+                      </p>
+                      <Input
+                        type="number"
+                        min={minRequired}
+                        max={subQuestions.length}
+                        value={maxAllowed}
+                        onChange={(e) => {
+                          const parsed = parseInt(e.target.value, 10);
+                          const safe = Number.isFinite(parsed) ? parsed : subQuestions.length;
+                          const bounded = Math.max(0, Math.min(safe, subQuestions.length));
+                          const nextMin = Math.min(minRequired, bounded);
+                          updateField(originalIndex, { max_completed: bounded, min_completed: nextMin });
+                        }}
+                        className="h-8 text-xs w-24"
+                        disabled={subQuestions.length === 0}
+                        data-testid={`input-max-completed-${field.id}`}
+                      />
+                      {subQuestions.length > 0 && (
+                        <p className="text-xs text-slate-400">
+                          {minRequired === 0 && maxAllowed >= subQuestions.length
+                            ? 'No answers required (optional).'
+                            : minRequired === maxAllowed
+                              ? `Answer exactly ${minRequired} of ${subQuestions.length}`
+                              : maxAllowed >= subQuestions.length
+                                ? `Answer at least ${minRequired} of ${subQuestions.length}`
+                                : `Answer between ${minRequired} and ${maxAllowed} of ${subQuestions.length}`}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Default Value Section - for non-boolean fields */}
+              {!['boolean', 'terms_conditions', 'file', 'list', 'instructions', 'image', 'country', 'countries', 'user_name', 'user_email', 'user_organization', 'user_job_title', 'organisation_dropdown', 'organisation_group_dropdown', 'category_multiselect', 'category_dropdown', 'communication_preferences', 'contact', 'grouped_question', 'signature'].includes(field.type) && (
+                <div className="space-y-2 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                  <Label className="text-xs font-medium">Default Value</Label>
+                  <p className="text-xs text-slate-500 mb-2">Pre-filled value when form loads</p>
+                  
+                  {/* Text-based fields */}
+                  {['text', 'textarea', 'email', 'url', 'tel'].includes(field.type) && (
+                    <Input
+                      type={field.type === 'email' ? 'email' : field.type === 'url' ? 'url' : field.type === 'tel' ? 'tel' : 'text'}
+                      value={field.default_value || ''}
+                      onChange={(e) => updateField(originalIndex, { default_value: e.target.value })}
+                      placeholder="Enter default value..."
+                      className="h-8 text-xs"
+                      data-testid={`input-default-value-${field.id}`}
+                    />
+                  )}
+                  
+                  {field.type === 'textarea' && (
+                    <div className="pt-3 border-t border-slate-200 mt-3">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Label className="text-xs font-medium text-slate-700">
+                          Maximum {(field.limit_type === 'words') ? 'Words' : 'Characters'} (Optional)
+                        </Label>
+                        <div className="flex rounded-md border border-slate-200 overflow-visible text-xs ml-auto">
+                          <button
+                            type="button"
+                            className={`px-2 py-0.5 ${(!field.limit_type || field.limit_type === 'characters') ? 'bg-slate-800 text-white' : 'bg-white text-slate-600'}`}
+                            onClick={() => updateField(originalIndex, { limit_type: 'characters' })}
+                            data-testid={`btn-limit-chars-${field.id}`}
+                          >
+                            Characters
+                          </button>
+                          <button
+                            type="button"
+                            className={`px-2 py-0.5 ${field.limit_type === 'words' ? 'bg-slate-800 text-white' : 'bg-white text-slate-600'}`}
+                            onClick={() => updateField(originalIndex, { limit_type: 'words' })}
+                            data-testid={`btn-limit-words-${field.id}`}
+                          >
+                            Words
+                          </button>
+                        </div>
+                      </div>
+                      <Input
+                        type="number"
+                        min="1"
+                        value={field.max_characters ?? ''}
+                        onChange={(e) => updateField(originalIndex, { 
+                          max_characters: e.target.value ? parseInt(e.target.value, 10) : null 
+                        })}
+                        placeholder="No limit"
+                        className="h-8 text-xs"
+                        data-testid={`input-max-characters-${field.id}`}
+                      />
+                      <p className="text-xs text-slate-500 mt-1">Leave blank for no limit</p>
+                    </div>
+                  )}
+                  
+                  {/* Number field */}
+                  {field.type === 'number' && (
+                    <Input
+                      type="number"
+                      value={field.default_value ?? ''}
+                      onChange={(e) => updateField(originalIndex, { default_value: e.target.value ? Number(e.target.value) : '' })}
+                      placeholder="Enter default number..."
+                      className="h-8 text-xs"
+                      data-testid={`input-default-value-${field.id}`}
+                    />
+                  )}
+                  
+                  {/* Currency field - decimal default, sanitized to 2 dp */}
+                  {field.type === 'currency' && (
+                    <Input
+                      type="text"
+                      inputMode="decimal"
+                      value={field.default_value ?? ''}
+                      onChange={(e) => {
+                        let val = e.target.value.replace(/[^0-9.]/g, '');
+                        const parts = val.split('.');
+                        if (parts.length > 2) val = parts[0] + '.' + parts.slice(1).join('');
+                        const [intPart, decPart] = val.split('.');
+                        if (decPart !== undefined) val = intPart + '.' + decPart.slice(0, 2);
+                        updateField(originalIndex, { default_value: val });
+                      }}
+                      placeholder="Enter default amount..."
+                      className="h-8 text-xs"
+                      data-testid={`input-default-value-${field.id}`}
+                    />
+                  )}
+                  
+                  {/* Date field */}
+                  {field.type === 'date' && (
+                    <>
+                      <Input
+                        type="date"
+                        min={field.future_only === true ? tomorrowUtcDate() : undefined}
+                        value={field.default_value || ''}
+                        onChange={(e) => updateField(originalIndex, { default_value: e.target.value })}
+                        className="h-8 text-xs"
+                        data-testid={`input-default-value-${field.id}`}
+                      />
+                      {field.future_only === true && (
+                        <p className="text-xs text-slate-500" data-testid={`text-date-preview-${field.id}`}>
+                          Preview: respondents can choose dates from tomorrow onwards (UTC).
+                        </p>
+                      )}
+                    </>
+                  )}
+                  
+                  {/* Time field */}
+                  {field.type === 'time' && (
+                    <Input
+                      type="time"
+                      value={field.default_value || ''}
+                      onChange={(e) => updateField(originalIndex, { default_value: e.target.value })}
+                      className="h-8 text-xs"
+                      data-testid={`input-default-value-${field.id}`}
+                    />
+                  )}
+                  
+                  {/* Single-select fields (select, radio) - dropdown to pick from options */}
+                  {['select', 'radio'].includes(field.type) && (
+                    <>
+                      {(field.options || []).length === 0 ? (
+                        <p className="text-xs text-warning">Add options above first to set a default value</p>
+                      ) : (
+                        <Select
+                          value={field.default_value || '__none__'}
+                          onValueChange={(value) => updateField(originalIndex, { default_value: value === '__none__' ? null : value })}
+                        >
+                          <SelectTrigger className="h-8 text-xs" data-testid={`select-default-value-${field.id}`}>
+                            <SelectValue placeholder="Select a default option..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">No default</SelectItem>
+                            {(field.options || []).filter(opt => opt && opt.trim()).map((option, idx) => (
+                              <SelectItem key={idx} value={option}>{option}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </>
+                  )}
+                  
+                  {/* Multi-select field (checkbox) - checkboxes to pick defaults */}
+                  {field.type === 'checkbox' && (
+                    <>
+                      {(field.options || []).length === 0 ? (
+                        <p className="text-xs text-warning">Add options above first to set default values</p>
+                      ) : (
+                        <div className="space-y-1 max-h-32 overflow-y-auto">
+                          {(field.options || []).filter(opt => opt && opt.trim()).map((option, idx) => {
+                            const currentDefaults = Array.isArray(field.default_value) ? field.default_value : [];
+                            const isChecked = currentDefaults.includes(option);
+                            return (
+                              <div key={idx} className="flex items-center gap-2">
+                                <Checkbox
+                                  id={`default-${field.id}-${idx}`}
+                                  checked={isChecked}
+                                  onCheckedChange={(checked) => {
+                                    const newDefaults = checked
+                                      ? [...currentDefaults, option]
+                                      : currentDefaults.filter(v => v !== option);
+                                    updateField(originalIndex, { default_value: newDefaults.length > 0 ? newDefaults : null });
+                                  }}
+                                />
+                                <Label htmlFor={`default-${field.id}-${idx}`} className="text-xs cursor-pointer">
+                                  {option}
+                                </Label>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </>
+                  )}
+                  
+                  {field.default_value && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 text-xs text-slate-500 hover:text-red-600"
+                      onClick={() => updateField(originalIndex, { default_value: null })}
+                    >
+                      <X className="w-3 h-3 mr-1" />
+                      Clear default
+                    </Button>
+                  )}
+                </div>
+              )}
+
+              {/* Field Settings Section */}
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg space-y-4">
+                  <Label className="text-sm font-medium">Field Settings</Label>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id={`required-${field.id}`}
+                        checked={field.required}
+                        onCheckedChange={(checked) => updateField(originalIndex, { required: checked })}
+                      />
+                      <Label htmlFor={`required-${field.id}`} className="text-sm">Required</Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id={`locked-${field.id}`}
+                        checked={field.locked || false}
+                        onCheckedChange={(checked) => updateField(originalIndex, { locked: checked })}
+                      />
+                      <Label htmlFor={`locked-${field.id}`} className="text-sm">Locked</Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id={`starts-hidden-${field.id}`}
+                        checked={field.starts_hidden || false}
+                        onCheckedChange={(checked) => updateField(originalIndex, { starts_hidden: checked })}
+                      />
+                      <Label htmlFor={`starts-hidden-${field.id}`} className="text-sm">Hidden on load</Label>
+                    </div>
+                    {field.type === 'select' && (
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          id={`allow-other-${field.id}`}
+                          checked={field.allow_other || false}
+                          onCheckedChange={(checked) => updateField(originalIndex, { allow_other: checked })}
+                        />
+                        <Label htmlFor={`allow-other-${field.id}`} className="text-sm">Allow "Other"</Label>
+                      </div>
+                    )}
+                    {field.type === 'date' && (
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          id={`future-only-${field.id}`}
+                          checked={field.future_only === true}
+                          onCheckedChange={(future_only) => updateField(originalIndex, { future_only })}
+                          data-testid={`switch-future-only-${field.id}`}
+                        />
+                        <Label htmlFor={`future-only-${field.id}`} className="text-sm">
+                          Future dates only (UTC)
+                        </Label>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id={`due-diligence-${field.id}`}
+                        checked={field.due_diligence || false}
+                        onCheckedChange={(checked) => updateField(originalIndex, { due_diligence: checked })}
+                      />
+                      <Label htmlFor={`due-diligence-${field.id}`} className="text-sm">Due Diligence</Label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </SheetContent>
+          </Sheet>
+        </div>
+      )}
+    </Draggable>
+  );
+}
+
 export default function FormBuilderPage() {
-  const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [formData, setFormData] = useState({
     name: "",
     description: "",
     slug: "",
     layout_type: "standard",
+    form_width: "narrow",
     fields: [],
+    pages: [], // For standard layout pagination: [{id: 'page_xxx', title: 'Page 1'}]
     submit_button_text: "Submit",
     success_message: "Thank you for your submission!",
     redirect_url: "",
     require_authentication: false,
-    is_active: true
+    mutation_access_policy: null,
+    access_policy: null,
+    is_active: true,
+    deactivate_at: null,
+    deactivate_timezone: "Europe/London",
+    is_event_related: false,
+    related_event_id: null,
+    due_diligence_required: false,
+    allow_submitter_email_copy: false,
+    allow_save_continue_later: true,
+    prevent_duplicate_email_submission: false,
+    owners: [], // Member IDs who own this form (see Owners card / "My Forms" tab)
+    is_application_form: false,
+    is_job_posting: false, // Flags this form for the member-group vacancy form picker
+    application_level: "member",
+    uniqueness_checks: [],
+    field_mappings: [], // Submission field mappings with transformations
+    submission_email_template_id: null,
+    submission_email_recipient: '',
+    submission_email_cc: '',
+    submission_email_bcc: '',
+    submission_email_field_mapping: {}, // Maps template placeholders to form field IDs: { "customer_name": "field_123" }
+    // New multi-email structure
+    submission_emails: [], // [{id, template_id, recipient, cc, bcc, field_mapping}]
+    prefill_source: "none", // Includes form_field for dropdown-driven record prefill
+    prefill_source_field_id: null,
+    visibility_rules: [], // Conditional logic rules
+    // Unified entity pipelines - replaces old member_entity_action, organization_entity_action, additional_member_creations
+    entity_pipelines: {
+      members: [], // [{id, label, isPrimary, role_id, role_assignment, uniqueness_key, mappings}]
+      organisations: [] // [{id, label, isPrimary, uniqueness_key, field_mappings}]
+    },
+    structured_actions: { version: STRUCTURED_ACTIONS_VERSION, actions: [] },
+    // Contract signing mode
+    is_contract: false,
+    blank_layout: false,
+    contract_settings: {
+      timeout_days: 30, // Days before contract expires
+      organization_id: null, // Linked organisation
+      reminders: [], // [{id, days_before_timeout, email_template_id}]
+      require_signature: true,
+      signers: [], // [{id, name, email, type: 'external'|'member', member_id}]
+      // Timeout notification settings (for alternative signer feature)
+      timeout_email_template_id: null, // Email to send when contract times out
+      source_dd_form_id: null, // Source DD form for applicant field mapping
+      applicant_name_field: null, // Field ID from DD form for applicant's name
+      applicant_email_field: null, // Field ID from DD form for applicant's email
+      alternative_signer_form_id: null // Form where applicant provides new signer details
+    },
+    communication_category_id: null, // Link form to a communication category for newsletter signups
+    // Survey forms (Task #3330)
+    form_type: 'standard', // 'standard' | 'survey'
+    survey_settings: {}, // status, intro/thank-you, identity mode, display options
+    survey_audit_log: [] // append-only lifecycle audit entries
   });
+  
+  // Track which form pages are expanded (for collapsible UI) - true = expanded, false = collapsed
+  // Use a ref to track "all collapsed" mode separately from individual toggles
+  const [expandedPages, setExpandedPages] = useState({});
+  const [allCollapsedMode, setAllCollapsedMode] = useState(false);
+  
+  // Track which field's configuration drawer is open
+  const [editingFieldId, setEditingFieldId] = useState(null);
+  const pendingDuplicatedFieldId = useRef(null);
+
+  useEffect(() => {
+    const duplicatedId = pendingDuplicatedFieldId.current;
+    if (duplicatedId && formData.fields.some(field => field.id === duplicatedId)) {
+      pendingDuplicatedFieldId.current = null;
+      setEditingFieldId(duplicatedId);
+    }
+  }, [formData]);
+
+  // Controlled tab state (survey validation links jump back to the builder)
+  const [activeTab, setActiveTab] = useState('builder');
+  
+  const togglePageExpanded = (pageId) => {
+    setExpandedPages(prev => {
+      // Derive current state: if allCollapsedMode and not explicitly set, treat as collapsed
+      let currentState;
+      if (prev[pageId] !== undefined) {
+        currentState = prev[pageId];
+      } else if (allCollapsedMode) {
+        currentState = false; // Collapsed by default when in allCollapsedMode
+      } else {
+        currentState = true; // Expanded by default otherwise
+      }
+      return {
+        ...prev,
+        [pageId]: !currentState
+      };
+    });
+    setAllCollapsedMode(false); // Exit "all collapsed" mode after toggling
+  };
+  
+  const isPageExpanded = (pageId) => {
+    // If in "all collapsed" mode and not explicitly expanded, stay collapsed
+    if (allCollapsedMode && expandedPages[pageId] !== true) {
+      return false;
+    }
+    // Otherwise default to expanded unless explicitly collapsed
+    return expandedPages[pageId] !== false;
+  };
+  
+  const expandAllPages = () => {
+    setAllCollapsedMode(false);
+    const allExpanded = {};
+    formData.pages.forEach(p => { allExpanded[p.id] = true; });
+    setExpandedPages(allExpanded);
+  };
+  
+  const collapseAllPages = () => {
+    setAllCollapsedMode(true);
+    setExpandedPages({});
+  };
 
   const queryClient = useQueryClient();
   const urlParams = new URLSearchParams(window.location.search);
   const formId = urlParams.get('formId');
+  const [protectedAction, setProtectedAction] = useState(null);
+  const [activeTenantId, setActiveTenantIdState] = useState(() => (
+    (isTenantUuid(getActiveTenantId()) && getActiveTenantId().trim())
+    || (isTenantUuid(memberInfo?.tenant_id) && memberInfo.tenant_id.trim())
+    || null
+  ));
+
+  // The admin tenant can change without unmounting this page. Keep the
+  // discovery query key and its explicit request header aligned with the
+  // currently displayed tenant rather than the public-client singleton's
+  // location-derived slug.
+  useEffect(() => {
+    const currentTenantId = getActiveTenantId();
+    setActiveTenantIdState(
+      (isTenantUuid(currentTenantId) && currentTenantId.trim())
+      || (isTenantUuid(memberInfo?.tenant_id) && memberInfo.tenant_id.trim())
+      || null,
+    );
+    return subscribeToActiveTenantId(tenantId => {
+      setActiveTenantIdState(isTenantUuid(tenantId) ? tenantId.trim() : null);
+    });
+  }, [memberInfo?.tenant_id]);
+
+  const relationshipDiscoveryContext = useMemo(() => ({
+    tenantId: activeTenantId,
+    principalId: memberInfo?.id || null,
+    authorId: memberInfo?.id || null,
+    roleId: memberInfo?.role_id || null,
+    mode: 'admin',
+    enabled: Boolean(isAccessReady && activeTenantId),
+  }), [activeTenantId, isAccessReady, memberInfo?.id, memberInfo?.role_id]);
 
   const { data: existingForm, isLoading: formLoading } = useQuery({
     queryKey: ['form', formId],
@@ -70,38 +10845,610 @@ export default function FormBuilderPage() {
     enabled: !!formId
   });
 
+  // Fetch resource categories for category_multiselect field configuration (search categories)
+  const { data: categories = [] } = useQuery({
+    queryKey: ['resource-categories-for-forms'],
+    queryFn: async () => await publicClient.listResourceCategories() || []
+  });
+
+  const { data: idealPostcodesIntegration, isLoading: idealPostcodesLoading } = useQuery({
+    queryKey: ['admin-integrations', 'ideal-postcodes'],
+    queryFn: async () => {
+      const response = await adminFetch('/api/admin/integrations', { credentials: 'include' });
+      if (!response.ok) throw new Error('Unable to load integration status');
+      const data = await response.json();
+      return (data.integrations || []).find(integration => integration.integration_type === 'ideal_postcodes') || null;
+    },
+    staleTime: 60_000,
+  });
+  const idealPostcodesAvailable = idealPostcodesIntegration?.is_enabled === true
+    && idealPostcodesIntegration?.platform_configured === true;
+
+  // Fetch custom fields (PreferenceField) for CRM mapping
+  const { data: emailTemplates = [] } = useQuery({
+    queryKey: ['email-templates-active'],
+    queryFn: async () => {
+      try {
+        const templates = await base44.entities.EmailTemplate.list();
+        return (templates || []).filter(t => t.is_active !== false);
+      } catch (err) {
+        console.warn('Failed to fetch email templates:', err);
+        return [];
+      }
+    },
+  });
+
+  // Fetch all forms for alternative signer form selection
+  const { data: allForms = [] } = useQuery({
+    queryKey: ['all-forms-for-selection'],
+    queryFn: async () => {
+      try {
+        const forms = await base44.entities.Form.list();
+        return (forms || []).filter(f => f.is_active !== false && !f.is_contract);
+      } catch (err) {
+        console.warn('Failed to fetch forms:', err);
+        return [];
+      }
+    },
+  });
+
+  // Survey lock (Task #3330): once a form has ANY responses, form type and
+  // scoring settings are locked and "Duplicate as New Version" is offered.
+  const { data: hasResponses = false } = useQuery({
+    queryKey: ['form-has-responses', formId],
+    queryFn: async () => {
+      try {
+        const rows = await base44.entities.FormSubmission.filter({ form_id: formId }, '-created_date', 1);
+        return (rows || []).length > 0;
+      } catch (err) {
+        console.warn('Failed to check for existing submissions:', err);
+        return false;
+      }
+    },
+    enabled: !!formId,
+  });
+
+  // Fetch DD forms for applicant field mapping in timeout notifications
+  const { data: ddForms = [] } = useQuery({
+    queryKey: ['dd-forms-for-mapping'],
+    queryFn: async () => {
+      try {
+        const forms = await base44.entities.Form.list();
+        return (forms || []).filter(f => f.is_active !== false && f.due_diligence_required === true);
+      } catch (err) {
+        console.warn('Failed to fetch DD forms:', err);
+        return [];
+      }
+    },
+  });
+
+  // Get fields from selected source DD form for applicant mapping
+  const selectedSourceDDFormId = formData?.contract_settings?.source_dd_form_id;
+  const selectedSourceDDForm = ddForms.find(f => f.id === selectedSourceDDFormId);
+  const sourceFormFields = selectedSourceDDForm?.fields || [];
+
+  const { data: customFields = [] } = useQuery({
+    queryKey: ['/api/entities/PreferenceField', 'all-for-mapping'],
+    queryFn: async () => {
+      try {
+        const fields = await base44.entities.PreferenceField.list({
+          filter: { is_active: true },
+          sort: { display_order: 'asc' }
+        });
+        return fields || [];
+      } catch {
+        return [];
+      }
+    }
+  });
+
+  // Structured Record Actions use the authenticated generic Custom Object API.
+  // Calling through base44's request adapter preserves credentials and the
+  // active-tenant header used throughout the admin application.
+  const {
+    data: structuredActionMetadata = { objects: [], fields: {}, relationships: [] },
+    isLoading: structuredActionMetadataLoading,
+    error: structuredActionMetadataError,
+  } = useQuery({
+    queryKey: ['custom-objects', 'form-builder-structured-actions'],
+    queryFn: async () => {
+      const objectEnvelope = await base44._apiRequest('/api/custom-objects?status=active&pageSize=100');
+      const objects = (objectEnvelope?.data || []).filter(object => object.status === 'active');
+      const resources = await Promise.all(objects.map(async object => {
+        const [fieldEnvelope, relationshipEnvelope] = await Promise.all([
+          base44._apiRequest(`/api/custom-objects/${encodeURIComponent(object.id)}/fields?pageSize=100`),
+          base44._apiRequest(`/api/custom-objects/${encodeURIComponent(object.id)}/relationship-definitions?pageSize=100`),
+        ]);
+        return {
+          objectId: object.id,
+          fields: (fieldEnvelope?.data || []).filter(field => field.is_active !== false),
+          relationships: relationshipEnvelope?.data || [],
+        };
+      }));
+      const fields = Object.fromEntries(resources.map(resource => [resource.objectId, resource.fields]));
+      const relationships = Array.from(new Map(
+        resources.flatMap(resource => resource.relationships)
+          .filter(definition => definition.status === 'active')
+          .map(definition => [definition.id, definition]),
+      ).values());
+      return { objects, fields, relationships };
+    },
+    staleTime: 60_000,
+  });
+
+  const { data: roles = [] } = useQuery({
+    queryKey: ['/api/entities/Role', 'all-for-form-actions'],
+    queryFn: async () => {
+      try {
+        const allRoles = await base44.entities.Role.list();
+        return allRoles || [];
+      } catch {
+        return [];
+      }
+    }
+  });
+
+  const { data: activeMemberGroups = [] } = useQuery({
+    queryKey: ['/api/entities/MemberGroup', 'active-for-form-access'],
+    queryFn: async () => {
+      try {
+        const groups = await base44.entities.MemberGroup.list({
+          filter: { is_active: true },
+          sort: { name: 'asc' }
+        });
+        return (groups || []).filter(group => group.is_active !== false);
+      } catch {
+        return [];
+      }
+    }
+  });
+
+  // Fetch communication categories for marketing preference mapping
+  const { data: communicationCategories = [] } = useQuery({
+    queryKey: ['communication-categories-for-forms'],
+    queryFn: async () => {
+      try {
+        const categories = await base44.entities.CommunicationCategory.list({ 
+          sort: { display_order: 'asc' } 
+        });
+        return categories || [];
+      } catch {
+        return [];
+      }
+    }
+  });
+
+  // Fetch events for the "related to an event" form setting. We pull all
+  // events ordered by start date and filter to upcoming ones in the dropdown
+  // (keeping any already-linked past event visible so editing round-trips).
+  const { data: allEvents = [] } = useQuery({
+    queryKey: ['/api/entities/Event', 'all-for-form-event-link'],
+    queryFn: async () => {
+      try {
+        const events = await base44.entities.Event.list({ sort: { start_date: 'asc' } });
+        return events || [];
+      } catch {
+        return [];
+      }
+    }
+  });
+
+  // Events for the linked-event dropdown, alphabetical by title. Survey forms
+  // include past events (surveys usually follow an event that already ran);
+  // standard forms keep the upcoming-only filter. Any event already linked to
+  // this form is always included even if it is now in the past, so editing an
+  // existing form restores its selection cleanly.
+  const isSurveyForm = formData.form_type === 'survey';
+  const eventOptions = useMemo(() => {
+    const now = Date.now();
+    const selectedId = formData.related_event_id || null;
+    const list = (allEvents || []).filter(ev => {
+      if (!ev || !ev.id) return false;
+      if (isSurveyForm) return true;
+      if (selectedId && ev.id === selectedId) return true;
+      const start = ev.start_date ? new Date(ev.start_date).getTime() : NaN;
+      return Number.isFinite(start) ? start >= now : false;
+    });
+    return list.sort((a, b) =>
+      String(a.title || '').localeCompare(String(b.title || ''), undefined, { sensitivity: 'base' })
+    );
+  }, [allEvents, formData.related_event_id, isSurveyForm]);
+
+  // Fetch organisations for contract linking
+  const { data: organizations = [] } = useQuery({
+    queryKey: ['organizations-for-contracts'],
+    queryFn: async () => {
+      try {
+        const orgs = await listOrganizationsForAdmin('name');
+        return orgs || [];
+      } catch {
+        return [];
+      }
+    }
+  });
+
+  const { data: organizationGroups = [] } = useQuery({
+    queryKey: ['organization-groups-for-form-builder'],
+    queryFn: async () => {
+      try {
+        return await base44.entities.OrganizationGroup.list('name') || [];
+      } catch {
+        return [];
+      }
+    },
+  });
+
+  // Fetch members for contract signer selection
+  const { data: members = [] } = useQuery({
+    queryKey: ['members-for-contract-signers'],
+    queryFn: async () => {
+      try {
+        const memberList = await base44.entities.Member.list('first_name, last_name, email');
+        return memberList || [];
+      } catch {
+        return [];
+      }
+    }
+  });
+
+  // Fetch contract forms (forms with is_contract: true) for Contact field contract template selection
+  const { data: contractForms = [] } = useQuery({
+    queryKey: ['contract-forms-for-contact-field'],
+    queryFn: async () => {
+      try {
+        const allForms = await base44.entities.Form.list();
+        return (allForms || []).filter(f => f.is_contract === true);
+      } catch {
+        return [];
+      }
+    }
+  });
+
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_FormBuilder')) {
+      if (isFeatureExcluded('page_FormBuilder')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
+
+  // Migration function: Convert legacy format to unified entity_pipelines
+  const migrateToEntityPipelines = (form) => {
+    // If form already has entity_pipelines with the new mappings array format, use it
+    if (form.entity_pipelines && (form.entity_pipelines.members?.length > 0 || form.entity_pipelines.organisations?.length > 0)) {
+      // Check if entries use the new mappings array format or old field_mappings object
+      const needsMigration = [...(form.entity_pipelines.members || []), ...(form.entity_pipelines.organisations || [])]
+        .some(entry => entry.field_mappings && !entry.mappings);
+      
+      if (!needsMigration) {
+        return {
+          ...form.entity_pipelines,
+          members: (form.entity_pipelines.members || []).map(member => ({
+            ...member,
+            mappings: normalizePipelineMappingEntities(member.mappings, 'member'),
+          })),
+          organisations: (form.entity_pipelines.organisations || []).map(org => ({
+            ...org,
+            mappings: normalizePipelineMappingEntities(org.mappings, 'organization'),
+          })),
+        };
+      }
+      
+      // Migrate existing entity_pipelines from field_mappings object to mappings array
+      const migratedPipelines = {
+        members: (form.entity_pipelines.members || []).map(member => {
+          if (member.mappings) {
+            return {
+              ...member,
+              mappings: normalizePipelineMappingEntities(member.mappings, 'member'),
+            };
+          }
+          
+          // Convert field_mappings object to mappings array
+          const mappings = [];
+          if (member.field_mappings) {
+            for (const [key, value] of Object.entries(member.field_mappings)) {
+              if (value && value !== '__clear__') {
+                const isCustom = key.startsWith('custom_');
+                mappings.push({
+                  id: `mapping_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                  source_type: 'field',
+                  source_field_id: value,
+                  static_value: '',
+                  target_type: isCustom ? 'custom' : 'core',
+                  target_entity: 'member',
+                  target_field: isCustom ? key.replace('custom_', '') : key,
+                  transformation: 'none'
+                });
+              }
+            }
+          }
+          return { ...member, mappings, field_mappings: undefined };
+        }),
+        organisations: (form.entity_pipelines.organisations || []).map(org => {
+          if (org.mappings) {
+            return {
+              ...org,
+              mappings: normalizePipelineMappingEntities(org.mappings, 'organization'),
+            };
+          }
+          
+          // Convert field_mappings object to mappings array
+          const mappings = [];
+          if (org.field_mappings) {
+            for (const [key, value] of Object.entries(org.field_mappings)) {
+              if (value && value !== '__clear__') {
+                const isCustom = key.startsWith('custom_');
+                mappings.push({
+                  id: `mapping_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                  source_type: 'field',
+                  source_field_id: value,
+                  static_value: '',
+                  target_type: isCustom ? 'custom' : 'core',
+                  target_entity: 'organization',
+                  target_field: isCustom ? key.replace('custom_', '') : key,
+                  transformation: 'none'
+                });
+              }
+            }
+          }
+          return { ...org, mappings, field_mappings: undefined };
+        })
+      };
+      
+      return migratedPipelines;
+    }
+    
+    const pipelines = { members: [], organisations: [] };
+    
+    // Migrate legacy member settings
+    const memberAction = form.member_entity_action || 
+      (form.create_entity_type === "member" || form.create_entity_type === "both" 
+        ? (form.entity_action || "create") 
+        : "none");
+    
+    if (memberAction !== 'none' && form.auto_create_entity) {
+      // Create primary member entry from field_mappings
+      const primaryMember = {
+        id: `member_primary_${Date.now()}`,
+        label: 'Primary Member',
+        isPrimary: true,
+        role_id: form.default_member_role_id || null,
+        uniqueness_key: 'email',
+        mappings: [],
+        login_enabled: null
+      };
+      
+      // Extract member mappings from field_mappings array
+      if (form.field_mappings && Array.isArray(form.field_mappings)) {
+        for (const mapping of form.field_mappings) {
+          if (mapping.target_entity === 'member' && mapping.source_field_id) {
+            primaryMember.mappings.push({
+              ...mapping,
+              id: mapping.id || `mapping_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+            });
+          }
+        }
+      }
+      
+      pipelines.members.push(primaryMember);
+      
+      // Add additional members from legacy additional_member_creations
+      if (form.additional_member_creations && Array.isArray(form.additional_member_creations)) {
+        form.additional_member_creations.forEach((am, idx) => {
+          // Convert field_mappings object to mappings array
+          const mappings = [];
+          if (am.field_mappings) {
+            for (const [key, value] of Object.entries(am.field_mappings)) {
+              if (value && value !== '__clear__') {
+                const isCustom = key.startsWith('custom_');
+                mappings.push({
+                  id: `mapping_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                  source_type: 'field',
+                  source_field_id: value,
+                  static_value: '',
+                  target_type: isCustom ? 'custom' : 'core',
+                  target_entity: 'member',
+                  target_field: isCustom ? key.replace('custom_', '') : key,
+                  transformation: 'none'
+                });
+              }
+            }
+          }
+          
+          pipelines.members.push({
+            id: am.id || `member_${Date.now()}_${idx}`,
+            label: am.label || `Additional Member ${idx + 1}`,
+            isPrimary: false,
+            role_id: am.role_id || null,
+            uniqueness_key: 'email',
+            mappings,
+            login_enabled: typeof am.login_enabled === 'boolean' ? am.login_enabled : null
+          });
+        });
+      }
+    }
+    
+    // Migrate legacy organization settings
+    const orgAction = form.organization_entity_action || 
+      (form.create_entity_type === "organization" || form.create_entity_type === "both" 
+        ? (form.entity_action || "create") 
+        : "none");
+    
+    if (orgAction !== 'none' && form.auto_create_entity) {
+      // Create primary organisation entry from field_mappings
+      const primaryOrg = {
+        id: `org_primary_${Date.now()}`,
+        label: 'Primary Organisation',
+        isPrimary: true,
+        uniqueness_key: 'name',
+        mappings: []
+      };
+      
+      // Extract organisation mappings from field_mappings array
+      if (form.field_mappings && Array.isArray(form.field_mappings)) {
+        for (const mapping of form.field_mappings) {
+          if (mapping.target_entity === 'organization' && mapping.source_field_id) {
+            primaryOrg.mappings.push({
+              ...mapping,
+              id: mapping.id || `mapping_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+            });
+          }
+        }
+      }
+      
+      pipelines.organisations.push(primaryOrg);
+    }
+    
+    return pipelines;
+  };
 
   useEffect(() => {
     if (existingForm) {
+      // Migrate to new entity_pipelines format
+      const entityPipelines = migrateToEntityPipelines(existingForm);
+      
       setFormData({
         name: existingForm.name || "",
         description: existingForm.description || "",
         slug: existingForm.slug || "",
         layout_type: existingForm.layout_type || "standard",
+        form_width: normalizeFormWidth(existingForm.form_width),
         fields: existingForm.fields ? existingForm.fields.map(field => ({
           ...field,
-          allow_other: field.allow_other ?? false // Ensure allow_other is initialized, default to false
+          allow_other: field.allow_other ?? false,
+          page_id: field.page_id || null,
+          column_index: field.column_index ?? 0, // Default to first column
+          ...(field.conditional_filters ? {
+            conditional_filters: {
+              version: 1,
+              rules: (Array.isArray(field.conditional_filters.rules) ? field.conditional_filters.rules : []).map((rule, ruleIndex) => ({
+                id: rule.id || `conditional_filter_${field.id}_${ruleIndex}`,
+                source_field_id: rule.source_field_id || '',
+                source_field_type: rule.source_field_type || null,
+                operator: rule.operator || 'equals',
+                value: rule.value ?? '',
+                is_fallback: rule.is_fallback === true,
+                allowed_values: Array.isArray(rule.allowed_values) ? rule.allowed_values : [],
+                allowed_values_mode: rule.allowed_values_mode || 'include',
+                org_filter: rule.org_filter || null,
+              })),
+            },
+          } : {}),
+        })) : [],
+        pages: existingForm.pages ? existingForm.pages.map(page => ({
+          ...page,
+          column_count: page.column_count ?? 1 // Default to single column
         })) : [],
         submit_button_text: existingForm.submit_button_text || "Submit",
         success_message: existingForm.success_message || "Thank you for your submission!",
         redirect_url: existingForm.redirect_url || "",
         require_authentication: existingForm.require_authentication || false,
-        is_active: existingForm.is_active ?? true
+        mutation_access_policy: existingForm.mutation_access_policy || null,
+        access_policy: (
+          existingForm.access_policy?.group_rules?.length ||
+          existingForm.access_policy?.rbac_role_ids?.length
+        ) ? existingForm.access_policy : null,
+        is_active: existingForm.is_active ?? true,
+        deactivate_at: existingForm.deactivate_at || null,
+        deactivate_timezone: existingForm.deactivate_timezone || "Europe/London",
+        is_event_related: existingForm.is_event_related ?? false,
+        related_event_id: existingForm.related_event_id || null,
+        due_diligence_required: existingForm.due_diligence_required ?? false,
+        allow_submitter_email_copy: existingForm.allow_submitter_email_copy ?? false,
+        allow_save_continue_later: existingForm.allow_save_continue_later !== false,
+        prevent_duplicate_email_submission: existingForm.prevent_duplicate_email_submission ?? false,
+        owners: Array.isArray(existingForm.owners) ? existingForm.owners : [],
+        is_application_form: existingForm.is_application_form || false,
+        application_level: existingForm.application_level || "member",
+        uniqueness_checks: existingForm.uniqueness_checks || [],
+        field_mappings: existingForm.field_mappings || [],
+        submission_email_template_id: existingForm.submission_email_template_id || null,
+        submission_email_recipient: existingForm.submission_email_recipient || '',
+        submission_email_cc: existingForm.submission_email_cc || '',
+        submission_email_bcc: existingForm.submission_email_bcc || '',
+        submission_email_field_mapping: existingForm.submission_email_field_mapping || {},
+        // Load submission_emails array or migrate from legacy single email
+        submission_emails: existingForm.submission_emails?.length > 0 
+          ? existingForm.submission_emails 
+          : (existingForm.submission_email_template_id 
+            ? [{
+                id: `email_${Date.now()}`,
+                template_id: existingForm.submission_email_template_id,
+                recipient: existingForm.submission_email_recipient || '',
+                cc: existingForm.submission_email_cc || '',
+                bcc: existingForm.submission_email_bcc || '',
+                field_mapping: existingForm.submission_email_field_mapping || {}
+              }] 
+            : []),
+        prefill_source: existingForm.prefill_source || "none",
+        prefill_source_field_id: existingForm.prefill_source_field_id || existingForm.prefill_field_id || null,
+        is_job_posting: existingForm.is_job_posting || false,
+        visibility_rules: (existingForm.visibility_rules || []).map(rule => ({
+          ...rule,
+          rule_type: rule.rule_type || 'visibility',
+          target_field_id: rule.target_field_id || '',
+          set_value_source: rule.set_value_source || 'static',
+          set_value: rule.set_value ?? '',
+          set_value_field_id: rule.set_value_field_id || '',
+          set_value_prefill_field: rule.set_value_prefill_field || '',
+          target_field_ids: rule.target_field_ids || []
+        })),
+        entity_pipelines: entityPipelines,
+        structured_actions: {
+          version: STRUCTURED_ACTIONS_VERSION,
+          actions: Array.isArray(existingForm.structured_actions?.actions)
+            ? existingForm.structured_actions.actions
+            : [],
+        },
+        is_contract: existingForm.is_contract || false,
+        blank_layout: existingForm.blank_layout || false,
+        contract_settings: existingForm.contract_settings || {
+          timeout_days: 30,
+          organization_id: null,
+          reminders: [],
+          require_signature: true,
+          signers: []
+        },
+        communication_category_id: existingForm.communication_category_id || null,
+        form_type: existingForm.form_type || 'standard',
+        survey_settings: existingForm.survey_settings || {},
+        survey_audit_log: Array.isArray(existingForm.survey_audit_log) ? existingForm.survey_audit_log : []
       });
     }
   }, [existingForm]);
 
+  // Redirect URL can either be a static URL (current behaviour) or be driven by
+  // the value the respondent submits for one of the form's own fields. The
+  // field-based option is encoded into the existing `redirect_url` column with a
+  // `field:` prefix so no schema change is required.
+  const REDIRECT_FIELD_PREFIX = 'field:';
+  const lastStaticRedirectRef = useRef('');
+  const redirectIsField = (formData.redirect_url || '').startsWith(REDIRECT_FIELD_PREFIX);
+  const redirectMode = redirectIsField ? 'field' : 'static';
+  const selectedRedirectFieldId = redirectIsField
+    ? formData.redirect_url.slice(REDIRECT_FIELD_PREFIX.length)
+    : '';
+  if (!redirectIsField) {
+    // Remember the last static URL so toggling to "field" and back doesn't lose it.
+    lastStaticRedirectRef.current = formData.redirect_url || '';
+  }
+  const handleRedirectModeChange = (mode) => {
+    if (mode === 'field') {
+      setFormData({ ...formData, redirect_url: REDIRECT_FIELD_PREFIX });
+    } else {
+      setFormData({ ...formData, redirect_url: lastStaticRedirectRef.current || '' });
+    }
+  };
+  const handleRedirectFieldChange = (fieldId) => {
+    setFormData({ ...formData, redirect_url: `${REDIRECT_FIELD_PREFIX}${fieldId}` });
+  };
+
   const createFormMutation = useMutation({
     mutationFn: async (data) => {
+      console.log('[FormBuilder] Creating form with data:', JSON.stringify(data, null, 2));
       return await base44.entities.Form.create(data);
     },
     onSuccess: () => {
@@ -110,34 +11457,170 @@ export default function FormBuilderPage() {
       window.location.href = createPageUrl('FormManagement');
     },
     onError: (error) => {
-      toast.error('Failed to create form');
+      console.error('[FormBuilder] Create form error:', error);
+      const roleError = formRoleValidationError(error, 'save');
+      if (roleError) {
+        toast.error(roleError.title, { description: roleError.description });
+        return;
+      }
+      const errorMessage = error?.message || error?.response?.data?.error || 'Unknown error';
+      toast.error(`Failed to create form: ${errorMessage}`);
     }
   });
 
   const updateFormMutation = useMutation({
-    mutationFn: async ({ id, data }) => {
-      return await base44.entities.Form.update(id, data);
+    mutationFn: async ({ id, data, headers }) => {
+      console.log('[FormBuilder] Updating form', id, 'with data:', JSON.stringify(data, null, 2));
+      return await base44.entities.Form.update(id, data, { headers });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['forms'] });
       toast.success('Form updated successfully');
     },
     onError: (error) => {
-      toast.error('Failed to update form');
+      console.error('[FormBuilder] Update form error:', error);
+      const roleError = formRoleValidationError(error, 'save');
+      if (roleError) {
+        toast.error(roleError.title, { description: roleError.description });
+        return;
+      }
+      const errorMessage = error?.message || error?.response?.data?.error || 'Unknown error';
+      toast.error(`Failed to update form: ${errorMessage}`);
     }
   });
 
-  const addField = () => {
+  const addField = (pageId = null, columnIndex = 0) => {
     const newField = {
       id: `field_${Date.now()}`,
       type: 'text',
       label: 'New Field',
       placeholder: '',
       required: false,
-      options: [], // For select, radio, checkbox
-      allow_other: false // For select fields
+      options: [],
+      allow_other: false,
+      page_id: pageId,
+      column_index: columnIndex
     };
     setFormData({ ...formData, fields: [...formData.fields, newField] });
+  };
+
+  const duplicateRestrictionFor = (field, currentForm = formData) => {
+    if (field.type === 'payment') {
+      return 'A form can contain only one Payment field. Configure the existing Payment field instead.';
+    }
+    if (field.type === 'score' && currentForm.form_type !== 'survey') {
+      return 'Score fields can only be added to surveys.';
+    }
+    if (field.type === 'score' && hasResponses && currentForm.form_type === 'survey') {
+      return 'This survey already has responses — scoring settings are locked. Use "Duplicate as New Version" to make scoring changes.';
+    }
+    if (field.type === 'address_lookup' && !idealPostcodesAvailable) {
+      return 'Enable the Ideal Postcodes integration before duplicating an address lookup field.';
+    }
+    return null;
+  };
+
+  const duplicateField = (sourceId) => {
+    const source = formData.fields.find(field => field.id === sourceId);
+    if (!source) {
+      toast.error('Field no longer exists. Refresh the form and try again.');
+      return;
+    }
+    const restriction = duplicateRestrictionFor(source);
+    if (restriction) {
+      toast.error(restriction);
+      return;
+    }
+    // Functional update ensures consecutive clicks use the newest field list rather
+    // than overwriting each other with the render's captured formData snapshot.
+    setFormData(current => {
+      const latestSource = current.fields.find(field => field.id === sourceId);
+      if (!latestSource || duplicateRestrictionFor(latestSource, current)) return current;
+      const { form, field } = duplicateFormField(current, sourceId);
+      pendingDuplicatedFieldId.current = field.id;
+      return form;
+    });
+  };
+
+  const addAddressLookupField = (pageId = null, columnIndex = 0) => {
+    if (!idealPostcodesAvailable) {
+      toast.error('Enable the Ideal Postcodes integration before adding an address lookup field.');
+      return;
+    }
+    setFormData({
+      ...formData,
+      fields: [...formData.fields, {
+        id: `field_${Date.now()}`,
+        type: 'address_lookup',
+        required: false,
+        options: [],
+        allow_other: false,
+        page_id: pageId,
+        column_index: columnIndex,
+        ...addressLookupDefaults,
+      }],
+    });
+  };
+
+  // Page management functions (for standard layout only)
+  const addPage = () => {
+    const pageNumber = formData.pages.length + 1;
+    const newPage = {
+      id: `page_${Date.now()}`,
+      title: `Page ${pageNumber}`,
+      column_count: 1,
+      page_style: 'standard'
+    };
+    setFormData({ ...formData, pages: [...formData.pages, newPage] });
+  };
+
+  const updatePage = (pageId, updates) => {
+    const newPages = formData.pages.map(p => 
+      p.id === pageId ? { ...p, ...updates } : p
+    );
+    
+    // If reducing column count, reassign fields from removed columns
+    let newFields = formData.fields;
+    if (updates.column_count !== undefined) {
+      const currentPage = formData.pages.find(p => p.id === pageId);
+      const oldColumnCount = currentPage?.column_count || 1;
+      const newColumnCount = updates.column_count;
+      
+      if (newColumnCount < oldColumnCount) {
+        // Move fields from columns that no longer exist to the last column
+        newFields = formData.fields.map(f => {
+          if (f.page_id === pageId && (f.column_index || 0) >= newColumnCount) {
+            return { ...f, column_index: newColumnCount - 1 };
+          }
+          return f;
+        });
+      }
+    }
+    
+    setFormData({ ...formData, pages: newPages, fields: newFields });
+  };
+
+  const removePage = (pageId) => {
+    // Move all fields from this page to no page (null)
+    const newFields = formData.fields.map(f => 
+      f.page_id === pageId ? { ...f, page_id: null } : f
+    );
+    const newPages = formData.pages.filter(p => p.id !== pageId);
+    setFormData({ ...formData, pages: newPages, fields: newFields });
+  };
+
+  const movePageUp = (index) => {
+    if (index === 0) return;
+    const newPages = [...formData.pages];
+    [newPages[index - 1], newPages[index]] = [newPages[index], newPages[index - 1]];
+    setFormData({ ...formData, pages: newPages });
+  };
+
+  const movePageDown = (index) => {
+    if (index === formData.pages.length - 1) return;
+    const newPages = [...formData.pages];
+    [newPages[index], newPages[index + 1]] = [newPages[index + 1], newPages[index]];
+    setFormData({ ...formData, pages: newPages });
   };
 
   const updateField = (index, updates) => {
@@ -147,48 +11630,967 @@ export default function FormBuilderPage() {
   };
 
   const removeField = (index) => {
+    const removedField = formData.fields[index];
     const newFields = formData.fields.filter((_, i) => i !== index);
-    setFormData({ ...formData, fields: newFields });
+    
+    // Clean up orphaned uniqueness checks when field is removed
+    const newUniquenessChecks = (formData.uniqueness_checks || [])
+      .filter(c => c.field_id !== removedField?.id);
+    
+    setFormData({ ...formData, fields: newFields, uniqueness_checks: newUniquenessChecks });
+  };
+
+  const handleUniquenessChange = (fieldId, enabled, options = {}) => {
+    const existingChecks = formData.uniqueness_checks || [];
+    
+    if (enabled) {
+      const existingIndex = existingChecks.findIndex(c => c.field_id === fieldId);
+      const existingCheck = existingIndex >= 0 ? existingChecks[existingIndex] : {};
+      const newCheck = { 
+        field_id: fieldId, 
+        target_field: options.target_field || existingCheck.target_field || (formData.application_level === 'member' ? 'member.email' : 'organization.name'),
+        comparison_mode: options.comparison_mode || existingCheck.comparison_mode || 'equals_lowercase',
+        error_message: options.error_message !== undefined ? options.error_message : (existingCheck.error_message || '')
+      };
+      
+      if (existingIndex >= 0) {
+        const newChecks = [...existingChecks];
+        newChecks[existingIndex] = newCheck;
+        setFormData({ ...formData, uniqueness_checks: newChecks });
+      } else {
+        setFormData({ ...formData, uniqueness_checks: [...existingChecks, newCheck] });
+      }
+    } else {
+      setFormData({ ...formData, uniqueness_checks: existingChecks.filter(c => c.field_id !== fieldId) });
+    }
+  };
+
+  // Parse droppable ID to extract page ID and column index
+  // Format: "fields-unassigned" or "pageId::columnIndex"
+  const parseDroppableId = (droppableId) => {
+    if (droppableId === 'fields-unassigned') {
+      return { pageId: null, columnIndex: 0 };
+    }
+    const parts = droppableId.split('::');
+    return {
+      pageId: parts[0],
+      columnIndex: parseInt(parts[1] || '0', 10)
+    };
   };
 
   const handleDragEnd = (result) => {
     if (!result.destination) return;
 
-    const items = Array.from(formData.fields);
-    const [reorderedItem] = items.splice(result.source.index, 1);
-    items.splice(result.destination.index, 0, reorderedItem);
-
-    setFormData({ ...formData, fields: items });
+    const { source, destination } = result;
+    
+    // For standard layout with pages, handle cross-page and cross-column drops
+    if (formData.layout_type === 'standard' && formData.pages.length > 0) {
+      const sourceParsed = parseDroppableId(source.droppableId);
+      const destParsed = parseDroppableId(destination.droppableId);
+      
+      // Get fields for source page+column to find the moved field
+      const sourceFields = formData.fields.filter(f => 
+        f.page_id === sourceParsed.pageId && 
+        (f.column_index || 0) === sourceParsed.columnIndex
+      );
+      const movedField = sourceFields[source.index];
+      if (!movedField) return;
+      
+      // Get the absolute index of the moved field in the full array
+      const movedFieldAbsoluteIndex = formData.fields.findIndex(f => f.id === movedField.id);
+      
+      // Create a copy of fields array
+      const newFields = [...formData.fields];
+      
+      // Remove from original position
+      newFields.splice(movedFieldAbsoluteIndex, 1);
+      
+      // Update the field's page_id and column_index
+      const updatedField = { 
+        ...movedField, 
+        page_id: destParsed.pageId,
+        column_index: destParsed.columnIndex
+      };
+      
+      // Find where to insert in the new array
+      // Get destination page+column fields (after removal)
+      const destFieldsAfterRemoval = newFields.filter(f => 
+        f.page_id === destParsed.pageId && 
+        (f.column_index || 0) === destParsed.columnIndex
+      );
+      
+      if (destFieldsAfterRemoval.length === 0) {
+        // No fields in destination - find the correct position
+        const destPageIndex = destParsed.pageId === null 
+          ? -1 
+          : formData.pages.findIndex(p => p.id === destParsed.pageId);
+        
+        let insertIndex = -1;
+        
+        if (destParsed.pageId === null) {
+          // Unassigned fields
+          const firstPageFieldIndex = newFields.findIndex(f => f.page_id !== null);
+          insertIndex = firstPageFieldIndex === -1 ? 0 : firstPageFieldIndex;
+        } else {
+          // Find position based on page order
+          for (let i = destPageIndex + 1; i < formData.pages.length; i++) {
+            const laterPageId = formData.pages[i].id;
+            const firstFieldOfLaterPage = newFields.findIndex(f => f.page_id === laterPageId);
+            if (firstFieldOfLaterPage !== -1) {
+              insertIndex = firstFieldOfLaterPage;
+              break;
+            }
+          }
+          
+          if (insertIndex === -1) {
+            for (let i = destPageIndex - 1; i >= 0; i--) {
+              const earlierPageId = formData.pages[i].id;
+              const lastFieldOfEarlierPage = newFields.map((f, idx) => ({ f, idx }))
+                .filter(({ f }) => f.page_id === earlierPageId)
+                .pop();
+              if (lastFieldOfEarlierPage) {
+                insertIndex = lastFieldOfEarlierPage.idx + 1;
+                break;
+              }
+            }
+          }
+          
+          if (insertIndex === -1) {
+            const unassignedFields = newFields.map((f, idx) => ({ f, idx }))
+              .filter(({ f }) => f.page_id === null);
+            if (unassignedFields.length > 0) {
+              insertIndex = unassignedFields[unassignedFields.length - 1].idx + 1;
+            } else {
+              insertIndex = 0;
+            }
+          }
+        }
+        
+        newFields.splice(insertIndex, 0, updatedField);
+      } else if (destination.index >= destFieldsAfterRemoval.length) {
+        const lastDestField = destFieldsAfterRemoval[destFieldsAfterRemoval.length - 1];
+        const lastDestFieldAbsoluteIndex = newFields.findIndex(f => f.id === lastDestField.id);
+        newFields.splice(lastDestFieldAbsoluteIndex + 1, 0, updatedField);
+      } else {
+        const targetField = destFieldsAfterRemoval[destination.index];
+        const targetAbsoluteIndex = newFields.findIndex(f => f.id === targetField.id);
+        newFields.splice(targetAbsoluteIndex, 0, updatedField);
+      }
+      
+      setFormData({ ...formData, fields: newFields });
+    } else {
+      // Simple reorder for card_swipe or standard without pages
+      const items = Array.from(formData.fields);
+      const [reorderedItem] = items.splice(source.index, 1);
+      items.splice(destination.index, 0, reorderedItem);
+      setFormData({ ...formData, fields: items });
+    }
   };
 
+  // --- Survey publish / duplicate (Task #3330) --------------------------
+  const updateSurveySetting = (key, value) => {
+    setFormData((prev) => {
+      const nextSettings = { ...(prev.survey_settings || {}), [key]: value };
+      // Audit entries (incl. archive) are appended server-side.
+      return { ...prev, survey_settings: nextSettings };
+    });
+  };
+
+  const surveyValidation = useMemo(() => {
+    if (formData.form_type !== 'survey') return null;
+    return validateSurveyForPublish(formData.fields || [], formData.survey_settings || {});
+  }, [formData.form_type, formData.fields, formData.survey_settings]);
+
+  const publishSurveyMutation = useMutation({
+    mutationFn: async ({ protectionPassword } = {}) => {
+      const protectionHeaders = protectionPassword
+        ? protectedFormUpdateHeaders(protectionPassword)
+        : {};
+      // Save the current builder state first so the server snapshots exactly
+      // what the admin sees, then publish server-side (the publish endpoint
+      // is the only writer of survey_version snapshots).
+      await base44.entities.Form.update(formId, {
+        fields: formData.fields || [],
+        pages: formData.pages || [],
+        visibility_rules: formData.visibility_rules || [],
+        survey_settings: formData.survey_settings || {}
+      }, { headers: protectionHeaders });
+      const response = await fetch('/api/forms/publish-survey', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...protectionHeaders },
+        credentials: 'include',
+        body: JSON.stringify({ form_id: formId })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload?.error || 'Failed to publish survey');
+      }
+      return payload;
+    },
+    onSuccess: (payload) => {
+      setFormData((prev) => ({
+        ...prev,
+        survey_settings: payload.survey_settings || prev.survey_settings,
+        survey_audit_log: payload.survey_audit_log || prev.survey_audit_log
+      }));
+      queryClient.invalidateQueries({ queryKey: ['form', formId] });
+      toast.success(`Survey published (version ${payload.version_number})`);
+    },
+    onError: (err) => {
+      console.error('Publish survey failed:', err);
+      toast.error(err?.message || 'Failed to publish survey');
+    }
+  });
+
+  const handlePublishSurvey = () => {
+    if (!formId) {
+      toast.error('Save the survey first, then publish.');
+      return;
+    }
+    if (surveyValidation?.errors?.length) {
+      toast.error('Fix the validation issues before publishing.');
+      return;
+    }
+    const invalidNotListedField = findInvalidNotListedField(formData.fields);
+    if (invalidNotListedField) {
+      toast.error(`“${invalidNotListedField.label || 'Untitled field'}” needs a label for its not-listed choice.`);
+      return;
+    }
+    if (isProtectedDepartmentForm(formId)) {
+      setProtectedAction({
+        action: 'save',
+        execute: async (password) => {
+          await publishSurveyMutation.mutateAsync({ protectionPassword: password });
+        },
+      });
+      return;
+    }
+    publishSurveyMutation.mutate({});
+  };
+
+  const duplicateSurveyMutation = useMutation({
+    mutationFn: async () => {
+      const { _ccCustomMode, _bccCustomMode, ...copy } = formData;
+      const newForm = await base44.entities.Form.create({
+        ...copy,
+        name: `${formData.name} (new version)`,
+        slug: `${formData.slug}-v${Date.now().toString(36)}`,
+        is_active: false,
+        survey_settings: {
+          ...(formData.survey_settings || {}),
+          status: 'draft',
+          current_version: 0,
+          parent_form_id: formId
+        },
+        // Audit entry appended server-side on create.
+      });
+      return newForm;
+    },
+    onSuccess: (newForm) => {
+      toast.success('New draft version created');
+      window.location.href = `${createPageUrl('FormBuilder')}?formId=${newForm.id}`;
+    },
+    onError: (err) => {
+      console.error('Duplicate survey failed:', err);
+      toast.error('Failed to duplicate survey');
+    }
+  });
+
+  const mutationAccessAssessment = useMemo(
+    () => assessFormMutationAccess(formData),
+    [formData],
+  );
+  const canIssueApplicantContinuation = useMemo(
+    () => supportsApplicantContinuationIssuance(formData),
+    [formData],
+  );
+
   const handleSubmit = () => {
+    console.log('[FormBuilder] handleSubmit called');
+    console.log('[FormBuilder] formData:', JSON.stringify(formData, null, 2));
+    
     if (!formData.name || !formData.slug) {
+      console.log('[FormBuilder] Validation failed: missing name or slug');
       toast.error('Please fill in name and slug');
       return;
     }
 
     if (formData.fields.length === 0) {
+      console.log('[FormBuilder] Validation failed: no fields');
       toast.error('Please add at least one field');
       return;
     }
 
+    for (const field of formData.fields.filter(item => item.type === 'address_lookup')) {
+      const visible = field.visible_components;
+      const required = field.required_components;
+      if (!Array.isArray(visible) || visible.length === 0
+        || visible.some(component => !ADDRESS_LOOKUP_COMPONENT_VALUES.has(component))
+        || new Set(visible).size !== visible.length) {
+        toast.error(`Address lookup field "${field.label || 'Address'}" must have at least one valid visible component.`);
+        return;
+      }
+      if (!Array.isArray(required)
+        || required.some(component => !ADDRESS_LOOKUP_COMPONENT_VALUES.has(component) || !visible.includes(component))
+        || new Set(required).size !== required.length) {
+        toast.error(`Address lookup field "${field.label || 'Address'}" can only require visible address components.`);
+        return;
+      }
+      const modeRuleValidation = validateAddressEntryModeRule(field, formData.fields);
+      if (!modeRuleValidation.valid) {
+        toast.error(`Address lookup field "${field.label || 'Address'}" ${modeRuleValidation.error}`);
+        return;
+      }
+    }
+
+    const invalidNotListedField = findInvalidNotListedField(formData.fields);
+    if (invalidNotListedField) {
+      toast.error(`“${invalidNotListedField.label || 'Untitled field'}” needs a label for its not-listed choice.`);
+      return;
+    }
+
+    const dynamicPrefillValidation = validateFormFieldPrefillConfig(formData);
+    if (!dynamicPrefillValidation.valid) {
+      toast.error(dynamicPrefillValidation.errors[0]);
+      return;
+    }
+
+    // Keep the client-side save gate aligned with the server's strict row
+    // source contract. This catches stale/incomplete drafts before the
+    // mutation, while the editor itself intentionally offers softer guidance
+    // as each source is configured.
+    for (const container of (formData.fields || []).filter(isRepeatableRowField)) {
+      const children = normalizeRepeatableRowField(container).children;
+      for (const child of children.filter(item => item?.option_source !== undefined)) {
+        const validation = validateRowSourceConfiguration(child, children);
+        if (validation.valid) continue;
+        const firstError = validation.errors?.[0];
+        const detail = firstError?.message
+          || 'Complete the custom object, label, projection, parent, and filter settings.';
+        toast.error(
+          `Row field "${child.label || 'Untitled field'}" has an invalid option source: ${detail} `
+          + 'Complete its source configuration before saving.',
+        );
+        return;
+      }
+      const visibilityErrors = validateRepeatableRowVisibilityConfiguration(container);
+      if (visibilityErrors.length > 0) {
+        const firstError = visibilityErrors[0];
+        const child = children.find(item => String(item.id) === String(firstError?.child_id));
+        const childLabel = child?.label || 'Untitled field';
+        const detail = firstError?.message || 'Choose a valid same-row source and option.';
+        toast.error(`Row field "${childLabel}" has invalid visibility: ${detail}`);
+        return;
+      }
+    }
+
+    for (const rule of formData.visibility_rules || []) {
+      for (const action of rule.actions || []) {
+        if (action.action_type !== 'open_form') continue;
+        const destination = allForms.find(form => String(form.id) === String(action.destination_form_id));
+        if (!destination || String(destination.id) === String(formId)) {
+          toast.error('Each Open Form action needs a different active destination form.');
+          return;
+        }
+        const mappingResult = normalizeFormTransitionMappings(
+          action,
+          formData.fields || [],
+          destination.fields || [],
+        );
+        if (!mappingResult.valid || (action.mappings || []).some(mapping =>
+          !mapping.source_field_id || !mapping.target_field_id)) {
+          toast.error('Open Form answer mappings must use compatible source and destination fields.');
+          return;
+        }
+      }
+    }
+
+    // Task #3483: generic Payment fields need at least one enabled provider
+    // and a price-source field before the form can be saved.
+    const paymentFields = formData.fields.filter(f => f.type === 'payment');
+    if (paymentFields.length > 1) {
+      toast.error('A form can only contain one Payment field.');
+      return;
+    }
+    for (const pf of paymentFields) {
+      const enabledProviders = Array.isArray(pf.payment_providers) ? pf.payment_providers : [];
+      if (enabledProviders.length === 0) {
+        toast.error(`Payment field "${pf.label || 'Payment'}" needs at least one payment method enabled.`);
+        return;
+      }
+      // Task #3497: when a membership-structure conditional action exists,
+      // the fee is server-derived and the price source is legitimately
+      // empty. A set-but-dangling price_field_id is still an error.
+      const membershipDerived = hasMembershipStructureAction(formData.visibility_rules);
+      if (!pf.price_field_id) {
+        if (!membershipDerived) {
+          toast.error(`Payment field "${pf.label || 'Payment'}" needs a price source field.`);
+          return;
+        }
+      } else if (!formData.fields.some(f => f.id === pf.price_field_id)) {
+        toast.error(`Payment field "${pf.label || 'Payment'}" points at a price source field that no longer exists.`);
+        return;
+      }
+      const stripeMappingValidation = validateStripeAddressMappings({
+        form: formData,
+        mappings: pf.stripe_billing_address_mappings || [],
+        customFields,
+      });
+      if (!stripeMappingValidation.valid) {
+        toast.error(stripeMappingValidation.errors[0]);
+        return;
+      }
+    }
+
+    // Validate field mappings - check for incomplete mappings
+    const mappings = formData.field_mappings || [];
+    console.log('[FormBuilder] Validating', mappings.length, 'field mappings');
+    for (let i = 0; i < mappings.length; i++) {
+      const m = mappings[i];
+      console.log(`[FormBuilder] Mapping #${i + 1}:`, m);
+      
+      // All mappings must have a target field
+      if (!m.target_field) {
+        console.log(`[FormBuilder] Validation failed: mapping #${i + 1} missing target_field`);
+        toast.error(`Field mapping #${i + 1} is missing a target field. Please select a target field or remove the mapping.`);
+        return;
+      }
+      
+      // Non-current_date mappings need a source field (unless static or clear)
+       const addressComponentValidation = validateAddressLookupMappingComponent(m, formData.fields);
+       if (!addressComponentValidation.valid) {
+         console.log(`[FormBuilder] Validation failed: mapping #${i + 1} ${addressComponentValidation.error}`);
+         toast.error(`Field mapping #${i + 1} ${addressComponentValidation.error}`);
+         return;
+       }
+      if (m.transformation !== 'current_date' && m.source_type !== 'static' && m.source_type !== 'clear' && m.source_type !== 'current_date') {
+        if (!m.source_field_id) {
+          console.log(`[FormBuilder] Validation failed: mapping #${i + 1} missing source_field_id`);
+          toast.error(`Field mapping #${i + 1} is missing a source field. Please select a source field or use "Current Date" source.`);
+          return;
+        }
+        const sourceField = formData.fields.find(f => f.id === m.source_field_id);
+        if (sourceField?.type === 'communication_preferences' && !m.source_category_id) {
+          console.log(`[FormBuilder] Validation failed: mapping #${i + 1} missing source_category_id for communication_preferences field`);
+          toast.error(`Field mapping #${i + 1} uses a Communication Preferences field — please select which category to map.`);
+          return;
+        }
+      }
+    }
+    const fallbackErrors = validateExplicitFallbackGroups(mappings);
+    if (fallbackErrors.length) {
+      toast.error(`Invalid fallback mapping: ${fallbackErrors[0]}`);
+      return;
+    }
+    console.log('[FormBuilder] All mappings validated successfully');
+
+    // Validate entity_pipelines when configured
+    const pipelines = formData.entity_pipelines || { members: [], organisations: [] };
+    
+    // Validate member entries - each must have email mapped (uniqueness key)
+    for (const member of (pipelines.members || [])) {
+      const memberMappings = member.mappings || [];
+      const memberFallbackErrors = validateExplicitFallbackGroups(memberMappings);
+      if (memberFallbackErrors.length) {
+        toast.error(`Member "${member.label}" has an invalid fallback group: ${memberFallbackErrors[0]}`);
+        return;
+      }
+      for (let mappingIndex = 0; mappingIndex < memberMappings.length; mappingIndex += 1) {
+        const validation = validateAddressLookupMappingComponent(memberMappings[mappingIndex], formData.fields);
+        if (!validation.valid) {
+          toast.error(`Member "${member.label}", mapping ${mappingIndex + 1}, ${validation.error}`);
+          return;
+        }
+      }
+      const hasEmailMapping = memberMappings.some(m => 
+        m.target_field === 'email' && m.target_type === 'core' && 
+        (m.source_field_id || m.static_value)
+      );
+      if (!hasEmailMapping) {
+        console.log('[FormBuilder] VALIDATION FAILED: Member entry missing email mapping:', member.label);
+        toast.error(`Member "${member.label}" requires an email field mapping.`);
+        return;
+      }
+      const roleAssignment = member.role_assignment;
+      if (roleAssignment?.mode === 'from_field') {
+        const sourceField = formData.fields.find(field => field.id === roleAssignment.source_field_id);
+        if (!sourceField || !isFormRoleMappingField(sourceField)) {
+          toast.error(`Member "${member.label}" must select a Dropdown or Radio Buttons field with options for role assignment.`);
+          return;
+        }
+        const allowedValues = new Set(formRoleFieldOptions(sourceField).map(option => option.value));
+        const valueMap = roleAssignment.value_to_role_id;
+        if (!valueMap || typeof valueMap !== 'object' || Array.isArray(valueMap)) {
+          toast.error(`Member "${member.label}" has an invalid answer-to-role mapping.`);
+          return;
+        }
+        for (const [answer, mappedRoleId] of Object.entries(valueMap)) {
+          if (!allowedValues.has(answer)) {
+            toast.error(`Member "${member.label}" maps an answer that is no longer available.`);
+            return;
+          }
+          if (mappedRoleId !== null && !roles.some(role => role.id === mappedRoleId)) {
+            toast.error(`Member "${member.label}" has a mapped role that is no longer available.`);
+            return;
+          }
+        }
+        if (roleAssignment.fallback === 'fixed'
+            && !roles.some(role => role.id === roleAssignment.fallback_role_id)) {
+          toast.error(`Member "${member.label}" must select a valid fallback role.`);
+          return;
+        }
+      }
+      for (const link of (member.related_records || [])) {
+        const definition = structuredActionMetadata.relationships.find(item => item.id === link.relationship_definition_id);
+        const field = formData.fields.find(item => item.id === link.source_field_id);
+        const descriptor = structuredFieldRecordDescriptor(field);
+        const primarySide = ['source', 'target'].find(side => definition?.[`${side}_kind`] === 'member');
+        const relatedSide = primarySide === 'source' ? 'target' : primarySide === 'target' ? 'source' : null;
+        if (!definition || !descriptor || !relatedSide
+          || descriptor.kind !== definition[`${relatedSide}_kind`]
+          || String(descriptor.objectId || '') !== String(definition[`${relatedSide}_custom_object_id`] || '')) {
+          toast.error(`Member "${member.label}" has an incomplete or incompatible Related Records link.`);
+          return;
+        }
+        const creationError = pipelineRelatedRecordCreationError({
+          link,
+          entityKind: 'member',
+          fields: formData.fields,
+          relationshipDefinitions: structuredActionMetadata.relationships,
+          customFields,
+          customObjectFields: structuredActionMetadata.fields,
+        });
+        if (creationError) {
+          toast.error(`Member "${member.label}" Related Records: ${creationError}`);
+          return;
+        }
+      }
+    }
+    
+    // Validate organisation entries - each must have name mapped (uniqueness key)
+    for (const org of (pipelines.organisations || [])) {
+      const orgMappings = org.mappings || [];
+      const orgFallbackErrors = validateExplicitFallbackGroups(orgMappings);
+      if (orgFallbackErrors.length) {
+        toast.error(`Organisation "${org.label}" has an invalid fallback group: ${orgFallbackErrors[0]}`);
+        return;
+      }
+      for (let mappingIndex = 0; mappingIndex < orgMappings.length; mappingIndex += 1) {
+        const validation = validateAddressLookupMappingComponent(orgMappings[mappingIndex], formData.fields);
+        if (!validation.valid) {
+          toast.error(`Organisation "${org.label}", mapping ${mappingIndex + 1}, ${validation.error}`);
+          return;
+        }
+      }
+      const hasNameMapping = orgMappings.some(m => 
+        m.target_field === 'name' && m.target_type === 'core' && 
+        (m.source_field_id || m.static_value)
+      );
+      if (!hasNameMapping) {
+        console.log('[FormBuilder] VALIDATION FAILED: Organisation entry missing name mapping:', org.label);
+        toast.error(`Organisation "${org.label}" requires a name field mapping.`);
+        return;
+      }
+      for (const link of (org.related_records || [])) {
+        const definition = structuredActionMetadata.relationships.find(item => item.id === link.relationship_definition_id);
+        const field = formData.fields.find(item => item.id === link.source_field_id);
+        const descriptor = structuredFieldRecordDescriptor(field);
+        const primarySide = ['source', 'target'].find(side => definition?.[`${side}_kind`] === 'organization');
+        const relatedSide = primarySide === 'source' ? 'target' : primarySide === 'target' ? 'source' : null;
+        if (!definition || !descriptor || !relatedSide
+          || descriptor.kind !== definition[`${relatedSide}_kind`]
+          || String(descriptor.objectId || '') !== String(definition[`${relatedSide}_custom_object_id`] || '')) {
+          toast.error(`Organisation "${org.label}" has an incomplete or incompatible Related Records link.`);
+          return;
+        }
+        const creationError = pipelineRelatedRecordCreationError({
+          link,
+          entityKind: 'organization',
+          fields: formData.fields,
+          relationshipDefinitions: structuredActionMetadata.relationships,
+          customFields,
+          customObjectFields: structuredActionMetadata.fields,
+        });
+        if (creationError) {
+          toast.error(`Organisation "${org.label}" Related Records: ${creationError}`);
+          return;
+        }
+      }
+    }
+
+    // Structured actions are deliberately validated against the currently
+    // active metadata, rather than trusting stale labels or archived IDs.
+    const structuredActions = formData.structured_actions?.actions || [];
+    if (structuredActions.length > 0 && (structuredActionMetadataLoading || structuredActionMetadataError)) {
+      toast.error(structuredActionMetadataLoading
+        ? 'Please wait for Custom Object metadata to finish loading.'
+        : 'Structured Record Actions cannot be saved because Custom Object metadata failed to load.');
+      return;
+    }
+    const actionIds = new Set();
+    for (let index = 0; index < structuredActions.length; index += 1) {
+      const action = structuredActions[index];
+      const actionName = action.label?.trim() || `Action ${index + 1}`;
+      if (!action.id || actionIds.has(action.id)) {
+        toast.error(`${actionName} must have a unique action ID. Remove and recreate the duplicate action.`);
+        return;
+      }
+      actionIds.add(action.id);
+      if (!['top_level', 'repeatable_row'].includes(action.source?.scope)) {
+        toast.error(`${actionName} needs a valid source scope.`);
+        return;
+      }
+      if (action.source.scope === 'repeatable_row'
+        && !formData.fields.some(field => field.id === action.source.repeatable_field_id && isRepeatableRowField(field))) {
+        toast.error(`${actionName} points to a repeatable field that no longer exists.`);
+        return;
+      }
+      if (action.operation === 'link_relationship') {
+        const definition = (structuredActionMetadata.relationships || []).find(item => (
+          item.id === action.relationship_definition_id
+          && (!item.status || item.status === 'active')
+          && item.source_kind
+          && item.target_kind
+        ));
+        if (!definition) {
+          toast.error(`${actionName} needs an active Data Studio relationship.`);
+          return;
+        }
+        for (const side of ['source', 'target']) {
+          const selectedValue = structuredEndpointReferenceValue(
+            action[`${side}_endpoint`]?.source,
+            action.source?.scope === 'repeatable_row' ? action.source.repeatable_field_id : null,
+          );
+          const options = structuredRelationshipEndpointOptions({
+            fields: formData.fields,
+            actions: structuredActions,
+            actionIndex: index,
+            action,
+            definition,
+            side,
+            entityPipelines: formData.entity_pipelines,
+          });
+          if (!selectedValue || !options.some(option => option.value === selectedValue)) {
+            toast.error(`${actionName} needs a compatible ${relationshipEndpointLabel(definition, side)} endpoint.`);
+            return;
+          }
+        }
+        continue;
+      }
+      if (!STRUCTURED_ACTION_TARGETS.some(target => target.value === action.target?.kind)) {
+        toast.error(`${actionName} needs a target record type.`);
+        return;
+      }
+      if (action.target.kind === 'custom_object'
+        && !structuredActionMetadata.objects.some(object => object.id === action.target.custom_object_id)) {
+        toast.error(`${actionName} needs an active Custom Object.`);
+        return;
+      }
+       if (!['create', 'update_selected', 'upsert', RESOLVE_RECORD_REFERENCE_OPERATION, RESOLVE_RECORD_REFERENCES_OPERATION].includes(action.operation)) {
+        toast.error(`${actionName} needs a valid record operation.`);
+        return;
+      }
+      const compatibleRelationships = structuredActionMetadata.relationships
+        .filter(definition => relationshipSupportsTarget(definition, action));
+      const sourceFields = structuredActionSourceFields(formData.fields, action);
+       if ([RESOLVE_RECORD_REFERENCE_OPERATION, RESOLVE_RECORD_REFERENCES_OPERATION].includes(action.operation)) {
+        const resolverWarning = recordReferenceConfigurationWarning(action, formData.fields);
+        if (resolverWarning) {
+          toast.error(`${actionName}: ${resolverWarning}`);
+          return;
+        }
+         const eligiblePickers = compatibleRecordReferencePickers(
+          formData.fields,
+          action.source,
+          action.target,
+           action.operation === RESOLVE_RECORD_REFERENCES_OPERATION
+             ? RELATIONSHIP_SELECTION_MULTIPLE
+             : RELATIONSHIP_SELECTION_SINGLE,
+        );
+        if (!eligiblePickers.some(field => field.id === action.reference_field_id)) {
+           toast.error(`${actionName} needs a compatible ${action.operation === RESOLVE_RECORD_REFERENCES_OPERATION ? 'multi-record' : 'single-record'} picker in its selected scope.`);
+          return;
+        }
+      }
+      if (action.organization_group_source) {
+        if (action.target?.kind !== 'organization') {
+          toast.error(`${actionName} can only assign an Organisation Group to an Organisation action.`);
+          return;
+        }
+        const groupOptions = structuredRelationshipEndpointOptions({
+          fields: formData.fields,
+          actions: structuredActions,
+          actionIndex: index,
+          action,
+          definition: { source_kind: 'organization_group', source_custom_object_id: null },
+          side: 'source',
+        });
+        const selectedGroupSource = structuredEndpointReferenceValue(
+          action.organization_group_source,
+          action.source?.scope === 'repeatable_row' ? action.source.repeatable_field_id : null,
+        );
+        if (!selectedGroupSource || !groupOptions.some(option => option.value === selectedGroupSource)) {
+          toast.error(`${actionName} needs a compatible earlier Organisation Group action or Organisation Group field.`);
+          return;
+        }
+      }
+      if (action.relationship_definition_id
+        && !compatibleRelationships.some(definition => definition.id === action.relationship_definition_id)) {
+        toast.error(`${actionName} uses an inactive or incompatible relationship.`);
+        return;
+      }
+      if (action.operation === 'update_selected' && !action.relationship_definition_id) {
+        toast.error(`${actionName} must select a compatible relationship when updating a selected record.`);
+        return;
+      }
+      if (action.operation === 'update_selected') {
+        const selector = sourceFields.find(field => field.id === action.selector_field_id);
+        const selectorDescriptor = structuredFieldRecordDescriptor(selector);
+        if (!selector || selector.type !== 'relationship_dropdown'
+          || selector.relationship_definition_id !== action.relationship_definition_id
+          || selectorDescriptor?.kind !== action.target.kind
+          || (action.target.kind === 'custom_object'
+            && selectorDescriptor?.objectId !== action.target.custom_object_id)) {
+          toast.error(`${actionName} must select a compatible Relationship Dropdown field from its source scope.`);
+          return;
+        }
+      }
+      if (action.operation !== 'update_selected' && action.relationship_definition_id) {
+        const definition = compatibleRelationships.find(item => item.id === action.relationship_definition_id);
+        const targetSide = structuredRelationshipSide(definition, action);
+        const parentSide = targetSide === 'source' ? 'target' : targetSide === 'target' ? 'source' : null;
+        const parentField = sourceFields.find(field => field.id === action.relationship_parent_field_id);
+        const parentDescriptor = structuredFieldRecordDescriptor(parentField);
+        if (!parentDescriptor || !parentSide
+          || parentDescriptor.kind !== definition?.[`${parentSide}_kind`]
+          || (parentDescriptor.kind === 'custom_object'
+            && parentDescriptor.objectId !== definition?.[`${parentSide}_custom_object_id`])) {
+          toast.error(`${actionName} must select a compatible parent-record field for its relationship.`);
+          return;
+        }
+      }
+      const targetFields = structuredTargetFields(
+        action,
+        customFields,
+        structuredActionMetadata.fields,
+      );
+       const isReferenceResolver = [RESOLVE_RECORD_REFERENCE_OPERATION, RESOLVE_RECORD_REFERENCES_OPERATION]
+         .includes(action.operation);
+       const resolverIncludesNotListed = isReferenceResolver
+         && notListedPolicy(action, NOT_LISTED_POLICY_INCLUDE) === NOT_LISTED_POLICY_INCLUDE;
+       const mappingsForAction = isReferenceResolver
+         ? (resolverIncludesNotListed && Array.isArray(action.companion_mappings) ? action.companion_mappings : [])
+         : (Array.isArray(action.mappings) ? action.mappings : []);
+      if (mappingsForAction.length === 0
+         && ![RESOLVE_RECORD_REFERENCE_OPERATION, RESOLVE_RECORD_REFERENCES_OPERATION].includes(action.operation)) {
+        toast.error(`${actionName} needs at least one field mapping.`);
+        return;
+      }
+      const structuredFallbackErrors = validateExplicitFallbackGroups(mappingsForAction);
+      if (structuredFallbackErrors.length) {
+        toast.error(`${actionName} has an invalid fallback group: ${structuredFallbackErrors[0]}`);
+        return;
+      }
+      const mappedTargets = new Set();
+      const mappingIds = new Set();
+       if (isReferenceResolver && resolverIncludesNotListed) {
+        const identityTarget = targetFields.find(field => (
+          field.value === action.identity_mapping?.target_field_id
+          && field.target_type === action.identity_mapping?.target_type
+        ));
+        if (!identityTarget
+          || action.identity_mapping?.source_type !== 'not_listed_text'
+          || action.identity_mapping?.source_field_id !== action.reference_field_id) {
+          toast.error(`${actionName} needs an explicit Not-listed identity mapping to an active target field.`);
+          return;
+        }
+        if (action.not_listed_operation === 'upsert'
+          && action.uniqueness_field !== action.identity_mapping.target_field_id) {
+          toast.error(`${actionName} must use its Not-listed identity field as the upsert uniqueness field.`);
+          return;
+        }
+        mappedTargets.add(`${identityTarget.target_type}:${identityTarget.value}`);
+      }
+      for (let mappingIndex = 0; mappingIndex < mappingsForAction.length; mappingIndex += 1) {
+        const mapping = mappingsForAction[mappingIndex];
+        if (!mapping.id || mappingIds.has(mapping.id)) {
+          toast.error(`${actionName} has a missing or duplicate mapping ID.`);
+          return;
+        }
+        mappingIds.add(mapping.id);
+        if (isResolvedRecordLabelsMapping(mapping)) {
+          if (action.target.kind !== 'custom_object' || action.operation !== 'create') {
+            toast.error(`${actionName}, mapping ${mappingIndex + 1}, can only use resolved names when creating a Custom Object record.`);
+            return;
+          }
+          const availableLabelSources = new Set(
+            resolvedRecordLabelOptions(
+              structuredActions,
+              index,
+              action,
+              formData.entity_pipelines,
+            ).map(option => option.value),
+          );
+          if (!Array.isArray(mapping.record_sources)
+            || mapping.record_sources.length === 0
+            || mapping.record_sources.some(source => !availableLabelSources.has(resolvedRecordLabelOptionValue(source)))) {
+            toast.error(`${actionName}, mapping ${mappingIndex + 1}, needs valid resolved record names from an earlier action or primary pipeline.`);
+            return;
+          }
+        }
+        if (!['clear', 'static', 'resolved_record_labels'].includes(mapping.source_type) && !sourceFields.some(field => field.id === mapping.source_field_id)) {
+          toast.error(`${actionName}, mapping ${mappingIndex + 1}, needs a source field from its selected scope.`);
+          return;
+        }
+        const mappedField = sourceFields.find(field => field.id === mapping.source_field_id);
+        if (mappedField?.type === 'address_lookup'
+          && !addressLookupVisibleComponents(mappedField).includes(mapping.source_component)) {
+          toast.error(`${actionName}, mapping ${mappingIndex + 1}, must select a visible address component.`);
+          return;
+        }
+        const target = targetFields.find(field => field.value === mapping.target_field_id);
+        if (!target || target.target_type !== mapping.target_type) {
+          toast.error(`${actionName}, mapping ${mappingIndex + 1}, needs an active supported target field.`);
+          return;
+        }
+        const source = ['clear', 'static', 'resolved_record_labels'].includes(mapping.source_type) ? { type: 'text' } : structuredMappingSource(
+          sourceFields.find(field => field.id === mapping.source_field_id),
+          mapping,
+        );
+        if (!isCompatibleStructuredMapping(source, target)) {
+          toast.error(`${actionName}, mapping ${mappingIndex + 1}, maps incompatible field types.`);
+          return;
+        }
+        const targetKey = `${mapping.target_type}:${mapping.target_field_id}`;
+        const previousTargetMapping = mappingsForAction
+          .slice(0, mappingIndex)
+          .find(item => `${item.target_type}:${item.target_field_id}` === targetKey);
+        if (mappedTargets.has(targetKey)
+          && (!isExplicitFallbackMapping(mapping)
+            || !isExplicitFallbackMapping(previousTargetMapping)
+            || previousTargetMapping.fallback_group.id !== mapping.fallback_group.id)) {
+          toast.error(`${actionName} maps the same target field more than once.`);
+          return;
+        }
+        mappedTargets.add(targetKey);
+      }
+       if (action.operation !== 'update_selected' && (!isReferenceResolver || resolverIncludesNotListed)) {
+        const missingRequired = targetFields.find(target => target.required
+           && !([RESOLVE_RECORD_REFERENCE_OPERATION, RESOLVE_RECORD_REFERENCES_OPERATION].includes(action.operation)
+            && action.identity_mapping?.target_field_id === target.value
+            && action.identity_mapping?.target_type === target.target_type)
+          && !mappingsForAction.some(mapping => (
+            mapping.target_field_id === target.value && mapping.target_type === target.target_type
+          )));
+        if (missingRequired) {
+          toast.error(`${actionName} must map required target field "${missingRequired.label}".`);
+          return;
+        }
+      }
+      if (action.operation === 'upsert') {
+        const uniqueTarget = structuredUpsertFields(action, targetFields)
+          .find(field => field.value === action.uniqueness_field);
+        if (!uniqueTarget) {
+          toast.error(`${actionName} needs an active uniqueness field for upsert.`);
+          return;
+        }
+        if (!mappingsForAction.some(mapping => mapping.target_field_id === action.uniqueness_field)) {
+          toast.error(`${actionName} must map its selected uniqueness field.`);
+          return;
+        }
+      }
+    }
+
+    for (const rule of formData.visibility_rules || []) {
+      for (const action of Array.isArray(rule.actions) ? rule.actions : []) {
+        const copyModeError = displayNameCopyConfigurationError(action, formData.fields || []);
+        if (copyModeError) {
+          toast.error(copyModeError);
+          return;
+        }
+      }
+    }
+
+    console.log('[FormBuilder] All validation passed, submitting form');
+    
+    // Remove temporary UI-only flags before saving
+    const { _ccCustomMode, _bccCustomMode, ...dataToSave } = formData;
+
+    // Survey audit trail is SERVER-authored: the entity API strips any
+    // client-supplied survey_audit_log and appends create/edit/archive
+    // entries itself, so never send it from the builder.
+    delete dataToSave.survey_audit_log;
+    dataToSave.structured_actions = {
+      version: STRUCTURED_ACTIONS_VERSION,
+      actions: structuredActions,
+    };
+
+    // Strip blank/whitespace-only option rows so empty "Add Option" rows are
+    // never persisted (image_options fields keep their own structure).
+    dataToSave.fields = (dataToSave.fields || []).map((f) => {
+      if (!Array.isArray(f.options) || f.type === 'image_options') return f;
+      const cleaned = f.options.filter(
+        (opt) => typeof opt !== 'string' || opt.trim() !== ''
+      );
+      return cleaned.length === f.options.length ? f : { ...f, options: cleaned };
+    });
+
+    const mutationAccessSave = validateFormMutationAccessSave({
+      form: dataToSave,
+      previousForm: existingForm || null,
+      isCreate: !formId,
+    });
+    if (!mutationAccessSave.ok) {
+      setActiveTab('submission');
+      toast.error('Existing-record access needs attention', {
+        description: mutationAccessSave.error,
+      });
+      return;
+    }
+    
     if (formId) {
-      updateFormMutation.mutate({ id: formId, data: formData });
+      console.log('[FormBuilder] Updating form:', formId);
+      if (isProtectedDepartmentForm(formId)) {
+        const deactivating = dataToSave.is_active === false;
+        setProtectedAction({
+          action: deactivating ? 'deactivate' : 'save',
+          execute: async (password) => {
+            const headers = protectedFormUpdateHeaders(password, {
+              deactivation: deactivating,
+            });
+            await updateFormMutation.mutateAsync({ id: formId, data: dataToSave, headers });
+          },
+        });
+      } else {
+        updateFormMutation.mutate({ id: formId, data: dataToSave });
+      }
     } else {
-      createFormMutation.mutate(formData);
+      console.log('[FormBuilder] Creating new form');
+      createFormMutation.mutate(dataToSave);
     }
   };
 
   if (!accessChecked || formLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
+      <ProtectedFormActionDialog
+        open={Boolean(protectedAction)}
+        onOpenChange={(open) => {
+          if (!open) setProtectedAction(null);
+        }}
+        formId={formId}
+        action={protectedAction?.action}
+        onAuthorized={async (password) => {
+          await protectedAction?.execute(password);
+        }}
+      />
       <div className="max-w-5xl mx-auto">
         <div className="flex items-center justify-between mb-8">
           <div>
@@ -199,7 +12601,7 @@ export default function FormBuilderPage() {
               </Button>
             </Link>
             <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">
-              {formId ? 'Edit Form' : 'Create Form'}
+              {formId ? (formData.name || 'Edit Form') : 'Create Form'}
             </h1>
           </div>
           <Button
@@ -221,241 +12623,2171 @@ export default function FormBuilderPage() {
           </Button>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Form Settings */}
-          <div className="lg:col-span-1">
-            <Card className="border-slate-200 sticky top-4">
-              <CardHeader>
+        {/* Tabs for organizing form sections */}
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className={`grid w-full ${formData.form_type === 'survey' ? 'grid-cols-7' : 'grid-cols-5'} mb-6`} data-testid="formbuilder-tabs">
+            <TabsTrigger value="builder" data-testid="tab-builder">Builder</TabsTrigger>
+            <TabsTrigger value="settings" data-testid="tab-settings">Form Settings</TabsTrigger>
+            <TabsTrigger value="submission" data-testid="tab-submission">Submission Settings</TabsTrigger>
+            <TabsTrigger value="emails" data-testid="tab-emails">Emails</TabsTrigger>
+            <TabsTrigger value="logic" data-testid="tab-logic">Conditional Logic</TabsTrigger>
+            {formData.form_type === 'survey' && (
+              <TabsTrigger value="survey" data-testid="tab-survey">Survey Settings</TabsTrigger>
+            )}
+            {formData.form_type === 'survey' && (
+              <TabsTrigger value="events" data-testid="tab-events">Events</TabsTrigger>
+            )}
+          </TabsList>
+
+          {/* Form Settings Tab */}
+          <TabsContent value="settings">
+            <Card className="border-slate-200">
+              <CardHeader className="pb-4">
                 <CardTitle className="text-lg">Form Settings</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Form Name *</Label>
-                  <Input
-                    id="name"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    placeholder="Contact Form"
-                  />
-                </div>
+              <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Row 1: Core Settings */}
+              <div className="space-y-2">
+                <Label htmlFor="name">Form Name *</Label>
+                <Input
+                  id="name"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  placeholder="Contact Form"
+                />
+              </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="slug">Slug *</Label>
-                  <Input
-                    id="slug"
-                    value={formData.slug}
-                    onChange={(e) => setFormData({ ...formData, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') })}
-                    placeholder="contact-form"
-                  />
-                  <p className="text-xs text-slate-500">URL: /FormView?slug={formData.slug || 'your-slug'}</p>
-                </div>
+              <div className="space-y-2">
+                <Label htmlFor="slug">Slug *</Label>
+                <Input
+                  id="slug"
+                  value={formData.slug}
+                  onChange={(e) => setFormData({ ...formData, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') })}
+                  placeholder="contact-form"
+                />
+              </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="description">Description</Label>
-                  <Textarea
-                    id="description"
-                    value={formData.description}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    placeholder="Form description..."
-                    rows={3}
-                  />
-                </div>
+              <div className="space-y-2">
+                <Label htmlFor="form_type">Form Type</Label>
+                <Select
+                  value={formData.form_type || 'standard'}
+                  onValueChange={(value) => {
+                    setFormData({
+                      ...formData,
+                      form_type: value,
+                      survey_settings: value === 'survey'
+                        ? { status: 'draft', anonymity_threshold: 3, response_identity: 'identified', ...(formData.survey_settings || {}) }
+                        : (formData.survey_settings || {})
+                    });
+                  }}
+                  disabled={hasResponses}
+                >
+                  <SelectTrigger data-testid="select-form-type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="standard">Standard Form</SelectItem>
+                    <SelectItem value="survey">Survey Form</SelectItem>
+                  </SelectContent>
+                </Select>
+                {hasResponses && (
+                  <p className="text-xs text-slate-500">Form type is locked because this form already has responses.</p>
+                )}
+              </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="layout_type">Layout Type *</Label>
-                  <Select
-                    value={formData.layout_type}
-                    onValueChange={(value) => setFormData({ ...formData, layout_type: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="standard">Standard (All Fields)</SelectItem>
-                      <SelectItem value="card_swipe">Card Swipe (One at a Time)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+              <div className="space-y-2">
+                <Label htmlFor="layout_type">Layout Type *</Label>
+                <Select
+                  value={formData.layout_type}
+                  onValueChange={(value) => setFormData({ ...formData, layout_type: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="standard">Standard (All Fields)</SelectItem>
+                    <SelectItem value="card_swipe">Card Swipe (One at a Time)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="submit_button_text">Submit Button Text</Label>
-                  <Input
-                    id="submit_button_text"
-                    value={formData.submit_button_text}
-                    onChange={(e) => setFormData({ ...formData, submit_button_text: e.target.value })}
-                  />
-                </div>
+              <div className="space-y-2">
+                <Label htmlFor="form_width">Form width</Label>
+                <Select
+                  value={formData.form_width}
+                  onValueChange={(value) => setFormData({ ...formData, form_width: value })}
+                >
+                  <SelectTrigger id="form_width" aria-describedby="form-width-help" data-testid="select-form-width">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="narrow">Narrow (current)</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="wide">Wide</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p id="form-width-help" className="text-xs text-slate-500">
+                  Maximum widths: Narrow 768px, Medium 1024px, Wide 1280px. Forms shrink to fit the available screen or embedded frame.
+                </p>
+              </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="success_message">Success Message</Label>
-                  <Textarea
-                    id="success_message"
-                    value={formData.success_message}
-                    onChange={(e) => setFormData({ ...formData, success_message: e.target.value })}
-                    rows={2}
-                  />
-                </div>
+              <div className="space-y-2">
+                <Label htmlFor="submit_button_text">Submit Button Text</Label>
+                <Input
+                  id="submit_button_text"
+                  value={formData.submit_button_text}
+                  onChange={(e) => setFormData({ ...formData, submit_button_text: e.target.value })}
+                />
+              </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="redirect_url">Redirect URL (Optional)</Label>
+              {/* Row 2: Description and Messages */}
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="description">Description</Label>
+                <Textarea
+                  id="description"
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  placeholder="Form description..."
+                  rows={2}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="success_message">Success Message</Label>
+                <Textarea
+                  id="success_message"
+                  value={formData.success_message}
+                  onChange={(e) => setFormData({ ...formData, success_message: e.target.value })}
+                  rows={2}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="redirect_url">Redirect URL</Label>
+                <Select value={redirectMode} onValueChange={handleRedirectModeChange}>
+                  <SelectTrigger data-testid="select-redirect-mode">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="static">Static URL</SelectItem>
+                    <SelectItem value="field">Use a form field</SelectItem>
+                  </SelectContent>
+                </Select>
+                {redirectMode === 'static' ? (
                   <Input
                     id="redirect_url"
                     type="url"
                     value={formData.redirect_url}
-                    onChange={(e) => setFormData({ ...formData, redirect_url: e.target.value })}
+                    onChange={(e) => {
+                      lastStaticRedirectRef.current = e.target.value;
+                      setFormData({ ...formData, redirect_url: e.target.value });
+                    }}
                     placeholder="https://example.com/thanks"
+                    data-testid="input-redirect-url"
+                  />
+                ) : (
+                  <>
+                    <Select
+                      value={selectedRedirectFieldId || undefined}
+                      onValueChange={handleRedirectFieldChange}
+                    >
+                      <SelectTrigger data-testid="select-redirect-field">
+                        <SelectValue placeholder="Select a field" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {formData.fields.map((field) => (
+                          <SelectItem key={field.id} value={field.id}>
+                            {field.label || field.id}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      After submitting, the user is sent to the URL they entered in this field.
+                    </p>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Toggles Column */}
+            <div className="flex flex-col gap-4 mt-4 pt-4 border-t border-slate-100">
+              <div className="flex items-center gap-3">
+                <Switch
+                  id="require_authentication"
+                  checked={formData.require_authentication}
+                  onCheckedChange={(checked) => setFormData({ ...formData, require_authentication: checked })}
+                />
+                <Label htmlFor="require_authentication" className="text-sm">Require Login</Label>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <Switch
+                  id="is_active"
+                  checked={formData.is_active}
+                  onCheckedChange={(checked) => setFormData({ ...formData, is_active: checked })}
+                />
+                <Label htmlFor="is_active" className="text-sm">Active</Label>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <Switch
+                  id="due_diligence_required"
+                  checked={formData.due_diligence_required}
+                  onCheckedChange={(checked) => setFormData({ ...formData, due_diligence_required: checked })}
+                  data-testid="switch-due-diligence-required"
+                />
+                <Label htmlFor="due_diligence_required" className="text-sm">Due Diligence Required</Label>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <Switch
+                  id="is_contract"
+                  checked={formData.is_contract}
+                  onCheckedChange={(checked) => setFormData({ ...formData, is_contract: checked })}
+                  data-testid="switch-is-contract"
+                />
+                <Label htmlFor="is_contract" className="text-sm">Contract Mode</Label>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <Switch
+                  id="blank_layout"
+                  checked={formData.blank_layout}
+                  onCheckedChange={(checked) => setFormData({ ...formData, blank_layout: checked })}
+                  data-testid="switch-blank-layout"
+                />
+                <Label htmlFor="blank_layout" className="text-sm">Blank Layout</Label>
+              </div>
+
+              <div className="flex items-center gap-3" title="When enabled, the public form shows an email input and a 'Email me a copy' checkbox at the bottom. Submitters who tick it receive a Word (DOCX) copy of their submission by email.">
+                <Switch
+                  id="allow_submitter_email_copy"
+                  checked={formData.allow_submitter_email_copy}
+                  onCheckedChange={(checked) => setFormData({ ...formData, allow_submitter_email_copy: checked })}
+                  data-testid="switch-allow-submitter-email-copy"
+                />
+                <Label htmlFor="allow_submitter_email_copy" className="text-sm">Allow submitter to email themselves a copy</Label>
+              </div>
+
+              <div className="flex items-center gap-3" title="When enabled, the public form shows a 'Save & Continue Later' button so submitters can save their progress and return via a resume link. Turn off to hide that button; normal submission still works.">
+                <Switch
+                  id="allow_save_continue_later"
+                  checked={formData.allow_save_continue_later !== false}
+                  onCheckedChange={(checked) => setFormData({ ...formData, allow_save_continue_later: checked })}
+                  data-testid="switch-allow-save-continue-later"
+                />
+                <Label htmlFor="allow_save_continue_later" className="text-sm">Allow save &amp; continue later</Label>
+              </div>
+
+              <div className="flex items-center gap-3" title="When enabled, this form appears in the member-group vacancy form picker so a vacancy can collect applications through it. For the applicant's details to pre-fill, set Prefill Source to 'member' on the Submission Settings tab.">
+                <Switch
+                  id="is_job_posting"
+                  checked={formData.is_job_posting}
+                  onCheckedChange={(checked) => setFormData({ ...formData, is_job_posting: checked })}
+                  data-testid="switch-is-job-posting"
+                />
+                <Label htmlFor="is_job_posting" className="text-sm">Job posting application form</Label>
+              </div>
+
+              <div className="flex items-center gap-3" title="When enabled, pick a single upcoming event. Every submission to this form will be linked to that event so you can review submissions per event.">
+                <Switch
+                  id="is_event_related"
+                  checked={formData.is_event_related}
+                  onCheckedChange={(checked) => setFormData({
+                    ...formData,
+                    is_event_related: checked,
+                    related_event_id: checked ? formData.related_event_id : null
+                  })}
+                  data-testid="switch-is-event-related"
+                />
+                <Label htmlFor="is_event_related" className="text-sm">This form is related to an event</Label>
+              </div>
+
+              <div className="flex flex-col gap-2 min-w-[260px] pt-2 border-t border-slate-100" title="Optionally schedule the form to stop accepting submissions at a specific date and time. Leave empty to keep the form active until you turn off the Active toggle.">
+                <Label htmlFor="deactivate_at" className="text-sm">Deactivate at (optional)</Label>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <TimezoneAwareDateTimeInput
+                    id="deactivate_at"
+                    tz={formData.deactivate_timezone || "Europe/London"}
+                    value={formData.deactivate_at || ""}
+                    onChange={(iso) => setFormData({ ...formData, deactivate_at: iso || null })}
+                    className="sm:w-[220px]"
+                    data-testid="input-deactivate-at"
+                  />
+                  {formData.deactivate_at && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setFormData({ ...formData, deactivate_at: null })}
+                      data-testid="button-clear-deactivate-at"
+                    >
+                      <X className="h-4 w-4 mr-1" />
+                      Clear
+                    </Button>
+                  )}
+                </div>
+                <div className="w-full sm:w-[260px]">
+                  <TimezoneSelect
+                    id="deactivate_timezone"
+                    value={formData.deactivate_timezone || "Europe/London"}
+                    onChange={(tz) => setFormData({ ...formData, deactivate_timezone: tz })}
                   />
                 </div>
+              </div>
 
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="require_authentication">Require Login</Label>
-                  <Switch
-                    id="require_authentication"
-                    checked={formData.require_authentication}
-                    onCheckedChange={(checked) => setFormData({ ...formData, require_authentication: checked })}
+              <div className="text-xs text-slate-500 pt-2 border-t border-slate-100">
+                URL: /FormView?slug={formData.slug || 'your-slug'}
+              </div>
+            </div>
+
+            <FormAccessPolicyEditor
+              policy={formData.access_policy}
+              onChange={(accessPolicy) => setFormData(prev => ({ ...prev, access_policy: accessPolicy }))}
+              groups={activeMemberGroups}
+              roles={roles}
+            />
+
+            {/* Event link selector - shown only when the form is related to an event */}
+            {formData.is_event_related && (
+              <div className="mt-4 pt-4 border-t border-slate-100">
+                <div className="space-y-2 max-w-md">
+                  <Label htmlFor="related_event_id" className="text-sm">Linked Event *</Label>
+                  <LinkedEventCombobox
+                    eventOptions={eventOptions}
+                    value={formData.related_event_id || null}
+                    onChange={(value) => setFormData({ ...formData, related_event_id: value || null })}
+                    includesPastEvents={isSurveyForm}
                   />
+                  <p className="text-xs text-slate-500">
+                    Submissions to this form will be associated with the selected event.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Contract Settings Section - Only shown when Contract Mode is enabled */}
+            {formData.is_contract && (
+              <div className="mt-4 pt-4 border-t border-slate-100 space-y-4">
+                <div className="flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-blue-600" />
+                  <Label className="text-sm font-medium">Contract Settings</Label>
+                </div>
+                <div className="bg-blue-50/50 rounded-lg p-4 space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="timeout_days">Timeout (Days)</Label>
+                      <Input
+                        id="timeout_days"
+                        type="number"
+                        min="1"
+                        max="365"
+                        value={formData.contract_settings?.timeout_days || 30}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          contract_settings: {
+                            ...formData.contract_settings,
+                            timeout_days: parseInt(e.target.value) || 30
+                          }
+                        })}
+                        data-testid="input-timeout-days"
+                      />
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-6">
+                      <Switch
+                        id="require_signature"
+                        checked={formData.contract_settings?.require_signature ?? true}
+                        onCheckedChange={(checked) => setFormData({
+                          ...formData,
+                          contract_settings: {
+                            ...formData.contract_settings,
+                            require_signature: checked
+                          }
+                        })}
+                        data-testid="switch-require-signature"
+                      />
+                      <Label htmlFor="require_signature" className="text-sm">Require Signature</Label>
+                    </div>
+                  </div>
+
+                  {/* Initial Email Template */}
+                  <div className="space-y-3 pt-2 border-t border-blue-100">
+                    <div className="flex items-center gap-2">
+                      <Mail className="w-4 h-4 text-slate-500" />
+                      <Label className="text-sm font-medium">Initial Email Template</Label>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      Select the email template to send when the contract is sent for signing.
+                    </p>
+                    <Select
+                      value={formData.contract_settings?.initial_email_template_id || "_none"}
+                      onValueChange={(value) => setFormData({
+                        ...formData,
+                        contract_settings: {
+                          ...formData.contract_settings,
+                          initial_email_template_id: value === "_none" ? null : value
+                        }
+                      })}
+                    >
+                      <SelectTrigger data-testid="select-initial-email-template">
+                        <SelectValue placeholder="Select email template..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="_none">No template (don't send email)</SelectItem>
+                        {emailTemplates.map(template => (
+                          <SelectItem key={template.id} value={template.id}>{template.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Reminder Schedule */}
+                  <div className="space-y-3 pt-4 border-t border-slate-100">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-sm font-medium">Reminder Schedule</Label>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const reminders = formData.contract_settings?.reminders || [];
+                          setFormData({
+                            ...formData,
+                            contract_settings: {
+                              ...formData.contract_settings,
+                              reminders: [...reminders, {
+                                id: `reminder_${Date.now()}`,
+                                days: 7,
+                                timing_type: 'before_timeout',
+                                email_template_id: null
+                              }]
+                            }
+                          });
+                        }}
+                        data-testid="button-add-reminder"
+                      >
+                        <Plus className="w-4 h-4 mr-1" />
+                        Add Reminder
+                      </Button>
+                    </div>
+                    
+                    {(formData.contract_settings?.reminders || []).length === 0 ? (
+                      <div className="text-center py-4 text-slate-400 border border-dashed border-slate-200 rounded-lg">
+                        <Mail className="w-6 h-6 mx-auto mb-2 opacity-50" />
+                        <p className="text-sm">No reminders configured</p>
+                        <p className="text-xs mt-1">Add reminders to notify signers</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {(formData.contract_settings?.reminders || []).map((reminder, idx) => (
+                          <div key={reminder.id} className="flex flex-wrap items-center gap-3 bg-white p-3 rounded-md border border-slate-200" data-testid={`reminder-row-${idx}`}>
+                            <div className="flex items-center gap-2">
+                              <Label className="text-sm whitespace-nowrap">Send</Label>
+                              <Input
+                                type="number"
+                                min="1"
+                                max={formData.contract_settings?.timeout_days || 30}
+                                value={reminder.days || reminder.days_before_timeout || 7}
+                                onChange={(e) => {
+                                  const reminders = [...(formData.contract_settings?.reminders || [])];
+                                  reminders[idx] = { ...reminder, days: parseInt(e.target.value) || 7 };
+                                  delete reminders[idx].days_before_timeout;
+                                  setFormData({
+                                    ...formData,
+                                    contract_settings: { ...formData.contract_settings, reminders }
+                                  });
+                                }}
+                                className="w-20"
+                                data-testid={`input-reminder-days-${idx}`}
+                              />
+                              <Label className="text-sm whitespace-nowrap">days</Label>
+                            </div>
+                            <div className="w-40">
+                              <Select
+                                value={reminder.timing_type || 'before_timeout'}
+                                onValueChange={(value) => {
+                                  const reminders = [...(formData.contract_settings?.reminders || [])];
+                                  reminders[idx] = { ...reminder, timing_type: value };
+                                  setFormData({
+                                    ...formData,
+                                    contract_settings: { ...formData.contract_settings, reminders }
+                                  });
+                                }}
+                              >
+                                <SelectTrigger data-testid={`select-reminder-timing-${idx}`}>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="before_timeout">before timeout</SelectItem>
+                                  <SelectItem value="after_first_send">after first send</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="flex-1 min-w-[180px]">
+                              <Select
+                                value={reminder.email_template_id || "_none"}
+                                onValueChange={(value) => {
+                                  const reminders = [...(formData.contract_settings?.reminders || [])];
+                                  reminders[idx] = { ...reminder, email_template_id: value === "_none" ? null : value };
+                                  setFormData({
+                                    ...formData,
+                                    contract_settings: { ...formData.contract_settings, reminders }
+                                  });
+                                }}
+                              >
+                                <SelectTrigger data-testid={`select-reminder-template-${idx}`}>
+                                  <SelectValue placeholder="Select email template..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="_none">No template</SelectItem>
+                                  {emailTemplates.map(template => (
+                                    <SelectItem key={template.id} value={template.id}>{template.name}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => {
+                                const reminders = (formData.contract_settings?.reminders || []).filter(r => r.id !== reminder.id);
+                                setFormData({
+                                  ...formData,
+                                  contract_settings: { ...formData.contract_settings, reminders }
+                                });
+                              }}
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              data-testid={`button-delete-reminder-${idx}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="is_active">Active</Label>
+                {/* Timeout Notification Settings - Alternative Signer Feature */}
+                <div className="pt-3 border-t border-slate-100">
+                  <div className="flex items-center gap-2 mb-3">
+                    <AlertCircle className="w-4 h-4 text-warning" />
+                    <Label className="text-sm font-medium">Timeout Notification</Label>
+                  </div>
+                  <p className="text-xs text-slate-500 mb-3">
+                    When the contract expires without a signature, notify the original applicant to provide an alternative signer.
+                  </p>
+                  
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Timeout Email Template</Label>
+                      <Select
+                        value={formData.contract_settings?.timeout_email_template_id || "_none"}
+                        onValueChange={(value) => setFormData({
+                          ...formData,
+                          contract_settings: {
+                            ...formData.contract_settings,
+                            timeout_email_template_id: value === "_none" ? null : value
+                          }
+                        })}
+                      >
+                        <SelectTrigger data-testid="select-timeout-email-template">
+                          <SelectValue placeholder="Select email template..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="_none">No template (disabled)</SelectItem>
+                          {emailTemplates.map(template => (
+                            <SelectItem key={template.id} value={template.id}>{template.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {formData.contract_settings?.timeout_email_template_id && (
+                      <>
+                        <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg space-y-3 mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-medium text-blue-700 dark:text-blue-300">Applicant Field Mapping</span>
+                          </div>
+                          <p className="text-xs text-blue-600 dark:text-blue-400">
+                            Select a Due Diligence form and choose which fields contain the applicant's name and email. Fields are matched by label, so this works across multiple DD forms with the same field names. These populate placeholders like {'{{first_name}}'}, {'{{applicant_name}}'}.
+                          </p>
+                          
+                          <div className="space-y-2">
+                            <div className="space-y-1">
+                              <Label className="text-xs text-slate-600">Source DD Form</Label>
+                              <Select
+                                value={formData.contract_settings?.source_dd_form_id || "_none"}
+                                onValueChange={(value) => setFormData({
+                                  ...formData,
+                                  contract_settings: {
+                                    ...formData.contract_settings,
+                                    source_dd_form_id: value === "_none" ? null : value,
+                                    applicant_name_field: null,
+                                    applicant_email_field: null
+                                  }
+                                })}
+                              >
+                                <SelectTrigger className="text-xs" data-testid="select-source-dd-form">
+                                  <SelectValue placeholder="Select DD form..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="_none">-- None --</SelectItem>
+                                  {ddForms.map(form => (
+                                    <SelectItem key={form.id} value={form.id}>
+                                      {form.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            
+                            {formData.contract_settings?.source_dd_form_id && sourceFormFields.length > 0 && (
+                              <div className="grid grid-cols-2 gap-2">
+                                <div className="space-y-1">
+                                  <Label className="text-xs text-slate-600">Applicant Name Field</Label>
+                                  <Select
+                                    value={formData.contract_settings?.applicant_name_field || "_none"}
+                                    onValueChange={(value) => setFormData({
+                                      ...formData,
+                                      contract_settings: {
+                                        ...formData.contract_settings,
+                                        applicant_name_field: value === "_none" ? null : value
+                                      }
+                                    })}
+                                  >
+                                    <SelectTrigger className="text-xs" data-testid="select-applicant-name-field">
+                                      <SelectValue placeholder="Select field..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="_none">-- None --</SelectItem>
+                                      {sourceFormFields.filter(f => f.type !== 'instructions' && f.type !== 'image' && f.type !== 'image_buttons').map(field => (
+                                        <SelectItem key={field.id} value={field.id}>
+                                          {field.label || field.id}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div className="space-y-1">
+                                  <Label className="text-xs text-slate-600">Applicant Email Field</Label>
+                                  <Select
+                                    value={formData.contract_settings?.applicant_email_field || "_none"}
+                                    onValueChange={(value) => setFormData({
+                                      ...formData,
+                                      contract_settings: {
+                                        ...formData.contract_settings,
+                                        applicant_email_field: value === "_none" ? null : value
+                                      }
+                                    })}
+                                  >
+                                    <SelectTrigger className="text-xs" data-testid="select-applicant-email-field">
+                                      <SelectValue placeholder="Select field..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="_none">-- None --</SelectItem>
+                                      {sourceFormFields.filter(f => f.type !== 'instructions' && f.type !== 'image' && f.type !== 'image_buttons').map(field => (
+                                        <SelectItem key={field.id} value={field.id}>
+                                          {field.label || field.id}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              </div>
+                            )}
+                            
+                            {formData.contract_settings?.source_dd_form_id && sourceFormFields.length === 0 && (
+                              <p className="text-xs text-warning dark:text-warning">
+                                Selected form has no fields. Please add fields to the DD form first.
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        
+                        <div className="space-y-1">
+                          <Label className="text-xs text-slate-600">Form Title</Label>
+                          <Input
+                            value={formData.contract_settings?.alternative_signer_title || ""}
+                            onChange={(e) => setFormData({
+                              ...formData,
+                              contract_settings: {
+                                ...formData.contract_settings,
+                                alternative_signer_title: e.target.value || null
+                              }
+                            })}
+                            placeholder="Provide Alternative Signer"
+                            data-testid="input-alternative-signer-title"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <Label className="text-xs text-slate-600">Header Message</Label>
+                          <Input
+                            value={formData.contract_settings?.alternative_signer_message || ""}
+                            onChange={(e) => setFormData({
+                              ...formData,
+                              contract_settings: {
+                                ...formData.contract_settings,
+                                alternative_signer_message: e.target.value || null
+                              }
+                            })}
+                            placeholder="e.g., Please provide an alternative signer for this contract"
+                            data-testid="input-alternative-signer-message"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <Label className="text-xs text-slate-600">Button Label</Label>
+                          <Input
+                            value={formData.contract_settings?.alternative_signer_button_label || ""}
+                            onChange={(e) => setFormData({
+                              ...formData,
+                              contract_settings: {
+                                ...formData.contract_settings,
+                                alternative_signer_button_label: e.target.value || null
+                              }
+                            })}
+                            placeholder="Add Signer & Send Contract"
+                            data-testid="input-alternative-signer-button-label"
+                          />
+                        </div>
+
+                        <div className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-4 mt-3">
+                          <div className="flex items-center gap-2 mb-3">
+                            <UserPlus className="w-4 h-4 text-blue-600" />
+                            <span className="text-xs font-medium text-slate-600 dark:text-slate-300">Alternative Signer Form Preview</span>
+                          </div>
+                          <div className="bg-white dark:bg-slate-900 rounded-md border border-slate-200 dark:border-slate-700 p-4 space-y-3">
+                            <div className="text-center pb-3 border-b border-slate-100 dark:border-slate-700">
+                              <UserPlus className="w-8 h-8 text-blue-600 mx-auto mb-2" />
+                              <p className="font-medium text-sm">{formData.contract_settings?.alternative_signer_title || "Provide Alternative Signer"}</p>
+                              {formData.contract_settings?.alternative_signer_message && (
+                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                                  {formData.contract_settings.alternative_signer_message}
+                                </p>
+                              )}
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="space-y-1">
+                                <span className="text-xs text-slate-500">First Name *</span>
+                                <div className="h-8 bg-slate-100 dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-600" />
+                              </div>
+                              <div className="space-y-1">
+                                <span className="text-xs text-slate-500">Last Name *</span>
+                                <div className="h-8 bg-slate-100 dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-600" />
+                              </div>
+                            </div>
+                            <div className="space-y-1">
+                              <span className="text-xs text-slate-500">Email Address *</span>
+                              <div className="h-8 bg-slate-100 dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-600" />
+                            </div>
+                            <div className="h-9 bg-blue-600 rounded flex items-center justify-center">
+                              <span className="text-xs text-white font-medium">{formData.contract_settings?.alternative_signer_button_label || "Add Signer & Send Contract"}</span>
+                            </div>
+                          </div>
+                          <p className="text-xs text-slate-400 dark:text-slate-500 mt-2 text-center">
+                            This is a fixed form - applicants will always provide First Name, Last Name, and Email
+                          </p>
+                        </div>
+
+                        <div className="bg-warning/10 dark:bg-warning/20 p-2 rounded text-xs text-warning dark:text-warning">
+                          <strong>Note:</strong> The timeout email should contain a link placeholder that will be replaced with the alternative signer form URL. Use <code className="bg-warning/10 dark:bg-warning/20 px-1 rounded">{'{{alternative_signer_link}}'}</code> in your email template.
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Embed Code Section */}
+            {formData.slug && formData.is_active && !formData.require_authentication && (() => {
+              // Extract tenant subdomain from current host for embed URL
+              const tenantSubdomain = window.location.hostname.split('.')[0];
+              const embedUrl = `${window.location.origin}/embed/form/${formData.slug}?tenant=${tenantSubdomain}`;
+              return (
+              <div className="mt-4 pt-4 border-t border-slate-100 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Code className="w-4 h-4 text-slate-500" />
+                  <Label className="text-sm font-medium">Embed on External Websites</Label>
+                </div>
+                <div className="bg-slate-50 rounded-md p-3 space-y-3">
+                  <div className="space-y-2">
+                    <Label className="text-xs text-slate-600">iFrame Embed Code</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        readOnly
+                        value={`<iframe src="${embedUrl}" width="100%" height="600" frameborder="0" style="border: none; max-width: 100%;"></iframe>`}
+                        className="text-xs font-mono bg-white"
+                        data-testid="input-embed-code"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => {
+                          navigator.clipboard.writeText(`<iframe src="${embedUrl}" width="100%" height="600" frameborder="0" style="border: none; max-width: 100%;"></iframe>`);
+                          toast.success('Embed code copied to clipboard');
+                        }}
+                        data-testid="button-copy-embed-code"
+                      >
+                        <Copy className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => window.open(`/embed/form/${formData.slug}?tenant=${tenantSubdomain}`, '_blank')}
+                        data-testid="button-preview-embed"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="space-y-2 pt-2 border-t border-slate-200">
+                    <Label className="text-xs text-slate-600">Auto-Resize Script (Optional)</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        readOnly
+                        value={`<script>window.addEventListener('message',e=>{if(e.origin==='${window.location.origin}'&&e.data.type==='iconn-form-resize'){document.querySelector('iframe[src*="${formData.slug}"]').style.height=e.data.height+'px'}});</script>`}
+                        className="text-xs font-mono bg-white"
+                        data-testid="input-resize-script"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => {
+                          navigator.clipboard.writeText(`<script>window.addEventListener('message',e=>{if(e.origin==='${window.location.origin}'&&e.data.type==='iconn-form-resize'){document.querySelector('iframe[src*="${formData.slug}"]').style.height=e.data.height+'px'}});</script>`);
+                          toast.success('Resize script copied to clipboard');
+                        }}
+                        data-testid="button-copy-resize-script"
+                      >
+                        <Copy className="w-4 h-4" />
+                      </Button>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      Add this script to enable automatic height adjustment as the form content changes.
+                    </p>
+                  </div>
+                </div>
+              </div>
+              );
+            })()}
+
+            {/* Pre-fill Settings */}
+            <div className="mt-4 pt-4 border-t border-slate-100 space-y-4">
+              <div className="flex items-center gap-4 flex-wrap">
+                <div className="space-y-1">
+                  <Label className="text-sm font-medium">Pre-fill Form From</Label>
+                  <Select
+                    value={formData.prefill_source || "none"}
+                    onValueChange={(value) => setFormData({
+                      ...formData,
+                      prefill_source: value,
+                      prefill_source_field_id: value === 'form_field' ? formData.prefill_source_field_id : null,
+                    })}
+                  >
+                    <SelectTrigger className="w-[200px]" data-testid="select-prefill-source">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None (No Pre-fill)</SelectItem>
+                      <SelectItem value="member">Member Data</SelectItem>
+                      <SelectItem value="organization">Organisation Data</SelectItem>
+                      <SelectItem value="booking">Event Attendee (Booking)</SelectItem>
+                      <SelectItem value="form_field">Organisation / Group Dropdown</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {formData.prefill_source !== "none" && formData.prefill_source !== 'form_field' && (
+                  <p className="text-xs text-slate-500 self-end pb-2">
+                    Form URL will accept ?{formData.prefill_source === "member" ? "member_id" : formData.prefill_source === "booking" ? "booking_id" : "organization_id"}=xxx to pre-populate fields
+                  </p>
+                )}
+              </div>
+              {formData.prefill_source === 'form_field' && (
+                <div className="max-w-xl space-y-2">
+                  <Label className="text-sm font-medium">Record source dropdown</Label>
+                  <Select
+                    value={formData.prefill_source_field_id || '_none'}
+                    onValueChange={(value) => setFormData({
+                      ...formData,
+                      prefill_source_field_id: value === '_none' ? null : value,
+                    })}
+                  >
+                    <SelectTrigger data-testid="select-prefill-source-field">
+                      <SelectValue placeholder="Choose an organisation or group dropdown…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="_none">Choose a source field…</SelectItem>
+                      {(formData.fields || []).filter(field => (
+                        ['organisation_dropdown', 'organization_dropdown', 'organisation_group_dropdown'].includes(field.type)
+                        && !field.repeatable_field_id
+                        && !field.parent_repeatable_field_id
+                      )).map(field => (
+                        <SelectItem key={field.id} value={field.id}>
+                          {field.label || 'Untitled field'} — {field.type === 'organisation_group_dropdown' ? 'Organisation Group' : 'Organisation'}
+                        </SelectItem>
+                      ))}
+                      {formData.prefill_source_field_id
+                        && !(formData.fields || []).some(field => field.id === formData.prefill_source_field_id
+                          && ['organisation_dropdown', 'organization_dropdown', 'organisation_group_dropdown'].includes(field.type)) && (
+                          <SelectItem value={formData.prefill_source_field_id}>
+                            Unavailable source ({formData.prefill_source_field_id})
+                          </SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-slate-500">
+                    Selecting a record will fill configured fields that appear later in the form. Move the source above a target to make it eligible.
+                  </p>
+                  {formData.prefill_source_field_id
+                    && !(formData.fields || []).some(field => field.id === formData.prefill_source_field_id
+                      && ['organisation_dropdown', 'organization_dropdown', 'organisation_group_dropdown'].includes(field.type)) && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setFormData({ ...formData, prefill_source_field_id: null })}
+                      >
+                        Remove unavailable source
+                      </Button>
+                  )}
+                </div>
+              )}
+            </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-slate-200 mt-6" data-testid="card-form-owners">
+            <CardHeader className="pb-4">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Users className="w-5 h-5 text-blue-600" />
+                Owners
+              </CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">
+                Assign members as owners of this form. Owners get a dedicated "My Forms" tab on the Form Submissions page that lists only the submissions for forms they own.
+              </p>
+            </CardHeader>
+            <CardContent>
+              <FormOwnersSelector
+                owners={formData.owners || []}
+                onChange={(owners) => setFormData({ ...formData, owners })}
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Submission Settings Tab */}
+          <TabsContent value="submission">
+            {/* Submission Rules */}
+            <Card className="border-slate-200 mb-6">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-lg">Submission Rules</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-start gap-3">
                   <Switch
-                    id="is_active"
-                    checked={formData.is_active}
-                    onCheckedChange={(checked) => setFormData({ ...formData, is_active: checked })}
+                    id="prevent_duplicate_email_submission"
+                    checked={formData.prevent_duplicate_email_submission}
+                    onCheckedChange={(checked) => setFormData({ ...formData, prevent_duplicate_email_submission: checked })}
+                    data-testid="switch-prevent-duplicate-email-submission"
                   />
+                  <div className="space-y-1">
+                    <Label htmlFor="prevent_duplicate_email_submission" className="text-sm">
+                      Limit to one submission per email address
+                    </Label>
+                    <p className="text-xs text-slate-500">
+                      Block repeat submissions when the same email address has already been used on this form. Case-insensitive; submissions without an email are unaffected.
+                    </p>
+                  </div>
                 </div>
               </CardContent>
             </Card>
-          </div>
 
-          {/* Form Fields */}
-          <div className="lg:col-span-2">
+            {/* Record Creation - Unified Member and Organisation Pipelines */}
+            <Card className="border-slate-200 mb-6">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Users className="w-5 h-5" />
+                  Record Creation
+                </CardTitle>
+                <p className="text-xs text-slate-500 mt-1">
+                  Configure which member and organisation records to create or update on form submission. Records are processed sequentially using UPSERT logic.
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {mutationAccessAssessment.hasExistingRecordMutation && (
+                  <div
+                    className={`rounded-md border p-4 space-y-3 ${
+                      mutationAccessAssessment.ok
+                        ? 'border-blue-200 bg-blue-50'
+                        : 'border-amber-300 bg-amber-50'
+                    }`}
+                    data-testid="form-mutation-access-warning"
+                  >
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className={`w-4 h-4 mt-0.5 ${
+                        mutationAccessAssessment.ok ? 'text-blue-700' : 'text-amber-700'
+                      }`} />
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-slate-900">
+                          Existing records may be updated
+                        </p>
+                        <p className="text-xs text-slate-700">
+                          {mutationAccessAssessment.mutationTargets.includes('organization')
+                            ? 'Organisation mappings can change a record that already exists. '
+                            : ''}
+                          {mutationAccessAssessment.mutationTargets.includes('member')
+                            ? 'Member mappings can change a record that already exists. '
+                            : ''}
+                          Choose how the server will verify the respondent. Selecting a record by itself never grants update access.
+                        </p>
+                        {!mutationAccessAssessment.ok && (
+                          <p className="text-xs font-medium text-amber-800">
+                            {mutationAccessAssessment.error}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="max-w-md space-y-1">
+                      <Label htmlFor="mutation_access_policy" className="text-xs">
+                        Verified update access
+                      </Label>
+                      <Select
+                        value={formData.mutation_access_policy?.mode || 'none'}
+                        onValueChange={(mode) => setFormData(prev => ({
+                          ...prev,
+                          mutation_access_policy: mode === 'none'
+                            ? null
+                            : { version: 1, mode },
+                        }))}
+                      >
+                        <SelectTrigger id="mutation_access_policy" data-testid="select-mutation-access-policy">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Choose verified access…</SelectItem>
+                          <SelectItem
+                            value={FORM_MUTATION_ACCESS_MODES.APPLICANT_CONTINUATION}
+                            disabled={
+                              !mutationAccessAssessment.mutationTargets.includes('organization')
+                            }
+                          >
+                            Server-issued applicant continuation link
+                          </SelectItem>
+                          <SelectItem
+                            value={FORM_MUTATION_ACCESS_MODES.AUTHENTICATED_OWNER}
+                            disabled={!formData.require_authentication}
+                          >
+                            Logged-in record owner
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-slate-600">
+                        Applicant continuation links are server-issued and bound to one tenant, form and organisation.
+                        Member updates in that flow are limited to the organisation-owned member IDs captured when the link is issued and revalidated before writing.
+                        Logged-in owner access still verifies the actual member or their organisation; requiring login alone is not enough.
+                      </p>
+                      {mutationAccessAssessment.mutationTargets.length === 1
+                        && mutationAccessAssessment.mutationTargets[0] === 'member'
+                        && !formData.require_authentication && (
+                        <p className="text-xs font-medium text-amber-900">
+                          Modern member pipelines match identities such as email as upserts, even when used for signup.
+                          A public create-only collision contract is not currently supported. Require login and use authenticated-owner access;
+                          existing-member updates will not be silently discarded.
+                        </p>
+                      )}
+                      {!formData.is_active && !mutationAccessAssessment.ok && (
+                        <p className="text-xs text-slate-600">
+                          You can save this inactive draft now, but it cannot be activated until verified update access is configured.
+                        </p>
+                      )}
+                    </div>
+                    {formId && formData.is_active && canIssueApplicantContinuation && (
+                      <ApplicantContinuationLinkGenerator
+                        form={{ ...formData, id: formId }}
+                      />
+                    )}
+                  </div>
+                )}
+                <StructuredRecordActionsEditor
+                  value={formData.structured_actions}
+                  onChange={(structured_actions) => setFormData(prev => ({ ...prev, structured_actions }))}
+                  fields={formData.fields}
+                  customFields={customFields}
+                  customObjects={structuredActionMetadata.objects}
+                  customObjectFields={structuredActionMetadata.fields}
+                  relationshipDefinitions={structuredActionMetadata.relationships}
+                  entityPipelines={formData.entity_pipelines}
+                  metadataLoading={structuredActionMetadataLoading}
+                  metadataError={structuredActionMetadataError}
+                />
+
+                {/* Members Section */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm font-semibold flex items-center gap-2">
+                      <UserPlus className="w-4 h-4" />
+                      Members
+                    </Label>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const members = formData.entity_pipelines?.members || [];
+                        const isPrimary = members.length === 0;
+                        const newMember = {
+                          id: `member_${Date.now()}`,
+                          label: isPrimary ? 'Primary Member' : `Additional Member ${members.length}`,
+                          isPrimary,
+                          role_id: null,
+                          role_assignment: { mode: 'fixed' },
+                          uniqueness_key: 'email',
+                          mappings: [],
+                          login_enabled: null
+                        };
+                        setFormData(prev => ({
+                          ...prev,
+                          entity_pipelines: {
+                            ...prev.entity_pipelines,
+                            members: [...(prev.entity_pipelines?.members || []), newMember]
+                          }
+                        }));
+                      }}
+                      data-testid="button-add-member-pipeline"
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add/Update
+                    </Button>
+                  </div>
+                  
+                  {(!formData.entity_pipelines?.members || formData.entity_pipelines.members.length === 0) ? (
+                    <div className="text-center py-4 text-slate-400 border border-dashed border-slate-200 rounded-lg">
+                      <Users className="w-6 h-6 mx-auto mb-2 opacity-50" />
+                      <p className="text-sm">No member records configured</p>
+                      <p className="text-xs mt-1">Click "Add/Update" to create or update member records from this form</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {formData.entity_pipelines.members.map((memberConfig, memberIdx) => {
+                        const memberMappings = memberConfig.mappings || [];
+                        const hasEmailMapping = memberMappings.some(m => 
+                          m.target_field === 'email' && m.target_type === 'core' && 
+                          (m.source_field_id || m.static_value)
+                        );
+                        
+                        return (
+                          <div 
+                            key={memberConfig.id} 
+                            className={`p-4 rounded-lg border ${hasEmailMapping ? 'border-slate-200 bg-slate-50' : 'border-warning/30 bg-warning/10'}`}
+                            data-testid={`member-pipeline-${memberIdx}`}
+                          >
+                            <div className="flex items-center justify-between mb-3">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                {memberConfig.isPrimary && (
+                                  <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-medium">Primary</span>
+                                )}
+                                <Input
+                                  value={memberConfig.label}
+                                  onChange={(e) => {
+                                    const updated = [...formData.entity_pipelines.members];
+                                    updated[memberIdx] = { ...updated[memberIdx], label: e.target.value };
+                                    setFormData(prev => ({ ...prev, entity_pipelines: { ...prev.entity_pipelines, members: updated } }));
+                                  }}
+                                  className="h-8 w-48 text-sm font-medium"
+                                  placeholder="Member label"
+                                  data-testid={`input-member-label-${memberIdx}`}
+                                />
+                                <Select
+                                  value={
+                                    memberConfig.login_enabled === true ? "enabled"
+                                      : memberConfig.login_enabled === false ? "disabled"
+                                      : "keep"
+                                  }
+                                  onValueChange={(value) => {
+                                    const updated = [...formData.entity_pipelines.members];
+                                    updated[memberIdx] = {
+                                      ...updated[memberIdx],
+                                      login_enabled: value === "enabled" ? true : (value === "disabled" ? false : null)
+                                    };
+                                    setFormData(prev => ({ ...prev, entity_pipelines: { ...prev.entity_pipelines, members: updated } }));
+                                  }}
+                                >
+                                  <SelectTrigger className="h-8 w-44 text-xs" data-testid={`select-member-login-${memberIdx}`}>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="keep">-- Don't change login --</SelectItem>
+                                    <SelectItem value="enabled">Login enabled</SelectItem>
+                                    <SelectItem value="disabled">Login disabled</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                {!hasEmailMapping && (
+                                  <span className="text-xs text-warning font-medium">Email mapping required</span>
+                                )}
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => {
+                                  const updated = formData.entity_pipelines.members.filter((_, i) => i !== memberIdx);
+                                  if (memberConfig.isPrimary && updated.length > 0) {
+                                    updated[0] = { ...updated[0], isPrimary: true };
+                                  }
+                                  setFormData(prev => ({ ...prev, entity_pipelines: { ...prev.entity_pipelines, members: updated } }));
+                                }}
+                                className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50"
+                                data-testid={`button-delete-member-${memberIdx}`}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+
+                            <MemberRoleAssignmentEditor
+                              member={memberConfig}
+                              fields={formData.fields}
+                              roles={roles}
+                              memberIndex={memberIdx}
+                              onChange={(updatedMember) => {
+                                const updated = [...formData.entity_pipelines.members];
+                                updated[memberIdx] = updatedMember;
+                                setFormData(prev => ({
+                                  ...prev,
+                                  entity_pipelines: { ...prev.entity_pipelines, members: updated },
+                                }));
+                              }}
+                            />
+                            
+                            <FieldMappingSection
+                              fields={formData.fields}
+                              fieldMappings={memberMappings}
+                              onMappingsChange={(mappings) => {
+                                const updated = [...formData.entity_pipelines.members];
+                                updated[memberIdx] = { ...updated[memberIdx], mappings };
+                                setFormData(prev => ({ ...prev, entity_pipelines: { ...prev.entity_pipelines, members: updated } }));
+                              }}
+                              applicationLevel="member"
+                              customFields={customFields}
+                              communicationCategories={communicationCategories}
+                              resourceCategories={categories}
+                              fixedTargetEntity="member"
+                              showHeader={false}
+                              compact={true}
+                            />
+                            {memberConfig.isPrimary && (
+                              <PipelineRelatedRecordsEditor
+                                entityKind="member"
+                                pipeline={memberConfig}
+                                fields={formData.fields}
+                                relationshipDefinitions={structuredActionMetadata.relationships}
+                                customFields={customFields}
+                                customObjectFields={structuredActionMetadata.fields}
+                                metadataLoading={structuredActionMetadataLoading}
+                                metadataError={structuredActionMetadataError}
+                                onChange={(related_records) => {
+                                  const updated = [...formData.entity_pipelines.members];
+                                  updated[memberIdx] = { ...updated[memberIdx], related_records };
+                                  setFormData(prev => ({ ...prev, entity_pipelines: { ...prev.entity_pipelines, members: updated } }));
+                                }}
+                              />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Organisations Section */}
+                <div className="space-y-3 pt-4 border-t border-slate-200">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm font-semibold flex items-center gap-2">
+                      <Building2 className="w-4 h-4" />
+                      Organisations
+                    </Label>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const orgs = formData.entity_pipelines?.organisations || [];
+                        const isPrimary = orgs.length === 0;
+                        const newOrg = {
+                          id: `org_${Date.now()}`,
+                          label: isPrimary ? 'Primary Organisation' : `Additional Organisation ${orgs.length}`,
+                          isPrimary,
+                          uniqueness_key: 'name',
+                          mappings: []
+                        };
+                        setFormData(prev => ({
+                          ...prev,
+                          entity_pipelines: {
+                            ...prev.entity_pipelines,
+                            organisations: [...(prev.entity_pipelines?.organisations || []), newOrg]
+                          }
+                        }));
+                      }}
+                      data-testid="button-add-org-pipeline"
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add/Update
+                    </Button>
+                  </div>
+                  
+                  {(!formData.entity_pipelines?.organisations || formData.entity_pipelines.organisations.length === 0) ? (
+                    <div className="text-center py-4 text-slate-400 border border-dashed border-slate-200 rounded-lg">
+                      <Building2 className="w-6 h-6 mx-auto mb-2 opacity-50" />
+                      <p className="text-sm">No organisation records configured</p>
+                      <p className="text-xs mt-1">Click "Add/Update" to create or update organisation records from this form</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {formData.entity_pipelines.organisations.map((orgConfig, orgIdx) => {
+                        const orgMappings = orgConfig.mappings || [];
+                        const hasNameMapping = orgMappings.some(m => 
+                          m.target_field === 'name' && m.target_type === 'core' && 
+                          (m.source_field_id || m.static_value)
+                        );
+                        
+                        return (
+                          <div 
+                            key={orgConfig.id} 
+                            className={`p-4 rounded-lg border ${hasNameMapping ? 'border-slate-200 bg-slate-50' : 'border-warning/30 bg-warning/10'}`}
+                            data-testid={`org-pipeline-${orgIdx}`}
+                          >
+                            <div className="flex items-center justify-between mb-3">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                {orgConfig.isPrimary && (
+                                  <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-medium">Primary</span>
+                                )}
+                                <Input
+                                  value={orgConfig.label}
+                                  onChange={(e) => {
+                                    const updated = [...formData.entity_pipelines.organisations];
+                                    updated[orgIdx] = { ...updated[orgIdx], label: e.target.value };
+                                    setFormData(prev => ({ ...prev, entity_pipelines: { ...prev.entity_pipelines, organisations: updated } }));
+                                  }}
+                                  className="h-8 w-48 text-sm font-medium"
+                                  placeholder="Organisation label"
+                                  data-testid={`input-org-label-${orgIdx}`}
+                                />
+                                {!hasNameMapping && (
+                                  <span className="text-xs text-warning font-medium">Name mapping required</span>
+                                )}
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => {
+                                  const updated = formData.entity_pipelines.organisations.filter((_, i) => i !== orgIdx);
+                                  if (orgConfig.isPrimary && updated.length > 0) {
+                                    updated[0] = { ...updated[0], isPrimary: true };
+                                  }
+                                  setFormData(prev => ({ ...prev, entity_pipelines: { ...prev.entity_pipelines, organisations: updated } }));
+                                }}
+                                className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50"
+                                data-testid={`button-delete-org-${orgIdx}`}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                            
+                            <FieldMappingSection
+                              fields={formData.fields}
+                              fieldMappings={orgMappings}
+                              onMappingsChange={(mappings) => {
+                                const updated = [...formData.entity_pipelines.organisations];
+                                updated[orgIdx] = { ...updated[orgIdx], mappings };
+                                setFormData(prev => ({ ...prev, entity_pipelines: { ...prev.entity_pipelines, organisations: updated } }));
+                              }}
+                              applicationLevel="organization"
+                              customFields={customFields}
+                              communicationCategories={communicationCategories}
+                              resourceCategories={categories}
+                              fixedTargetEntity="organization"
+                              showHeader={false}
+                              compact={true}
+                            />
+                            {orgConfig.isPrimary && (
+                              <PipelineRelatedRecordsEditor
+                                entityKind="organization"
+                                pipeline={orgConfig}
+                                fields={formData.fields}
+                                relationshipDefinitions={structuredActionMetadata.relationships}
+                                customFields={customFields}
+                                customObjectFields={structuredActionMetadata.fields}
+                                metadataLoading={structuredActionMetadataLoading}
+                                metadataError={structuredActionMetadataError}
+                                onChange={(related_records) => {
+                                  const updated = [...formData.entity_pipelines.organisations];
+                                  updated[orgIdx] = { ...updated[orgIdx], related_records };
+                                  setFormData(prev => ({ ...prev, entity_pipelines: { ...prev.entity_pipelines, organisations: updated } }));
+                                }}
+                              />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Newsletter / Communication Category Subscription */}
+            <Card className="border-slate-200 mt-6">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Mail className="w-5 h-5" />
+                  Newsletter Subscription
+                </CardTitle>
+                <p className="text-xs text-slate-500 mt-1">
+                  Link this form to a communication category. When someone submits this form, they will be automatically subscribed to the selected category.
+                </p>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="flex items-center gap-4">
+                    <Label className="text-sm font-medium w-48">Communication Category</Label>
+                    <Select
+                      value={formData.communication_category_id || "none"}
+                      onValueChange={(value) => {
+                        setFormData(prev => ({
+                          ...prev,
+                          communication_category_id: value === "none" ? null : value
+                        }));
+                      }}
+                    >
+                      <SelectTrigger className="w-64" data-testid="select-communication-category">
+                        <SelectValue placeholder="Select category..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">-- No category (disabled) --</SelectItem>
+                        {communicationCategories.map(cat => (
+                          <SelectItem key={cat.id} value={cat.id}>
+                            {cat.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {formData.communication_category_id && (
+                    <div className="text-xs text-slate-500 bg-blue-50 p-3 rounded-md border border-blue-100">
+                      <strong>How it works:</strong> When a form is submitted:
+                      <ul className="list-disc ml-4 mt-1 space-y-1">
+                        <li>Members will have their communication preference updated to receive this category</li>
+                        <li>Non-members will be added to the subscriber list for this category</li>
+                        <li>Previously opted-out users will be re-subscribed (their latest action takes precedence)</li>
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Emails Tab */}
+          <TabsContent value="emails">
+            <Card className="border-slate-200">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Mail className="w-5 h-5" />
+                  Email Notifications
+                </CardTitle>
+                <p className="text-sm text-slate-500">
+                  Configure emails to send when this form is submitted
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Email Cards */}
+                {formData.submission_emails.length === 0 ? (
+                  <div className="text-center py-8 text-slate-500">
+                    <Mail className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+                    <p className="text-sm">No emails configured</p>
+                    <p className="text-xs text-slate-400 mt-1">Click "Add Email" to send emails on form submission</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {formData.submission_emails.map((email, idx) => (
+                      <EmailCard
+                        key={email.id}
+                        email={email}
+                        index={idx}
+                        emailTemplates={emailTemplates}
+                        formFields={formData.fields}
+                        hasMembershipPaymentField={formData.fields.some(f => f.type === 'membership_payment')}
+                        onUpdate={(updates) => {
+                          const updatedEmails = [...formData.submission_emails];
+                          updatedEmails[idx] = { ...updatedEmails[idx], ...updates };
+                          setFormData({ ...formData, submission_emails: updatedEmails });
+                        }}
+                        onRemove={() => {
+                          const updatedEmails = formData.submission_emails.filter((_, i) => i !== idx);
+                          setFormData({ ...formData, submission_emails: updatedEmails });
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
+                
+                {/* Add Email Button */}
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    const newEmail = {
+                      id: `email_${Date.now()}`,
+                      template_id: null,
+                      recipient: '',
+                      cc: '',
+                      bcc: '',
+                      field_mapping: {},
+                      condition: null,
+                      attach_invoice: false
+                    };
+                    setFormData({ 
+                      ...formData, 
+                      submission_emails: [...formData.submission_emails, newEmail] 
+                    });
+                  }}
+                  className="w-full"
+                  data-testid="button-add-email"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Email
+                </Button>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Conditional Logic Tab */}
+          <TabsContent value="logic">
+            <Card className="border-slate-200">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Eye className="w-5 h-5" />
+                  Visibility Rules
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <LogicRulesSection
+                  fields={formData.fields}
+                  visibilityRules={formData.visibility_rules}
+                  prefillSource={formData.prefill_source || 'none'}
+                  prefillSourceFieldId={formData.prefill_source_field_id}
+                  customFields={customFields}
+                  categories={categories}
+                  communicationCategories={communicationCategories}
+                  organizations={organizations}
+                  organizationGroups={organizationGroups}
+                  roles={roles}
+                  pages={formData.pages || []}
+                  entityPipelines={formData.entity_pipelines}
+                  destinationForms={allForms.filter(form => String(form.id) !== String(formId))}
+                  onRulesChange={(rules) => {
+                    const fieldsWithShowRules = new Set();
+                    const pagesWithShowRules = new Set();
+                    const pageIds = new Set((formData.pages || []).map(p => p.id));
+                    rules.forEach(rule => {
+                      if (rule.actions && Array.isArray(rule.actions)) {
+                        for (const action of rule.actions) {
+                          if (action.action_type === 'visibility' && action.field_states) {
+                            for (const [id, state] of Object.entries(action.field_states)) {
+                              if (state.visible === true) {
+                                if (pageIds.has(id)) {
+                                  pagesWithShowRules.add(id);
+                                } else {
+                                  fieldsWithShowRules.add(id);
+                                }
+                              }
+                            }
+                          }
+                          if (action.action_type === 'show' && action.target_field_ids?.length) {
+                            action.target_field_ids.forEach(id => fieldsWithShowRules.add(id));
+                          }
+                        }
+                      }
+                      else if (rule.action === 'show' && rule.target_field_ids?.length) {
+                        rule.target_field_ids.forEach(id => fieldsWithShowRules.add(id));
+                      }
+                    });
+                    setFormData(prev => {
+                      const updatedFields = prev.fields.map(field => ({
+                        ...field,
+                        starts_hidden: fieldsWithShowRules.has(field.id) || field.starts_hidden
+                      }));
+                      const updatedPages = (prev.pages || []).map(page => ({
+                        ...page,
+                        starts_hidden: pagesWithShowRules.has(page.id) || page.starts_hidden
+                      }));
+                      return { 
+                        ...prev, 
+                        visibility_rules: rules,
+                        fields: updatedFields,
+                        pages: updatedPages
+                      };
+                    });
+                  }}
+                />
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Builder Tab - Form Pages and Fields */}
+          <TabsContent value="builder">
+            <div className="space-y-6">
+            <UnreachableHiddenWarning
+              fields={formData.fields}
+              pages={formData.pages || []}
+              visibilityRules={formData.visibility_rules || []}
+            />
+            {/* Pages Management - Only for Standard layout */}
+            {formData.layout_type === 'standard' && (
+              <Card className="border-slate-200">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <FileText className="w-5 h-5" />
+                      Form Pages
+                    </CardTitle>
+                    <Button onClick={addPage} size="sm" variant="outline">
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add Page
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {formData.pages.length === 0 ? (
+                    <div className="text-center py-6 text-slate-500 text-sm">
+                      <p className="mb-2">No pages defined - all fields will show on one page</p>
+                      <p className="text-xs text-slate-400">Add pages to break your form into multiple steps</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {formData.pages.map((page, index) => (
+                        <React.Fragment key={page.id}>
+                        <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg border border-slate-200">
+                          <div className="flex flex-col">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-5 w-5"
+                              onClick={() => movePageUp(index)}
+                              disabled={index === 0}
+                            >
+                              <ChevronUp className="w-3 h-3" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-5 w-5"
+                              onClick={() => movePageDown(index)}
+                              disabled={index === formData.pages.length - 1}
+                            >
+                              <ChevronDown className="w-3 h-3" />
+                            </Button>
+                          </div>
+                          <div className="flex-1">
+                            <Input
+                              value={page.title}
+                              onChange={(e) => updatePage(page.id, { title: e.target.value })}
+                              className="h-8 text-sm"
+                              placeholder="Page title..."
+                            />
+                          </div>
+                          {/* Column count selector */}
+                          <div className="flex items-center gap-1 border border-slate-200 rounded bg-white p-0.5">
+                            <Button
+                              variant={page.column_count === 1 ? "default" : "ghost"}
+                              size="sm"
+                              className="h-6 w-6 p-0 text-xs"
+                              onClick={() => updatePage(page.id, { column_count: 1 })}
+                              title="1 Column"
+                            >
+                              1
+                            </Button>
+                            <Button
+                              variant={page.column_count === 2 ? "default" : "ghost"}
+                              size="sm"
+                              className="h-6 w-6 p-0"
+                              onClick={() => updatePage(page.id, { column_count: 2 })}
+                              title="2 Columns"
+                            >
+                              <Columns2 className="w-3 h-3" />
+                            </Button>
+                            <Button
+                              variant={page.column_count === 3 ? "default" : "ghost"}
+                              size="sm"
+                              className="h-6 w-6 p-0"
+                              onClick={() => updatePage(page.id, { column_count: 3 })}
+                              title="3 Columns"
+                            >
+                              <Columns3 className="w-3 h-3" />
+                            </Button>
+                          </div>
+                          <div className="flex items-center gap-1 border border-slate-200 rounded bg-white p-0.5">
+                            <Button
+                              variant={(page.page_style || 'standard') === 'standard' ? "default" : "ghost"}
+                              size="sm"
+                              className="h-6 px-2 text-xs"
+                              onClick={() => updatePage(page.id, { page_style: 'standard' })}
+                              title="Standard Layout"
+                            >
+                              Standard
+                            </Button>
+                            <Button
+                              variant={page.page_style === 'name_badge' ? "default" : "ghost"}
+                              size="sm"
+                              className="h-6 px-2 text-xs"
+                              onClick={() => updatePage(page.id, { 
+                                page_style: 'name_badge',
+                                badge_style: page.badge_style || { ...BADGE_STYLE_DEFAULTS }
+                              })}
+                              title="Name Badge Layout"
+                            >
+                              Badge
+                            </Button>
+                          </div>
+                          <span className="text-xs text-slate-400 px-2">
+                            {formData.fields.filter(f => f.page_id === page.id).length} fields
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removePage(page.id)}
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50 h-8 w-8 p-0"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                        {page.page_style === 'name_badge' && (() => {
+                          const bs = page.badge_style || BADGE_STYLE_DEFAULTS;
+                          const updateBadgeStyle = (updates) => {
+                            updatePage(page.id, { badge_style: { ...bs, ...updates } });
+                          };
+                          return (
+                            <div className="ml-8 mt-2 p-3 bg-white border border-slate-200 rounded-lg space-y-3">
+                              <Label className="text-xs font-semibold">Badge Style</Label>
+                              <div className="grid grid-cols-3 gap-3">
+                                <div className="space-y-1">
+                                  <Label className="text-xs">Accent Colour</Label>
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type="color"
+                                      value={bs.accent_color}
+                                      onChange={(e) => updateBadgeStyle({ accent_color: e.target.value })}
+                                      className="w-8 h-8 rounded cursor-pointer border border-slate-200"
+                                      data-testid={`input-badge-accent-${page.id}`}
+                                    />
+                                    <span className="text-xs text-slate-500">{bs.accent_color}</span>
+                                  </div>
+                                </div>
+                                <div className="space-y-1">
+                                  <Label className="text-xs">Background</Label>
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type="color"
+                                      value={bs.background_color}
+                                      onChange={(e) => updateBadgeStyle({ background_color: e.target.value })}
+                                      className="w-8 h-8 rounded cursor-pointer border border-slate-200"
+                                      data-testid={`input-badge-bg-${page.id}`}
+                                    />
+                                    <span className="text-xs text-slate-500">{bs.background_color}</span>
+                                  </div>
+                                </div>
+                                <div className="space-y-1">
+                                  <Label className="text-xs">Border</Label>
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type="color"
+                                      value={bs.border_color}
+                                      onChange={(e) => updateBadgeStyle({ border_color: e.target.value })}
+                                      className="w-8 h-8 rounded cursor-pointer border border-slate-200"
+                                      data-testid={`input-badge-border-${page.id}`}
+                                    />
+                                    <span className="text-xs text-slate-500">{bs.border_color}</span>
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-2 gap-3">
+                                <div className="space-y-1">
+                                  <Label className="text-xs">Width (px)</Label>
+                                  <Input
+                                    type="number"
+                                    value={bs.width}
+                                    onChange={(e) => updateBadgeStyle({ width: parseInt(e.target.value) || 400 })}
+                                    min={200}
+                                    max={600}
+                                    className="h-8 text-xs"
+                                    data-testid={`input-badge-width-${page.id}`}
+                                  />
+                                </div>
+                                <div className="space-y-1">
+                                  <Label className="text-xs">Height (px)</Label>
+                                  <Input
+                                    type="number"
+                                    value={bs.height}
+                                    onChange={(e) => updateBadgeStyle({ height: parseInt(e.target.value) || 280 })}
+                                    min={150}
+                                    max={500}
+                                    className="h-8 text-xs"
+                                    data-testid={`input-badge-height-${page.id}`}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
+                        </React.Fragment>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Form Fields Card */}
             <Card className="border-slate-200">
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-lg">Form Fields</CardTitle>
-                  <Button onClick={addField} size="sm" variant="outline">
-                    <Plus className="w-4 h-4 mr-2" />
-                    Add Field
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => addAddressLookupField(null)}
+                      size="sm"
+                      variant="outline"
+                      disabled={!idealPostcodesAvailable}
+                      title={idealPostcodesAvailable ? 'Add UK postcode address lookup' : 'Enable Ideal Postcodes in Integrations first'}
+                      data-testid="button-add-address-lookup"
+                    >
+                      <Building2 className="w-4 h-4 mr-2" />
+                      Address Lookup
+                    </Button>
+                    <Button onClick={() => addField(null)} size="sm" variant="outline">
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add Field
+                    </Button>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>
                 {formData.fields.length === 0 ? (
                   <div className="text-center py-12 text-slate-500">
                     <p className="mb-4">No fields added yet</p>
-                    <Button onClick={addField} variant="outline">
+                    <Button onClick={() => addField(null)} variant="outline">
                       <Plus className="w-4 h-4 mr-2" />
                       Add Your First Field
                     </Button>
                   </div>
+                ) : formData.layout_type === 'standard' && formData.pages.length > 0 ? (
+                  /* Paginated view with fields grouped by page */
+                  <DragDropContext onDragEnd={handleDragEnd}>
+                    <div className="space-y-6">
+                      {/* Unassigned fields */}
+                      {formData.fields.some(f => !f.page_id) && (
+                        <div className="border border-dashed border-slate-300 rounded-lg p-4">
+                          <div className="flex items-center justify-between mb-3">
+                            <h4 className="text-sm font-medium text-slate-600">Unassigned Fields</h4>
+                            <span className="text-xs text-slate-400">Drag to a page below</span>
+                          </div>
+                          <Droppable droppableId="fields-unassigned">
+                            {(provided, snapshot) => (
+                              <div 
+                                {...provided.droppableProps} 
+                                ref={provided.innerRef} 
+                                className={`space-y-3 min-h-[60px] ${snapshot.isDraggingOver ? 'bg-blue-50 rounded' : ''}`}
+                              >
+                                {formData.fields
+                                  .map((field, originalIndex) => ({ field, originalIndex }))
+                                  .filter(({ field }) => !field.page_id)
+                                  .map(({ field, originalIndex }, index) => (
+                                    <FieldCard
+                                      key={field.id}
+                                      field={field}
+                                      index={index}
+                                      originalIndex={originalIndex}
+                                      updateField={updateField}
+                                      removeField={removeField}
+                                      duplicateField={duplicateField}
+                                      duplicateRestriction={duplicateRestrictionFor(field)}
+                                      FIELD_TYPES={FIELD_TYPES}
+                                      categories={categories}
+                                      communicationCategories={communicationCategories}
+                                      customFields={customFields}
+                                      organizations={organizations}
+                                      organizationGroups={organizationGroups}
+                                      applicationLevel={formData.application_level}
+                                      uniquenessChecks={formData.uniqueness_checks}
+                                      onUniquenessChange={handleUniquenessChange}
+                                      prefillSource={formData.prefill_source || "none"}
+                                      prefillSourceFieldId={formData.prefill_source_field_id}
+                                      isDrawerOpen={editingFieldId === field.id}
+                                      onOpenDrawer={() => setEditingFieldId(field.id)}
+                                      onCloseDrawer={() => setEditingFieldId(null)}
+                                      contractForms={contractForms}
+                                      allFields={formData.fields}
+                                      formType={formData.form_type}
+                                      scoringLocked={hasResponses && formData.form_type === 'survey'}
+                                      formId={formId}
+                                       relationshipDiscoveryContext={relationshipDiscoveryContext}
+                                       idealPostcodesAvailable={idealPostcodesAvailable}
+                                       idealPostcodesLoading={idealPostcodesLoading}
+                                       entityPipelines={formData.entity_pipelines}
+                                       fieldMappings={formData.field_mappings}
+                                       formConfig={formData}
+                                    />
+                                  ))}
+                                {provided.placeholder}
+                              </div>
+                            )}
+                          </Droppable>
+                        </div>
+                      )}
+
+                      {/* Expand/Collapse All buttons */}
+                      {formData.pages.length > 1 && (
+                        <div className="flex items-center justify-end gap-2 mb-2">
+                          <Button 
+                            onClick={expandAllPages} 
+                            size="sm" 
+                            variant="ghost"
+                            className="h-7 text-xs"
+                            data-testid="button-expand-all-pages"
+                          >
+                            <ChevronDown className="w-3 h-3 mr-1" />
+                            Expand All
+                          </Button>
+                          <Button 
+                            onClick={collapseAllPages} 
+                            size="sm" 
+                            variant="ghost"
+                            className="h-7 text-xs"
+                            data-testid="button-collapse-all-pages"
+                          >
+                            <ChevronUp className="w-3 h-3 mr-1" />
+                            Collapse All
+                          </Button>
+                        </div>
+                      )}
+
+                      {/* Fields grouped by page with columns */}
+                      {formData.pages.map((page, pageIndex) => {
+                        const columnCount = page.column_count || 1;
+                        const isExpanded = isPageExpanded(page.id);
+                        const pageFieldCount = formData.fields.filter(f => f.page_id === page.id).length;
+                        
+                        return (
+                          <div key={page.id} className="border border-slate-200 rounded-lg overflow-hidden">
+                            <div 
+                              className="bg-slate-100 px-4 py-2 flex items-center justify-between cursor-pointer hover:bg-slate-150"
+                              onClick={() => togglePageExpanded(page.id)}
+                              data-testid={`page-header-${page.id}`}
+                            >
+                              <h4 className="font-medium text-slate-700 flex items-center gap-2">
+                                {isExpanded ? (
+                                  <ChevronDown className="w-4 h-4 text-slate-500" />
+                                ) : (
+                                  <ChevronUp className="w-4 h-4 text-slate-500" />
+                                )}
+                                <span className="bg-blue-600 text-white text-xs px-2 py-0.5 rounded">
+                                  Page {pageIndex + 1}
+                                </span>
+                                {page.title}
+                                {columnCount > 1 && (
+                                  <span className="text-xs text-slate-500">
+                                    ({columnCount} columns)
+                                  </span>
+                                )}
+                                <span className="text-xs text-slate-400">
+                                  {pageFieldCount} field{pageFieldCount !== 1 ? 's' : ''}
+                                </span>
+                              </h4>
+                              <Button 
+                                onClick={(e) => { e.stopPropagation(); addField(page.id, 0); }} 
+                                size="sm" 
+                                variant="ghost"
+                                className="h-7 text-xs"
+                                data-testid={`button-add-field-top-${page.id}`}
+                              >
+                                <Plus className="w-3 h-3 mr-1" />
+                                Add Field
+                              </Button>
+                            </div>
+                            
+                            {/* Collapsible content */}
+                            {isExpanded && (
+                              <>
+                                {/* Column grid */}
+                                <div className={`grid gap-2 p-4 ${
+                                  columnCount === 1 ? 'grid-cols-1' : 
+                                  columnCount === 2 ? 'grid-cols-2' : 
+                                  'grid-cols-3'
+                                }`}>
+                                  {Array.from({ length: columnCount }).map((_, colIndex) => {
+                                    const columnFields = formData.fields
+                                      .map((field, originalIndex) => ({ field, originalIndex }))
+                                      .filter(({ field }) => 
+                                        field.page_id === page.id && 
+                                        (field.column_index || 0) === colIndex
+                                      );
+                                    
+                                    return (
+                                      <Droppable 
+                                        key={`${page.id}::${colIndex}`} 
+                                        droppableId={`${page.id}::${colIndex}`}
+                                      >
+                                        {(provided, snapshot) => (
+                                          <div 
+                                            {...provided.droppableProps} 
+                                            ref={provided.innerRef} 
+                                            className={`space-y-3 min-h-[80px] p-2 rounded border-2 border-dashed ${
+                                              snapshot.isDraggingOver 
+                                                ? 'bg-blue-50 border-blue-300' 
+                                                : 'border-slate-200 bg-slate-50/50'
+                                            }`}
+                                          >
+                                            {columnCount > 1 && (
+                                              <div className="text-xs text-slate-400 text-center mb-2">
+                                                Column {colIndex + 1}
+                                              </div>
+                                            )}
+                                            {columnFields.length === 0 ? (
+                                              <div className="text-center py-4 text-slate-400 text-xs">
+                                                Drag fields here
+                                              </div>
+                                            ) : (
+                                              columnFields.map(({ field, originalIndex }, index) => (
+                                                <FieldCard
+                                                  key={field.id}
+                                                  field={field}
+                                                  index={index}
+                                                  originalIndex={originalIndex}
+                                                  updateField={updateField}
+                                                  removeField={removeField}
+                                                  duplicateField={duplicateField}
+                                                  duplicateRestriction={duplicateRestrictionFor(field)}
+                                                  FIELD_TYPES={FIELD_TYPES}
+                                                  categories={categories}
+                                                  communicationCategories={communicationCategories}
+                                                  customFields={customFields}
+                                                  organizations={organizations}
+                                                  organizationGroups={organizationGroups}
+                                                  applicationLevel={formData.application_level}
+                                                  uniquenessChecks={formData.uniqueness_checks}
+                                                  onUniquenessChange={handleUniquenessChange}
+                                                  prefillSource={formData.prefill_source || "none"}
+                                                  prefillSourceFieldId={formData.prefill_source_field_id}
+                                                  isDrawerOpen={editingFieldId === field.id}
+                                                  onOpenDrawer={() => setEditingFieldId(field.id)}
+                                                  onCloseDrawer={() => setEditingFieldId(null)}
+                                                  contractForms={contractForms}
+                                                  allFields={formData.fields}
+                                      formType={formData.form_type}
+                                      scoringLocked={hasResponses && formData.form_type === 'survey'}
+                                      formId={formId}
+                                       relationshipDiscoveryContext={relationshipDiscoveryContext}
+                                       idealPostcodesAvailable={idealPostcodesAvailable}
+                                       idealPostcodesLoading={idealPostcodesLoading}
+                                        entityPipelines={formData.entity_pipelines}
+                                        fieldMappings={formData.field_mappings}
+                                        formConfig={formData}
+                                                />
+                                              ))
+                                            )}
+                                            {provided.placeholder}
+                                          </div>
+                                        )}
+                                      </Droppable>
+                                    );
+                                  })}
+                                </div>
+                                
+                                {/* Bottom Add Field button */}
+                                <div className="px-4 pb-3 flex justify-center">
+                                  <Button 
+                                    onClick={() => addField(page.id)} 
+                                    size="sm" 
+                                    variant="outline"
+                                    className="h-8 text-xs"
+                                    data-testid={`button-add-field-bottom-${page.id}`}
+                                  >
+                                    <Plus className="w-3 h-3 mr-1" />
+                                    Add Field to Page
+                                  </Button>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </DragDropContext>
                 ) : (
+                  /* Simple flat list for card_swipe or standard without pages */
                   <DragDropContext onDragEnd={handleDragEnd}>
                     <Droppable droppableId="fields">
                       {(provided) => (
                         <div {...provided.droppableProps} ref={provided.innerRef} className="space-y-4">
                           {formData.fields.map((field, index) => (
-                            <Draggable key={field.id} draggableId={field.id} index={index}>
-                              {(provided) => (
-                                <div
-                                  ref={provided.innerRef}
-                                  {...provided.draggableProps}
-                                  className="bg-slate-50 rounded-lg p-4 border border-slate-200"
-                                >
-                                  <div className="flex items-start gap-3">
-                                    <div {...provided.dragHandleProps} className="mt-2 cursor-move">
-                                      <GripVertical className="w-5 h-5 text-slate-400" />
-                                    </div>
-                                    <div className="flex-1 space-y-3">
-                                      <div className="grid grid-cols-2 gap-3">
-                                        <div className="space-y-1">
-                                          <Label className="text-xs">Field Type</Label>
-                                          <Select
-                                            value={field.type}
-                                            onValueChange={(value) => updateField(index, { type: value })}
-                                          >
-                                            <SelectTrigger className="h-9">
-                                              <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                              {FIELD_TYPES.map(type => (
-                                                <SelectItem key={type.value} value={type.value}>
-                                                  {type.label}
-                                                </SelectItem>
-                                              ))}
-                                            </SelectContent>
-                                          </Select>
-                                        </div>
-                                        <div className="space-y-1">
-                                          <Label className="text-xs">Label</Label>
-                                          <Input
-                                            value={field.label}
-                                            onChange={(e) => updateField(index, { label: e.target.value })}
-                                            className="h-9"
-                                          />
-                                        </div>
-                                      </div>
-
-                                      <div className="space-y-1">
-                                        <Label className="text-xs">Placeholder</Label>
-                                        <Input
-                                          value={field.placeholder}
-                                          onChange={(e) => updateField(index, { placeholder: e.target.value })}
-                                          className="h-9"
-                                        />
-                                      </div>
-
-                                      {['select', 'radio', 'checkbox'].includes(field.type) && (
-                                        <div className="space-y-1">
-                                          <Label className="text-xs">Options (one per line)</Label>
-                                          <Textarea
-                                            value={(field.options || []).join('\n')}
-                                            onChange={(e) => updateField(index, {
-                                              options: e.target.value.split('\n').filter(o => o.trim())
-                                            })}
-                                            className="h-20 text-sm"
-                                            placeholder="Option 1&#10;Option 2&#10;Option 3"
-                                          />
-                                        </div>
-                                      )}
-
-                                      <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-4">
-                                          <div className="flex items-center gap-2">
-                                            <Switch
-                                              id={`required-${field.id}`}
-                                              checked={field.required}
-                                              onCheckedChange={(checked) => updateField(index, { required: checked })}
-                                            />
-                                            <Label htmlFor={`required-${field.id}`} className="text-xs">Required</Label>
-                                          </div>
-                                          {field.type === 'select' && (
-                                            <div className="flex items-center gap-2">
-                                              <Switch
-                                                id={`allow-other-${field.id}`}
-                                                checked={field.allow_other || false}
-                                                onCheckedChange={(checked) => updateField(index, { allow_other: checked })}
-                                              />
-                                              <Label htmlFor={`allow-other-${field.id}`} className="text-xs">Allow "Other"</Label>
-                                            </div>
-                                          )}
-                                        </div>
-                                        <Button
-                                          variant="ghost"
-                                          size="sm"
-                                          onClick={() => removeField(index)}
-                                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                                        >
-                                          <Trash2 className="w-4 h-4" />
-                                        </Button>
-                                      </div>
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
-                            </Draggable>
+                            <FieldCard
+                              key={field.id}
+                              field={field}
+                              index={index}
+                              originalIndex={index}
+                              updateField={updateField}
+                              removeField={removeField}
+                              duplicateField={duplicateField}
+                              duplicateRestriction={duplicateRestrictionFor(field)}
+                              FIELD_TYPES={FIELD_TYPES}
+                              categories={categories}
+                              communicationCategories={communicationCategories}
+                              customFields={customFields}
+                              organizations={organizations}
+                              organizationGroups={organizationGroups}
+                              isApplicationForm={formData.is_application_form}
+                              applicationLevel={formData.application_level}
+                              uniquenessChecks={formData.uniqueness_checks}
+                              onUniquenessChange={handleUniquenessChange}
+                              prefillSource={formData.prefill_source || "none"}
+                              prefillSourceFieldId={formData.prefill_source_field_id}
+                              isDrawerOpen={editingFieldId === field.id}
+                              onOpenDrawer={() => setEditingFieldId(field.id)}
+                              onCloseDrawer={() => setEditingFieldId(null)}
+                              contractForms={contractForms}
+                              allFields={formData.fields}
+                                      formType={formData.form_type}
+                                      scoringLocked={hasResponses && formData.form_type === 'survey'}
+                                      formId={formId}
+                                       relationshipDiscoveryContext={relationshipDiscoveryContext}
+                                       idealPostcodesAvailable={idealPostcodesAvailable}
+                                       idealPostcodesLoading={idealPostcodesLoading}
+                                        entityPipelines={formData.entity_pipelines}
+                                        fieldMappings={formData.field_mappings}
+                                        formConfig={formData}
+                            />
                           ))}
                           {provided.placeholder}
+                          
+                          {/* Bottom Add Field button for flat list */}
+                          {formData.fields.length > 0 && (
+                            <div className="pt-2 flex justify-center">
+                              <Button 
+                                onClick={() => addField(null)} 
+                                size="sm" 
+                                variant="outline"
+                                className="h-8"
+                                data-testid="button-add-field-bottom"
+                              >
+                                <Plus className="w-4 h-4 mr-2" />
+                                Add Field
+                              </Button>
+                            </div>
+                          )}
                         </div>
                       )}
                     </Droppable>
@@ -463,8 +14795,261 @@ export default function FormBuilderPage() {
                 )}
               </CardContent>
             </Card>
-          </div>
-        </div>
+            </div>
+          </TabsContent>
+
+          {/* Survey Settings (Task #3330) */}
+          {formData.form_type === 'survey' && (
+            <TabsContent value="survey">
+              <div className="space-y-6">
+                <Card className="border-slate-200">
+                  <CardHeader className="pb-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <CardTitle className="text-lg">Survey Settings</CardTitle>
+                      {formId && (
+                        <Button type="button" variant="outline" size="sm" asChild data-testid="link-survey-report-builder">
+                          <a href={`/SurveyReports?formId=${formId}`}>View Report</a>
+                        </Button>
+                      )}
+                    </div>
+                  </CardHeader>
+                  <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2 md:col-span-2">
+                      <Label>Respondent Introduction</Label>
+                      <Textarea
+                        value={formData.survey_settings?.intro_text || ''}
+                        onChange={(e) => updateSurveySetting('intro_text', e.target.value)}
+                        placeholder="Shown to respondents above the survey..."
+                        rows={2}
+                        data-testid="input-survey-intro"
+                      />
+                    </div>
+                    <div className="space-y-2 md:col-span-2">
+                      <Label>Thank-you Message</Label>
+                      <Textarea
+                        value={formData.survey_settings?.thank_you_message || ''}
+                        onChange={(e) => updateSurveySetting('thank_you_message', e.target.value)}
+                        placeholder="Shown after submitting (overrides the standard success message)"
+                        rows={2}
+                        data-testid="input-survey-thankyou"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Survey Status</Label>
+                      <Select
+                        value={formData.survey_settings?.status || 'draft'}
+                        onValueChange={(value) => updateSurveySetting('status', value)}
+                      >
+                        <SelectTrigger data-testid="select-survey-status"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="draft">Draft</SelectItem>
+                          {(formData.survey_settings?.status === 'published') && (
+                            <SelectItem value="published">Published</SelectItem>
+                          )}
+                          <SelectItem value="archived">Archived</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-slate-500">Separate from the form's Active flag. Publishing happens only via the Publish button (creates a version snapshot); editing a published survey reverts it to draft until re-published.</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Response Identity</Label>
+                      <Select
+                        value={formData.survey_settings?.response_identity || 'identified'}
+                        onValueChange={(value) => updateSurveySetting('response_identity', value)}
+                        disabled={hasResponses}
+                      >
+                        <SelectTrigger data-testid="select-survey-identity"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="identified">Identified</SelectItem>
+                          <SelectItem value="anonymous">Anonymous</SelectItem>
+                          <SelectItem value="anonymous_dedupe">Anonymous (prevent duplicates)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Score Display</Label>
+                      <Select
+                        value={formData.survey_settings?.score_display || 'weighted'}
+                        onValueChange={(value) => updateSurveySetting('score_display', value)}
+                      >
+                        <SelectTrigger data-testid="select-survey-score-display"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="weighted">Weighted</SelectItem>
+                          <SelectItem value="unweighted">Unweighted</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Reporting Scale</Label>
+                      <Select
+                        value={String(formData.survey_settings?.reporting_scale || 100)}
+                        onValueChange={(value) => updateSurveySetting('reporting_scale', Number(value))}
+                      >
+                        <SelectTrigger data-testid="select-survey-reporting-scale"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="100">0–100</SelectItem>
+                          <SelectItem value="10">0–10</SelectItem>
+                          <SelectItem value="5">0–5</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Anonymity Threshold</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={formData.survey_settings?.anonymity_threshold ?? 3}
+                        onChange={(e) => updateSurveySetting('anonymity_threshold', e.target.value === '' ? '' : Number(e.target.value))}
+                        data-testid="input-survey-anonymity-threshold"
+                      />
+                      <p className="text-xs text-slate-500">Minimum responses before results are shown in reporting.</p>
+                    </div>
+                    <div className="flex flex-col gap-3 md:col-span-2">
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={formData.survey_settings?.one_submission_per_respondent === true}
+                          onCheckedChange={(checked) => updateSurveySetting('one_submission_per_respondent', checked)}
+                          data-testid="switch-survey-one-submission"
+                        />
+                        <Label>One submission per respondent</Label>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={formData.survey_settings?.show_progress === true}
+                          onCheckedChange={(checked) => updateSurveySetting('show_progress', checked)}
+                          data-testid="switch-survey-progress"
+                        />
+                        <Label>Show progress indicator</Label>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={formData.survey_settings?.show_question_numbers === true}
+                          onCheckedChange={(checked) => updateSurveySetting('show_question_numbers', checked)}
+                          data-testid="switch-survey-question-numbers"
+                        />
+                        <Label>Show question numbers</Label>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="border-slate-200">
+                  <CardHeader className="pb-4">
+                    <CardTitle className="text-lg">Survey Summary</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {surveyValidation && (
+                      <>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                          <div className="border rounded p-3">
+                            <p className="text-2xl font-semibold" data-testid="summary-scored-count">{surveyValidation.summary.scoredCount}</p>
+                            <p className="text-xs text-slate-500">Scored questions</p>
+                          </div>
+                          <div className="border rounded p-3">
+                            <p className="text-2xl font-semibold" data-testid="summary-nonscored-count">{surveyValidation.summary.nonScoredCount}</p>
+                            <p className="text-xs text-slate-500">Non-scored questions</p>
+                          </div>
+                          <div className="border rounded p-3">
+                            <p className="text-2xl font-semibold" data-testid="summary-total-weight">{surveyValidation.summary.totalWeight}</p>
+                            <p className="text-xs text-slate-500">Total weighting</p>
+                          </div>
+                          <div className="border rounded p-3">
+                            <p className="text-2xl font-semibold" data-testid="summary-excluded-count">{surveyValidation.summary.excludedFromOverall.length}</p>
+                            <p className="text-xs text-slate-500">Excluded from overall</p>
+                          </div>
+                        </div>
+                        {surveyValidation.summary.missingCategory.length > 0 && (
+                          <p className="text-xs text-amber-600">
+                            {surveyValidation.summary.missingCategory.length} score question(s) have no reporting category.
+                          </p>
+                        )}
+                        {(surveyValidation.errors.length > 0 || surveyValidation.warnings.length > 0) && (
+                          <div className="space-y-1" data-testid="survey-validation-issues">
+                            {surveyValidation.errors.map((issue, i) => (
+                              <p key={`e${i}`} className="text-xs text-red-600">
+                                •{' '}
+                                {issue.field_id ? (
+                                  <button
+                                    type="button"
+                                    className="underline"
+                                    onClick={() => {
+                                      setActiveTab('builder');
+                                      setEditingFieldId(issue.field_id);
+                                    }}
+                                  >
+                                    {(formData.fields || []).find(f => f.id === issue.field_id)?.label || 'Question'}
+                                  </button>
+                                ) : null}{issue.field_id ? ': ' : ''}{issue.message}
+                              </p>
+                            ))}
+                            {surveyValidation.warnings.map((issue, i) => (
+                              <p key={`w${i}`} className="text-xs text-amber-600">
+                                •{' '}
+                                {issue.field_id ? (
+                                  <button
+                                    type="button"
+                                    className="underline"
+                                    onClick={() => {
+                                      setActiveTab('builder');
+                                      setEditingFieldId(issue.field_id);
+                                    }}
+                                  >
+                                    {(formData.fields || []).find(f => f.id === issue.field_id)?.label || 'Question'}
+                                  </button>
+                                ) : null}{issue.field_id ? ': ' : ''}{issue.message}
+                              </p>
+                            ))}
+                          </div>
+                        )}
+                        {surveyValidation.errors.length === 0 && (
+                          <p className="text-xs text-green-600">Validation passed — ready to publish.</p>
+                        )}
+                      </>
+                    )}
+                    <div className="flex flex-wrap gap-3 pt-2">
+                      <Button
+                        onClick={handlePublishSurvey}
+                        disabled={!formId || publishSurveyMutation.isPending || (surveyValidation?.errors?.length > 0)}
+                        data-testid="button-publish-survey"
+                      >
+                        {publishSurveyMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                        Publish Survey (version {(Number(formData.survey_settings?.current_version) || 0) + 1})
+                      </Button>
+                      {hasResponses && (
+                        <Button
+                          variant="outline"
+                          onClick={() => duplicateSurveyMutation.mutate()}
+                          disabled={duplicateSurveyMutation.isPending}
+                          data-testid="button-duplicate-survey-version"
+                        >
+                          {duplicateSurveyMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                          Duplicate as New Version
+                        </Button>
+                      )}
+                    </div>
+                    {!formId && <p className="text-xs text-slate-500">Save the survey first, then publish.</p>}
+                  </CardContent>
+                </Card>
+              </div>
+            </TabsContent>
+          )}
+
+          {/* Events Tab (Task #3331) */}
+          {formData.form_type === 'survey' && (
+            <TabsContent value="events">
+              {formId ? (
+                <SurveyEventAssignmentsPanel formId={formId} />
+              ) : (
+                <Card className="border-slate-200">
+                  <CardContent className="py-12 text-center text-slate-500">
+                    Save the survey first to assign it to events.
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+          )}
+        </Tabs>
       </div>
     </div>
   );

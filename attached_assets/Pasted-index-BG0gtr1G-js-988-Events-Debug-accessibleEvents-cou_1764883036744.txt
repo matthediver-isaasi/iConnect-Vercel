@@ -1,0 +1,48 @@
+index-BG0gtr1G.js:988 [Events] Debug - accessibleEvents count: 0
+index-BG0gtr1G.js:988 [Events] Debug - selectedProgram: all
+index-BG0gtr1G.js:988 [Events] Debug - searchQuery: 
+index-BG0gtr1G.js:988 [Events] Debug - showPastEvents: false
+index-BG0gtr1G.js:988 [Events] Debug - memberInfo exists: false
+index-BG0gtr1G.js:988 [Events] Debug - filteredEvents count: 0
+index-BG0gtr1G.js:988 [Events] Debug - accessibleEvents count: 0
+index-BG0gtr1G.js:988 [Events] Debug - selectedProgram: all
+index-BG0gtr1G.js:988 [Events] Debug - searchQuery: 
+index-BG0gtr1G.js:988 [Events] Debug - showPastEvents: false
+index-BG0gtr1G.js:988 [Events] Debug - memberInfo exists: false
+index-BG0gtr1G.js:988 [Events] Debug - filteredEvents count: 0
+index-BG0gtr1G.js:988 [Events] Debug - accessibleEvents count: 0
+index-BG0gtr1G.js:988 [Events] Debug - selectedProgram: all
+index-BG0gtr1G.js:988 [Events] Debug - searchQuery: 
+index-BG0gtr1G.js:988 [Events] Debug - showPastEvents: false
+index-BG0gtr1G.js:988 [Events] Debug - memberInfo exists: false
+index-BG0gtr1G.js:988 [Events] Debug - filteredEvents count: 0
+index-BG0gtr1G.js:988 [Events] Debug - accessibleEvents count: 0
+index-BG0gtr1G.js:988 [Events] Debug - selectedProgram: all
+index-BG0gtr1G.js:988 [Events] Debug - searchQuery: 
+index-BG0gtr1G.js:988 [Events] Debug - showPastEvents: false
+index-BG0gtr1G.js:988 [Events] Debug - memberInfo exists: false
+index-BG0gtr1G.js:988 [Events] Debug - filteredEvents count: 0
+index-BG0gtr1G.js:988 [Events] Debug - accessibleEvents count: 0
+index-BG0gtr1G.js:988 [Events] Debug - selectedProgram: all
+index-BG0gtr1G.js:988 [Events] Debug - searchQuery: 
+index-BG0gtr1G.js:988 [Events] Debug - showPastEvents: false
+index-BG0gtr1G.js:988 [Events] Debug - memberInfo exists: false
+index-BG0gtr1G.js:988 [Events] Debug - filteredEvents count: 0
+index-BG0gtr1G.js:988 [Events] Debug - accessibleEvents count: 0
+index-BG0gtr1G.js:988 [Events] Debug - selectedProgram: all
+index-BG0gtr1G.js:988 [Events] Debug - searchQuery: 
+index-BG0gtr1G.js:988 [Events] Debug - showPastEvents: false
+index-BG0gtr1G.js:988 [Events] Debug - memberInfo exists: false
+index-BG0gtr1G.js:988 [Events] Debug - filteredEvents count: 0
+index-BG0gtr1G.js:988 [Events] Debug - accessibleEvents count: 1
+index-BG0gtr1G.js:988 [Events] Debug - selectedProgram: all
+index-BG0gtr1G.js:988 [Events] Debug - searchQuery: 
+index-BG0gtr1G.js:988 [Events] Debug - showPastEvents: false
+index-BG0gtr1G.js:988 [Events] Debug - memberInfo exists: false
+index-BG0gtr1G.js:988 [Events] Debug - filteredEvents count: 0
+index-BG0gtr1G.js:988 [Events] Debug - accessibleEvents count: 1
+index-BG0gtr1G.js:988 [Events] Debug - selectedProgram: all
+index-BG0gtr1G.js:988 [Events] Debug - searchQuery: 
+index-BG0gtr1G.js:988 [Events] Debug - showPastEvents: false
+index-BG0gtr1G.js:988 [Events] Debug - memberInfo exists: false
+index-BG0gtr1G.js:988 [Events] Debug - filteredEvents count: 0

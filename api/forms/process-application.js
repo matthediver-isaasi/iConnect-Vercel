@@ -1,0 +1,5438 @@
+import { createClient } from '@supabase/supabase-js';
+import { requiresApplicantContinuation, loadSubmissionApplicantContinuation, loadApplicantMemberScope, FormApplicantContinuationError } from '../_lib/formApplicantContinuation.js';
+import { preflightApplicantTargets } from '../_lib/formApplicantPreflight.js';
+import { randomUUID } from 'node:crypto';
+import {
+  FORM_NOT_LISTED_VALUE,
+  isFormNotListedValue,
+} from '../../shared/formNotListedChoice.js';
+import { assertValidAddressLookupMappingComponents } from '../../shared/formAddressLookup.js';
+import {
+  ORGANIZATION_CORE_FIELD_MAPPINGS,
+  resolveOrganizationCoreField,
+  resolveOrganizationDropdownAssignment,
+  resolvePrimaryOrganizationPipeline,
+} from '../_lib/formPrimaryOrganizationPipeline.js';
+import { triggerWorkflows } from '../_lib/workflows.js';
+import { resolveEffectiveOrgGuestAccess } from '../_lib/orgGuestAccess.js';
+import { notifyGuestSignup } from '../_lib/guestSignupNotification.js';
+import { resolveStaticTodayToken } from '../_lib/staticValueTokens.js';
+import { isProtectedOrgBalanceField } from '../_lib/protectedOrgFields.js';
+import { coercePreferenceValueForStorage } from '../_lib/preferenceValueStorage.js';
+import { resolveEffectiveEntityTenant, isCrossTenantRow } from '../_lib/formTenantScope.js';
+import { resolveExistingOrganization, applyOrgWriteTenantGuard, runGuardedTenantUpdate } from '../_lib/formOrgResolution.js';
+import { resolveSubmitControl } from '../_lib/formSubmitControl.js';
+import { rulesUseLmicOperators } from '../_lib/formLmicConditions.js';
+import { loadTenantLmicCodes } from '../_lib/tenantLmicCodes.js';
+import {
+  collectMemberPipelineCommunicationSelections,
+  persistFormCommunicationSubscriptions,
+} from '../_lib/formCommunicationSubscriptions.js';
+import {
+  assertStructuredMutationAuthorized,
+  preflightPersistedStructuredMemberOrganizationGroups,
+  processPersistedStructuredActions,
+  processPrimaryPipelineRelatedRecords,
+  StructuredActionAuthorizationError,
+  StructuredActionContractError,
+} from '../_lib/formStructuredActions.js';
+import {
+  canProcessPersistedPaymentStatus,
+  resolveTrustedFormProcessingAdmin,
+  verifyFormProcessingRequest,
+} from '../_lib/formProcessingAuth.js';
+import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
+import { getSessionMember } from '../_lib/session.js';
+import {
+  derivePersistedFormRole,
+  resolveFormProcessingPrefillTargets,
+} from '../_lib/formProcessingPolicy.js';
+import { hasPersistedLegacyFormEntityActions, resolveFormEntityActions } from '../_lib/formEntityActionMode.js';
+import { resolveMemberRoleAssignment } from '../_lib/formMemberRoleAssignment.js';
+import { computeAuthoritativeHiddenFieldIds } from '../_lib/formFieldVisibility.js';
+import { effectiveRepeatableRowSubmissionData } from '../_lib/formRepeatableRowValidation.js';
+import {
+  assertValidExplicitFallbackGroups,
+  coalesceExplicitFallbackMappings,
+  extractMappingSourceComponent,
+  partitionIgnoredHiddenMappings,
+} from '../_lib/formMappingFallbacks.js';
+import { persistPipelineCrmNotes } from '../_lib/formCrmNotes.js';
+import {
+  processPersistedStripeAddressMappings,
+  StripeAddressMappingError,
+} from '../_lib/formStripeAddressMappingProcessing.js';
+import {
+  loadPersistedFormEntityCreations,
+  singlePersistedCreationId,
+} from '../_lib/formEntityCreationProvenance.js';
+import { validateStripeAddressTargetResolution } from '../../shared/formStripeAddressMappings.js';
+import {
+  collectMemberOrganizationGroupAssignments,
+  resolveMemberOrganizationGroupSelection,
+  validateMemberOrganizationGroupAssignments,
+  validateMemberOrganizationGroupWrite,
+  MemberOrganizationGroupValidationError,
+} from '../_lib/formMemberOrganizationGroup.js';
+import {
+  DEPARTMENT_CURRENT_SET_FORM_ID,
+  DepartmentCurrentSetError,
+  reconcileDepartmentCurrentSet,
+} from '../_lib/departmentCurrentSet.js';
+
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
+
+const defaultSupabase = supabaseUrl && supabaseServiceKey
+  ? createClient(supabaseUrl, supabaseServiceKey)
+  : null;
+
+const defaultAutoApproveMemberFees = async (...args) => {
+  const { autoApproveMemberFees } = await import('../_lib/membershipFeeApproval.js');
+  return autoApproveMemberFees(...args);
+};
+
+const defaultAutoApproveOrgFees = async (...args) => {
+  const { autoApproveOrgFees } = await import('../_lib/membershipFeeApproval.js');
+  return autoApproveOrgFees(...args);
+};
+
+// Keep production integrations as explicit, immutable defaults while allowing
+// tests and other trusted in-process callers to provide deterministic doubles.
+// This avoids replacing module globals (especially the shared database client)
+// when exercising workflow and notification dispatch.
+export const DEFAULT_PROCESS_APPLICATION_DEPENDENCIES = Object.freeze({
+  triggerWorkflows,
+  notifyGuestSignup,
+  autoApproveMemberFees: defaultAutoApproveMemberFees,
+  autoApproveOrgFees: defaultAutoApproveOrgFees,
+});
+
+// Fields that should be coerced to boolean values
+const BOOLEAN_CORE_FIELDS = ['show_in_directory', 'login_enabled'];
+
+// Helper function to check if a value is "empty" (undefined, null, or empty string)
+const isEmptyValue = (value) => value === undefined || value === null || value === '';
+
+// A structured action run may be evaluated before the legacy primary
+// pipelines have produced the records that a persisted action references.
+// Only defer that narrow, side-effect-free wait state.  A result containing
+// any completed invocation (including an already-completed ledger row), a
+// genuine failure, or a different kind of skip must remain fail-closed.
+export const isCleanPrimaryOutputDependencyWait = (result) => {
+  if (!result || result.success !== false) return false;
+  const outcomes = Array.isArray(result.outcomes) ? result.outcomes : [];
+  if (outcomes.length === 0) return false;
+  if (Number(result.completed_count || 0) > 0 || Number(result.failed_count || 0) > 0) {
+    return false;
+  }
+  if (outcomes.some(outcome => ['completed', 'already_completed'].includes(outcome?.status))) {
+    return false;
+  }
+  return outcomes.every(outcome => (
+    outcome?.status === 'skipped'
+    && outcome?.reason === 'primary_pipeline_output_unavailable'
+    && outcome?.retryable === true
+  ));
+};
+
+export const isMemberResourceCategoryMapping = (mapping) => (
+  mapping?.target_type === 'resource_category'
+  && mapping?.target_entity === 'member'
+  && typeof mapping?.target_field === 'string'
+  && mapping.target_field.trim() !== ''
+  && typeof mapping?.source_field_id === 'string'
+  && mapping.source_field_id.trim() !== ''
+);
+const validateRoleTenant = async (supabaseClient, roleId, expectedTenantId) => {
+  if (!roleId || !expectedTenantId) {
+    return { ok: true, skipped: true };
+  }
+  const { data: role, error } = await supabaseClient
+    .from('role')
+    .select('id, tenant_id')
+    .eq('id', roleId)
+    .maybeSingle();
+  if (error) {
+    console.error('[AppProcessor] Role tenant lookup failed:', { roleId, error });
+    return { ok: false, message: `Failed to validate role tenant: ${error.message}` };
+  }
+  if (!role) {
+    console.error('[AppProcessor] Role not found during tenant validation:', { roleId });
+    return { ok: false, message: `Configured role does not exist` };
+  }
+  if (role.tenant_id !== expectedTenantId) {
+    console.error('[AppProcessor] Cross-tenant role write blocked:', {
+      role_id: roleId,
+      role_tenant_id: role.tenant_id,
+      expected_tenant_id: expectedTenantId,
+    });
+    return { ok: false, message: 'Configured role does not belong to this tenant' };
+  }
+  return { ok: true };
+};
+
+// Resolve the tenant's configured default role (`is_default = true`),
+// strictly tenant-scoped. Returns { role, error } where `role` is the full
+// role row ({ id, name }) or null when no default is configured, and
+// `error` is non-null only on lookup failure (so callers can distinguish
+// "tenant misconfig" from "DB error").
+const resolveTenantDefaultRole = async (supabaseClient, tenantId) => {
+  if (!tenantId) return { role: null, error: null };
+  const { data, error } = await supabaseClient
+    .from('role')
+    .select('id, name')
+    .eq('tenant_id', tenantId)
+    .eq('is_default', true)
+    .order('id', { ascending: true });
+  if (error) return { role: null, error };
+  if (!data || data.length === 0) return { role: null, error: null };
+  if (data.length > 1) {
+    console.warn('[AppProcessor] Tenant has multiple is_default roles; picking first by id:', {
+      tenant_id: tenantId,
+      candidate_role_ids: data.map(r => r.id),
+    });
+  }
+  return { role: data[0], error: null };
+};
+
+// Helper function to check if a field has a usable value for assignment
+// For boolean fields, we ALWAYS assign (even undefined means false - toggle was off)
+const hasAssignableValue = (fieldName, value) => {
+  if (BOOLEAN_CORE_FIELDS.includes(fieldName)) {
+    // For boolean fields, always return true - if a mapping exists, we should assign
+    // Undefined/null/empty will be coerced to false by coerceBooleanField
+    return true;
+  }
+  // For non-boolean fields, skip empty values
+  return !isEmptyValue(value);
+};
+
+// Address-typed columns that should accept multi-line strings, not raw objects.
+// FormBuilder may collect a structured address (from a composite address field
+// or a future structured input) whose value is an object — coerce it into a
+// newline-joined string so it lands cleanly in the text column.
+const ADDRESS_LIKE_TARGETS = new Set(['invoicing_address', 'address']);
+
+const normalizeAddressValue = (value) => {
+  if (value === null || value === undefined) return value;
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) {
+    return value
+      .filter(p => p !== undefined && p !== null && String(p).trim() !== '')
+      .map(p => String(p))
+      .join('\n');
+  }
+  if (typeof value === 'object') {
+    // Try a known subfield order first, tolerate common naming variants.
+    const candidates = [
+      value.line1, value.address_line_1, value.line_1, value.street, value.address1,
+      value.line2, value.address_line_2, value.line_2, value.address2,
+      value.line3, value.address_line_3, value.line_3,
+      value.city, value.town,
+      value.state, value.region, value.county,
+      value.postcode, value.postal_code, value.zip,
+      value.country,
+    ];
+    let parts = candidates.filter(p => p !== undefined && p !== null && String(p).trim() !== '');
+    if (parts.length === 0) {
+      // Fallback: insertion order, primitives only (skip nested objects).
+      parts = Object.values(value)
+        .filter(p => p !== undefined && p !== null)
+        .filter(p => typeof p !== 'object')
+        .filter(p => String(p).trim() !== '');
+    }
+    return parts.map(p => String(p)).join('\n');
+  }
+  return String(value);
+};
+
+// Coerce values destined for address-like text columns. Other columns are
+// returned unchanged.
+const coerceAddressIfNeeded = (targetField, value) =>
+  ADDRESS_LIKE_TARGETS.has(targetField) ? normalizeAddressValue(value) : value;
+
+// URL-typed core columns that should receive a plain URL string. File-upload
+// form fields produce object values (`{ file_url, storage_path, bucket,
+// file_name, ... }`) and FormBuilder allows mapping such a field to e.g.
+// Organisation → Logo, which then writes the entire JSON payload into
+// `organization.logo_url` and breaks `<img src>` rendering. Detect a
+// file-upload payload (object with a `file_url` string, or a JSON-encoded
+// string of one) and reduce it to the URL string. Other shapes — plain
+// strings, null, empty — pass through unchanged.
+//
+// Member core columns surfaced by FormBuilder don't currently include any
+// file-capable URL targets (linkedin_url etc. are custom/text fields), but
+// the helper is keyed by target field name so adding a future member URL
+// target only requires extending FILE_URL_CORE_TARGETS.
+const FILE_URL_CORE_TARGETS = new Set(['logo_url', 'website_url']);
+
+const extractFileUrlFromValue = (value) => {
+  if (value === null || value === undefined) return value;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    // Cheap shape check before attempting JSON.parse — only try when the
+    // string looks like a JSON object literal of a file payload.
+    if (trimmed.startsWith('{') && trimmed.endsWith('}') && trimmed.includes('file_url')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (parsed && typeof parsed === 'object' && typeof parsed.file_url === 'string') {
+          return parsed.file_url;
+        }
+      } catch (_) {
+        // Not valid JSON — leave the original string untouched.
+      }
+    }
+    return value;
+  }
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    if (typeof value.file_url === 'string') return value.file_url;
+  }
+  return value;
+};
+
+const coerceFileValueIfNeeded = (targetField, value) =>
+  FILE_URL_CORE_TARGETS.has(targetField) ? extractFileUrlFromValue(value) : value;
+
+// Compose the per-target coercions in a fixed order so each write path stays
+// in sync: file → address → boolean. Only the matching coercion transforms
+// the value; the rest pass it through unchanged.
+const coerceCoreFieldValue = (targetEntity, targetField, value) => {
+  let v = coerceFileValueIfNeeded(targetField, value);
+  v = coerceAddressIfNeeded(targetField, v);
+  if (targetEntity === 'member') {
+    v = coerceBooleanField(targetField, v);
+  }
+  return v;
+};
+
+// Helper function to coerce values to boolean for boolean fields
+const coerceBooleanField = (fieldName, value) => {
+  if (!BOOLEAN_CORE_FIELDS.includes(fieldName)) {
+    return value;
+  }
+  // Already a boolean
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  // Handle undefined, null, or empty string as false
+  if (value === undefined || value === null || value === '') {
+    return false;
+  }
+  // Handle string representations
+  if (typeof value === 'string') {
+    const lower = value.toLowerCase().trim();
+    if (lower === 'true' || lower === '1' || lower === 'yes') {
+      return true;
+    }
+    if (lower === 'false' || lower === '0' || lower === 'no') {
+      return false;
+    }
+  }
+  // Handle numeric values
+  if (typeof value === 'number') {
+    return value !== 0;
+  }
+  // Default: treat as false for boolean fields
+  return false;
+};
+
+// Helper function to apply value transformations
+const applyTransformation = (value, transformation) => {
+  if (value === null || value === undefined) return value;
+  const strValue = String(value);
+  
+  switch (transformation) {
+    case 'trim':
+      return strValue.trim();
+    case 'uppercase':
+      return strValue.toUpperCase();
+    case 'lowercase':
+      return strValue.toLowerCase();
+    case 'titlecase':
+      return strValue.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase());
+    case 'extract_domain': {
+      let domain = strValue.trim();
+      if (domain.includes('@')) {
+        domain = domain.split('@').pop() || domain;
+      }
+      domain = domain.replace(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//, '');
+      domain = domain.replace(/^www\./i, '');
+      domain = domain.split(/[/?#]/)[0];
+      return domain.toLowerCase() || strValue;
+    }
+    case 'extract_username':
+      if (strValue.includes('@')) {
+        return strValue.split('@')[0] || strValue;
+      }
+      return strValue;
+    case 'first_word':
+      return strValue.trim().split(/\s+/)[0] || strValue;
+    case 'last_word':
+      const words = strValue.trim().split(/\s+/);
+      return words[words.length - 1] || strValue;
+    case 'remove_spaces':
+      return strValue.replace(/\s+/g, '');
+    case 'numbers_only':
+      return strValue.replace(/[^0-9]/g, '');
+    case 'current_date':
+      return new Date().toISOString().split('T')[0]; // Returns YYYY-MM-DD format
+    case 'none':
+    default:
+      return strValue;
+  }
+};
+
+// Helper function to load an organisation's verified email domains.
+// Mirrors the behaviour of api/public/organisation/[id]/domains.js so the
+// frontend's domain check and the backend's guest-stamping stay in sync.
+//
+// preference_field is tenant-scoped, so when the caller already knows the
+// org's tenant_id it MUST be passed in — otherwise the lookup would either
+// fail with PGRST116 (multi-row from .single()) or pick the wrong tenant's
+// field_id and silently return an empty domain list. When tenantId is
+// omitted we look it up from the organization row, tolerating databases
+// without the tenant_id column (42703) by falling back to the unscoped
+// query; the maybeSingle() + early-return-on-error guard below means a
+// multi-row fallback safely collapses to [] instead of crashing.
+const loadOrgVerifiedDomains = async (supabaseClient, organizationId, tenantId) => {
+  if (!organizationId) return [];
+
+  let resolvedTenantId = tenantId || null;
+  if (!resolvedTenantId) {
+    const { data: orgRow, error: orgErr } = await supabaseClient
+      .from('organization')
+      .select('tenant_id')
+      .eq('id', organizationId)
+      .maybeSingle();
+    if (!orgErr && orgRow?.tenant_id) {
+      resolvedTenantId = orgRow.tenant_id;
+    }
+    // If the column doesn't exist (42703) or the row has a NULL tenant_id we
+    // proceed without a tenant filter — the maybeSingle() fallback below
+    // ensures we no longer crash on multi-row results.
+  }
+
+  let fieldDefQuery = supabaseClient
+    .from('preference_field')
+    .select('id')
+    .eq('name', 'verified_domains')
+    .eq('entity_scope', 'organization')
+    .eq('is_active', true);
+
+  if (resolvedTenantId) {
+    fieldDefQuery = fieldDefQuery.eq('tenant_id', resolvedTenantId);
+  }
+
+  const { data: fieldDef, error: fieldError } = await fieldDefQuery.maybeSingle();
+
+  if (fieldError || !fieldDef) return [];
+
+  const { data: fieldValue, error: valueError } = await supabaseClient
+    .from('organization_preference_value')
+    .select('value')
+    .eq('organization_id', organizationId)
+    .eq('field_id', fieldDef.id)
+    .maybeSingle();
+
+  if (valueError || !fieldValue?.value) return [];
+
+  const val = fieldValue.value;
+  let domains = [];
+  if (Array.isArray(val)) {
+    domains = val.filter(Boolean);
+  } else if (typeof val === 'string') {
+    try {
+      const parsed = JSON.parse(val);
+      domains = Array.isArray(parsed) ? parsed.filter(Boolean) : [parsed].filter(Boolean);
+    } catch {
+      domains = val.split(',').map(d => d.trim()).filter(Boolean);
+    }
+  }
+  return domains.map(d => String(d).toLowerCase()).filter(Boolean);
+};
+
+// Helper to extract the lowercase domain portion of an email address.
+const extractEmailDomain = (email) => {
+  if (!email || typeof email !== 'string') return '';
+  const parts = email.split('@');
+  if (parts.length !== 2 || !parts[1]) return '';
+  return parts[1].trim().toLowerCase();
+};
+
+// Determine whether the form's email field (the one mapped to member.email)
+// opted into the "Restrict to Organisation Domain" check. Mirrors how
+// FormBuilder surfaces `validate_org_domain` on email fields and how the
+// frontend's FormRenderer enforces it — so the server only rejects on
+// domain mismatch for forms that actually configured the restriction.
+const formHasMemberEmailDomainRestriction = (fields, fieldMappings, memberPipelines) => {
+  if (!Array.isArray(fields) || fields.length === 0) return false;
+
+  const sourceFieldIds = new Set();
+
+  // 1. Modern field_mappings array (preferred).
+  if (Array.isArray(fieldMappings)) {
+    for (const m of fieldMappings) {
+      if (
+        m &&
+        m.target_type === 'core' &&
+        m.target_entity === 'member' &&
+        m.target_field === 'email' &&
+        m.source_field_id
+      ) {
+        sourceFieldIds.add(m.source_field_id);
+      }
+    }
+  }
+
+  // 2. entity_pipelines: primary member pipeline's mappings array.
+  if (Array.isArray(memberPipelines) && memberPipelines.length > 0) {
+    const primary = memberPipelines.find(p => p && (p.isPrimary || p.is_primary)) || memberPipelines[0];
+    if (primary && Array.isArray(primary.mappings)) {
+      for (const m of primary.mappings) {
+        if (
+          m &&
+          m.target_type === 'core' &&
+          m.target_field === 'email' &&
+          m.source_field_id
+        ) {
+          sourceFieldIds.add(m.source_field_id);
+        }
+      }
+    }
+  }
+
+  // 3. Legacy fallback: fields[].core_field_mapping === 'email'.
+  if (sourceFieldIds.size === 0) {
+    for (const f of fields) {
+      if (f && f.core_field_mapping === 'email' && f.id) {
+        sourceFieldIds.add(f.id);
+      }
+    }
+  }
+
+  if (sourceFieldIds.size === 0) return false;
+
+  for (const f of fields) {
+    if (f && sourceFieldIds.has(f.id) && f.validate_org_domain === true) {
+      return true;
+    }
+  }
+  return false;
+};
+
+// Resolve domain-vs-guest context for a brand-new member. Returns
+//   {
+//     emailDomain,         // lowercase domain or '' when unparseable
+//     verifiedDomains,     // array of lowercase domains, possibly empty
+//     domainMatches,       // bool: emailDomain is in verifiedDomains
+//     guestStamp,          // { is_guest, guest_expires_at } | null
+//     hasOrgContext,       // bool: org row was loaded successfully
+//   }
+// or null when there's no organisationId / email to evaluate. The
+// guest_access decision is gated by the tenant master switch (via the
+// shared resolveEffectiveOrgGuestAccess helper) so this can never disagree
+// with the public /domains endpoint that the frontend consults.
+const resolveDomainGuestContext = async (supabaseClient, organizationId, email) => {
+  if (!organizationId || !email) return null;
+  const emailDomain = extractEmailDomain(email);
+  if (!emailDomain) return null;
+
+  // Fetch the per-org guest access settings, including tenant_id so the
+  // verified-domains lookup below stays tenant-scoped. Tolerate databases
+  // without the optional columns (returns 42703) so existing flows keep
+  // working.
+  let org = null;
+  {
+    const { data, error } = await supabaseClient
+      .from('organization')
+      .select('id, tenant_id, guest_access_enabled, guest_access_period_days, guest_access_unlimited')
+      .eq('id', organizationId)
+      .single();
+    if (error) {
+      if (error.code === '42703') {
+        // Guest access columns aren't on this database — fall back to a
+        // basic select so domain enforcement still works.
+        const { data: basicData, error: basicErr } = await supabaseClient
+          .from('organization')
+          .select('id, tenant_id')
+          .eq('id', organizationId)
+          .single();
+        if (basicErr) {
+          console.error('[AppProcessor] Failed to load org (basic) for guest check:', basicErr);
+          return null;
+        }
+        org = basicData;
+      } else {
+        console.error('[AppProcessor] Failed to load org for guest check:', error);
+        return null;
+      }
+    } else {
+      org = data;
+    }
+  }
+
+  const verifiedDomains = await loadOrgVerifiedDomains(supabaseClient, organizationId, org.tenant_id);
+  const domainMatches = verifiedDomains.includes(emailDomain);
+
+  let guestStamp = null;
+  if (!domainMatches) {
+    const effective = await resolveEffectiveOrgGuestAccess(supabaseClient, org);
+    if (effective.enabled) {
+      if (effective.unlimited || effective.period_days == null) {
+        guestStamp = { is_guest: true, guest_expires_at: null };
+      } else {
+        const expires = new Date();
+        expires.setUTCDate(expires.getUTCDate() + Number(effective.period_days));
+        guestStamp = { is_guest: true, guest_expires_at: expires.toISOString() };
+      }
+    }
+  }
+
+  return {
+    emailDomain,
+    verifiedDomains,
+    domainMatches,
+    guestStamp,
+    hasOrgContext: true,
+  };
+};
+
+// Helper function to check role capacity for per-organization limits
+const checkRoleCapacity = async (supabaseClient, roleId, organizationId) => {
+  console.log('[checkRoleCapacity] Checking capacity for role:', roleId, 'org:', organizationId);
+  
+  // Fetch role to check if it has max_members limit
+  const { data: role, error: roleError } = await supabaseClient
+    .from('role')
+    .select('id, name, max_members')
+    .eq('id', roleId)
+    .single();
+  
+  if (roleError) {
+    console.error('[checkRoleCapacity] Failed to fetch role:', roleError);
+    return { hasCapacity: true, error: roleError.message };
+  }
+  
+  if (!role) {
+    console.log('[checkRoleCapacity] Role not found:', roleId);
+    return { hasCapacity: true, error: 'Role not found' };
+  }
+  
+  // If no max_members limit, allow
+  if (!role.max_members) {
+    console.log('[checkRoleCapacity] No max_members limit for role:', role.name);
+    return { hasCapacity: true, maxMembers: null, roleName: role.name };
+  }
+  
+  // Role capacity is ALWAYS per-organization - no global fallback
+  if (!organizationId) {
+    console.log('[checkRoleCapacity] Organization required for capacity check');
+    return { 
+      hasCapacity: false, 
+      maxMembers: role.max_members, 
+      roleName: role.name,
+      missingOrgContext: true,
+      error: 'Organization context required for per-organization capacity check'
+    };
+  }
+  
+  // Count active members with this role in this organization
+  const { count, error: countError } = await supabaseClient
+    .from('member')
+    .select('id', { count: 'exact', head: true })
+    .eq('role_id', roleId)
+    .eq('organization_id', organizationId)
+    .eq('login_enabled', true);
+  
+  if (countError) {
+    console.error('[checkRoleCapacity] Failed to count members:', countError);
+    return { hasCapacity: true, error: countError.message };
+  }
+  
+  const currentCount = count || 0;
+  const hasCapacity = currentCount < role.max_members;
+  
+  console.log('[checkRoleCapacity] Per-org capacity check:', {
+    roleId,
+    roleName: role.name,
+    organizationId,
+    currentCount,
+    maxMembers: role.max_members,
+    hasCapacity
+  });
+  
+  return {
+    hasCapacity,
+    currentCount,
+    maxMembers: role.max_members,
+    roleName: role.name
+  };
+};
+
+export default async function handler(req, res, {
+  supabase = defaultSupabase,
+  triggerWorkflows: triggerWorkflowsDependency = DEFAULT_PROCESS_APPLICATION_DEPENDENCIES.triggerWorkflows,
+  notifyGuestSignup: notifyGuestSignupDependency = DEFAULT_PROCESS_APPLICATION_DEPENDENCIES.notifyGuestSignup,
+  autoApproveMemberFees: autoApproveMemberFeesDependency = DEFAULT_PROCESS_APPLICATION_DEPENDENCIES.autoApproveMemberFees,
+  autoApproveOrgFees: autoApproveOrgFeesDependency = DEFAULT_PROCESS_APPLICATION_DEPENDENCIES.autoApproveOrgFees,
+} = {}) {
+  let stripeProcessingLease = null;
+  let paidPipelineOperation = null;
+  const releaseStripeProcessingLease = async () => {
+    if (!stripeProcessingLease) return;
+    const lease = stripeProcessingLease;
+    stripeProcessingLease = null;
+    try {
+      // Supabase RPC builders are thenables, not Promises with .catch().
+      const { error } = await supabase.rpc('release_form_stripe_address_mapping_processing', {
+        p_tenant_id: lease.tenantId,
+        p_submission_id: lease.submissionId,
+        p_token: lease.token,
+      });
+      if (error) {
+        console.warn('[AppProcessor] Stripe processing lease release returned a database error');
+      }
+    } catch {
+      // Cleanup must not replace the processing outcome. Avoid logging the
+      // error payload: it may contain credentials, addresses, or lease tokens.
+      console.warn('[AppProcessor] Stripe processing lease release operation failed');
+    }
+  };
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  if (!supabase) {
+    return res.status(503).json({ error: 'Database not configured' });
+  }
+
+  try {
+    let {
+      form_id,
+      form_values,
+      fields,
+      field_mappings,
+      application_level,
+      create_entity_type,
+      entity_action,
+      member_entity_action,        // Legacy: independent member action (none/create/update/upsert)
+      organization_entity_action,  // Legacy: independent organization action (none/create/update/upsert)
+      prefill_member_id,
+      prefill_organization_id,
+      submission_id,
+      role_id,                     // Role ID from form conditional logic (set_role action)
+      additional_member_creations, // Legacy: Array of additional members to create
+      entity_pipelines,            // New unified structure: {members: [], organisations: []}
+      tenant_id,                   // Tenant ID for multi-tenant isolation (from public API)
+      defer_communication_subscriptions = false,
+      verified_submitter_member_id,
+      verified_admin_access = false,
+       completion_operation_id = null,
+        completion_operation_kind = 'primary',
+    } = req.body;
+
+    if (!form_values || typeof form_values !== 'object') {
+      return res.status(400).json({ error: 'form_values is required' });
+    }
+    
+    if (!fields || !Array.isArray(fields)) {
+      return res.status(400).json({ error: 'fields array is required' });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Per-submission processing notes. Anything written here is persisted to
+    // form_submission.processing_notes at the end of the handler so the
+    // FormSubmissionView admin page can surface dropped fields and other
+    // per-submission diagnostics that used to be log-only and therefore
+    // invisible to admins. Keep entries small and structured (kind + a few
+    // context keys) — this is a debugging breadcrumb, not a full audit log.
+    const processingNotes = [];
+    const addProcessingNote = (entry) => {
+      try {
+        processingNotes.push({
+          // `at` is the canonical key; the FormSubmissionView UI reads it
+          // by that name. Keep this in sync if you ever rename it.
+          at: new Date().toISOString(),
+          ...entry,
+        });
+      } catch (_) {
+        // Defence in depth: never let note-keeping itself fail the request.
+      }
+    };
+
+    // Persist accumulated notes onto the submission row. The happy path
+    // flushes once at the end of the handler; ERROR paths that return early
+    // MUST call this first, otherwise the diagnostic trail (e.g. a
+    // cross-tenant rejection) is silently lost (Task #3550). Safe to call
+    // multiple times — it simply overwrites processing_notes with the
+    // current accumulated array.
+    const flushProcessingNotes = async () => {
+      if (!submission_id || processingNotes.length === 0) return;
+      try {
+        const { error } = await supabase
+          .from('form_submission')
+          .update({ processing_notes: processingNotes })
+          .eq('id', submission_id);
+        if (error) console.error('[AppProcessor] Failed to flush processing notes:', error);
+      } catch (err) {
+        console.error('[AppProcessor] Failed to flush processing notes:', err);
+      }
+    };
+
+    // Custom-field upsert helper. Switches the existence probe to
+    // .maybeSingle()-equivalent semantics (tolerating zero or duplicate rows
+    // for the same (parent_id, field_id) pair), checks the result of every
+    // .update() / .insert(), and accumulates failures into processingNotes
+    // with full submission/member/field context. Pass entityScope='member'
+    // for member_preference_value and 'organization' for organization_preference_value.
+    const upsertPreferenceValue = async ({
+      table,
+      parentColumn,
+      parentId,
+      fieldId,
+      value,
+      entityScope,
+      prefField,
+    }) => {
+      const noteContext = {
+        submission_id: submission_id || null,
+        [parentColumn]: parentId,
+        field_id: fieldId,
+        field_label: prefField?.label || prefField?.name || null,
+        field_type: prefField?.field_type || null,
+        entity_scope: entityScope,
+      };
+      try {
+        const { data: existingRows, error: lookupError } = await supabase
+          .from(table)
+          .select('id')
+          .eq(parentColumn, parentId)
+          .eq('field_id', fieldId)
+          .order('id', { ascending: true });
+        if (lookupError) {
+          console.error('[AppProcessor] Custom field lookup failed:', { ...noteContext, error: lookupError.message });
+          addProcessingNote({ kind: 'custom_field_lookup_failed', message: lookupError.message, ...noteContext });
+          return { ok: false };
+        }
+        const rows = existingRows || [];
+        if (rows.length > 1) {
+          console.warn('[AppProcessor] Custom field has duplicate rows; updating the first and ignoring the rest:', { ...noteContext, duplicate_ids: rows.slice(1).map(r => r.id) });
+          addProcessingNote({ kind: 'custom_field_duplicate_rows', message: `Found ${rows.length} rows for (${parentColumn}, field_id); updated the earliest and left the rest untouched`, ...noteContext, duplicate_ids: rows.slice(1).map(r => r.id) });
+        }
+        if (rows.length >= 1) {
+          const { error: updateError } = await supabase
+            .from(table)
+            .update({ value })
+            .eq('id', rows[0].id);
+          if (updateError) {
+            console.error('[AppProcessor] Custom field update failed:', { ...noteContext, error: updateError.message });
+            addProcessingNote({ kind: 'custom_field_update_failed', message: updateError.message, ...noteContext });
+            return { ok: false };
+          }
+          return { ok: true, action: 'updated', id: rows[0].id };
+        }
+        const insertPayload = { [parentColumn]: parentId, field_id: fieldId, value };
+        const { error: insertError } = await supabase
+          .from(table)
+          .insert(insertPayload);
+        if (insertError) {
+          console.error('[AppProcessor] Custom field insert failed:', { ...noteContext, error: insertError.message });
+          addProcessingNote({ kind: 'custom_field_insert_failed', message: insertError.message, ...noteContext });
+          return { ok: false };
+        }
+        return { ok: true, action: 'inserted' };
+      } catch (err) {
+        console.error('[AppProcessor] Custom field upsert threw:', { ...noteContext, error: err?.message });
+        addProcessingNote({ kind: 'custom_field_upsert_threw', message: err?.message || String(err), ...noteContext });
+        return { ok: false };
+      }
+    };
+
+    // Delete an existing preference value row when the user explicitly cleared
+    // a mapped custom field on update (distinct from "field absent from the
+    // submission", which is a no-op). Tolerates duplicate rows.
+    const clearPreferenceValue = async ({
+      table,
+      parentColumn,
+      parentId,
+      fieldId,
+      entityScope,
+      prefField,
+    }) => {
+      const noteContext = {
+        submission_id: submission_id || null,
+        [parentColumn]: parentId,
+        field_id: fieldId,
+        field_label: prefField?.label || prefField?.name || null,
+        field_type: prefField?.field_type || null,
+        entity_scope: entityScope,
+      };
+      const { error: deleteError } = await supabase
+        .from(table)
+        .delete()
+        .eq(parentColumn, parentId)
+        .eq('field_id', fieldId);
+      if (deleteError) {
+        console.error('[AppProcessor] Custom field clear failed:', { ...noteContext, error: deleteError.message });
+        addProcessingNote({ kind: 'custom_field_clear_failed', message: deleteError.message, ...noteContext });
+        return { ok: false };
+      }
+      return { ok: true };
+    };
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Effective tenant for ALL tenant-scoped processing below (uniqueness
+    // validation, entity resolution, and record creation). Resolved
+    // AUTHORITATIVELY from the persisted form (or form_submission) row —
+    // the body's tenant_id is client-controlled and is only validated for
+    // equality, never trusted ahead of the persisted tenant. Must run BEFORE
+    // any tenant-scoped query — previously the case-insensitive org name match
+    // was completely unscoped and could link a submission to an organisation
+    // belonging to a DIFFERENT tenant, which also suppressed creation when the
+    // form's org action was 'create'.
+    const tenantResolution = await resolveEffectiveEntityTenant(supabase, { tenant_id, form_id, submission_id });
+    if (tenantResolution.mismatch) {
+      console.error('[AppProcessor] SECURITY: body tenant_id does not match the form/submission tenant — rejecting.', {
+        supplied_tenant_id: tenantResolution.mismatch.supplied,
+        authoritative_tenant_id: tenantResolution.mismatch.authoritative,
+        form_id: form_id || null,
+        submission_id: submission_id || null,
+      });
+      return res.status(403).json({
+        error: 'Tenant mismatch: the supplied tenant does not match the form\'s tenant.',
+        code: 'TENANT_MISMATCH'
+      });
+    }
+    const effectiveEntityTenantId = tenantResolution.tenantId;
+    console.log('[AppProcessor] Effective tenant for entity resolution:', effectiveEntityTenantId, '(source:', tenantResolution.source, ')');
+
+    if (!submission_id) {
+      return res.status(400).json({ error: 'submission_id is required', code: 'SUBMISSION_REQUIRED' });
+    }
+    const trustedInternal = verifyFormProcessingRequest(req, {
+      tenantId: effectiveEntityTenantId,
+      formId: form_id,
+      submissionId: submission_id,
+      verifiedSubmitterMemberId: verified_submitter_member_id,
+      verifiedAdminAccess: verified_admin_access,
+    });
+    const [{ data: persistedSubmission, error: persistedSubmissionError }, { data: persistedForm, error: persistedFormError }] = await Promise.all([
+      supabase.from('form_submission').select('id, form_id, tenant_id, submission_data, submitted_by_email, organization_id, created_member_id, created_organization_id, payment_reference, payment_provider, payment_status, payment_meta, processing_notes')
+        .eq('id', submission_id).eq('form_id', form_id).eq('tenant_id', effectiveEntityTenantId).maybeSingle(),
+      supabase.from('form').select('*')
+        .eq('id', form_id).eq('tenant_id', effectiveEntityTenantId).maybeSingle(),
+    ]);
+    if (persistedSubmissionError || !persistedSubmission || persistedFormError || !persistedForm) {
+      return res.status(404).json({ error: 'Persisted form submission was not found', code: 'SUBMISSION_NOT_FOUND' });
+    }
+    let currentSetConfiguration = null;
+    if (persistedForm.id === DEPARTMENT_CURRENT_SET_FORM_ID) {
+      const { data: currentSetConfig, error: currentSetConfigError } = await supabase
+        .from('department_current_set_config')
+        .select('config')
+        .eq('tenant_id', effectiveEntityTenantId)
+        .eq('form_id', persistedForm.id)
+        .maybeSingle();
+      if (currentSetConfigError && currentSetConfigError.code !== '42P01') throw currentSetConfigError;
+      currentSetConfiguration = currentSetConfig?.config || null;
+    }
+    const hasCurrentSetProcessing = !!currentSetConfiguration;
+    const persistedProcessingNotes = Array.isArray(persistedSubmission.processing_notes)
+      ? persistedSubmission.processing_notes
+      : [];
+    if (trustedInternal && persistedSubmission.payment_status) {
+      const persistedVerifiedMemberId = persistedSubmission.payment_meta?.verified_submitter_member_id || null;
+      if (String(verified_submitter_member_id || '') !== String(persistedVerifiedMemberId || '')) {
+        return res.status(403).json({
+          error: 'Paid application processing identity does not match the persisted payment submission',
+          code: 'PROCESSING_IDENTITY_MISMATCH',
+        });
+      }
+      const persistedVerifiedAdminAccess = persistedSubmission.payment_meta?.verified_admin_access === true;
+      if ((verified_admin_access === true) !== persistedVerifiedAdminAccess) {
+        return res.status(403).json({
+          error: 'Paid application processing authority does not match the persisted payment submission',
+          code: 'PROCESSING_AUTHORITY_MISMATCH',
+        });
+      }
+    }
+    let authorizedAdmin = resolveTrustedFormProcessingAdmin({
+      trustedInternal,
+      verifiedAdminAccess: verified_admin_access,
+    });
+    let authorizedSubmitter = false;
+    let authenticatedSubmitterMember = null;
+    let processingActorMemberId = null;
+    if (!trustedInternal) {
+      try {
+        const [tenantCtx, sessionMember] = await Promise.all([
+          getTenantContext(req),
+          getSessionMember(req),
+        ]);
+        authorizedAdmin = tenantCtx?.tenantId === effectiveEntityTenantId
+          && await hasAdminAccess(tenantCtx);
+        if (sessionMember?.tenant_id === effectiveEntityTenantId) {
+          processingActorMemberId = sessionMember.id;
+        }
+        authorizedSubmitter = sessionMember?.tenant_id === effectiveEntityTenantId
+          && String(sessionMember.email || '').trim().toLowerCase()
+            === String(persistedSubmission.submitted_by_email || '').trim().toLowerCase();
+        if (authorizedSubmitter) authenticatedSubmitterMember = sessionMember;
+      } catch {
+        authorizedAdmin = false;
+        authorizedSubmitter = false;
+      }
+    }
+    if (!trustedInternal && !authorizedAdmin && !authorizedSubmitter) {
+      return res.status(403).json({ error: 'Application processing is restricted to trusted submission flows, the authenticated submitter, or tenant administrators', code: 'PROCESSING_FORBIDDEN' });
+    }
+    if (!canProcessPersistedPaymentStatus(persistedSubmission.payment_status, { trustedInternal })) {
+      return res.status(409).json({ error: 'Payment must be completed before application processing', code: 'PAYMENT_NOT_COMPLETED' });
+    }
+    // Paid completion supplies a one-attempt operation UUID.  This durable
+    // reservation closes the otherwise unsafe gap between accepting the
+    // internal HTTP request and persisting entity/workflow checkpoints.  Do
+    // not lease-expire and replay it: a response lost after acceptance is
+    // explicitly attention-required unless this handler records `done`.
+    if (completion_operation_id) {
+      if (!trustedInternal || !persistedSubmission.payment_status) {
+        return res.status(403).json({ error: 'Paid pipeline operations require trusted internal processing', code: 'PIPELINE_OPERATION_FORBIDDEN' });
+      }
+      const { data: operation, error: operationError } = await supabase.rpc('begin_form_paid_pipeline_operation', {
+        p_tenant_id: effectiveEntityTenantId,
+        p_submission_id: submission_id,
+        p_operation_id: completion_operation_id,
+        p_operation_kind: completion_operation_kind,
+      });
+      if (operationError || operation?.status !== 'claimed') {
+        return res.status(409).json({
+          error: operationError?.message || operation?.reason || 'Paid pipeline operation is not available',
+          code: 'PIPELINE_OPERATION_UNAVAILABLE',
+        });
+      }
+      paidPipelineOperation = completion_operation_id;
+    }
+    // A trusted caller can receive several known-safe early outcomes (already
+    // applied mapping, known structured partial, or existing entity retry).
+    // Record one durable done checkpoint before every such response so the
+    // transport caller never mistakes a deliberate 200/409 response for an
+    // ambiguous lost side effect.
+    const finishKnownPaidPipelineOperation = async () => {
+      if (!paidPipelineOperation) return;
+      const operationId = paidPipelineOperation;
+      const { data: completed, error: completionError } = await supabase.rpc('finish_form_paid_pipeline_operation', {
+        p_tenant_id: effectiveEntityTenantId,
+        p_submission_id: submission_id,
+        p_operation_id: operationId,
+        p_status: 'done',
+        p_error: null,
+      });
+      if (completionError || completed !== true) {
+        throw completionError || new Error('Paid pipeline operation completion was not recorded');
+      }
+      paidPipelineOperation = null;
+    };
+    // Structured actions can establish a durable partial result before any
+    // legacy primary pipeline starts. That early exit has the same recovery
+    // contract as a late partial: persist the marker/result, finish the known
+    // paid-operation response, then return the retryable 409 which authorizes
+    // the narrowly scoped follow-up worker.
+    const respondWithIncompleteStructuredActions = async ({
+      result,
+      memberId = null,
+      organizationId = null,
+    }) => {
+      const incompleteUpdate = {};
+      if (memberId) incompleteUpdate.created_member_id = memberId;
+      if (organizationId) {
+        incompleteUpdate.created_organization_id = organizationId;
+        incompleteUpdate.organization_id = organizationId;
+      }
+      if (processingNotes.length > 0) {
+        incompleteUpdate.processing_notes = [...persistedProcessingNotes, ...processingNotes];
+      }
+      if (persistedSubmission.payment_status) {
+        incompleteUpdate.payment_meta = {
+          ...(persistedSubmission.payment_meta || {}),
+          structured_actions_pending: true,
+          structured_actions_result: result,
+        };
+      }
+      if (Object.keys(incompleteUpdate).length > 0) {
+        const { error: incompleteUpdateError } = await supabase
+          .from('form_submission')
+          .update(incompleteUpdate)
+          .eq('id', submission_id)
+          .eq('tenant_id', effectiveEntityTenantId);
+        if (incompleteUpdateError) throw incompleteUpdateError;
+      }
+      await releaseStripeProcessingLease();
+      await finishKnownPaidPipelineOperation();
+      return res.status(409).json({
+        success: false,
+        error: 'Structured actions did not complete',
+        code: 'STRUCTURED_ACTIONS_INCOMPLETE',
+        retryable: true,
+        structured_actions: result,
+        created_member_id: memberId,
+        created_organization_id: organizationId,
+        organization_id: organizationId,
+      });
+    };
+    const respondWithIncompleteStripeAddressMappings = async ({
+      result,
+      memberId = null,
+      organizationId = null,
+    }) => {
+      const update = {
+        payment_meta: {
+          ...(persistedSubmission.payment_meta || {}),
+          stripe_address_mappings_pending: true,
+          stripe_address_mappings_result: result,
+        },
+      };
+      if (memberId) update.created_member_id = memberId;
+      if (organizationId) {
+        update.created_organization_id = organizationId;
+        update.organization_id = organizationId;
+      }
+      if (processingNotes.length > 0) {
+        update.processing_notes = [...persistedProcessingNotes, ...processingNotes];
+      }
+      const { error: updateError } = await supabase
+        .from('form_submission')
+        .update(update)
+        .eq('id', submission_id)
+        .eq('tenant_id', effectiveEntityTenantId);
+      if (updateError) throw updateError;
+      await releaseStripeProcessingLease();
+      await finishKnownPaidPipelineOperation();
+      return res.status(409).json({
+        success: false,
+        error: 'Stripe address mappings did not complete',
+        code: 'STRIPE_ADDRESS_MAPPINGS_INCOMPLETE',
+        retryable: true,
+        stripe_address_mappings: result,
+        created_member_id: memberId,
+        created_organization_id: organizationId,
+        organization_id: organizationId,
+      });
+    };
+    const authoritativeAnswers = persistedSubmission.submission_data || {};
+    // Request copies are never authoritative, even for a signed request.
+    // This prevents signature replay with altered legacy mappings/config.
+    form_values = authoritativeAnswers;
+    fields = persistedForm.fields || [];
+    field_mappings = persistedForm.field_mappings || [];
+    application_level = persistedForm.application_level || 'member';
+    create_entity_type = persistedForm.create_entity_type || 'member';
+    entity_action = persistedForm.entity_action;
+    member_entity_action = persistedForm.member_entity_action;
+    organization_entity_action = persistedForm.organization_entity_action;
+    additional_member_creations = persistedForm.additional_member_creations || [];
+    // Preserve null/absence so the established action selector can fall back
+    // to legacy member/org action fields.
+    entity_pipelines = hasPersistedLegacyFormEntityActions(persistedForm)
+      ? persistedForm.entity_pipelines
+      : { members: [], organisations: [] };
+    // Normalize and derive action modes only after replacing every
+    // request-controlled copy with the persisted form configuration.
+    const memberPipelines = entity_pipelines?.members || [];
+    const orgPipelines = entity_pipelines?.organisations || [];
+    const {
+      memberAction,
+      organizationAction: orgAction,
+    } = resolveFormEntityActions({
+      entityPipelines: entity_pipelines,
+      memberEntityAction: member_entity_action,
+      organizationEntityAction: organization_entity_action,
+      createEntityType: create_entity_type,
+      applicationLevel: application_level,
+      entityAction: entity_action,
+    });
+    const shouldProcessMember = memberAction !== 'none';
+    const shouldProcessOrganization = orgAction !== 'none';
+    const isUpdateMode = orgAction === 'update';
+    const isMemberUpdateMode = memberAction === 'update';
+
+    console.log('[AppProcessor] Entity pipelines - members:', memberPipelines.length, 'organisations:', orgPipelines.length);
+    console.log('[AppProcessor] Entity actions - member:', memberAction, 'organization:', orgAction);
+    console.log('[AppProcessor] Received role_id:', role_id, 'type:', typeof role_id);
+    const submitControlOptions = {};
+    if (rulesUseLmicOperators(persistedForm.visibility_rules)) {
+      submitControlOptions.lmicCodes = await loadTenantLmicCodes(supabase, effectiveEntityTenantId);
+    }
+    const authoritativeSubmitControl = resolveSubmitControl(
+      persistedForm.visibility_rules,
+      authoritativeAnswers,
+      submitControlOptions,
+    );
+    if (authoritativeSubmitControl.disabled) {
+      return res.status(400).json({
+        error: authoritativeSubmitControl.message || 'This form cannot be submitted with the current answers.',
+        code: 'SUBMIT_DISABLED_BY_RULE',
+      });
+    }
+    const hiddenSubmissionFieldIds = await computeAuthoritativeHiddenFieldIds({
+      db: supabase,
+      tenantId: effectiveEntityTenantId,
+      form: persistedForm,
+      formValues: authoritativeAnswers,
+      visibilityOptions: submitControlOptions,
+    });
+    // Visibility and submission-control rules above intentionally consume the
+    // raw persisted answer object. From this point onward only mappings and
+    // writes use the projected row view, while submission_data in storage
+    // remains untouched.
+    form_values = effectiveRepeatableRowSubmissionData(
+      persistedForm,
+      authoritativeAnswers,
+      { hiddenFieldIds: hiddenSubmissionFieldIds },
+    );
+    const ignoredHiddenMappingNoteKeys = new Set();
+    const selectMappingsForSubmission = (mappings, {
+      targetEntity = null,
+      pipelineId = null,
+      source = 'field_mappings',
+    } = {}) => {
+      const selection = partitionIgnoredHiddenMappings(mappings, hiddenSubmissionFieldIds);
+      for (const mapping of selection.ignoredMappings) {
+        const entity = targetEntity || mapping.target_entity || null;
+        const noteKey = [
+          source,
+          pipelineId || '',
+          mapping.id || '',
+          mapping.source_field_id || '',
+          entity || '',
+          mapping.target_field || '',
+        ].join(':');
+        if (ignoredHiddenMappingNoteKeys.has(noteKey)) continue;
+        ignoredHiddenMappingNoteKeys.add(noteKey);
+        addProcessingNote({
+          kind: 'hidden_mapping_ignored',
+          level: 'info',
+          stage: 'mapping_selection',
+          source,
+          pipeline_id: pipelineId,
+          mapping_id: mapping.id || null,
+          source_field_id: mapping.source_field_id,
+          target_entity: entity,
+          target_type: mapping.target_type || 'core',
+          target_field: mapping.target_field || null,
+          message: 'Mapping intentionally ignored because its persisted source field was hidden for this submission.',
+        });
+      }
+      return {
+        ...selection,
+        targetEntity,
+        pipelineId,
+        source,
+      };
+    };
+    const isIdentityMappingFor = (mapping, entity, selectionTargetEntity = null) => {
+      const targetEntity = selectionTargetEntity || mapping?.target_entity || null;
+      if (targetEntity !== entity || (mapping?.target_type || 'core') !== 'core') return false;
+      const targetField = entity === 'organization'
+        ? resolveOrganizationCoreField(mapping?.target_field)
+        : mapping?.target_field;
+      return targetField === (entity === 'member' ? 'email' : 'name');
+    };
+    const selectionHasIdentityMapping = (selection, entity) => (
+      !!selection
+      && [...(selection.includedMappings || []), ...(selection.ignoredMappings || [])]
+        .some(mapping => isIdentityMappingFor(mapping, entity, selection.targetEntity))
+    );
+    const selectionLostIdentityOnlyToHiddenMapping = (selection, entity) => (
+      !!selection
+      && selection.ignoredMappings.some(mapping =>
+        isIdentityMappingFor(mapping, entity, selection.targetEntity))
+      && !selection.includedMappings.some(mapping =>
+        isIdentityMappingFor(mapping, entity, selection.targetEntity))
+    );
+    if (!authenticatedSubmitterMember && trustedInternal && verified_submitter_member_id) {
+      const { data: submitterMember } = await supabase.from('member')
+        .select('id, tenant_id, email, organization_id')
+        .eq('id', verified_submitter_member_id)
+        .eq('tenant_id', effectiveEntityTenantId)
+        .ilike('email', String(persistedSubmission.submitted_by_email).trim())
+        .maybeSingle();
+      authenticatedSubmitterMember = submitterMember || null;
+    }
+    role_id = derivePersistedFormRole({
+      defaultRoleId: persistedForm.default_member_role_id,
+      visibilityRules: persistedForm.visibility_rules,
+      answers: authoritativeAnswers,
+      conditionOptions: submitControlOptions,
+    });
+    const applicantGrant = await loadSubmissionApplicantContinuation({
+        db: supabase, form: persistedForm, submissionId: persistedSubmission.id,
+      });
+    const applicantMemberIds = applicantGrant
+      ? await loadApplicantMemberScope({ db: supabase, form: persistedForm, grant: applicantGrant })
+      : [];
+    if (requiresApplicantContinuation(persistedForm) && !applicantGrant
+      && !authorizedAdmin && !authenticatedSubmitterMember?.organization_id) {
+      throw new FormApplicantContinuationError();
+    }
+    const prefillTargets = resolveFormProcessingPrefillTargets({
+      isAdmin: authorizedAdmin,
+      submitterMember: authenticatedSubmitterMember,
+      persistedSubmission,
+      requestedOrganizationId: prefill_organization_id,
+    });
+    prefill_member_id = prefillTargets.memberId || null;
+    prefill_organization_id = applicantGrant?.organization_id || prefillTargets.organizationId || null;
+    const processingAuthorization = {
+      isAdmin: authorizedAdmin,
+      verifiedMemberId: authenticatedSubmitterMember?.id || null,
+      verifiedApplicantMemberIds: applicantMemberIds,
+      verifiedOrganizationId: applicantGrant?.organization_id || authenticatedSubmitterMember?.organization_id || null,
+      // The form configuration is persisted by an administrator and reloaded
+      // server-side. A signed submission flow may therefore create/upsert an
+      // Organisation Group without granting the respondent general group
+      // mutation authority.
+      allowPersistedOrganizationGroupActions: trustedInternal,
+      // Only the signed/internal persisted-processing path may materialize a
+      // configured Not-listed record reference. The action executor reloads
+      // both form and submission; a browser cannot supply this capability.
+      allowPersistedRecordReferenceWrites: trustedInternal,
+      // The signed/internal path may execute an administrator-saved Custom
+      // Object create action. The browser cannot grant this capability and the
+      // executor still reloads the form contract and submitted answers.
+      allowPersistedCustomObjectCreates: trustedInternal,
+      // Reference-only authority for saved relationship actions, never record
+      // updates. The executor revalidates saved selectors and endpoint kinds.
+      allowPersistedRelationshipLinks: trustedInternal,
+      processingActorMemberId: processingActorMemberId || authenticatedSubmitterMember?.id || null,
+    };
+    let currentSetResult = null;
+    if (hasCurrentSetProcessing) {
+      // The signed public handoff stamps the submitter identity after resolving
+      // the browser session. It is not client input, and the reconcile RPC
+      // still revalidates the active Department responder relationship at the
+      // exact mutation point (including retries after revocation).
+      const currentSetMember = trustedInternal
+        ? (verified_submitter_member_id
+          ? { id: verified_submitter_member_id, tenant_id: effectiveEntityTenantId }
+          : null)
+        : authenticatedSubmitterMember;
+      try {
+        currentSetResult = await reconcileDepartmentCurrentSet({
+          db: supabase,
+          req,
+          tenantId: effectiveEntityTenantId,
+          formId: persistedForm.id,
+          submissionId: submission_id,
+          values: authoritativeAnswers,
+          getMember: async () => currentSetMember,
+        });
+        if (!['committed', 'replayed'].includes(currentSetResult?.status)
+          || typeof currentSetResult?.version !== 'string'
+          || !currentSetResult.version) {
+          throw new DepartmentCurrentSetError(
+            503,
+            'CURRENT_SET_UNCOMMITTED',
+            'Current Department data did not return a durable commit marker',
+          );
+        }
+        addProcessingNote({
+          kind: 'department_current_set_state',
+          status: currentSetResult?.status === 'replayed' ? 'committed' : currentSetResult?.status,
+          version: currentSetResult?.version || null,
+        });
+      } catch (error) {
+        // A retained submission is intentionally retryable, but it must not
+        // appear committed in submission/report views. An unavailable/ambiguous
+        // RPC result remains pending because the transaction may have committed
+        // before its response was lost; the reconciliation ledger is the
+        // authority and the next idempotent retry resolves it. Replace rather
+        // than append the display marker so readers have one current status.
+        const ambiguous = error?.status >= 500
+          || ['CURRENT_SET_UNAVAILABLE', 'CURRENT_SET_AMBIGUOUS'].includes(error?.code);
+        const failedState = {
+          kind: 'department_current_set_state',
+          status: ambiguous ? 'pending' : 'failed',
+          code: error?.code || 'CURRENT_SET_FAILED',
+          at: new Date().toISOString(),
+        };
+        try {
+          const { error: stateError } = await supabase.from('form_submission')
+            .update({
+              processing_notes: [
+                ...persistedProcessingNotes.filter(note => note?.kind !== 'department_current_set_state'),
+                failedState,
+              ],
+            })
+            .eq('id', submission_id)
+            .eq('tenant_id', effectiveEntityTenantId);
+          if (stateError) console.error('[AppProcessor] Failed to persist current-set failure state:', stateError);
+        } catch (stateError) {
+          console.error('[AppProcessor] Failed to persist current-set failure state:', stateError);
+        }
+        throw error;
+      }
+    }
+
+    const hasStripeAddressMappingWork = !!(
+      persistedSubmission.payment_meta?.stripe_address_mapping_config?.mappings?.length
+    );
+    // A monthly-card setup can complete before the local plan/payment
+    // evidence is recorded (even when Stripe has already paid the invoice).
+    // Address mappings are deliberately payment-gated, but that one expected
+    // wait must not prevent ordinary entity/structured/related work. Keep
+    // this exception narrow: all other pending/error results retain the
+    // existing 409 recovery contract.
+    let addressAwaitingFirstPayment = false;
+    const isStandaloneMonthlyFirstPaymentWait = (result, {
+      structuredActionResult = null,
+      relatedRecords = null,
+    } = {}) => {
+      if (persistedSubmission.payment_provider !== 'stripe_monthly_card'
+        || persistedSubmission.payment_status !== 'setup_complete'
+        || !result?.configured
+        || result.applied
+        || result.alreadyApplied
+        || result.pending !== true
+        || result.reason !== 'first_payment_not_paid') {
+        return false;
+      }
+      // A wait signal is safe only when this invocation has no other
+      // incomplete processor contract.  The durable flags cover retries
+      // written by older invocations where the in-memory result is absent.
+      if (structuredActionResult?.success === false || relatedRecords?.success === false) {
+        return false;
+      }
+      const paymentMeta = persistedSubmission.payment_meta || {};
+      // A retry may carry a stale durable pending marker even though the
+      // current invocation just completed that contract. Only an explicit
+      // current success can clear/override its corresponding marker.
+      if (paymentMeta.structured_actions_pending === true
+        && structuredActionResult?.success !== true) {
+        return false;
+      }
+      if (paymentMeta.related_records_pending === true
+        && relatedRecords?.success !== true) {
+        return false;
+      }
+      return true;
+    };
+    // A completed address snapshot is normally an authoritative historical
+    // fast path. Do not let it hide a structured-action retry that was already
+    // persisted as incomplete, including rows written before the explicit
+    // structured_actions_pending flag was introduced.
+    const persistedStructuredActionResult = persistedSubmission.payment_meta?.structured_actions_result;
+    const persistedStructuredActionsIncomplete = (
+      persistedSubmission.payment_meta?.structured_actions_pending === true
+      || persistedStructuredActionResult?.success === false
+    );
+    const persistedCompletedPrimaryKinds = Array.isArray(
+      persistedStructuredActionResult?.completed_primary_kinds,
+    )
+      ? persistedStructuredActionResult.completed_primary_kinds
+      : [];
+    let persistedEntityCreations = { member: new Set(), organization: new Set() };
+    if (hasStripeAddressMappingWork) {
+      persistedEntityCreations = await loadPersistedFormEntityCreations({
+        db: supabase,
+        tenantId: effectiveEntityTenantId,
+        submissionId: submission_id,
+      });
+      // Once address application committed, an admin retry must not replay
+      // ordinary mappings, structured actions, related records, or workflows:
+      // those could overwrite edits made after the payment-time snapshot won.
+      const { data: completedAddressMapping, error: completedAddressError } = await supabase
+        .from('form_stripe_address_mapping_ledger')
+        .select('member_id, organization_id')
+        .eq('form_submission_id', submission_id)
+        .eq('tenant_id', effectiveEntityTenantId)
+        .maybeSingle();
+      if (completedAddressError) throw completedAddressError;
+      if (completedAddressMapping) {
+        if (!persistedStructuredActionsIncomplete) {
+          await finishKnownPaidPipelineOperation();
+          return res.json({
+            success: true,
+            already_processed: true,
+            created_member_id: completedAddressMapping.member_id || persistedSubmission.created_member_id || null,
+            created_organization_id: completedAddressMapping.organization_id || persistedSubmission.created_organization_id || null,
+            organization_id: completedAddressMapping.organization_id || persistedSubmission.organization_id || null,
+            stripe_address_mappings: {
+              configured: true,
+              applied: false,
+              alreadyApplied: true,
+            },
+            ...(currentSetResult ? { current_set: currentSetResult } : {}),
+          });
+        }
+      }
+    }
+
+    // Direct member Organisation Group references are a persisted-form
+    // contract, not a request-side instruction. Validate every configured
+    // member pipeline/legacy mapping after the completed Stripe-address
+    // shortcut, but before the Stripe lease, structured actions, or any
+    // entity write can start. This keeps an already-completed paid retry
+    // independent of later form-configuration drift.
+    let memberOrganizationGroupAssignments = [];
+    try {
+      memberOrganizationGroupAssignments = collectMemberOrganizationGroupAssignments({
+        fields,
+        fieldMappings: field_mappings,
+        entityPipelines: entity_pipelines,
+        additionalMemberCreations: additional_member_creations,
+        formValues: form_values,
+        hiddenFieldIds: hiddenSubmissionFieldIds,
+        organizationProcessingEnabled: shouldProcessOrganization,
+      });
+      const knownProcessingOrganizationId = persistedSubmission.created_organization_id
+        || persistedSubmission.organization_id
+        || prefill_organization_id
+        || null;
+      memberOrganizationGroupAssignments = memberOrganizationGroupAssignments.map(assignment => (
+        ['primary', 'legacy_primary'].includes(assignment.role) && prefill_member_id
+          ? { ...assignment, memberId: prefill_member_id }
+          : assignment
+      ));
+      const hasMemberOrganizationGroupAssignments = memberOrganizationGroupAssignments.length > 0;
+      const mappedOrganizationId = memberOrganizationGroupAssignments.find(assignment =>
+        assignment.organizationId)?.organizationId || null;
+      const hasUnknownProspectiveOrganization = memberOrganizationGroupAssignments.some(assignment =>
+        assignment.hasProspectiveOrganization === true);
+      memberOrganizationGroupAssignments = await validateMemberOrganizationGroupAssignments({
+        db: supabase,
+        tenantId: effectiveEntityTenantId,
+        assignments: memberOrganizationGroupAssignments,
+        organizationId: knownProcessingOrganizationId,
+        rejectUnknownOrganization: hasMemberOrganizationGroupAssignments
+          && shouldProcessOrganization
+          && !knownProcessingOrganizationId
+          && !mappedOrganizationId
+          && hasUnknownProspectiveOrganization,
+      });
+    } catch (error) {
+      if (error instanceof MemberOrganizationGroupValidationError
+        || error?.code === 'INVALID_MEMBER_ORGANIZATION_GROUP') {
+        return res.status(error.status || 400).json({
+          error: error.message,
+          code: error.code,
+          details: error.details,
+        });
+      }
+      throw error;
+    }
+
+    // Structured member-group mappings use the same read-only preflight as
+    // the structured executor. Run it before a paid Stripe lease as well as
+    // before the executor's action claims, so a persisted structured conflict
+    // cannot be followed by legacy entity side effects.
+    try {
+      await preflightPersistedStructuredMemberOrganizationGroups({
+        db: supabase,
+        form: hasCurrentSetProcessing
+          ? { ...persistedForm, structured_actions: null }
+          : persistedForm,
+        submission: persistedSubmission,
+        tenantId: effectiveEntityTenantId,
+        visibilityOptions: submitControlOptions,
+      });
+    } catch (error) {
+      if (error instanceof StructuredActionContractError
+        || error?.code === 'INVALID_STRUCTURED_ACTIONS') {
+        return res.status(error.status || 400).json({
+          error: error.message,
+          code: error.code,
+          details: error.details,
+        });
+      }
+      throw error;
+    }
+
+    if (hasStripeAddressMappingWork) {
+      const leaseToken = randomUUID();
+      const { data: leaseClaimed, error: leaseError } = await supabase.rpc(
+        'claim_form_stripe_address_mapping_processing',
+        {
+          p_tenant_id: effectiveEntityTenantId,
+          p_submission_id: submission_id,
+          p_token: leaseToken,
+        },
+      );
+      if (leaseError) throw leaseError;
+      if (leaseClaimed !== true) {
+        return res.status(409).json({
+          error: 'Stripe address processing is already in progress',
+          code: 'STRIPE_ADDRESS_PROCESSING_BUSY',
+        });
+      }
+      stripeProcessingLease = {
+        tenantId: effectiveEntityTenantId,
+        submissionId: submission_id,
+        token: leaseToken,
+      };
+      const targetResolution = validateStripeAddressTargetResolution(
+        persistedForm,
+        persistedSubmission.payment_meta.stripe_address_mapping_config.target_resolution,
+      );
+      if (!targetResolution.valid) {
+        await releaseStripeProcessingLease();
+        return res.status(409).json({
+          error: targetResolution.error,
+          code: 'STRIPE_ADDRESS_TARGET_RESOLUTION_DRIFT',
+        });
+      }
+    }
+    const persistCrmNotesForPipeline = async (entity, entityId, pipeline, authorMemberIdOverride = null) => {
+      if (!entityId || !pipeline?.mappings?.some(mapping => mapping.target_type === 'crm_note')) return;
+      let authorMemberId = authenticatedSubmitterMember?.id
+        || processingActorMemberId
+        || (entity === 'member' ? entityId : authorMemberIdOverride || persistedSubmission.created_member_id || null);
+      await persistPipelineCrmNotes({
+        db: supabase,
+        tenantId: effectiveEntityTenantId,
+        submissionId: submission_id,
+        entity,
+        entityId,
+        authorMemberId,
+        pipeline,
+        values: form_values,
+        applyTransformation,
+        hiddenFieldIds: hiddenSubmissionFieldIds,
+        formFields: fields,
+        formName: persistedForm.name,
+      });
+    };
+    const legacyCreatedRecordIds = {
+      member: new Set([
+        persistedSubmission.created_member_id,
+        ...persistedEntityCreations.member,
+      ].filter(Boolean).map(String)),
+      // created_organization_id is also populated when a pipeline merely
+      // references an existing organization, so it is not creation provenance.
+      // Only an INSERT completed in this processing run may enter this set.
+      organization: new Set(persistedEntityCreations.organization),
+    };
+    // Unlike legacyCreatedRecordIds, this is exact current-run provenance.
+    // Never seed it from overloaded submission linkage columns.
+    const currentRunEntityCreations = {
+      member: new Set(),
+      organization: new Set(),
+    };
+    const assertLegacyExistingRecordAuthorized = async (entity, recordId) => {
+      if (legacyCreatedRecordIds[entity]?.has(String(recordId))) return true;
+      if (applicantGrant && entity === 'member' && applicantMemberIds.includes(String(recordId))) {
+        const { data, error } = await supabase.from('member').select('id')
+          .eq('id', recordId).eq('tenant_id', effectiveEntityTenantId)
+          .eq('organization_id', applicantGrant.organization_id).maybeSingle();
+        if (error) throw error;
+        if (!data) throw new FormApplicantContinuationError('The contact is no longer associated with this applicant organization.');
+      }
+      return assertStructuredMutationAuthorized({
+        action: { target: { kind: entity } },
+        recordId,
+        authorization: processingAuthorization,
+      });
+    };
+    const persistEntityCreationProvenance = async (entity, entityId) => {
+      if (!entityId) return;
+      const { error } = await supabase.from('form_submission_entity_creation').upsert({
+        form_submission_id: submission_id,
+        tenant_id: effectiveEntityTenantId,
+        entity_type: entity,
+        entity_id: entityId,
+      }, { onConflict: 'form_submission_id,entity_type,entity_id' });
+      if (error) throw error;
+    };
+    const discardEntityCreationProvenance = async (entity, entityId) => {
+      if (!entityId) return;
+      await supabase.from('form_submission_entity_creation')
+        .delete()
+        .eq('form_submission_id', submission_id)
+        .eq('entity_type', entity)
+        .eq('entity_id', entityId);
+    };
+    const autoApproveFeesAfterStructuredCompletion = async (memberId, organizationId = null) => {
+      if (!memberId) return;
+      try {
+        let effectiveTenantId = effectiveEntityTenantId;
+        if (!effectiveTenantId) {
+          const { data: memberForTenant } = await supabase
+            .from('member')
+            .select('tenant_id')
+            .eq('id', memberId)
+            .maybeSingle();
+          effectiveTenantId = memberForTenant?.tenant_id;
+          if (effectiveTenantId) {
+            console.log('[AppProcessor] Resolved tenant_id from member record for auto-approve:', effectiveTenantId);
+          }
+        }
+        if (!effectiveTenantId) {
+          console.warn('[AppProcessor] Cannot auto-approve fees: tenant_id could not be resolved for member:', memberId);
+          return;
+        }
+
+        // Task #3241 — shared helper resolves the config, checks
+        // auto_approve_fees, and upserts the invoicing row.
+        await autoApproveMemberFeesDependency(effectiveTenantId, memberId);
+        if (organizationId) {
+          await autoApproveOrgFeesDependency(effectiveTenantId, organizationId);
+        }
+      } catch (autoApproveErr) {
+        console.error('[AppProcessor] Auto-approve fees error (non-blocking):', autoApproveErr);
+      }
+    };
+
+    // Versioned structured actions are an authoritative persisted contract.
+    // The executor reloads both the form configuration and answers; request
+    // copies are deliberately ignored. Legacy processing below remains intact.
+    if (applicantGrant) await preflightApplicantTargets({
+      db: supabase, form: persistedForm, grant: applicantGrant, values: form_values,
+      hiddenFieldIds: hiddenSubmissionFieldIds,
+      memberIds: [...applicantMemberIds, authenticatedSubmitterMember?.id].filter(Boolean),
+      primaryMemberId: singlePersistedCreationId(persistedEntityCreations, 'member') || prefill_member_id,
+      createdMemberIds: persistedEntityCreations.member, applyTransformation,
+    });
+    let structuredActionResult = null;
+    let structuredActionsWaitingForPrimary = false;
+    const completedPrimaryKinds = new Set();
+    if (form_id && submission_id && effectiveEntityTenantId) {
+      try {
+        const structuredResult = await processPersistedStructuredActions({
+          db: supabase,
+          formId: form_id,
+          submissionId: submission_id,
+          tenantId: effectiveEntityTenantId,
+          authorization: processingAuthorization,
+          primaryRecords: {
+            memberId: persistedSubmission.created_member_id || null,
+            organizationId: persistedSubmission.created_organization_id || null,
+          },
+          completedPrimaryKinds: persistedCompletedPrimaryKinds,
+        });
+        structuredActionResult = structuredResult;
+        for (const outcome of structuredResult?.outcomes || []) {
+          addProcessingNote({
+            kind: 'structured_action',
+            ...outcome,
+          });
+        }
+        if (structuredResult?.success === false) {
+          if (isCleanPrimaryOutputDependencyWait(structuredResult)) {
+            // This is the one safe exception to the structured-first
+            // ordering: no action claimed or mutated anything, and every
+            // invocation is waiting only for a legacy primary pipeline
+            // output.  Let the normal primary member/organisation paths run,
+            // then retry the persisted actions below with those IDs.
+            structuredActionsWaitingForPrimary = true;
+          } else {
+            // A structured action may have completed some rows while another
+            // row remains failed/retryable. Never fall through to the legacy
+            // member/organisation pipelines in that state: doing so would
+            // create side effects that are not part of the failed structured
+            // contract and make a retry non-deterministic.
+            return respondWithIncompleteStructuredActions({
+              result: structuredResult,
+              memberId: structuredResult?.created_member_id || null,
+              organizationId: structuredResult?.created_organization_id || null,
+            });
+          }
+        }
+      } catch (error) {
+        if (error instanceof StructuredActionContractError || error?.code === 'STRUCTURED_ACTION_FORBIDDEN') {
+          await releaseStripeProcessingLease();
+          return res.status(error.status || 400).json({
+            error: error.message,
+            code: error.code,
+            details: error.details,
+          });
+        }
+        throw error;
+      }
+    }
+
+    // Legacy linkage remains the authority for whether the established
+    // member/organisation pipeline already completed. Structured actions run
+    // first so a partial structured run can resume, then a prior legacy result
+    // returns without replaying workflows or communication side effects.
+    let persistedPipelineEntityLinks = [];
+    const persistedPipelineTargetId = (entity, pipeline) => persistedPipelineEntityLinks
+      .find(link =>
+        link.entity_type === entity
+        && String(link.pipeline_id) === String(pipeline?.id)
+      )?.entity_id || null;
+    const persistPipelineEntityCheckpoint = async (entity, pipeline, entityId) => {
+      if (!submission_id || !pipeline?.id || !entityId) return;
+      const { error } = await supabase
+        .from('form_submission_pipeline_entity')
+        .upsert({
+          tenant_id: effectiveEntityTenantId,
+          form_submission_id: submission_id,
+          pipeline_id: String(pipeline.id),
+          entity_type: entity,
+          entity_id: entityId,
+        }, { onConflict: 'tenant_id,form_submission_id,entity_type,pipeline_id' });
+      if (error) throw error;
+      const existingIndex = persistedPipelineEntityLinks.findIndex(link =>
+        link.entity_type === entity && String(link.pipeline_id) === String(pipeline.id));
+      const checkpoint = { pipeline_id: String(pipeline.id), entity_type: entity, entity_id: entityId };
+      if (existingIndex >= 0) persistedPipelineEntityLinks[existingIndex] = checkpoint;
+      else persistedPipelineEntityLinks.push(checkpoint);
+    };
+    if (submission_id) {
+      const { data: existingSubmission, error: existingErr } = await supabase
+        .from('form_submission')
+        .select('created_member_id, created_organization_id, entity_processing_completed_at')
+        .eq('id', submission_id)
+        .eq('tenant_id', effectiveEntityTenantId)
+        .maybeSingle();
+      if (existingErr) {
+        console.error('[AppProcessor] Failed to look up existing submission for idempotency:', existingErr);
+      }
+      const { data: pipelineEntityLinks, error: pipelineEntityLinksError } = await supabase
+        .from('form_submission_pipeline_entity')
+        .select('pipeline_id, entity_type, entity_id')
+        .eq('tenant_id', effectiveEntityTenantId)
+        .eq('form_submission_id', submission_id);
+      if (pipelineEntityLinksError) throw pipelineEntityLinksError;
+      persistedPipelineEntityLinks = pipelineEntityLinks || [];
+      const structuredActionsPending = persistedSubmission.payment_meta?.structured_actions_pending === true;
+      // The current executor result is authoritative for this invocation.
+      // Do not require the persisted marker: older partial runs may have
+      // written primary IDs/completion fields before that marker existed.
+      const structuredActionsStillIncomplete = structuredActionResult?.success === false;
+      if (
+        (
+          (existingSubmission && (existingSubmission.created_member_id || existingSubmission.created_organization_id))
+          || existingSubmission?.entity_processing_completed_at
+        )
+        && !structuredActionsStillIncomplete
+      ) {
+        const structuredActionsResolvedOnRetry = structuredActionsPending
+          && structuredActionResult?.success === true;
+        await persistCrmNotesForPipeline(
+          'member',
+          existingSubmission?.created_member_id,
+          memberPipelines.find(item => item.isPrimary || item.is_primary),
+        );
+        await persistCrmNotesForPipeline(
+          'organization',
+          existingSubmission?.created_organization_id,
+          resolvePrimaryOrganizationPipeline(orgPipelines),
+          existingSubmission?.created_member_id,
+        );
+        for (const additionalPipeline of memberPipelines.filter(item => !item.isPrimary && !item.is_primary)) {
+          await persistCrmNotesForPipeline(
+            'member',
+            persistedPipelineTargetId('member', additionalPipeline),
+            additionalPipeline,
+          );
+        }
+        const relatedRecords = await processPrimaryPipelineRelatedRecords({
+          db: supabase,
+          tenantId: effectiveEntityTenantId,
+          form: hasCurrentSetProcessing
+            ? { ...persistedForm, structured_actions: null }
+            : persistedForm,
+          submission: persistedSubmission,
+          memberId: existingSubmission.created_member_id,
+          organizationId: existingSubmission.created_organization_id,
+          authorization: processingAuthorization,
+        });
+        let stripeAddressMappings;
+        try {
+          stripeAddressMappings = await processPersistedStripeAddressMappings({
+            db: supabase,
+            submission: persistedSubmission,
+            tenantId: effectiveEntityTenantId,
+            memberId: existingSubmission.created_member_id,
+            organizationId: existingSubmission.created_organization_id || persistedSubmission.organization_id,
+            authorization: processingAuthorization,
+            currentForm: persistedForm,
+          });
+        } catch (error) {
+          if (!(error instanceof StripeAddressMappingError) || error.status !== 409) throw error;
+          return respondWithIncompleteStripeAddressMappings({
+            result: {
+              configured: true,
+              applied: false,
+              pending: true,
+              reason: error.code || 'STRIPE_ADDRESS_MAPPINGS_INCOMPLETE',
+            },
+            memberId: existingSubmission.created_member_id,
+            organizationId: existingSubmission.created_organization_id || persistedSubmission.organization_id,
+          });
+        }
+        if (stripeAddressMappings?.configured
+            && !stripeAddressMappings.applied
+            && !stripeAddressMappings.alreadyApplied) {
+          const pendingResult = { ...stripeAddressMappings, pending: true };
+          if (isStandaloneMonthlyFirstPaymentWait(pendingResult, {
+            structuredActionResult,
+            relatedRecords,
+          })) {
+            // Preserve the durable pending marker below while allowing the
+            // already-completed ordinary processor work to return 200.
+            addressAwaitingFirstPayment = true;
+          } else {
+            return respondWithIncompleteStripeAddressMappings({
+              result: pendingResult,
+              memberId: existingSubmission.created_member_id,
+              organizationId: existingSubmission.created_organization_id || persistedSubmission.organization_id,
+            });
+          }
+        }
+        for (const outcome of relatedRecords?.outcomes || []) {
+          addProcessingNote({ kind: 'primary_pipeline_related_record', ...outcome });
+        }
+        const retryUpdate = {};
+        if (processingNotes.length > 0) {
+          retryUpdate.processing_notes = [...persistedProcessingNotes, ...processingNotes];
+        }
+        if (persistedSubmission.payment_status && (relatedRecords || structuredActionResult || stripeAddressMappings?.configured)) {
+          retryUpdate.payment_meta = {
+            ...(persistedSubmission.payment_meta || {}),
+            ...(structuredActionResult ? {
+              structured_actions_pending: structuredActionResult.success === false,
+              structured_actions_result: structuredActionResult,
+            } : {}),
+            ...(relatedRecords ? {
+            related_records_pending: relatedRecords.success === false,
+            related_records_result: relatedRecords,
+            } : {}),
+            ...(stripeAddressMappings?.configured ? {
+              stripe_address_mappings_pending: addressAwaitingFirstPayment,
+              stripe_address_mappings_result: stripeAddressMappings,
+            } : {}),
+          };
+        }
+        if (structuredActionsResolvedOnRetry) {
+          retryUpdate.entity_processing_completed_at = new Date().toISOString();
+          retryUpdate.payment_meta = {
+            ...(retryUpdate.payment_meta || persistedSubmission.payment_meta || {}),
+            structured_actions_pending: false,
+            structured_actions_result: structuredActionResult,
+          };
+        }
+        if (Object.keys(retryUpdate).length > 0) {
+          const { error: noteError } = await supabase.from('form_submission')
+            .update(retryUpdate)
+            .eq('id', submission_id).eq('tenant_id', effectiveEntityTenantId);
+          if (noteError) {
+            if (structuredActionsResolvedOnRetry) {
+              await releaseStripeProcessingLease();
+              throw noteError;
+            }
+            console.error('[AppProcessor] Failed to persist retry relationship outcomes:', noteError);
+          }
+        }
+        if (structuredActionsResolvedOnRetry) {
+          // Persist the completion checkpoint before triggering any readiness
+          // side effects. A failed resume update must remain retryable and
+          // must never auto-approve a member whose completion was not stored.
+          await autoApproveFeesAfterStructuredCompletion(
+            existingSubmission.created_member_id,
+            existingSubmission.created_organization_id || persistedSubmission.organization_id || null,
+          );
+        }
+        await releaseStripeProcessingLease();
+        await finishKnownPaidPipelineOperation();
+        return res.json({
+          success: structuredActionResult ? structuredActionResult.success : true,
+          already_processed: true,
+          created_member_id: existingSubmission.created_member_id,
+          created_organization_id: existingSubmission.created_organization_id,
+          organization_id: existingSubmission.created_organization_id,
+          ...(structuredActionResult ? { structured_actions: structuredActionResult } : {}),
+          ...(relatedRecords ? { related_records: relatedRecords } : {}),
+          stripe_address_mappings: stripeAddressMappings,
+          ...(addressAwaitingFirstPayment ? { addressAwaitingFirstPayment: true } : {}),
+          ...(currentSetResult ? { current_set: currentSetResult } : {}),
+        });
+      }
+    }
+
+    // SERVER-SIDE UNIQUENESS VALIDATION (defense in depth)
+    // This blocks duplicates even if client-side validation is bypassed
+    // Skip for update modes with prefill IDs (those are legitimate self-updates)
+    const isCreatingNewEntities = !prefill_member_id && !prefill_organization_id;
+
+    if (form_id && isCreatingNewEntities) {
+      const { data: formData } = await supabase
+        .from('form')
+        .select('uniqueness_checks, tenant_id')
+        .eq('id', form_id)
+        .single();
+      
+      if (formData?.uniqueness_checks && Array.isArray(formData.uniqueness_checks) && formData.uniqueness_checks.length > 0) {
+        // Use the authoritative tenant resolved above — never the raw body value.
+        const effectiveTenantId = effectiveEntityTenantId || formData.tenant_id;
+        console.log('[AppProcessor] Running server-side uniqueness validation, tenant_id:', effectiveTenantId);
+        
+        const conflicts = [];
+        const validFieldIds = new Set((fields || []).filter(f => f && f.id).map(f => f.id));
+        
+        for (const check of formData.uniqueness_checks) {
+          if (!check || !check.field_id || !validFieldIds.has(check.field_id)) continue;
+          
+          const field = fields.find(f => f && f.id === check.field_id);
+          if (!field) continue;
+          
+          const value = form_values[check.field_id];
+          if (!value) continue;
+          
+          const targetField = check.target_field;
+          if (!targetField || !targetField.includes('.')) continue;
+          
+          const [targetEntity, targetColumn] = targetField.split('.');
+          const tableName = targetEntity === 'organization' ? 'organization' : 'member';
+          
+          // Validate target column against whitelist
+          const validColumns = {
+            member: ['email', 'full_name', 'phone'],
+            organization: ['name', 'invoicing_email', 'phone', 'website_url']
+          };
+          if (!validColumns[tableName]?.includes(targetColumn)) continue;
+          
+          // Escape SQL wildcards for safe ilike usage
+          const searchValue = String(value).trim().replace(/[%_]/g, '\\$&');
+          const mode = check.comparison_mode || 'equals_lowercase';
+          
+          // Build query based on comparison mode
+          let query = supabase.from(tableName).select('id', { count: 'exact', head: true });
+          
+          if (mode === 'equals') {
+            query = query.eq(targetColumn, searchValue);
+          } else if (mode === 'contains') {
+            query = query.ilike(targetColumn, `%${searchValue}%`);
+          } else if (mode === 'starts_with') {
+            query = query.ilike(targetColumn, `${searchValue}%`);
+          } else if (mode === 'ends_with') {
+            query = query.ilike(targetColumn, `%${searchValue}`);
+          } else {
+            // Default: equals_lowercase (case insensitive exact match)
+            query = query.ilike(targetColumn, searchValue);
+          }
+          
+          // Add tenant filtering
+          if (effectiveTenantId) {
+            query = query.eq('tenant_id', effectiveTenantId);
+          }
+          // A retry may encounter an entity created by this exact submission
+          // before a later pipeline failed. Exclude only the tenant-scoped,
+          // server-owned checkpoint targets for the entity being checked;
+          // any unrelated row with the same value still counts as a conflict.
+          const replayTargetIds = new Set(
+            persistedPipelineEntityLinks
+              .filter(link => link.entity_type === tableName && link.entity_id)
+              .map(link => String(link.entity_id)),
+          );
+          for (const replayTargetId of replayTargetIds) {
+            query = query.neq('id', replayTargetId);
+          }
+          
+          const { count } = await query;
+          
+          if (count && count > 0) {
+            const entityLabel = tableName === 'organization' ? 'an organisation' : 'a member';
+            conflicts.push({
+              field_id: check.field_id,
+              field_label: field.label || check.field_id,
+              message: `We already have ${entityLabel} registered with this value.`
+            });
+          }
+        }
+        
+        if (conflicts.length > 0) {
+          console.log('[AppProcessor] Server-side uniqueness check BLOCKED submission:', conflicts);
+          return res.status(409).json({
+            valid: false,
+            error: 'Uniqueness validation failed',
+            conflicts,
+            code: 'UNIQUENESS_CONFLICT'
+          });
+        }
+        
+        console.log('[AppProcessor] Server-side uniqueness check passed');
+      }
+    }
+
+    const memberData = {};
+    const orgData = {};
+    // Use Maps to aggregate values for list fields
+    const memberCustomFieldsMap = new Map();
+    const orgCustomFieldsMap = new Map();
+    // Track custom fields the user explicitly cleared on this submission so we
+    // can DELETE the existing member_preference_value / organization_preference_value
+    // row at upsert time. This is distinct from "field absent from the
+    // submission" (which is a no-op). Populated by both the legacy
+    // field_mappings path and the entity_pipelines path when the source form
+    // value is present but empty (null / '' / [] / __clear__ sentinel).
+    const memberCustomFieldsToClear = new Set();
+    const orgCustomFieldsToClear = new Set();
+    // Map to collect communication preferences (categoryId -> boolean subscribed value)
+    const memberCommunicationPrefsMap = new Map(
+      collectMemberPipelineCommunicationSelections(entity_pipelines, form_values, {
+        hiddenFieldIds: hiddenSubmissionFieldIds,
+      })
+        .map(({ category_id, is_subscribed }) => [category_id, is_subscribed])
+    );
+
+    // Test whether a form_values key is "present and explicitly cleared" vs
+    // "absent from the submission". Only used for custom-field mappings (core
+    // field semantics are owned by hasAssignableValue / task #593's work).
+    const isExplicitlyClearedValue = (value) => {
+      if (value === '__clear__') return true;
+      if (value === null) return true;
+      if (value === '') return true;
+      if (Array.isArray(value) && value.length === 0) return true;
+      return false;
+    };
+
+    // Lookup form-field metadata by id so mapping handlers can introspect the
+    // source field's type. Used to guard against writing an
+    // organisation_dropdown's stored UUID into an organisation core column
+    // (which would rename the org to its own id).
+    const fieldsById = new Map((fields || []).filter(f => f && f.id).map(f => [String(f.id), f]));
+    const isOrgDropdownSourceField = (sourceFieldId) => {
+      if (!sourceFieldId) return false;
+      const f = fieldsById.get(sourceFieldId);
+      return !!f && f.type === 'organisation_dropdown';
+    };
+    let notListedOrganizationSource = null;
+    const serverCreatedOrganizations = new Map();
+    const assignOrganizationCore = (target, key, value, sourceFieldId = null) => {
+      if (target === orgData && key === 'name') {
+        notListedOrganizationSource = sourceFieldId;
+      }
+      target[key] = value;
+    };
+    const resolveOrgDropdownMapping = (sourceFieldId, targetField) => {
+      const field = fieldsById.get(sourceFieldId);
+      const resolved = resolveOrganizationDropdownAssignment({
+        field,
+        targetField,
+        value: form_values[sourceFieldId],
+        submissionData: form_values,
+      });
+      return resolved;
+    };
+    // Captures the organisation id selected via an organisation_dropdown form
+    // field, when that field was mapped to an organisation core column. We
+    // never write the UUID into the core column; instead we feed it into the
+    // existing org-resolution chain as a synthetic prefill_organization_id so
+    // the right organisation row is updated.
+    let dropdownSelectedOrgId = null;
+    // Same guard for member_dropdown form fields: their stored value is a
+    // member UUID, and mapping that to a member core column (Email / Full
+    // Name / etc.) would rename the member to its own id. Capture the id
+    // and feed it into the member-resolution chain instead.
+    const isMemberDropdownSourceField = (sourceFieldId) => {
+      if (!sourceFieldId) return false;
+      const f = fieldsById.get(sourceFieldId);
+      return !!f && f.type === 'member_dropdown';
+    };
+    let dropdownSelectedMemberId = null;
+
+    const { data: preferenceFields } = await supabase
+      .from('preference_field')
+      .select('*')
+      .eq('is_active', true);
+
+    const prefFieldMap = new Map((preferenceFields || []).map(pf => [pf.id, pf]));
+
+    // Multi-value preference field types. All of these store their value as a
+    // JSON-stringified array via convertMapToArray below, so when the same
+    // field is mapped from multiple form fields (or arrives as an array from
+    // a multi-select control) we aggregate-and-dedupe instead of letting one
+    // mapping clobber another. Single-value field types fall through to
+    // "last write wins". Keep this list in sync with the FormBuilder field
+    // type catalogue so a new multi-select type doesn't silently regress to
+    // scalar storage.
+    const MULTI_VALUE_PREF_FIELD_TYPES = new Set([
+      'list',
+      'picklist',
+      'checkbox',
+      'multi_select',
+      'multiselect',
+    ]);
+
+    // Helper to add value to custom field map (aggregates for multi-value fields)
+    const addCustomFieldValue = (map, fieldId, value, prefField) => {
+      const isMultiValueField =
+        MULTI_VALUE_PREF_FIELD_TYPES.has(prefField?.field_type) || Array.isArray(value);
+
+      if (isMultiValueField) {
+        // Aggregate values into a deduped array for multi-value fields
+        if (!map.has(fieldId) || !Array.isArray(map.get(fieldId))) {
+          map.set(fieldId, []);
+        }
+        const arr = map.get(fieldId);
+
+        // Handle array values (from multi-select checkboxes)
+        if (Array.isArray(value)) {
+          for (const item of value) {
+            if (!arr.includes(item)) {
+              arr.push(item);
+            }
+          }
+        } else if (value !== undefined && value !== null && value !== '') {
+          if (!arr.includes(value)) {
+            arr.push(value);
+          }
+        }
+      } else {
+        // For non-multi-value fields, just store the value (last one wins).
+        map.set(fieldId, value);
+      }
+    };
+
+    // Build set of fields that are explicitly mapped in entity_pipelines Primary Member
+    // These fields should NOT be populated by legacy field_mappings (entity_pipelines takes precedence)
+    const pipelineMemberFields = new Set();
+    const pipelineOrgFields = new Set();
+    const pipelineMemberCustomFields = new Set();
+    const pipelineOrgCustomFields = new Set();
+    let topLevelMappingSelection = null;
+    let primaryMemberMappingSelection = null;
+    let primaryOrgMappingSelection = null;
+    const primaryIdentityLostOnlyToHiddenMapping = (primarySelection, entity) => {
+      if (selectionHasIdentityMapping(primarySelection, entity)) {
+        return selectionLostIdentityOnlyToHiddenMapping(primarySelection, entity);
+      }
+      return selectionLostIdentityOnlyToHiddenMapping(topLevelMappingSelection, entity);
+    };
+    // A modern Organisation pipeline is inferred as upsert whenever it is
+    // configured, even when the respondent intentionally leaves its optional
+    // identity field blank. Only treat that as a settled no-op when every
+    // configured Organisation mapping is a field mapping from an existing,
+    // optional source and every visible value is blank. A populated
+    // companion/custom mapping, static value, required source, or unknown
+    // source retains the normal missing-name failure.
+    const effectiveOrganizationMappingSelection = ({
+      primarySelection,
+      topLevelSelection,
+    } = {}) => {
+      const primaryIncludedMappings = primarySelection
+        ? coalesceExplicitFallbackMappings(
+          primarySelection.includedMappings || [],
+          form_values,
+          hiddenSubmissionFieldIds,
+        )
+        : [];
+      const primaryDestinationKeys = new Set(
+        [
+          ...(primarySelection?.includedMappings || []),
+          ...(primarySelection?.ignoredMappings || []),
+        ]
+          .filter(mapping => (
+            (primarySelection?.targetEntity || mapping?.target_entity) === 'organization'
+          ))
+          .map(mapping => [
+            mapping?.target_type || 'core',
+            resolveOrganizationCoreField(mapping?.target_field || mapping?.target_field_id),
+          ].join(':')),
+      );
+      const topLevelIncludedMappings = topLevelSelection
+        ? coalesceExplicitFallbackMappings(
+          topLevelSelection.includedMappings || [],
+          form_values,
+          hiddenSubmissionFieldIds,
+        )
+        : [];
+      const topLevelEffectiveMappings = topLevelIncludedMappings.filter(mapping => {
+        if ((topLevelSelection?.targetEntity || mapping?.target_entity) !== 'organization') {
+          return false;
+        }
+        const destinationKey = [
+          mapping?.target_type || 'core',
+          resolveOrganizationCoreField(mapping?.target_field || mapping?.target_field_id),
+        ].join(':');
+        return !primaryDestinationKeys.has(destinationKey);
+      });
+      return {
+        includedMappings: [...primaryIncludedMappings, ...topLevelEffectiveMappings],
+        targetEntity: 'organization',
+        source: 'effective_organization_mappings',
+      };
+    };
+    const optionalOrganizationPipelineHasNoInput = (selection) => {
+      if (!selection) return false;
+      const selectedMappings = (selection.includedMappings || []).filter(mapping => (
+        (selection.targetEntity || mapping?.target_entity) === 'organization'
+      ));
+      if (selectedMappings.length === 0
+        || !selectedMappings.some(mapping =>
+          isIdentityMappingFor(mapping, 'organization', selection.targetEntity))) {
+        return false;
+      }
+      const isBlank = value => value == null
+        || (typeof value === 'string' ? value.trim() === '' : value === '')
+        || (Array.isArray(value) && value.length === 0);
+      const isRequired = field => {
+        const flags = [field?.required, field?.is_required]
+          .filter(value => value !== undefined && value !== null);
+        const conditionalFlags = [
+          field?.conditional_required,
+          field?.required_if,
+          field?.required_when,
+          field?.required_conditions,
+          field?.required_rules,
+        ].filter(value => value !== undefined && value !== null);
+        return flags.some(value => value !== false) || conditionalFlags.length > 0;
+      };
+      for (const mapping of selectedMappings) {
+        if (mapping?.source_type && mapping.source_type !== 'field') return false;
+        if (mapping?.transformation === 'current_date') return false;
+        if (!mapping?.source_field_id) return false;
+        const sourceField = fieldsById.get(String(mapping.source_field_id));
+        // Visibility is not creation intent. Rule-derived/locked fields may be
+        // hidden and intentionally blank for applicants who join directly as
+        // group members. A non-blank hidden value still fails the all-blank
+        // check below and is processed normally. `ignore_if_hidden` mappings
+        // were already excluded by the mapping-selection layer and use the
+        // separate hidden-identity no-op above.
+        if (!sourceField || isRequired(sourceField)) {
+          return false;
+        }
+        let value = extractMappingSourceComponent(
+          mapping,
+          form_values[mapping.source_field_id],
+        );
+        if (!isBlank(value)) return false;
+      }
+      return true;
+    };
+    
+    if (memberPipelines.length > 0) {
+      const primaryMemberPipeline = memberPipelines.find(m => m.isPrimary || m.is_primary);
+      if (primaryMemberPipeline?.mappings && Array.isArray(primaryMemberPipeline.mappings)) {
+        for (const m of primaryMemberPipeline.mappings) {
+          if (m.target_type === 'core' && m.target_field) {
+            pipelineMemberFields.add(m.target_field);
+          } else if (m.target_type === 'custom' && m.target_field) {
+            pipelineMemberCustomFields.add(String(m.target_field));
+          }
+        }
+      }
+    }
+    
+    if (orgPipelines.length > 0) {
+      const primaryOrgPipeline = resolvePrimaryOrganizationPipeline(orgPipelines);
+      if (primaryOrgPipeline?.mappings && Array.isArray(primaryOrgPipeline.mappings)) {
+        for (const m of primaryOrgPipeline.mappings) {
+          if (m.target_type === 'core' && m.target_field) {
+            pipelineOrgFields.add(resolveOrganizationCoreField(m.target_field));
+          } else if (m.target_type === 'custom' && m.target_field) {
+            pipelineOrgCustomFields.add(String(m.target_field));
+          }
+        }
+      }
+    }
+    
+    console.log('[AppProcessor] Entity pipeline fields to skip in legacy field_mappings - member:', [...pipelineMemberFields], 'org:', [...pipelineOrgFields]);
+    
+    // Process new field_mappings array first (preferred method)
+    // Skip fields that are mapped in entity_pipelines (those take precedence even if undefined)
+    if (field_mappings && Array.isArray(field_mappings) && field_mappings.length > 0) {
+      console.log('[AppProcessor] Using field_mappings:', field_mappings.length, 'mappings');
+      assertValidExplicitFallbackGroups(field_mappings);
+      assertValidAddressLookupMappingComponents(field_mappings, fields);
+      
+      topLevelMappingSelection = selectMappingsForSubmission(field_mappings);
+      const effectiveFieldMappings = coalesceExplicitFallbackMappings(
+        topLevelMappingSelection.includedMappings,
+        form_values,
+        hiddenSubmissionFieldIds,
+      );
+      for (const mapping of effectiveFieldMappings) {
+        const { source_type, source_field_id, source_category_id, static_value, target_type, target_entity, target_field, transformation } = mapping;
+        
+        // Skip if no target field
+        if (!target_field) continue;
+        
+        // Skip if this core field is mapped in entity_pipelines (takes precedence)
+        if (target_type === 'core') {
+          if (target_entity === 'member' && pipelineMemberFields.has(target_field)) {
+            console.log('[AppProcessor] Skipping legacy field_mappings for member field (entity_pipelines takes precedence):', target_field);
+            continue;
+          }
+          if (target_entity === 'organization' && pipelineOrgFields.has(resolveOrganizationCoreField(target_field))) {
+            console.log('[AppProcessor] Skipping legacy field_mappings for org field (entity_pipelines takes precedence):', target_field);
+            continue;
+          }
+        }
+        
+        let value;
+        // Track whether this mapping was sourced from a key that exists in
+        // form_values (vs absent). For custom-field mappings, an absent key
+        // is a no-op while a present-but-empty key is an explicit clear.
+        let sourceFieldKeyPresent = false;
+        
+        // Handle current_date source type or transformation - doesn't need a source value
+        if (source_type === 'clear') {
+          value = '__clear__';
+          sourceFieldKeyPresent = true;
+        } else if (source_type === 'current_date' || transformation === 'current_date') {
+          value = applyTransformation('', 'current_date');
+          sourceFieldKeyPresent = true;
+          console.log('[AppProcessor] Current date mapping:', target_field, '=', value);
+        } else if (source_type === 'static') {
+          // Static value mapping - use the fixed value
+          value = resolveStaticTodayToken(static_value);
+          if (value === undefined || value === null || value === '') continue;
+          sourceFieldKeyPresent = true;
+          console.log('[AppProcessor] Static mapping:', target_field, '=', value);
+        } else {
+          // Form field mapping (default)
+          if (!source_field_id) continue;
+          sourceFieldKeyPresent = Object.prototype.hasOwnProperty.call(form_values, source_field_id);
+          value = extractMappingSourceComponent(mapping, form_values[source_field_id]);
+          
+          // If source_category_id is set, extract the specific category value from a communication_preferences object
+          if (source_category_id && value && typeof value === 'object' && !Array.isArray(value)) {
+            value = value[source_category_id] !== undefined ? value[source_category_id] : null;
+            console.log(`[AppProcessor] Extracted category ${source_category_id} from communication_preferences: ${value}`);
+          }
+          
+          // For boolean fields in member entities, allow empty/false through (they mean false)
+          const isMemberBooleanField = target_type === 'core' && target_entity === 'member' && BOOLEAN_CORE_FIELDS.includes(target_field);
+          // For custom-field mappings, distinguish "absent" (skip) from
+          // "present and explicitly cleared" (clear the existing value at
+          // upsert time). For core fields, preserve the legacy behaviour of
+          // skipping any empty value (task #593 owns core field clearing).
+          if (target_type === 'custom') {
+            if (!sourceFieldKeyPresent) continue;
+            // Falls through with possibly-empty value; clear handling below.
+          } else if (!isMemberBooleanField && (value === undefined || value === null || value === '')) {
+            continue;
+          }
+          
+          // Apply transformation only for field mappings (skip for empty
+          // custom-field clears so transformations don't synthesise a value).
+          if (transformation && transformation !== 'none' && !(target_type === 'custom' && isExplicitlyClearedValue(value))) {
+            value = applyTransformation(value, transformation);
+          }
+        }
+        
+        if (target_type === 'core') {
+          if (value === '__clear__') {
+            const targetData = target_entity === 'organization' ? orgData : memberData;
+            assignOrganizationCore(targetData, target_field, null);
+            continue;
+          }
+          if (target_entity === 'member') {
+            if (target_field === 'organization_group_id') {
+              const selection = resolveMemberOrganizationGroupSelection({
+                field: fieldsById.get(String(source_field_id)),
+                value,
+                sourceType: source_type === 'field' ? 'field' : source_type,
+                sourceFieldId: source_field_id,
+                hidden: source_field_id != null
+                  && hiddenSubmissionFieldIds.has(String(source_field_id)),
+              });
+              if (selection) memberData.organization_group_id = selection.groupId;
+              continue;
+            }
+            // Guard: a member_dropdown stores the selected member's UUID
+            // as its value. Writing that into memberData.email / .full_name
+            // / etc. would rename the member to its own id. Instead,
+            // capture the selected id for the member-resolution chain and
+            // skip the assignment.
+            if (isMemberDropdownSourceField(source_field_id)) {
+              if (typeof value === 'string' && value && !dropdownSelectedMemberId) {
+                dropdownSelectedMemberId = value;
+              }
+              console.log('[AppProcessor] Skipped member core assignment from member_dropdown source:', { target_field, source_field_id, captured_member_id: value });
+              continue;
+            }
+            // Use hasAssignableValue to properly handle boolean fields
+            if (hasAssignableValue(target_field, value)) {
+              memberData[target_field] = coerceCoreFieldValue('member', target_field, value);
+            }
+          } else if (target_entity === 'organization') {
+            // Guard: an organisation_dropdown stores the selected org's UUID
+            // as its value. Writing that into orgData.name (or any other org
+            // core column) would rename the org to its own id. Instead,
+            // capture the selected id for the org-resolution chain and skip
+            // the assignment.
+            if (isOrgDropdownSourceField(source_field_id)) {
+              const resolved = resolveOrgDropdownMapping(source_field_id, target_field);
+              if (resolved?.organizationName) {
+                assignOrganizationCore(orgData, 'name', resolved.organizationName, source_field_id);
+              } else if (resolved?.organizationId && !dropdownSelectedOrgId) {
+                dropdownSelectedOrgId = resolved.organizationId;
+              }
+              console.log('[AppProcessor] Resolved org core assignment from organisation_dropdown source:', { target_field, source_field_id, captured_org_id: resolved?.organizationId || null, used_not_listed_name: !!resolved?.organizationName });
+              continue;
+            }
+            // Training fund balances are ledger-backed and must never be
+            // written by form mappings. Skip defensively for legacy configs.
+            if (isProtectedOrgBalanceField(target_field)) {
+              console.warn('[AppProcessor] Skipped protected ledger-backed org field mapping:', target_field);
+              continue;
+            }
+            assignOrganizationCore(orgData, target_field, coerceCoreFieldValue('organization', target_field, value));
+          }
+        } else if (target_type === 'custom') {
+          const prefField = prefFieldMap.get(target_field);
+          const targetMap = target_entity === 'organization' ? orgCustomFieldsMap : memberCustomFieldsMap;
+          const targetClearSet = target_entity === 'organization' ? orgCustomFieldsToClear : memberCustomFieldsToClear;
+          if (isExplicitlyClearedValue(value)) {
+            // Explicit clear: drop any aggregated value and queue the existing
+            // DB row for deletion at upsert time.
+            targetMap.delete(target_field);
+            targetClearSet.add(target_field);
+          } else {
+            targetClearSet.delete(target_field);
+            addCustomFieldValue(targetMap, target_field, value, prefField);
+          }
+        }
+      }
+    } else {
+      // Fallback: Use legacy core_field_mapping and custom_field_id on fields
+      for (const field of fields) {
+        const fieldKeyPresent = Object.prototype.hasOwnProperty.call(form_values, field.id);
+        const value = form_values[field.id];
+
+        // Check if this is a boolean member core field - allow empty/false through
+        let isMemberBooleanField = false;
+        if (field.core_field_mapping) {
+          const [entity, fieldName] = field.core_field_mapping.split('.');
+          isMemberBooleanField = entity === 'member' && BOOLEAN_CORE_FIELDS.includes(fieldName);
+        }
+
+        const isEmptyForCore = !isMemberBooleanField && (value === undefined || value === null || value === '');
+
+        if (field.core_field_mapping && !isEmptyForCore) {
+          const [entity, fieldName] = field.core_field_mapping.split('.');
+          const pipelineOwnsCoreDestination = entity === 'member'
+            ? pipelineMemberFields.has(fieldName)
+            : entity === 'organization'
+              ? pipelineOrgFields.has(resolveOrganizationCoreField(fieldName))
+              : false;
+          if (!pipelineOwnsCoreDestination && entity === 'member') {
+            if (fieldName === 'organization_group_id') {
+              const selection = resolveMemberOrganizationGroupSelection({
+                field,
+                value,
+                sourceType: 'field',
+                sourceFieldId: field.id,
+                hidden: hiddenSubmissionFieldIds.has(String(field.id)),
+              });
+              if (selection) memberData.organization_group_id = selection.groupId;
+              continue;
+            }
+            // Guard: a member_dropdown stores the selected member's UUID.
+            // Writing it into a member core column would rename the member
+            // to its own id. Capture the id for the member-resolution chain
+            // and skip.
+            if (field.type === 'member_dropdown') {
+              if (typeof value === 'string' && value && !dropdownSelectedMemberId) {
+                dropdownSelectedMemberId = value;
+              }
+              console.log('[AppProcessor] Skipped member core assignment from member_dropdown source (legacy fallback):', { fieldName, field_id: field.id, captured_member_id: value });
+            } else if (hasAssignableValue(fieldName, value)) {
+              memberData[fieldName] = coerceCoreFieldValue('member', fieldName, value);
+            }
+          } else if (!pipelineOwnsCoreDestination && entity === 'organization') {
+            // Guard: an organisation_dropdown stores the org's UUID. Writing
+            // it into an org core column would rename the org to its own id.
+            // Capture the id for the org-resolution chain and skip.
+            if (field.type === 'organisation_dropdown') {
+              const resolved = resolveOrgDropdownMapping(field.id, fieldName);
+              if (resolved?.organizationName) {
+                assignOrganizationCore(orgData, 'name', resolved.organizationName, field.id);
+              } else if (resolved?.organizationId && !dropdownSelectedOrgId) {
+                dropdownSelectedOrgId = resolved.organizationId;
+              }
+              console.log('[AppProcessor] Resolved org core assignment from organisation_dropdown source (legacy fallback):', { fieldName, field_id: field.id, captured_org_id: resolved?.organizationId || null, used_not_listed_name: !!resolved?.organizationName });
+            } else {
+              assignOrganizationCore(orgData, fieldName, coerceCoreFieldValue('organization', fieldName, value));
+            }
+          }
+        }
+
+        // Custom-field handling: distinguish absent (no-op) from explicitly
+        // cleared (delete existing pref value at upsert time). The form key
+        // is always present when the form rendered the field, so absent
+        // means the form configuration itself doesn't include this field.
+        if (field.custom_field_id) {
+          // A field-level custom_field_id is an implicit legacy binding, not a
+          // modern mapping with a configurable ignore_if_hidden policy. Hidden
+          // answers remain in persisted submission_data, so treating one as a
+          // write (especially a blank answer as a delete) can mutate an
+          // existing Member or Organisation using a control the respondent
+          // could not see. Persisted server-side visibility is authoritative
+          // for these implicit bindings; modern mappings above retain their
+          // explicit per-mapping ignore_if_hidden semantics.
+          if (hiddenSubmissionFieldIds.has(String(field.id))) {
+            addProcessingNote({
+              kind: 'hidden_implicit_custom_binding_ignored',
+              level: 'info',
+              stage: 'mapping_selection',
+              source_field_id: field.id,
+              target_field: field.custom_field_id,
+              message: 'Implicit custom-field binding ignored because its persisted source field was hidden for this submission.',
+            });
+            continue;
+          }
+          const customField = prefFieldMap.get(field.custom_field_id);
+          if (customField) {
+            const pipelineOwnsCustomDestination = customField.entity_scope === 'organization'
+              ? pipelineOrgCustomFields.has(String(customField.id))
+              : pipelineMemberCustomFields.has(String(customField.id));
+            if (pipelineOwnsCustomDestination) continue;
+            if (!fieldKeyPresent) continue;
+            const targetMap = customField.entity_scope === 'organization' ? orgCustomFieldsMap : memberCustomFieldsMap;
+            const targetClearSet = customField.entity_scope === 'organization' ? orgCustomFieldsToClear : memberCustomFieldsToClear;
+            if (isExplicitlyClearedValue(value)) {
+              targetMap.delete(customField.id);
+              targetClearSet.add(customField.id);
+            } else {
+              targetClearSet.delete(customField.id);
+              addCustomFieldValue(targetMap, customField.id, value, customField);
+            }
+          }
+        }
+      }
+    }
+
+    // Convert maps to arrays for insertion, stringifying values appropriately
+    // Centralised value coercion for preference values. Arrays/objects are
+    // JSON-encoded; scalars are stringified. Used by convertMapToArray (which
+    // feeds the primary-member/org upsert paths) and by the additional-member
+    // upsert paths so all four sites store identical shapes — review-noted
+    // risk that the additional paths previously bypassed coercion.
+    // Boolean-typed fields are canonicalised to 'true'/'false' by the shared
+    // coercePreferenceValueForStorage helper (api/_lib/preferenceValueStorage.js);
+    // ambiguous boolean inputs return undefined and the write is skipped rather
+    // than silently storing a value all boolean readers (=== 'true') see as false.
+    const convertMapToArray = (map) => {
+      const result = [];
+      for (const [fieldId, value] of map.entries()) {
+        const stored = coercePreferenceValueForStorage(value, prefFieldMap.get(fieldId));
+        if (stored === undefined) continue; // ambiguous boolean — skip write
+        result.push({ field_id: fieldId, value: stored });
+      }
+      return result;
+    };
+
+    let memberCustomFields = convertMapToArray(memberCustomFieldsMap);
+
+    // Persist only the destination categories explicitly named by the member
+    // pipeline.  Values are validated against active categories in the
+    // authoritative tenant; invalid category ids and subcategory values are
+    // skipped rather than being allowed to create cross-category associations.
+    const persistMappedMemberResourceCategories = async (memberId, pipelineEntry) => {
+      const intents = collectMemberResourceCategoryMappingIntents(pipelineEntry, form_values, fields);
+      if (!memberId || intents.size === 0) return;
+      if (!effectiveEntityTenantId) {
+        addProcessingNote({
+          kind: 'resource_category_mapping_skipped',
+          member_id: memberId,
+          message: 'Resource-category mapping skipped because no authoritative tenant was resolved',
+        });
+        return;
+      }
+
+      const destinationIds = [...intents.keys()];
+      const { data: categories, error: categoryError } = await supabase
+        .from('resource_category')
+        .select('id, subcategories')
+        .eq('tenant_id', effectiveEntityTenantId)
+        .eq('is_active', true)
+        .in('id', destinationIds);
+      if (categoryError) {
+        addProcessingNote({
+          kind: 'resource_category_validation_failed',
+          member_id: memberId,
+          message: categoryError.message,
+        });
+        return;
+      }
+
+      const categoryMap = new Map((categories || []).map(category => {
+        let subcategories = category.subcategories || [];
+        if (typeof subcategories === 'string') {
+          try {
+            subcategories = JSON.parse(subcategories);
+          } catch {
+            subcategories = [];
+          }
+        }
+        if (!Array.isArray(subcategories)) subcategories = [];
+        return [category.id, new Set(subcategories.map(value => String(value).trim()).filter(Boolean))];
+      }));
+
+      for (const [categoryId, submittedValues] of intents) {
+        const allowedValues = categoryMap.get(categoryId);
+        if (!allowedValues) {
+          addProcessingNote({
+            kind: 'resource_category_mapping_rejected',
+            member_id: memberId,
+            resource_category_id: categoryId,
+            message: 'Mapped resource category is not active in the form tenant',
+          });
+          continue;
+        }
+
+        const selectedValues = [...submittedValues].filter(value => allowedValues.has(value));
+        const invalidValues = [...submittedValues].filter(value => !allowedValues.has(value));
+        if (invalidValues.length > 0) {
+          addProcessingNote({
+            kind: 'resource_category_values_rejected',
+            member_id: memberId,
+            resource_category_id: categoryId,
+            rejected_values: invalidValues,
+            message: 'Submitted values do not belong to the mapped resource category',
+          });
+        }
+        // A non-empty, wholly invalid submission is ignored rather than being
+        // reinterpreted as an explicit clear.  A genuinely empty scalar/array
+        // still clears the mapped destination category.
+        if (submittedValues.size > 0 && selectedValues.length === 0) continue;
+
+        const { data: currentRows, error: currentError } = await supabase
+          .from('member_resource_category')
+          .select('id, resource_category_id, subcategory_name')
+          .eq('member_id', memberId)
+          .eq('resource_category_id', categoryId);
+        if (currentError) {
+          addProcessingNote({
+            kind: 'resource_category_current_lookup_failed',
+            member_id: memberId,
+            resource_category_id: categoryId,
+            message: currentError.message,
+          });
+          continue;
+        }
+
+        const { removeIds, toInsert } = buildMemberResourceCategoryDiff(currentRows || [], selectedValues);
+
+        if (removeIds.length > 0) {
+          const { error } = await supabase
+            .from('member_resource_category')
+            .delete()
+            .in('id', removeIds);
+          if (error) {
+            addProcessingNote({
+              kind: 'resource_category_delete_failed',
+              member_id: memberId,
+              resource_category_id: categoryId,
+              message: error.message,
+            });
+          }
+        }
+        if (toInsert.length > 0) {
+          const { error } = await supabase
+            .from('member_resource_category')
+            .insert(toInsert.map(subcategoryName => ({
+              member_id: memberId,
+              resource_category_id: categoryId,
+              subcategory_name: subcategoryName,
+            })));
+          if (error) {
+            addProcessingNote({
+              kind: 'resource_category_insert_failed',
+              member_id: memberId,
+              resource_category_id: categoryId,
+              message: error.message,
+            });
+          }
+        }
+      }
+    };
+
+    // Helper function to process pipeline entry mappings (supports both new array format and legacy object format)
+    const processPipelineMappings = (pipelineEntry, targetEntity, dataObj, customFieldsMap, coreFieldMappingConfig, customFieldsToClear) => {
+      if (!pipelineEntry) return null;
+      
+      // Check for new mappings array format first
+      if (pipelineEntry.mappings && Array.isArray(pipelineEntry.mappings)) {
+        assertValidExplicitFallbackGroups(pipelineEntry.mappings);
+        assertValidAddressLookupMappingComponents(pipelineEntry.mappings, fields);
+        console.log(`[AppProcessor] Processing ${targetEntity} from entity_pipelines (new format):`, pipelineEntry.label, 'mappings:', pipelineEntry.mappings.length);
+        console.log(`[AppProcessor] ${pipelineEntry.label} mappings detail:`, JSON.stringify(pipelineEntry.mappings, null, 2));
+        
+        // Log form values for each mapping to debug
+        console.log(`[AppProcessor] Form values for ${pipelineEntry.label}:`);
+        for (const m of pipelineEntry.mappings) {
+          if (m.source_field_id) {
+            console.log(`  - ${m.target_field}: form_values["${m.source_field_id}"] = "${form_values[m.source_field_id]}"`);
+          }
+        }
+        
+        const mappingSelection = selectMappingsForSubmission(pipelineEntry.mappings, {
+          targetEntity,
+          pipelineId: pipelineEntry.id || null,
+          source: 'entity_pipeline',
+        });
+        const effectiveMappings = coalesceExplicitFallbackMappings(
+          mappingSelection.includedMappings,
+          form_values,
+          hiddenSubmissionFieldIds,
+        );
+        for (const mapping of effectiveMappings) {
+          if (!mapping.target_field) continue;
+          
+          // Get value from form or static value
+          let value;
+          let sourceFieldKeyPresent = false;
+          if (mapping.source_type === 'clear') {
+            value = '__clear__';
+            sourceFieldKeyPresent = true;
+          } else if (mapping.source_type === 'static') {
+            value = resolveStaticTodayToken(mapping.static_value);
+            sourceFieldKeyPresent = true;
+          } else if (mapping.transformation === 'current_date') {
+            value = new Date().toISOString().split('T')[0];
+            sourceFieldKeyPresent = true;
+          } else if (mapping.source_field_id) {
+            sourceFieldKeyPresent = Object.prototype.hasOwnProperty.call(form_values, mapping.source_field_id);
+            value = extractMappingSourceComponent(mapping, form_values[mapping.source_field_id]);
+            
+            if (mapping.source_category_id && value && typeof value === 'object' && !Array.isArray(value)) {
+              value = value[mapping.source_category_id] !== undefined ? value[mapping.source_category_id] : null;
+              console.log(`[AppProcessor] Extracted category ${mapping.source_category_id} from communication_preferences: ${value}`);
+            }
+          }
+          
+          // Handle __clear__ sentinel value
+          if (value === '__clear__') {
+            if (mapping.target_type === 'core') {
+              const dbKey = coreFieldMappingConfig[mapping.target_field] || mapping.target_field;
+              assignOrganizationCore(dataObj, dbKey, null);
+            } else if (mapping.target_type === 'custom') {
+              customFieldsMap.delete(mapping.target_field);
+              if (customFieldsToClear) customFieldsToClear.add(mapping.target_field);
+            }
+            continue;
+          }
+          
+          // Apply transformation
+          if (value !== undefined && value !== null && mapping.transformation && mapping.transformation !== 'none') {
+            value = applyTransformation(value, mapping.transformation);
+          }
+          
+          if (mapping.target_type === 'core') {
+            // Map to database field name using config
+            const dbKey = coreFieldMappingConfig[mapping.target_field] || mapping.target_field;
+            if (targetEntity === 'member' && dbKey === 'organization_group_id') {
+              const selection = resolveMemberOrganizationGroupSelection({
+                field: fieldsById.get(String(mapping.source_field_id)),
+                value,
+                sourceType: mapping.source_type === 'field' ? 'field' : mapping.source_type,
+                sourceFieldId: mapping.source_field_id,
+                hidden: mapping.source_field_id != null
+                  && hiddenSubmissionFieldIds.has(String(mapping.source_field_id)),
+              });
+              if (selection) dataObj.organization_group_id = selection.groupId;
+              continue;
+            }
+            // Guard: an organisation_dropdown stores the selected org's UUID
+            // as its value. Writing that into an organisation core column
+            // (e.g. name) would rename the org to its own id. Capture the
+            // selected id so the existing org-resolution chain picks up the
+            // right row, and skip the assignment.
+            if (targetEntity === 'organization' && isOrgDropdownSourceField(mapping.source_field_id)) {
+              const resolved = resolveOrgDropdownMapping(mapping.source_field_id, dbKey);
+              if (resolved?.organizationName) {
+                assignOrganizationCore(dataObj, 'name', resolved.organizationName, mapping.source_field_id);
+              } else if (resolved?.organizationId && !dropdownSelectedOrgId) {
+                dropdownSelectedOrgId = resolved.organizationId;
+              }
+              console.log('[AppProcessor] Resolved org core assignment from organisation_dropdown source (pipeline):', { target_field: mapping.target_field, source_field_id: mapping.source_field_id, captured_org_id: resolved?.organizationId || null, used_not_listed_name: !!resolved?.organizationName });
+              continue;
+            }
+            // Same guard for member_dropdown -> member core column writes.
+            if (targetEntity === 'member' && isMemberDropdownSourceField(mapping.source_field_id)) {
+              if (typeof value === 'string' && value && !dropdownSelectedMemberId) {
+                dropdownSelectedMemberId = value;
+              }
+              console.log('[AppProcessor] Skipped member core assignment from member_dropdown source (pipeline):', { target_field: mapping.target_field, source_field_id: mapping.source_field_id, captured_member_id: value });
+              continue;
+            }
+            // Use hasAssignableValue to allow boolean false/empty through for boolean fields
+            if (hasAssignableValue(dbKey, value)) {
+              // Coerce boolean fields for member entities; for org address-like
+              // text columns, normalise object/array values to a multi-line string.
+              assignOrganizationCore(dataObj, dbKey, coerceCoreFieldValue(targetEntity, dbKey, value));
+            }
+          } else if (mapping.target_type === 'custom') {
+            // Custom field. Distinguish "absent" (source key not in
+            // form_values) from "present and explicitly cleared" (source
+            // key present but empty). Absent → skip; cleared → queue
+            // delete-on-upsert. Includes prefField metadata in the log so
+            // future investigations don't need to re-read the source to
+            // figure out why a value was treated as scalar vs aggregated.
+            const customFieldId = mapping.target_field;
+            const prefField = prefFieldMap.get(customFieldId);
+            const isCleared = isExplicitlyClearedValue(value);
+            const hasValue = !isCleared && value !== undefined;
+            console.log(`[AppProcessor] Custom field mapping: target=${customFieldId}, source=${mapping.source_field_id}, source_key_present=${sourceFieldKeyPresent}, field_type=${prefField?.field_type || 'unknown'}, entity_scope=${prefField?.entity_scope || 'unknown'}, value=${JSON.stringify(value)?.substring(0, 200)}, hasValue=${hasValue}, isCleared=${isCleared}`);
+            if (!sourceFieldKeyPresent && value === undefined) {
+              console.log(`[AppProcessor] Skipped custom field (absent from submission): ${customFieldId}`);
+            } else if (isCleared) {
+              customFieldsMap.delete(customFieldId);
+              if (customFieldsToClear) customFieldsToClear.add(customFieldId);
+              console.log(`[AppProcessor] Queued custom field clear: ${customFieldId}`);
+            } else if (hasValue) {
+              if (customFieldsToClear) customFieldsToClear.delete(customFieldId);
+              addCustomFieldValue(customFieldsMap, customFieldId, value, prefField);
+              console.log(`[AppProcessor] Added custom field value: ${customFieldId} = ${JSON.stringify(value)?.substring(0, 200)}`);
+            }
+          } else if (mapping.target_type === 'communication' && targetEntity === 'member') {
+            // Already resolved centrally before entity writes so the public
+            // endpoint can snapshot the exact same mapping before member
+            // creation and recover it on an idempotent retry.
+            continue;
+          }
+        }
+        
+        return mappingSelection;
+      }
+      
+      // Fall back to legacy field_mappings object format ONLY if no mappings array
+      // This ensures we don't process both formats for the same entry
+      if (!pipelineEntry.mappings && pipelineEntry.field_mappings) {
+        console.log(`[AppProcessor] Processing ${targetEntity} from entity_pipelines (legacy format):`, pipelineEntry.label);
+        const legacyMappingSelection = {
+          includedMappings: [],
+          ignoredMappings: [],
+          targetEntity,
+          pipelineId: pipelineEntry.id || null,
+          source: 'entity_pipeline_legacy_object',
+        };
+        
+        for (const [configKey, dbKey] of Object.entries(coreFieldMappingConfig)) {
+          const fieldId = pipelineEntry.field_mappings[configKey];
+          if (!fieldId) continue;
+          legacyMappingSelection.includedMappings.push({
+            source_type: fieldId === '__clear__' ? 'clear' : 'field',
+            source_field_id: fieldId,
+            target_type: 'core',
+            target_entity: targetEntity,
+            target_field: dbKey,
+          });
+          
+          if (fieldId === '__clear__') {
+            assignOrganizationCore(dataObj, dbKey, null);
+          } else {
+            const val = form_values[fieldId];
+            if (targetEntity === 'member' && dbKey === 'organization_group_id') {
+              const selection = resolveMemberOrganizationGroupSelection({
+                field: fieldsById.get(String(fieldId)),
+                value: val,
+                sourceType: 'field',
+                sourceFieldId: fieldId,
+                hidden: hiddenSubmissionFieldIds.has(String(fieldId)),
+              });
+              if (selection) dataObj.organization_group_id = selection.groupId;
+              continue;
+            }
+            if (targetEntity === 'organization' && isOrgDropdownSourceField(fieldId)) {
+              const resolved = resolveOrgDropdownMapping(fieldId, dbKey);
+              if (resolved?.organizationName) {
+                assignOrganizationCore(dataObj, 'name', resolved.organizationName, fieldId);
+              } else if (resolved?.organizationId && !dropdownSelectedOrgId) {
+                dropdownSelectedOrgId = resolved.organizationId;
+              }
+              console.log('[AppProcessor] Resolved org core assignment from organisation_dropdown source (legacy pipeline):', { target_field: configKey, source_field_id: fieldId, captured_org_id: resolved?.organizationId || null, used_not_listed_name: !!resolved?.organizationName });
+              continue;
+            }
+            // Use hasAssignableValue to allow boolean false/empty through for boolean fields
+            if (hasAssignableValue(dbKey, val)) {
+              // Coerce boolean fields for member entities; coerce address-like
+              // values for org entities so object payloads land cleanly in text columns.
+              assignOrganizationCore(dataObj, dbKey, coerceCoreFieldValue(targetEntity, dbKey, val));
+            }
+          }
+        }
+        
+        // Process custom fields from legacy format
+        const pipelineCustomMappings = Object.entries(pipelineEntry.field_mappings)
+          .filter(([key]) => key.startsWith('custom_'));
+        
+        for (const [key, fieldId] of pipelineCustomMappings) {
+          if (!fieldId) continue;
+          const customFieldId = key.replace('custom_', '');
+          const prefField = prefFieldMap.get(customFieldId);
+          
+          if (fieldId === '__clear__') {
+            customFieldsMap.delete(customFieldId);
+            if (customFieldsToClear) customFieldsToClear.add(customFieldId);
+          } else {
+            const fieldKeyPresent = Object.prototype.hasOwnProperty.call(form_values, fieldId);
+            const val = form_values[fieldId];
+            if (!fieldKeyPresent) continue; // absent: skip
+            if (isExplicitlyClearedValue(val)) {
+              customFieldsMap.delete(customFieldId);
+              if (customFieldsToClear) customFieldsToClear.add(customFieldId);
+            } else {
+              if (customFieldsToClear) customFieldsToClear.delete(customFieldId);
+              addCustomFieldValue(customFieldsMap, customFieldId, val, prefField);
+            }
+          }
+        }
+        return legacyMappingSelection;
+      }
+      return null;
+    };
+
+    let primaryMemberRoleAssignment = { configured: false, roleId: undefined, source: 'fixed' };
+
+    // Process entity_pipelines primary entries if available (new unified system)
+    // This supplements/overrides the field_mappings data
+    if (memberPipelines.length > 0) {
+      // Support both isPrimary (camelCase) and is_primary (snake_case) for compatibility
+      const primaryMemberPipeline = memberPipelines.find(m => m.isPrimary || m.is_primary);
+      console.log('[AppProcessor] Member pipelines:', memberPipelines.length, 'Primary found:', !!primaryMemberPipeline);
+      const memberCoreFieldMappings = {
+        'email': 'email',
+        'first_name': 'first_name',
+        'last_name': 'last_name',
+        'phone': 'mobile',
+        'job_title': 'job_title',
+        'mobile': 'mobile',
+        'landline': 'landline',
+        'organization_id': 'organization_id',
+         'organization_group_id': 'organization_group_id',
+        'show_in_directory': 'show_in_directory'
+      };
+      
+      primaryMemberMappingSelection = processPipelineMappings(
+        primaryMemberPipeline,
+        'member',
+        memberData,
+        memberCustomFieldsMap,
+        memberCoreFieldMappings,
+        memberCustomFieldsToClear,
+      );
+      
+      primaryMemberRoleAssignment = resolveMemberRoleAssignment({
+        pipeline: primaryMemberPipeline,
+        // Role conditions are rules, not mappings. They must retain the raw
+        // persisted source so a row-hidden source can still reveal a target.
+        answers: authoritativeAnswers,
+      });
+      if (primaryMemberRoleAssignment.invalid) {
+        return res.status(400).json({
+          error: primaryMemberRoleAssignment.error,
+          code: primaryMemberRoleAssignment.code,
+        });
+      }
+      if (primaryMemberRoleAssignment.configured) {
+        // Answer-driven role assignment is create-only. Do not put it in
+        // memberData, because memberData is also used by the update branch.
+        console.log('[AppProcessor] Resolved primary answer-driven role:', {
+          role_id: primaryMemberRoleAssignment.roleId,
+          source: primaryMemberRoleAssignment.source,
+        });
+      } else {
+        // Fixed roles retain their established update/create behaviour.
+        // null/undefined/'__keep__' mean don't change; '__clear__' is explicit.
+        const pipelineRoleId = primaryMemberPipeline?.role_id;
+        if (pipelineRoleId && pipelineRoleId !== '__keep__') {
+          memberData.role_id = pipelineRoleId === '__clear__' ? null : pipelineRoleId;
+          console.log('[AppProcessor] Using pipeline role_id:', memberData.role_id);
+        } else {
+          console.log('[AppProcessor] Pipeline role_id is don\'t-change (keep/null) — preserving existing role on update');
+        }
+      }
+
+      // Login: only set when pipeline explicitly chose true/false. null/undefined
+      // mean "don't change" — leave memberData.login_enabled unset so update skips
+      // it; on insert, the create branch supplies its own default.
+      if (primaryMemberPipeline && typeof primaryMemberPipeline.login_enabled === 'boolean') {
+        memberData.login_enabled = primaryMemberPipeline.login_enabled;
+        console.log('[AppProcessor] Using pipeline login_enabled:', memberData.login_enabled);
+      } else {
+        console.log('[AppProcessor] Pipeline login_enabled is don\'t-change (null) — preserving existing login on update');
+      }
+      
+      // Re-convert custom fields after pipeline processing
+      memberCustomFields = convertMapToArray(memberCustomFieldsMap);
+    }
+    
+    // Process entity_pipelines primary organisation if available
+    let orgCustomFields = convertMapToArray(orgCustomFieldsMap);
+    if (orgPipelines.length > 0) {
+      // Support both isPrimary (camelCase) and is_primary (snake_case) for compatibility
+      const primaryOrgPipeline = resolvePrimaryOrganizationPipeline(orgPipelines);
+      console.log('[AppProcessor] Org pipelines:', orgPipelines.length, 'Primary found:', !!primaryOrgPipeline);
+      if (primaryOrgPipeline) {
+        console.log('[AppProcessor] Primary org pipeline mappings:', JSON.stringify(primaryOrgPipeline.mappings, null, 2));
+      }
+      // Maps the FormBuilder core-field key (UI-facing) to the actual organisation
+      // table column. Must include every key surfaced by the FormBuilder UI
+      // (ORG_CORE_FIELDS) — otherwise the legacy field_mappings object branch
+      // silently drops them, and the new pipeline mappings array path falls back
+      // to the raw target_field which can write to the wrong column or none at all.
+      const orgCoreFieldMappings = ORGANIZATION_CORE_FIELD_MAPPINGS;
+      
+      primaryOrgMappingSelection = processPipelineMappings(
+        primaryOrgPipeline,
+        'organization',
+        orgData,
+        orgCustomFieldsMap,
+        orgCoreFieldMappings,
+        orgCustomFieldsToClear,
+      );
+      
+      // Re-convert custom fields after pipeline processing
+      orgCustomFields = convertMapToArray(orgCustomFieldsMap);
+    }
+
+    console.log('[AppProcessor] Extracted data:', { memberData, orgData, memberCustomFields: memberCustomFields.length, orgCustomFields: orgCustomFields.length, orgCustomFieldsDetail: orgCustomFields });
+
+    let createdOrganizationId = null;
+    let newlyCreatedOrgData = null; // Track org data for workflow trigger after custom fields saved
+    let createdMemberId = null;
+    let newlyCreatedMemberData = null; // Track member data for workflow trigger after custom fields saved (task 3196)
+    let primaryMemberSkippedForHiddenIdentity = false;
+    const persistedCreatedMemberId = singlePersistedCreationId(persistedEntityCreations, 'member');
+    const persistedCreatedOrganizationId = singlePersistedCreationId(persistedEntityCreations, 'organization');
+
+    const rejectCrossTenant = (row, stage, extra = {}) => {
+      if (!isCrossTenantRow(effectiveEntityTenantId, row)) return false;
+      console.warn(`[AppProcessor] Cross-tenant ${stage} hit rejected:`, {
+        found_id: row.id,
+        found_tenant_id: row.tenant_id,
+        effective_tenant_id: effectiveEntityTenantId,
+        ...extra,
+      });
+      addProcessingNote({
+        level: 'warn',
+        stage,
+        message: 'Cross-tenant match rejected — treated as not found.',
+        found_id: row.id,
+        found_tenant_id: row.tenant_id,
+        effective_tenant_id: effectiveEntityTenantId,
+        ...extra,
+      });
+      return true;
+    };
+
+    // Process organization based on orgAction (none/create/update/upsert)
+    if (shouldProcessOrganization) {
+      // If an organisation_dropdown selection was captured but no explicit
+      // prefill_organization_id was supplied, use the dropdown's id as the
+      // synthetic prefill so the existing resolution chain targets the right
+      // org. When the request already carries an explicit prefill that
+      // disagrees, prefer the explicit one and leave a processing note.
+      // Verified same-submission creation provenance outranks respondent
+      // references when resuming after an insert/linkage crash.
+      let effectivePrefillOrgId = persistedCreatedOrganizationId || prefill_organization_id || null;
+      if (dropdownSelectedOrgId) {
+        if (!effectivePrefillOrgId) {
+          effectivePrefillOrgId = dropdownSelectedOrgId;
+          console.log('[AppProcessor] Using organisation_dropdown selection as effective prefill_organization_id:', dropdownSelectedOrgId);
+        } else if (effectivePrefillOrgId !== dropdownSelectedOrgId) {
+          addProcessingNote({
+            level: 'info',
+            stage: 'organization_resolve',
+            message: 'organisation_dropdown selection ignored: explicit prefill_organization_id takes precedence.',
+            dropdown_org_id: dropdownSelectedOrgId,
+            prefill_organization_id: effectivePrefillOrgId,
+          });
+          console.warn('[AppProcessor] Dropdown org id disagrees with explicit prefill_organization_id; using explicit:', { dropdown: dropdownSelectedOrgId, prefill: effectivePrefillOrgId });
+        }
+      }
+      console.log('[AppProcessor] Org processing enabled. Action:', orgAction, 'OrgData:', orgData, 'PrefillOrgId:', effectivePrefillOrgId);
+      
+      // Find existing organisation via the shared, unit-tested resolution
+      // chain (api/_lib/formOrgResolution.js). Every step passes found rows
+      // through rejectCrossTenant so a cross-tenant hit is treated as "not
+      // found" (and leaves a processing note) — see Task #3550.
+      const { existingOrg, orgResolutionMethod } = await resolveExistingOrganization(supabase, {
+        effectiveTenantId: effectiveEntityTenantId,
+        effectivePrefillOrgId,
+        prefillWasExplicit: !!prefill_organization_id,
+        usedDropdownSelection: !!dropdownSelectedOrgId && effectivePrefillOrgId === dropdownSelectedOrgId,
+        submissionId: submission_id,
+        memberIdForOrgLookup: prefill_member_id || dropdownSelectedMemberId || null,
+        memberEmail: memberData?.email || null,
+        orgName: orgData.name || null,
+        rejectCrossTenant,
+      });
+      
+      if (existingOrg) {
+        console.log('[AppProcessor] Resolved existing org via:', orgResolutionMethod, '->', existingOrg.id);
+      }
+      
+      if (existingOrg) {
+        const primaryOrgPipeline = resolvePrimaryOrganizationPipeline(orgPipelines);
+        // Organization exists
+        if (orgAction === 'create') {
+          // Create mode but org exists - skip creation, use existing ID
+          console.log('[AppProcessor] Organization exists, skipping create (create mode):', existingOrg.id);
+          createdOrganizationId = existingOrg.id;
+        } else if (orgAction === 'update' || orgAction === 'upsert') {
+          // Update existing organization - dynamically include all orgData fields that were explicitly set
+          const allowedOrgColumns = ['name', 'logo_url', 'invoicing_email', 'phone', 'website_url', 'invoicing_address', 'email', 'address'];
+          const orgUpdateData = {};
+          for (const [key, value] of Object.entries(orgData)) {
+            if (!allowedOrgColumns.includes(key)) continue;
+            if (value === null) {
+              orgUpdateData[key] = null;
+            } else if (value !== undefined && value !== '') {
+              // Defence in depth: even if an upstream code path missed it, coerce
+              // file-upload payloads to their URL string and address-like object
+              // values to a multi-line string before writing.
+              orgUpdateData[key] = coerceCoreFieldValue('organization', key, value);
+            }
+          }
+          
+          // Set tenant_id if org has none and we have a resolved tenant
+          if (effectiveEntityTenantId && !existingOrg.tenant_id) {
+            orgUpdateData.tenant_id = effectiveEntityTenantId;
+          }
+
+          // Compare mapped values with the authoritative row before deciding
+          // whether this is a mutation. Public dropdown-prefill submissions
+          // commonly send the organisation's existing values back unchanged;
+          // reference use must not require mutation authority or issue writes.
+          for (const [key, value] of Object.entries(orgUpdateData)) {
+            const authoritativeValue = existingOrg[key] ?? null;
+            const requestedValue = value ?? null;
+            if (authoritativeValue === requestedValue) {
+              delete orgUpdateData[key];
+            }
+          }
+
+          // Belt-and-braces (Task #3550): the resolution chain already rejects
+          // cross-tenant rows, but never rely on that alone — a resolved row
+          // from another tenant must NEVER be written to.
+          if (isCrossTenantRow(effectiveEntityTenantId, existingOrg)) {
+            addProcessingNote({
+              level: 'error',
+              stage: 'organization_update',
+              message: 'Cross-tenant organisation write blocked at write time.',
+              found_id: existingOrg.id,
+              found_tenant_id: existingOrg.tenant_id,
+              effective_tenant_id: effectiveEntityTenantId,
+            });
+            console.error('[AppProcessor] BLOCKED cross-tenant org write:', existingOrg.id);
+            await flushProcessingNotes();
+            return res.status(409).json({ error: 'Cross-tenant organisation write blocked', code: 'CROSS_TENANT_ORG_WRITE' });
+          }
+
+          if (Object.keys(orgUpdateData).length > 0) {
+            // Resolving a tenant-validated organisation from a persisted
+            // dropdown answer is reference use, not mutation. Require ownership
+            // only once this path is actually going to alter the existing row.
+            // A pipeline checkpoint identifies a target; it grants no right
+            // to modify it. This guard only exempts actual creation provenance.
+            await assertLegacyExistingRecordAuthorized('organization', existingOrg.id);
+            console.log('[AppProcessor] Org update data:', orgUpdateData);
+            // Write-time tenant guard (defence in depth): the UPDATE itself is
+            // hard-filtered to the effective tenant (or tenant_id IS NULL for
+            // legacy adoption), so even a bad resolution cannot mutate another
+            // tenant's row. Zero rows updated = the guard fired.
+            const guardedUpdate = applyOrgWriteTenantGuard(
+              supabase.from('organization').update(orgUpdateData).eq('id', existingOrg.id),
+              effectiveEntityTenantId,
+              existingOrg
+            );
+            const { data: updatedRows, error: orgUpdateError } = await guardedUpdate.select('id');
+
+            if (orgUpdateError) {
+              console.error('[AppProcessor] Failed to update organization:', orgUpdateError);
+              addProcessingNote({
+                level: 'error',
+                stage: 'organization_update',
+                message: `Organisation update failed: ${orgUpdateError.message}`,
+                organization_id: existingOrg.id,
+              });
+              await flushProcessingNotes();
+              return res.status(500).json({ error: `Failed to update organisation: ${orgUpdateError.message}` });
+            }
+            if (!updatedRows || updatedRows.length === 0) {
+              // Tenant guard filtered the row out — treat as a blocked
+              // cross-tenant write, never as success.
+              addProcessingNote({
+                level: 'error',
+                stage: 'organization_update',
+                message: 'Organisation update blocked by write-time tenant guard (row not in effective tenant).',
+                organization_id: existingOrg.id,
+                row_tenant_id: existingOrg.tenant_id || null,
+                effective_tenant_id: effectiveEntityTenantId,
+              });
+              console.error('[AppProcessor] Org update matched 0 rows under tenant guard:', existingOrg.id);
+              await flushProcessingNotes();
+              return res.status(409).json({ error: 'Cross-tenant organisation write blocked', code: 'CROSS_TENANT_ORG_WRITE' });
+            }
+            console.log('[AppProcessor] Updated organization:', existingOrg.id);
+          } else {
+            console.log('[AppProcessor] No org core fields to update (orgData was empty):', orgData);
+          }
+          createdOrganizationId = existingOrg.id;
+        }
+      } else {
+        // Organization does not exist via any of the resolution strategies above.
+        if (orgAction === 'update') {
+          // Update mode and we couldn't find an org to update — emit a high-signal
+          // diagnostic so this skip is observable in production logs and
+          // also append a structured note so the form_submission viewer
+          // surfaces the skip. Includes everything we tried for postmortem.
+          addProcessingNote({
+            level: 'warn',
+            stage: 'organization_resolve',
+            message: 'Organisation update skipped — no existing organisation could be resolved.',
+          });
+          console.warn('[AppProcessor] Organisation update SKIPPED — no existing org could be resolved.', {
+            submission_id: submission_id || null,
+            form_id: form_id || null,
+            tenant_id: tenant_id || null,
+            prefill_organization_id: prefill_organization_id || null,
+            effective_prefill_organization_id: effectivePrefillOrgId || null,
+            dropdown_selected_org_id: dropdownSelectedOrgId || null,
+            prefill_member_id: prefill_member_id || null,
+            member_email_for_lookup: memberData?.email || null,
+            org_data_name: orgData.name || null,
+            org_data_keys: Object.keys(orgData),
+          });
+          createdOrganizationId = effectivePrefillOrgId || null;
+        } else if (orgAction === 'create' || orgAction === 'upsert') {
+          organizationCreateAttempt: {
+          // Create new organization - require name
+          if (typeof orgData.name === 'string' && orgData.name.trim() === '') {
+            orgData.name = null;
+          }
+          if (!orgData.name) {
+            if (primaryIdentityLostOnlyToHiddenMapping(primaryOrgMappingSelection, 'organization')) {
+              console.log('[AppProcessor] Organisation pipeline intentionally skipped because its opted-in hidden name mapping was ignored.');
+              addProcessingNote({
+                kind: 'entity_pipeline_skipped_hidden_identity',
+                level: 'info',
+                stage: 'organization_create',
+                target_entity: 'organization',
+                pipeline_id: primaryOrgMappingSelection?.pipelineId || null,
+                message: 'Organisation create/upsert intentionally skipped because its only configured identity mapping was opted in and hidden for this submission.',
+              });
+              break organizationCreateAttempt;
+            }
+            const optionalOrganizationSelection = effectiveOrganizationMappingSelection({
+              primarySelection: primaryOrgMappingSelection,
+              topLevelSelection: topLevelMappingSelection,
+            });
+            if (optionalOrganizationPipelineHasNoInput(optionalOrganizationSelection)) {
+              completedPrimaryKinds.add('organization');
+              console.log('[AppProcessor] Organisation create/upsert intentionally skipped because all configured organization inputs were blank optional field mappings.');
+              addProcessingNote({
+                kind: 'entity_pipeline_skipped_optional_identity',
+                level: 'info',
+                stage: 'organization_create',
+                target_entity: 'organization',
+                pipeline_id: primaryOrgMappingSelection?.pipelineId || null,
+                reason: 'optional_source_unavailable',
+                message: 'Organisation create/upsert intentionally skipped because its optional mapped inputs were unanswered.',
+              });
+              break organizationCreateAttempt;
+            }
+            console.error('[AppProcessor] Organization creation requested but no organization.name field mapped');
+            addProcessingNote({
+              level: 'error',
+              stage: 'organization_create',
+              message: 'Organisation creation requested but no organisation name was mapped.',
+            });
+            await flushProcessingNotes();
+            return res.status(400).json({
+              error: 'Organisation name is required. Please map a form field to "Organisation Name" in the Submission Settings.',
+              code: 'MISSING_ORG_NAME'
+            });
+          }
+          
+          const orgInsertData = {
+            name: orgData.name,
+            logo_url: orgData.logo_url || null,
+            invoicing_email: orgData.invoicing_email || null,
+            invoicing_address: orgData.invoicing_address || null,
+            phone: orgData.phone || null,
+            website_url: orgData.website_url || null,
+            email: orgData.email || null,
+            address: orgData.address || null,
+            created_at: new Date().toISOString()
+          };
+          
+          // Stamp the resolved tenant so the new organisation is created in
+          // the form's tenant (body tenant_id when provided, else the tenant
+          // resolved from the form/submission).
+          if (effectiveEntityTenantId) {
+            orgInsertData.tenant_id = effectiveEntityTenantId;
+          }
+
+          console.log('[AppProcessor] Creating organization with data:', orgInsertData);
+          // Reserve immutable provenance before the entity insert. A crash can
+          // now leave only a harmless orphan reservation, never an unprovable
+          // created entity that a retry mistakes for a selected reference.
+          if (hasStripeAddressMappingWork) {
+            orgInsertData.id = randomUUID();
+            await persistEntityCreationProvenance('organization', orgInsertData.id);
+          }
+
+          const { data: newOrg, error: orgError } = await supabase
+            .from('organization')
+            .insert(orgInsertData)
+            .select()
+            .single();
+
+          if (orgError) {
+            if (hasStripeAddressMappingWork) {
+              await discardEntityCreationProvenance('organization', orgInsertData.id);
+            }
+            console.error('[AppProcessor] Failed to create organization:', orgError);
+            addProcessingNote({
+              level: 'error',
+              stage: 'organization_create',
+              message: `Organisation creation failed: ${orgError.message}`,
+            });
+            await flushProcessingNotes();
+            return res.status(500).json({ error: `Failed to create organisation: ${orgError.message}` });
+          }
+
+          createdOrganizationId = newOrg.id;
+          legacyCreatedRecordIds.organization.add(String(newOrg.id));
+          currentRunEntityCreations.organization.add(String(newOrg.id));
+          if (notListedOrganizationSource
+              && !hiddenSubmissionFieldIds.has(notListedOrganizationSource)) {
+            serverCreatedOrganizations.set(notListedOrganizationSource, newOrg.id);
+          }
+          newlyCreatedOrgData = newOrg; // Track for workflow trigger after custom fields are saved
+          console.log('[AppProcessor] Created organization:', createdOrganizationId);
+          }
+        }
+      }
+
+      // Save/update org custom fields if we have an org ID. Uses the
+      // checked upsertPreferenceValue helper so RLS denials, FK violations,
+      // type mismatches, and trigger failures surface in processing_notes
+      // instead of being swallowed (the long-standing bug fixed here).
+      if (createdOrganizationId && orgCustomFields.length > 0) {
+        let customFieldsToWrite = orgCustomFields;
+        const isNewOrganization = legacyCreatedRecordIds.organization.has(String(createdOrganizationId));
+        if (!isNewOrganization) {
+          const mappedFieldIds = orgCustomFields.map(cf => cf.field_id);
+          const { data: existingCustomRows, error: existingCustomError } = await supabase
+            .from('organization_preference_value')
+            .select('id, field_id, value')
+            .eq('organization_id', createdOrganizationId)
+            .in('field_id', mappedFieldIds)
+            .order('id', { ascending: true });
+          if (existingCustomError) {
+            addProcessingNote({
+              kind: 'custom_field_lookup_failed',
+              message: existingCustomError.message,
+              organization_id: createdOrganizationId,
+              entity_scope: 'organization',
+            });
+            await flushProcessingNotes();
+            return res.status(500).json({ error: `Failed to load organisation custom fields: ${existingCustomError.message}` });
+          }
+          const authoritativeByField = new Map();
+          for (const row of existingCustomRows || []) {
+            if (!authoritativeByField.has(row.field_id)) authoritativeByField.set(row.field_id, row.value);
+          }
+          customFieldsToWrite = orgCustomFields.filter(
+            cf => !authoritativeByField.has(cf.field_id) || authoritativeByField.get(cf.field_id) !== cf.value,
+          );
+          if (customFieldsToWrite.length > 0) {
+            await assertLegacyExistingRecordAuthorized('organization', createdOrganizationId);
+          }
+        }
+        for (const cf of customFieldsToWrite) {
+          await upsertPreferenceValue({
+            table: 'organization_preference_value',
+            parentColumn: 'organization_id',
+            parentId: createdOrganizationId,
+            fieldId: cf.field_id,
+            value: cf.value,
+            entityScope: 'organization',
+            prefField: prefFieldMap.get(cf.field_id),
+          });
+        }
+      }
+
+      // Apply explicit clears for org custom fields that the user emptied
+      // on this submission (only meaningful on update flows; harmless when
+      // the row doesn't exist).
+      if (createdOrganizationId && orgCustomFieldsToClear.size > 0) {
+        let customFieldsToActuallyClear = [...orgCustomFieldsToClear];
+        const isNewOrganization = legacyCreatedRecordIds.organization.has(String(createdOrganizationId));
+        if (!isNewOrganization) {
+          const { data: existingCustomRows, error: existingCustomError } = await supabase
+            .from('organization_preference_value')
+            .select('field_id')
+            .eq('organization_id', createdOrganizationId)
+            .in('field_id', customFieldsToActuallyClear);
+          if (existingCustomError) {
+            addProcessingNote({
+              kind: 'custom_field_lookup_failed',
+              message: existingCustomError.message,
+              organization_id: createdOrganizationId,
+              entity_scope: 'organization',
+            });
+            await flushProcessingNotes();
+            return res.status(500).json({ error: `Failed to load organisation custom fields: ${existingCustomError.message}` });
+          }
+          const existingFieldIds = new Set((existingCustomRows || []).map(row => row.field_id));
+          customFieldsToActuallyClear = customFieldsToActuallyClear.filter(fieldId => existingFieldIds.has(fieldId));
+          if (customFieldsToActuallyClear.length > 0) {
+            await assertLegacyExistingRecordAuthorized('organization', createdOrganizationId);
+          }
+        }
+        for (const fieldId of customFieldsToActuallyClear) {
+          await clearPreferenceValue({
+            table: 'organization_preference_value',
+            parentColumn: 'organization_id',
+            parentId: createdOrganizationId,
+            fieldId,
+            entityScope: 'organization',
+            prefField: prefFieldMap.get(fieldId),
+          });
+        }
+      }
+      await persistPipelineEntityCheckpoint(
+        'organization',
+        resolvePrimaryOrganizationPipeline(orgPipelines),
+        createdOrganizationId,
+      );
+      
+      // Trigger workflow evaluation for newly created organization (AFTER custom fields are saved)
+      // Must await to ensure completion before Vercel terminates the function
+      if (newlyCreatedOrgData) {
+        const baseUrl = process.env.APP_URL || `https://${req.headers.host}`;
+        console.log('[AppProcessor] Triggering workflows for organization:', newlyCreatedOrgData.id, 'tenant_id:', newlyCreatedOrgData.tenant_id);
+        try {
+          await triggerWorkflowsDependency('organization', newlyCreatedOrgData.id, null, newlyCreatedOrgData, 'record_create', baseUrl, { formSubmissionId: submission_id });
+          console.log('[AppProcessor] Workflow evaluation completed for organization:', newlyCreatedOrgData.id);
+        } catch (err) {
+          console.error('[AppProcessor] Workflow error for organization:', err);
+        }
+      }
+    }
+
+    // Process member based on memberAction (none/create/update/upsert)
+    if (shouldProcessMember) {
+      // If a member_dropdown selection was captured but no explicit
+      // prefill_member_id was supplied, use the dropdown's id as the
+      // synthetic prefill so the existing resolution chain targets the right
+      // member. When the request already carries an explicit prefill that
+      // disagrees, prefer the explicit one and leave a processing note.
+      let effectivePrefillMemberId = persistedCreatedMemberId || prefill_member_id || null;
+      if (dropdownSelectedMemberId) {
+        if (!effectivePrefillMemberId) {
+          effectivePrefillMemberId = dropdownSelectedMemberId;
+          console.log('[AppProcessor] Using member_dropdown selection as effective prefill_member_id:', dropdownSelectedMemberId);
+        } else if (effectivePrefillMemberId !== dropdownSelectedMemberId) {
+          addProcessingNote({
+            level: 'info',
+            stage: 'member_resolve',
+            message: 'member_dropdown selection ignored: explicit prefill_member_id takes precedence.',
+            dropdown_member_id: dropdownSelectedMemberId,
+            prefill_member_id: effectivePrefillMemberId,
+          });
+          console.warn('[AppProcessor] Dropdown member id disagrees with explicit prefill_member_id; using explicit:', { dropdown: dropdownSelectedMemberId, prefill: effectivePrefillMemberId });
+        }
+      }
+      console.log('[AppProcessor] Member processing enabled. Action:', memberAction, 'MemberData:', memberData, 'PrefillMemberId:', effectivePrefillMemberId);
+      
+      // Find existing member: by prefill_member_id first, then by email
+      let existingMember = null;
+      
+      if (effectivePrefillMemberId) {
+        const { data: foundMember } = await supabase
+          .from('member')
+          .select('*')
+          .eq('id', effectivePrefillMemberId)
+          .single();
+        if (foundMember && !rejectCrossTenant(foundMember, 'member_resolve', { method: 'prefill_member_id' })) {
+          existingMember = foundMember;
+        }
+        console.log('[AppProcessor] Found member by prefill ID:', existingMember?.id);
+      } else if (memberData.email) {
+        let emailQuery = supabase
+          .from('member')
+          .select('*')
+          .ilike('email', memberData.email);
+        if (effectiveEntityTenantId) {
+          emailQuery = emailQuery.eq('tenant_id', effectiveEntityTenantId);
+        }
+        const { data: foundMember } = await emailQuery.limit(1).single();
+        existingMember = foundMember;
+        console.log('[AppProcessor] Found member by email:', existingMember?.id, effectiveEntityTenantId ? `(tenant: ${effectiveEntityTenantId})` : '(no tenant filter)');
+      }
+      
+      if (existingMember) {
+        const primaryMemberPipeline = memberPipelines.find(item => item.isPrimary || item.is_primary);
+        if (String(persistedPipelineTargetId('member', primaryMemberPipeline) || '') !== String(existingMember.id)) {
+          await assertLegacyExistingRecordAuthorized('member', existingMember.id);
+        }
+        // Member exists
+        if (memberAction === 'create') {
+          // Create mode but member exists - skip creation, use existing ID
+          console.log('[AppProcessor] Member exists, skipping create (create mode):', existingMember.id);
+          if (memberData.organization_group_id) {
+            try {
+              await validateMemberOrganizationGroupWrite({
+                db: supabase,
+                tenantId: effectiveEntityTenantId,
+                groupId: memberData.organization_group_id,
+                existingMember,
+              });
+            } catch (error) {
+              if (error instanceof MemberOrganizationGroupValidationError
+                || error?.code === 'INVALID_MEMBER_ORGANIZATION_GROUP') {
+                return res.status(error.status || 400).json({
+                  error: error.message,
+                  code: error.code,
+                  details: error.details,
+                });
+              }
+              throw error;
+            }
+          }
+          createdMemberId = existingMember.id;
+        } else if (memberAction === 'update' || memberAction === 'upsert') {
+          // Update existing member
+          // Note: member table doesn't have phone column
+          const memberUpdateData = {};
+          if (memberData.email) memberUpdateData.email = memberData.email;
+          if (memberData.first_name) memberUpdateData.first_name = memberData.first_name;
+          if (memberData.last_name) memberUpdateData.last_name = memberData.last_name;
+          if (memberData.job_title) memberUpdateData.job_title = memberData.job_title;
+          if (memberData.mobile) memberUpdateData.mobile = memberData.mobile;
+          if (memberData.landline) memberUpdateData.landline = memberData.landline;
+          
+          // Determine effective role_id from multiple sources
+          const effectiveRoleIdForUpdate = primaryMemberRoleAssignment.configured
+            ? undefined
+            : (memberData.role_id !== undefined ? memberData.role_id : role_id);
+          console.log('[AppProcessor] Role ID resolution (update):', { 
+            memberData_role_id: memberData.role_id, 
+            role_id_param: role_id, 
+            effectiveRoleIdForUpdate 
+          });
+
+          // Cross-tenant guard: if a real role_id is about to be written to an
+          // existing member, verify it belongs to that member's tenant. Hard
+          // fail on mismatch — never silently corrupt member.role_id.
+          if (effectiveRoleIdForUpdate) {
+            const memberTenantForCheck = existingMember.tenant_id || effectiveEntityTenantId || null;
+            const tenantCheck = await validateRoleTenant(supabase, effectiveRoleIdForUpdate, memberTenantForCheck);
+            if (!tenantCheck.ok) {
+              return res.status(500).json({
+                error: tenantCheck.message,
+                code: 'ROLE_TENANT_MISMATCH'
+              });
+            }
+          }
+
+          // Check capacity when:
+          // 1. Role is being changed (different role_id)
+          // 2. Organization is being changed AND member has/will have a role with max_members
+          const targetOrgId = createdOrganizationId || memberData.organization_id || prefill_organization_id || existingMember.organization_id;
+          const roleToCheckCapacity = effectiveRoleIdForUpdate !== undefined ? effectiveRoleIdForUpdate : existingMember.role_id;
+          
+          const roleIsChanging = effectiveRoleIdForUpdate !== undefined && 
+            effectiveRoleIdForUpdate !== null && 
+            effectiveRoleIdForUpdate !== existingMember.role_id;
+          const orgIsChanging = targetOrgId && existingMember.organization_id && 
+            targetOrgId !== existingMember.organization_id;
+          
+          // Check capacity if role or org is changing (and member has/will have a role)
+          if (roleToCheckCapacity && roleToCheckCapacity !== null && (roleIsChanging || orgIsChanging)) {
+            console.log('[AppProcessor] Checking capacity for primary member update:', { 
+              roleIsChanging,
+              orgIsChanging,
+              from: { role: existingMember.role_id, org: existingMember.organization_id },
+              to: { role: roleToCheckCapacity, org: targetOrgId }
+            });
+            const capacityCheck = await checkRoleCapacity(supabase, roleToCheckCapacity, targetOrgId);
+            console.log('[AppProcessor] Role capacity check result (update):', JSON.stringify(capacityCheck));
+            if (!capacityCheck.hasCapacity) {
+              if (capacityCheck.missingOrgContext) {
+                return res.status(400).json({ 
+                  error: `Cannot assign this role without an organization.`,
+                  code: 'ROLE_CAPACITY_MISSING_ORG'
+                });
+              }
+              return res.status(400).json({ 
+                error: `This role has reached its maximum capacity of ${capacityCheck.maxMembers} members for this organization. Please contact an administrator.`,
+                code: 'ROLE_CAPACITY_EXCEEDED'
+              });
+            }
+          }
+          
+          if (effectiveRoleIdForUpdate !== undefined) {
+            memberUpdateData.role_id = effectiveRoleIdForUpdate;
+          }
+          
+          // Add login_enabled from pipeline config if specified
+          if (memberData.login_enabled !== undefined) {
+            memberUpdateData.login_enabled = memberData.login_enabled;
+            console.log('[AppProcessor] Adding pipeline login_enabled to member update:', memberData.login_enabled);
+          }
+          
+          // Add show_in_directory from pipeline config if specified
+          if (memberData.show_in_directory !== undefined) {
+            memberUpdateData.show_in_directory = memberData.show_in_directory;
+            console.log('[AppProcessor] Adding pipeline show_in_directory to member update:', memberData.show_in_directory);
+          }
+          
+          // Handle full_name parsing if provided (parse into first_name/last_name since member table doesn't have full_name column)
+          if (memberData.full_name && !memberData.first_name && !memberData.last_name) {
+            const nameParts = memberData.full_name.trim().split(/\s+/);
+            memberUpdateData.first_name = nameParts[0] || '';
+            memberUpdateData.last_name = nameParts.slice(1).join(' ') || '';
+          }
+          
+          // Use createdOrganizationId if org was created/updated, otherwise use prefill_organization_id
+          const orgIdToLink = createdOrganizationId || prefill_organization_id;
+          if (orgIdToLink) memberUpdateData.organization_id = orgIdToLink;
+
+           if (memberData.organization_group_id) {
+             try {
+               const groupWrite = await validateMemberOrganizationGroupWrite({
+                 db: supabase,
+                 tenantId: effectiveEntityTenantId,
+                 groupId: memberData.organization_group_id,
+                 organizationId: targetOrgId,
+                 existingMember,
+               });
+               if (groupWrite.shouldWrite) {
+                 memberUpdateData.organization_group_id = groupWrite.groupId;
+               }
+             } catch (error) {
+               if (error instanceof MemberOrganizationGroupValidationError
+                 || error?.code === 'INVALID_MEMBER_ORGANIZATION_GROUP') {
+                 return res.status(error.status || 400).json({
+                   error: error.message,
+                   code: error.code,
+                   details: error.details,
+                 });
+               }
+               throw error;
+             }
+           }
+          
+          // Belt-and-braces (Task #3555): the resolution chain already rejects
+          // cross-tenant rows, but never rely on that alone — a resolved row
+          // from another tenant must NEVER be written to.
+          if (isCrossTenantRow(effectiveEntityTenantId, existingMember)) {
+            addProcessingNote({
+              level: 'error',
+              stage: 'member_update',
+              message: 'Cross-tenant member write blocked at write time.',
+              found_id: existingMember.id,
+              found_tenant_id: existingMember.tenant_id,
+              effective_tenant_id: effectiveEntityTenantId,
+            });
+            console.error('[AppProcessor] BLOCKED cross-tenant member write:', existingMember.id);
+            await flushProcessingNotes();
+            return res.status(409).json({ error: 'Cross-tenant member write blocked', code: 'CROSS_TENANT_MEMBER_WRITE' });
+          }
+
+          if (Object.keys(memberUpdateData).length > 0) {
+            // Write-time tenant guard (defence in depth, Task #3555): the
+            // UPDATE itself is hard-filtered to the effective tenant (or
+            // tenant_id IS NULL for legacy adoption — the helper stamps
+            // tenant_id onto the payload so the row is adopted into the
+            // tenant), so even a bad resolution cannot mutate another
+            // tenant's member row. Zero rows updated = the guard fired.
+            const { error: memberUpdateError, blocked: memberUpdateBlocked } = await runGuardedTenantUpdate(supabase, {
+              table: 'member',
+              id: existingMember.id,
+              payload: memberUpdateData,
+              effectiveTenantId: effectiveEntityTenantId,
+              existingRow: existingMember,
+            });
+            
+            if (memberUpdateError) {
+              console.error('[AppProcessor] Failed to update member:', memberUpdateError);
+              return res.status(500).json({ error: `Failed to update member: ${memberUpdateError.message}` });
+            }
+            if (memberUpdateBlocked) {
+              // Tenant guard filtered the row out — treat as a blocked
+              // cross-tenant write, never as success.
+              addProcessingNote({
+                level: 'error',
+                stage: 'member_update',
+                message: 'Member update blocked by write-time tenant guard (row not in effective tenant).',
+                member_id: existingMember.id,
+                row_tenant_id: existingMember.tenant_id || null,
+                effective_tenant_id: effectiveEntityTenantId,
+              });
+              console.error('[AppProcessor] Member update matched 0 rows under tenant guard:', existingMember.id);
+              await flushProcessingNotes();
+              return res.status(409).json({ error: 'Cross-tenant member write blocked', code: 'CROSS_TENANT_MEMBER_WRITE' });
+            }
+            console.log('[AppProcessor] Updated member:', existingMember.id);
+          }
+          createdMemberId = existingMember.id;
+        }
+      } else {
+        // Member does not exist
+        if (memberAction === 'update') {
+          // Update mode but member doesn't exist - skip
+          console.log('[AppProcessor] Member not found, skipping update (update mode)');
+        } else if (memberAction === 'create' || memberAction === 'upsert') {
+          memberCreateAttempt: {
+          // Create new member - require email
+          if (!memberData.email) {
+            if (primaryIdentityLostOnlyToHiddenMapping(primaryMemberMappingSelection, 'member')) {
+              primaryMemberSkippedForHiddenIdentity = true;
+              console.log('[AppProcessor] Member pipeline intentionally skipped because its opted-in hidden email mapping was ignored.');
+              addProcessingNote({
+                kind: 'entity_pipeline_skipped_hidden_identity',
+                level: 'info',
+                stage: 'member_create',
+                target_entity: 'member',
+                pipeline_id: primaryMemberMappingSelection?.pipelineId || null,
+                message: 'Member create/upsert intentionally skipped because its only configured identity mapping was opted in and hidden for this submission.',
+              });
+              break memberCreateAttempt;
+            }
+            console.error('[AppProcessor] Member creation requested but no member.email field mapped');
+            return res.status(400).json({ 
+              error: 'Member email is required. Please map a form field to "Email" (target: member.email) in the Submission Settings.',
+              code: 'MISSING_MEMBER_EMAIL'
+            });
+          }
+          
+          if (memberData.full_name && !memberData.first_name && !memberData.last_name) {
+            const nameParts = memberData.full_name.trim().split(/\s+/);
+            memberData.first_name = nameParts[0] || '';
+            memberData.last_name = nameParts.slice(1).join(' ') || '';
+          }
+          
+          // Use createdOrganizationId if org was created/updated, 
+          // then memberData.organization_id (from form dropdown), then prefill_organization_id
+          const orgIdForNewMember = createdOrganizationId || memberData.organization_id || prefill_organization_id || null;
+          console.log('[AppProcessor] Resolved orgIdForNewMember:', orgIdForNewMember);
+
+          // Note: member table doesn't have phone or status columns
+          const memberInsertData = {
+            email: memberData.email,
+            first_name: memberData.first_name || '',
+            last_name: memberData.last_name || '',
+            organization_id: orgIdForNewMember,
+            login_enabled: memberData.login_enabled !== undefined ? memberData.login_enabled : false,
+            show_in_directory: memberData.show_in_directory !== undefined ? memberData.show_in_directory : true
+          };
+
+           if (memberData.organization_group_id) {
+             try {
+               const groupWrite = await validateMemberOrganizationGroupWrite({
+                 db: supabase,
+                 tenantId: effectiveEntityTenantId,
+                 groupId: memberData.organization_group_id,
+                 organizationId: orgIdForNewMember,
+               });
+               if (groupWrite.shouldWrite) {
+                 memberInsertData.organization_group_id = groupWrite.groupId;
+               }
+             } catch (error) {
+               if (error instanceof MemberOrganizationGroupValidationError
+                 || error?.code === 'INVALID_MEMBER_ORGANIZATION_GROUP') {
+                 return res.status(error.status || 400).json({
+                   error: error.message,
+                   code: error.code,
+                   details: error.details,
+                 });
+               }
+               throw error;
+             }
+           }
+          
+          // Stamp the resolved (form-authoritative) tenant on the new member
+          if (effectiveEntityTenantId) {
+            memberInsertData.tenant_id = effectiveEntityTenantId;
+          }
+          
+          // Add job_title only if provided (it's a valid column)
+          if (memberData.job_title) memberInsertData.job_title = memberData.job_title;
+          // Add mobile and landline if provided
+          if (memberData.mobile) memberInsertData.mobile = memberData.mobile;
+          if (memberData.landline) memberInsertData.landline = memberData.landline;
+
+          // Domain bypass guest flag: when the member's email domain doesn't
+          // match the org's verified domains AND the org has Guest Access on,
+          // stamp is_guest + guest_expires_at so the team card surfaces this
+          // member under Guest Access. When the email field opted into
+          // `validate_org_domain` and guest fallback isn't available (tenant
+          // master switch off, or org has guest access off), reject the
+          // submission instead of silently creating a non-guest member.
+          const domainCtx = await resolveDomainGuestContext(
+            supabase,
+            orgIdForNewMember,
+            memberData.email
+          );
+          if (domainCtx?.guestStamp) {
+            memberInsertData.is_guest = domainCtx.guestStamp.is_guest;
+            memberInsertData.guest_expires_at = domainCtx.guestStamp.guest_expires_at;
+            console.log('[AppProcessor] Domain mismatch with guest access enabled — stamping member as guest:', {
+              organization_id: orgIdForNewMember,
+              guest_expires_at: domainCtx.guestStamp.guest_expires_at,
+            });
+          } else if (
+            domainCtx &&
+            !domainCtx.domainMatches &&
+            domainCtx.verifiedDomains.length > 0 &&
+            formHasMemberEmailDomainRestriction(fields, field_mappings, memberPipelines)
+          ) {
+            const domainList = domainCtx.verifiedDomains.join(', ');
+            const message = `Email domain must be one of: ${domainList}`;
+            console.warn('[AppProcessor] Rejecting new member: email domain not in verified list and guest fallback unavailable:', {
+              organization_id: orgIdForNewMember,
+              email_domain: domainCtx.emailDomain,
+              verified_domains: domainCtx.verifiedDomains,
+            });
+            return res.status(400).json({
+              error: message,
+              code: 'EMAIL_DOMAIN_NOT_ALLOWED',
+            });
+          }
+          
+          // Resolve role_id with explicit precedence. The pipeline writes
+          // memberData.role_id only for real UUIDs or explicit __clear__
+          // (null); __keep__ leaves it undefined. The request-level role_id
+          // is form-conditional logic — callers pass `null` when none, so a
+          // truthy check correctly treats null as "no conditional role".
+          // On create only, fall back to the tenant's default role; explicit
+          // pipeline-clear (null) is preserved.
+          let effectiveRoleId;
+          let roleSource;
+          if (primaryMemberRoleAssignment.configured
+              && primaryMemberRoleAssignment.roleId !== undefined) {
+            effectiveRoleId = primaryMemberRoleAssignment.roleId;
+            roleSource = primaryMemberRoleAssignment.source;
+            console.log('[AppProcessor] Applied answer-driven role to new member:', effectiveRoleId);
+          } else if (memberData.role_id !== undefined) {
+            effectiveRoleId = memberData.role_id;
+            if (effectiveRoleId === null) {
+              roleSource = 'pipeline-clear';
+              console.log('[AppProcessor] Pipeline explicitly cleared role on new member (role_id will be NULL)');
+            } else {
+              roleSource = 'pipeline-configured';
+              console.log('[AppProcessor] Applied pipeline-configured role to new member:', effectiveRoleId);
+            }
+          } else if (role_id) {
+            effectiveRoleId = role_id;
+            roleSource = 'form-conditional';
+            console.log('[AppProcessor] Applied form-conditional role to new member:', effectiveRoleId);
+          } else {
+            const tenantForDefault = memberInsertData.tenant_id || effectiveEntityTenantId || null;
+            const { role: tenantDefaultRole, error: defaultLookupError } = await resolveTenantDefaultRole(supabase, tenantForDefault);
+            if (defaultLookupError) {
+              effectiveRoleId = undefined;
+              roleSource = 'lookup-error';
+              console.error('[AppProcessor] Tenant default role lookup failed; new member created without role:', { tenant_id: tenantForDefault, error: defaultLookupError });
+            } else if (tenantDefaultRole) {
+              effectiveRoleId = tenantDefaultRole.id;
+              roleSource = 'tenant-default';
+              console.log('[AppProcessor] Applied tenant default role to new member:', { role_id: tenantDefaultRole.id, role_name: tenantDefaultRole.name, tenant_id: tenantForDefault });
+            } else {
+              effectiveRoleId = undefined;
+              roleSource = 'none';
+              console.warn('[AppProcessor] No default role configured for tenant; new member created without role. Set one in /RoleManagement.', { tenant_id: tenantForDefault });
+            }
+          }
+          console.log('[AppProcessor] Role ID resolution:', {
+            memberData_role_id: memberData.role_id,
+            role_id_param: role_id,
+            effectiveRoleId,
+            roleSource,
+          });
+
+          // Add role_id if we have one from any source
+          if (effectiveRoleId !== undefined) {
+            // Cross-tenant guard: a non-null role_id about to be written onto
+            // a brand-new member must belong to that member's tenant. Hard
+            // fail on mismatch — see validateRoleTenant rationale.
+            if (effectiveRoleId) {
+              const tenantCheck = await validateRoleTenant(supabase, effectiveRoleId, memberInsertData.tenant_id || effectiveEntityTenantId || null);
+              if (!tenantCheck.ok) {
+                return res.status(500).json({
+                  error: tenantCheck.message,
+                  code: 'ROLE_TENANT_MISMATCH'
+                });
+              }
+            }
+
+            memberInsertData.role_id = effectiveRoleId;
+            console.log('[AppProcessor] Adding role_id to member insert:', effectiveRoleId, `(source: ${roleSource})`);
+
+            // Check role capacity before inserting member (per-organization)
+            if (effectiveRoleId !== null) {
+              const capacityCheck = await checkRoleCapacity(supabase, effectiveRoleId, orgIdForNewMember);
+              console.log('[AppProcessor] Role capacity check result:', JSON.stringify(capacityCheck));
+              if (!capacityCheck.hasCapacity) {
+                if (capacityCheck.missingOrgContext) {
+                  console.error('[AppProcessor] Cannot check capacity: organization context required');
+                  return res.status(400).json({ 
+                    error: `Cannot assign this role without an organization.`,
+                    code: 'ROLE_CAPACITY_MISSING_ORG'
+                  });
+                }
+                console.error('[AppProcessor] Role at max capacity:', capacityCheck.currentCount, '/', capacityCheck.maxMembers);
+                return res.status(400).json({ 
+                  error: `This role has reached its maximum capacity of ${capacityCheck.maxMembers} members for this organization. Please contact an administrator.`,
+                  code: 'ROLE_CAPACITY_EXCEEDED'
+                });
+              }
+            }
+          } else {
+            console.log('[AppProcessor] No role_id from any source');
+          }
+          
+          console.log('[AppProcessor] login_enabled for member insert:', memberInsertData.login_enabled);
+
+          console.log('[AppProcessor] Final memberInsertData:', JSON.stringify(memberInsertData));
+          if (hasStripeAddressMappingWork) {
+            memberInsertData.id = randomUUID();
+            await persistEntityCreationProvenance('member', memberInsertData.id);
+          }
+
+          const { data: newMember, error: memberError } = await supabase
+            .from('member')
+            .insert(memberInsertData)
+            .select()
+            .single();
+
+          if (memberError) {
+            if (hasStripeAddressMappingWork) {
+              await discardEntityCreationProvenance('member', memberInsertData.id);
+            }
+            console.error('[AppProcessor] Failed to create member:', memberError);
+            return res.status(500).json({ error: `Failed to create member: ${memberError.message}` });
+          }
+
+          createdMemberId = newMember.id;
+          legacyCreatedRecordIds.member.add(String(newMember.id));
+          currentRunEntityCreations.member.add(String(newMember.id));
+          console.log('[AppProcessor] Created member:', createdMemberId);
+
+          // Task 3196: record_create workflows are triggered AFTER the
+          // member's custom-field preference values are persisted (below),
+          // so workflows whose conditions reference custom fields see the
+          // values captured in this same form submission. Triggering here
+          // raced the member_preference_value writes and silently skipped
+          // those workflows.
+          newlyCreatedMemberData = newMember;
+
+          // Guest signup approval alerts: when this member was stamped as a
+          // guest (domain mismatch + guest access enabled), email the tenant
+          // roles configured on the Guest Access card with one-click
+          // Approve/Deny links. Non-fatal — never blocks member creation.
+          if (domainCtx?.guestStamp) {
+            try {
+              await notifyGuestSignupDependency({
+                client: supabase,
+                tenantId: newMember.tenant_id || effectiveEntityTenantId || null,
+                member: newMember,
+                organizationId: orgIdForNewMember,
+                organizationName: domainCtx?.organizationName || null,
+                guestExpiresAt: domainCtx.guestStamp.guest_expires_at,
+              });
+            } catch (notifyErr) {
+              console.error('[AppProcessor] Guest signup notification error:', notifyErr);
+            }
+          }
+
+          }
+        }
+      }
+
+      if (primaryMemberSkippedForHiddenIdentity) {
+        memberCustomFields = [];
+        memberCustomFieldsToClear.clear();
+      }
+
+      // Save/update member custom fields. Uses upsertPreferenceValue so
+      // any failure (RLS denial, FK violation, type mismatch, trigger
+      // error) lands in processing_notes instead of being silently
+      // dropped — the long-standing bug fixed by task 653.
+      for (const cf of memberCustomFields) {
+        await upsertPreferenceValue({
+          table: 'member_preference_value',
+          parentColumn: 'member_id',
+          parentId: createdMemberId,
+          fieldId: cf.field_id,
+          value: cf.value,
+          entityScope: 'member',
+          prefField: prefFieldMap.get(cf.field_id),
+        });
+      }
+
+      // Apply explicit clears for member custom fields the user emptied
+      // on this submission.
+      if (memberCustomFieldsToClear.size > 0) {
+        for (const fieldId of memberCustomFieldsToClear) {
+          await clearPreferenceValue({
+            table: 'member_preference_value',
+            parentColumn: 'member_id',
+            parentId: createdMemberId,
+            fieldId,
+            entityScope: 'member',
+            prefField: prefFieldMap.get(fieldId),
+          });
+        }
+      }
+      await persistPipelineEntityCheckpoint(
+        'member',
+        memberPipelines.find(item => item.isPrimary || item.is_primary),
+        createdMemberId,
+      );
+      // Task 3196: trigger record_create workflows for the newly created
+      // member AFTER its custom-field values are saved, so member_custom
+      // conditions evaluate against this submission's values.
+      // Must await to ensure completion before Vercel terminates the function.
+      if (newlyCreatedMemberData) {
+        const baseUrl = process.env.APP_URL || `https://${req.headers.host}`;
+        try {
+          await triggerWorkflowsDependency('member', newlyCreatedMemberData.id, null, newlyCreatedMemberData, 'record_create', baseUrl, { formSubmissionId: submission_id });
+          console.log('[AppProcessor] Workflow evaluation completed for member:', newlyCreatedMemberData.id);
+        } catch (err) {
+          console.error('[AppProcessor] Workflow error:', err);
+        }
+      }
+
+      // Handle category_multiselect field values - save to member_resource_category table
+      // Uses diff-based approach: only add/remove what changed
+      const primaryMemberPipeline = memberPipelines.find(m => m.isPrimary || m.is_primary);
+      const configuredPrimaryCategoryMappings = (primaryMemberPipeline?.mappings || [])
+        .filter(isMemberResourceCategoryMapping);
+      const primaryPipelineCategoryIds = new Set(
+        configuredPrimaryCategoryMappings.map(mapping => mapping.target_field)
+      );
+      const primaryPipelineCategoryMappings = (
+        primaryMemberMappingSelection?.includedMappings
+        || primaryMemberPipeline?.mappings
+        || []
+      ).filter(isMemberResourceCategoryMapping);
+      // Some saved forms still execute the top-level field_mappings contract
+      // directly rather than its builder-migrated entity pipeline. Normalize
+      // those explicit member category mappings into the same persistence
+      // path. A pipeline mapping for the same destination wins.
+      const configuredTopLevelCategoryMappings = (field_mappings || [])
+        .filter(isMemberResourceCategoryMapping);
+      const topLevelCategoryMappings = (
+        topLevelMappingSelection?.includedMappings
+        || field_mappings
+        || []
+      )
+        .filter(isMemberResourceCategoryMapping)
+        .filter(mapping => !primaryPipelineCategoryIds.has(mapping.target_field));
+      const effectivePrimaryCategoryPipeline = {
+        mappings: [...primaryPipelineCategoryMappings, ...topLevelCategoryMappings],
+      };
+      const explicitlyMappedCategoryFieldIds = new Set(
+        [...configuredPrimaryCategoryMappings, ...configuredTopLevelCategoryMappings]
+          .map(mapping => mapping.source_field_id)
+      );
+      const explicitlyMappedCategoryIds = new Set(
+        [...configuredPrimaryCategoryMappings, ...configuredTopLevelCategoryMappings]
+          .map(mapping => mapping.target_field)
+      );
+      await persistMappedMemberResourceCategories(createdMemberId, effectivePrimaryCategoryPipeline);
+
+      // Backwards compatibility: old forms had no explicit mapping and treated
+      // category multi-select fields as member categories.  Keep that behaviour
+      // for unmapped fields, but never query categories outside the resolved
+      // tenant and never process a field already covered by the explicit path.
+      const categoryFields = fields.filter(f => (
+        (f.type === 'category_multiselect' || f.type === 'resource_categories')
+        && !explicitlyMappedCategoryFieldIds.has(f.id)
+      ));
+      if (createdMemberId && effectiveEntityTenantId && categoryFields.length > 0) {
+        // Get all resource categories to map subcategory names to category IDs
+        const { data: resourceCategories } = await supabase
+          .from('resource_category')
+          .select('id, name, subcategories')
+          .eq('tenant_id', effectiveEntityTenantId)
+          .eq('is_active', true);
+        
+        // Parse subcategories that might be stored as JSON strings and normalize
+        const categoryMap = new Map((resourceCategories || []).map(c => {
+          let subcats = c.subcategories || [];
+          // Handle case where subcategories is stored as JSON string
+          if (typeof subcats === 'string') {
+            try {
+              subcats = JSON.parse(subcats);
+            } catch {
+              subcats = [];
+            }
+          }
+          // Ensure it's an array and trim all values
+          if (!Array.isArray(subcats)) subcats = [];
+          subcats = subcats.map(s => String(s).trim()).filter(Boolean);
+          return [c.id, subcats];
+        }));
+        
+        // Build set of category IDs affected by the form fields
+        const formCategoryIds = new Set();
+        for (const field of categoryFields) {
+          const allowedCatIds = field.allowed_category_ids?.length > 0 
+            ? field.allowed_category_ids 
+            : Array.from(categoryMap.keys());
+          allowedCatIds
+            .filter(id => !explicitlyMappedCategoryIds.has(id))
+            .forEach(id => formCategoryIds.add(id));
+        }
+        
+        // Build list of category selections from all category_multiselect fields
+        const categorySelections = [];
+        
+        for (const field of categoryFields) {
+          const selectedValues = form_values[field.id];
+          if (!Array.isArray(selectedValues) || selectedValues.length === 0) continue;
+          
+          // Get allowed categories for this field (or all if not specified)
+          const allowedCategoryIds = field.allowed_category_ids?.length > 0 
+            ? field.allowed_category_ids 
+            : Array.from(categoryMap.keys());
+          
+          // Map selected subcategory names to their parent category IDs
+          for (const subcatName of selectedValues) {
+            if (subcatName === FORM_NOT_LISTED_VALUE) continue;
+            const normalizedSubcat = String(subcatName).trim();
+            // Find which category this subcategory belongs to
+            for (const catId of allowedCategoryIds.filter(id => !explicitlyMappedCategoryIds.has(id))) {
+              const subcats = categoryMap.get(catId);
+              if (subcats && subcats.includes(normalizedSubcat)) {
+                categorySelections.push({
+                  category_id: catId,
+                  subcategory_name: normalizedSubcat
+                });
+                break;
+              }
+            }
+          }
+        }
+        
+        // Get current selections for diff-based update (always do this, even for empty submissions)
+        const { data: currentSelections } = await supabase
+          .from('member_resource_category')
+          .select('id, resource_category_id, subcategory_name')
+          .eq('member_id', createdMemberId);
+        
+        const existing = currentSelections || [];
+        const currentKeys = new Set(
+          existing.map(s => `${s.resource_category_id}|${s.subcategory_name || ''}`)
+        );
+        const newKeys = new Set(
+          categorySelections.map(s => `${s.category_id}|${s.subcategory_name || ''}`)
+        );
+        
+        // Find selections to add
+        const toAdd = categorySelections.filter(s => 
+          !currentKeys.has(`${s.category_id}|${s.subcategory_name || ''}`)
+        );
+        
+        // Find selections to remove (only remove if in the same categories as the form fields)
+        const toRemove = existing.filter(s => 
+          formCategoryIds.has(s.resource_category_id) && 
+          !newKeys.has(`${s.resource_category_id}|${s.subcategory_name || ''}`)
+        );
+        
+        // Remove old selections (including when form submits empty to clear selections)
+        if (toRemove.length > 0) {
+          const removeIds = toRemove.map(s => s.id);
+          await supabase
+            .from('member_resource_category')
+            .delete()
+            .in('id', removeIds);
+          console.log(`[AppProcessor] Removed ${toRemove.length} category selections`);
+        }
+        
+        // Add new selections
+        if (toAdd.length > 0) {
+          const insertData = toAdd.map(sel => ({
+            member_id: createdMemberId,
+            resource_category_id: sel.category_id,
+            subcategory_name: sel.subcategory_name
+          }));
+          
+          await supabase
+            .from('member_resource_category')
+            .insert(insertData);
+          console.log(`[AppProcessor] Added ${toAdd.length} category selections`);
+        }
+      }
+    }
+    
+    // Handle non-deferred communication preferences through the shared,
+    // role-authorized persistence boundary. Form-field choices are collected
+    // first and pipeline mappings override them, preserving the established
+    // precedence without any direct preference-table writes.
+    console.log(`[AppProcessor] Communication preferences path #1 check: createdMemberId=${createdMemberId}, fields=${fields ? fields.length + ' fields' : 'null/undefined'}, form_values keys=${form_values ? Object.keys(form_values).length : 'null'}`);
+    if (createdMemberId && !defer_communication_subscriptions) {
+      const communicationResult = await persistFormCommunicationSubscriptions({
+        database: supabase,
+        tenantId: effectiveEntityTenantId,
+        form: { id: form_id, fields },
+        submissionData: form_values,
+        mappedSelections: [...memberCommunicationPrefsMap].map(
+          ([category_id, is_subscribed]) => ({ category_id, is_subscribed })
+        ),
+        resolvedMemberId: createdMemberId,
+      });
+      if (communicationResult.count > 0) {
+        console.log(`[AppProcessor] Saved ${communicationResult.count} role-authorized communication preferences for member ${createdMemberId}`);
+      }
+    }
+
+    // Process member pipelines (additional members) with sequential upsert logic
+    // Use entity_pipelines.members if available, fall back to legacy additional_member_creations
+    // Track processed emails to handle same email appearing in multiple member configs
+    // Store full context: {id, role_id, organization_id} to ensure capacity checks use latest data
+    const processedEmails = new Map(); // email -> {id, role_id, organization_id}
+    
+    // If primary member was created/updated, track its email with full context
+    // Fetch current state from DB to ensure we have authoritative role_id/organization_id after mutations
+    if (createdMemberId) {
+      const { data: primaryMemberState } = await supabase
+        .from('member')
+        .select('id, email, role_id, organization_id, tenant_id')
+        .eq('id', createdMemberId)
+        .single();
+      
+      if (primaryMemberState?.email) {
+        const primaryEmail = primaryMemberState.email.toLowerCase();
+        processedEmails.set(primaryEmail, { 
+          id: primaryMemberState.id, 
+          role_id: primaryMemberState.role_id, 
+          organization_id: primaryMemberState.organization_id,
+          tenant_id: primaryMemberState.tenant_id ?? null
+        });
+        console.log('[AppProcessor] Tracking primary member email (from DB):', primaryEmail, '->', { 
+          id: primaryMemberState.id, 
+          role_id: primaryMemberState.role_id, 
+          organization_id: primaryMemberState.organization_id 
+        });
+      }
+    }
+    
+    // Merge member pipelines: use entity_pipelines.members if available, otherwise legacy additional_member_creations
+    // Filter out primary member from pipelines (it was already processed above via field_mappings)
+    let memberCreationConfigs = [];
+    if (memberPipelines.length > 0) {
+      // New system: use entity_pipelines.members, skip primary (it's handled by existing field_mappings logic)
+      memberCreationConfigs = memberPipelines.filter(m => !m.isPrimary && !m.is_primary);
+      console.log('[AppProcessor] Using entity_pipelines.members:', memberCreationConfigs.length, 'non-primary entries');
+    } else if (additional_member_creations && Array.isArray(additional_member_creations) && additional_member_creations.length > 0) {
+      // Legacy system: use additional_member_creations
+      memberCreationConfigs = additional_member_creations;
+      console.log('[AppProcessor] Using legacy additional_member_creations:', memberCreationConfigs.length);
+    }
+    
+    const additionalMemberIds = [];
+    const additionalMemberPipelineTargets = new Map();
+    if (memberCreationConfigs.length > 0) {
+      console.log('[AppProcessor] Processing member creations:', memberCreationConfigs.length);
+      
+      for (let configIndex = 0; configIndex < memberCreationConfigs.length; configIndex++) {
+        const memberConfig = memberCreationConfigs[configIndex];
+        console.log(`[AppProcessor] ------- Processing member config ${configIndex + 1}/${memberCreationConfigs.length}: "${memberConfig.label}" -------`);
+        console.log('[AppProcessor] Config mappings:', JSON.stringify(memberConfig.mappings, null, 2));
+        
+        // Log actual form_values for each source_field_id to debug value issues
+        if (memberConfig.mappings && Array.isArray(memberConfig.mappings)) {
+          console.log('[AppProcessor] Form values for this member config:');
+          for (const m of memberConfig.mappings) {
+            if (m.source_field_id) {
+              console.log(`  - ${m.target_field}: form_values["${m.source_field_id}"] = "${form_values[m.source_field_id]}"`);
+            }
+          }
+        }
+        
+        // Extract email and build data from either new mappings array or legacy field_mappings object
+        let memberEmail = null;
+        const additionalMemberData = {};
+        const additionalCustomFieldsMap = new Map();
+        const clearFields = [];
+        let additionalMemberMappingSelection = null;
+        
+        const coreFieldMappings = {
+          'email': 'email',
+          'first_name': 'first_name',
+          'last_name': 'last_name',
+          'phone': 'mobile',
+          'job_title': 'job_title',
+          'mobile': 'mobile',
+          'landline': 'landline',
+          'organization_id': 'organization_id',
+          'organization_group_id': 'organization_group_id',
+          'show_in_directory': 'show_in_directory'
+        };
+        
+        if (memberConfig.mappings && Array.isArray(memberConfig.mappings)) {
+          // New format: process mappings array
+          assertValidExplicitFallbackGroups(memberConfig.mappings);
+          assertValidAddressLookupMappingComponents(memberConfig.mappings, fields);
+          additionalMemberMappingSelection = selectMappingsForSubmission(memberConfig.mappings, {
+            targetEntity: 'member',
+            pipelineId: memberConfig.id || null,
+            source: 'entity_pipeline',
+          });
+          const effectiveMemberMappings = coalesceExplicitFallbackMappings(
+            additionalMemberMappingSelection.includedMappings,
+            form_values,
+            hiddenSubmissionFieldIds,
+          );
+          const emailMapping = effectiveMemberMappings.find(m => m.target_field === 'email' && m.target_type === 'core');
+          if (!emailMapping) {
+            if (selectionLostIdentityOnlyToHiddenMapping(additionalMemberMappingSelection, 'member')) {
+              addProcessingNote({
+                kind: 'entity_pipeline_skipped_hidden_identity',
+                level: 'info',
+                stage: 'additional_member_create',
+                target_entity: 'member',
+                pipeline_id: memberConfig.id || null,
+                message: 'Additional Member create/upsert intentionally skipped because its only configured identity mapping was opted in and hidden for this submission.',
+              });
+            }
+            console.log('[AppProcessor] Skipping additional member - no email mapping:', memberConfig.label);
+            continue;
+          }
+          
+          // Get email value
+          if (emailMapping.source_type === 'clear') {
+            console.log('[AppProcessor] Skipping additional member - email fallback resolved to explicit clear:', memberConfig.label);
+            continue;
+          } else if (emailMapping.source_type === 'static') {
+            memberEmail = emailMapping.static_value;
+          } else if (emailMapping.source_type === 'current_date' || emailMapping.transformation === 'current_date') {
+            memberEmail = new Date().toISOString().split('T')[0];
+          } else if (emailMapping.source_field_id) {
+            memberEmail = extractMappingSourceComponent(emailMapping, form_values[emailMapping.source_field_id]);
+            if (emailMapping.transformation && emailMapping.transformation !== 'none') {
+              memberEmail = applyTransformation(memberEmail, emailMapping.transformation);
+            }
+          }
+          
+          if (!memberEmail) {
+            console.log('[AppProcessor] Skipping additional member - email value is empty:', memberConfig.label);
+            continue;
+          }
+          
+          // Process all mappings
+          for (const mapping of effectiveMemberMappings) {
+            if (!mapping.target_field || mapping.target_field === 'email') continue;
+            
+            let value;
+            if (mapping.source_type === 'clear') {
+              value = '__clear__';
+            } else if (mapping.source_type === 'current_date' || mapping.transformation === 'current_date') {
+              value = new Date().toISOString().split('T')[0];
+            } else if (mapping.source_type === 'static') {
+              value = resolveStaticTodayToken(mapping.static_value);
+            } else if (mapping.source_field_id) {
+              value = extractMappingSourceComponent(mapping, form_values[mapping.source_field_id]);
+              
+              if (mapping.source_category_id && value && typeof value === 'object' && !Array.isArray(value)) {
+                value = value[mapping.source_category_id] !== undefined ? value[mapping.source_category_id] : null;
+                console.log(`[AppProcessor] Extracted category ${mapping.source_category_id} from communication_preferences: ${value}`);
+              }
+            }
+            
+            // Handle __clear__ sentinel value
+            if (value === '__clear__') {
+              if (mapping.target_type === 'core') {
+                const dbKey = coreFieldMappings[mapping.target_field] || mapping.target_field;
+                clearFields.push(dbKey);
+                additionalMemberData[dbKey] = null;
+              } else if (mapping.target_type === 'custom') {
+                // Mark custom field for clearing - will be handled in custom field processing
+                additionalCustomFieldsMap.set(mapping.target_field, '__clear__');
+              }
+              continue;
+            }
+            
+            if (value !== undefined && value !== null && mapping.transformation && mapping.transformation !== 'none') {
+              value = applyTransformation(value, mapping.transformation);
+            }
+            
+            if (mapping.target_type === 'core') {
+              const dbKey = coreFieldMappings[mapping.target_field] || mapping.target_field;
+              if (dbKey === 'organization_group_id') {
+                const selection = resolveMemberOrganizationGroupSelection({
+                  field: fieldsById.get(String(mapping.source_field_id)),
+                  value,
+                  sourceType: mapping.source_type === 'field' ? 'field' : mapping.source_type,
+                  sourceFieldId: mapping.source_field_id,
+                  hidden: mapping.source_field_id != null
+                    && hiddenSubmissionFieldIds.has(String(mapping.source_field_id)),
+                });
+                if (selection) additionalMemberData.organization_group_id = selection.groupId;
+                continue;
+              }
+              // Use hasAssignableValue to allow boolean false/empty through for boolean fields
+              if (hasAssignableValue(dbKey, value)) {
+                // Coerce boolean fields for member entities
+                additionalMemberData[dbKey] = coerceBooleanField(dbKey, value);
+              }
+            } else if (mapping.target_type === 'custom') {
+              const prefField = prefFieldMap.get(mapping.target_field);
+              if (value !== undefined && value !== null && value !== '') {
+                addCustomFieldValue(additionalCustomFieldsMap, mapping.target_field, value, prefField);
+              }
+            }
+          }
+        } else if (memberConfig.field_mappings) {
+          // Legacy format: process field_mappings object
+          if (!memberConfig.field_mappings.email) {
+            console.log('[AppProcessor] Skipping additional member - no email mapping:', memberConfig.label);
+            continue;
+          }
+          
+          const emailFieldId = memberConfig.field_mappings.email;
+          if (emailFieldId === '__clear__') {
+            console.log('[AppProcessor] Skipping additional member - email set to clear:', memberConfig.label);
+            continue;
+          }
+          
+          memberEmail = form_values[emailFieldId];
+          
+          if (!memberEmail) {
+            console.log('[AppProcessor] Skipping additional member - email value is empty:', memberConfig.label);
+            continue;
+          }
+          
+          for (const [configKey, dbKey] of Object.entries(coreFieldMappings)) {
+            if (configKey === 'email') continue;
+            const fieldId = memberConfig.field_mappings[configKey];
+            if (!fieldId) continue;
+            
+            if (fieldId === '__clear__') {
+              clearFields.push(dbKey);
+              additionalMemberData[dbKey] = null;
+            } else if (dbKey === 'organization_group_id') {
+              const selection = resolveMemberOrganizationGroupSelection({
+                field: fieldsById.get(String(fieldId)),
+                value: form_values[fieldId],
+                sourceType: 'field',
+                sourceFieldId: fieldId,
+                hidden: hiddenSubmissionFieldIds.has(String(fieldId)),
+              });
+              if (selection) additionalMemberData.organization_group_id = selection.groupId;
+            } else if (hasAssignableValue(dbKey, form_values[fieldId])) {
+              // Coerce boolean fields for member entities
+              additionalMemberData[dbKey] = coerceBooleanField(dbKey, form_values[fieldId]);
+            }
+          }
+        } else {
+          console.log('[AppProcessor] Skipping additional member - no mappings:', memberConfig.label);
+          continue;
+        }
+        
+        const normalizedEmail = memberEmail.toLowerCase().trim();
+        
+        console.log(`[AppProcessor] Built data for "${memberConfig.label}":`, {
+          email: normalizedEmail,
+          additionalMemberData: { ...additionalMemberData },
+          customFieldCount: additionalCustomFieldsMap.size
+        });
+        
+        const additionalMemberRoleAssignment = resolveMemberRoleAssignment({
+          pipeline: memberConfig,
+          // Keep answer-driven role conditions on the raw authoritative view;
+          // only mapping writes consume the projected form_values view.
+          answers: authoritativeAnswers,
+        });
+        if (additionalMemberRoleAssignment.invalid) {
+          return res.status(400).json({
+            error: additionalMemberRoleAssignment.error,
+            code: additionalMemberRoleAssignment.code,
+          });
+        }
+        if (additionalMemberRoleAssignment.configured) {
+          // Answer-driven assignment is create-only, so existing members keep
+          // their role during additional-member update/upsert processing.
+          console.log('[AppProcessor] Resolved additional answer-driven role:', {
+            role_id: additionalMemberRoleAssignment.roleId,
+            source: additionalMemberRoleAssignment.source,
+          });
+        } else {
+          // Fixed role behaviour remains backwards-compatible.
+          const additionalRoleId = memberConfig.role_id;
+          if (additionalRoleId && additionalRoleId !== '__keep__') {
+            if (additionalRoleId === '__clear__') {
+              additionalMemberData.role_id = null;
+              clearFields.push('role_id');
+            } else {
+              additionalMemberData.role_id = additionalRoleId;
+            }
+            console.log('[AppProcessor] Additional member role_id:', additionalMemberData.role_id);
+          } else {
+            console.log('[AppProcessor] Additional member role_id is don\'t-change — preserving existing role on update');
+          }
+        }
+
+        // Login: only set when member config explicitly chose true/false. null/undefined
+        // mean "don't change" — leave additionalMemberData.login_enabled unset so update
+        // skips it; on insert, the create branch supplies its own default.
+        if (typeof memberConfig.login_enabled === 'boolean') {
+          additionalMemberData.login_enabled = memberConfig.login_enabled;
+          console.log('[AppProcessor] Additional member login_enabled:', memberConfig.login_enabled);
+        } else {
+          console.log('[AppProcessor] Additional member login_enabled is don\'t-change — preserving existing login on update');
+        }
+        
+        console.log('[AppProcessor] Processing additional member:', memberConfig.label, 'email:', normalizedEmail, 'data:', additionalMemberData, 'clearFields:', clearFields);
+        
+        // Check if we've already processed this email in this submission
+        // processedEmails stores {id, role_id, organization_id} for in-memory context
+        const processedEntry = processedEmails.get(normalizedEmail);
+        let existingMemberId = processedEntry?.id || null;
+        let newlyCreatedAdditionalMember = null; // Task 3196: trigger workflows after custom fields saved
+        
+        // Use in-memory context if available, otherwise fetch from DB
+        let existingMemberRecord = processedEntry ? { 
+          id: processedEntry.id, 
+          role_id: processedEntry.role_id, 
+          organization_id: processedEntry.organization_id,
+          tenant_id: processedEntry.tenant_id ?? null
+        } : null;
+        
+        if (!existingMemberId) {
+          // Check if member exists in database (scoped to tenant). Also fetch
+          // tenant_id so the cross-tenant role guard below has the member's
+          // authoritative tenant when validating any pipeline-supplied role.
+          let existingMemberQuery = supabase
+            .from('member')
+            .select('id, role_id, organization_id, tenant_id')
+            .ilike('email', normalizedEmail);
+          
+          if (effectiveEntityTenantId) {
+            existingMemberQuery = existingMemberQuery.eq('tenant_id', effectiveEntityTenantId);
+          }
+          
+          const { data: existingMember } = await existingMemberQuery
+            .limit(1)
+            .single();
+          
+          if (existingMember) {
+            existingMemberId = existingMember.id;
+            existingMemberRecord = existingMember;
+            console.log('[AppProcessor] Found existing member in DB:', normalizedEmail, '->', existingMemberId);
+          }
+        } else {
+          console.log('[AppProcessor] Using in-memory context for:', normalizedEmail, existingMemberRecord);
+        }
+        
+        if (existingMemberId) {
+          const checkpointMemberId = persistedPipelineTargetId('member', memberConfig);
+          if (String(checkpointMemberId || '') !== String(existingMemberId)) {
+            await assertLegacyExistingRecordAuthorized('member', existingMemberId);
+          }
+          // UPDATE existing member - merge fields, don't clear unless explicitly requested
+
+          // Cross-tenant guard: if the additional-member pipeline carries a
+          // real role_id, verify it belongs to this member's tenant before
+          // writing it. Hard fail on mismatch — see validateRoleTenant.
+          if (additionalMemberData.role_id) {
+            const memberTenantForCheck = existingMemberRecord?.tenant_id || effectiveEntityTenantId || null;
+            const tenantCheck = await validateRoleTenant(supabase, additionalMemberData.role_id, memberTenantForCheck);
+            if (!tenantCheck.ok) {
+              return res.status(500).json({
+                error: tenantCheck.message,
+                code: 'ROLE_TENANT_MISMATCH'
+              });
+            }
+          }
+          
+          // Resolve organization_id: prefer the UUID from the org pipeline, fall back to prefill
+          // The raw form value in additionalMemberData.organization_id may be a name string, not a UUID
+          const resolvedAdditionalOrgId = createdOrganizationId || prefill_organization_id || null;
+          if (additionalMemberData.organization_id) {
+            if (resolvedAdditionalOrgId) {
+              additionalMemberData.organization_id = resolvedAdditionalOrgId;
+            } else {
+              // No resolved UUID available — remove the raw name to prevent DB errors
+              delete additionalMemberData.organization_id;
+            }
+          }
+
+           if (additionalMemberData.organization_group_id) {
+             try {
+               const groupWrite = await validateMemberOrganizationGroupWrite({
+                 db: supabase,
+                 tenantId: effectiveEntityTenantId,
+                 groupId: additionalMemberData.organization_group_id,
+                 organizationId: resolvedAdditionalOrgId,
+                 existingMember: existingMemberRecord,
+               });
+               if (!groupWrite.shouldWrite) {
+                 delete additionalMemberData.organization_group_id;
+               } else {
+                 additionalMemberData.organization_group_id = groupWrite.groupId;
+               }
+             } catch (error) {
+               if (error instanceof MemberOrganizationGroupValidationError
+                 || error?.code === 'INVALID_MEMBER_ORGANIZATION_GROUP') {
+                 return res.status(error.status || 400).json({
+                   error: error.message,
+                   code: error.code,
+                   details: error.details,
+                 });
+               }
+               throw error;
+             }
+           }
+          
+          console.log('[AppProcessor] Updating existing member:', existingMemberId, 'with:', additionalMemberData);
+          
+          // Check role capacity when:
+          // 1. Role is being changed (different role_id)
+          // 2. Organization is being changed (member moving to new org) AND member has a role with max_members
+          // This ensures per-org capacity is enforced both for role changes and org moves
+          const effectiveRoleToCheck = additionalMemberData.role_id !== undefined 
+            ? additionalMemberData.role_id 
+            : existingMemberRecord?.role_id;
+          const targetOrgId = additionalMemberData.organization_id || existingMemberRecord?.organization_id;
+          
+          const roleIsChanging = additionalMemberData.role_id && additionalMemberData.role_id !== null && 
+            (!existingMemberRecord || additionalMemberData.role_id !== existingMemberRecord.role_id);
+          const orgIsChanging = targetOrgId && existingMemberRecord?.organization_id && 
+            targetOrgId !== existingMemberRecord.organization_id;
+          
+          // Check capacity if role or org is changing (and member has/will have a role)
+          if (effectiveRoleToCheck && effectiveRoleToCheck !== null && (roleIsChanging || orgIsChanging)) {
+            console.log('[AppProcessor] Checking capacity for additional member update:', {
+              roleIsChanging,
+              orgIsChanging,
+              from: { role: existingMemberRecord?.role_id, org: existingMemberRecord?.organization_id },
+              to: { role: effectiveRoleToCheck, org: targetOrgId }
+            });
+            const capacityCheck = await checkRoleCapacity(supabase, effectiveRoleToCheck, targetOrgId);
+            console.log('[AppProcessor] Additional member update capacity check:', JSON.stringify(capacityCheck));
+            if (!capacityCheck.hasCapacity) {
+              if (capacityCheck.missingOrgContext) {
+                console.warn('[AppProcessor] Skipping additional member update - role requires org context:', memberConfig.label);
+              } else {
+                console.warn('[AppProcessor] Skipping additional member update - role at max capacity:', memberConfig.label, capacityCheck.maxMembers);
+              }
+              continue;
+            }
+          }
+          
+          // Belt-and-braces (Task #3555): never write to a resolved row from
+          // another tenant, even if resolution/tracking mis-stepped.
+          if (isCrossTenantRow(effectiveEntityTenantId, existingMemberRecord)) {
+            addProcessingNote({
+              level: 'error',
+              stage: 'additional_member_update',
+              message: 'Cross-tenant additional-member write blocked at write time.',
+              found_id: existingMemberId,
+              found_tenant_id: existingMemberRecord?.tenant_id || null,
+              effective_tenant_id: effectiveEntityTenantId,
+              member_label: memberConfig.label,
+            });
+            console.error('[AppProcessor] BLOCKED cross-tenant additional member write:', existingMemberId);
+            await flushProcessingNotes();
+            return res.status(409).json({ error: 'Cross-tenant member write blocked', code: 'CROSS_TENANT_MEMBER_WRITE' });
+          }
+
+          let trackingUpdated = false;
+          if (Object.keys(additionalMemberData).length > 0) {
+            // Write-time tenant guard (defence in depth, Task #3555): the
+            // UPDATE is hard-filtered to the effective tenant (or tenant_id
+            // IS NULL for legacy adoption — the helper stamps tenant_id so
+            // the row is adopted into the tenant). Zero rows updated =
+            // guard fired.
+            const { error: updateError, blocked: additionalUpdateBlocked, rows: updatedAdditionalRows } = await runGuardedTenantUpdate(supabase, {
+              table: 'member',
+              id: existingMemberId,
+              payload: additionalMemberData,
+              effectiveTenantId: effectiveEntityTenantId,
+              existingRow: existingMemberRecord,
+              select: 'id, role_id, organization_id, tenant_id',
+            });
+            const updatedMember = updatedAdditionalRows?.[0] || null;
+            
+            if (updateError) {
+              console.error('[AppProcessor] Failed to update additional member:', updateError);
+              throw updateError;
+            } else if (additionalUpdateBlocked) {
+              // Tenant guard filtered the row out — fail loudly, never
+              // treat as success.
+              addProcessingNote({
+                level: 'error',
+                stage: 'additional_member_update',
+                message: 'Additional-member update blocked by write-time tenant guard (row not in effective tenant).',
+                member_id: existingMemberId,
+                row_tenant_id: existingMemberRecord?.tenant_id || null,
+                effective_tenant_id: effectiveEntityTenantId,
+                member_label: memberConfig.label,
+              });
+              console.error('[AppProcessor] Additional member update matched 0 rows under tenant guard:', existingMemberId);
+              await flushProcessingNotes();
+              return res.status(409).json({ error: 'Cross-tenant member write blocked', code: 'CROSS_TENANT_MEMBER_WRITE' });
+            } else {
+              console.log('[AppProcessor] Updated member:', existingMemberId);
+              // Update in-memory context with authoritative values from DB after mutation
+              if (updatedMember) {
+                processedEmails.set(normalizedEmail, { 
+                  id: updatedMember.id, 
+                  role_id: updatedMember.role_id, 
+                  organization_id: updatedMember.organization_id,
+                  tenant_id: updatedMember.tenant_id ?? null
+                });
+                trackingUpdated = true;
+                console.log('[AppProcessor] Updated tracking (from DB):', { 
+                  role_id: updatedMember.role_id, 
+                  organization_id: updatedMember.organization_id 
+                });
+              }
+            }
+          }
+          
+          // Always ensure processedEmails has authoritative data - fetch from DB if not already updated
+          // This handles cases where no mutations occurred but we still need accurate tracking
+          if (!trackingUpdated) {
+            const { data: currentMemberState } = await supabase
+              .from('member')
+              .select('id, role_id, organization_id, tenant_id')
+              .eq('id', existingMemberId)
+              .single();
+            
+            if (currentMemberState) {
+              processedEmails.set(normalizedEmail, { 
+                id: currentMemberState.id, 
+                role_id: currentMemberState.role_id, 
+                organization_id: currentMemberState.organization_id,
+                tenant_id: currentMemberState.tenant_id ?? null
+              });
+              console.log('[AppProcessor] Refreshed tracking (no mutation):', { 
+                role_id: currentMemberState.role_id, 
+                organization_id: currentMemberState.organization_id 
+              });
+            }
+          }
+          
+          additionalMemberIds.push({ id: existingMemberId, label: memberConfig.label, created: false, updated: true });
+        } else {
+          // CREATE new member
+          const additionalOrgId = createdOrganizationId || prefill_organization_id || null;
+          // Remove raw organization_id from additionalMemberData (may be a name string, not UUID)
+          delete additionalMemberData.organization_id;
+          const newMemberData = {
+            email: memberEmail,
+            login_enabled: additionalMemberData.login_enabled !== undefined ? additionalMemberData.login_enabled : false,
+            show_in_directory: additionalMemberData.show_in_directory !== undefined ? additionalMemberData.show_in_directory : true,
+            ...additionalMemberData,
+            organization_id: additionalOrgId,
+          };
+
+           if (additionalMemberData.organization_group_id) {
+             try {
+               const groupWrite = await validateMemberOrganizationGroupWrite({
+                 db: supabase,
+                 tenantId: effectiveEntityTenantId,
+                 groupId: additionalMemberData.organization_group_id,
+                 organizationId: additionalOrgId,
+               });
+               if (groupWrite.shouldWrite) {
+                 newMemberData.organization_group_id = groupWrite.groupId;
+               } else {
+                 delete newMemberData.organization_group_id;
+               }
+             } catch (error) {
+               if (error instanceof MemberOrganizationGroupValidationError
+                 || error?.code === 'INVALID_MEMBER_ORGANIZATION_GROUP') {
+                 return res.status(error.status || 400).json({
+                   error: error.message,
+                   code: error.code,
+                   details: error.details,
+                 });
+               }
+               throw error;
+             }
+           }
+          
+          // Stamp the resolved (form-authoritative) tenant on the new member
+          if (effectiveEntityTenantId) {
+            newMemberData.tenant_id = effectiveEntityTenantId;
+          }
+
+          // Create-branch only: when the additional-member pipeline is
+          // __keep__ (newMemberData.role_id === undefined), fall back to
+          // the tenant default. Explicit __clear__ (null) is preserved.
+          let additionalRoleSource;
+          if (additionalMemberRoleAssignment.configured
+              && additionalMemberRoleAssignment.roleId !== undefined) {
+            newMemberData.role_id = additionalMemberRoleAssignment.roleId;
+            additionalRoleSource = additionalMemberRoleAssignment.source;
+          }
+          if (newMemberData.role_id === undefined) {
+            additionalRoleSource = 'none';
+          } else if (newMemberData.role_id === null) {
+            additionalRoleSource = 'pipeline-clear';
+          } else {
+            additionalRoleSource = 'pipeline-configured';
+          }
+          if (newMemberData.role_id === undefined) {
+            const tenantForDefault = newMemberData.tenant_id || effectiveEntityTenantId || null;
+            const { role: tenantDefaultRole, error: defaultLookupError } = await resolveTenantDefaultRole(supabase, tenantForDefault);
+            if (defaultLookupError) {
+              additionalRoleSource = 'lookup-error';
+              console.error('[AppProcessor] Tenant default role lookup failed; additional member created without role:', { label: memberConfig.label, tenant_id: tenantForDefault, error: defaultLookupError });
+            } else if (tenantDefaultRole) {
+              newMemberData.role_id = tenantDefaultRole.id;
+              additionalRoleSource = 'tenant-default';
+              console.log('[AppProcessor] Applied tenant default role to new additional member:', { label: memberConfig.label, role_id: tenantDefaultRole.id, role_name: tenantDefaultRole.name, tenant_id: tenantForDefault });
+            } else {
+              console.warn('[AppProcessor] No default role configured for tenant; additional member created without role. Set one in /RoleManagement.', { label: memberConfig.label, tenant_id: tenantForDefault });
+            }
+          } else {
+            console.log('[AppProcessor] Additional member role source:', additionalRoleSource, 'role_id:', newMemberData.role_id);
+          }
+
+          // Cross-tenant guard: a non-null role_id about to be written onto
+          // this brand-new additional member must belong to its tenant. Hard
+          // fail on mismatch — see validateRoleTenant.
+          if (newMemberData.role_id) {
+            const tenantCheck = await validateRoleTenant(supabase, newMemberData.role_id, newMemberData.tenant_id || effectiveEntityTenantId || null);
+            if (!tenantCheck.ok) {
+              return res.status(500).json({
+                error: tenantCheck.message,
+                code: 'ROLE_TENANT_MISMATCH'
+              });
+            }
+          }
+
+          // Check role capacity before creating additional member (per-organization)
+          if (newMemberData.role_id && newMemberData.role_id !== null) {
+            const capacityCheck = await checkRoleCapacity(supabase, newMemberData.role_id, additionalOrgId);
+            console.log('[AppProcessor] Additional member role capacity check:', JSON.stringify(capacityCheck));
+            if (!capacityCheck.hasCapacity) {
+              if (capacityCheck.missingOrgContext) {
+                console.warn('[AppProcessor] Skipping additional member creation - role requires org context:', memberConfig.label);
+              } else {
+                console.warn('[AppProcessor] Skipping additional member creation - role at max capacity:', memberConfig.label, capacityCheck.maxMembers);
+              }
+              continue;
+            }
+          }
+          
+          console.log('[AppProcessor] Creating new additional member:', memberConfig.label, newMemberData);
+          
+          const { data: newMember, error: memberError } = await supabase
+            .from('member')
+            .insert(newMemberData)
+            .select()
+            .single();
+          
+          if (memberError) {
+            console.error('[AppProcessor] Failed to create additional member:', memberError);
+            throw memberError;
+          }
+          
+          existingMemberId = newMember.id;
+          legacyCreatedRecordIds.member.add(String(newMember.id));
+          additionalMemberIds.push({ id: newMember.id, label: memberConfig.label, created: true, updated: false });
+          // Track with full context from the actual created record (not the input data)
+          // This ensures subsequent entries get authoritative role_id/organization_id
+          processedEmails.set(normalizedEmail, { 
+            id: newMember.id, 
+            role_id: newMember.role_id || null, 
+            organization_id: newMember.organization_id,
+            tenant_id: newMember.tenant_id ?? null
+          });
+          console.log('[AppProcessor] Created additional member:', newMember.id, 'tracking:', { role_id: newMember.role_id, organization_id: newMember.organization_id });
+
+          // Task 3196: record_create workflows fire AFTER this member's
+          // custom-field values are saved (below), so member_custom
+          // conditions evaluate against this submission's values.
+          newlyCreatedAdditionalMember = newMember;
+        }
+        
+        // Process custom field mappings (upsert logic)
+        // For new format, custom fields were already collected in additionalCustomFieldsMap
+        // For legacy format, process from field_mappings object
+        if (memberConfig.mappings && Array.isArray(memberConfig.mappings)) {
+          // New format: custom fields already in additionalCustomFieldsMap.
+          // Routed through upsertPreferenceValue/clearPreferenceValue so
+          // failures get logged to processing_notes instead of being
+          // silently dropped (task 653).
+          for (const [customFieldId, value] of additionalCustomFieldsMap.entries()) {
+            const prefField = prefFieldMap.get(customFieldId);
+            if (value === '__clear__') {
+              await clearPreferenceValue({
+                table: 'member_preference_value',
+                parentColumn: 'member_id',
+                parentId: existingMemberId,
+                fieldId: customFieldId,
+                entityScope: 'member',
+                prefField,
+              });
+            } else if (value !== undefined && value !== null && value !== '') {
+              const stored = coercePreferenceValueForStorage(value, prefField);
+              if (stored === undefined) continue; // ambiguous boolean — skip write
+              await upsertPreferenceValue({
+                table: 'member_preference_value',
+                parentColumn: 'member_id',
+                parentId: existingMemberId,
+                fieldId: customFieldId,
+                value: stored,
+                entityScope: 'member',
+                prefField,
+              });
+            }
+          }
+        } else if (memberConfig.field_mappings) {
+          // Legacy format: process custom fields from field_mappings
+          // object. Same helper-based path as the new format above.
+          const customFieldMappings = Object.entries(memberConfig.field_mappings)
+            .filter(([key]) => key.startsWith('custom_'));
+          
+          if (customFieldMappings.length > 0) {
+            for (const [key, fieldId] of customFieldMappings) {
+              if (!fieldId) continue;
+              
+              const customFieldId = key.replace('custom_', '');
+              const prefField = prefFieldMap.get(customFieldId);
+              
+              if (fieldId === '__clear__') {
+                await clearPreferenceValue({
+                  table: 'member_preference_value',
+                  parentColumn: 'member_id',
+                  parentId: existingMemberId,
+                  fieldId: customFieldId,
+                  entityScope: 'member',
+                  prefField,
+                });
+              } else {
+                const fieldKeyPresent = Object.prototype.hasOwnProperty.call(form_values, fieldId);
+                const value = form_values[fieldId];
+                if (!fieldKeyPresent) continue; // absent: skip
+                if (isExplicitlyClearedValue(value)) {
+                  await clearPreferenceValue({
+                    table: 'member_preference_value',
+                    parentColumn: 'member_id',
+                    parentId: existingMemberId,
+                    fieldId: customFieldId,
+                    entityScope: 'member',
+                    prefField,
+                  });
+                } else {
+                  const stored = coercePreferenceValueForStorage(value, prefField);
+                  if (stored === undefined) continue; // ambiguous boolean — skip write
+                  await upsertPreferenceValue({
+                    table: 'member_preference_value',
+                    parentColumn: 'member_id',
+                    parentId: existingMemberId,
+                    fieldId: customFieldId,
+                    value: stored,
+                    entityScope: 'member',
+                    prefField,
+                  });
+                }
+              }
+            }
+          }
+        }
+
+        // Category mappings are association writes, not member columns.  Run
+        // after both create and update resolve the member id.
+        await persistMappedMemberResourceCategories(existingMemberId, additionalMemberMappingSelection
+          ? { ...memberConfig, mappings: additionalMemberMappingSelection.includedMappings }
+          : memberConfig);
+        if (submission_id && memberConfig.id && existingMemberId) {
+          await persistPipelineEntityCheckpoint('member', memberConfig, existingMemberId);
+          additionalMemberPipelineTargets.set(String(memberConfig.id), existingMemberId);
+        }
+
+        // Task 3196: trigger record_create workflows for a newly created
+        // additional member AFTER its custom-field values are saved, so
+        // member_custom conditions evaluate against this submission's values.
+        // Must await to ensure completion before Vercel terminates the function.
+        if (newlyCreatedAdditionalMember) {
+          const addlBaseUrl = process.env.APP_URL || `https://${req.headers.host}`;
+          try {
+            await triggerWorkflowsDependency('member', newlyCreatedAdditionalMember.id, null, newlyCreatedAdditionalMember, 'record_create', addlBaseUrl, { formSubmissionId: submission_id });
+            console.log('[AppProcessor] Workflow evaluation completed for additional member:', newlyCreatedAdditionalMember.id);
+          } catch (err) {
+            console.error('[AppProcessor] Additional member workflow error:', err);
+          }
+        }
+      }
+      
+      console.log('[AppProcessor] Additional members processed:', additionalMemberIds.length);
+    }
+
+    // Primary IDs are intentionally calculated before the late structured
+    // retry so they can be supplied as its trusted pipeline outputs. The
+    // resolved IDs are calculated again after that retry below; a structured
+    // action may itself be the first durable source of an entity ID.
+    const primaryMemberId = createdMemberId || persistedSubmission.created_member_id || null;
+    const primaryOrganizationId = createdOrganizationId
+      || persistedSubmission.created_organization_id
+      || null;
+    const shouldRetryStructuredActionsAfterPrimary = structuredActionsWaitingForPrimary
+      || (structuredActionResult?.outcomes || []).some(
+        outcome => outcome.reason === 'primary_pipeline_output_unavailable',
+      );
+    if (shouldRetryStructuredActionsAfterPrimary) {
+      try {
+        const postPipelineStructuredResult = await processPersistedStructuredActions({
+          db: supabase,
+          formId: form_id,
+          submissionId: submission_id,
+          tenantId: effectiveEntityTenantId,
+          authorization: processingAuthorization,
+          primaryRecords: {
+            memberId: primaryMemberId,
+            organizationId: primaryOrganizationId,
+          },
+          completedPrimaryKinds: [...completedPrimaryKinds],
+        });
+        structuredActionResult = postPipelineStructuredResult;
+        for (const outcome of postPipelineStructuredResult?.outcomes || []) {
+          addProcessingNote({
+            kind: 'structured_action',
+            phase: 'post_primary_pipeline',
+            ...outcome,
+          });
+        }
+      } catch (error) {
+        if (error instanceof StructuredActionContractError || error?.code === 'STRUCTURED_ACTION_FORBIDDEN') {
+          await releaseStripeProcessingLease();
+          return res.status(error.status || (error?.code === 'STRUCTURED_ACTION_FORBIDDEN' ? 403 : 400)).json({
+            error: error.message,
+            code: error.code,
+            details: error.details,
+          });
+        }
+        throw error;
+      }
+    }
+
+    const structuredMemberId = structuredActionResult?.created_member_id || null;
+    const structuredOrganizationId = structuredActionResult?.created_organization_id || null;
+    // Recompute these only after the post-primary action pass. In particular,
+    // do not feed stale null IDs into payment-derived mappings or submission
+    // linkage when a late structured action completed on this invocation.
+    const resolvedMemberId = primaryMemberId || structuredMemberId || null;
+    const resolvedOrganizationId = primaryOrganizationId
+      || structuredOrganizationId
+      || prefill_organization_id
+      || null;
+
+    // The primary pipelines may have completed while the dependent action is
+    // still waiting (for example, a required output remains unavailable).
+    // Persist the trusted IDs and retry state, but deliberately do not run
+    // relationship/address finalization or mark entity processing complete.
+    // This keeps a paid retry resumable without allowing downstream
+    // membership/DD readiness to observe an incomplete structured contract.
+    if (structuredActionResult?.success === false) {
+      return respondWithIncompleteStructuredActions({
+        result: structuredActionResult,
+        memberId: resolvedMemberId,
+        organizationId: resolvedOrganizationId,
+      });
+    }
+
+    const relatedRecords = await processPrimaryPipelineRelatedRecords({
+      db: supabase,
+      tenantId: effectiveEntityTenantId,
+      form: persistedForm,
+      submission: persistedSubmission,
+      memberId: primaryMemberId,
+      organizationId: primaryOrganizationId,
+      serverCreatedOrganizations,
+      authorization: processingAuthorization,
+    });
+    for (const outcome of relatedRecords?.outcomes || []) {
+      addProcessingNote({ kind: 'primary_pipeline_related_record', ...outcome });
+    }
+    // Checkpoint resolved mapping targets before the atomic address RPC. A
+    // transient RPC failure must not strand a finalized paid submission with
+    // null linkage IDs; browser/webhook/cron retries reload these trusted
+    // service-written checkpoints.
+    if (hasStripeAddressMappingWork) {
+      const mappedEntities = new Set(
+        persistedSubmission.payment_meta.stripe_address_mapping_config.mappings
+          .map(mapping => mapping?.target_entity),
+      );
+      const targetCheckpoints = [];
+      if (mappedEntities.has('member') && resolvedMemberId) {
+        targetCheckpoints.push({
+          form_submission_id: submission_id,
+          tenant_id: effectiveEntityTenantId,
+          entity_type: 'member',
+          entity_id: resolvedMemberId,
+          checkpointed_at: new Date().toISOString(),
+        });
+      }
+      if (mappedEntities.has('organization') && resolvedOrganizationId) {
+        targetCheckpoints.push({
+          form_submission_id: submission_id,
+          tenant_id: effectiveEntityTenantId,
+          entity_type: 'organization',
+          entity_id: resolvedOrganizationId,
+          checkpointed_at: new Date().toISOString(),
+        });
+      }
+      if (targetCheckpoints.length > 0) {
+        const { error: checkpointError } = await supabase
+          .from('form_stripe_address_mapping_target')
+          .upsert(targetCheckpoints, { onConflict: 'form_submission_id,entity_type' });
+        if (checkpointError) throw checkpointError;
+      }
+    }
+    // Payment-derived mappings deliberately run last. The immutable accepted
+    // Stripe snapshot is still checked against current ordinary mappings, so
+    // configuration drift cannot create competing writers. The RPC commits
+    // all field writes with its completion ledger, making retries crash-safe.
+    const stripeAddressMappings = await processPersistedStripeAddressMappings({
+      db: supabase,
+      submission: persistedSubmission,
+      tenantId: effectiveEntityTenantId,
+      memberId: resolvedMemberId,
+      organizationId: resolvedOrganizationId,
+      authorization: processingAuthorization,
+      currentRunCreated: currentRunEntityCreations,
+      currentForm: persistedForm,
+    }).catch((error) => {
+        if (!(error instanceof StripeAddressMappingError) || error.status !== 409) throw error;
+        return { mappingError: error };
+      });
+    if (stripeAddressMappings?.mappingError) {
+      const error = stripeAddressMappings.mappingError;
+      return respondWithIncompleteStripeAddressMappings({
+        result: {
+          configured: true,
+          applied: false,
+          pending: true,
+          reason: error.code || 'STRIPE_ADDRESS_MAPPINGS_INCOMPLETE',
+        },
+        memberId: resolvedMemberId,
+        organizationId: resolvedOrganizationId,
+      });
+    }
+    if (stripeAddressMappings?.configured
+        && !stripeAddressMappings.applied
+        && !stripeAddressMappings.alreadyApplied) {
+      const pendingResult = { ...stripeAddressMappings, pending: true };
+      if (isStandaloneMonthlyFirstPaymentWait(pendingResult, {
+        structuredActionResult,
+        relatedRecords,
+      })) {
+        // This is the expected setup_complete/monthly-card ordering gap:
+        // ordinary processing has completed, while the address worker waits
+        // for the first paid invoice.  Do not clear the pending marker.
+        addressAwaitingFirstPayment = true;
+      } else {
+        return respondWithIncompleteStripeAddressMappings({
+          result: pendingResult,
+          memberId: resolvedMemberId,
+          organizationId: resolvedOrganizationId,
+        });
+      }
+    }
+
+    // Persist processing notes (per-field outcomes from upsert/clear
+    // helpers) to form_submission so silent failures become visible in
+    // the submission viewer. Combined with the linkage update so we make
+    // a single round-trip. NOTE: the previous version of this update
+    // also wrote `processed_at`, but that column does not exist on
+    // form_submission and the entire write was being rejected with a
+    // PostgREST error that nothing checked — every "successful" submission
+    // since the column was referenced was failing this final update
+    // silently. Dropping the bogus column lets the legitimate fields
+    // (created_member_id, created_organization_id, organization_id, and
+    // processing_notes) actually persist.
+    const needsSubmissionLinkageUpdate = !!submission_id;
+    let submissionLinkagePersisted = !submission_id;
+    if (needsSubmissionLinkageUpdate) {
+      const finalOrganizationId = createdOrganizationId || structuredOrganizationId || prefill_organization_id || null;
+      const updatePayload = {};
+      updatePayload.entity_processing_completed_at = new Date().toISOString();
+      if (createdMemberId || structuredMemberId) updatePayload.created_member_id = createdMemberId || structuredMemberId;
+      if (createdOrganizationId || structuredOrganizationId) updatePayload.created_organization_id = createdOrganizationId || structuredOrganizationId;
+      if (finalOrganizationId) updatePayload.organization_id = finalOrganizationId;
+      if (processingNotes.length > 0) {
+        updatePayload.processing_notes = [
+          ...(hasCurrentSetProcessing
+            ? persistedProcessingNotes.filter(note => note?.kind !== 'department_current_set_state')
+            : persistedProcessingNotes),
+          ...processingNotes,
+        ];
+      }
+      if (persistedSubmission.payment_status && (relatedRecords || structuredActionResult || stripeAddressMappings?.configured)) {
+        updatePayload.payment_meta = {
+          ...(persistedSubmission.payment_meta || {}),
+          ...(structuredActionResult ? {
+            structured_actions_pending: structuredActionResult.success === false,
+            structured_actions_result: structuredActionResult,
+          } : {}),
+          ...(relatedRecords ? {
+          related_records_pending: relatedRecords.success === false,
+          related_records_result: relatedRecords,
+          } : {}),
+          ...(stripeAddressMappings?.configured ? {
+            stripe_address_mappings_pending: addressAwaitingFirstPayment,
+            stripe_address_mappings_result: stripeAddressMappings,
+          } : {}),
+        };
+      }
+
+      const { error: subUpdateErr } = await supabase
+        .from('form_submission')
+        .update(updatePayload)
+        .eq('id', submission_id);
+      if (subUpdateErr) {
+        console.error('[AppProcessor] Failed to update form_submission with processing notes/links:', subUpdateErr);
+        throw subUpdateErr;
+      } else {
+        submissionLinkagePersisted = true;
+        console.log(`[AppProcessor] form_submission ${submission_id} updated with ${processingNotes.length} processing note(s).`);
+      }
+    }
+    // Auto-approve only after the completion/linkage checkpoint is durable.
+    // A failed final update must remain retryable without exposing readiness.
+    await autoApproveFeesAfterStructuredCompletion(
+      resolvedMemberId,
+      resolvedOrganizationId || null,
+    );
+    if (submissionLinkagePersisted && submission_id) {
+      await persistCrmNotesForPipeline(
+        'member',
+        resolvedMemberId,
+        memberPipelines.find(item => item.isPrimary || item.is_primary),
+      );
+      await persistCrmNotesForPipeline(
+        'organization',
+        resolvedOrganizationId,
+        resolvePrimaryOrganizationPipeline(orgPipelines),
+        resolvedMemberId,
+      );
+      for (const additionalPipeline of memberPipelines.filter(item => !item.isPrimary && !item.is_primary)) {
+        await persistCrmNotesForPipeline(
+          'member',
+          additionalMemberPipelineTargets.get(String(additionalPipeline.id)),
+          additionalPipeline,
+        );
+      }
+    }
+
+    // Return the resolved organization_id (whether created or existing)
+    await finishKnownPaidPipelineOperation();
+    await releaseStripeProcessingLease();
+    return res.json({
+      success: structuredActionResult ? structuredActionResult.success : true,
+      created_member_id: resolvedMemberId,
+      created_organization_id: createdOrganizationId || structuredOrganizationId || null,
+      organization_id: resolvedOrganizationId, // Canonical org ID (created or existing)
+      additional_member_ids: additionalMemberIds,
+      // When persistence is deferred, return the processor-derived mapping
+      // choices so the public endpoint can merge and tenant-validate them only
+      // after the final member identity has been resolved.
+      deferred_communication_selections: defer_communication_subscriptions
+        ? [...memberCommunicationPrefsMap].map(([category_id, is_subscribed]) => ({
+            category_id,
+            is_subscribed,
+          }))
+        : [],
+      // Structured actions are additive: legacy pipelines/workflows above
+      // retain their established ordering and their response remains intact.
+      ...(structuredActionResult ? { structured_actions: structuredActionResult } : {}),
+      ...(relatedRecords ? { related_records: relatedRecords } : {}),
+      stripe_address_mappings: stripeAddressMappings,
+      ...(addressAwaitingFirstPayment ? { addressAwaitingFirstPayment: true } : {}),
+      ...(currentSetResult ? { current_set: currentSetResult } : {}),
+    });
+  } catch (error) {
+    await releaseStripeProcessingLease();
+    console.error('[AppProcessor] Error:', error);
+    if (error instanceof FormApplicantContinuationError) {
+      return res.status(error.status).json({ error: error.message, code: error.code });
+    }
+    if (error?.code === 'INVALID_FORM_ADDRESS_COMPONENT_MAPPING') {
+      return res.status(400).json({
+        error: error.message,
+        code: error.code,
+        details: error.details,
+      });
+    }
+    if (error instanceof StructuredActionAuthorizationError || error?.code === 'STRUCTURED_ACTION_FORBIDDEN') {
+      return res.status(error.status || 403).json({
+        error: error.message,
+        code: error.code || 'STRUCTURED_ACTION_FORBIDDEN',
+      });
+    }
+    if (error instanceof DepartmentCurrentSetError) {
+      return res.status(error.status || 500).json({
+        error: error.message,
+        code: error.code || 'CURRENT_SET_FAILED',
+        retryable: error.status >= 500,
+      });
+    }
+    if (error instanceof StripeAddressMappingError) {
+      return res.status(error.status || 500).json({
+        error: error.message,
+        code: error.code,
+        retryable: error.status >= 500,
+      });
+    }
+    res.status(500).json({ error: 'Failed to process application' });
+  }
+}
+
+export const buildMemberResourceCategoryDiff = (existingRows, selectedValues) => {
+  const selected = [...new Set(selectedValues || [])];
+  const selectedSet = new Set(selected);
+  const currentSet = new Set((existingRows || []).map(row => row.subcategory_name).filter(Boolean));
+  return {
+    removeIds: (existingRows || [])
+      .filter(row => !selectedSet.has(row.subcategory_name))
+      .map(row => row.id),
+    toInsert: selected.filter(value => !currentSet.has(value)),
+  };
+};
+
+export const collectMemberResourceCategoryMappingIntents = (pipelineEntry, formValues = {}, formFields = null) => {
+  const intents = new Map();
+  if (!Array.isArray(pipelineEntry?.mappings) || !formValues || typeof formValues !== 'object') {
+    return intents;
+  }
+  const enforceSourceContract = Array.isArray(formFields);
+  const sourceFields = new Map((formFields || []).filter(field => field?.id).map(field => [field.id, field]));
+
+  for (const mapping of pipelineEntry.mappings) {
+    if (!isMemberResourceCategoryMapping(mapping)) continue;
+    const sourceFieldId = mapping.source_field_id.trim();
+    if (enforceSourceContract) {
+      const sourceField = sourceFields.get(sourceFieldId);
+      const destinationId = mapping.target_field.trim();
+      const isDropdownForDestination = (
+        sourceField?.type === 'category_dropdown'
+        && sourceField.category_id === destinationId
+      );
+      const allowedCategoryIds = Array.isArray(sourceField?.allowed_category_ids)
+        ? sourceField.allowed_category_ids
+        : [];
+      const isMultiForDestination = (
+        (sourceField?.type === 'category_multiselect' || sourceField?.type === 'resource_categories')
+        && (allowedCategoryIds.length === 0 || allowedCategoryIds.includes(destinationId))
+      );
+      if (!isDropdownForDestination && !isMultiForDestination) continue;
+    }
+    if (!Object.prototype.hasOwnProperty.call(formValues, sourceFieldId)) continue;
+
+    const categoryId = mapping.target_field.trim();
+    const rawValue = formValues[sourceFieldId];
+    const values = Array.isArray(rawValue) ? rawValue : [rawValue];
+    if (!intents.has(categoryId)) intents.set(categoryId, new Set());
+    const selected = intents.get(categoryId);
+    for (const value of values) {
+      if (value === null || value === undefined || value === '' || isFormNotListedValue(value)) continue;
+      const normalized = String(value).trim();
+      if (normalized) selected.add(normalized);
+    }
+  }
+  return intents;
+};

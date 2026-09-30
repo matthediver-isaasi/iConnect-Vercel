@@ -1,0 +1,588 @@
+// Task #3620 — Stripe monthly card plan reconciliation safety-net cron.
+//
+// Catches webhook misses for monthly membership card plans:
+//   1. Agreements stuck pending checkout too long → re-fetch the Checkout
+//      session; roll forward a completed session (missed webhook) or reset
+//      an expired one back to payment_setup_required.
+//   2. Stale active/pending stripe plans → re-fetch the subscription's paid
+//      invoices and replay any instalments missed locally (synthetic
+//      invoice.paid events through the same processor: progression,
+//      completion, guarded settle + workflow all stay exactly-once).
+//   3. Plans whose subscription was cancelled remotely without completing →
+//      repair local status / flag for attention.
+//
+// Live/test mode-flip tolerant: each lookup tries the tenant's current-mode
+// key first, then the other key on resource_missing.
+//
+// Guarded by CRON_SECRET; logs a scheduled_task_log row per run.
+
+import Stripe from 'stripe';
+import { supabase } from '../_lib/database.js';
+import { getStripeIntegrationCredentials } from '../_lib/stripeCredentials.js';
+import { applyStatusTransition, STATUS } from '../_lib/gocardlessState.js';
+import {
+  processStripeCardPlanEvent,
+  CARD_PLAN_KIND,
+  cardPlanNeedsSettlement,
+} from '../_lib/stripeMonthlyCard.js';
+import {
+  postStripeInstalmentInvoice,
+  stripeInvoiceIdForPaymentEvidence,
+} from '../_lib/membershipInstalmentInvoicing.js';
+import { getTrustedBaseUrlForTenant } from '../_lib/publicBaseUrl.js';
+import { releaseExpiredFormMonthlyCardCheckout } from '../_lib/formMonthlyCardCheckout.js';
+import { createHeartbeatReporter, HEARTBEAT_ENV_VARS } from '../_lib/heartbeat.js';
+import { executePostGraceCollection, accrueFailedMonthlyPeriod } from '../_lib/monthlyArrearsCollection.js';
+
+const CHECKOUT_PENDING_STALE_HOURS = 6;
+const PLAN_STALE_DAYS = 2;
+const FIRST_PAYMENT_PENDING_STALE_MINUTES = 10;
+const MAX_ROWS_PER_GROUP = 100;
+
+function agoIso(ms) {
+  return new Date(Date.now() - ms).toISOString();
+}
+
+// One credential fetch per tenant per run.
+const credsCache = new Map();
+async function credsFor(tenantId) {
+  if (!credsCache.has(tenantId)) {
+    credsCache.set(tenantId, await getStripeIntegrationCredentials(tenantId).catch(() => null));
+  }
+  return credsCache.get(tenantId);
+}
+
+function stripeClients(creds) {
+  // [preferred, fallback] by the tenant's current mode; dedupe identical keys.
+  const keys = [creds?.secret_key, creds?.test_secret_key].filter(Boolean);
+  return [...new Set(keys)].map((k) => new Stripe(k));
+}
+
+// Try a Stripe call against each mode's client until one finds the resource.
+async function withModeTolerance(clients, fn) {
+  let lastErr = null;
+  for (const client of clients) {
+    try {
+      return { client, result: await fn(client) };
+    } catch (err) {
+      lastErr = err;
+      if (err?.code !== 'resource_missing' && err?.statusCode !== 404) throw err;
+    }
+  }
+  if (lastErr) throw lastErr;
+  return { client: null, result: null };
+}
+
+export default async function handler(req, res) {
+  const authHeader = req.headers.authorization;
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret) {
+    console.error('[cron/reconcile-stripe-card-plans] CRON_SECRET is not configured');
+    return res.status(503).json({ error: 'Cron authentication is not configured' });
+  }
+  if (authHeader !== `Bearer ${cronSecret}`) {
+    console.log('[cron/reconcile-stripe-card-plans] Unauthorized request');
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const reportHeartbeat = createHeartbeatReporter({
+    envVar: HEARTBEAT_ENV_VARS.stripeCardPlanReconciliation,
+  });
+  if (!supabase) {
+    await reportHeartbeat(false);
+    return res.status(500).json({ error: 'Database not configured' });
+  }
+  credsCache.clear(); // fresh credentials each run (warm serverless containers)
+  baseUrlCache.clear(); // fresh base URLs each run
+
+  const startTime = Date.now();
+  const results = { repaired: 0, flagged: 0, skipped: 0, errors: 0, details: [] };
+
+  try {
+    await reconcileFormConflictCompensations(results);
+    await reconcileStaleCheckouts(results);
+    await reconcileStalePlans(results);
+    await reconcilePostGraceCatchUps(results);
+    await retryFailedInstalmentInvoices(results);
+  } catch (err) {
+    console.error('[cron/reconcile-stripe-card-plans] fatal:', err);
+    results.errors++;
+    results.details.push({ error: err.message });
+  }
+
+  const duration = Date.now() - startTime;
+  try {
+    const { error } = await supabase.from('scheduled_task_log').insert({
+      tenant_id: null,
+      task_name: 'stripe_card_plan_reconciliation',
+      task_display_name: 'Stripe Card Plan Reconciliation',
+      status: results.errors > 0 ? 'partial' : 'success',
+      details: JSON.stringify({ ...results, duration_ms: duration }),
+      executed_at: new Date().toISOString(),
+    });
+    if (error) console.error('[cron/reconcile-stripe-card-plans] failed to log run:', error.message);
+  } catch (logErr) {
+    console.error('[cron/reconcile-stripe-card-plans] failed to log run:', logErr.message);
+  }
+
+  console.log(`[cron/reconcile-stripe-card-plans] done in ${duration}ms: repaired=${results.repaired} flagged=${results.flagged} errors=${results.errors}`);
+  await reportHeartbeat(results.errors === 0);
+  return res.status(200).json({ ok: true, duration_ms: duration, ...results });
+}
+
+// Provider-side catch-up safety net. Intent is persisted before invoice-item
+// creation, and the service re-fetches the subscription before every mutation.
+export async function reconcilePostGraceCatchUps(results, {
+  db = supabase, nowIso = new Date().toISOString(), maxRows = MAX_ROWS_PER_GROUP,
+  getCreds = credsFor, makeClients = stripeClients, accrue = accrueFailedMonthlyPeriod,
+  execute = executePostGraceCollection,
+} = {}) {
+  const { data: plans, error } = await db.from('membership_payment_plans')
+    .select('*, membership_billing_agreements!billing_agreement_id(*)')
+    .eq('provider', 'stripe')
+    .eq('interval_unit', 'monthly')
+    .in('status', [STATUS.PAYMENT_GRACE_PERIOD, STATUS.PAYMENT_OVERDUE])
+    .not('grace_expires_at', 'is', null)
+    .lte('grace_expires_at', nowIso)
+    .order('grace_expires_at', { ascending: true }).order('id', { ascending: true })
+    .limit(maxRows);
+  if (error) throw new Error(`load Stripe post-grace plans failed: ${error.message}`);
+  for (const plan of plans || []) {
+    try {
+      const clients = makeClients(await getCreds(plan.tenant_id));
+      if (!clients.length) throw new Error('Stripe credentials unavailable');
+      const duePeriod = String(plan.failed_due_period || plan.grace_expires_at).slice(0, 10);
+      await accrue({ tenantId: plan.tenant_id, plan, duePeriod, paymentReference: plan.last_payment_id || null, db });
+      const outcome = await execute({
+        plan, agreement: plan.membership_billing_agreements, db, stripe: clients[0],
+      });
+      if (outcome.created || outcome.stopped) results.repaired++;
+      else results.skipped++;
+    } catch (err) {
+      results.errors++;
+      await flagAttention('membership_payment_plans', plan.id, `Post-grace Stripe collection requires review: ${err.message}`);
+    }
+  }
+}
+
+async function flagAttention(table, id, reason) {
+  const { error } = await supabase
+    .from(table)
+    .update({ needs_attention: true, attention_reason: reason, updated_at: new Date().toISOString() })
+    .eq('id', id);
+  if (error) console.error(`[cron/reconcile-stripe-card-plans] failed to flag ${table}#${id}: ${error.message}`);
+}
+
+// One trusted base-URL fetch per tenant per run (caches alongside creds).
+const baseUrlCache = new Map();
+async function baseUrlFor(tenantId) {
+  if (!baseUrlCache.has(tenantId)) {
+    baseUrlCache.set(tenantId, await getTrustedBaseUrlForTenant(null, supabase, tenantId).catch(() => ''));
+  }
+  return baseUrlCache.get(tenantId) || '';
+}
+
+// Replay a Stripe event through the shared processor with mode-tolerant client.
+// baseUrl is resolved per tenant so form entity pipelines work correctly for
+// form-originated checkout sessions (Task #3680).
+async function replayEvent(tenantId, event, matchedClient = null) {
+  const creds = await credsFor(tenantId);
+  const clients = stripeClients(creds);
+  const getStripe = async () => matchedClient || clients[0] || null;
+  const baseUrl = await baseUrlFor(tenantId);
+  return processStripeCardPlanEvent(event, { db: supabase, getStripe, baseUrl });
+}
+
+// Form/member resolution can discover a member-year conflict only after the
+// subscription Checkout completed. The processor records a durable "pending"
+// compensation before touching Stripe; this sweep retries cancellation/refund
+// even after webhook retries are exhausted and even when needs_attention=true.
+async function reconcileFormConflictCompensations(results) {
+  const { data: rows, error } = await supabase
+    .from('membership_billing_agreements')
+    .select('*')
+    .eq('provider', 'stripe')
+    .filter('metadata->form_conflict_resolution->>status', 'eq', 'pending')
+    .order('updated_at', { ascending: true })
+    .limit(MAX_ROWS_PER_GROUP);
+  if (error) throw new Error(`load pending form conflict compensations failed: ${error.message}`);
+
+  for (const agreement of rows || []) {
+    try {
+      const subscriptionId = agreement.metadata?.form_conflict_resolution?.subscription_id
+        || agreement.stripe_subscription_id
+        || null;
+      if (!subscriptionId) throw new Error('pending form conflict has no Stripe subscription id');
+      const clients = stripeClients(await credsFor(agreement.tenant_id));
+      if (clients.length === 0) throw new Error('Stripe credentials unavailable for conflict compensation');
+      const { client, result: subscription } = await withModeTolerance(
+        clients,
+        (candidate) => candidate.subscriptions.retrieve(subscriptionId),
+      );
+      if (!client || !subscription) throw new Error(`Stripe subscription ${subscriptionId} not found`);
+      const outcome = await replayEvent(agreement.tenant_id, {
+        id: `reconcile-form-conflict-${agreement.id}`,
+        type: 'checkout.session.completed',
+        data: {
+          object: {
+            id: agreement.stripe_checkout_session_id || `agreement-${agreement.id}`,
+            mode: 'subscription',
+            status: 'complete',
+            subscription: subscriptionId,
+            invoice: subscription.latest_invoice || null,
+            metadata: {
+              kind: CARD_PLAN_KIND,
+              agreement_id: agreement.id,
+              form_submission_id: agreement.metadata?.form_submission_id || '',
+            },
+          },
+        },
+      }, client);
+      if (!outcome?.conflict || !outcome?.handled) {
+        throw new Error(outcome?.detail || 'conflict compensation did not complete');
+      }
+      results.repaired++;
+      results.details.push({ agreement: agreement.id, repaired: outcome.detail });
+    } catch (err) {
+      results.errors++;
+      await flagAttention(
+        'membership_billing_agreements',
+        agreement.id,
+        `Membership conflict cleanup pending: ${err.message}`,
+      );
+      results.details.push({ agreement: agreement.id, error: err.message });
+    }
+  }
+}
+
+async function resetExpiredFormCheckout(agreement) {
+  const released = await releaseExpiredFormMonthlyCardCheckout(supabase, {
+    agreementId: agreement.id,
+    checkoutSessionId: agreement.stripe_checkout_session_id,
+  });
+  if (!released.ok) {
+    throw new Error(released.detail || 'expired Checkout reservation was not released');
+  }
+  return released;
+}
+
+// Task #3633 — retry per-instalment accounting invoices that previously
+// failed (or were inserted but never attempted). The posting helper is
+// idempotent on the row's invoice linkage, so retries can never duplicate.
+/**
+ * Keep failed preflight rows moving through the ordered retry queue. This is
+ * deliberately conditional: a webhook which has freshly claimed a stale
+ * `posting` row must never be overwritten by the cron's failed lookup.
+ */
+export async function markInstalmentRetryFailed(db, row, reason, staleCutoff) {
+  const patch = {
+    accounting_sync_status: 'failed',
+    accounting_sync_error: String(reason || 'Stripe payment evidence recovery failed').slice(0, 500),
+    updated_at: new Date().toISOString(),
+  };
+  let query = db.from('membership_instalment_invoices').update(patch).eq('id', row.id);
+  if (row.accounting_sync_status === 'posting') {
+    query = query.eq('accounting_sync_status', 'posting').lt('updated_at', staleCutoff);
+  } else {
+    query = query.in('accounting_sync_status', ['failed', 'pending', 'invoice_unpaid']);
+  }
+  const { error } = await query;
+  if (error) throw new Error(`rotate failed instalment retry row failed: ${error.message}`);
+}
+
+export async function retryFailedInstalmentInvoices(results, {
+  db = supabase,
+  getCreds = credsFor,
+  makeClients = stripeClients,
+  postInstalmentInvoice = postStripeInstalmentInvoice,
+  modeTolerant = withModeTolerance,
+  maxRows = MAX_ROWS_PER_GROUP,
+} = {}) {
+  let rows = null;
+  const staleCutoff = new Date(Date.now() - 15 * 60_000).toISOString();
+  try {
+    const { data, error } = await db
+      .from('membership_instalment_invoices')
+      .select('*')
+      .eq('provider', 'stripe')
+      .or(`accounting_sync_status.in.(failed,pending,invoice_unpaid),and(accounting_sync_status.eq.posting,updated_at.lt.${staleCutoff})`)
+      .order('updated_at', { ascending: true })
+      .limit(maxRows);
+    if (error) {
+      // Pre-migration — nothing to retry.
+      if (error.code === '42P01') return;
+      throw new Error(`load failed instalment invoices failed: ${error.message}`);
+    }
+    rows = data;
+  } catch (err) {
+    results.errors++;
+    results.details.push({ error: err.message });
+    return;
+  }
+
+  for (const row of rows || []) {
+    try {
+      const { data: agreement } = await db
+        .from('membership_billing_agreements')
+        .select('*')
+        .eq('id', row.billing_agreement_id)
+        .maybeSingle();
+      if (!agreement) throw new Error('membership agreement no longer exists for instalment retry');
+      if (!row.plan_id) throw new Error('instalment retry has no payment-plan linkage for Stripe evidence validation');
+      const { data: plan } = await db
+        .from('membership_payment_plans')
+        .select('id, tenant_id, stripe_customer_id, stripe_subscription_id')
+        .eq('id', row.plan_id)
+        .eq('tenant_id', row.tenant_id)
+        .maybeSingle();
+      if (!plan) throw new Error('payment plan no longer exists for instalment retry');
+      // Legacy failed rows only retain the Stripe invoice ID. Re-read that
+      // invoice with this tenant's Stripe client before retrying so a Stripe
+      // Invoice identifier can never be misused as a PaymentIntent ID.
+      const paymentEvidenceInvoiceId = stripeInvoiceIdForPaymentEvidence(row.external_payment_id);
+      const clients = makeClients(await getCreds(row.tenant_id));
+      if (!clients.length) throw new Error('Stripe credentials unavailable for payment-evidence recovery');
+      const { client, result: stripeInvoice } = await modeTolerant(
+        clients,
+        (candidate) => candidate.invoices.retrieve(paymentEvidenceInvoiceId),
+      );
+      if (!stripeInvoice || (stripeInvoice.status !== 'paid' && stripeInvoice.paid !== true)) {
+        throw new Error(`Stripe invoice ${paymentEvidenceInvoiceId} is not confirmed paid; accounting retry deferred`);
+      }
+      const outcome = await postInstalmentInvoice({
+        agreement,
+        plan,
+        stripeInvoiceId: row.external_payment_id,
+        stripePaymentEvidenceInvoiceId: paymentEvidenceInvoiceId,
+        stripeInvoice,
+        amountMinor: row.amount_minor,
+        currency: row.currency,
+      }, { db, reclaimStale: true, stripe: client });
+      if (outcome.status === 'posted') {
+        results.repaired++;
+        results.details.push({ instalmentInvoice: row.id, repaired: 'per-instalment invoice posted on retry' });
+      } else {
+        results.skipped++;
+        if (outcome.status === 'failed') {
+          results.details.push({ instalmentInvoice: row.id, error: `retry failed: ${outcome.reason}` });
+        }
+      }
+    } catch (err) {
+      results.errors++;
+      results.details.push({ instalmentInvoice: row.id, error: err.message });
+      try {
+        await markInstalmentRetryFailed(db, row, err.message, staleCutoff);
+      } catch (markErr) {
+        results.errors++;
+        results.details.push({ instalmentInvoice: row.id, error: markErr.message });
+      }
+    }
+  }
+}
+
+// Group 1 — agreements stuck pending checkout.
+async function reconcileStaleCheckouts(results) {
+  const { data: rows, error } = await supabase
+    .from('membership_billing_agreements')
+    .select('*')
+    .eq('provider', 'stripe')
+    .in('status', [STATUS.MANDATE_PENDING, STATUS.PAYMENT_SETUP_REQUIRED])
+    .eq('needs_attention', false)
+    .not('stripe_checkout_session_id', 'is', null)
+    .lt('updated_at', agoIso(CHECKOUT_PENDING_STALE_HOURS * 3_600_000))
+    .order('updated_at', { ascending: true })
+    .limit(MAX_ROWS_PER_GROUP);
+  if (error) throw new Error(`load stale card agreements failed: ${error.message}`);
+
+  for (const agreement of rows || []) {
+    try {
+      const creds = await credsFor(agreement.tenant_id);
+      const clients = stripeClients(creds);
+      if (clients.length === 0) { results.skipped++; continue; }
+      const { client, result: session } = await withModeTolerance(clients, (c) =>
+        c.checkout.sessions.retrieve(agreement.stripe_checkout_session_id));
+      if (!session) { results.skipped++; continue; }
+
+      if (session.status === 'complete') {
+        // Missed webhook — replay the checkout completion through the processor.
+        const outcome = await replayEvent(agreement.tenant_id, {
+          id: `reconcile-checkout-${session.id}`,
+          type: 'checkout.session.completed',
+          data: { object: { ...session, metadata: { ...(session.metadata || {}), kind: CARD_PLAN_KIND, agreement_id: agreement.id } } },
+        }, client);
+        results.repaired++;
+        results.details.push({ agreement: agreement.id, repaired: outcome.detail });
+      } else if (session.status === 'expired') {
+        const outcome = await applyStatusTransition({
+          entityType: 'billing_agreement',
+          entityId: agreement.id,
+          toStatus: STATUS.PAYMENT_SETUP_REQUIRED,
+          reason: 'reconciliation: checkout session expired',
+          source: 'reconciliation',
+        });
+        // payment_setup_required -> payment_setup_required is intentionally a
+        // no-op transition, but the expired provider link still must be
+        // cleared so the next attempt creates a fresh Checkout.
+        await resetExpiredFormCheckout(agreement);
+        results.repaired++;
+        if (!outcome.applied && outcome.skippedReason !== 'no-change') {
+          results.details.push({ agreement: agreement.id, warning: outcome.skippedReason });
+        }
+      } else {
+        // Still open after the stale window — the member may just be slow;
+        // flag only after a much longer window (2 days).
+        if (new Date(agreement.updated_at) < new Date(agoIso(2 * 86_400_000))) {
+          await flagAttention('membership_billing_agreements', agreement.id,
+            `Checkout session ${agreement.stripe_checkout_session_id} still '${session.status}' after 2+ days`);
+          results.flagged++;
+        } else {
+          results.skipped++;
+        }
+      }
+    } catch (err) {
+      results.errors++;
+      results.details.push({ agreement: agreement.id, error: err.message });
+    }
+  }
+}
+
+// Groups 2+3 — stale plans: replay missed paid invoices; repair remote cancels.
+export async function reconcileStalePlans(results, {
+  db = supabase,
+  pendingBudget = MAX_ROWS_PER_GROUP,
+  establishedBudget = MAX_ROWS_PER_GROUP,
+  getClients = async (tenantId) => stripeClients(await credsFor(tenantId)),
+  tolerateModes = withModeTolerance,
+  replay = replayEvent,
+  transition = (args) => applyStatusTransition(args, { db }),
+  flag = async (table, id, reason) => {
+    const { error } = await db.from(table)
+      .update({ needs_attention: true, attention_reason: reason, updated_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) throw new Error(`flag ${table}#${id} failed: ${error.message}`);
+  },
+} = {}) {
+  // A completed Checkout with no webhook endpoint must not wait the general
+  // two-day drift window for its first paid invoice. Keep established plans on
+  // the lower-frequency window, while checking first-payment-pending plans
+  // after a short ordering/Checkout replay grace period.
+  const commonPlanQuery = () => db
+    .from('membership_payment_plans')
+    .select('*')
+    .eq('provider', 'stripe')
+    .not('stripe_subscription_id', 'is', null);
+  const [{ data: pendingRows, error: pendingError }, { data: establishedRows, error: establishedError }] = await Promise.all([
+    commonPlanQuery()
+      .eq('status', STATUS.FIRST_PAYMENT_PENDING)
+      .lt('updated_at', agoIso(FIRST_PAYMENT_PENDING_STALE_MINUTES * 60_000))
+      .order('updated_at', { ascending: true })
+      .order('id', { ascending: true })
+      .limit(pendingBudget),
+    commonPlanQuery()
+      .in('status', [STATUS.ACTIVE, STATUS.PAYMENT_GRACE_PERIOD, STATUS.PAYMENT_OVERDUE])
+    .lt('updated_at', agoIso(PLAN_STALE_DAYS * 86_400_000))
+    .order('updated_at', { ascending: true })
+      .order('id', { ascending: true })
+      .limit(establishedBudget),
+  ]);
+  if (pendingError) throw new Error(`load first-payment-pending card plans failed: ${pendingError.message}`);
+  if (establishedError) throw new Error(`load stale established card plans failed: ${establishedError.message}`);
+  // Each group owns its budget. A large backlog of old established no-ops can
+  // therefore never consume the first-payment safety-net capacity.
+  const rows = [...(pendingRows || []), ...(establishedRows || [])];
+
+  for (const plan of rows || []) {
+    try {
+      const clients = await getClients(plan.tenant_id);
+      if (clients.length === 0) { results.skipped++; continue; }
+
+      const { client, result: sub } = await tolerateModes(clients, (c) =>
+        c.subscriptions.retrieve(plan.stripe_subscription_id));
+      if (!sub) {
+        await flag('membership_payment_plans', plan.id,
+          `Stripe subscription ${plan.stripe_subscription_id} not found in either mode`);
+        results.flagged++;
+        continue;
+      }
+
+      // Replay paid invoices through the shared processor; its durable invoice
+      // ID dedupe keeps instalment advancement exactly-once.
+      const invoices = await client.invoices.list({ subscription: plan.stripe_subscription_id, status: 'paid', limit: 100 });
+      let replayed = 0;
+      for (const inv of invoices?.data || []) {
+        if (inv.status !== 'paid' && inv.paid !== true) continue;
+        // Replay counted invoices too (finite plans are bounded to 12). The
+        // shared processor dedupes the counter/provider side effects but
+        // retries per-instalment accounting and activation that may have
+        // failed immediately after an early counter commit.
+        const outcome = await replay(plan.tenant_id, {
+          id: `reconcile-invoice-${inv.id}`,
+          type: 'invoice.paid',
+          // Preserve the invoice exactly as returned. Modern Stripe invoices
+          // carry the subscription under parent.subscription_details; forging
+          // a legacy subscription field could mask an identity mismatch.
+          data: { object: inv },
+        }, client);
+        if (outcome.handled) replayed++;
+      }
+      // Never bypass the shared processor when the counted final invoice
+      // cannot be found: direct settlement would silently skip activation and
+      // a missing per-instalment accounting row. Keep the plan resumable and
+      // visibly fail for operator review instead.
+      if (cardPlanNeedsSettlement(plan) && replayed === 0) {
+        throw new Error(`recorded final paid invoice ${plan.last_payment_id || '(unknown)'} was not returned by Stripe`);
+      }
+
+      // Replay may have terminalized the plan. Reload before interpreting the
+      // provider's canceled status so completion is never regressed to
+      // payment_plan_cancelled.
+      const { data: latestPlan, error: latestError } = await db
+        .from('membership_payment_plans')
+        .select('*')
+        .eq('id', plan.id)
+        .maybeSingle();
+      if (latestError) throw new Error(`reload reconciled card plan failed: ${latestError.message}`);
+      if (latestPlan?.completed_at || latestPlan?.status === STATUS.EXPIRED) {
+        results.repaired++;
+        results.details.push({ plan: plan.id, repaired: `replayed ${replayed} paid invoice obligation(s); plan completed` });
+        continue;
+      }
+
+      // A handled duplicate is still "replayed", but must not swallow remote
+      // cancellation repair for an established non-terminal plan.
+      if (sub.status === 'canceled') {
+        const outcome = await transition({
+          entityType: 'payment_plan',
+          entityId: plan.id,
+          toStatus: STATUS.PAYMENT_PLAN_CANCELLED,
+          reason: 'reconciliation: stripe subscription cancelled remotely',
+          source: 'reconciliation',
+        });
+        if (outcome.applied) results.repaired++;
+        else results.skipped++;
+      } else if (replayed > 0) {
+        results.repaired++;
+        results.details.push({ plan: plan.id, repaired: `replayed ${replayed} paid invoice obligation(s)` });
+      } else {
+        results.skipped++;
+      }
+    } catch (err) {
+      results.errors++;
+      results.details.push({ plan: plan.id, error: err.message });
+    } finally {
+      // Rotate every examined row, including skips/failures, so the oldest
+      // unchanged row cannot monopolise a bounded batch forever. The original
+      // updated_at guard makes this a CAS touch: concurrent webhook/recovery
+      // writes win and are never overwritten.
+      if (plan.updated_at) {
+        const { error: touchError } = await db.from('membership_payment_plans')
+          .update({ updated_at: new Date().toISOString() })
+          .eq('id', plan.id)
+          .eq('updated_at', plan.updated_at);
+        if (touchError) {
+          results.errors++;
+          results.details.push({ plan: plan.id, error: `rotate reconciliation row failed: ${touchError.message}` });
+        }
+      }
+    }
+  }
+}

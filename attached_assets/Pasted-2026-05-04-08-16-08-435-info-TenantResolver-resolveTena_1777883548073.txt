@@ -1,0 +1,224 @@
+2026-05-04 08:16:08.435 [info] [TenantResolver] resolveTenantFromRequest called
+2026-05-04 08:16:08.436 [info] [TenantResolver] Params - tenant: undefined domain: undefined
+2026-05-04 08:16:08.436 [info] [TenantResolver] Falling back to host-based resolution, hostname: gfi.dev.iconn.app
+2026-05-04 08:16:08.437 [info] [TenantResolver] resolveTenantFromHost called with: gfi.dev.iconn.app
+2026-05-04 08:16:08.437 [info] [TenantResolver] Parsed host: gfi.dev.iconn.app
+2026-05-04 08:16:08.437 [info] [TenantResolver] Preview environment detected, environment: dev
+2026-05-04 08:16:08.438 [info] [TenantResolver] Subdomain detected, slug: gfi
+2026-05-04 08:16:08.438 [info] [TenantResolver] Looking up by slug: gfi
+2026-05-04 08:16:08.455 [error] (node:4) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+2026-05-04 08:16:08.657 [info] [TenantResolver] Found tenant by slug: gfi
+2026-05-04 08:16:08.658 [info] [TenantContext] About to call getSessionTenantUser
+2026-05-04 08:16:08.659 [info] [Session] getSession: Looking up session: 110c0234
+2026-05-04 08:16:08.785 [info] [Session] getSession: Session found, userType: member
+2026-05-04 08:16:08.785 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"110c0234","userType":"member","memberId":"9ac39222-22b8-457e-a5df-dfca45a99eb6","identityId":"dc156a30-ae8d-4aee-b965-b54fe4b17105","tenantId":"fd82da65-aab7-4a5c-85b8-b2febeb2003d"}
+2026-05-04 08:16:08.785 [info] [Session] Found member session with identityId, attempting promotion
+2026-05-04 08:16:09.027 [info] [Session] No tenant_user record found for identity promotion
+2026-05-04 08:16:09.027 [info] [Session] Member session promotion failed
+2026-05-04 08:16:09.027 [info] [TenantContext] getSessionTenantUser returned: null
+2026-05-04 08:16:09.027 [info] [TenantContext] Checking for member session...
+2026-05-04 08:16:09.028 [info] [Session] getSession: Looking up session: 110c0234
+2026-05-04 08:16:09.149 [info] [Session] getSession: Session found, userType: member
+2026-05-04 08:16:09.149 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"110c0234","userType":"member","memberId":"9ac39222-22b8-457e-a5df-dfca45a99eb6"}
+2026-05-04 08:16:09.271 [info] [TenantContext] Member found: {
+  memberId: '9ac39222-22b8-457e-a5df-dfca45a99eb6',
+  organizationId: 'ccbbbd4d-12e8-4e9e-b49e-cd29979623ae'
+}
+2026-05-04 08:16:09.271 [info] [TenantContext] Tenant from member: fd82da65-aab7-4a5c-85b8-b2febeb2003d
+2026-05-04 08:16:11.702 [info] [Sync Mailgun Events] Starting sync for campaign 99ffb6d9-3bee-4d67-be53-696ab8dba5c9, 4820 message IDs, 4820 emails, domain: mail.graduatefutures.org, 59 existing events pre-loaded
+2026-05-04 08:16:12.946 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:13.178 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:13.320 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:13.877 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:14.069 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:14.995 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:15.219 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:15.390 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:15.530 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:15.669 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:15.828 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:16.507 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:16.682 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:16.853 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:16.993 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:17.242 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:17.766 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:18.355 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:18.547 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:18.690 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:18.865 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:19.009 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:19.167 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:19.889 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:20.028 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:20.321 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:20.504 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:20.742 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:20.904 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:21.519 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:21.684 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:28.634 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:28.792 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:28.971 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:29.113 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:29.283 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:29.483 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:29.993 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:30.162 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:30.323 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:30.485 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:30.626 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:30.781 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:31.646 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:31.793 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:31.934 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:32.075 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:32.245 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:32.405 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:33.331 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:33.474 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:33.650 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:33.796 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:33.932 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:34.076 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:34.674 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:34.834 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:35.014 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:35.184 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:35.344 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:35.525 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:35.982 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:36.140 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:36.299 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:36.435 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:36.602 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:36.784 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:37.175 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:38.309 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:38.454 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:38.588 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:38.736 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:38.893 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:39.034 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:39.545 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:39.680 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:39.808 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:39.951 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:40.127 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:40.630 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:41.120 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:41.254 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:41.390 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:41.529 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:41.681 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:41.811 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:42.334 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:42.479 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:42.619 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:42.786 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:42.930 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:43.087 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:43.733 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:43.889 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:44.039 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:44.182 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:44.341 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:44.470 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:44.873 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:45.011 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:45.171 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:45.321 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:45.459 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:45.611 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:46.000 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:46.152 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:46.303 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:46.453 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:46.581 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:46.722 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:47.298 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:47.441 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:47.590 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:47.731 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:47.870 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:48.915 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:49.066 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:49.215 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:49.382 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:49.518 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:49.676 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:50.089 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:50.259 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:50.460 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:50.613 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:50.757 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:50.896 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:51.371 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:51.517 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:51.651 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:51.875 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:52.037 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:52.202 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:52.624 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:52.784 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:52.921 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:53.064 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:53.227 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:53.365 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:53.951 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:54.106 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:54.272 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:54.436 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:54.581 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:54.932 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:55.423 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:55.591 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:55.754 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:55.891 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:56.053 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:56.218 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:56.703 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:56.844 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:56.993 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:57.130 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:57.294 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:57.461 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:57.923 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:58.080 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:58.220 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:58.366 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:58.529 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:58.683 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:59.057 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:59.215 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:59.349 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:59.459 [info] [Sync Mailgun Events] Partial for campaign 99ffb6d9-3bee-4d67-be53-696ab8dba5c9: 0 events found, 0 processed, 59 skipped, 9643 errors, 50s elapsed, stopped at event type: failed
+2026-05-04 08:16:21.826 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:21.960 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:22.143 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:22.283 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:22.748 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:22.924 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:23.085 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:23.258 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:23.434 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:23.573 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:24.023 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:24.216 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:24.374 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:24.560 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:24.756 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:24.931 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:25.475 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:25.651 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:25.836 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:25.978 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:26.140 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:26.291 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:26.757 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:26.944 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:27.117 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:27.289 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:27.440 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification
+2026-05-04 08:16:27.575 [error] [Sync Mailgun Events] Batch insert error: there is no unique or exclusion constraint matching the ON CONFLICT specification

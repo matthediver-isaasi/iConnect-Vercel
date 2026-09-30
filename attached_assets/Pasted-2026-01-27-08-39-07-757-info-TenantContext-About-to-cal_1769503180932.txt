@@ -1,0 +1,26 @@
+2026-01-27 08:39:07.757 [info] [TenantContext] About to call getSessionTenantUser
+2026-01-27 08:39:07.757 [info] [Session] getSession: Looking up session: e20497ac
+2026-01-27 08:39:07.890 [info] [Session] getSession: Session found, userType: tenant_user
+2026-01-27 08:39:07.890 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"e20497ac","userType":"tenant_user","tenantUserId":"11ee8b69-e967-45d5-9bfa-dff5a52c4ae6","preservedTenantUserId":"11ee8b69-e967-45d5-9bfa-dff5a52c4ae6","memberId":"b24e022f-adcc-4930-8952-63a34cc16925","identityId":"545269d1-326b-4fff-90d0-b8a4e0cab9bb","tenantId":"21296ad6-1350-483a-a90c-1b06ece70501"}
+2026-01-27 08:39:07.890 [info] [Session] Found tenant_user session, continuing with normal handling
+2026-01-27 08:39:08.150 [info] [Session] Verified via unified identity system: mat.the.diver@googlemail.com
+2026-01-27 08:39:08.287 [info] [Session] Elevating role from tenant_user table: owner
+2026-01-27 08:39:08.290 [info] [TenantContext] getSessionTenantUser returned: tenant_user found
+2026-01-27 08:39:08.290 [info] [Session] getSession: Looking up session: e20497ac
+2026-01-27 08:39:08.423 [info] [Session] getSession: Session found, userType: tenant_user
+2026-01-27 08:39:08.423 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"e20497ac","userType":"tenant_user","memberId":"b24e022f-adcc-4930-8952-63a34cc16925","preservedTenantUserId":"11ee8b69-e967-45d5-9bfa-dff5a52c4ae6","preservedIdentityId":"545269d1-326b-4fff-90d0-b8a4e0cab9bb"}
+2026-01-27 08:39:08.545 [info] [Session] Attaching preserved admin context to member: {
+  memberId: 'b24e022f-adcc-4930-8952-63a34cc16925',
+  preservedTenantUserId: '11ee8b69-e967-45d5-9bfa-dff5a52c4ae6'
+}
+2026-01-27 08:39:08.545 [info] [Session] Attaching preserved identity to member: {
+  memberId: 'b24e022f-adcc-4930-8952-63a34cc16925',
+  preservedIdentityId: '545269d1-326b-4fff-90d0-b8a4e0cab9bb'
+}
+2026-01-27 08:39:08.545 [info] POST to system_settings: {"setting_key":"email_footer_html","setting_value":"<table style=\"border-collapse:collapse; font-size:12px; font-family:&quot;Source Sans Pro&quot;, Calibri, Helvetica, Arial, sans-serif\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\"><tbody><tr><td style=\"padding:15px\" bgcolor=\"#07485a\" align=\"center\"><p style=\"margin:0; line-height:25pt\"><span class=\"colour\" style=\"color:rgb(255, 255, 255)\"><b><span class=\"size\" style=\"font-size:14pt\">Follow us</span></b></span><br></p><table style=\"margin-top:10px\" align=\"center\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\"><tbody><tr><td style=\"padding:0 10px\" align=\"center\"><a style=\"color:rgb(255, 255, 255) !important; text-decoration:none\" target=\"_blank\" href=\"https://www.linkedin.com/company/global-schools-forum/\"><img style=\"display:block; border:0\" height=\"35\" width=\"35\" alt=\"LinkedIn\" src=\"https://stratus.campaign-image.eu/images/238334000000531001_3_1755061928407_zcsclwgtlin2.png\"></a></td><td style=\"padding:0 10px\" align=\"center\"><a style=\"color:rgb(255, 255, 255) !important; text-decoration:none\" target=\"_blank\" href=\"https://www.youtube.com/@GlobalSchoolsForum\"><img style=\"display:block; border:0\" height=\"35\" width=\"35\" alt=\"YouTube\" src=\"https://stratus.campaign-image.eu/images/238334000000531001_4_1755061928457_zcsclwgtyt2.png\"></a></td></tr></tbody></table></td></tr><tr><td style=\"padding:15px; text-align:center; font-size:12px; line-height:17pt; color:rgb(255, 255, 255)\" bgcolor=\"#07485a\"><p style=\"margin:0\">Copyright © 2025 Global Schools Forum. All rights reserved.<br></p><p style=\"margin:15px 0 0 0\">Our mailing address is:<br>167-169 Great Portland Street | 5th Floor<br>London | W1W 5PF</p></td></tr></tbody></table>","description":"HTML footer appended to all outgoing emails"}
+2026-01-27 08:39:08.684 [error] Error inserting into system_settings: {
+  code: '23505',
+  details: 'Key (setting_key)=(email_footer_html) already exists.',
+  hint: null,
+  message: 'duplicate key value violates unique constraint "system_settings_setting_key_unique"'
+}

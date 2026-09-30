@@ -1,12 +1,16 @@
-import React, { useState, useEffect } from "react";
-import { base44 } from "@/api/base44Client";
+import React, { useState, useEffect, useSyncExternalStore } from "react";
+import {
+  base44,
+  getActiveTenantId,
+  subscribeToActiveTenantId,
+} from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Plus, Edit, Trash2, User, Mail, Briefcase, Building, Upload, X } from "lucide-react";
+import { Plus, Edit, Trash2, User, Mail, Briefcase, Building, Upload, X, Search } from "lucide-react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -27,25 +31,52 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
+import {
+  getGuestWriterPageCount,
+  getGuestWriterRange,
+  normalizeGuestWriterPage,
+} from "@/lib/guestWriterPagination";
 
 export default function GuestWriterManagementPage() {
-  const { isAdmin, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
+  const activeTenantId = useSyncExternalStore(
+    subscribeToActiveTenantId,
+    getActiveTenantId,
+    () => null,
+  );
+  const tenantIdentity = activeTenantId || memberInfo?.tenant_id || null;
+  const isGuestWriterExcluded = isFeatureExcluded('content.guest-writers');
+  const canReadGuestWriters = isAccessReady && !isGuestWriterExcluded;
   const [accessChecked, setAccessChecked] = useState(false);
 
   useEffect(() => {
-    if (isAccessReady) {
-      if (!isAdmin) {
+    if (!isAccessReady || isGuestWriterExcluded) {
+      setAccessChecked(false);
+      if (isAccessReady && isGuestWriterExcluded) {
         window.location.href = createPageUrl('Events');
-      } else {
-        setAccessChecked(true);
       }
+      return;
     }
-  }, [isAdmin, isAccessReady]);
+    setAccessChecked(true);
+  }, [isAccessReady, isGuestWriterExcluded]);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editingWriter, setEditingWriter] = useState(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [writerToDelete, setWriterToDelete] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(12);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => window.clearTimeout(timeout);
+  }, [search]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [tenantIdentity]);
 
   const [formData, setFormData] = useState({
     full_name: "",
@@ -54,18 +85,53 @@ export default function GuestWriterManagementPage() {
     job_title: "",
     biography: "",
     profile_photo_url: "",
+    linkedin_url: "",
     is_active: true
   });
 
   const queryClient = useQueryClient();
 
-  const { data: guestWriters = [], isLoading } = useQuery({
-    queryKey: ['guest-writers'],
-    queryFn: async () => {
-      const writers = await base44.entities.GuestWriter.list('-created_date');
-      return writers;
+  const {
+    data: writerPage,
+    isLoading,
+    isFetching,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: [
+      'guest-writers',
+      tenantIdentity,
+      memberInfo?.id || null,
+      debouncedSearch,
+      page,
+      pageSize,
+    ],
+    queryFn: async ({ signal }) => {
+      const response = await base44.entities.GuestWriter.list({
+        limit: pageSize,
+        offset: (page - 1) * pageSize,
+        sort: { full_name: 'asc', id: 'asc' },
+        queryParams: {
+          count: 'exact',
+          ...(debouncedSearch ? { search: debouncedSearch } : {}),
+        },
+        signal,
+      });
+      return normalizeGuestWriterPage(response);
     },
+    enabled: accessChecked && canReadGuestWriters && Boolean(tenantIdentity),
   });
+  const guestWriters = writerPage?.data || [];
+  const total = writerPage?.count || 0;
+  const totalPages = getGuestWriterPageCount(total, pageSize);
+  const range = getGuestWriterRange(page, pageSize, total);
+  const isDebouncing = search.trim() !== debouncedSearch;
+  const isResultsPending = isDebouncing || isLoading || isFetching;
+
+  useEffect(() => {
+    if (writerPage && page > totalPages) setPage(totalPages);
+  }, [page, totalPages, writerPage]);
 
   const saveMutation = useMutation({
     mutationFn: async (data) => {
@@ -77,6 +143,7 @@ export default function GuestWriterManagementPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['guest-writers'] });
+      setPage(1);
       toast.success(editingWriter ? 'Guest writer updated' : 'Guest writer created');
       handleCloseEditor();
     },
@@ -91,6 +158,7 @@ export default function GuestWriterManagementPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['guest-writers'] });
+      if (guestWriters.length === 1 && page > 1) setPage((current) => current - 1);
       toast.success('Guest writer deleted');
       setDeleteDialogOpen(false);
       setWriterToDelete(null);
@@ -110,6 +178,7 @@ export default function GuestWriterManagementPage() {
         job_title: writer.job_title || "",
         biography: writer.biography || "",
         profile_photo_url: writer.profile_photo_url || "",
+        linkedin_url: writer.linkedin_url || "",
         is_active: writer.is_active !== false
       });
     } else {
@@ -121,6 +190,7 @@ export default function GuestWriterManagementPage() {
         job_title: "",
         biography: "",
         profile_photo_url: "",
+        linkedin_url: "",
         is_active: true
       });
     }
@@ -137,6 +207,7 @@ export default function GuestWriterManagementPage() {
       job_title: "",
       biography: "",
       profile_photo_url: "",
+      linkedin_url: "",
       is_active: true
     });
   };
@@ -182,18 +253,18 @@ export default function GuestWriterManagementPage() {
     toast.success('Photo uploaded');
   };
 
-  if (!accessChecked) {
+  if (!accessChecked || !canReadGuestWriters || !tenantIdentity) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <div className="animate-pulse text-slate-600">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-8">
+    <div className="min-h-screen p-4 sm:p-6 lg:p-8">
       <div className="max-w-6xl mx-auto">
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
           <div>
             <h1 className="text-3xl font-bold text-slate-900 mb-2">Guest Writers</h1>
             <p className="text-slate-600">
@@ -202,16 +273,58 @@ export default function GuestWriterManagementPage() {
           </div>
           <Button
             onClick={() => handleOpenEditor()}
-            className="bg-blue-600 hover:bg-blue-700 gap-2"
+            className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 gap-2"
           >
             <Plus className="w-4 h-4" />
             Add Guest Writer
           </Button>
         </div>
 
-        {isLoading ? (
+        <div className="flex flex-col sm:flex-row sm:items-end gap-3 mb-6">
+          <div className="flex-1">
+            <Label htmlFor="guest-writer-search" className="sr-only">
+              Search guest writers
+            </Label>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+              <Input
+                id="guest-writer-search"
+                type="search"
+                value={search}
+                maxLength={200}
+                onChange={(event) => {
+                  setSearch(event.target.value);
+                  setPage(1);
+                }}
+                placeholder="Search by name, email, organisation or job title"
+                className="pl-9"
+              />
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Label htmlFor="guest-writer-page-size" className="whitespace-nowrap text-sm">
+              Per page
+            </Label>
+            <select
+              id="guest-writer-page-size"
+              value={pageSize}
+              onChange={(event) => {
+                setPageSize(Number(event.target.value));
+                setPage(1);
+              }}
+              className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              {[12, 24, 48].map((size) => (
+                <option key={size} value={size}>{size}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div aria-live="polite" aria-busy={isResultsPending}>
+        {isResultsPending ? (
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {Array(6).fill(0).map((_, i) => (
+            {Array(Math.min(pageSize, 6)).fill(0).map((_, i) => (
               <Card key={i} className="animate-pulse border-slate-200">
                 <CardContent className="p-6">
                   <div className="h-20 bg-slate-200 rounded mb-4" />
@@ -221,23 +334,41 @@ export default function GuestWriterManagementPage() {
               </Card>
             ))}
           </div>
+        ) : isError ? (
+          <Card className="border-red-200 shadow-sm">
+            <CardContent className="p-8 text-center">
+              <h3 className="text-lg font-semibold text-slate-900 mb-2">
+                Guest writers could not be loaded
+              </h3>
+              <p className="text-sm text-slate-600 mb-4">
+                {error?.message || 'An unexpected error occurred.'}
+              </p>
+              <Button variant="outline" onClick={() => refetch()}>Try again</Button>
+            </CardContent>
+          </Card>
         ) : guestWriters.length === 0 ? (
           <Card className="border-slate-200 shadow-sm">
             <CardContent className="p-12 text-center">
               <User className="w-16 h-16 text-slate-300 mx-auto mb-4" />
               <h3 className="text-xl font-semibold text-slate-900 mb-2">
-                No guest writers yet
+                {debouncedSearch ? 'No matching guest writers' : 'No guest writers yet'}
               </h3>
               <p className="text-slate-600 mb-4">
-                Create guest writer profiles to attribute articles to external contributors
+                {debouncedSearch
+                  ? `No guest writers match “${debouncedSearch}”. Try a different search.`
+                  : 'Create guest writer profiles to attribute articles to external contributors'}
               </p>
-              <Button
-                onClick={() => handleOpenEditor()}
-                className="bg-blue-600 hover:bg-blue-700 gap-2"
-              >
-                <Plus className="w-4 h-4" />
-                Add First Guest Writer
-              </Button>
+              {debouncedSearch ? (
+                <Button variant="outline" onClick={() => setSearch("")}>Clear search</Button>
+              ) : (
+                <Button
+                  onClick={() => handleOpenEditor()}
+                  className="bg-blue-600 hover:bg-blue-700 gap-2"
+                >
+                  <Plus className="w-4 h-4" />
+                  Add First Guest Writer
+                </Button>
+              )}
             </CardContent>
           </Card>
         ) : (
@@ -308,6 +439,7 @@ export default function GuestWriterManagementPage() {
                       variant="outline"
                       size="sm"
                       onClick={() => handleDeleteClick(writer)}
+                       aria-label={`Delete ${writer.full_name}`}
                       className="text-red-600 hover:text-red-700 hover:bg-red-50"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -317,6 +449,39 @@ export default function GuestWriterManagementPage() {
               </Card>
             ))}
           </div>
+        )}
+        </div>
+
+        {!isResultsPending && !isError && total > 0 && (
+          <nav
+            aria-label="Guest writer pagination"
+            className="mt-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-t border-slate-200 pt-4"
+          >
+            <p className="text-sm text-slate-600">
+              Showing {range.start}–{range.end} of {total}
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+                disabled={page <= 1}
+              >
+                Previous
+              </Button>
+              <span className="min-w-20 text-center text-sm text-slate-600">
+                Page {page} of {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                disabled={page >= totalPages}
+              >
+                Next
+              </Button>
+            </div>
+          </nav>
         )}
 
         {/* Editor Dialog */}
@@ -422,14 +587,27 @@ export default function GuestWriterManagementPage() {
                 />
               </div>
 
-              {/* Organization */}
+              {/* Organisation */}
               <div className="space-y-2">
-                <Label htmlFor="organization">Organization</Label>
+                <Label htmlFor="organization">Organisation</Label>
                 <Input
                   id="organization"
                   value={formData.organization}
                   onChange={(e) => setFormData({ ...formData, organization: e.target.value })}
                   placeholder="Example University"
+                />
+              </div>
+
+              {/* LinkedIn Profile */}
+              <div className="space-y-2">
+                <Label htmlFor="linkedin_url">LinkedIn Profile</Label>
+                <Input
+                  id="linkedin_url"
+                  type="url"
+                  value={formData.linkedin_url}
+                  onChange={(e) => setFormData({ ...formData, linkedin_url: e.target.value })}
+                  placeholder="https://www.linkedin.com/in/username"
+                  data-testid="input-linkedin-url"
                 />
               </div>
 

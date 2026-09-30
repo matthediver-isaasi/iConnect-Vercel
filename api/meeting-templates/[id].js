@@ -1,0 +1,132 @@
+import { createClient } from '@supabase/supabase-js';
+import { getTenantContext } from '../_lib/tenantContext.js';
+
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+export default async function handler(req, res) {
+  const tenantContext = await getTenantContext(req);
+  if (!tenantContext || !tenantContext.isAuthenticated) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+  const tenantId = tenantContext.tenantId;
+  const { id } = req.query;
+
+  if (!tenantId || tenantId === 'undefined') {
+    console.error('[meeting-templates] Invalid tenantId:', tenantId);
+    return res.status(400).json({ error: 'Invalid tenant context' });
+  }
+
+  if (!id) {
+    return res.status(400).json({ error: 'Template ID is required' });
+  }
+
+  if (req.method === 'GET') {
+    try {
+      const { data, error } = await supabase
+        .from('meeting_template')
+        .select('*')
+        .eq('id', id)
+        .eq('tenant_id', tenantId)
+        .single();
+
+      if (error || !data) {
+        return res.status(404).json({ error: 'Meeting template not found' });
+      }
+
+      return res.json({ template: data });
+    } catch (err) {
+      console.error('[meeting-templates/id] Error:', err);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  if (req.method === 'PUT' || req.method === 'PATCH') {
+    try {
+      const { name, description, duration_minutes, meeting_type, is_active, buffer_before_minutes, buffer_after_minutes, sort_order, email_template_id, confirmation_email_template_id, max_days_ahead, zoom_user_id, zoom_user_email } = req.body;
+
+      const updates = {};
+      if (name !== undefined) {
+        updates.name = name;
+        updates.slug = name
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '');
+      }
+      if (description !== undefined) updates.description = description;
+      if (duration_minutes !== undefined) updates.duration_minutes = duration_minutes;
+      if (meeting_type !== undefined) updates.meeting_type = meeting_type;
+      if (is_active !== undefined) updates.is_active = is_active;
+      if (buffer_before_minutes !== undefined) updates.buffer_before_minutes = buffer_before_minutes;
+      if (buffer_after_minutes !== undefined) updates.buffer_after_minutes = buffer_after_minutes;
+      if (sort_order !== undefined) updates.sort_order = sort_order;
+      if (email_template_id !== undefined) updates.email_template_id = email_template_id || null;
+      if (confirmation_email_template_id !== undefined) updates.confirmation_email_template_id = confirmation_email_template_id || null;
+      if (max_days_ahead !== undefined) {
+        const validatedMaxDays = parseInt(max_days_ahead) || 30;
+        if (validatedMaxDays < 1 || validatedMaxDays > 365) {
+          return res.status(400).json({ error: 'Booking window must be between 1 and 365 days' });
+        }
+        updates.max_days_ahead = validatedMaxDays;
+      }
+      if (zoom_user_id !== undefined) {
+        const effectiveMeetingType = meeting_type !== undefined ? meeting_type : undefined;
+        updates.zoom_user_id = (effectiveMeetingType === 'zoom' || (effectiveMeetingType === undefined)) ? (zoom_user_id || null) : null;
+      }
+      if (zoom_user_email !== undefined) {
+        const effectiveMeetingType = meeting_type !== undefined ? meeting_type : undefined;
+        updates.zoom_user_email = (effectiveMeetingType === 'zoom' || (effectiveMeetingType === undefined)) ? (zoom_user_email || null) : null;
+      }
+      if (meeting_type !== undefined && meeting_type !== 'zoom') {
+        updates.zoom_user_id = null;
+        updates.zoom_user_email = null;
+      }
+
+      const { data, error } = await supabase
+        .from('meeting_template')
+        .update(updates)
+        .eq('id', id)
+        .eq('tenant_id', tenantId)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('[meeting-templates/id] Update error:', error);
+        return res.status(500).json({ error: 'Failed to update meeting template' });
+      }
+
+      if (!data) {
+        return res.status(404).json({ error: 'Meeting template not found' });
+      }
+
+      return res.json({ template: data });
+    } catch (err) {
+      console.error('[meeting-templates/id] Error:', err);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  if (req.method === 'DELETE') {
+    try {
+      const { error } = await supabase
+        .from('meeting_template')
+        .delete()
+        .eq('id', id)
+        .eq('tenant_id', tenantId);
+
+      if (error) {
+        console.error('[meeting-templates/id] Delete error:', error);
+        return res.status(500).json({ error: 'Failed to delete meeting template' });
+      }
+
+      return res.json({ success: true });
+    } catch (err) {
+      console.error('[meeting-templates/id] Error:', err);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+
+  return res.status(405).json({ error: 'Method not allowed' });
+}

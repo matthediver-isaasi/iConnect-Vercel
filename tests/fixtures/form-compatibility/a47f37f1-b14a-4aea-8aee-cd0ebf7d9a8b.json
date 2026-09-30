@@ -1,0 +1,513 @@
+{
+  "schemaVersion": 1,
+  "source": "production read-only repeatable-read inventory",
+  "formId": "a47f37f1-b14a-4aea-8aee-cd0ebf7d9a8b",
+  "tenantAlias": "tenant_43d3cc1d9f65",
+  "classification": {
+    "primaryFamily": "entity-pipelines-modern",
+    "families": [
+      "entity-pipelines-modern",
+      "split-entity-actions-current"
+    ],
+    "access": "public",
+    "hasAccessPolicy": false,
+    "prefill": "organization",
+    "actionModes": [
+      "create"
+    ],
+    "existingRecordOperations": [
+      "member",
+      "organization"
+    ],
+    "mutationContract": {
+      "hasExistingRecordMutation": true,
+      "mutationTargets": [
+        "member",
+        "organization"
+      ],
+      "applicantContinuationSupported": true,
+      "applicantContinuationLimitations": [],
+      "targets": {
+        "member": {
+          "classification": "may_mutate_existing",
+          "evidence": [
+            {
+              "family": "entity_pipelines",
+              "access": "may_mutate_existing"
+            }
+          ]
+        },
+        "organization": {
+          "classification": "may_mutate_existing",
+          "evidence": [
+            {
+              "family": "entity_pipelines",
+              "access": "may_mutate_existing"
+            }
+          ]
+        }
+      },
+      "accessAssessment": {
+        "ok": false,
+        "code": "UNSAFE_EXISTING_RECORD_MUTATION_CONTRACT",
+        "policyConfigured": false
+      }
+    },
+    "pipelineCount": 2,
+    "identityKeys": [
+      "email",
+      "name"
+    ],
+    "loginEnabled": {
+      "true": 1,
+      "false": 0
+    },
+    "mappingCount": 16,
+    "customWriteCount": 7,
+    "invoiceWriteCount": 2,
+    "entityWrites": {
+      "member": {
+        "pipelineCount": 1,
+        "identityKeys": [
+          "email"
+        ],
+        "customWriteCount": 2,
+        "invoiceWriteCount": 0
+      },
+      "organization": {
+        "pipelineCount": 1,
+        "identityKeys": [
+          "name"
+        ],
+        "hasNameIdentityMapping": true,
+        "customWriteCount": 5,
+        "invoiceWriteCount": 2
+      }
+    },
+    "exceptions": []
+  },
+  "structure": {
+    "layout_type": "standard",
+    "fields": [
+      {
+        "id": "ref_ba1596364b5c",
+        "type": "text",
+        "locked": true,
+        "page_id": "ref_e68ce4c74b77",
+        "required": true,
+        "allow_other": false,
+        "column_index": 0,
+        "prefill_field": "<redacted>",
+        "custom_field_id": null
+      },
+      {
+        "id": "ref_dc05004c4cc7",
+        "type": "text",
+        "locked": false,
+        "page_id": "ref_e68ce4c74b77",
+        "required": true,
+        "allow_other": false,
+        "column_index": 0,
+        "prefill_field": "<redacted>",
+        "starts_hidden": false
+      },
+      {
+        "id": "ref_b371feabbcf4",
+        "type": "custom_field",
+        "page_id": "ref_e68ce4c74b77",
+        "required": true,
+        "allow_other": false,
+        "column_index": 0,
+        "prefill_field": "<redacted>",
+        "custom_field_id": "ref_e7afefb5fcd5"
+      },
+      {
+        "id": "ref_3bcc19b0c666",
+        "type": "custom_field",
+        "page_id": "ref_e68ce4c74b77",
+        "required": true,
+        "allow_other": false,
+        "column_index": 0,
+        "prefill_field": "<redacted>",
+        "custom_field_id": "ref_fe9383d20261"
+      },
+      {
+        "id": "ref_8e41bd3f88c9",
+        "type": "email",
+        "page_id": "ref_e68ce4c74b77",
+        "required": true,
+        "allow_other": false,
+        "column_index": 0,
+        "prefill_field": "<redacted>",
+        "custom_field_id": "ref_1f719de01373"
+      },
+      {
+        "id": "ref_1d2c5ee48f11",
+        "type": "textarea",
+        "page_id": "ref_a1c16f9ff186",
+        "required": true,
+        "allow_other": false,
+        "column_index": 0,
+        "max_characters": 400
+      },
+      {
+        "id": "ref_21de210aacf9",
+        "type": "file",
+        "page_id": "ref_a1c16f9ff186",
+        "required": true,
+        "allow_other": false,
+        "column_index": 0,
+        "public_access": true,
+        "allowed_file_types": [
+          "<redacted>"
+        ]
+      },
+      {
+        "id": "ref_f4055053cf64",
+        "type": "url",
+        "page_id": "ref_a1c16f9ff186",
+        "required": true,
+        "allow_other": false,
+        "column_index": 0,
+        "prefill_field": "<redacted>"
+      },
+      {
+        "id": "ref_34aa123ba23b",
+        "type": "tel",
+        "page_id": "ref_a1c16f9ff186",
+        "required": false,
+        "allow_other": false,
+        "column_index": 0
+      },
+      {
+        "id": "ref_acda461f3dd0",
+        "type": "email",
+        "page_id": "ref_a1c16f9ff186",
+        "required": true,
+        "allow_other": false,
+        "column_index": 0
+      },
+      {
+        "id": "ref_505152e5a41c",
+        "type": "textarea",
+        "page_id": "ref_fff5a46494b9",
+        "required": true,
+        "allow_other": false,
+        "column_index": 0
+      },
+      {
+        "id": "ref_e5f487388e41",
+        "type": "country",
+        "page_id": "ref_fff5a46494b9",
+        "required": true,
+        "allow_other": false,
+        "column_index": 0,
+        "default_country": "<redacted>"
+      },
+      {
+        "id": "ref_57cba6fa5af4",
+        "type": "radio",
+        "page_id": "ref_fff5a46494b9",
+        "required": true,
+        "allow_other": false,
+        "column_index": 0
+      },
+      {
+        "id": "ref_12c5eb4a4afd",
+        "type": "email",
+        "page_id": "ref_fff5a46494b9",
+        "required": true,
+        "allow_other": false,
+        "column_index": 0
+      },
+      {
+        "id": "ref_5672be97834a",
+        "type": "terms_conditions",
+        "page_id": "ref_fff5a46494b9",
+        "required": true,
+        "allow_other": false,
+        "column_index": 0
+      },
+      {
+        "id": "ref_c38f5bf3cd22",
+        "type": "boolean",
+        "page_id": "ref_fff5a46494b9",
+        "required": false,
+        "allow_other": false,
+        "column_index": 0
+      }
+    ],
+    "pages": [
+      {
+        "id": "ref_e68ce4c74b77",
+        "column_count": 1
+      },
+      {
+        "id": "ref_a1c16f9ff186",
+        "column_count": 1
+      },
+      {
+        "id": "ref_fff5a46494b9",
+        "column_count": 1
+      }
+    ],
+    "require_authentication": false,
+    "is_active": true,
+    "is_application_form": false,
+    "application_level": "member",
+    "uniqueness_checks": [],
+    "auto_create_entity": false,
+    "field_mappings": [],
+    "create_entity_type": "member",
+    "prefill_source": "organization",
+    "visibility_rules": [
+      {
+        "id": "ref_e743491ca1b2",
+        "logic": "and",
+        "actions": [
+          {
+            "id": "ref_3998785aa157",
+            "action_type": "set_value",
+            "target_field_id": "ref_12c5eb4a4afd",
+            "formula_operator": "add",
+            "set_value_source": "prefill",
+            "set_value_field_id": "",
+            "formula_operand_a_mode": "field",
+            "formula_operand_b_mode": "field",
+            "formula_operand_a_value": "",
+            "formula_operand_b_value": "",
+            "set_value_prefill_field": "<redacted>",
+            "formula_operand_a_field_id": "",
+            "formula_operand_b_field_id": ""
+          },
+          {
+            "id": "ref_4b679441f65b",
+            "action_type": "visibility",
+            "field_states": {
+              "key_945edddfea88": {
+                "enabled": false,
+                "visible": null
+              },
+              "key_336ec95e6b93": {
+                "enabled": false,
+                "visible": null
+              },
+              "key_12c5eb4a4afd": {
+                "enabled": false,
+                "visible": null
+              }
+            }
+          }
+        ],
+        "rule_type": "visibility",
+        "conditions": [
+          {
+            "id": "ref_13119396c52a",
+            "field_id": "ref_57cba6fa5af4",
+            "operator": "equals"
+          }
+        ],
+        "target_field_id": "",
+        "set_value_source": "static",
+        "target_field_ids": [],
+        "set_value_field_id": "",
+        "set_value_prefill_field": ""
+      }
+    ],
+    "entity_action": "create",
+    "member_entity_action": "none",
+    "organization_entity_action": "none",
+    "default_member_role_id": null,
+    "additional_member_creations": [],
+    "entity_pipelines": {
+      "members": [
+        {
+          "id": "ref_d657d4da1a48",
+          "role_id": "ref_84f538c276f8",
+          "mappings": [
+            {
+              "id": "ref_71612bb79dcd",
+              "source_type": "field",
+              "target_type": "core",
+              "target_field": "first_name",
+              "target_entity": "member",
+              "transformation": "none",
+              "source_field_id": "ref_dc05004c4cc7",
+              "source_category_id": ""
+            },
+            {
+              "id": "ref_d4e5d183e4eb",
+              "source_type": "field",
+              "target_type": "core",
+              "target_field": "last_name",
+              "target_entity": "member",
+              "transformation": "none",
+              "source_field_id": "ref_b371feabbcf4",
+              "source_category_id": ""
+            },
+            {
+              "id": "ref_015489bbeeba",
+              "source_type": "field",
+              "target_type": "core",
+              "target_field": "email",
+              "target_entity": "member",
+              "transformation": "none",
+              "source_field_id": "ref_8e41bd3f88c9",
+              "source_category_id": ""
+            },
+            {
+              "id": "ref_e31c86d6d1ef",
+              "source_type": "field",
+              "target_type": "core",
+              "target_field": "job_title",
+              "target_entity": "member",
+              "transformation": "none",
+              "source_field_id": "ref_3bcc19b0c666",
+              "source_category_id": ""
+            },
+            {
+              "id": "ref_e6eb1d18abf5",
+              "source_type": "field",
+              "target_type": "core",
+              "target_field": "organization_id",
+              "target_entity": "member",
+              "transformation": "none",
+              "source_field_id": "ref_ba1596364b5c",
+              "source_category_id": ""
+            },
+            {
+              "id": "ref_c586b89f579b",
+              "source_type": "static",
+              "target_type": "custom",
+              "target_field": "ref_d24f3e2fb6ab",
+              "target_entity": "member",
+              "transformation": "none",
+              "source_field_id": "",
+              "source_category_id": ""
+            },
+            {
+              "id": "ref_d9afb21852fa",
+              "source_type": "field",
+              "target_type": "communication",
+              "target_field": "ref_e864220e1fbd",
+              "target_entity": "member",
+              "transformation": "none",
+              "source_field_id": "ref_c38f5bf3cd22",
+              "source_category_id": ""
+            }
+          ],
+          "isPrimary": true,
+          "login_enabled": true,
+          "uniqueness_key": "email"
+        }
+      ],
+      "organisations": [
+        {
+          "id": "ref_fe42a258ef8b",
+          "mappings": [
+            {
+              "id": "ref_0768b9e1bc49",
+              "source_type": "field",
+              "target_type": "core",
+              "target_field": "name",
+              "target_entity": "organization",
+              "transformation": "none",
+              "source_field_id": "ref_ba1596364b5c",
+              "source_category_id": ""
+            },
+            {
+              "id": "ref_33a8bc77c051",
+              "source_type": "field",
+              "target_type": "core",
+              "target_field": "invoicing_email",
+              "target_entity": "organization",
+              "transformation": "none",
+              "source_field_id": "ref_12c5eb4a4afd",
+              "source_category_id": ""
+            },
+            {
+              "id": "ref_06a791a413b5",
+              "source_type": "field",
+              "target_type": "core",
+              "target_field": "invoicing_address",
+              "target_entity": "organization",
+              "transformation": "none",
+              "source_field_id": "ref_505152e5a41c",
+              "source_category_id": ""
+            },
+            {
+              "id": "ref_59a54a6b1469",
+              "source_type": "field",
+              "target_type": "custom",
+              "target_field": "ref_9ecc743475b1",
+              "target_entity": "organization",
+              "transformation": "none",
+              "source_field_id": "ref_34aa123ba23b",
+              "source_category_id": ""
+            },
+            {
+              "id": "ref_be6ac4c752c3",
+              "source_type": "static",
+              "target_type": "custom",
+              "target_field": "ref_f72977bf34bd",
+              "target_entity": "organization",
+              "transformation": "none",
+              "source_field_id": "",
+              "source_category_id": ""
+            },
+            {
+              "id": "ref_a9385cf49e44",
+              "source_type": "field",
+              "target_type": "core",
+              "target_field": "logo_url",
+              "target_entity": "organization",
+              "transformation": "none",
+              "source_field_id": "ref_21de210aacf9",
+              "source_category_id": ""
+            },
+            {
+              "id": "ref_a995e7b93ac7",
+              "source_type": "field",
+              "target_type": "custom",
+              "target_field": "ref_9a42f45a7a64",
+              "target_entity": "organization",
+              "transformation": "none",
+              "source_field_id": "ref_1d2c5ee48f11",
+              "source_category_id": ""
+            },
+            {
+              "id": "ref_439c2c7cae5f",
+              "source_type": "field",
+              "target_type": "custom",
+              "target_field": "ref_356cf63533f2",
+              "target_entity": "organization",
+              "transformation": "none",
+              "source_field_id": "ref_acda461f3dd0",
+              "source_category_id": ""
+            },
+            {
+              "id": "ref_296006ca02b2",
+              "source_type": "field",
+              "target_type": "custom",
+              "target_field": "ref_266b4189d3f7",
+              "target_entity": "organization",
+              "transformation": "none",
+              "source_field_id": "ref_f4055053cf64",
+              "source_category_id": ""
+            }
+          ],
+          "isPrimary": true,
+          "uniqueness_key": "name"
+        }
+      ]
+    },
+    "form_type": "standard",
+    "access_policy": null,
+    "mutation_access_policy": null,
+    "structured_actions": {
+      "actions": [],
+      "version": 1
+    },
+    "prefill_source_field_id": null
+  }
+}

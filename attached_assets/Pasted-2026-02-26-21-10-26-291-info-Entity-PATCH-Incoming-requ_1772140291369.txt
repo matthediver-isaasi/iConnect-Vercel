@@ -1,0 +1,29 @@
+2026-02-26 21:10:26.291 [info] [Entity PATCH] Incoming request: entity="MemberPreferenceValue", id="8ca35fbc-3c85-4454-aa7c-e1efc9b9a936"
+2026-02-26 21:10:26.291 [info] [TenantResolver] resolveTenantFromRequest called
+2026-02-26 21:10:26.291 [info] [TenantResolver] Params - tenant: undefined domain: undefined
+2026-02-26 21:10:26.291 [info] [TenantResolver] Falling back to host-based resolution, hostname: gfi.dev.iconn.app
+2026-02-26 21:10:26.291 [info] [TenantResolver] resolveTenantFromHost called with: gfi.dev.iconn.app
+2026-02-26 21:10:26.291 [info] [TenantResolver] Cache hit for: gfi.dev.iconn.app
+2026-02-26 21:10:26.291 [info] [TenantContext] About to call getSessionTenantUser
+2026-02-26 21:10:26.291 [info] [Session] getSession: Looking up session: c1fc92b8
+2026-02-26 21:10:26.426 [info] [Session] getSession: Session found, userType: member
+2026-02-26 21:10:26.426 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"c1fc92b8","userType":"member","memberId":"9ac39222-22b8-457e-a5df-dfca45a99eb6","identityId":"dc156a30-ae8d-4aee-b965-b54fe4b17105","tenantId":"fd82da65-aab7-4a5c-85b8-b2febeb2003d"}
+2026-02-26 21:10:26.426 [info] [Session] Found member session with identityId, attempting promotion
+2026-02-26 21:10:26.696 [info] [Session] No tenant_user record found for identity promotion
+2026-02-26 21:10:26.696 [info] [Session] Member session promotion failed
+2026-02-26 21:10:26.696 [info] [TenantContext] getSessionTenantUser returned: null
+2026-02-26 21:10:26.696 [info] [TenantContext] Checking for member session...
+2026-02-26 21:10:26.696 [info] [Session] getSession: Looking up session: c1fc92b8
+2026-02-26 21:10:26.821 [info] [Session] getSession: Session found, userType: member
+2026-02-26 21:10:26.821 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"c1fc92b8","userType":"member","memberId":"9ac39222-22b8-457e-a5df-dfca45a99eb6"}
+2026-02-26 21:10:26.950 [info] [TenantContext] Member found: {
+  memberId: '9ac39222-22b8-457e-a5df-dfca45a99eb6',
+  organizationId: 'ccbbbd4d-12e8-4e9e-b49e-cd29979623ae'
+}
+2026-02-26 21:10:26.950 [info] [TenantContext] Tenant from member: fd82da65-aab7-4a5c-85b8-b2febeb2003d
+2026-02-26 21:10:27.344 [error] Entity error: ReferenceError: allowsTenantWideAccess is not defined
+    at Object.handler (file:///var/task/api/entities/%5Bentity%5D/%5Bid%5D.js:341:11)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async r (/opt/rust/nodejs.js:2:15572)
+    at async Server.<anonymous> (/opt/rust/nodejs.js:2:11594)
+    at async Server.<anonymous> (/opt/rust/nodejs.js:17:10190)

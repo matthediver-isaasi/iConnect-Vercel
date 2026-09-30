@@ -16,7 +16,7 @@ import { format } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 export default function MemberRoleAssignmentPage() {
-  const { memberRole, isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { memberRole, isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [searchQuery, setSearchQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
   const [pendingRoleChange, setPendingRoleChange] = useState(null); // { memberId, roleId, requiresDate }
@@ -29,17 +29,17 @@ export default function MemberRoleAssignmentPage() {
   // Redirect non-admins or those without access to this feature
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_MemberRoleAssignment')) {
+      if (isFeatureExcluded('page_MemberRoleAssignment')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady, isFeatureExcluded]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: members = [], isLoading: loadingMembers } = useQuery({
     queryKey: ['members'],
-    queryFn: () => base44.entities.Member.list(),
+    queryFn: () => base44.entities.Member.listAll(),
     staleTime: 0,
     refetchOnMount: true,
   });
@@ -170,19 +170,19 @@ export default function MemberRoleAssignmentPage() {
   // Show loading state while determining access
   if (!accessChecked) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <div className="animate-pulse text-slate-600">Loading...</div>
       </div>
     );
   }
 
   // Don't render anything for users without access (will redirect)
-  if (!isAdmin || isFeatureExcluded('page_MemberRoleAssignment')) {
+  if (isFeatureExcluded('page_MemberRoleAssignment')) {
     return null;
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         <div className="mb-8">
           <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">

@@ -1,0 +1,645 @@
+<?php
+/**
+ * Member sync admin page and notices
+ */
+
+// Add admin page customizations for members
+add_action('admin_menu', 'gsf_customize_member_admin_page');
+function gsf_customize_member_admin_page() {
+    add_submenu_page(
+        'edit.php?post_type=gsf_member',
+        'Sync Members',
+        'Sync with Zoho',
+        'manage_options',
+        'gsf-sync-members',
+        'gsf_sync_members_page'
+    );
+    
+    // Add a sync results page (hidden from menu)
+    add_submenu_page(
+        null, // No parent - this hides it from the menu
+        'Sync Results',
+        'Sync Results',
+        'manage_options',
+        'gsf-sync-results',
+        'gsf_sync_results_page'
+    );
+    
+    // Add a Map Configuration page
+    add_submenu_page(
+        'edit.php?post_type=gsf_member',
+        'Map Configuration',
+        'Map Configuration',
+        'manage_options',
+        'gsf-map-config',
+        'gsf_map_config_page'
+    );
+}
+
+// Render the sync page
+function gsf_sync_members_page() {
+    if (!current_user_can('manage_options')) {
+        wp_die(__('You do not have sufficient permissions to access this page.'));
+    }
+
+    // Handle sync settings update
+    if (isset($_POST['gsf_save_sync_settings']) && check_admin_referer('gsf_sync_settings_nonce')) {
+        $sync_interval = intval($_POST['gsf_sync_interval']);
+        $enable_auto_sync = isset($_POST['gsf_enable_auto_sync']) ? 1 : 0;
+        
+        // Validate sync interval (minimum 15 minutes, maximum 24 hours)
+        if ($sync_interval < 900) $sync_interval = 900; // 15 minutes
+        if ($sync_interval > 86400) $sync_interval = 86400; // 24 hours
+        
+        // Save settings
+        update_option('gsf_sync_interval', $sync_interval);
+        update_option('gsf_enable_auto_sync', $enable_auto_sync);
+        
+        // Update the cron job
+        gsf_schedule_sync_cron();
+        
+        add_settings_error(
+            'gsf_messages',
+            'gsf_message',
+            __('Sync settings saved successfully.'),
+            'updated'
+        );
+    }
+
+    // Handle force reschedule (debug feature)
+    if (isset($_POST['gsf_force_reschedule']) && check_admin_referer('gsf_force_reschedule_nonce') && gsf_user_has_platform_email()) {
+        wp_clear_scheduled_hook('gsf_sync_members_cron');
+        gsf_schedule_sync_cron();
+        
+        add_settings_error(
+            'gsf_messages',
+            'gsf_message',
+            __('Cron job forcefully rescheduled.'),
+            'updated'
+        );
+    }
+
+    // Handle manual sync
+    if (isset($_POST['gsf_sync_now']) && check_admin_referer('gsf_sync_members_nonce')) {
+        try {
+            $api = new ZohoAPI();
+            $result = $api->getMembers(1, 200, [], true); // Force sync for manual requests
+            
+            // Store sync results in a transient (valid for 24 hours)
+            set_transient('gsf_last_sync_results', [
+                'timestamp' => time(),
+                'success' => true,
+                'error' => '',
+                'created' => isset($result['sync_stats']['created']) ? $result['sync_stats']['created'] : 0,
+                'updated' => isset($result['sync_stats']['updated']) ? $result['sync_stats']['updated'] : 0,
+                'deleted' => isset($result['deleted_count']) ? $result['deleted_count'] : 0,
+                'failed' => isset($result['sync_stats']['failed']) ? $result['sync_stats']['failed'] : 0,
+                'total_fetched' => isset($result['sync_stats']['total_fetched']) ? $result['sync_stats']['total_fetched'] : 0,
+            ], DAY_IN_SECONDS);
+            
+            // Redirect to the detailed results page
+            wp_safe_redirect(admin_url('admin.php?page=gsf-sync-results'));
+            exit;
+            
+        } catch (Exception $e) {
+            // Store error information
+            set_transient('gsf_last_sync_results', [
+                'timestamp' => time(),
+                'success' => false,
+                'error' => $e->getMessage(),
+                'created' => 0,
+                'updated' => 0,
+                'deleted' => 0,
+                'failed' => 0
+            ], DAY_IN_SECONDS);
+            
+            add_settings_error(
+                'gsf_messages',
+                'gsf_message',
+                __('Error syncing with Zoho: ') . $e->getMessage(),
+                'error'
+            );
+        }
+    }
+
+    // Display status messages
+    settings_errors('gsf_messages');
+
+    // Get last sync time
+    $last_sync = get_option('gsf_zoho_last_sync');
+    $last_sync_display = $last_sync ? wp_date('F j, Y \a\t g:i a', $last_sync) : 'Never';
+    
+    // Get current settings and ensure cron is scheduled if needed
+    $sync_interval = get_option('gsf_sync_interval', 3600); // Default 1 hour
+    $enable_auto_sync = get_option('gsf_enable_auto_sync', 1); // Default enabled
+    $next_scheduled = wp_next_scheduled('gsf_sync_members_cron');
+    
+    // Auto-schedule if missing and auto-sync is enabled
+    if ($enable_auto_sync && !$next_scheduled) {
+        gsf_schedule_sync_cron();
+        $next_scheduled = wp_next_scheduled('gsf_sync_members_cron');
+    }
+    ?>
+    <div class="wrap">
+        <h1><?php echo esc_html(get_admin_page_title()); ?></h1>
+        <p><?php printf(__('Last synchronized with Zoho: %s'), '<strong>' . esc_html($last_sync_display) . '</strong>'); ?></p>
+        
+        <div class="postbox" style="margin-top: 20px;">
+            <div class="postbox-header" style="padding: 10px; cursor: default;">
+                <h2 class="hndle" ><?php _e('Manual Sync'); ?></h2>
+            </div>
+            <div class="inside">
+                <form method="post" action="">
+                    <?php wp_nonce_field('gsf_sync_members_nonce'); ?>
+                    <p><?php _e('Click the button below to manually sync members with Zoho CRM.'); ?></p>
+                    <p>
+                        <input type="submit" name="gsf_sync_now" class="button button-primary" value="<?php esc_attr_e('Sync with Zoho Now'); ?>">
+                        
+                        <?php if (gsf_user_has_platform_email()): ?>
+                        <a href="<?php echo admin_url('admin-ajax.php?action=gsf_trigger_cron'); ?>" 
+                           class="button button-secondary" 
+                           style="margin-left: 10px;"
+                           onclick="return confirm('This will trigger the automatic cron sync (respects intervals). Continue?');">
+                            <?php _e('Trigger Cron Job'); ?>
+                        </a>
+                        <a href="<?php echo admin_url('admin-ajax.php?action=gsf_trigger_cron&force=1'); ?>" 
+                           class="button button-secondary" 
+                           style="margin-left: 5px;"
+                           onclick="return confirm('This will force trigger the cron sync (bypasses intervals). Continue?');">
+                            <?php _e('Force Cron Sync'); ?>
+                        </a>
+                        <?php endif; ?>
+                    </p>
+                </form>
+                
+                <?php if (gsf_user_has_platform_email()): ?>
+                <div class="notice notice-info inline" style="margin: 15px 0 0 0;">
+                    <p><strong>Development Cron Options:</strong></p>
+                    <ul style="margin-left: 20px;">
+                        <li><strong>Manual Trigger:</strong> Use the "Trigger Cron Job" button above</li>
+                        <li><strong>URL Trigger:</strong> Visit <code><?php echo admin_url('admin-ajax.php?action=gsf_trigger_cron'); ?></code></li>
+                        <li><strong>WordPress Cron:</strong> Visit <code><?php echo site_url('wp-cron.php'); ?></code></li>
+                        <li><strong>System Cron:</strong> Add to your system cron: <code>*/15 * * * * curl -s <?php echo site_url('wp-cron.php'); ?> > /dev/null 2>&1</code></li>
+                    </ul>
+                </div>
+                <?php endif; ?>
+            </div>
+        </div>
+        
+        <div class="postbox" style="margin-top: 20px;">
+            <div class="postbox-header" style="padding: 10px; cursor: default;">
+                <h2 class="hndle"><?php _e('Automatic Sync Settings'); ?></h2>
+            </div>
+            <div class="inside">
+                <form method="post" action="">
+                    <?php wp_nonce_field('gsf_sync_settings_nonce'); ?>
+                    <table class="form-table" role="presentation">
+                        <tbody>
+                            <tr>
+                                <th scope="row">
+                                    <label for="gsf_enable_auto_sync"><?php _e('Enable Automatic Sync'); ?></label>
+                                </th>
+                                <td>
+                                    <label for="gsf_enable_auto_sync">
+                                        <input type="checkbox" name="gsf_enable_auto_sync" id="gsf_enable_auto_sync" value="1" <?php checked($enable_auto_sync, 1); ?> />
+                                        <?php _e('Automatically sync members with Zoho CRM at regular intervals'); ?>
+                                    </label>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row">
+                                    <label for="gsf_sync_interval"><?php _e('Sync Interval'); ?></label>
+                                </th>
+                                <td>
+                                    <select name="gsf_sync_interval" id="gsf_sync_interval">
+                                        <option value="900" <?php selected($sync_interval, 900); ?>><?php _e('Every 15 minutes'); ?></option>
+                                        <option value="1800" <?php selected($sync_interval, 1800); ?>><?php _e('Every 30 minutes'); ?></option>
+                                        <option value="3600" <?php selected($sync_interval, 3600); ?>><?php _e('Every hour'); ?></option>
+                                        <option value="7200" <?php selected($sync_interval, 7200); ?>><?php _e('Every 2 hours'); ?></option>
+                                        <option value="14400" <?php selected($sync_interval, 14400); ?>><?php _e('Every 4 hours'); ?></option>
+                                        <option value="21600" <?php selected($sync_interval, 21600); ?>><?php _e('Every 6 hours'); ?></option>
+                                        <option value="43200" <?php selected($sync_interval, 43200); ?>><?php _e('Every 12 hours'); ?></option>
+                                        <option value="86400" <?php selected($sync_interval, 86400); ?>><?php _e('Once daily'); ?></option>
+                                    </select>
+                                    <p class="description"><?php _e('How often the system should automatically sync with Zoho CRM.'); ?></p>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row"><?php _e('Next Scheduled Sync'); ?></th>
+                                <td>
+                                    <?php 
+                                    // Get detailed cron info for debugging
+                                    $cron_schedules = wp_get_schedules();
+                                    $custom_interval_exists = isset($cron_schedules['gsf_sync_interval_custom']);
+                                    ?>
+                                    
+                                    <?php if ($next_scheduled && $enable_auto_sync): ?>
+                                        <strong><?php echo wp_date('F j, Y \a\t g:i a', $next_scheduled); ?></strong> 
+                                        <span class="description">(<?php echo human_time_diff($next_scheduled, time()) . ($next_scheduled > time() ? ' from now' : ' ago'); ?>)</span>
+                                        
+                                        <?php if (gsf_user_has_platform_email()): ?>
+                                        <br><small style="color: #666;">
+                                            Custom interval registered: <?php echo $custom_interval_exists ? 'Yes' : 'No'; ?> | 
+                                            Interval: <?php echo get_option('gsf_sync_interval', 3600); ?>s
+                                        </small>
+                                        <?php endif; ?>
+                                        
+                                    <?php elseif ($enable_auto_sync): ?>
+                                        <em style="color: #d63638;"><?php _e('Not scheduled - will be scheduled after saving settings'); ?></em>
+                                        
+                                        <?php if (gsf_user_has_platform_email()): ?>
+                                        <br><small style="color: #666;">
+                                            Debug: Custom interval registered: <?php echo $custom_interval_exists ? 'Yes' : 'No'; ?> | 
+                                            Auto-sync enabled: <?php echo $enable_auto_sync ? 'Yes' : 'No'; ?>
+                                            <br><a href="#" onclick="window.location.reload(); return false;" class="button button-small" style="margin-top: 5px;">Refresh Status</a>
+                                            <form method="post" style="display: inline-block; margin-left: 5px;">
+                                                <?php wp_nonce_field('gsf_force_reschedule_nonce'); ?>
+                                                <input type="submit" name="gsf_force_reschedule" class="button button-small" value="Force Reschedule" style="margin-top: 5px;">
+                                            </form>
+                                        </small>
+                                        <?php endif; ?>
+                                        
+                                    <?php else: ?>
+                                        <em><?php _e('Automatic sync is disabled'); ?></em>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <p class="submit">
+                        <input type="submit" name="gsf_save_sync_settings" class="button button-primary" value="<?php esc_attr_e('Save Settings'); ?>">
+                    </p>
+                </form>
+            </div>
+        </div>
+    </div>
+    <?php
+}
+
+// Add sync status notice to members list page
+add_action('admin_notices', 'gsf_member_sync_status_notice');
+function gsf_member_sync_status_notice() {
+    $screen = get_current_screen();
+    
+    // Only show on members list page
+    if (!$screen || 'edit-gsf_member' !== $screen->id) {
+        return;
+    }
+
+    // We no longer handle sync action directly from the members list page
+
+    // Show sync status
+    $last_sync = get_option('gsf_zoho_last_sync');
+    $last_sync_display = $last_sync ? wp_date('F j, Y \a\t g:i a', $last_sync) : 'Never';
+    ?>
+    <div class="notice notice-info gsf-sync-status">
+        <p>
+            <?php printf(__('Last synchronized with Zoho: %s'), '<strong>' . esc_html($last_sync_display) . '</strong>'); ?>
+            <a href="<?php echo esc_url(admin_url('edit.php?post_type=gsf_member&page=gsf-sync-members')); ?>" class="button button-small" style="margin-left: 10px;">
+                <?php esc_html_e('Sync Now & View Details'); ?>
+            </a>
+        </p>
+    </div>
+
+    <style>
+        .gsf-sync-status {
+            display: flex;
+            align-items: center;
+        }
+        .gsf-sync-status p {
+            margin: 8px 0;
+            flex-grow: 1;
+        }
+        .gsf-sync-status form {
+            margin: 0;
+        }
+    </style>
+    <?php
+}
+
+/**
+ * Render the map configuration page
+ */
+function gsf_map_config_page() {
+    if (!current_user_can('manage_options')) {
+        wp_die(__('You do not have sufficient permissions to access this page.'));
+    }
+    
+    ?>
+    <div class="wrap">
+        <h1><?php echo esc_html(get_admin_page_title()); ?></h1>
+        
+        <div class="notice notice-info is-dismissible">
+            <p><strong>Member sync filter:</strong> Only accounts with <code>Lifecycle_Status = Current</code> and <code>Account_Type</code> of either “Member – Education Support Organisations” or “Member – School and ECED Operators” are synced. Additional lifecycle values can be added via the <code>gsf_member_sync_lifecycle_statuses</code> filter.</p>
+        </div>
+
+        <div class="notice notice-info is-dismissible">
+            <p><strong>Map Country Filter:</strong> The member map is configured to display only countries classified as "Lower Middle Income" or "Low Income" according to Zoho country data.</p>
+        </div>
+        
+        <h2>Income Group Classifications</h2>
+        <p>Countries are grouped by income level based on data in the Zoho "Countries1" module. The current filter displays:</p>
+        
+        <ul style="list-style-type: disc; margin-left: 20px;">
+            <li><strong>Lower Middle Income:</strong> Countries like India, Kenya, Nigeria, Bangladesh</li>
+            <li><strong>Low Income:</strong> Countries like Afghanistan, Ethiopia, Nepal</li>
+        </ul>
+        
+        <p>Other income groups (High Income, Upper Middle Income) are excluded from the map visualization.</p>
+        
+        <h2>Country Data Source</h2>
+        <p>Country data is fetched once daily from: <code>https://www.zohoapis.eu/crm/v2/Countries1</code></p>
+        
+        <h2>Test Mode</h2>
+        <p>When test data is enabled, the system will display a predefined set of countries and members with appropriate income classifications for testing.</p>
+    </div>
+    <?php
+}
+
+/**
+ * Render the detailed sync results page
+ */
+function gsf_sync_results_page() {
+    if (!current_user_can('manage_options')) {
+        wp_die(__('You do not have sufficient permissions to access this page.'));
+    }
+    
+    // Get sync details from transient
+    $sync_results = get_transient('gsf_last_sync_results');
+    
+    // Default values if no transient found
+    if (!$sync_results) {
+        $sync_results = [
+            'timestamp' => get_option('gsf_zoho_last_sync'),
+            'success' => true,
+            'error' => '',
+            'created' => 0,
+            'updated' => 0,
+            'deleted' => 0,
+            'failed' => 0,
+            'total_fetched' => 0,
+        ];
+    }
+    
+    // Get last sync time for display
+    $last_sync = $sync_results['timestamp'] ?: get_option('gsf_zoho_last_sync');
+    $last_sync_display = $last_sync ? wp_date('F j, Y \a\t g:i:s a', $last_sync) : 'Never';
+    $time_ago = $last_sync ? human_time_diff($last_sync, time()) . ' ago' : 'Never';
+    
+    ?>
+    <div class="wrap">
+        <h1><?php _e('Zoho Sync Results'); ?></h1>
+        
+        <?php if ($sync_results['success']): ?>
+            <div class="notice notice-success">
+                <p><strong><?php _e('Sync Completed Successfully'); ?></strong></p>
+            </div>
+        <?php else: ?>
+            <div class="notice notice-error">
+                <p><strong><?php _e('Sync Error'); ?></strong>: <?php echo esc_html($sync_results['error']); ?></p>
+            </div>
+        <?php endif; ?>
+        
+        <div class="card">
+            <h2><?php _e('Sync Summary'); ?></h2>
+            <table class="widefat" style="margin-bottom: 20px;">
+                <tbody>
+                    <tr>
+                        <th scope="row" style="width: 30%;"><?php _e('Sync Time'); ?>:</th>
+                        <td><strong><?php echo esc_html($last_sync_display); ?></strong> (<?php echo esc_html($time_ago); ?>)</td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php _e('Total Records'); ?>:</th>
+                        <td><span class="dashicons dashicons-database"></span> <strong><?php 
+                        $total_fetched = intval($sync_results['total_fetched'] ?? 0);
+                        if ($total_fetched > 0) {
+                            $total_processed = $total_fetched;
+                        } else {
+                            $total_processed = intval($sync_results['created']) + intval($sync_results['updated']) + intval($sync_results['failed']);
+                            if ($total_processed === 0) {
+                                $member_count = wp_count_posts('gsf_member');
+                                $total_processed = $member_count->publish;
+                            }
+                        }
+                        echo $total_processed;
+                        ?></strong> members <?php echo $total_fetched > 0 ? esc_html__('fetched from Zoho', 'gsf') : esc_html__('in WordPress', 'gsf'); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php _e('WordPress Members'); ?>:</th>
+                        <td><strong><?php echo intval(wp_count_posts('gsf_member')->publish); ?></strong> <?php esc_html_e('published', 'gsf'); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php _e('Records Created'); ?>:</th>
+                        <td><span class="dashicons dashicons-plus-alt"></span> <strong><?php echo intval($sync_results['created']); ?></strong> new members</td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php _e('Records Updated'); ?>:</th>
+                        <td><span class="dashicons dashicons-update"></span> <strong><?php echo intval($sync_results['updated']); ?></strong> existing members</td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php _e('Records Deleted'); ?>:</th>
+                        <td><span class="dashicons dashicons-trash"></span> <strong><?php echo intval($sync_results['deleted']); ?></strong> outdated records</td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><?php _e('Failed Operations'); ?>:</th>
+                        <td>
+                            <?php if ($sync_results['failed'] > 0): ?>
+                                <span class="dashicons dashicons-warning" style="color: #d63638;"></span> <strong><?php echo intval($sync_results['failed']); ?></strong> operations failed
+                            <?php else: ?>
+                                <span class="dashicons dashicons-yes-alt" style="color: #00a32a;"></span> <strong>No failures</strong>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+            
+            <p>
+                <a href="<?php echo esc_url(admin_url('edit.php?post_type=gsf_member&page=gsf-sync-members')); ?>" class="button button-secondary"><?php _e('Return to Sync Page'); ?></a>
+                <a href="<?php echo esc_url(admin_url('edit.php?post_type=gsf_member')); ?>" class="button button-secondary"><?php _e('View All Members'); ?></a>
+            </p>
+        </div>
+        
+        <div class="card" style="margin-top: 20px;">
+            <h3><?php _e('Need to sync again?'); ?></h3>
+            <p><?php _e('Use the button below to run another manual sync with Zoho CRM.'); ?></p>
+            <form method="post" action="<?php echo esc_url(admin_url('edit.php?post_type=gsf_member&page=gsf-sync-members')); ?>">
+                <?php wp_nonce_field('gsf_sync_members_nonce'); ?>
+                <p><input type="submit" name="gsf_sync_now" class="button button-primary" value="<?php esc_attr_e('Sync with Zoho Again'); ?>"></p>
+            </form>
+        </div>
+        
+        <?php if (gsf_user_has_platform_email()): ?>
+        <div class="card" style="margin-top: 20px;">
+            <h3><?php _e('Timezone Information'); ?></h3>
+            <?php
+            $api = new ZohoAPI();
+            $token_status = $api->getTokenStatus();
+            ?>
+            <table class="widefat">
+                <tbody>
+                    <tr>
+                        <th scope="row" style="width: 30%;">WordPress Timezone:</th>
+                        <td><?php echo esc_html(wp_timezone_string()); ?> (<?php echo esc_html(wp_date('T')); ?>)</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Current WordPress Time:</th>
+                        <td><?php echo esc_html(wp_date('Y-m-d H:i:s T')); ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">gsf_zoho_last_sync Option:</th>
+                        <td><?php 
+                        $stored_sync = get_option('gsf_zoho_last_sync');
+                        echo $stored_sync ? esc_html(wp_date('Y-m-d H:i:s T', $stored_sync)) . ' (' . $stored_sync . ')' : 'Not set';
+                        ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Transient Sync Time:</th>
+                        <td><?php 
+                        $transient_time = $sync_results['timestamp'] ?? null;
+                        echo $transient_time ? esc_html(wp_date('Y-m-d H:i:s T', $transient_time)) . ' (' . $transient_time . ')' : 'Not set';
+                        ?></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Token Status:</th>
+                        <td><?php echo $token_status['is_expired'] ? '<span style="color: red;">Expired</span>' : '<span style="color: green;">Valid</span>'; ?> 
+                        (expires <?php echo esc_html($token_status['token_expiry_human']); ?>)</td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Last Token Refresh:</th>
+                        <td><?php echo esc_html($token_status['last_token_refresh']); ?></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <?php endif; ?>
+    </div>
+    
+    <style>
+    .card {
+        background: #fff;
+        border: 1px solid #c3c4c7;
+        border-radius: 2px;
+        padding: 20px;
+        box-shadow: 0 1px 1px rgba(0,0,0,.04);
+        margin-top: 20px;
+    }
+    .card h2, .card h3 {
+        margin-top: 0;
+    }
+    </style>
+    <?php
+}
+
+/**
+ * Add custom cron interval - must be hooked early
+ */
+function gsf_add_custom_cron_interval($schedules) {
+    $sync_interval = get_option('gsf_sync_interval', 3600);
+    
+    $schedules['gsf_sync_interval_custom'] = array(
+        'interval' => $sync_interval,
+        'display' => sprintf(__('GSF Sync Every %s'), human_time_diff(0, $sync_interval))
+    );
+    
+    return $schedules;
+}
+// Hook the cron intervals filter early
+add_filter('cron_schedules', 'gsf_add_custom_cron_interval');
+
+/**
+ * Schedule the sync cron job based on current settings
+ */
+function gsf_schedule_sync_cron() {
+    // Clear any existing scheduled event
+    wp_clear_scheduled_hook('gsf_sync_members_cron');
+    
+    $enable_auto_sync = get_option('gsf_enable_auto_sync', 1);
+    
+    if ($enable_auto_sync) {
+        // Schedule new event using our custom interval
+        $scheduled = wp_schedule_event(time(), 'gsf_sync_interval_custom', 'gsf_sync_members_cron');
+        
+        if ($scheduled === false) {
+            $logger = GSF_Logger::getInstance();
+            $logger->log('Failed to schedule sync cron job', 'ERROR');
+        } else {
+            $logger = GSF_Logger::getInstance();
+            $logger->log('Sync cron job scheduled successfully', 'INFO', [
+                'next_run' => wp_next_scheduled('gsf_sync_members_cron'),
+                'interval' => get_option('gsf_sync_interval', 3600)
+            ]);
+        }
+    }
+}
+
+/**
+ * Handle the cron job execution
+ */
+function gsf_handle_sync_cron() {
+    $logger = GSF_Logger::getInstance();
+    $logger->log('Cron job triggered', 'INFO', [
+        'time' => wp_date('Y-m-d H:i:s'),
+        'timestamp' => time()
+    ]);
+    
+    $enable_auto_sync = get_option('gsf_enable_auto_sync', 1);
+    
+    if (!$enable_auto_sync) {
+        $logger->log('Cron job aborted - auto sync disabled', 'INFO');
+        return;
+    }
+    
+    try {
+        $api = new ZohoAPI();
+        
+        // For cron jobs, we want to respect the configured sync interval but not the manual sync rate limiting
+        // Check if enough time has passed based on the configured interval
+        $last_sync = get_option('gsf_zoho_last_sync', 0);
+        $sync_interval = get_option('gsf_sync_interval', 3600);
+        $time_since_last = time() - $last_sync;
+        
+        if ($time_since_last >= $sync_interval) {
+            $logger->log('Cron sync proceeding - interval met', 'INFO', [
+                'time_since_last_sync' => $time_since_last,
+                'required_interval' => $sync_interval
+            ]);
+            
+            $result = $api->getMembers(1, 200, [], true); // Force sync for cron jobs
+            
+            // Log the cron sync results
+            $logger->log('Automatic sync completed via cron', 'INFO', [
+                'created' => isset($result['sync_stats']['created']) ? $result['sync_stats']['created'] : 0,
+                'updated' => isset($result['sync_stats']['updated']) ? $result['sync_stats']['updated'] : 0,
+                'deleted' => isset($result['deleted_count']) ? $result['deleted_count'] : 0,
+                'failed' => isset($result['sync_stats']['failed']) ? $result['sync_stats']['failed'] : 0,
+                'last_sync_before' => $last_sync,
+                'last_sync_after' => get_option('gsf_zoho_last_sync', 0)
+            ]);
+        } else {
+            $wait_time = $sync_interval - $time_since_last;
+            $logger->log('Cron sync skipped - interval not met', 'INFO', [
+                'time_since_last_sync' => $time_since_last,
+                'required_interval' => $sync_interval,
+                'wait_seconds_remaining' => $wait_time
+            ]);
+        }
+        
+    } catch (Exception $e) {
+        $logger->log('Automatic sync failed via cron', 'ERROR', [
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ]);
+    }
+}
+
+// Hook up the cron action
+add_action('gsf_sync_members_cron', 'gsf_handle_sync_cron');
+
+// Schedule cron on theme activation/init
+add_action('after_switch_theme', 'gsf_schedule_sync_cron');
+add_action('init', function() {
+    // Ensure cron is scheduled if it's not already
+    if (get_option('gsf_enable_auto_sync', 1) && !wp_next_scheduled('gsf_sync_members_cron')) {
+        gsf_schedule_sync_cron();
+    }
+});

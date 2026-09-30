@@ -1,0 +1,1432 @@
+{
+  "slug": "jobs-board",
+  "pageId": "7b7b69eb-fe07-478e-95ae-eae27acd3281",
+  "tenantId": "ff2df806-b321-4254-b651-3af11fccf1db",
+  "capturedAt": "2026-07-04T11:15:59.340Z",
+  "canvas_design": {
+    "root": {
+      "groups": [],
+      "guides": {
+        "vertical": [],
+        "horizontal": []
+      },
+      "sections": [
+        {
+          "id": "root-section",
+          "children": [
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 600,
+                  "w": 1200,
+                  "x": 0,
+                  "y": 0,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqskjjjt-vgek1c",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Events hero",
+              "type": "hero",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-primary, #0f172a)",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 200,
+                "borderRadius": 0,
+                "paddingRight": 200,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "ctas": [
+                  {
+                    "href": "https://jobs.bnms.org.uk/jobs/",
+                    "label": "Visit the job board",
+                    "variant": "tenant:primary-no-icon",
+                    "labelTypographyStyleId": "8e020a66-1192-4266-a566-6d02f6d78a37"
+                  }
+                ],
+                "bgType": "image",
+                "bgColor": "var(--cb-color-primary, #0f172a)",
+                "darkWash": 0.4,
+                "headline": "Nuclear Medicine Vacancies",
+                "alignment": "left",
+                "fullBleed": true,
+                "textColor": "var(--cb-color-on-primary, #ffffff)",
+                "bgImageUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1782409627273-tosiaj3-2.png",
+                "bgVideoUrl": "",
+                "subheadline": "Find your next nuclear medicine role or advertise vacancies to a specialist professional audience.",
+                "headingLevel": 1,
+                "overlayAngle": 0,
+                "overlayStops": [
+                  {
+                    "color": "#4169e1",
+                    "opacity": 1,
+                    "position": 19
+                  },
+                  {
+                    "color": "#000000",
+                    "opacity": 0,
+                    "position": 98
+                  }
+                ],
+                "overlayStyle": "gradient",
+                "overlayToColor": "",
+                "overlayDirection": "to-right",
+                "overlayFromColor": "#0055ff",
+                "overlayToOpacity": 0,
+                "overlayFromOpacity": 1,
+                "headlineTypographyStyleId": "7c9e9a3f-4c60-4ee9-a8ec-4bd83325f7e5",
+                "subheadlineTypographyStyleId": "8e020a66-1192-4266-a566-6d02f6d78a37"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 240,
+                  "w": 904,
+                  "x": 148,
+                  "y": 880,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqskl8rn-d7dajv",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: left;\"><span style=\"font-size: 20px;\">The BNMS Job Board brings together nuclear medicine vacancies in one place, helping professionals find relevant opportunities and supporting employers to reach a specialist audience.</span></p><p style=\"text-align: left;\"><span style=\"font-size: 20px;\">The service supports both members and the wider nuclear medicine community by connecting employers with skilled professionals and helping individuals develop their careers within nuclear medicine.</span></p>",
+                "colorRole": "default",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 950,
+                  "x": 125,
+                  "y": 784,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqskl8rn-eii577",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: center;\">Opportunities across Nuclear Medicine</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 968,
+                  "x": 0,
+                  "y": 1536,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqsknpvx-6e2060",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p>How to Claim</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 144,
+                  "w": 904,
+                  "x": 148,
+                  "y": 3392,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqskqzrj-ytm7bl",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: center;\"><span style=\"font-size: 20px;\">If you require assistance using the Job Board or have feedback regarding the service, </span><a target=\"_blank\" rel=\"noopener noreferrer\" href=\"https://ymcareers.zendesk.com/hc/en-us/articles/18665612107405-Where-To-Start/\"><span style=\"font-size: 20px;\">customer support</span></a><span style=\"font-size: 20px;\"> is available to help.</span></p><p style=\"text-align: center;\"><span style=\"font-size: 20px;\">Telephone: +44 (0)1733 742497</span></p>",
+                "colorRole": "default",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 950,
+                  "x": 125,
+                  "y": 3288,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqskqzrj-qbiw5z",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: center;\">Questions or feedback?</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 950,
+                  "w": 1200,
+                  "x": 0,
+                  "y": 1196,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtocu5g-rowy7x",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Section",
+              "type": "section",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "#F4F7FF",
+                "paddingTop": 24,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 24,
+                "borderRadius": 4,
+                "paddingRight": 24,
+                "paddingBottom": 24
+              },
+              "locked": false,
+              "content": {
+                "bgType": "color",
+                "maxWidth": 0,
+                "fullBleed": true,
+                "bgImageUrl": "",
+                "overlayType": "solid",
+                "overlayAngle": 180,
+                "overlayColor": "#000000",
+                "overlayOpacity": 0.4,
+                "overlayToColor": "#000000",
+                "overlayBlendMode": "normal",
+                "overlayEdgeColor": "#000000",
+                "overlayFromColor": "#000000",
+                "overlayToOpacity": 0,
+                "overlayCenterColor": "#000000",
+                "overlayEdgeOpacity": 0.6,
+                "overlayFromOpacity": 0.6,
+                "overlayCenterOpacity": 0
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 480,
+                  "w": 552,
+                  "x": 0,
+                  "y": 1488,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtocu5g-qr93ig",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 20px;\">Whether you are looking for your next role or exploring future career opportunities, the BNMS Job Board provides access to relevant nuclear medicine vacancies from across the profession.</span></p><p><span style=\"font-size: 20px;\"><strong>You can:</strong></span></p><ul><li><p><span style=\"font-size: 20px;\">Search and apply for nuclear medicine jobs.</span></p></li><li><p><span style=\"font-size: 20px;\">Set up job alerts based on your interests.</span></p></li><li><p><span style=\"font-size: 20px;\">Create an anonymous job seeker profile.</span></p></li><li><p><span style=\"font-size: 20px;\">Upload an anonymous CV.</span></p></li><li><p><span style=\"font-size: 20px;\">Access career advice and job search resources.</span></p></li></ul><p><span style=\"font-size: 20px;\">Job seeking services are free to use.</span></p>",
+                "colorRole": "default",
+                "headingAs": "",
+                "bulletIcon": "fa-solid fa-arrow-right",
+                "bulletIconSize": 15,
+                "bulletIconColor": "#fa8300",
+                "bulletIconPadTop": 5,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "c6f2ef1a-0e3e-4823-9ccb-290876da2f98",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 440,
+                  "w": 560,
+                  "x": 640,
+                  "y": 1488,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtocu5g-4xz5f0",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 20px;\">The BNMS Job Board enables employers to advertise vacancies to a highly relevant and specialist audience.</span></p><p><span style=\"font-size: 20px;\"><strong>Employers can:</strong></span></p><ul><li><p><span style=\"font-size: 20px;\">Promote vacancies to the nuclear medicine community.</span></p></li><li><p><span style=\"font-size: 20px;\">Reach suitably qualified candidates.</span></p></li><li><p><span style=\"font-size: 20px;\">Search the CV database.</span></p></li><li><p><span style=\"font-size: 20px;\">Manage vacancies and applications online.</span></p></li><li><p><span style=\"font-size: 20px;\">Target specialist disciplines.</span></p></li><li><p><span style=\"font-size: 20px;\">Recruit more efficiently.</span></p></li></ul><p></p>",
+                "colorRole": "default",
+                "headingAs": "",
+                "bulletIcon": "fa-solid fa-arrow-right",
+                "bulletIconSize": 15,
+                "bulletIconColor": "#fa8300",
+                "bulletIconPadTop": 5,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "c6f2ef1a-0e3e-4823-9ccb-290876da2f98",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 56,
+                  "w": 480,
+                  "x": 0,
+                  "y": 1396,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtocu5g-ha3i0k",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 28px;\">For job seekers</span></p>",
+                "colorRole": "default",
+                "headingAs": "3",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5adf6d13-1d12-4613-ac55-b4bb1345c168",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 56,
+                  "w": 480,
+                  "x": 640,
+                  "y": 1396,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtocu5g-t9sdey",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 28px;\">For employers</span></p>",
+                "colorRole": "default",
+                "headingAs": "3",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5adf6d13-1d12-4613-ac55-b4bb1345c168",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 320,
+                  "w": 320,
+                  "x": 96,
+                  "y": 2344,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtogvw8-4796mj",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Card",
+              "type": "card",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-surface, #ffffff)",
+                "paddingTop": 0,
+                "borderColor": "var(--cb-color-border, #e2e8f0)",
+                "borderStyle": "solid",
+                "borderWidth": 1,
+                "paddingLeft": 0,
+                "borderRadius": 8,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "body": "<p><span style=\"font-size: 20px;\">Advertise vacancies directly to nuclear medicine professionals working across clinical, scientific, technical and academic roles.</span></p><p></p>",
+                "shadow": "md",
+                "ctaHref": "#",
+                "heading": "Reach the right audience",
+                "ctaAlign": "left",
+                "ctaLabel": "Learn more",
+                "iconSize": 47,
+                "imageAlt": "",
+                "imageUrl": "",
+                "highlight": true,
+                "iconAlign": "center",
+                "iconClass": "",
+                "iconColor": "#7f5ed9",
+                "ctaEnabled": false,
+                "ctaVariant": "outline",
+                "imageAlign": "center",
+                "headingLevel": 4,
+                "headerSpacing": null,
+                "imageWidthPct": 100,
+                "contentPadding": 16,
+                "highlightColor": "#F4F7FF",
+                "imageDisplayMode": "inline",
+                "headingTypographyStyleId": "d16866a7-5cab-4854-8576-cb3d92081bc8"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 320,
+                  "w": 320,
+                  "x": 784,
+                  "y": 2344,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtorgqr-23bo0l",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Card",
+              "type": "card",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-surface, #ffffff)",
+                "paddingTop": 0,
+                "borderColor": "var(--cb-color-border, #e2e8f0)",
+                "borderStyle": "solid",
+                "borderWidth": 1,
+                "paddingLeft": 0,
+                "borderRadius": 8,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "body": "<p><span style=\"font-size: 20px;\">Post vacancies, review applications and manage recruitment activity through the dedicated job board platform.</span></p><p></p>",
+                "shadow": "lg",
+                "ctaHref": "#",
+                "heading": "Recruit online",
+                "ctaAlign": "left",
+                "ctaLabel": "Learn more",
+                "iconSize": 47,
+                "imageAlt": "",
+                "imageUrl": "",
+                "highlight": true,
+                "iconAlign": "center",
+                "iconClass": "",
+                "iconColor": "#7f5ed9",
+                "ctaEnabled": false,
+                "ctaVariant": "outline",
+                "imageAlign": "center",
+                "headingLevel": 4,
+                "headerSpacing": null,
+                "imageWidthPct": 100,
+                "contentPadding": 16,
+                "highlightColor": "#F4F7FF",
+                "imageDisplayMode": "inline",
+                "headingTypographyStyleId": "d16866a7-5cab-4854-8576-cb3d92081bc8"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 320,
+                  "w": 320,
+                  "x": 440,
+                  "y": 2344,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtorh19-utqlgh",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Card",
+              "type": "card",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-surface, #ffffff)",
+                "paddingTop": 0,
+                "borderColor": "var(--cb-color-border, #e2e8f0)",
+                "borderStyle": "solid",
+                "borderWidth": 1,
+                "paddingLeft": 0,
+                "borderRadius": 8,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "body": "<p><span style=\"font-size: 20px;\">Connect with suitably qualified candidates with the experience and expertise required for nuclear medicine positions.</span></p>",
+                "shadow": "lg",
+                "ctaHref": "#",
+                "heading": "Specialist recruitment",
+                "ctaAlign": "left",
+                "ctaLabel": "Learn more",
+                "iconSize": 47,
+                "imageAlt": "",
+                "imageUrl": "",
+                "highlight": true,
+                "iconAlign": "center",
+                "iconClass": "",
+                "iconColor": "#7f5ed9",
+                "ctaEnabled": false,
+                "ctaVariant": "outline",
+                "imageAlign": "center",
+                "headingLevel": 4,
+                "headerSpacing": null,
+                "imageWidthPct": 100,
+                "contentPadding": 16,
+                "highlightColor": "#F4F7FF",
+                "imageDisplayMode": "inline",
+                "headingTypographyStyleId": "d16866a7-5cab-4854-8576-cb3d92081bc8"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 136,
+                  "w": 144,
+                  "x": 528,
+                  "y": 648,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtpcuim-fxt83i",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 50,
+                "fullBleed": false,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-bullseye",
+                "iconColor": "#fa8300",
+                "objectFit": "cover",
+                "heightMode": "auto",
+                "heightValue": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 64,
+                  "w": 40,
+                  "x": 0,
+                  "y": 1336,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtpkzwy-rs66wg",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 30,
+                "fullBleed": false,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-briefcase",
+                "iconColor": "#fa8300",
+                "objectFit": "cover",
+                "heightMode": "auto",
+                "heightValue": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 24,
+                  "w": 560,
+                  "x": 0,
+                  "y": 1428,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtpy4bh-8aqqye",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Divider",
+              "type": "divider",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "color": "#fa8300",
+                "lineStyle": "solid",
+                "thickness": 1
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 24,
+                  "w": 560,
+                  "x": 640,
+                  "y": 1428,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtpywzr-ne4zp3",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Divider",
+              "type": "divider",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "color": "#fa8300",
+                "lineStyle": "solid",
+                "thickness": 1
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 64,
+                  "w": 48,
+                  "x": 640,
+                  "y": 1336,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtq3twa-iyijkd",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 30,
+                "fullBleed": false,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-file-circle-plus",
+                "iconColor": "#fa8300",
+                "objectFit": "cover",
+                "heightMode": "auto",
+                "heightValue": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 950,
+                  "x": 0,
+                  "y": 1240,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtrhuj9-ode7yr",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: left;\">Opportunities for job seekers and employers</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 44,
+                  "w": 180,
+                  "x": 0,
+                  "y": 2032,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtrmx0h-ok32kh",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Button",
+              "type": "button",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "href": "https://jobs.bnms.org.uk/jobs/",
+                "icon": "",
+                "size": "default",
+                "label": "View the job board",
+                "newTab": false,
+                "variant": "tenant:outline",
+                "ariaLabel": ""
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 44,
+                  "w": 180,
+                  "x": 640,
+                  "y": 1960,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtrnnfn-p0q4v7",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Button",
+              "type": "button",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "href": "https://jobs.bnms.org.uk/",
+                "icon": "",
+                "size": "default",
+                "label": "Post a vacancy",
+                "newTab": false,
+                "variant": "tenant:outline",
+                "ariaLabel": ""
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 950,
+                  "x": 125,
+                  "y": 2224,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtrpdc6-zdrqc0",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: center;\">Why advertise through BNMS?</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 400,
+                  "w": 1200,
+                  "x": 0,
+                  "y": 2728,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtrshoy-ynvmub",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Events hero",
+              "type": "hero",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-primary, #0f172a)",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 200,
+                "borderRadius": 0,
+                "paddingRight": 200,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "ctas": [
+                  {
+                    "href": "https://jobs.bnms.org.uk/employer/pricing/",
+                    "label": "View employer pricing",
+                    "variant": "tenant:primary-no-icon",
+                    "labelTypographyStyleId": "8e020a66-1192-4266-a566-6d02f6d78a37"
+                  }
+                ],
+                "bgType": "image",
+                "bgColor": "var(--cb-color-primary, #0f172a)",
+                "darkWash": 0.4,
+                "headline": "Posting a Vacancy",
+                "alignment": "left",
+                "fullBleed": true,
+                "textColor": "var(--cb-color-on-primary, #ffffff)",
+                "bgImageUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1783073873236-gex9lcu-Sharing_Expertise_in_Nuclear_Medicine.png",
+                "bgVideoUrl": "",
+                "subheadline": "Advertising packages, pricing and payments are handled directly through the job board provider.\n",
+                "headingLevel": 1,
+                "overlayAngle": 0,
+                "overlayStops": [
+                  {
+                    "color": "#4169e1",
+                    "opacity": 1,
+                    "position": 19
+                  },
+                  {
+                    "color": "#000000",
+                    "opacity": 0,
+                    "position": 98
+                  }
+                ],
+                "overlayStyle": "gradient",
+                "overlayToColor": "",
+                "overlayDirection": "to-right",
+                "overlayFromColor": "#0055ff",
+                "overlayToOpacity": 0,
+                "overlayFromOpacity": 1,
+                "headlineTypographyStyleId": "7c9e9a3f-4c60-4ee9-a8ec-4bd83325f7e5",
+                "subheadlineTypographyStyleId": "8e020a66-1192-4266-a566-6d02f6d78a37"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 136,
+                  "w": 144,
+                  "x": 528,
+                  "y": 3168,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtrw5un-5znnov",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 50,
+                "fullBleed": false,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-info",
+                "iconColor": "#fa8300",
+                "objectFit": "cover",
+                "heightMode": "auto",
+                "heightValue": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            }
+          ]
+        }
+      ],
+      "background": null
+    },
+    "version": 1
+  }
+}

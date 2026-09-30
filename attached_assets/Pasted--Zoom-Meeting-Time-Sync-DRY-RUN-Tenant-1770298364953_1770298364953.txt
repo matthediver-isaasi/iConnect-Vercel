@@ -1,0 +1,74 @@
+============================================================
+Zoom Meeting Time Sync (DRY RUN)
+Tenant ID: fd82da65-aab7-4a5c-85b8-b2febeb2003d
+============================================================
+
+Got Zoom access token
+
+Found 41 zoom meetings to sync
+
+  [OK] mat test again - Already in sync
+  [SKIP] test - Meeting not found in Zoom
+  [SKIP] Webinar meeting test - Meeting not found in Zoom
+  [OK] *Co-Creation in Action - Already in sync
+  [SKIP] CRON Test3 - Meeting not found in Zoom
+  [SKIP] AGCAS GANG - test meeting - Meeting not found in Zoom
+  [OK] Skills and Employer Engagement: Unpacked - Already in sync
+  [OK] *Group Work: Designing and Delivering Group Learning  - Already in sync
+  [OK] *Design Thinking for Careers and Employability - Already in sync
+  [OK] *Group Work: Designing and Delivering Group Learning  - Already in sync
+  [OK] *Group Work: Designing and Delivering Group Learning  - Already in sync
+  [OK] *Group Work: Designing and Delivering Group Learning  - Already in sync
+  [OK] *Introduction to Guidance Interviewing - Already in sync
+  [OK] *Introduction to Guidance Interviewing - Already in sync
+  [OK] *Introduction to Guidance Interviewing - Already in sync
+  [OK] *Introduction to Advice - Already in sync
+  [OK] *Introduction to Advice - Already in sync
+  [OK] *Management and Leadership Programme: Management of HE Career and Employability Services - Already in sync
+  [OK] *Guidance Refresher - Already in sync
+  [OK] *Guidance Refresher - Already in sync
+  [OK] *Career Coaching (Information, Advice and Guidance) - Already in sync
+  [OK] *Career Coaching (Information, Advice and Guidance) - Already in sync
+  [OK] *Career Coaching (Information, Advice and Guidance) - Already in sync
+  [OK] *Employability and Career Education: Strategy and Inclusive Design - Already in sync
+  [OK] *Employability and Career Education: Strategy and Inclusive Design - Already in sync
+  [OK] *Employability and Career Education: Strategy and Inclusive Design - Already in sync
+  [OK] *Supporting Neurodivergent Students into Employment - Already in sync
+  [OK] Test Zoom Meeting event 1p - Already in sync
+  [SKIP] Test Meeting 10:15 02.01.26 - Meeting not found in Zoom
+  [SKIP] v2 Test Meeting 02.01.26 - Meeting not found in Zoom
+  [OK] *Employability and Career Education: Strategy and Inclusive Design - Already in sync
+  [OK] *Challenges of Careers Work in HE - Already in sync
+  [OK] *Challenges of Careers Work in HE - Already in sync
+  [OK] *Challenges of Careers Work in HE - Already in sync
+  [OK] The future of work and the evolving role of careers services in HE – opportunity to publish your research and case studies - Already in sync
+  [OK] Skills and Employer Engagement: Unpacked - Already in sync
+  [OK] test - Already in sync
+  [OK] Chris test meeting - Already in sync
+  [OK] * Career Coaching (Information, Advice and Guidance) - Already in sync
+  [OK] *Management and Leadership Programme: Management of HE Career and Employability Services - Already in sync
+  [OK] *Employability and Career Education: Strategy and Inclusive Design - Already in sync
+
+Checking for orphaned events...
+  [ORPHAN] *Introduction to Guidance Interviewing - Zoom meeting b948fcc6-0108-4e9d-aa03-bdcdfa51af4d not found
+  [ORPHAN] *Challenges of Careers Work in HE - Zoom meeting 815afcd7-0ad7-4a4c-9e3f-0d61ce651b67 not found
+  [ORPHAN] *Supporting Neurodivergent Students into Employment - Zoom meeting 50a88a3c-a836-4b84-a1f6-5b42d9ce2442 not found
+  [ORPHAN] *Guidance Refresher - Zoom meeting a10ff518-669c-41b5-bd7f-2a4135c8743c not found
+  [ORPHAN] *Introduction to Advice - Zoom meeting 2d96af3e-ab7f-4932-a1df-f427ef688f82 not found
+  [ORPHAN] *Design Thinking for Careers and Employability - Zoom meeting 56601736-c3b1-41a3-a548-2a2c1d0b7a15 not found
+  [ORPHAN] Skills and Employer Engagement: Unpacked - Zoom meeting 128cd16e-4fa0-4d5f-8877-d73e902757dd not found
+  [ORPHAN] Skills and Employer Engagement: Unpacked - sponsored by Gradconsult - Zoom meeting 5c1886c9-3c9d-42c6-91ae-7ffb6b9712c1 not found
+  [ORPHAN] * Career Coaching (Information, Advice and Guidance) - Zoom meeting 632d85c5-9ee6-4814-ad69-7324514eb98d not found
+  [ORPHAN] *Co-Creation in Action: Building Inclusive Careers Services with Students - Zoom meeting 6b1fde3b-fd71-4457-b9b7-416e5baeffd8 not found
+  [ORPHAN] The future of work and the evolving role of careers services in HE – opportunity to publish your research and case studies - Zoom meeting 80a35d73-6187-491e-afde-efee34514a40 not found
+  [ORPHAN] *Employability and Career Education: Strategy and Inclusive Design - Zoom meeting a1dc65c0-035a-432c-ad44-b295419dc4fe not found
+
+============================================================
+SUMMARY
+============================================================
+Zoom meetings processed: 41
+Zoom meetings updated: 0 (dry run)
+Events processed: 0 (dry run)
+Events updated: 0 (dry run)
+Orphaned events found: 12
+Errors: 0

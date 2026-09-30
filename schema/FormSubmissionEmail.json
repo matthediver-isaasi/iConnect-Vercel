@@ -1,0 +1,57 @@
+{
+    "name": "FormSubmissionEmail",
+    "type": "object",
+    "properties": {
+      "submission_id": {
+        "type": "string",
+        "description": "Reference to the FormSubmission this reply relates to"
+      },
+      "to_email": {
+        "type": "string",
+        "format": "email",
+        "description": "Recipient email address (the form submitter)"
+      },
+      "cc_email": {
+        "type": "string",
+        "description": "Optional CC recipient(s)"
+      },
+      "bcc_email": {
+        "type": "string",
+        "description": "Optional BCC recipient(s)"
+      },
+      "subject": {
+        "type": "string",
+        "description": "Email subject line"
+      },
+      "body_html": {
+        "type": "string",
+        "description": "Rich-text (HTML) email body"
+      },
+      "sent_by_email": {
+        "type": "string",
+        "description": "Email of the admin who sent the reply"
+      },
+      "sent_by_member_id": {
+        "type": "string",
+        "description": "Member id of the admin who sent the reply, if available"
+      },
+      "delivery_status": {
+        "type": "string",
+        "enum": [
+          "sent",
+          "failed"
+        ],
+        "default": "sent",
+        "description": "Whether the email was accepted by the mail provider"
+      },
+      "delivery_error": {
+        "type": "string",
+        "description": "Provider error string when delivery failed"
+      }
+    },
+    "required": [
+      "submission_id",
+      "to_email",
+      "subject"
+    ]
+  }

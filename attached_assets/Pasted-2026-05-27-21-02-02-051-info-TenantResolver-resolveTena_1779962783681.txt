@@ -1,0 +1,35 @@
+2026-05-27 21:02:02.051 [info] [TenantResolver] resolveTenantFromRequest called
+2026-05-27 21:02:02.051 [info] [TenantResolver] Params - tenant: undefined domain: undefined
+2026-05-27 21:02:02.051 [info] [TenantResolver] Falling back to host-based resolution, hostname: gsf.dev.iconn.app
+2026-05-27 21:02:02.051 [info] [TenantResolver] resolveTenantFromHost called with: gsf.dev.iconn.app
+2026-05-27 21:02:02.051 [info] [TenantResolver] Cache hit for: gsf.dev.iconn.app
+2026-05-27 21:02:02.051 [info] [TenantContext] About to call getSessionTenantUser
+2026-05-27 21:02:02.051 [info] [Session] getSession: Looking up session: efbb5c64
+2026-05-27 21:02:02.197 [info] [Session] getSession: Session found, userType: member
+2026-05-27 21:02:02.199 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"efbb5c64","userType":"member","memberId":"49f0b578-2e2f-46f8-a151-2c4c08cc570c","identityId":"dc156a30-ae8d-4aee-b965-b54fe4b17105","tenantId":"21296ad6-1350-483a-a90c-1b06ece70501"}
+2026-05-27 21:02:02.199 [info] [Session] Found member session with identityId, attempting promotion
+2026-05-27 21:02:02.432 [info] [Session] No tenant_user record found for identity promotion
+2026-05-27 21:02:02.432 [info] [Session] Member session promotion failed
+2026-05-27 21:02:02.432 [info] [TenantContext] getSessionTenantUser returned: null
+2026-05-27 21:02:02.432 [info] [TenantContext] Checking for member session...
+2026-05-27 21:02:02.432 [info] [Session] getSession: Looking up session: efbb5c64
+2026-05-27 21:02:02.543 [info] [Session] getSession: Session found, userType: member
+2026-05-27 21:02:02.543 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"efbb5c64","userType":"member","memberId":"49f0b578-2e2f-46f8-a151-2c4c08cc570c"}
+2026-05-27 21:02:02.697 [info] [TenantContext] Member found: {
+  memberId: '49f0b578-2e2f-46f8-a151-2c4c08cc570c',
+  organizationId: '7a097c15-1028-4e12-acde-c5ababb7201e'
+}
+2026-05-27 21:02:02.697 [info] [TenantContext] Tenant from member: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-05-27 21:02:08.007 [info] [QBO] Creating new customer: Sharon ESO test fees
+2026-05-27 21:02:08.413 [info] [QBO] Created new customer: 70
+2026-05-27 21:02:08.999 [info] [QBO] Falling back to Item SalesTaxCodeRef 2 for invoice line
+2026-05-27 21:02:08.999 [info] [QBO] Creating membership invoice for Sharon ESO test fees, 2026/2027, GBP 250
+2026-05-27 21:02:09.549 [info] [QBO] Membership invoice created: undefined (185)
+2026-05-27 21:02:09.671 [info] [Invoicing] Xero invoice created: 185 for Sharon ESO test fees
+2026-05-27 21:02:10.456 [info] [Tenant Email] Using tenant-specific domain: community.globalschoolsforum.org
+2026-05-27 21:02:10.456 [info] [Tenant Email] Sending to: isaasitesting4@outlook.com, domain: community.globalschoolsforum.org
+2026-05-27 21:02:11.058 [info] [Tenant Email] Email sent successfully. Message ID: <20260527210210.551f3365e2ba00d0@community.globalschoolsforum.org>
+2026-05-27 21:02:11.058 [info] [Tenant Email] Using tenant-specific domain: community.globalschoolsforum.org
+2026-05-27 21:02:11.058 [info] [Tenant Email] Sending to: isaasitesting3@outlook.com, domain: community.globalschoolsforum.org
+2026-05-27 21:02:11.218 [info] [Tenant Email] Email sent successfully. Message ID: <20260527210211.2dc1afc040fd1a1a@community.globalschoolsforum.org>
+2026-05-27 21:02:11.218 [info] [Invoice Email] Invoice email sent to isaasitesting4@outlook.com, isaasitesting3@outlook.com for Sharon ESO test fees (185)

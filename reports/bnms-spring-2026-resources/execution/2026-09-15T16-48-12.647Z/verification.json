@@ -1,0 +1,90 @@
+{
+  "status": "already_applied",
+  "tenantId": "ff2df806-b321-4254-b651-3af11fccf1db",
+  "destinationProject": "lvmzliemqnieeoruhkik",
+  "inputChecksum": "db61ce39f47baec8a8bb48bc2c8a0a40081163193e139b816e0e6300d3b5c1e0",
+  "sourceRows": 308,
+  "inserted": 0,
+  "updated": 0,
+  "unchanged": 173,
+  "blocked": 135,
+  "skippedRows": 308,
+  "writes": 0,
+  "replayWrites": 0,
+  "resourceType": "download",
+  "resourceTypeStorage": {
+    "dataType": "text",
+    "udtName": "text",
+    "observedValue": "download"
+  },
+  "memberOnlyOverrideApplied": true,
+  "initialResourceCount": 3269,
+  "finalResourceCount": 3269,
+  "initialCategoryCount": 6,
+  "finalCategoryCount": 6,
+  "blankDatesPreserved": true,
+  "existingTagsAndClassificationsPreserved": true,
+  "existingRoleRestrictionsPreserved": true,
+  "taxonomyUnchanged": true,
+  "completePaginatedVerification": true,
+  "prewriteSecondReadIdentical": true,
+  "finalSecondReadIdentical": true,
+  "replaySummary": {
+    "sourceRows": 308,
+    "distinctLiteralUrls": 308,
+    "destinationResources": 3269,
+    "inserts": 0,
+    "updates": 0,
+    "unchanged": 173,
+    "blocked": 135,
+    "exactMatchRows": 68,
+    "providerIdentityMatchRows": 115,
+    "identityMatchRows": 115,
+    "unmatchedRows": 125,
+    "multipleDestinationRows": 2,
+    "titleOnlyRows": 125,
+    "coreChangeRows": 0,
+    "coreChangeFields": {
+      "target_url": 0,
+      "title": 0,
+      "description": 0,
+      "release_date": 0
+    },
+    "accessChangeRows": 8,
+    "nonBlockedAccessChangeRows": 0,
+    "classificationChangeRows": 8,
+    "displayTypeChangeRows": 0,
+    "yearOnlyRows": 0,
+    "invalidDateRows": 0,
+    "missingTaxonomyRows": 8,
+    "duplicateSourceGroups": 0,
+    "duplicateSourceRows": 0,
+    "hyperlinkRows": 0,
+    "hyperlinkConflicts": 0,
+    "formulaRows": 0,
+    "databaseWrites": 0
+  },
+  "authorization": {
+    "checked": 173,
+    "locked": 173,
+    "publicTargetSuppressed": 173,
+    "activeMemberVisible": 173,
+    "inactivePreserved": 0
+  },
+  "finalCoverage": {
+    "resourceTotal": 3269,
+    "resourcePages": [
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      269
+    ],
+    "categoryTotal": 6,
+    "categoryPages": [
+      6
+    ]
+  }
+}

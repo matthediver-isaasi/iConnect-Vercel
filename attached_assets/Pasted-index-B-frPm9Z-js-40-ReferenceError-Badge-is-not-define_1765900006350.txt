@@ -1,0 +1,90 @@
+index-B-frPm9Z.js:40 ReferenceError: Badge is not defined
+    at index-B-frPm9Z.js:1739:177458
+    at Array.map (<anonymous>)
+    at index-B-frPm9Z.js:1739:177262
+    at iH (index-B-frPm9Z.js:1739:178013)
+    at ZC (index-B-frPm9Z.js:38:17018)
+    at n1 (index-B-frPm9Z.js:40:3139)
+    at kD (index-B-frPm9Z.js:40:44833)
+    at wD (index-B-frPm9Z.js:40:39790)
+    at oY (index-B-frPm9Z.js:40:39718)
+    at Kb (index-B-frPm9Z.js:40:39570)
+a1 @ index-B-frPm9Z.js:40
+a.callback @ index-B-frPm9Z.js:40
+D3 @ index-B-frPm9Z.js:38
+Q3 @ index-B-frPm9Z.js:40
+yD @ index-B-frPm9Z.js:40
+rY @ index-B-frPm9Z.js:40
+dY @ index-B-frPm9Z.js:40
+Gd @ index-B-frPm9Z.js:40
+e5 @ index-B-frPm9Z.js:40
+Ed @ index-B-frPm9Z.js:38
+(anonymous) @ index-B-frPm9Z.js:40
+setTimeout
+r @ index-B-frPm9Z.js:871
+l @ index-B-frPm9Z.js:871
+batch @ index-B-frPm9Z.js:871
+Oo @ index-B-frPm9Z.js:871
+setData @ index-B-frPm9Z.js:871
+onSuccess @ index-B-frPm9Z.js:871
+u @ index-B-frPm9Z.js:871
+Promise.then
+b @ index-B-frPm9Z.js:871
+start @ index-B-frPm9Z.js:871
+fetch @ index-B-frPm9Z.js:871
+yp @ index-B-frPm9Z.js:871
+onSubscribe @ index-B-frPm9Z.js:871
+subscribe @ index-B-frPm9Z.js:871
+(anonymous) @ index-B-frPm9Z.js:871
+UO @ index-B-frPm9Z.js:38
+oy @ index-B-frPm9Z.js:40
+zm @ index-B-frPm9Z.js:40
+(anonymous) @ index-B-frPm9Z.js:40
+C @ index-B-frPm9Z.js:25
+M @ index-B-frPm9Z.js:25
+index-B-frPm9Z.js:1739 Uncaught ReferenceError: Badge is not defined
+    at index-B-frPm9Z.js:1739:177458
+    at Array.map (<anonymous>)
+    at index-B-frPm9Z.js:1739:177262
+    at iH (index-B-frPm9Z.js:1739:178013)
+    at ZC (index-B-frPm9Z.js:38:17018)
+    at n1 (index-B-frPm9Z.js:40:3139)
+    at kD (index-B-frPm9Z.js:40:44833)
+    at wD (index-B-frPm9Z.js:40:39790)
+    at oY (index-B-frPm9Z.js:40:39718)
+    at Kb (index-B-frPm9Z.js:40:39570)
+(anonymous) @ index-B-frPm9Z.js:1739
+(anonymous) @ index-B-frPm9Z.js:1739
+iH @ index-B-frPm9Z.js:1739
+ZC @ index-B-frPm9Z.js:38
+n1 @ index-B-frPm9Z.js:40
+kD @ index-B-frPm9Z.js:40
+wD @ index-B-frPm9Z.js:40
+oY @ index-B-frPm9Z.js:40
+Kb @ index-B-frPm9Z.js:40
+p1 @ index-B-frPm9Z.js:40
+e5 @ index-B-frPm9Z.js:40
+Ed @ index-B-frPm9Z.js:38
+(anonymous) @ index-B-frPm9Z.js:40
+setTimeout
+r @ index-B-frPm9Z.js:871
+l @ index-B-frPm9Z.js:871
+batch @ index-B-frPm9Z.js:871
+Oo @ index-B-frPm9Z.js:871
+setData @ index-B-frPm9Z.js:871
+onSuccess @ index-B-frPm9Z.js:871
+u @ index-B-frPm9Z.js:871
+Promise.then
+b @ index-B-frPm9Z.js:871
+start @ index-B-frPm9Z.js:871
+fetch @ index-B-frPm9Z.js:871
+yp @ index-B-frPm9Z.js:871
+onSubscribe @ index-B-frPm9Z.js:871
+subscribe @ index-B-frPm9Z.js:871
+(anonymous) @ index-B-frPm9Z.js:871
+UO @ index-B-frPm9Z.js:38
+oy @ index-B-frPm9Z.js:40
+zm @ index-B-frPm9Z.js:40
+(anonymous) @ index-B-frPm9Z.js:40
+C @ index-B-frPm9Z.js:25
+M @ index-B-frPm9Z.js:25

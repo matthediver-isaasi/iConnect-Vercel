@@ -1,0 +1,1212 @@
+import { createHash } from 'node:crypto';
+import { COUNTRIES, resolveCountryToIso2 } from '../../shared/countries.js';
+import {
+  ORG_DIRECTORY_FILTER_SETTING,
+  isOrganisationDirectoryFieldFilterable,
+  parseOrganisationDirectoryFilterOverrides,
+} from '../../shared/organisationDirectoryFilters.js';
+import {
+  resolveCustomObjectDirectorySources,
+} from './customObjectDirectory.js';
+import {
+  isVisibleInDirectory,
+  ORG_BACK_DEFAULT_ORDER,
+  parseDirVis,
+  parseRoleIdArray,
+  resolveBackFieldOrder,
+} from './directoryConfig.js';
+import { normalizeOrganizationPreferenceValues } from './organizationEligibility.js';
+import {
+  formatOrganisationDirectoryCsvValue,
+  countOrganisationDirectoryCsvRows,
+  projectOrganisationDirectoryCsv,
+} from './organisationDirectoryCsv.js';
+import {
+  resolveOrganisationDirectoryMemberCounts,
+} from './organisationDirectoryMemberCounts.js';
+
+const PAGE_SIZE = 500;
+const MAX_PAGES = 200;
+const ID_CHUNK = 200;
+const MAX_FILTERS = 50;
+export const ORG_DIRECTORY_CSV_SETTING = 'org_directory_allow_csv_download';
+const CORE_FIELDS = Object.freeze([
+  { key: 'org_member_count', label: 'Member count', field_type: 'number', control: 'number' },
+  { key: 'org_members_list', label: 'Members / contacts list', field_type: 'text', control: 'source-choice', multi_select: false },
+]);
+
+export class OrganisationDirectoryFilterError extends Error {
+  constructor(status, message) {
+    super(message);
+    this.status = status;
+  }
+}
+
+function isPlainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function diagnosticContext(message) {
+  const normalized = String(message || '').toLowerCase();
+  if (normalized.includes('preference value')) return 'preference_values';
+  if (normalized.includes('eligibility field')) return 'eligibility_fields';
+  if (normalized.includes('relationship')) return 'relationship_values';
+  if (normalized.includes('member')) return 'member_inventory';
+  if (normalized.includes('field inventory')) return 'field_inventory';
+  if (normalized.includes('organisation inventory')) return 'organization_inventory';
+  if (normalized.includes('record')) return 'object_records';
+  if (normalized.includes('setting')) return 'settings';
+  return 'directory_query';
+}
+
+async function checked(query, message) {
+  const result = await query;
+  if (result.error) {
+    const error = new Error(message
+      ? `Organisation directory query failed: ${message}`
+      : 'Organisation directory query failed');
+    error.diagnosticCode = 'DIRECTORY_QUERY_FAILED';
+    error.diagnosticContext = diagnosticContext(message);
+    const dbCode = String(result.error.code || '');
+    if (/^[A-Z0-9]{5,}$/.test(dbCode)) error.dbCode = dbCode;
+    throw error;
+  }
+  return result.data || [];
+}
+
+export async function readCompleteOrganisationDirectoryPages(build, message) {
+  const output = [];
+  for (let page = 0; page < MAX_PAGES; page += 1) {
+    const start = page * PAGE_SIZE;
+    const batch = await checked(build().range(start, start + PAGE_SIZE - 1), message);
+    output.push(...batch);
+    if (batch.length < PAGE_SIZE) return output;
+  }
+  // A one-row probe distinguishes an inventory of exactly 100,000 rows from
+  // a larger inventory. Exact-boundary inventories are complete; larger ones
+  // must fail explicitly rather than being silently truncated.
+  const probeStart = MAX_PAGES * PAGE_SIZE;
+  const probe = await checked(build().range(probeStart, probeStart), message);
+  if (!probe.length) return output;
+  const error = new Error(message
+    ? `Organisation directory inventory exhausted its supported limit: ${message}`
+    : 'Organisation directory inventory exhausted its supported limit');
+  error.diagnosticCode = 'DIRECTORY_INVENTORY_EXHAUSTED';
+  error.diagnosticContext = diagnosticContext(message);
+  throw error;
+}
+
+const paged = readCompleteOrganisationDirectoryPages;
+
+async function chunked(ids, build, message) {
+  const output = [];
+  for (let offset = 0; offset < ids.length; offset += ID_CHUNK) {
+    output.push(...await checked(build(ids.slice(offset, offset + ID_CHUNK)), message));
+  }
+  return output;
+}
+
+function savedArray(value) {
+  if (value === undefined || value === null) return [];
+  let parsed = value;
+  if (typeof parsed === 'string') {
+    try { parsed = JSON.parse(parsed); } catch { return []; }
+  }
+  return Array.isArray(parsed) ? parsed.filter((item) => typeof item === 'string') : [];
+}
+
+function savedFalse(value) {
+  return value === false || String(value).toLowerCase() === 'false';
+}
+
+function parseOptions(raw) {
+  let options = raw;
+  if (typeof options === 'string') {
+    try { options = JSON.parse(options); } catch { return []; }
+  }
+  if (!Array.isArray(options)) return [];
+  const seen = new Set();
+  return options.flatMap((option) => {
+    const rawValue = isPlainObject(option) ? option.value : option;
+    const rawLabel = isPlainObject(option) ? (option.label ?? option.value) : option;
+    if (!['string', 'number', 'boolean'].includes(typeof rawValue)) return [];
+    const value = String(rawValue);
+    if (!value || seen.has(value)) return [];
+    seen.add(value);
+    return [{ value, label: String(rawLabel ?? rawValue) }];
+  });
+}
+
+function countryOptions(field) {
+  const selected = new Set(savedArray(field.selected_countries).map((code) => code.toUpperCase()));
+  const countries = field.all_countries === false && selected.size
+    ? COUNTRIES.filter(({ code }) => selected.has(code)) : COUNTRIES;
+  return countries.map(({ code, name }) => ({ value: code, label: name }));
+}
+
+function fieldShape(type) {
+  const normalized = String(type || 'text').toLowerCase();
+  if (['select', 'dropdown', 'picklist', 'radio', 'checkbox', 'multiselect',
+    'multi_select', 'multi-select', 'country', 'countries', 'boolean'].includes(normalized)) return 'choice';
+  if (['number', 'decimal', 'integer', 'currency'].includes(normalized)) return 'number';
+  if (['date', 'datetime', 'date_time'].includes(normalized)) return 'date';
+  if (['file', 'image', 'images', 'attachment'].includes(normalized)) return 'presence';
+  return 'text';
+}
+
+function metadataForField(field) {
+  const key = `custom:${field.id}`;
+  let control = fieldShape(field.field_type);
+  let options = [];
+  if (['country', 'countries'].includes(String(field.field_type))) {
+    options = countryOptions(field);
+  } else if (String(field.field_type) === 'boolean') {
+    options = [{ value: 'true', label: 'Yes' }, { value: 'false', label: 'No' }];
+  } else if (control === 'choice') {
+    options = parseOptions(field.options);
+  }
+  if (control === 'text') control = 'source-choice';
+  return {
+    key,
+    label: String(field.label || field.name || 'Field'),
+    field_type: String(field.field_type || 'text'),
+    control,
+    options,
+    multi_select: ['list', 'multiselect', 'multi_select', 'multi-select', 'countries', 'checkbox']
+      .includes(String(field.field_type).toLowerCase()),
+    _field: field,
+    _kind: 'custom',
+  };
+}
+
+function metadataForObjectSource(source) {
+  const type = source.field?.field_type || 'text';
+  let control = fieldShape(type);
+  let options = [];
+  if (['country', 'countries'].includes(type)) {
+    options = countryOptions(source.field || {});
+  } else if (type === 'boolean') {
+    options = [{ value: 'true', label: 'Yes' }, { value: 'false', label: 'No' }];
+  } else if (control === 'choice') {
+    options = parseOptions(source.field?.options);
+  }
+  if (control === 'text' || String(type).toLowerCase() === 'list') {
+    control = 'source-choice';
+    options = [];
+  }
+  return {
+    key: source.key,
+    label: source.label,
+    field_type: type,
+    control,
+    options,
+    multi_select: ['list', 'multiselect', 'multi_select', 'multi-select', 'countries', 'checkbox']
+      .includes(String(type).toLowerCase()),
+    _source: source,
+    _kind: 'object',
+  };
+}
+
+function publicMetadata(field) {
+  const { _field, _source, _kind, ...result } = field;
+  return result;
+}
+
+async function loadSettings(db, tenantId) {
+  const keys = [
+    ORG_DIRECTORY_FILTER_SETTING,
+    ORG_DIRECTORY_CSV_SETTING,
+    'org_directory_back_field_order',
+    'org_directory_show_member_count',
+    'org_directory_show_domains',
+    'org_directory_show_logo',
+    'org_directory_show_title',
+    'org_directory_reverse_card_role_ids',
+    'org_directory_excluded_orgs',
+    'org_directory_allowed_application_statuses',
+    'org_directory_visible_org_types',
+  ];
+  const rows = await checked(db.from('system_settings').select('setting_key, setting_value')
+    .eq('tenant_id', tenantId).in('setting_key', keys), 'Failed to load organisation directory settings');
+  if (rows.filter(({ setting_key }) =>
+    setting_key === ORG_DIRECTORY_FILTER_SETTING).length > 1) {
+    throw new OrganisationDirectoryFilterError(
+      409,
+      'Multiple organisation directory filter settings exist for this tenant; resolve the duplicate configuration',
+    );
+  }
+  if (rows.filter(({ setting_key }) =>
+    setting_key === ORG_DIRECTORY_CSV_SETTING).length > 1) {
+    throw new OrganisationDirectoryFilterError(
+      409,
+      'Multiple organisation directory CSV settings exist for this tenant; resolve the duplicate configuration',
+    );
+  }
+  return new Map(rows.map((row) => [row.setting_key, row.setting_value]));
+}
+
+// This is deliberately strict.  An absent, malformed, or legacy truthy value
+// must never turn a data export on; only the explicit persisted true value does.
+export function organisationDirectoryCsvDownloadAllowed(value) {
+  return value === true || (typeof value === 'string' && value.trim().toLowerCase() === 'true');
+}
+
+function deterministicSettingId(tenantId, settingKey) {
+  const hex = createHash('sha256')
+    .update(`system_settings:${tenantId}:${settingKey}`)
+    .digest('hex').slice(0, 32).split('');
+  hex[12] = '5';
+  hex[16] = ['8', '9', 'a', 'b'][Number.parseInt(hex[16], 16) % 4];
+  return `${hex.slice(0, 8).join('')}-${hex.slice(8, 12).join('')}-${hex.slice(12, 16).join('')}-${hex.slice(16, 20).join('')}-${hex.slice(20).join('')}`;
+}
+
+export async function readOrganisationDirectoryCsvSetting({ db, tenantId }) {
+  const rows = await checked(db.from('system_settings').select('id, setting_value')
+    .eq('tenant_id', tenantId).eq('setting_key', ORG_DIRECTORY_CSV_SETTING).limit(2),
+  'Failed to load organisation directory CSV setting');
+  if (rows.length > 1) {
+    throw new OrganisationDirectoryFilterError(
+      409,
+      'Multiple organisation directory CSV settings exist for this tenant; resolve the duplicate configuration',
+    );
+  }
+  return organisationDirectoryCsvDownloadAllowed(rows[0]?.setting_value);
+}
+
+export async function saveOrganisationDirectoryCsvSetting({ db, tenantId, allowCsvDownload }) {
+  if (typeof allowCsvDownload !== 'boolean') {
+    throw new OrganisationDirectoryFilterError(400, 'allowCsvDownload must be a boolean');
+  }
+  const settingId = deterministicSettingId(tenantId, ORG_DIRECTORY_CSV_SETTING);
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const rows = await checked(db.from('system_settings').select('id, setting_value')
+      .eq('tenant_id', tenantId).eq('setting_key', ORG_DIRECTORY_CSV_SETTING).limit(2),
+    'Failed to load organisation directory CSV setting');
+    if (rows.length > 1) {
+      throw new OrganisationDirectoryFilterError(
+        409,
+        'Multiple organisation directory CSV settings exist for this tenant; resolve the duplicate configuration',
+      );
+    }
+    const row = rows[0];
+    const settingValue = allowCsvDownload ? 'true' : 'false';
+    if (!row) {
+      const result = await db.from('system_settings').insert({
+        id: settingId,
+        tenant_id: tenantId,
+        setting_key: ORG_DIRECTORY_CSV_SETTING,
+        setting_value: settingValue,
+        setting_type: 'boolean',
+        description: 'Allow organisation directory CSV downloads',
+      }).select('id');
+      if (!result.error) return allowCsvDownload;
+      if (result.error.code === '23505') {
+        const conflicting = await checked(db.from('system_settings')
+          .select('tenant_id, setting_key').eq('id', settingId).limit(1),
+        'Failed to verify concurrent organisation directory CSV settings update');
+        if (conflicting[0]?.tenant_id === tenantId
+            && conflicting[0]?.setting_key === ORG_DIRECTORY_CSV_SETTING) continue;
+      }
+      throw new Error(result.error.message || 'Failed to create organisation directory CSV setting');
+    }
+    let update = db.from('system_settings').update({ setting_value: settingValue })
+      .eq('id', row.id).eq('tenant_id', tenantId);
+    update = row.setting_value === null
+      ? update.is('setting_value', null) : update.eq('setting_value', row.setting_value);
+    const result = await update.select('id');
+    if (result.error) throw new Error(result.error.message || 'Failed to update organisation directory CSV setting');
+    if (result.data?.length) return allowCsvDownload;
+  }
+  throw new OrganisationDirectoryFilterError(409, 'Organisation directory CSV setting changed concurrently; retry');
+}
+
+async function loadCustomFields(db, tenantId) {
+  return paged(() => db.from('preference_field')
+    .select('id, name, label, field_type, options, all_countries, selected_countries, is_filterable, directory_visibility, show_in_directory_card, display_order')
+    .eq('tenant_id', tenantId).eq('entity_scope', 'organization').eq('is_active', true)
+    .order('display_order', { ascending: true }).order('id', { ascending: true }),
+  'Organisation directory field inventory exceeds the supported size');
+}
+
+async function buildInventory({
+  db, context, settingsMode, isAdmin = false,
+}) {
+  const [settingMap, customFields, objectSources] = await Promise.all([
+    loadSettings(db, context.tenantId),
+    loadCustomFields(db, context.tenantId),
+    resolveCustomObjectDirectorySources({
+      db, context, settings: settingsMode, isAdmin,
+    }),
+  ]);
+  const rawOverrides = settingMap.has(ORG_DIRECTORY_FILTER_SETTING)
+    ? settingMap.get(ORG_DIRECTORY_FILTER_SETTING) : undefined;
+  let overrides;
+  try {
+    overrides = parseOrganisationDirectoryFilterOverrides(rawOverrides);
+  } catch {
+    throw new OrganisationDirectoryFilterError(500, 'Saved organisation directory filter configuration is malformed');
+  }
+
+  const visibleCustom = customFields.flatMap((field) => {
+    const visibility = parseDirVis(field);
+    const assigned = visibility
+      ? isVisibleInDirectory(field, 'main') : field.show_in_directory_card !== false;
+    if (!assigned) return [];
+    const display = visibility?.display?.main;
+    if (display && typeof display === 'object' && display.back === false) return [];
+    const label = visibility?.labels?.main;
+    return [{
+      ...field,
+      ...(typeof label === 'string' && label.trim() ? { label: label.trim() } : {}),
+    }];
+  }).map((field, originalIndex) => {
+    const display = parseDirVis(field)?.display?.main;
+    const order = display && typeof display === 'object'
+      && display.order !== null && display.order !== '' && Number.isFinite(Number(display.order))
+      ? Number(display.order) : null;
+    return { ...field, _directoryOrder: order, _originalIndex: originalIndex };
+  }).sort((left, right) => {
+    if (left._directoryOrder !== null && right._directoryOrder !== null
+      && left._directoryOrder !== right._directoryOrder) return left._directoryOrder - right._directoryOrder;
+    if (left._directoryOrder !== null) return -1;
+    if (right._directoryOrder !== null) return 1;
+    return left._originalIndex - right._originalIndex;
+  });
+  const settingsCustomMetadata = customFields.map(metadataForField);
+  const customMetadata = visibleCustom.map(metadataForField);
+  const objectMetadata = objectSources.map(metadataForObjectSource);
+  const settingsCoreMetadata = CORE_FIELDS.map((field) => ({
+    ...field, options: [], multi_select: false, _kind: 'core',
+  }));
+  const coreMetadata = CORE_FIELDS.filter((field) => (
+    field.key !== 'org_member_count'
+      || !savedFalse(settingMap.get('org_directory_show_member_count'))
+  )).map((field) => ({ ...field, options: [], multi_select: false, _kind: 'core' }));
+  const all = [...coreMetadata, ...customMetadata, ...objectMetadata];
+  const savedOrder = savedArray(settingMap.get('org_directory_back_field_order'));
+  const orderFields = (fields, orderedCustomFields) => {
+    const byKey = new Map(fields.map((field) => [field.key, field]));
+    const resolved = resolveBackFieldOrder({
+      directoryOrder: null,
+      tenantOrder: savedOrder,
+      defaultOrder: ORG_BACK_DEFAULT_ORDER,
+      customFields: orderedCustomFields,
+      objectSources,
+    });
+    const ordered = resolved.map((key) => byKey.get(key)).filter(Boolean);
+    for (const field of fields) if (!ordered.includes(field)) ordered.push(field);
+    return ordered;
+  };
+  return {
+    fields: orderFields(all, visibleCustom),
+    settingsFields: orderFields(
+      [...settingsCoreMetadata, ...settingsCustomMetadata, ...objectMetadata],
+      customFields,
+    ),
+    overrides,
+    settingMap,
+  };
+}
+
+function nonempty(value) {
+  if (Array.isArray(value)) return value.some(nonempty);
+  return value !== null && value !== undefined && String(value).trim() !== '';
+}
+
+function scalarValues(raw, fieldType) {
+  const values = normalizeOrganizationPreferenceValues(raw) || [];
+  if (['country', 'countries'].includes(String(fieldType))) {
+    return values.map((value) => resolveCountryToIso2(value) || String(value));
+  }
+  return values;
+}
+
+function comparable(value, type) {
+  if (['number', 'decimal', 'integer', 'currency'].includes(String(type))) {
+    if ((typeof value !== 'number' && typeof value !== 'string')
+        || (typeof value === 'string' && !value.trim())) return NaN;
+    const number = Number(value);
+    return Number.isFinite(number) ? number : NaN;
+  }
+  if (['date', 'datetime', 'date_time'].includes(String(type))) return Date.parse(value);
+  if (String(type) === 'boolean') {
+    const normalized = String(value).trim().toLowerCase();
+    if (['true', 'yes', '1'].includes(normalized)) return 'true';
+    if (['false', 'no', '0'].includes(normalized)) return 'false';
+  }
+  return String(value).trim().toLocaleLowerCase();
+}
+
+export function matchesOrganisationDirectoryFilter(rawValues, filter, metadata) {
+  const values = Array.isArray(rawValues) ? rawValues.flatMap((value) =>
+    scalarValues(value, metadata.field_type)) : scalarValues(rawValues, metadata.field_type);
+  if (filter.operator === 'present') return values.some(nonempty);
+  if (filter.operator === 'absent') return !values.some(nonempty);
+  const wanted = Array.isArray(filter.value) ? filter.value : [filter.value];
+  if (metadata.control === 'source-choice' && filter.operator === 'eq') {
+    const requested = new Set(wanted.map((value) => String(value).trim()));
+    return canonicalSourceValues(rawValues).some((value) => requested.has(value));
+  }
+  if (filter.operator === 'between') {
+    const actual = values.map((value) => comparable(value, metadata.field_type))
+      .filter(Number.isFinite);
+    const low = comparable(filter.value[0], metadata.field_type);
+    const high = comparable(filter.value[1], metadata.field_type);
+    return Number.isFinite(low) && Number.isFinite(high)
+      && actual.some((value) => value >= low && value <= high);
+  }
+  return values.some((value) => {
+    const actual = comparable(value, metadata.field_type);
+    if (filter.operator === 'contains') {
+      return wanted.some((candidate) => String(value).toLocaleLowerCase()
+        .includes(String(candidate).toLocaleLowerCase()));
+    }
+    if (filter.operator === 'gte') {
+      const candidate = comparable(wanted[0], metadata.field_type);
+      return Number.isFinite(actual) && Number.isFinite(candidate) && actual >= candidate;
+    }
+    if (filter.operator === 'lte') {
+      const candidate = comparable(wanted[0], metadata.field_type);
+      return Number.isFinite(actual) && Number.isFinite(candidate) && actual <= candidate;
+    }
+    return wanted.some((candidate) => actual === comparable(candidate, metadata.field_type));
+  });
+}
+
+function validateRequest(input, fieldByKey, sourceOptions = new Map()) {
+  if (!isPlainObject(input)) throw new OrganisationDirectoryFilterError(400, 'JSON body is required');
+  const filters = input.filters ?? {};
+  if (!isPlainObject(filters) || Object.keys(filters).length > MAX_FILTERS) {
+    throw new OrganisationDirectoryFilterError(400, 'filters must be an object with at most 50 fields');
+  }
+  const output = {};
+  for (const [key, filter] of Object.entries(filters)) {
+    const metadata = fieldByKey.get(key);
+    if (!metadata) throw new OrganisationDirectoryFilterError(400, `Filter field is unavailable: ${key}`);
+    const allowedOperators = {
+      choice: new Set(['eq']),
+      'source-choice': new Set(['eq']),
+      presence: new Set(['present', 'absent']),
+      text: new Set(['eq', 'contains', 'present', 'absent']),
+      number: new Set(['eq', 'gte', 'lte', 'between', 'present', 'absent']),
+      date: new Set(['eq', 'gte', 'lte', 'between', 'present', 'absent']),
+    }[metadata.control];
+    if (!isPlainObject(filter) || !allowedOperators?.has(filter.operator)) {
+      throw new OrganisationDirectoryFilterError(400, `Invalid filter for field: ${key}`);
+    }
+    if (['present', 'absent'].includes(filter.operator)) {
+      output[key] = { operator: filter.operator };
+      continue;
+    }
+    if (filter.value === undefined || JSON.stringify(filter.value).length > 10000) {
+      throw new OrganisationDirectoryFilterError(400, `Filter value is required: ${key}`);
+    }
+    if (metadata.control === 'choice' || metadata.control === 'source-choice') {
+      if (filter.operator !== 'eq'
+          || (!Array.isArray(filter.value)
+            && !['string', 'number', 'boolean'].includes(typeof filter.value))) {
+        throw new OrganisationDirectoryFilterError(400, `Invalid choice filter: ${key}`);
+      }
+      const rawRequested = Array.isArray(filter.value) ? filter.value : [filter.value];
+      if (rawRequested.some((value) =>
+        !['string', 'number', 'boolean'].includes(typeof value))) {
+        throw new OrganisationDirectoryFilterError(400, `Invalid choice filter: ${key}`);
+      }
+      const requested = rawRequested
+        .map((value) => String(value).trim());
+      if (!requested.length || requested.some((value) => !value)) {
+        throw new OrganisationDirectoryFilterError(400, `Filter value is required: ${key}`);
+      }
+      if (metadata.control === 'source-choice'
+          && !metadata.multi_select && requested.length > 1) {
+        throw new OrganisationDirectoryFilterError(
+          400,
+          `Filter field accepts only one option: ${key}`,
+        );
+      }
+      const allowed = metadata.control === 'source-choice'
+        ? sourceOptions.get(key) : new Set(metadata.options.map((option) => option.value));
+      if (requested.some((value) => !allowed.has(value))) {
+        throw new OrganisationDirectoryFilterError(400, `Filter option is unavailable: ${key}`);
+      }
+      output[key] = {
+        operator: 'eq',
+        value: Array.isArray(filter.value) ? [...new Set(requested)] : requested[0],
+      };
+      continue;
+    }
+    if (metadata.control === 'text') {
+      if (typeof filter.value !== 'string' || !filter.value.trim()) {
+        throw new OrganisationDirectoryFilterError(400, `Text filter value is required: ${key}`);
+      }
+      output[key] = { operator: filter.operator, value: filter.value.trim() };
+      continue;
+    }
+    const normalizeTyped = (value) => {
+      if (value === null || (typeof value === 'string' && !value.trim()) || typeof value === 'boolean'
+          || (typeof value !== 'string' && typeof value !== 'number')) return null;
+      if (metadata.control === 'number') {
+        const number = Number(value);
+        return Number.isFinite(number) ? number : null;
+      }
+      const string = String(value);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(string)) return null;
+      const timestamp = Date.parse(`${string}T00:00:00.000Z`);
+      return Number.isFinite(timestamp)
+        && new Date(timestamp).toISOString().slice(0, 10) === string ? string : null;
+    };
+    if (filter.operator === 'between') {
+      if (!Array.isArray(filter.value) || filter.value.length !== 2) {
+        throw new OrganisationDirectoryFilterError(400, `between requires two values: ${key}`);
+      }
+      const range = filter.value.map(normalizeTyped);
+      if (range.some((value) => value === null)
+          || comparable(range[0], metadata.field_type) > comparable(range[1], metadata.field_type)) {
+        throw new OrganisationDirectoryFilterError(400, `Invalid filter range: ${key}`);
+      }
+      output[key] = { operator: filter.operator, value: range };
+      continue;
+    }
+    const typedValue = normalizeTyped(filter.value);
+    if (typedValue === null) {
+      throw new OrganisationDirectoryFilterError(400, `Invalid filter value: ${key}`);
+    }
+    output[key] = { operator: filter.operator, value: typedValue };
+  }
+  const page = Number(input.page ?? 1);
+  const pageSize = Number(input.pageSize ?? 12);
+  if (!Number.isInteger(page) || page < 1 || !Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) {
+    throw new OrganisationDirectoryFilterError(400, 'Invalid page or pageSize');
+  }
+  if (!['asc', 'desc'].includes(input.sort ?? 'asc')) {
+    throw new OrganisationDirectoryFilterError(400, 'sort must be asc or desc');
+  }
+  if (typeof (input.search ?? '') !== 'string' || String(input.search ?? '').length > 500) {
+    throw new OrganisationDirectoryFilterError(400, 'search must be a string of at most 500 characters');
+  }
+  return { filters: output, page, pageSize, sort: input.sort ?? 'asc', search: input.search ?? '' };
+}
+
+async function loadOrganizations(db, tenantId) {
+  return paged(() => db.from('organization')
+    // This is the complete core projection available to the authenticated
+    // standalone directory contract. Eligibility is applied before any row is
+    // returned; callers must not supplement it with unrestricted entity reads.
+    .select('id, name, logo_url, invoicing_address')
+    .eq('tenant_id', tenantId).order('id', { ascending: true }),
+  'Organisation inventory exceeds the supported size');
+}
+
+async function loadPreferenceValues(db, organizationIds, fieldIds) {
+  const output = [];
+  for (let offset = 0; offset < organizationIds.length; offset += ID_CHUNK) {
+    const ids = organizationIds.slice(offset, offset + ID_CHUNK);
+    for (const fieldId of fieldIds) {
+      output.push(...await paged(() => db.from('organization_preference_value')
+        .select('id, organization_id, field_id, value').eq('field_id', fieldId)
+        .in('organization_id', ids)
+        .order('organization_id', { ascending: true })
+        .order('field_id', { ascending: true })
+        .order('id', { ascending: true }),
+      'Organisation preference values exceed the supported size'));
+    }
+  }
+  return output;
+}
+
+function preferenceMap(rows) {
+  const output = new Map();
+  for (const row of rows) {
+    const key = `${row.organization_id}:${row.field_id}`;
+    const existing = output.get(key) || [];
+    existing.push(row.value);
+    output.set(key, existing);
+  }
+  return output;
+}
+
+function canonicalSourceValues(rawValues) {
+  const visit = (raw) => {
+    if (raw === null || raw === undefined) return [];
+    if (Array.isArray(raw)) return raw.flatMap(visit);
+    if (isPlainObject(raw)) {
+      return Object.hasOwn(raw, 'value') ? visit(raw.value) : [];
+    }
+    if (!['string', 'number', 'boolean'].includes(typeof raw)) return [];
+    if (typeof raw !== 'string') return [String(raw)];
+    const trimmed = raw.trim();
+    if (!trimmed) return [];
+    try {
+      const parsed = JSON.parse(trimmed);
+      // A normal unquoted string is not JSON and reaches the catch branch.
+      return visit(parsed);
+    } catch {
+      return [trimmed];
+    }
+  };
+  return visit(rawValues);
+}
+
+function sourceOptionSet(rawValues) {
+  return new Set(canonicalSourceValues(rawValues));
+}
+
+function sortedOptions(values) {
+  return [...values].sort((left, right) => left.localeCompare(right, undefined, {
+    sensitivity: 'variant',
+  }) || (left < right ? -1 : left > right ? 1 : 0))
+    .map((value) => ({ value, label: value }));
+}
+
+async function objectValuesByOrganization(db, context, metadata, organizationIds, display = false) {
+  const source = metadata._source;
+  const orgColumn = `${source.direction}_record_id`;
+  const recordColumn = source.direction === 'source' ? 'target_record_id' : 'source_record_id';
+  const edges = [];
+  for (let offset = 0; offset < organizationIds.length; offset += ID_CHUNK) {
+    const ids = organizationIds.slice(offset, offset + ID_CHUNK);
+    edges.push(...await paged(() => db.from('custom_object_relationship')
+      .select(`id, ${orgColumn}, ${recordColumn}`).eq('tenant_id', context.tenantId)
+      .eq('relationship_definition_id', source.relationship_id).is('archived_at', null)
+      .in(orgColumn, ids)
+      .order(orgColumn, { ascending: true })
+      .order(recordColumn, { ascending: true })
+      .order('id', { ascending: true }),
+    'Custom Object relationship values exceed the supported size'));
+  }
+  const recordIds = [...new Set(edges.map((edge) => edge[recordColumn]).filter(Boolean))];
+  const records = await chunked(recordIds, (ids) => db.from('custom_object_record')
+    .select('id, data').eq('tenant_id', context.tenantId).eq('custom_object_id', source.object_id)
+    .is('archived_at', null).in('id', ids).order('id', { ascending: true }),
+  'Failed to load Custom Object records');
+  const recordsById = new Map(records.map((record) => [String(record.id), record]));
+  const output = new Map();
+  const recordsByOrganization = new Map();
+  const primaryField = metadata._source._fields?.find((field) =>
+    String(field.id) === String(metadata._source._definition?.primary_display_field_id));
+  for (const edge of edges) {
+    const record = recordsById.get(String(edge[recordColumn]));
+    if (!record) continue;
+    const raw = record.data?.[source._field?.name];
+    // File/image filters expose presence only; storage descriptors never enter
+    // metadata or the response projection.
+    const value = display
+      ? {
+        // The card presents a related-record label alongside its field value.
+        // Format both from the readable source record rather than the filter
+        // projection (whose file values intentionally collapse to presence).
+        label: primaryField
+          ? formatOrganisationDirectoryCsvValue(
+            record.data?.[primaryField.name], primaryField,
+          ) : '',
+        value: formatOrganisationDirectoryCsvValue(raw, source._field || metadata),
+      }
+      : (metadata.control === 'presence' ? (nonempty(raw) ? true : null) : raw);
+    const organizationId = String(edge[orgColumn]);
+    const recordId = String(edge[recordColumn]);
+    if (!recordId) continue;
+    const records = recordsByOrganization.get(organizationId) || new Map();
+    // Relationship data can contain duplicate edges.  A directory value is
+    // record identity, not its display value, so deduplicate only by record
+    // ID and retain separate records even when every displayed value matches.
+    if (!records.has(recordId)) {
+      records.set(recordId, display ? { ...value, recordId } : value);
+    }
+    recordsByOrganization.set(organizationId, records);
+  }
+  for (const [organizationId, records] of recordsByOrganization) {
+    output.set(organizationId, [...records.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([, value]) => value));
+  }
+  return output;
+}
+
+async function visibleMemberCore(db, context, settingMap, organizationIds, { includeNames = true } = {}) {
+  const roleIds = parseRoleIdArray(settingMap.get('org_directory_reverse_card_role_ids'));
+  const allowedListRoles = new Set(roleIds);
+  const roleOrder = new Map(roleIds.map((roleId, index) => [String(roleId), index]));
+  const counts = new Map(organizationIds.map((id) => [String(id), 0]));
+  const names = new Map(organizationIds.map((id) => [String(id), []]));
+  if (!organizationIds.length) return { counts, names };
+  for (let offset = 0; offset < organizationIds.length; offset += ID_CHUNK) {
+    const ids = organizationIds.slice(offset, offset + ID_CHUNK);
+    const memberColumns = includeNames
+      ? 'id, organization_id, first_name, last_name, email, role_id'
+      : 'id, organization_id';
+    const rows = await paged(() => db.from('member')
+      .select(memberColumns).eq('tenant_id', context.tenantId)
+      .in('organization_id', ids)
+      .or('show_in_directory.is.null,show_in_directory.neq.false')
+      .or('login_enabled.is.null,login_enabled.neq.false')
+      .not('email', 'ilike', 'deleted_%@deleted.local').order('id', { ascending: true }),
+    'Directory member inventory exceeds the supported size');
+    for (const member of rows) {
+      const organizationId = String(member.organization_id);
+      counts.set(organizationId, (counts.get(organizationId) || 0) + 1);
+      if (!includeNames) continue;
+      // The reverse-card renderer only exposes contact names for configured
+      // roles with a usable email address.  Keep exports and filter options at
+      // precisely that visibility boundary.
+      if (!member.email || !allowedListRoles.has(String(member.role_id))) continue;
+      const name = `${member.first_name || ''} ${member.last_name || ''}`.trim();
+      if (name) names.get(organizationId)?.push({
+        name,
+        firstName: String(member.first_name || ''),
+        lastName: String(member.last_name || ''),
+        roleOrder: roleOrder.get(String(member.role_id)) ?? Number.MAX_SAFE_INTEGER,
+      });
+    }
+  }
+  for (const [organizationId, contacts] of names) {
+    names.set(organizationId, contacts
+      .sort((left, right) => left.roleOrder - right.roleOrder
+        || left.lastName.localeCompare(right.lastName, undefined, { sensitivity: 'base' })
+        || left.firstName.localeCompare(right.firstName, undefined, { sensitivity: 'base' })
+        || left.name.localeCompare(right.name, undefined, { sensitivity: 'base' }))
+      .map((contact) => contact.name));
+  }
+  return { counts, names };
+}
+
+function matchesSavedEligibility(organization, ownId, exclusions, statusFieldIds, typeFieldIds,
+  allowedStatuses, allowedTypes, values) {
+  if (exclusions.has(String(organization.id))) return false;
+  // Own-organisation visibility only bypasses status/type policy, not exclusions.
+  if (String(organization.id) === String(ownId || '')) return true;
+  const matchesAny = (fieldIds, allowed) => fieldIds.some((fieldId) => (
+    values.get(`${organization.id}:${fieldId}`) || []
+  ).some((value) => scalarValues(value).some((item) => allowed.has(String(item)))));
+  if (allowedStatuses.size && !matchesAny(statusFieldIds, allowedStatuses)) return false;
+  if (allowedTypes.size && !matchesAny(typeFieldIds, allowedTypes)) return false;
+  return true;
+}
+
+async function loadEligiblePopulation(db, context, inventory, extraFieldIds = []) {
+  let organizations = await loadOrganizations(db, context.tenantId);
+  const organizationIds = organizations.map(({ id }) => id);
+  const eligibilityFields = await paged(() => db.from('preference_field').select('id, name')
+    .eq('tenant_id', context.tenantId).eq('entity_scope', 'organization')
+    .in('name', [
+      'application_status', 'org_type', 'organisation_type', 'organization_type',
+    ]).order('id', { ascending: true }),
+  'Organisation eligibility field inventory exceeds the supported size');
+  // Domains have an established active-definition contract. Keep this separate
+  // from legacy eligibility fields, whose historical semantics include inactive
+  // definitions and must not be changed as part of the domain projection fix.
+  const domainFields = await paged(() => db.from('preference_field').select('id, name')
+    .eq('tenant_id', context.tenantId).eq('entity_scope', 'organization')
+    .eq('name', 'verified_domains').eq('is_active', true)
+    .order('id', { ascending: true }),
+  'Organisation domain field inventory exceeds the supported size');
+  const namedFields = [...eligibilityFields, ...domainFields];
+  const neededFieldIds = [...new Set([
+    ...extraFieldIds,
+    ...namedFields.map((field) => field.id),
+  ])];
+  const preferences = preferenceMap(
+    await loadPreferenceValues(db, organizationIds, neededFieldIds),
+  );
+  const statusFieldIds = namedFields.filter((field) =>
+    field.name === 'application_status').map((field) => field.id);
+  const typeFieldIds = namedFields.filter((field) =>
+    ['org_type', 'organisation_type', 'organization_type'].includes(field.name))
+    .map((field) => field.id);
+  organizations = organizations.filter((organization) => matchesSavedEligibility(
+    organization,
+    context.organizationId,
+    new Set(savedArray(inventory.settingMap.get('org_directory_excluded_orgs'))),
+    statusFieldIds,
+    typeFieldIds,
+    new Set(savedArray(inventory.settingMap.get('org_directory_allowed_application_statuses'))),
+    new Set(savedArray(inventory.settingMap.get('org_directory_visible_org_types'))),
+    preferences,
+  ));
+  return { organizations, preferences, namedFields };
+}
+
+async function sourceValuesForField({
+  db, context, inventory, field, population, memberValues,
+}) {
+  const organizationIds = population.organizations.map(({ id }) => id);
+  if (field._kind === 'custom') {
+    const rows = organizationIds.flatMap((organizationId) =>
+      population.preferences.get(`${organizationId}:${field._field.id}`) || []);
+    return sourceOptionSet(rows, field.field_type);
+  }
+  if (field._kind === 'object') {
+    const values = await objectValuesByOrganization(db, context, field, organizationIds);
+    return sourceOptionSet([...values.values()].flat(), field.field_type);
+  }
+  const members = memberValues || await visibleMemberCore(
+    db, context, inventory.settingMap, organizationIds,
+  );
+  return sourceOptionSet([...members.names.values()].flat(), field.field_type);
+}
+
+function validateOptionsRequest(input, fields) {
+  if (!isPlainObject(input)) throw new OrganisationDirectoryFilterError(400, 'JSON body is required');
+  const fieldKey = input.fieldKey;
+  const field = typeof fieldKey === 'string' ? fields.get(fieldKey) : null;
+  if (!field || field.control !== 'source-choice') {
+    throw new OrganisationDirectoryFilterError(400, `Filter field is unavailable: ${String(fieldKey || '')}`);
+  }
+  const search = input.search ?? '';
+  const page = Number(input.page ?? 1);
+  const pageSize = Number(input.pageSize ?? 50);
+  const selected = input.selected ?? [];
+  if (typeof search !== 'string' || search.length > 500) {
+    throw new OrganisationDirectoryFilterError(400, 'search must be a string of at most 500 characters');
+  }
+  if (!Number.isInteger(page) || page < 1 || !Number.isInteger(pageSize)
+      || pageSize < 1 || pageSize > 100) {
+    throw new OrganisationDirectoryFilterError(400, 'Invalid page or pageSize');
+  }
+  if (!Array.isArray(selected) || selected.length > 500
+      || selected.some((value) => !['string', 'number', 'boolean'].includes(typeof value))) {
+    throw new OrganisationDirectoryFilterError(400, 'selected must be an array of scalar values');
+  }
+  if (!field.multi_select && selected.length > 1) {
+    throw new OrganisationDirectoryFilterError(
+      400,
+      `Filter field accepts only one option: ${field.key}`,
+    );
+  }
+  return {
+    field, search, page, pageSize,
+    selected: [...new Set(selected.map((value) => String(value).trim()).filter(Boolean))],
+  };
+}
+
+function authorityToken(inventory, enabled, requiredKeys) {
+  const byKey = new Map(enabled.map((field) => [field.key, field]));
+  const fields = [...requiredKeys].sort().map((key) => {
+    const field = byKey.get(key);
+    if (!field) return [key, null];
+    return [key, {
+      ...publicMetadata(field),
+      source: field._source ? {
+        relationship_id: field._source.relationship_id,
+        direction: field._source.direction,
+        object_id: field._source.object_id,
+        cardinality: field._source.cardinality || null,
+        field_id: field._source.field_id || field._source._field?.id,
+      } : null,
+      custom_field_id: field._field?.id || null,
+    }];
+  });
+  const settings = [...inventory.settingMap.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => [key, value]);
+  const overrides = Object.entries(inventory.overrides || {})
+    .sort(([left], [right]) => left.localeCompare(right));
+  return JSON.stringify({ fields, settings, overrides });
+}
+
+export function createOrganisationDirectoryFilters({ db, context, isAdmin = false }) {
+  const enabledFields = (inventory) => inventory.fields.filter((field) =>
+    isOrganisationDirectoryFieldFilterable(field.key, inventory.overrides, field._field));
+  const revalidateAuthority = async (token, requiredKeys, allDirectoryFields = false) => {
+    const current = await buildInventory({ db, context, settingsMode: false, isAdmin });
+    const currentFields = allDirectoryFields ? current.fields : enabledFields(current);
+    const currentKeys = allDirectoryFields
+      ? new Set(currentFields.map((field) => field.key))
+      : requiredKeys;
+    if (authorityToken(current, currentFields, currentKeys) !== token) {
+      throw new OrganisationDirectoryFilterError(
+        409,
+        'Organisation directory authority changed; retry',
+      );
+    }
+  };
+  return {
+    async metadata({ settings = false } = {}) {
+      const inventory = await buildInventory({ db, context, settingsMode: settings, isAdmin });
+      const enabled = settings ? inventory.settingsFields : inventory.fields.filter((field) =>
+        isOrganisationDirectoryFieldFilterable(field.key, inventory.overrides, field._field));
+      return {
+        fields: enabled.map(publicMetadata),
+        allowCsvDownload: organisationDirectoryCsvDownloadAllowed(
+          inventory.settingMap.get(ORG_DIRECTORY_CSV_SETTING),
+        ),
+        ...(settings ? { overrides: inventory.overrides } : {}),
+      };
+    },
+
+    async search(input) {
+      const inventory = await buildInventory({ db, context, settingsMode: false, isAdmin });
+      const enabled = enabledFields(inventory);
+      const byKey = new Map(enabled.map((field) => [field.key, field]));
+      if (!isPlainObject(input?.filters ?? {})) {
+        throw new OrganisationDirectoryFilterError(400, 'filters must be an object with at most 50 fields');
+      }
+      const requestedKeys = Object.keys(input.filters ?? {});
+      if (requestedKeys.length > MAX_FILTERS) {
+        throw new OrganisationDirectoryFilterError(400, 'filters must be an object with at most 50 fields');
+      }
+      const unavailableKey = requestedKeys.find((key) => !byKey.has(key));
+      if (unavailableKey) {
+        throw new OrganisationDirectoryFilterError(400, `Filter field is unavailable: ${unavailableKey}`);
+      }
+      const requestedFields = requestedKeys.map((key) => byKey.get(key));
+      // The response also returns the complete enabled metadata inventory, so
+      // revalidate every exposed source rather than only submitted filters.
+      const authorityKeys = new Set(enabled.map((field) => field.key));
+      const initialAuthority = authorityToken(inventory, enabled, authorityKeys);
+      const population = await loadEligiblePopulation(
+        db,
+        context,
+        inventory,
+        requestedFields.filter((field) => field._kind === 'custom')
+          .map((field) => field._field.id),
+      );
+      let organizations = population.organizations;
+      const preferences = population.preferences;
+      const sourceOptions = new Map();
+      for (const field of requestedFields.filter((item) => item.control === 'source-choice')) {
+        sourceOptions.set(field.key, await sourceValuesForField({
+          db, context, inventory, field, population,
+        }));
+      }
+      const request = validateRequest(input, byKey, sourceOptions);
+
+      const eligibleIds = organizations.map(({ id }) => id);
+      const showMemberCount = !savedFalse(
+        inventory.settingMap.get('org_directory_show_member_count'),
+      );
+      const coreNeeded = showMemberCount
+        || enabled.some((field) => request.filters[field.key] && field._kind === 'core');
+      const memberValues = coreNeeded
+        ? await visibleMemberCore(db, context, inventory.settingMap, eligibleIds)
+        : { counts: new Map(), names: new Map() };
+      const objectMaps = new Map();
+      for (const field of enabled.filter((item) =>
+        request.filters[item.key] && item._kind === 'object')) {
+        objectMaps.set(field.key, await objectValuesByOrganization(db, context, field, eligibleIds));
+      }
+      organizations = organizations.filter((organization) => Object.entries(request.filters)
+        .every(([key, filter]) => {
+          const field = byKey.get(key);
+          let values;
+          if (field._kind === 'custom') values = preferences.get(`${organization.id}:${field._field.id}`) || [];
+          else if (field._kind === 'object') values = objectMaps.get(key)?.get(String(organization.id)) || [];
+          else {
+            values = key === 'org_member_count'
+              ? [memberValues.counts.get(String(organization.id)) || 0]
+              : (memberValues.names.get(String(organization.id)) || []);
+          }
+          return matchesOrganisationDirectoryFilter(values, filter, field);
+        }));
+      const search = request.search.trim().toLocaleLowerCase();
+      const showDomains = !savedFalse(inventory.settingMap.get('org_directory_show_domains'));
+      const showLogo = !savedFalse(inventory.settingMap.get('org_directory_show_logo'));
+      const domainFieldIds = population.namedFields.filter((field) =>
+        field.name === 'verified_domains').map((field) => field.id);
+      const domainsFor = (organizationId) => domainFieldIds.flatMap((fieldId) =>
+        canonicalSourceValues(preferences.get(`${organizationId}:${fieldId}`) || [], 'list'));
+      if (search) {
+        organizations = organizations.filter((organization) =>
+          [organization.name, ...(showDomains ? domainsFor(organization.id) : [])].some((value) =>
+            String(value || '').toLocaleLowerCase().includes(search)));
+      }
+      organizations.sort((left, right) => {
+        const compared = String(left.name || '').localeCompare(String(right.name || ''), undefined, {
+          sensitivity: 'base',
+        }) || String(left.id).localeCompare(String(right.id));
+        return request.sort === 'asc' ? compared : -compared;
+      });
+      const total = organizations.length;
+      const start = (request.page - 1) * request.pageSize;
+      await revalidateAuthority(initialAuthority, authorityKeys);
+      return {
+        organizations: organizations.slice(start, start + request.pageSize).map((organization) => ({
+          id: organization.id,
+          name: organization.name,
+          ...(showLogo ? { logo_url: organization.logo_url } : {}),
+          ...(showDomains ? { domain: domainsFor(organization.id)[0] || null } : {}),
+          ...(typeof organization.invoicing_address === 'string'
+            && organization.invoicing_address.trim()
+            ? { invoicing_address: organization.invoicing_address.trim() }
+            : {}),
+          ...(showMemberCount ? {
+            member_count: memberValues.counts.get(String(organization.id)) || 0,
+          } : {}),
+        })),
+        total,
+        page: request.page,
+        pageSize: request.pageSize,
+        fields: enabled.map(publicMetadata),
+      };
+    },
+
+    async options(input) {
+      const inventory = await buildInventory({ db, context, settingsMode: false, isAdmin });
+      const enabled = enabledFields(inventory);
+      const request = validateOptionsRequest(
+        input,
+        new Map(enabled.map((field) => [field.key, field])),
+      );
+      const authorityKeys = new Set(enabled.map((field) => field.key));
+      const initialAuthority = authorityToken(inventory, enabled, authorityKeys);
+      const population = await loadEligiblePopulation(
+        db,
+        context,
+        inventory,
+        request.field._kind === 'custom' ? [request.field._field.id] : [],
+      );
+      const allValues = await sourceValuesForField({
+        db, context, inventory, field: request.field, population,
+      });
+      const unavailableSelected = request.selected.filter((value) => !allValues.has(value));
+      const selectedOptions = sortedOptions(new Set(
+        request.selected.filter((value) => allValues.has(value)),
+      ));
+      const needle = request.search.trim().toLocaleLowerCase();
+      const matching = sortedOptions(new Set(
+        [...allValues].filter((value) =>
+          !needle || value.toLocaleLowerCase().includes(needle)),
+      ));
+      const start = (request.page - 1) * request.pageSize;
+      await revalidateAuthority(initialAuthority, authorityKeys);
+      return {
+        options: matching.slice(start, start + request.pageSize),
+        total: matching.length,
+        page: request.page,
+        pageSize: request.pageSize,
+        selectedOptions,
+        unavailableSelected,
+      };
+    },
+
+    async csv() {
+      const inventory = await buildInventory({ db, context, settingsMode: false, isAdmin });
+      // The route checks this before creating the service, but it may be
+      // disabled in that interval. Require the service's own initial
+      // settings snapshot to be explicitly opted in as well.
+      if (!organisationDirectoryCsvDownloadAllowed(
+        inventory.settingMap.get(ORG_DIRECTORY_CSV_SETTING),
+      )) {
+        throw new OrganisationDirectoryFilterError(
+          403,
+          'Organisation directory CSV download is disabled',
+        );
+      }
+      const authorityKeys = new Set(inventory.fields.map((field) => field.key));
+      const initialAuthority = authorityToken(inventory, inventory.fields, authorityKeys);
+      const customFieldIds = inventory.fields
+        .filter((field) => field._kind === 'custom').map((field) => field._field.id);
+      const population = await loadEligiblePopulation(db, context, inventory, customFieldIds);
+      const organizations = [...population.organizations].sort((left, right) => (
+        String(left.name || '').localeCompare(String(right.name || ''), undefined, {
+          sensitivity: 'base',
+        }) || String(left.id).localeCompare(String(right.id))
+      ));
+      const organizationIds = organizations.map((organization) => organization.id);
+      // CSV exports are count-only.  In particular, never widen this query
+      // to the role-scoped name columns just because the reverse card shows
+      // contacts.
+      const memberValues = await visibleMemberCore(
+        db,
+        context,
+        inventory.settingMap,
+        organizationIds,
+        { includeNames: false },
+      );
+      const objectValues = new Map();
+      for (const field of inventory.fields.filter((item) => item._kind === 'object')) {
+        objectValues.set(field.key, await objectValuesByOrganization(
+          db, context, field, organizationIds, true,
+        ));
+      }
+      const { recordCounts } = await resolveOrganisationDirectoryMemberCounts({
+        db,
+        context,
+        organizationIds,
+        fields: inventory.fields,
+        objectValues,
+      });
+      // Do not send an attachment until every eligible row, readable source,
+      // and setting has been resolved and rechecked.
+      const csv = projectOrganisationDirectoryCsv({
+        organizations,
+        fields: inventory.fields,
+        preferences: population.preferences,
+        objectValues,
+        memberValues: { ...memberValues, recordCounts },
+        includeLogo: !savedFalse(inventory.settingMap.get('org_directory_show_logo')),
+        includeOrganisation: !savedFalse(inventory.settingMap.get('org_directory_show_title')),
+      });
+      await revalidateAuthority(initialAuthority, authorityKeys, true);
+      const rowCount = countOrganisationDirectoryCsvRows({
+        organizations,
+        fields: inventory.fields,
+        objectValues,
+      });
+      return { csv, total: organizations.length, rowCount };
+    },
+  };
+}
+
+export async function saveOrganisationDirectoryFilterOverrides({
+  db, tenantId, changes, writableKeys,
+}) {
+  if (!isPlainObject(changes) || Object.keys(changes).length > 500
+      || Object.entries(changes).some(([key, value]) =>
+        !writableKeys.has(key) || typeof value !== 'boolean')) {
+    throw new OrganisationDirectoryFilterError(400, 'changes contains an unknown field or non-boolean value');
+  }
+  const settingId = deterministicSettingId(tenantId, ORG_DIRECTORY_FILTER_SETTING);
+  // Optimistic compare-and-swap prevents two settings tabs from silently
+  // discarding each other's changes. A deterministic primary key serializes
+  // concurrent first inserts even though legacy schemas do not universally
+  // have a tenant_id/setting_key unique constraint.
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const existing = await checked(db.from('system_settings').select('id, setting_value')
+      .eq('tenant_id', tenantId).eq('setting_key', ORG_DIRECTORY_FILTER_SETTING).limit(2),
+    'Failed to load organisation directory filter configuration');
+    if (existing.length > 1) {
+      throw new OrganisationDirectoryFilterError(
+        409,
+        'Multiple organisation directory filter settings exist for this tenant; resolve the duplicate configuration',
+      );
+    }
+    const row = existing[0];
+    let current;
+    try {
+      current = parseOrganisationDirectoryFilterOverrides(row?.setting_value);
+    } catch {
+      throw new OrganisationDirectoryFilterError(500, 'Saved organisation directory filter configuration is malformed');
+    }
+    const merged = { ...current, ...changes };
+    if (!row) {
+      const result = await db.from('system_settings').insert({
+        id: settingId,
+        tenant_id: tenantId,
+        setting_key: ORG_DIRECTORY_FILTER_SETTING,
+        setting_value: JSON.stringify(merged),
+        setting_type: 'json',
+        description: 'Organisation directory filterable back fields',
+      }).select('id');
+      if (!result.error) return merged;
+      if (result.error.code === '23505') {
+        const conflicting = await checked(db.from('system_settings')
+          .select('tenant_id, setting_key').eq('id', settingId).limit(1),
+        'Failed to verify concurrent organisation directory settings update');
+        if (conflicting[0]?.tenant_id === tenantId
+            && conflicting[0]?.setting_key === ORG_DIRECTORY_FILTER_SETTING) {
+          continue;
+        }
+      }
+      throw new Error(result.error.message || 'Failed to create organisation directory filter configuration');
+    }
+    let update = db.from('system_settings').update({
+      setting_value: JSON.stringify(merged),
+    }).eq('id', row.id).eq('tenant_id', tenantId);
+    update = row.setting_value === null
+      ? update.is('setting_value', null) : update.eq('setting_value', row.setting_value);
+    const result = await update.select('id');
+    if (result.error) throw new Error(result.error.message);
+    if (result.data?.length) return merged;
+  }
+  throw new OrganisationDirectoryFilterError(409, 'Organisation directory filter settings changed concurrently; retry');
+}

@@ -1,0 +1,45 @@
+{
+    "name": "Microsite",
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string",
+        "description": "Display name of the microsite (admin reference and default header title)"
+      },
+      "path_prefix": {
+        "type": "string",
+        "description": "URL path prefix (single lowercase segment, e.g. 'summit'); pages are served at /{path_prefix}/{page-slug}"
+      },
+      "description": {
+        "type": "string",
+        "description": "Optional admin-facing description"
+      },
+      "is_active": {
+        "type": "boolean",
+        "default": true,
+        "description": "Whether the microsite is live; inactive microsites 404 publicly"
+      },
+      "logo_url": {
+        "type": "string",
+        "description": "Optional microsite logo; falls back to the tenant header logo when empty"
+      },
+      "header_config": {
+        "type": "object",
+        "default": {},
+        "description": "Header chrome overrides merged over the tenant header_config (gradientStops, topNav colors, logo sizing, etc.)"
+      },
+      "footer_config": {
+        "type": "object",
+        "default": {},
+        "description": "Footer chrome overrides merged over the tenant footer_config (gradientColors, textColor, etc.)"
+      },
+      "home_page_id": {
+        "type": "string",
+        "description": "Optional IEditPage ID served at /{path_prefix} (the microsite landing page)"
+      }
+    },
+    "required": [
+      "name",
+      "path_prefix"
+    ]
+}

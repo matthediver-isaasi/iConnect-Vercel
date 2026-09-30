@@ -1,0 +1,95 @@
+{
+    "success": true,
+    "done": false,
+    "jobId": null,
+    "path": null,
+    "offset": 200,
+    "created": 0,
+    "updated": 147,
+    "skipped": 53,
+    "errors": 0,
+    "notesCreated": 0,
+    "totalRows": 5551,
+    "errorDetails": [
+        {
+            "row": 7,
+            "error": "Empty identifier value"
+        },
+        {
+            "row": 8,
+            "error": "Empty identifier value"
+        },
+        {
+            "row": 12,
+            "error": "Empty identifier value"
+        },
+        {
+            "row": 13,
+            "error": "Empty identifier value"
+        },
+        {
+            "row": 25,
+            "error": "Empty identifier value"
+        },
+        {
+            "row": 54,
+            "error": "Empty identifier value"
+        },
+        {
+            "row": 55,
+            "error": "Empty identifier value"
+        },
+        {
+            "row": 58,
+            "error": "Empty identifier value"
+        },
+        {
+            "row": 59,
+            "error": "Empty identifier value"
+        },
+        {
+            "row": 60,
+            "error": "Empty identifier value"
+        },
+        {
+            "row": 61,
+            "error": "Empty identifier value"
+        },
+        {
+            "row": 62,
+            "error": "Empty identifier value"
+        },
+        {
+            "row": 63,
+            "error": "Empty identifier value"
+        },
+        {
+            "row": 64,
+            "error": "Empty identifier value"
+        },
+        {
+            "row": 65,
+            "error": "Empty identifier value"
+        },
+        {
+            "row": 66,
+            "error": "Empty identifier value"
+        },
+        {
+            "row": 67,
+            "error": "Empty identifier value"
+        },
+        {
+            "row": 68,
+            "error": "Empty identifier value"
+        },
+        {
+            "row": 69,
+            "error": "Empty identifier value"
+        },
+        {
+            "row": 70,
+            "error": "Empty identifier value"
+        }
+    ]
+}

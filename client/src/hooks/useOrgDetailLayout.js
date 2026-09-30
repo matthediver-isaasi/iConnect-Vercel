@@ -1,0 +1,214 @@
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { base44 } from "@/api/base44Client";
+
+const LAYOUT_SETTING_KEY = 'org_detail_layout_config';
+export const DEFAULT_ORGANISATION_RELATIONSHIP_DISPLAY_MODE = 'columns';
+
+export function normalizeOrganisationRelationshipDisplayMode(value) {
+  return value === 'cards' ? 'cards' : DEFAULT_ORGANISATION_RELATIONSHIP_DISPLAY_MODE;
+}
+
+const DEFAULT_LAYOUT = {
+  cards: [
+    {
+      id: 'card-details',
+      title: 'Organisation Details',
+      columns: 1,
+      fields: [
+        { id: 'core:name', type: 'core', fieldKey: 'name', columnIndex: 0 },
+        { id: 'core:organization_group_id', type: 'core', fieldKey: 'organization_group_id', columnIndex: 0 },
+        { id: 'core:description', type: 'core', fieldKey: 'description', columnIndex: 0 }
+      ]
+    },
+    {
+      id: 'card-contact',
+      title: 'Contact Information',
+      columns: 2,
+      fields: [
+        { id: 'core:email', type: 'core', fieldKey: 'email', columnIndex: 0 },
+        { id: 'core:phone', type: 'core', fieldKey: 'phone', columnIndex: 1 },
+        { id: 'core:invoicing_email', type: 'core', fieldKey: 'invoicing_email', columnIndex: 0 },
+        { id: 'core:website_url', type: 'core', fieldKey: 'website_url', columnIndex: 1 },
+        { id: 'core:invoicing_address', type: 'core', fieldKey: 'invoicing_address', columnIndex: 0 }
+      ]
+    },
+    {
+      id: 'card-custom',
+      title: 'Custom Fields',
+      columns: 2,
+      fields: []
+    }
+  ]
+};
+
+function migrateLayoutWithColumnIndex(layout) {
+  if (!layout || !layout.cards) return DEFAULT_LAYOUT;
+  
+  return {
+    ...layout,
+    cards: layout.cards.map(card => ({
+      ...card,
+      fields: card.fields.map((field, idx) => ({
+        ...field,
+        columnIndex: field.columnIndex !== undefined ? field.columnIndex : (idx % card.columns),
+        ...(field.type === 'relationship'
+          ? { displayMode: normalizeOrganisationRelationshipDisplayMode(field.displayMode ?? field.display_mode) }
+          : {})
+      }))
+    }))
+  };
+}
+
+export const CORE_FIELDS = [
+  { id: 'core:name', fieldKey: 'name', label: 'Organisation Name', type: 'text' },
+  { id: 'core:organization_group_id', fieldKey: 'organization_group_id', label: 'Organisation Group', type: 'select' },
+  { id: 'core:description', fieldKey: 'description', label: 'Description', type: 'textarea' },
+  { id: 'core:email', fieldKey: 'email', label: 'Email', type: 'email' },
+  { id: 'core:invoicing_email', fieldKey: 'invoicing_email', label: 'Invoicing Email', type: 'email' },
+  { id: 'core:phone', fieldKey: 'phone', label: 'Phone', type: 'text' },
+  { id: 'core:website_url', fieldKey: 'website_url', label: 'Website', type: 'url' },
+  { id: 'core:invoicing_address', fieldKey: 'invoicing_address', label: 'Invoicing Address', type: 'textarea' },
+  { id: 'core:created_at', fieldKey: 'created_at', label: 'Created Date', type: 'date' }
+];
+
+export function organisationRelationshipLayoutId(definitionId, side) {
+  return `relationship:${definitionId}:${side}`;
+}
+
+export function organisationRelationshipLayoutElements(panels = []) {
+  return panels.map(({ definition, side }) => ({
+    id: organisationRelationshipLayoutId(definition.id, side),
+    type: 'relationship',
+    definitionId: definition.id,
+    side,
+    displayMode: DEFAULT_ORGANISATION_RELATIONSHIP_DISPLAY_MODE,
+  }));
+}
+
+export function useOrgDetailLayout({ enabled = true } = {}) {
+  const queryClient = useQueryClient();
+
+  const { data: layoutData, isLoading } = useQuery({
+    queryKey: ['org-detail-layout'],
+    enabled,
+    queryFn: async () => {
+      const allSettings = await base44.entities.SystemSettings.list();
+      const setting = allSettings.find(s => s.setting_key === LAYOUT_SETTING_KEY);
+      
+      let parsedConfig = DEFAULT_LAYOUT;
+      if (setting?.setting_value) {
+        try {
+          parsedConfig = migrateLayoutWithColumnIndex(JSON.parse(setting.setting_value));
+        } catch {
+          parsedConfig = DEFAULT_LAYOUT;
+        }
+      }
+      
+      return {
+        config: parsedConfig,
+        record: setting || null
+      };
+    }
+  });
+
+  const saveLayoutMutation = useMutation({
+    mutationFn: async (newLayout) => {
+      const layoutJson = JSON.stringify(newLayout);
+      const settingRecord = layoutData?.record;
+      
+      if (settingRecord?.id) {
+        return await base44.entities.SystemSettings.update(settingRecord.id, {
+          setting_value: layoutJson
+        });
+      } else {
+        return await base44.entities.SystemSettings.create({
+          setting_key: LAYOUT_SETTING_KEY,
+          setting_value: layoutJson,
+          description: 'Organisation detail view layout configuration'
+        });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['org-detail-layout'] });
+    }
+  });
+
+  return {
+    layoutConfig: layoutData?.config || DEFAULT_LAYOUT,
+    isLoading,
+    saveLayout: saveLayoutMutation.mutateAsync,
+    isSaving: saveLayoutMutation.isPending,
+    DEFAULT_LAYOUT
+  };
+}
+
+export function mergeLayoutWithCustomFields(layout, customFields, relationshipPanels = null) {
+  if (!layout || !layout.cards) return DEFAULT_LAYOUT;
+
+  const availableRelationshipIds = relationshipPanels === null
+    ? null
+    : new Set(organisationRelationshipLayoutElements(relationshipPanels).map(element => element.id));
+  const filteredLayout = {
+    ...layout,
+    cards: layout.cards
+      .map(card => ({
+        ...card,
+        fields: card.fields.filter(field =>
+          field.type !== 'relationship'
+          || availableRelationshipIds === null
+          || availableRelationshipIds.has(field.id)
+        ).map(field => field.type === 'relationship'
+          ? {
+              ...field,
+              displayMode: normalizeOrganisationRelationshipDisplayMode(
+                field.displayMode ?? field.display_mode
+              ),
+            }
+          : field)
+      }))
+      .filter(card => card.fields.length > 0 || card.id === 'card-custom')
+  };
+  
+  const existingCustomFieldIds = new Set();
+  filteredLayout.cards.forEach(card => {
+    card.fields.forEach(f => {
+      if (f.type === 'custom') {
+        existingCustomFieldIds.add(f.fieldId);
+      }
+    });
+  });
+
+  const unassignedCustomFields = customFields.filter(cf => !existingCustomFieldIds.has(cf.id));
+  
+  if (unassignedCustomFields.length === 0) return filteredLayout;
+
+  const updatedCards = [...filteredLayout.cards];
+  let customCard = updatedCards.find(c => c.id === 'card-custom');
+  
+  if (!customCard) {
+    customCard = {
+      id: 'card-custom',
+      title: 'Custom Fields',
+      columns: 2,
+      fields: []
+    };
+    updatedCards.push(customCard);
+  }
+
+  const cardIndex = updatedCards.findIndex(c => c.id === customCard.id);
+  const existingFieldCount = customCard.fields.length;
+  updatedCards[cardIndex] = {
+    ...customCard,
+    fields: [
+      ...customCard.fields,
+      ...unassignedCustomFields.map((cf, idx) => ({
+        id: `custom:${cf.id}`,
+        type: 'custom',
+        fieldId: cf.id,
+        columnIndex: (existingFieldCount + idx) % customCard.columns
+      }))
+    ]
+  };
+
+  return { ...filteredLayout, cards: updatedCards };
+}

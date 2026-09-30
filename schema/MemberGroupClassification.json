@@ -1,0 +1,22 @@
+{
+    "name": "MemberGroupClassification",
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string",
+        "description": "Classification name (e.g., 'Communities of practice')"
+      },
+      "description": {
+        "type": "string",
+        "description": "Optional description of this classification"
+      },
+      "is_active": {
+        "type": "boolean",
+        "default": true,
+        "description": "Whether this classification is currently active"
+      }
+    },
+    "required": [
+      "name"
+    ]
+  }

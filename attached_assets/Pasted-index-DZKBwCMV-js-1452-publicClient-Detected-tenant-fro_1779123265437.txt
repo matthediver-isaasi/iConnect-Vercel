@@ -1,0 +1,49 @@
+index-DZKBwCMV.js:1452 [publicClient] Detected tenant from subdomain: bnms
+index-DZKBwCMV.js:1537 GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.93.3) 2026-05-18T16:54:04.456Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+ME @ index-DZKBwCMV.js:1537
+index-DZKBwCMV.js:1841 [usePendingPurchaseOrders] memberInfo: null
+index-DZKBwCMV.js:1841 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DZKBwCMV.js:1845 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DZKBwCMV.js:1845 [Layout] currentPageName: CanvasPageEditor currentPortalPageId: null
+index-DZKBwCMV.js:1841 [usePendingPurchaseOrders] memberInfo: Object
+index-DZKBwCMV.js:1841 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DZKBwCMV.js:1845 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DZKBwCMV.js:1845 [Layout] currentPageName: CanvasPageEditor currentPortalPageId: null
+index-DZKBwCMV.js:1841 [usePendingPurchaseOrders] Query running, memberInfo.id: f42f03b5-5ed7-441b-aac5-972038427e59
+index-DZKBwCMV.js:1841 [usePendingPurchaseOrders] memberInfo: Object
+index-DZKBwCMV.js:1841 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DZKBwCMV.js:1845 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DZKBwCMV.js:1845 [Layout] currentPageName: CanvasPageEditor currentPortalPageId: null
+index-DZKBwCMV.js:1841 [usePendingPurchaseOrders] memberInfo: Object
+index-DZKBwCMV.js:1841 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DZKBwCMV.js:1845 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DZKBwCMV.js:1845 [Layout] currentPageName: CanvasPageEditor currentPortalPageId: null
+index-DZKBwCMV.js:1841 [usePendingPurchaseOrders] memberInfo: Object
+index-DZKBwCMV.js:1841 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DZKBwCMV.js:1845 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DZKBwCMV.js:1845 [Layout] currentPageName: CanvasPageEditor currentPortalPageId: null
+index-DZKBwCMV.js:41 ReferenceError: Cannot access 'be' before initialization
+    at QRe (index-DZKBwCMV.js:2992:28923)
+    at tY (index-DZKBwCMV.js:39:17071)
+    at d_e (index-DZKBwCMV.js:41:44253)
+    at l_e (index-DZKBwCMV.js:41:39953)
+    at n7e (index-DZKBwCMV.js:41:39876)
+    at tM (index-DZKBwCMV.js:41:39725)
+    at T9 (index-DZKBwCMV.js:41:36072)
+    at Yne (index-DZKBwCMV.js:41:36878)
+    at bv (index-DZKBwCMV.js:39:3302)
+    at index-DZKBwCMV.js:41:34389
+b9 @ index-DZKBwCMV.js:41
+index-DZKBwCMV.js:39 Uncaught ReferenceError: Cannot access 'be' before initialization
+    at QRe (index-DZKBwCMV.js:2992:28923)
+    at tY (index-DZKBwCMV.js:39:17071)
+    at d_e (index-DZKBwCMV.js:41:44253)
+    at l_e (index-DZKBwCMV.js:41:39953)
+    at n7e (index-DZKBwCMV.js:41:39876)
+    at tM (index-DZKBwCMV.js:41:39725)
+    at T9 (index-DZKBwCMV.js:41:36072)
+    at Yne (index-DZKBwCMV.js:41:36878)
+    at bv (index-DZKBwCMV.js:39:3302)
+    at index-DZKBwCMV.js:41:34389
+index-DZKBwCMV.js:1841 [usePendingPurchaseOrders] Fetched bookings count: 0
+index-DZKBwCMV.js:1841 [usePendingPurchaseOrders] Pending PO bookings: 0

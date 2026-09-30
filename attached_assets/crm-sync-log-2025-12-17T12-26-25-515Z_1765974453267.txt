@@ -1,0 +1,272 @@
+CRM Sync Log
+Generated: 17/12/2025, 12:26:25
+================================================================================
+
+SUMMARY
+----------------------------------------
+Total log entries: 169
+Created: 0
+Updated: 146
+Skipped: 0
+Errors: 19
+
+ERRORS (19)
+----------------------------------------
+[organization] Testing Member Account
+  Zoho ID: 883813000002517001
+  Error: Could not find the 'account_type' column of 'organization' in the schema cache
+
+[organization] test100
+  Zoho ID: 883813000001820001
+  Error: Could not find the 'account_type' column of 'organization' in the schema cache
+
+[organization] testMat
+  Zoho ID: 883813000001816001
+  Error: Could not find the 'account_type' column of 'organization' in the schema cache
+
+[organization] Outlook testing
+  Zoho ID: 883813000001800012
+  Error: Could not find the 'account_type' column of 'organization' in the schema cache
+
+[organization] Tester Organisation
+  Zoho ID: 883813000001649065
+  Error: Could not find the 'account_type' column of 'organization' in the schema cache
+
+[organization] University of Greater Manchester
+  Zoho ID: 883813000001548158
+  Error: Could not find the 'account_type' column of 'organization' in the schema cache
+
+[organization] University of Greenwich
+  Zoho ID: 883813000001547116
+  Error: Could not find the 'account_type' column of 'organization' in the schema cache
+
+[organization] Birmingham Newman University
+  Zoho ID: 883813000001547068
+  Error: Could not find the 'account_type' column of 'organization' in the schema cache
+
+[organization] Arts University Plymouth
+  Zoho ID: 883813000001541123
+  Error: Could not find the 'account_type' column of 'organization' in the schema cache
+
+[organization] Royal Holloway University of London
+  Zoho ID: 883813000001539115
+  Error: Could not find the 'account_type' column of 'organization' in the schema cache
+
+[organization] Kingston University
+  Zoho ID: 883813000001539105
+  Error: Could not find the 'account_type' column of 'organization' in the schema cache
+
+[organization] University for the Creative Arts
+  Zoho ID: 883813000001524250
+  Error: Could not find the 'account_type' column of 'organization' in the schema cache
+
+[organization] The London Institute of Banking & Finance
+  Zoho ID: 883813000001521183
+  Error: Could not find the 'account_type' column of 'organization' in the schema cache
+
+[organization] St Mary's University College Belfast
+  Zoho ID: 883813000001500161
+  Error: Could not find the 'account_type' column of 'organization' in the schema cache
+
+[organization] University of London Careers Service
+  Zoho ID: 883813000001494173
+  Error: Could not find the 'account_type' column of 'organization' in the schema cache
+
+[organization] Anglia Ruskin University
+  Zoho ID: 883813000001493157
+  Error: Could not find the 'account_type' column of 'organization' in the schema cache
+
+[organization] Manchester Metropolitan University
+  Zoho ID: 883813000001492205
+  Error: Could not find the 'account_type' column of 'organization' in the schema cache
+
+[organization] British and Irish Modern Music Institute (BIMM)
+  Zoho ID: 883813000001486189
+  Error: Could not find the 'account_type' column of 'organization' in the schema cache
+
+[sync] Unknown
+  Zoho ID: N/A
+  Error: Sync failed: API Error (504): An error occurred with your deployment
+
+FUNCTION_INVOCATION_TIMEOUT
+
+lhr1::8qj2f-1765974318116-98dd5944edbc
+
+
+
+FULL LOG
+----------------------------------------
+[INFO] [sync]   CRM sync started at 2025-12-17T12:25:12.948Z
+[INFO] [organization]   Starting organization sync...
+[ERROR] [organization] insert Testing Member Account Could not find the 'account_type' column of 'organization' in the schema cache
+[ERROR] [organization] insert test100 Could not find the 'account_type' column of 'organization' in the schema cache
+[ERROR] [organization] insert testMat Could not find the 'account_type' column of 'organization' in the schema cache
+[ERROR] [organization] insert Outlook testing Could not find the 'account_type' column of 'organization' in the schema cache
+[ERROR] [organization] insert Tester Organisation Could not find the 'account_type' column of 'organization' in the schema cache
+[ERROR] [organization] insert University of Greater Manchester Could not find the 'account_type' column of 'organization' in the schema cache
+[ERROR] [organization] insert University of Greenwich Could not find the 'account_type' column of 'organization' in the schema cache
+[ERROR] [organization] insert Birmingham Newman University Could not find the 'account_type' column of 'organization' in the schema cache
+[ERROR] [organization] insert Arts University Plymouth Could not find the 'account_type' column of 'organization' in the schema cache
+[ERROR] [organization] insert Royal Holloway University of London Could not find the 'account_type' column of 'organization' in the schema cache
+[ERROR] [organization] insert Kingston University Could not find the 'account_type' column of 'organization' in the schema cache
+[ERROR] [organization] insert University for the Creative Arts Could not find the 'account_type' column of 'organization' in the schema cache
+[ERROR] [organization] insert The London Institute of Banking & Finance Could not find the 'account_type' column of 'organization' in the schema cache
+[ERROR] [organization] insert St Mary's University College Belfast Could not find the 'account_type' column of 'organization' in the schema cache
+[ERROR] [organization] insert University of London Careers Service Could not find the 'account_type' column of 'organization' in the schema cache
+[ERROR] [organization] insert Anglia Ruskin University Could not find the 'account_type' column of 'organization' in the schema cache
+[ERROR] [organization] insert Manchester Metropolitan University Could not find the 'account_type' column of 'organization' in the schema cache
+[ERROR] [organization] insert British and Irish Modern Music Institute (BIMM) Could not find the 'account_type' column of 'organization' in the schema cache
+[OK] [organization] updated Harper Adams University 
+[OK] [organization] updated AGCAS 
+[OK] [organization] updated Walbrook Institute London (LIBF) 
+[OK] [organization] updated University College Cork 
+[OK] [organization] updated Robert Gordon University 
+[OK] [organization] updated Regent's University London 
+[OK] [organization] updated Liverpool John Moores University 
+[OK] [organization] updated Bangor University 
+[OK] [organization] updated Dublin City University 
+[OK] [organization] updated Northumbria University 
+[OK] [organization] updated University of West London 
+[OK] [organization] updated University of Northampton 
+[OK] [organization] updated BPP University 
+[OK] [organization] updated University of Leeds 
+[OK] [organization] updated University of Galway 
+[OK] [organization] updated University College Birmingham 
+[OK] [organization] updated The University of Sheffield 
+[OK] [organization] updated Wrexham University 
+[OK] [organization] updated SOAS, University of London 
+[OK] [organization] updated University College Dublin 
+[OK] [organization] updated City St George’s, University of London 
+[OK] [organization] updated University of Nottingham 
+[OK] [organization] updated University of Lincoln 
+[OK] [organization] updated Hartpury University 
+[OK] [organization] updated Cardiff University 
+[OK] [organization] updated Leeds Trinity University 
+[OK] [organization] updated King's College London 
+[OK] [organization] updated University of Roehampton 
+[OK] [organization] updated University of Oxford 
+[OK] [organization] updated London School of Management Education 
+[OK] [organization] updated University of Warwick 
+[OK] [organization] updated University of Limerick 
+[OK] [organization] updated York St John University 
+[OK] [organization] updated University of St Andrews 
+[OK] [organization] updated University of Essex 
+[OK] [organization] updated Aberystwyth University 
+[OK] [organization] updated University Campus Oldham 
+[OK] [organization] updated Aston University 
+[OK] [organization] updated University of Lancashire 
+[OK] [organization] updated University of Aberdeen 
+[OK] [organization] updated Plymouth Marjon University 
+[OK] [organization] updated University of Law 
+[OK] [organization] updated Leeds Beckett University 
+[OK] [organization] updated Global Banking School 
+[OK] [organization] updated Durham University 
+[OK] [organization] updated Swansea University 
+[OK] [organization] updated University of the Built Environment 
+[OK] [organization] updated University of Sunderland 
+[OK] [organization] updated University of Kent 
+[OK] [organization] updated University of Dundee 
+[OK] [organization] updated University of the Highlands and Islands 
+[OK] [organization] updated University of South Wales 
+[OK] [organization] updated University of Liverpool 
+[OK] [organization] updated Royal College of Surgeons in Ireland (RCSI) 
+[OK] [organization] updated London School of Economics and Political Science 
+[OK] [organization] updated Lancaster University 
+[OK] [organization] updated University of Reading 
+[OK] [organization] updated Buckinghamshire New University 
+[OK] [organization] updated Arden University 
+[OK] [organization] updated University of Birmingham 
+[OK] [organization] updated Ulster University 
+[OK] [organization] updated Istituto Marangoni 
+[OK] [organization] updated University of Surrey 
+[OK] [organization] updated University of Derby 
+[OK] [organization] updated University of Cumbria 
+[OK] [organization] updated University of Chester 
+[OK] [organization] updated London South Bank University 
+[OK] [organization] updated Heriot-Watt University 
+[OK] [organization] updated Edinburgh Napier University 
+[OK] [organization] updated De Montfort University 
+[OK] [organization] updated Falmouth University 
+[OK] [organization] updated Trinity College Dublin 
+[OK] [organization] updated University of East Anglia 
+[OK] [organization] updated Lincoln Bishop University 
+[OK] [organization] updated Cardiff Metropolitan University 
+[OK] [organization] updated Bournemouth University 
+[OK] [organization] updated University of Wales Trinity Saint David 
+[OK] [organization] updated University of Strathclyde 
+[OK] [organization] updated London Metropolitan University 
+[OK] [organization] updated Bath Spa University 
+[OK] [organization] updated University of Salford 
+[OK] [organization] updated Sheffield Hallam University 
+[OK] [organization] updated University of the West of England, Bristol 
+[OK] [organization] updated University of Portsmouth 
+[OK] [organization] updated University of Gloucestershire 
+[OK] [organization] updated University of Chichester 
+[OK] [organization] updated University of Bristol 
+[OK] [organization] updated University of Brighton 
+[OK] [organization] updated Teesside University 
+[OK] [organization] updated University of the West of Scotland 
+[OK] [organization] updated Mohamed Bin Zayed University of Artificial Intelligence 
+[OK] [organization] updated Abertay University 
+[OK] [organization] updated University of Leicester 
+[OK] [organization] updated Newcastle University 
+[OK] [organization] updated London College of Contemporary Arts 
+[OK] [organization] updated Sultan Qaboos University 
+[OK] [organization] updated Goldsmiths, University of London 
+[OK] [organization] updated The University of Manchester 
+[OK] [organization] updated Loughborough University 
+[OK] [organization] updated Queen Mary, University of London 
+[OK] [organization] updated Brunel University London 
+[OK] [organization] updated The Institute of Contemporary Music Performance (ICMP) 
+[OK] [organization] updated Stranmillis University College 
+[OK] [organization] updated Maynooth University 
+[OK] [organization] updated The Open University 
+[OK] [organization] updated University of Cambridge 
+[OK] [organization] updated University of Bedfordshire 
+[OK] [organization] updated University of Worcester 
+[OK] [organization] updated Arts University Bournemouth 
+[OK] [organization] updated Canterbury Christ Church University 
+[OK] [organization] updated University of East London 
+[OK] [organization] updated University of Bath 
+[OK] [organization] updated UCL 
+[OK] [organization] updated UCFB 
+[OK] [organization] updated Scotland’s Rural College (SRUC) 
+[OK] [organization] updated Glasgow Caledonian University 
+[OK] [organization] updated University of York 
+[OK] [organization] updated St Mary's University, Twickenham 
+[OK] [organization] updated University of Suffolk 
+[OK] [organization] updated University of Plymouth 
+[OK] [organization] updated University of Huddersfield 
+[OK] [organization] updated University of Wolverhampton 
+[OK] [organization] updated University of Hull 
+[OK] [organization] updated University of Exeter 
+[OK] [organization] updated Liverpool Hope University 
+[OK] [organization] updated Imperial College London 
+[OK] [organization] updated University of Hertfordshire 
+[OK] [organization] updated Nottingham Trent University 
+[OK] [organization] updated Keele University 
+[OK] [organization] updated The University of Edinburgh 
+[OK] [organization] updated University of Winchester 
+[OK] [organization] updated University of Sussex 
+[OK] [organization] updated University of Southampton 
+[OK] [organization] updated University of Buckingham 
+[OK] [organization] updated Edge Hill University 
+[OK] [organization] updated University of Stirling 
+[OK] [organization] updated University of Westminster 
+[OK] [organization] updated University of the Arts London 
+[OK] [organization] updated University of Glasgow 
+[OK] [organization] updated University of Bradford 
+[OK] [organization] updated Birmingham City University 
+[OK] [organization] updated Southampton Solent University 
+[OK] [organization] updated Oxford Brookes University 
+[OK] [organization] updated University of Staffordshire 
+[OK] [organization] updated Queen's University of Belfast 
+[OK] [organization] updated Queen Margaret University, Edinburgh 
+[INFO] [organization]   Organization sync complete: 164 processed, 0 created, 146 updated, 18 failed
+[INFO] [member]   Starting member sync...
+[ERROR] [sync]   Sync failed: API Error (504): An error occurred with your deployment
+
+FUNCTION_INVOCATION_TIMEOUT
+
+lhr1::8qj2f-1765974318116-98dd5944edbc
+

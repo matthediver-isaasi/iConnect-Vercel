@@ -1,0 +1,129 @@
+index-DwxmAE4D.js:1306 [publicClient] Detected tenant from subdomain: gfi
+index-DwxmAE4D.js:1391 GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.93.3) 2026-04-17T12:42:04.612Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+yC @ index-DwxmAE4D.js:1391
+fze @ index-DwxmAE4D.js:1392
+_initSupabaseAuthClient @ index-DwxmAE4D.js:1392
+gze @ index-DwxmAE4D.js:1392
+Sfe @ index-DwxmAE4D.js:1392
+(anonymous) @ index-DwxmAE4D.js:2467
+index-DwxmAE4D.js:1695 [usePendingPurchaseOrders] memberInfo: null
+index-DwxmAE4D.js:1695 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DwxmAE4D.js:1699 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DwxmAE4D.js:1699 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-DwxmAE4D.js:1695 [usePendingPurchaseOrders] memberInfo: null
+index-DwxmAE4D.js:1695 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DwxmAE4D.js:1699 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DwxmAE4D.js:1699 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-DwxmAE4D.js:1695 [usePendingPurchaseOrders] memberInfo: null
+index-DwxmAE4D.js:1695 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DwxmAE4D.js:1699 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DwxmAE4D.js:1699 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-DwxmAE4D.js:1695 [usePendingPurchaseOrders] memberInfo: null
+index-DwxmAE4D.js:1695 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DwxmAE4D.js:1699 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DwxmAE4D.js:1699 [Layout] currentPageName: _DynamicPage currentPortalPageId: portal_articles
+index-DwxmAE4D.js:1695 [usePendingPurchaseOrders] memberInfo: null
+index-DwxmAE4D.js:1695 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DwxmAE4D.js:1699 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DwxmAE4D.js:1699 [Layout] currentPageName: _DynamicPage currentPortalPageId: portal_articles
+index-DwxmAE4D.js:1695 [usePendingPurchaseOrders] memberInfo: null
+index-DwxmAE4D.js:1695 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DwxmAE4D.js:1699 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DwxmAE4D.js:1699 [Layout] currentPageName: _DynamicPage currentPortalPageId: portal_articles
+index-DwxmAE4D.js:2746 [DynamicPage] slug: blogs
+index-DwxmAE4D.js:2746 [DynamicPage] dynamicArticleRoute: {component: 'Articles', displayName: 'Blogs'}
+index-DwxmAE4D.js:2746 [DynamicPage] mySlug: myblogs isCustomSlug: true
+index-DwxmAE4D.js:2746 [DynamicPage] Rendering component: Articles
+index-DwxmAE4D.js:1392 [useNavigationRealtime] Setting up realtime subscription for navigation_item table
+index-DwxmAE4D.js:2493 [useBlogPostRealtime] Setting up realtime subscription for blog_post table
+index-DwxmAE4D.js:2493 [Articles] Fetching articles, isAuthenticated: false
+index-DwxmAE4D.js:2493 [Articles] Calling publicClient.listArticles()
+index-DwxmAE4D.js:1306 [publicClient] Detected tenant from subdomain: gfi
+index-DwxmAE4D.js:1695 [usePendingPurchaseOrders] memberInfo: null
+index-DwxmAE4D.js:1695 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DwxmAE4D.js:1699 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DwxmAE4D.js:1699 [Layout] currentPageName: _DynamicPage currentPortalPageId: portal_articles
+index-DwxmAE4D.js:2746 [DynamicPage] slug: blogs
+index-DwxmAE4D.js:2746 [DynamicPage] dynamicArticleRoute: {component: 'Articles', displayName: 'Blogs'}
+index-DwxmAE4D.js:2746 [DynamicPage] mySlug: myblogs isCustomSlug: true
+index-DwxmAE4D.js:2746 [DynamicPage] Rendering component: Articles
+index-DwxmAE4D.js:1392 [useNavigationRealtime] Cleaning up realtime subscription
+index-DwxmAE4D.js:1392 [useNavigationRealtime] Subscription status: CLOSED
+index-DwxmAE4D.js:2493 [useBlogPostRealtime] Cleaning up realtime subscription
+index-DwxmAE4D.js:2493 [useBlogPostRealtime] Subscription status: CLOSED
+index-DwxmAE4D.js:2493 [useBlogPostRealtime] Setting up realtime subscription for blog_post table
+index-DwxmAE4D.js:1695 [usePendingPurchaseOrders] memberInfo: null
+index-DwxmAE4D.js:1695 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DwxmAE4D.js:1699 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DwxmAE4D.js:1699 [Layout] currentPageName: _DynamicPage currentPortalPageId: portal_articles
+index-DwxmAE4D.js:2746 [DynamicPage] slug: blogs
+index-DwxmAE4D.js:2746 [DynamicPage] dynamicArticleRoute: {component: 'Articles', displayName: 'Blogs'}
+index-DwxmAE4D.js:2746 [DynamicPage] mySlug: myblogs isCustomSlug: true
+index-DwxmAE4D.js:2746 [DynamicPage] Rendering component: Articles
+index-DwxmAE4D.js:1699 [Layout] Server returned null for /api/auth/me - member deleted or disabled
+index-DwxmAE4D.js:1695 [usePendingPurchaseOrders] memberInfo: null
+index-DwxmAE4D.js:1695 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DwxmAE4D.js:1699 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DwxmAE4D.js:1699 [Layout] currentPageName: _DynamicPage currentPortalPageId: portal_articles
+index-DwxmAE4D.js:2746 [DynamicPage] slug: blogs
+index-DwxmAE4D.js:2746 [DynamicPage] dynamicArticleRoute: {component: 'Articles', displayName: 'Blogs'}
+index-DwxmAE4D.js:2746 [DynamicPage] mySlug: myblogs isCustomSlug: true
+index-DwxmAE4D.js:2746 [DynamicPage] Rendering component: Articles
+index-DwxmAE4D.js:2493 [useBlogPostRealtime] Subscription status: SUBSCRIBED
+index-DwxmAE4D.js:1661 [PublicLayout] Fetching banners for page: PublicArticles portalPageId: portal_articles isCustomSlug: true urlSlug: blogs
+index-DwxmAE4D.js:1661 [PublicLayout] All banners found: 14
+index-DwxmAE4D.js:1661 [PublicLayout] pageToPortalPageMap keys: (26) ['Events', 'PublicEvents', 'Bookings', 'MyTickets', 'BuyProgramTickets', 'MemberDirectory', 'OrganisationDirectory', 'Resources', 'PublicResources', 'Articles', 'PublicArticles', 'Team', 'Balances', 'History', 'Profile', 'MyOrganisation', 'JobBoard', 'PublicJobBoard', 'News', 'PublicNews', 'NewsView', 'MyJobPostings', 'Preferences', 'about-me', 'Support', 'Dashboard']
+index-DwxmAE4D.js:1661 [PublicLayout] Matched banner: Blogs ['portal_articles']
+index-DwxmAE4D.js:1661 [PublicLayout] Matched banners: 1
+index-DwxmAE4D.js:2493 [Articles] publicClient.listArticles() returned: {articles: Array(24), authors: {…}, guestWriters: {…}}
+index-DwxmAE4D.js:2493 [Articles] Authors from API: {008b421a-990e-480d-9393-909ac12f092f: {…}, 286c5909-99b2-4224-ae1c-4338c5dcfa88: {…}, 6cf89630-b4cd-48f3-afeb-1e0f0e93c2d8: {…}, 91f4b186-61d9-4dc0-a85b-7f23ede6639f: {…}, c992d6e4-2a8c-4efa-9add-1c3d93b884a4: {…}}
+index-DwxmAE4D.js:2493 [ArticleCard] Looking up handle for author_id: 91f4b186-61d9-4dc0-a85b-7f23ede6639f authorHandles keys: (5) ['008b421a-990e-480d-9393-909ac12f092f', '286c5909-99b2-4224-ae1c-4338c5dcfa88', '6cf89630-b4cd-48f3-afeb-1e0f0e93c2d8', '91f4b186-61d9-4dc0-a85b-7f23ede6639f', 'c992d6e4-2a8c-4efa-9add-1c3d93b884a4'] found: sarah-nichols total keys: 5
+index-DwxmAE4D.js:1661 Failed to fetch newsletter form: Error: Public API Error (404): Form not found or inactive
+    at FDe (index-DwxmAE4D.js:1306:46131)
+    at async index-DwxmAE4D.js:1661:72736
+(anonymous) @ index-DwxmAE4D.js:1661
+await in (anonymous)
+(anonymous) @ index-DwxmAE4D.js:1661
+kM @ index-DwxmAE4D.js:40
+dj @ index-DwxmAE4D.js:40
+FMe @ index-DwxmAE4D.js:40
+Ub @ index-DwxmAE4D.js:40
+kQ @ index-DwxmAE4D.js:40
+ub @ index-DwxmAE4D.js:38
+(anonymous) @ index-DwxmAE4D.js:40
+setTimeout
+r @ index-DwxmAE4D.js:1306
+l @ index-DwxmAE4D.js:1306
+batch @ index-DwxmAE4D.js:1306
+cf @ index-DwxmAE4D.js:1306
+setData @ index-DwxmAE4D.js:1306
+onSuccess @ index-DwxmAE4D.js:1306
+m @ index-DwxmAE4D.js:1306
+Promise.then
+g @ index-DwxmAE4D.js:1306
+start @ index-DwxmAE4D.js:1306
+fetch @ index-DwxmAE4D.js:1306
+D1 @ index-DwxmAE4D.js:1306
+onSubscribe @ index-DwxmAE4D.js:1306
+subscribe @ index-DwxmAE4D.js:1306
+(anonymous) @ index-DwxmAE4D.js:1306
+vue @ index-DwxmAE4D.js:38
+kM @ index-DwxmAE4D.js:40
+dj @ index-DwxmAE4D.js:40
+(anonymous) @ index-DwxmAE4D.js:40
+N @ index-DwxmAE4D.js:25
+T @ index-DwxmAE4D.js:25
+postMessage
+A @ index-DwxmAE4D.js:25
+T @ index-DwxmAE4D.js:25
+postMessage
+A @ index-DwxmAE4D.js:25
+D @ index-DwxmAE4D.js:25
+t.unstable_scheduleCallback @ index-DwxmAE4D.js:25
+ame @ index-DwxmAE4D.js:40
+su @ index-DwxmAE4D.js:40
+Nh @ index-DwxmAE4D.js:40
+AM @ index-DwxmAE4D.js:40
+PM.render._7.render @ index-DwxmAE4D.js:40
+(anonymous) @ index-DwxmAE4D.js:4265
+index-DwxmAE4D.js:2493 [ArticleCard] Looking up handle for author_id: 91f4b186-61d9-4dc0-a85b-7f23ede6639f authorHandles keys: (5) ['008b421a-990e-480d-9393-909ac12f092f', '286c5909-99b2-4224-ae1c-4338c5dcfa88', '6cf89630-b4cd-48f3-afeb-1e0f0e93c2d8', '91f4b186-61d9-4dc0-a85b-7f23ede6639f', 'c992d6e4-2a8c-4efa-9add-1c3d93b884a4'] found: sarah-nichols total keys: 5

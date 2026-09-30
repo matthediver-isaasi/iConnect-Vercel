@@ -1,0 +1,66 @@
+2026-02-26 21:41:59.222 [info] [Session] getSession: Session found, userType: member
+2026-02-26 21:41:59.222 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"c1fc92b8","userType":"member","memberId":"9ac39222-22b8-457e-a5df-dfca45a99eb6"}
+2026-02-26 21:41:59.349 [info] [TenantContext] Member found: {
+  memberId: '9ac39222-22b8-457e-a5df-dfca45a99eb6',
+  organizationId: 'ccbbbd4d-12e8-4e9e-b49e-cd29979623ae'
+}
+2026-02-26 21:41:59.349 [info] [TenantContext] Tenant from member: fd82da65-aab7-4a5c-85b8-b2febeb2003d
+2026-02-26 21:41:59.609 [info] [Session] Attempting to invalidate sessions for member: 7eb00a55-7108-42de-a444-669ae66416a9
+2026-02-26 21:41:59.736 [info] [Session] Found 0 session(s) for member 7eb00a55-7108-42de-a444-669ae66416a9 using JSONB filter
+2026-02-26 21:41:59.909 [info] [Session] Sample of all sessions in table: [
+  { sid: '1f4262da...', memberId: undefined },
+  {
+    sid: '233d70c1...',
+    memberId: 'b46fc90a-cf1e-41fd-ab16-02e5a0618188'
+  },
+  {
+    sid: '9ac9c245...',
+    memberId: 'baebbc85-c9e0-4e67-b8b3-c026bfa4e73f'
+  },
+  { sid: 'ff429f23...', memberId: undefined },
+  {
+    sid: '5a8ecfc5...',
+    memberId: 'c586b5f3-32bd-414e-8acc-92b51647b0fc'
+  },
+  {
+    sid: '5ec17b6e...',
+    memberId: '49f0b578-2e2f-46f8-a151-2c4c08cc570c'
+  },
+  {
+    sid: '0a5bdaa0...',
+    memberId: '1b9ca8e2-6a85-417d-be8d-4d6c8d157db2'
+  },
+  {
+    sid: 'a0f0ed2e...',
+    memberId: '64828bce-2a90-44e6-ab60-c11b37447b7a'
+  },
+  {
+    sid: '5db7d422...',
+    memberId: '0eb97dd7-086b-4e6b-bb8a-b7bef1076b2e'
+  },
+  { sid: '88231211...', memberId: undefined }
+]
+2026-02-26 21:41:59.909 [info] [Workflows] triggerWorkflows called: entityType=member, entityId=7eb00a55-7108-42de-a444-669ae66416a9, triggerType=field_change
+2026-02-26 21:41:59.909 [info] [Workflows] afterData.tenant_id=fd82da65-aab7-4a5c-85b8-b2febeb2003d, beforeData.tenant_id=fd82da65-aab7-4a5c-85b8-b2febeb2003d
+2026-02-26 21:41:59.909 [info] [Workflows] Initial tenantId from data: fd82da65-aab7-4a5c-85b8-b2febeb2003d
+2026-02-26 21:41:59.909 [info] [Workflows] Querying workflows: entity_type=member, tenant_id=fd82da65-aab7-4a5c-85b8-b2febeb2003d, is_active=true
+2026-02-26 21:42:00.029 [info] [Workflows] Query result: 1 workflows found, error: null
+2026-02-26 21:42:00.029 [info] [Workflows] Evaluating 1 workflows for member:7eb00a55-7108-42de-a444-669ae66416a9 (tenant: fd82da65-aab7-4a5c-85b8-b2febeb2003d)
+2026-02-26 21:42:00.029 [info] [Workflows] Checking workflow "Member only application status set to Verified": trigger_type="field_change", incoming triggerType="field_change"
+2026-02-26 21:42:00.029 [info] [Workflows] Skipping custom field workflow "Member only application status set to Verified" - handled by preference value update
+2026-02-26 21:41:58.704 [info] [Entity PATCH] Incoming request: entity="Member", id="7eb00a55-7108-42de-a444-669ae66416a9"
+2026-02-26 21:41:58.704 [info] [TenantResolver] resolveTenantFromRequest called
+2026-02-26 21:41:58.704 [info] [TenantResolver] Params - tenant: undefined domain: undefined
+2026-02-26 21:41:58.705 [info] [TenantResolver] Falling back to host-based resolution, hostname: gfi.dev.iconn.app
+2026-02-26 21:41:58.705 [info] [TenantResolver] resolveTenantFromHost called with: gfi.dev.iconn.app
+2026-02-26 21:41:58.705 [info] [TenantResolver] Cache hit for: gfi.dev.iconn.app
+2026-02-26 21:41:58.705 [info] [TenantContext] About to call getSessionTenantUser
+2026-02-26 21:41:58.705 [info] [Session] getSession: Looking up session: c1fc92b8
+2026-02-26 21:41:58.848 [info] [Session] getSession: Session found, userType: member
+2026-02-26 21:41:58.848 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"c1fc92b8","userType":"member","memberId":"9ac39222-22b8-457e-a5df-dfca45a99eb6","identityId":"dc156a30-ae8d-4aee-b965-b54fe4b17105","tenantId":"fd82da65-aab7-4a5c-85b8-b2febeb2003d"}
+2026-02-26 21:41:58.848 [info] [Session] Found member session with identityId, attempting promotion
+2026-02-26 21:41:59.100 [info] [Session] No tenant_user record found for identity promotion
+2026-02-26 21:41:59.100 [info] [Session] Member session promotion failed
+2026-02-26 21:41:59.100 [info] [TenantContext] getSessionTenantUser returned: null
+2026-02-26 21:41:59.100 [info] [TenantContext] Checking for member session...
+2026-02-26 21:41:59.100 [info] [Session] getSession: Looking up session: c1fc92b8

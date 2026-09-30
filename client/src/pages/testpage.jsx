@@ -33,7 +33,7 @@ export default function TestPageView() {
   // Set page title and meta description
   useEffect(() => {
     if (page) {
-      document.title = page.meta_title || page.title || 'AGCAS';
+      document.title = page.meta_title || page.title || 'Portal';
       
       if (page.meta_description) {
         let metaDesc = document.querySelector('meta[name="description"]');

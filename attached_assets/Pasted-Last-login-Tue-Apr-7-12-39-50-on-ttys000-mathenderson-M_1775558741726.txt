@@ -1,0 +1,58 @@
+Last login: Tue Apr  7 12:39:50 on ttys000
+mathenderson@Mats-iMac-255 ~ % curl -s \
+  -H "User-Agent: Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)" \
+  "https://gfi.dev.iconn.app/graduate-futures-awards-2026"
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Recognising the people and projects shaping the future of careers and employability | Graduate Futures Institute</title>
+  <meta name="description" content="The Graduate Futures Awards are the sector's flagship awards, recognising the people, teams and partnerships transforming careers and employability across highe...">
+  <meta property="og:title" content="Recognising the people and projects shaping the future of careers and employability | Graduate Futures Institute">
+  <meta property="og:description" content="The Graduate Futures Awards are the sector's flagship awards, recognising the people, teams and partnerships transforming careers and employability across highe...">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://graduatefutures.org/graduate-futures-awards-2026">
+  <meta property="og:image" content="https://vault.iconn.app/storage/v1/object/public/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d/uploads/1773827934260-94288d4-GRAFTA_image_2.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Recognising the people and projects shaping the future of careers and employability | Graduate Futures Institute">
+  <meta name="twitter:description" content="The Graduate Futures Awards are the sector's flagship awards, recognising the people, teams and partnerships transforming careers and employability across highe...">
+  <meta name="twitter:image" content="https://vault.iconn.app/storage/v1/object/public/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d/uploads/1773827934260-94288d4-GRAFTA_image_2.png">
+  <link rel="canonical" href="https://graduatefutures.org/graduate-futures-awards-2026">
+  <link rel="icon" href="https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/file-repository/uploads/1767909733211-xza2ojg-fgifavicon.png">
+  <meta name="robots" content="index, follow">
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebPage","name":"Recognising the people and projects shaping the future of careers and employability | Graduate Futures Institute","description":"The Graduate Futures Awards are the sector's flagship awards, recognising the people, teams and partnerships transforming careers and employability across highe...","url":"https://graduatefutures.org/graduate-futures-awards-2026","image":"https://vault.iconn.app/storage/v1/object/public/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d/uploads/1773827934260-94288d4-GRAFTA_image_2.png","publisher":{"@type":"Organization","name":"Graduate Futures Institute"}}</script>
+</head>
+<body>
+  <header>
+    <h1>Graduate Futures Institute</h1>
+    <nav aria-label="Main navigation"><ul><li><a href="https://graduatefutures.org/about-us">About us</a></li><li><a href="https://graduatefutures.org/contact-us">Contact</a></li><li><a href="https://graduatefutures.org/Membership">Membership</a></li><li><a href="https://graduatefutures.org/PublicResources">Resources</a></li><li><a href="https://graduatefutures.org/Membership">Join Us</a></li><li><a href="https://graduatefutures.org/PublicEvents">Learn &amp; connect</a></li><li><a href="https://graduatefutures.org/PublicNews">News</a></li><li><a href="https://graduatefutures.org/JobBoard">Sector jobs</a></li><li><a href="https://graduatefutures.org/blogs">Blog</a></li><li><a href="https://graduatefutures.org/Events">Events</a></li></ul></nav>
+  </header>
+  <main>
+    
+      <article>
+        <h1>Recognising the people and projects shaping the future of careers and employability</h1>
+        <p>The Graduate Futures Awards are the sector's flagship awards, recognising the people, teams and partnerships transforming careers and employability across higher education. They celebrate exceptional work that inspires colleagues, strengthens services and supports student and graduate success. </p>
+        <section><h2>AWARDS</h2>
+<h3>Celebrating the people and projects shaping the future of careers and employability</h3>
+<p>The Graduate Futures Awards are the sector's flagship awards, recognising the people, teams and partnerships transforming careers and employability across higher education. They reward exceptional work that inspires colleagues, strengthens services and supports student and graduate success. Evolving each year to reflect the changing landscape of the sector, the awards champion excellence, collaboration and impact across the sector.</p></section>
+<section><h2>Sector impact</h2>
+<p>We want the Graduate Futures Awards to benefit the whole sector. Winning entries will be published so colleagues can adopt and adapt your approaches in their own contexts. This helps your work reach more students, more teams and more institutions, extending your impact well beyond your own university. </p></section>
+<section><p>The winners and nominees of these awards are a true testament to the exceptional work that is going on in higher education careers and employability.</p>
+<p>Martin Edmondson, CEO of the Graduate Futures Institute</p>
+<p>We all know the challenges that the sector is facing right now, yet these awards show that our members are rising to the challenge with panache, demonstrating success across a range of areas from research to technology, to sustainability and EDI.</p>
+<p>These innovative and collaborative projects, and high professional standards, lead to careers success for students and graduates and employability for all.</p></section>
+      </article>
+  </main>
+  <footer><p>&copy; 2026 Graduate Futures Institute</p></footer>
+</body>
+</html>%                                                                        mmammamamamatmathmathmathmathemathemathemathemathendmatmathmathmatmatmamammmmathenderson@Mats-iMac-255 ~ % 
+
+
+
+
+
+
+
+

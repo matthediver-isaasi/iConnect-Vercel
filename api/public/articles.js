@@ -1,0 +1,119 @@
+import { createClient } from '@supabase/supabase-js';
+import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+
+export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
+
+  if (!supabaseUrl || !supabaseServiceKey) {
+    return res.status(503).json({ error: 'Supabase not configured' });
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+  try {
+    const tenant = await resolveTenantFromRequest(req);
+
+    if (!tenant) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+
+    const { data: articles, error } = await supabase
+      .from('blog_post')
+      .select(`
+        id,
+        title,
+        slug,
+        summary,
+        feature_image_url,
+        feature_image_focal_point,
+        published_date,
+        author_id,
+        guest_writer_id,
+        status,
+        subcategories,
+        tags
+      `)
+      .eq('tenant_id', tenant.id)
+      .eq('status', 'published')
+      .order('published_date', { ascending: false });
+
+    if (error) {
+      console.error('[Public Articles] Query error:', error);
+      return res.status(500).json({ error: 'Failed to fetch articles' });
+    }
+
+    const authorIds = [...new Set((articles || []).filter(a => a.author_id).map(a => a.author_id))];
+    const guestWriterIds = [...new Set((articles || []).filter(a => a.guest_writer_id).map(a => a.guest_writer_id))];
+
+    let authorData = {};
+    let guestWriterData = {};
+
+    if (authorIds.length > 0) {
+      console.log('[Public Articles] Looking up authors:', authorIds, 'for tenant:', tenant.id);
+      
+      // Query only essential fields to avoid column name issues
+      const { data: members, error: membersError } = await supabase
+        .from('member')
+        .select('id, first_name, last_name, handle')
+        .eq('tenant_id', tenant.id)
+        .in('id', authorIds);
+
+      console.log('[Public Articles] Members result:', { count: members?.length, error: membersError?.message });
+
+      if (membersError) {
+        console.error('[Public Articles] Members query error:', membersError);
+      }
+
+      if (members && members.length > 0) {
+        members.forEach(m => {
+          console.log('[Public Articles] Found member:', m.id, 'handle:', m.handle);
+          authorData[m.id] = {
+            name: `${m.first_name || ''} ${m.last_name || ''}`.trim(),
+            handle: m.handle,
+            profilePicture: null
+          };
+        });
+      } else {
+        console.log('[Public Articles] No members found for author IDs');
+      }
+    }
+
+    if (guestWriterIds.length > 0) {
+      const { data: guestWriters } = await supabase
+        .from('guest_writer')
+        .select('id, full_name, profile_photo_url')
+        .in('id', guestWriterIds);
+
+      if (guestWriters) {
+        guestWriters.forEach(gw => {
+          guestWriterData[gw.id] = {
+            name: gw.full_name,
+            profilePicture: gw.profile_photo_url
+          };
+        });
+      }
+    }
+
+    res.json({
+      articles: articles || [],
+      authors: authorData,
+      guestWriters: guestWriterData
+    });
+  } catch (error) {
+    console.error('[Public Articles] Error:', error);
+    res.status(500).json({ error: 'Failed to fetch articles' });
+  }
+}

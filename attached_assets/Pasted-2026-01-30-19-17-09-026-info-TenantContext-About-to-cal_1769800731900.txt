@@ -1,0 +1,96 @@
+2026-01-30 19:17:09.026 [info] [TenantContext] About to call getSessionTenantUser
+2026-01-30 19:17:09.028 [info] [Session] getSession: Looking up session: 5ee51951
+2026-01-30 19:17:09.163 [info] [Session] getSession: Session found, userType: tenant_user
+2026-01-30 19:17:09.163 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"5ee51951","userType":"tenant_user","tenantUserId":"baed1877-0c08-4959-943e-c90448d792e9","memberId":"48b25075-51da-437f-af20-17836a892bfe","identityId":"2d4067d6-1b12-43b3-84cf-c76ba181e7ab","tenantId":"fd82da65-aab7-4a5c-85b8-b2febeb2003d"}
+2026-01-30 19:17:09.163 [info] [Session] Found tenant_user session, continuing with normal handling
+2026-01-30 19:17:09.444 [info] [Session] Verified via unified identity system: mat@isaasi.co.uk
+2026-01-30 19:17:09.444 [info] [TenantContext] getSessionTenantUser returned: tenant_user found
+2026-01-30 19:17:09.445 [info] [Session] getSession: Looking up session: 5ee51951
+2026-01-30 19:17:09.596 [info] [Session] getSession: Session found, userType: tenant_user
+2026-01-30 19:17:09.596 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"5ee51951","userType":"tenant_user","memberId":"48b25075-51da-437f-af20-17836a892bfe"}
+2026-01-30 19:17:09.734 [info] [Session] getSession: Looking up session: 5ee51951
+2026-01-30 19:17:09.863 [info] [Session] getSession: Session found, userType: tenant_user
+2026-01-30 19:17:09.863 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"5ee51951","userType":"tenant_user","tenantUserId":"baed1877-0c08-4959-943e-c90448d792e9","memberId":"48b25075-51da-437f-af20-17836a892bfe","identityId":"2d4067d6-1b12-43b3-84cf-c76ba181e7ab","tenantId":"fd82da65-aab7-4a5c-85b8-b2febeb2003d"}
+2026-01-30 19:17:09.863 [info] [Session] Found tenant_user session, continuing with normal handling
+2026-01-30 19:17:10.140 [info] [Session] Verified via unified identity system: mat@isaasi.co.uk
+2026-01-30 19:17:10.140 [info] [Session] getSession: Looking up session: 5ee51951
+2026-01-30 19:17:10.287 [info] [Session] getSession: Session found, userType: tenant_user
+2026-01-30 19:17:10.287 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"5ee51951","userType":"tenant_user","memberId":"48b25075-51da-437f-af20-17836a892bfe"}
+2026-01-30 19:17:50.282 [error] [ZohoCampaigns] Add subscriber error: {
+  code: '2007',
+  message: 'Invalid Contact Email address.',
+  version: '1.1',
+  uri: '/json/listsubscribe',
+  status: 'error'
+}
+2026-01-30 19:17:50.852 [error] [ZohoCampaigns] Add subscriber error: {
+  code: '2007',
+  message: 'Invalid Contact Email address.',
+  version: '1.1',
+  uri: '/json/listsubscribe',
+  status: 'error'
+}
+2026-01-30 19:17:51.385 [error] [ZohoCampaigns] Add subscriber error: {
+  code: '2007',
+  message: 'Invalid Contact Email address.',
+  version: '1.1',
+  uri: '/json/listsubscribe',
+  status: 'error'
+}
+2026-01-30 19:17:51.908 [error] [ZohoCampaigns] Add subscriber error: {
+  code: '2007',
+  message: 'Invalid Contact Email address.',
+  version: '1.1',
+  uri: '/json/listsubscribe',
+  status: 'error'
+}
+2026-01-30 19:17:52.453 [error] [ZohoCampaigns] Add subscriber error: {
+  code: '2007',
+  message: 'Invalid Contact Email address.',
+  version: '1.1',
+  uri: '/json/listsubscribe',
+  status: 'error'
+}
+2026-01-30 19:17:53.014 [error] [ZohoCampaigns] Add subscriber error: {
+  code: '2007',
+  message: 'Invalid Contact Email address.',
+  version: '1.1',
+  uri: '/json/listsubscribe',
+  status: 'error'
+}
+2026-01-30 19:17:53.779 [error] [ZohoCampaigns] Add subscriber error: {
+  code: '2007',
+  message: 'Invalid Contact Email address.',
+  version: '1.1',
+  uri: '/json/listsubscribe',
+  status: 'error'
+}
+2026-01-30 19:17:54.775 [error] [ZohoCampaigns] Add subscriber error: {
+  code: '2007',
+  message: 'Invalid Contact Email address.',
+  version: '1.1',
+  uri: '/json/listsubscribe',
+  status: 'error'
+}
+2026-01-30 19:17:36.186 [error] [ZohoCampaigns] Add subscriber error: {
+  code: '2007',
+  message: 'Invalid Contact Email address.',
+  version: '1.1',
+  uri: '/json/listsubscribe',
+  status: 'error'
+}
+2026-01-30 19:17:36.830 [error] [ZohoCampaigns] Remove subscriber error: {
+  code: '2101',
+  message: 'Error in Unsubscribe. Please retry after sometime.',
+  version: '1.1',
+  uri: '/json/listunsubscribe',
+  status: 'error'
+}
+2026-01-30 19:17:37.675 [error] [ZohoCampaigns] Add subscriber error: {
+  code: '2007',
+  message: 'Invalid Contact Email address.',
+  version: '1.1',
+  uri: '/json/listsubscribe',
+  status: 'error'
+}
+2026-01-30 19:18:08.802 [error] Vercel Runtime Timeout Error: Task timed out after 60 seconds

@@ -1,0 +1,15 @@
+index-CnTGlojO.js:2544 [ReviewSubmission] handleStatusChange called
+index-CnTGlojO.js:2544 [ReviewSubmission] newStatus: verified
+index-CnTGlojO.js:2544 [ReviewSubmission] currentStatus: new
+index-CnTGlojO.js:2544 [ReviewSubmission] formId: a9ec1559-495a-4705-9da9-d51517be7bb6
+index-CnTGlojO.js:2544 [ReviewSubmission] form: {id: 'a9ec1559-495a-4705-9da9-d51517be7bb6', name: 'ESO Long form', fields: Array(79), pages: Array(11), due_diligence_required: true}
+index-CnTGlojO.js:2544 [ReviewSubmission] ddSubmission?.form_submission?.form_id: a9ec1559-495a-4705-9da9-d51517be7bb6
+index-CnTGlojO.js:2544 [ReviewSubmission] Calling check-stage-actions API...
+index-CnTGlojO.js:2544 [ReviewSubmission] check-stage-actions response: {has_meeting_actions: true, meeting_actions: Array(0), requires_agent_selection: false}
+index-CnTGlojO.js:2544 [ReviewSubmission] requires_agent_selection: false
+index-CnTGlojO.js:2544 [ReviewSubmission] meeting_actions length: 0
+index-CnTGlojO.js:2544 [ReviewSubmission] Agent selection not required or no meeting actions
+index-CnTGlojO.js:2544 [ReviewSubmission] Proceeding with status update, no agent selection needed
+index-CnTGlojO.js:2544 [DocumentsCard] Input props: {formSubmissionId: 'e19029e7-9c88-480d-8712-06f5b6ec99af', hasSubmissionData: true, submissionDataType: 'object', submissionDataKeys: Array(16), submissionDataSample: '{"field_1768821271046":"Mat","field_1768821297362"…109853362-xdpmwmc-INVOICE_999901552.pdf\\",\\"file_', …}
+index-CnTGlojO.js:2544 [DocumentsCard] Input props: {formSubmissionId: 'e19029e7-9c88-480d-8712-06f5b6ec99af', hasSubmissionData: true, submissionDataType: 'object', submissionDataKeys: Array(16), submissionDataSample: '{"field_1768821271046":"Mat","field_1768821297362"…109853362-xdpmwmc-INVOICE_999901552.pdf\\",\\"file_', …}
+index-CnTGlojO.js:2544 [DocumentsCard] Input props: {formSubmissionId: 'e19029e7-9c88-480d-8712-06f5b6ec99af', hasSubmissionData: true, submissionDataType: 'object', submissionDataKeys: Array(16), submissionDataSample: '{"field_1768821271046":"Mat","field_1768821297362"…109853362-xdpmwmc-INVOICE_999901552.pdf\\",\\"file_', …}

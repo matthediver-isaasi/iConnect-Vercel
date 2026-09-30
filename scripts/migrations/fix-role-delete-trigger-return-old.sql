@@ -1,0 +1,10 @@
+-- Migration: Fix role deletion trigger to return OLD for DELETE operations
+-- 
+-- Problem: The prevent_system_role_modification() trigger function ends with
+-- RETURN NEW, but in a BEFORE DELETE context NEW is NULL. When a BEFORE trigger
+-- returns NULL, PostgreSQL silently cancels the row operation. This means every
+-- non-system role delete is silently swallowed.
+--
+-- Fix: Return OLD for DELETE operations (to allow the delete to proceed) and
+-- NEW for UPDATE operation
+-- Run this SQL in your Supabase SQL Editor

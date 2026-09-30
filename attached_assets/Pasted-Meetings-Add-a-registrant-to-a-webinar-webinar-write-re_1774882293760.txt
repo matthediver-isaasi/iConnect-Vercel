@@ -1,0 +1,89 @@
+Meetings
+Add a registrant to a webinar
+webinar:write:registrant:admin
+Add a registrant to a webinar
+Add panelists to a webinar
+webinar:write:panelist:admin
+Add panelists to a webinar
+Add registrants to a webinar
+webinar:write:batch_registrants:admin
+Add registrants to a webinar
+Create a poll for a webinar
+webinar:write:poll:admin
+Create a poll for a webinar
+Create a webinar for a user
+webinar:write:webinar:admin
+Create a webinar for a user
+Create invite links for webinars
+webinar:write:invite_links:admin
+Create invite links for webinars
+Delete a webinar
+webinar:delete:webinar:admin
+Delete a webinar
+Delete a webinar's poll
+webinar:delete:poll:admin
+Delete a webinar's poll
+Delete a webinar's survey
+webinar:delete:survey:admin
+Delete a webinar's survey
+device command
+device:read:command:admin
+device command
+import device
+device:read:import_device:admin
+import device
+Manage vendor device
+device:write:vendor_device:admin
+Manage vendor device
+device:write:vendor_device:master
+Manage vendor device
+Manage vendor device import result
+device:write:vendor_import_result:admin
+Manage vendor device import result
+device:write:vendor_import_result:master
+Manage vendor device import result
+Remove a webinar's panelist
+webinar:delete:panelist:admin
+Remove a webinar's panelist
+Remove a webinar's registrant
+webinar:delete:registrant:admin
+Remove a webinar's registrant
+Update a webinar
+webinar:update:webinar:admin
+Update a webinar
+Update a webinar registrant's registration status
+webinar:update:registrant_status:admin
+Update a webinar registrant's registration status
+Update a webinar's livestream information
+webinar:update:livestream:admin
+Update a webinar's livestream information
+Update a webinar's livestream status
+webinar:update:livestream_status:admin
+Update a webinar's livestream status
+Update a webinar's poll
+webinar:update:poll:admin
+Update a webinar's poll
+Update a webinar's registration questions
+webinar:update:registration_question:admin
+Update a webinar's registration questions
+Update a webinar's status
+webinar:update:status:admin
+Update a webinar's status
+Update a webinar's survey
+webinar:update:survey:admin
+Update a webinar's survey
+View a webinar's livestream information
+webinar:read:livestream:admin
+View a webinar's livestream information
+View a webinar's participant
+webinar:read:participant:master
+View a webinar's participant
+View all user meetings
+meeting:read:ai_companion:admin
+View a meeting's AI Companion activity
+View and manage all user meetings
+meeting:update:participant_rtms_app_status:admin
+Update a participant's rtms app status
+View and manage sub account's user meetings
+meeting:read:ai_companion:master
+View a meeting's AI Companion activity

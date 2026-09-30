@@ -14,10 +14,13 @@
         "type": "number",
         "default": 0,
         "description": "Number of times this organization has used this discount code"
+      },
+      "member_id": {
+        "type": "string",
+        "description": "Optional: Reference to Member entity for per-member usage tracking"
       }
     },
     "required": [
-      "discount_code_id",
-      "organization_id"
+      "discount_code_id"
     ]
   }

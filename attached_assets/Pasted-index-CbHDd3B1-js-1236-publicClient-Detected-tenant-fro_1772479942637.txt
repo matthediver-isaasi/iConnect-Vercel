@@ -1,0 +1,86 @@
+index-CbHDd3B1.js:1236 [publicClient] Detected tenant from subdomain: bnms
+index-CbHDd3B1.js:1321 GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.93.3) 2026-03-02T19:31:32.786Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+kN @ index-CbHDd3B1.js:1321
+index-CbHDd3B1.js:1625 [usePendingPurchaseOrders] memberInfo: null
+index-CbHDd3B1.js:1625 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CbHDd3B1.js:1629 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CbHDd3B1.js:1629 [Layout] currentPageName: IEditPageEditor currentPortalPageId: null
+index-CbHDd3B1.js:1625 [usePendingPurchaseOrders] memberInfo: Object
+index-CbHDd3B1.js:1625 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CbHDd3B1.js:1629 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CbHDd3B1.js:1629 [Layout] currentPageName: IEditPageEditor currentPortalPageId: null
+index-CbHDd3B1.js:1625 [usePendingPurchaseOrders] Query running, memberInfo.id: f42f03b5-5ed7-441b-aac5-972038427e59
+index-CbHDd3B1.js:1625 [usePendingPurchaseOrders] memberInfo: Object
+index-CbHDd3B1.js:1625 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CbHDd3B1.js:1629 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CbHDd3B1.js:1629 [Layout] currentPageName: IEditPageEditor currentPortalPageId: null
+index-CbHDd3B1.js:1625 [usePendingPurchaseOrders] memberInfo: Object
+index-CbHDd3B1.js:1625 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CbHDd3B1.js:1629 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CbHDd3B1.js:1629 [Layout] currentPageName: IEditPageEditor currentPortalPageId: null
+index-CbHDd3B1.js:1625 [usePendingPurchaseOrders] memberInfo: Object
+index-CbHDd3B1.js:1625 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CbHDd3B1.js:1629 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CbHDd3B1.js:1629 [Layout] currentPageName: IEditPageEditor currentPortalPageId: null
+index-CbHDd3B1.js:1625 [usePendingPurchaseOrders] memberInfo: Object
+index-CbHDd3B1.js:1625 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CbHDd3B1.js:1629 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CbHDd3B1.js:1629 [Layout] currentPageName: IEditPageEditor currentPortalPageId: null
+index-CbHDd3B1.js:1625 [usePendingPurchaseOrders] memberInfo: Object
+index-CbHDd3B1.js:1625 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CbHDd3B1.js:1629 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CbHDd3B1.js:1629 [Layout] currentPageName: IEditPageEditor currentPortalPageId: null
+index-CbHDd3B1.js:1625 [usePendingPurchaseOrders] memberInfo: Object
+index-CbHDd3B1.js:1625 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CbHDd3B1.js:1629 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CbHDd3B1.js:1629 [Layout] currentPageName: IEditPageEditor currentPortalPageId: null
+index-CbHDd3B1.js:1625 [usePendingPurchaseOrders] memberInfo: Object
+index-CbHDd3B1.js:1625 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CbHDd3B1.js:1629 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CbHDd3B1.js:1629 [Layout] currentPageName: IEditPageEditor currentPortalPageId: null
+index-CbHDd3B1.js:1625 [usePendingPurchaseOrders] Fetched bookings count: 0
+index-CbHDd3B1.js:1625 [usePendingPurchaseOrders] Pending PO bookings: 0
+index-CbHDd3B1.js:1625 [usePendingPurchaseOrders] memberInfo: Object
+index-CbHDd3B1.js:1625 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CbHDd3B1.js:1629 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CbHDd3B1.js:1629 [Layout] currentPageName: IEditPageEditor currentPortalPageId: null
+index-CbHDd3B1.js:1625 [usePendingPurchaseOrders] memberInfo: Object
+index-CbHDd3B1.js:1625 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CbHDd3B1.js:1629 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CbHDd3B1.js:1629 [Layout] currentPageName: IEditPageEditor currentPortalPageId: null
+index-CbHDd3B1.js:1629 [Layout] Server session found: sharon@onlinem.co.uk
+index-CbHDd3B1.js:1625 [usePendingPurchaseOrders] memberInfo: Object
+index-CbHDd3B1.js:1625 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CbHDd3B1.js:1629 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CbHDd3B1.js:1629 [Layout] currentPageName: IEditPageEditor currentPortalPageId: null
+index-CbHDd3B1.js:1625 [usePendingPurchaseOrders] memberInfo: Object
+index-CbHDd3B1.js:1625 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CbHDd3B1.js:1629 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CbHDd3B1.js:1629 [Layout] currentPageName: IEditPageEditor currentPortalPageId: null
+index-CbHDd3B1.js:1625 [usePendingPurchaseOrders] memberInfo: Object
+index-CbHDd3B1.js:1625 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CbHDd3B1.js:1629 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CbHDd3B1.js:1629 [Layout] currentPageName: IEditPageEditor currentPortalPageId: null
+index-CbHDd3B1.js:40 ReferenceError: item is not defined
+    at st (index-CbHDd3B1.js:2307:259865)
+    at index-CbHDd3B1.js:2307:268142
+    at Array.forEach (<anonymous>)
+    at index-CbHDd3B1.js:2307:268074
+    at Array.flatMap (<anonymous>)
+    at Oe (index-CbHDd3B1.js:2307:268007)
+    at eJe (index-CbHDd3B1.js:2307:271676)
+    at j6 (index-CbHDd3B1.js:38:17049)
+    at yte (index-CbHDd3B1.js:40:44178)
+    at xte (index-CbHDd3B1.js:40:39882)
+QM @ index-CbHDd3B1.js:40
+index-CbHDd3B1.js:38 Uncaught ReferenceError: item is not defined
+    at st (index-CbHDd3B1.js:2307:259865)
+    at index-CbHDd3B1.js:2307:268142
+    at Array.forEach (<anonymous>)
+    at index-CbHDd3B1.js:2307:268074
+    at Array.flatMap (<anonymous>)
+    at Oe (index-CbHDd3B1.js:2307:268007)
+    at eJe (index-CbHDd3B1.js:2307:271676)
+    at j6 (index-CbHDd3B1.js:38:17049)
+    at yte (index-CbHDd3B1.js:40:44178)
+    at xte (index-CbHDd3B1.js:40:39882)

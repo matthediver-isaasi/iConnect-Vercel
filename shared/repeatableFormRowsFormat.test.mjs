@@ -1,0 +1,149 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  collectRepeatableRelationshipRecordIds,
+  collectRepeatableOrganisationIds,
+  formatRepeatableRows,
+  formatRepeatableRowsText,
+} from './repeatableFormRowsFormat.js';
+
+const field = {
+  id: 'employment',
+  type: 'repeatable_row',
+  repeatable_row: {
+    child_fields: [
+      { id: 'employer', label: 'Employer', type: 'text' },
+      { id: 'organisation', label: 'Organisation', type: 'organisation_dropdown' },
+      { id: 'department', label: 'Department', type: 'relationship_dropdown' },
+      { id: 'current', label: 'Current role', type: 'boolean' },
+    ],
+  },
+};
+const value = [
+  { _row_id: 'stable-a', employer: 'Analytical Engines', organisation: 'org-1', department: 'dept-1', current: true },
+  { _row_id: 'stable-b', employer: 'Royal Society', organisation: 'org-2', department: 'dept-2', current: false },
+];
+
+test('repeatable answers become an ordered labelled row/column model without row metadata', () => {
+  const model = formatRepeatableRows(field, value);
+  assert.deepEqual(model.columns.map((column) => column.label), ['Employer', 'Organisation', 'Department', 'Current role']);
+  assert.deepEqual(model.rows.map((row) => row.rowId), ['stable-a', 'stable-b']);
+  assert.deepEqual(model.rows[0].cells, ['Analytical Engines', 'org-1', 'dept-1', 'Yes']);
+  assert.equal(JSON.stringify(model).includes('_row_id'), false);
+});
+
+test('repeatable text output is readable and permits context-specific relationship labels', () => {
+  const text = formatRepeatableRowsText(field, value, {
+    formatCell: (cell, child) => child.type === 'relationship_dropdown'
+      ? { 'dept-1': 'Research', 'dept-2': 'Membership' }[cell]
+      : cell,
+    organisationNamesById: { 'org-1': 'Analytical Engines Ltd', 'org-2': 'Royal Society' },
+  });
+  assert.match(text, /Row 1\nEmployer: Analytical Engines\nOrganisation: Analytical Engines Ltd\nDepartment: Research/);
+  assert.match(text, /Row 2[\s\S]*Department: Membership/);
+  assert.equal(text.includes('_row_id'), false);
+});
+
+test('repeatable date values retain month/year precision in text exports', () => {
+  const dateField = {
+    id: 'periods',
+    type: 'repeatable_rows',
+    children: [
+      { id: 'month', label: 'Month', type: 'date', date_precision: 'month' },
+      { id: 'year', label: 'Year', type: 'date', date_precision: 'year' },
+    ],
+  };
+  assert.equal(
+    formatRepeatableRowsText(dateField, [{
+      month: '2026-03',
+      year: '2026',
+    }]),
+    'Row 1\nMonth: 2026-03\nYear: 2026',
+  );
+});
+
+test('collects only relationship IDs from configured repeatable children', () => {
+  assert.deepEqual(
+    collectRepeatableRelationshipRecordIds([field], { employment: value }),
+    ['dept-1', 'dept-2'],
+  );
+});
+
+test('distinct custom-object values stay literal and are never collected for label lookup', () => {
+  const distinctField = {
+    id: 'rows',
+    type: 'repeatable_rows',
+    children: [{
+      id: 'region',
+      label: 'Region',
+      type: 'relationship_dropdown',
+      options: [{ value: 'North', label: 'Stale static option label' }],
+      relationship_definition_id: 'relationship-1',
+      parent_field_id: 'parent',
+      option_source: {
+        version: 1,
+        kind: 'distinct',
+        custom_object_id: '10000000-0000-0000-0000-000000000001',
+        primary_display_field_id: '10000000-0000-0000-0000-000000000002',
+        value_field_id: '10000000-0000-0000-0000-000000000003',
+        filters: [],
+      },
+    }],
+  };
+  const rows = [{ region: 'North' }];
+  assert.deepEqual(collectRepeatableRelationshipRecordIds([distinctField], { rows }), []);
+  assert.equal(formatRepeatableRowsText(distinctField, rows, {
+    formatCell: () => 'Unavailable record',
+  }), 'Row 1\nRegion: North');
+});
+
+test('collects nested organisation IDs from builder-shaped rows', () => {
+  assert.deepEqual(collectRepeatableOrganisationIds([field], { employment: value }), ['org-1', 'org-2']);
+});
+
+test('does not treat repeatable not-listed choices as entity IDs', () => {
+  const notListed = [{ organisation: '__form_not_listed__', department: '__form_not_listed__' }];
+  assert.deepEqual(collectRepeatableOrganisationIds([field], { employment: notListed }), []);
+  assert.deepEqual(collectRepeatableRelationshipRecordIds([field], { employment: notListed }), []);
+});
+
+test('accepts config and legacy row-id aliases without exposing either identity key', () => {
+  const aliasField = {
+    id: 'aliases',
+    type: 'repeatable_rows',
+    config: { child_fields: [{ id: 'answer', label: 'Answer', type: 'text' }] },
+  };
+  const model = formatRepeatableRows(aliasField, [{ _row_id: 'canonical', row_id: 'legacy', answer: 'Visible' }]);
+  assert.equal(model.rows[0].rowId, 'canonical');
+  assert.equal(formatRepeatableRowsText(aliasField, [{ row_id: 'legacy', answer: 'Visible' }]), 'Row 1\nAnswer: Visible');
+  assert.equal(JSON.stringify(model).includes('legacy'), false);
+});
+
+test('repeatable formatting uses the nested snapshotted not-listed label', () => {
+  const historicalField = {
+    id: 'rows',
+    type: 'repeatable_row',
+    children: [{
+      id: 'organisation',
+      label: 'Organisation',
+      type: 'organisation_dropdown',
+      not_listed_choice: { enabled: false, label: 'Renamed label' },
+    }],
+  };
+  const text = formatRepeatableRowsText(
+    historicalField,
+    [{
+      organisation: '__form_not_listed__',
+      __not_listed_choice_text: { organisation: 'Independent organisation' },
+    }],
+    {
+      submissionData: {
+        __not_listed_choice_labels: {
+          rows: { organisation: 'Original organisation label' },
+        },
+      },
+      organisationNamesById: {},
+    },
+  );
+  assert.equal(text, 'Row 1\nOrganisation: Original organisation label — Independent organisation');
+});

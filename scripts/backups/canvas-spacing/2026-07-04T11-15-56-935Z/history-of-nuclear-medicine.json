@@ -1,0 +1,814 @@
+{
+  "slug": "history-of-nuclear-medicine",
+  "pageId": "8525229e-5867-4574-bcbe-bf1ac6b71098",
+  "tenantId": "ff2df806-b321-4254-b651-3af11fccf1db",
+  "capturedAt": "2026-07-04T11:15:58.945Z",
+  "canvas_design": {
+    "root": {
+      "groups": [],
+      "guides": {
+        "vertical": [
+          {
+            "pos": 192,
+            "locked": false
+          }
+        ],
+        "horizontal": []
+      },
+      "sections": [
+        {
+          "id": "root-section",
+          "children": [
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 336,
+                  "w": 1200,
+                  "x": 0,
+                  "y": 0,
+                  "hidden": false
+                }
+              },
+              "id": "tpl-events-hero",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Events hero",
+              "type": "hero",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-primary, #0f172a)",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 0,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "ctas": [],
+                "bgType": "image",
+                "bgColor": "var(--cb-color-primary, #0f172a)",
+                "darkWash": 0.4,
+                "headline": "History of Nuclear Medicine",
+                "alignment": "center",
+                "fullBleed": true,
+                "textColor": "var(--cb-color-on-primary, #ffffff)",
+                "bgImageUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1782122007376-1u532me-photo-1582560469781-1965b9af903d.jpeg",
+                "bgVideoUrl": "",
+                "subheadline": "",
+                "headingLevel": 1,
+                "headlineTypographyStyleId": "b0058178-cd63-450a-9a63-1dfa086dde64",
+                "subheadlineTypographyStyleId": "5adf6d13-1d12-4613-ac55-b4bb1345c168"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": true
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 272,
+                  "w": 1200,
+                  "x": 0,
+                  "y": 336,
+                  "hidden": false
+                }
+              },
+              "id": "block-mq6evroz-qmqi1u",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Section",
+              "type": "section",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "#edf0f3",
+                "paddingTop": 24,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 24,
+                "borderRadius": 4,
+                "paddingRight": 24,
+                "paddingBottom": 24
+              },
+              "locked": false,
+              "content": {
+                "bgType": "color",
+                "maxWidth": 0,
+                "fullBleed": true,
+                "bgImageUrl": "",
+                "overlayType": "solid",
+                "overlayAngle": 180,
+                "overlayColor": "#000000",
+                "overlayOpacity": 0.4,
+                "overlayToColor": "#000000",
+                "overlayBlendMode": "normal",
+                "overlayEdgeColor": "#000000",
+                "overlayFromColor": "#000000",
+                "overlayToOpacity": 0,
+                "overlayCenterColor": "#000000",
+                "overlayEdgeOpacity": 0.6,
+                "overlayFromOpacity": 0.6,
+                "overlayCenterOpacity": 0
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": true
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 184,
+                  "w": 840,
+                  "x": 192,
+                  "y": 376,
+                  "hidden": false
+                }
+              },
+              "id": "block-mq6et02s-2fl34w",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 20px;\"><strong>The Atomic Age</strong>, one of history's most important events, took centuries to arrive, as events in science and international affairs evolved. The Atomic Theory, a cornerstone of modern science, was proposed by an early Greek thinker, Democritus. He suggested that everything in the universe was made up of particles so tiny that nothing smaller could exist.</span></p><p><span style=\"font-size: 20px;\">So… this is the known structure – currently!</span></p>",
+                "colorRole": "default"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 2160,
+                  "w": 1200,
+                  "x": 0,
+                  "y": 648,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqpkf0kz-g6a09w",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 20px;\"><strong>The Atomic Theory of Matter c.460 BCE - c.370 BCE</strong></span></p><p><span style=\"font-size: 20px;\">The Atomic Theory, a cornerstone of modern science, was proposed by an early Greek thinker, Democritus.</span></p><p><span style=\"font-size: 20px;\"><strong>Atomic Weights 1808</strong></span></p><p><span style=\"font-size: 20px;\">John Dalton, an English chemist, stated that each atom of any given element is identical to every other atom of that element, including weight.</span></p><p><span style=\"font-size: 20px;\"><strong>The Periodic Table 1871</strong></span></p><p><span style=\"font-size: 20px;\">Dmitry Mendeleyev, a Russian chemist, revealed the basic importance of atomic weights and of nuclear structure. His work also showed the significance of structure in comprehending the behavior and properties of matter.</span></p><p><span style=\"font-size: 20px;\"><strong>Cathode Rays 1887</strong></span></p><p><span style=\"font-size: 20px;\">Sir William Crookes, an English chemist and physicist, pioneered work on cathode rays.</span></p><p><span style=\"font-size: 20px;\"><strong>X-Rays 1895</strong></span></p><p><span style=\"font-size: 20px;\">While studying cathode rays, German physicist Wilhelm Röentgen noticed some glowing barium platinocyanide across the room from his experiment. This led to the discovery of X-rays. His work helped found a major new medical technique and played an important role in revealing the secrets of the atom and its nucleus.</span></p><p><span style=\"font-size: 20px;\"><strong>Radioactivity 1896</strong></span></p><p><span style=\"font-size: 20px;\">French physicist Antoine Henri Becquerel discovered radioactivity.</span></p><p><span style=\"font-size: 20px;\"><strong>The Electron 1897</strong></span></p><p><span style=\"font-size: 20px;\">English physicist Sir J. J. Thomson explained the nature of the electron.</span></p><p><span style=\"font-size: 20px;\"><strong>Radium 1902</strong></span></p><p><span style=\"font-size: 20px;\">Marie Curie and her husband, Pierre, discovered the radioactive elements polonium and radium. Their work confirmed the existence of radioactivity.</span></p><p><span style=\"font-size: 20px;\"><strong>E=mc2 1905</strong></span></p><p><span style=\"font-size: 20px;\">For more than two centuries, scientists had unquestionably believed that the basic quantities of measurement -- mass, length, and time -- were absolute and unvarying. The German-born physicist Albert</span></p><p><span style=\"font-size: 20px;\">Einstein showed that in fact they depended very much on the relative motion between the observer and whatever was being observed.</span></p><p><span style=\"font-size: 20px;\"><strong>The Nuclear Model 1909</strong></span></p><p><span style=\"font-size: 20px;\">Sir Ernest Rutherford's great contribution to modern science was to show what happens to an element during radioactive decay. This enabled him to construct the first nuclear model of the atom, a cornerstone of present-day physics.</span></p><p><span style=\"font-size: 20px;\"><strong>The Electron Orbit 1913</strong></span></p><p><span style=\"font-size: 20px;\">Niels Bohr modified Rutherford's model of the atom to incorporate the ideas of quantum physics.</span></p><p><span style=\"font-size: 20px;\">This required a new mechanism for the way electrons emitted energy.</span></p><p><span style=\"font-size: 20px;\"><strong>Transformation of Atoms 1919</strong></span></p><p><span style=\"font-size: 20px;\">Rutherford's work, which he published in 1919, demonstrated that atoms could be transformed from those of one element into those of another by means of artificial tampering with the nucleus. Far more important, his experiment demonstrated that the nucleus of an atom could be breached.</span></p><p><span style=\"font-size: 20px;\"><strong>The Neutron 1932</strong></span></p><p><span style=\"font-size: 20px;\">British physicist Sir James Chadwick is best known for discovering the neutron, one of the fundamental particles making up the nucleus of atoms. The neutron differed from all other particles then known by having no electrical charge.</span></p><p><span style=\"font-size: 20px;\"><strong>The Atom is Split 1932</strong></span></p><p><span style=\"font-size: 20px;\">Sir John Douglas Cockroft and his colleague, Ernest T. S. Walton, developed the Cockroft-Walton particle accelerator. Using it in 1932, they managed to boost the speed of protons to the point where the voltage was high enough to energize each atom of lithium, their target metal, to form two atomsof h elium. This was the first example of man-made nuclear transformation.</span></p><p><span style=\"font-size: 20px;\"><strong>Uranium and Fission 1938</strong></span></p><p><span style=\"font-size: 20px;\">German scientists Otto Hahn and Fritz Strassmann discovered that a tiny portion of the uranium atom's mass could be converted into an estimated 200 million electron volts of potentially usable energy. This process was to be called fission.</span></p>",
+                "colorRole": "default"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 240,
+                  "w": 744,
+                  "x": 456,
+                  "y": 2848,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqpkny1d-vov1zx",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 20px;\"><strong>Ernest O. Lawrence</strong></span></p><p><span style=\"font-size: 20px;\">In 1929, Ernest O. Lawrence, working at the University of California at Berkeley, invented the cyclotron which could create a number of radioisotopes that are useful in biological and medical work</span></p>",
+                "colorRole": "default"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 328,
+                  "w": 440,
+                  "x": 0,
+                  "y": 2848,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqpkp2qn-dsi7k7",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "Earnest Lawrence Photo",
+                "src": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1782154390448-u259djl-ernest_o_lawrence.jpg",
+                "href": "",
+                "objectFit": "cover"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 936,
+                  "w": 744,
+                  "x": 456,
+                  "y": 3248,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqpkqw80-82by9y",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 20px;\"><strong>Glenn T. Seaborg and John J. Livingood</strong></span></p><p><span style=\"font-size: 20px;\">Using an advanced cyclotron, scientists John Livingood, Fred Fairbrother, and Glenn T. Seaborg produced iron-59 (Fe-59) in 1937. Iron-59 was useful in the studies of the hemoglobin in human blood. In 1938, iodine-131 (I-131) was discovered by Livingood and Seaborg. Iodine-131 is used across the world to treat thyroid disease.  Dr. Glenn Seaborg was considered one of the \"founding fathers\" of nuclear medicine. Dr. Seaborg was the most prolific discoverer of radioisotopes that are used today in diagnosis and treatment. Seaborg was active in the field up until the time of his death in 1999.</span></p><p><span style=\"font-size: 20px;\">In 1909, the prevailing theory of the atom's structure was that atoms were mushy, semipermeable balls, with bits of charge strewn around them. This theory worked just fine for most experiments about the physical world. </span></p><p><span style=\"font-size: 20px;\">Physics, however, is not only interested in how the world appears to operate, but how it actually works. And so in 1909 a man named Ernest Rutherford set up an experiment to test the validity of the prevailing theory. In doing so he established a way that for the first time physicists could \"look into\" tiny particles they couldn't see with microscopes.</span></p><p><span style=\"font-size: 20px;\">In Rutherford's experiment, a radioactive source shot a stream of alpha particles at a sheet of very thin gold foil which stood in front of a screen. The alpha particles would make little flashes of light where they hit the screen.</span></p><p><span style=\"font-size: 20px;\">The alpha particles were expected pass right through the very thin gold foil and make their marks in a small cluster on the screen.</span></p>",
+                "colorRole": "default"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 768,
+                  "w": 440,
+                  "x": 0,
+                  "y": 3248,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqpktani-mggcbi",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "Earnest Lawrence Photo",
+                "src": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1782154590828-vt4m9bv-glenn_t_seaborg_and_john_j_l.jpg",
+                "href": "",
+                "objectFit": "cover"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 776,
+                  "w": 1200,
+                  "x": 0,
+                  "y": 4216,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqpkwj3j-osrmeh",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 20px;\"><strong>Alpha Particles</strong></span></p><p><span style=\"font-size: 20px;\">Particle Decays and Annihilations </span></p><p><span style=\"font-size: 20px;\">Radioactive Particles Scientists eventually identified several distinct types of radiation, the particles resulting from radioactive decays. The three types of radiation were named after the first three letters of the Greek alphabet: (alpha), (beta), and (gamma).</span></p><p><span style=\"font-size: 20px;\">Alpha particles are helium nuclei (2 p, 2 n)</span></p><p><span style=\"font-size: 20px;\">Beta particles are speedy electrons</span></p><p><span style=\"font-size: 20px;\">Gamma radiation is a high-energy photon</span></p><p><span style=\"font-size: 20px;\">These three forms of radiation can be distinguished by a magnetic field since the positively-charged alpha</span></p><p><span style=\"font-size: 20px;\">particles curve in one direction, the negatively-charged beta particles curve in the opposite direction, and the electrically-neutral gamma radiation doesn't curve at all.</span></p><p><span style=\"font-size: 20px;\">Alpha particles can be stopped by a sheet of paper, beta particles by aluminum, and gamma radiation by a</span></p><p><span style=\"font-size: 20px;\">block of lead. Gamma radiation can penetrate very far into a material, and so it is gamma radiation that</span></p><p><span style=\"font-size: 20px;\">poses the most danger when working with radioactive materials, although all types of radiation are very dangerous. Sadly, it took scientists many years to realize the perils of radioactivity.</span></p><p><span style=\"font-size: 20px;\">Radioactivity is measured in Curies and Becquerels, and the time it lasts, is expressed in half lives ie the time it takes to get to half the activity.</span></p>",
+                "colorRole": "default"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 336,
+                  "w": 728,
+                  "x": 240,
+                  "y": 5000,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqpkyyb1-k4h3h1",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 2,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "Earnest Lawrence Photo",
+                "src": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1782154866504-jlg147f-alpha_particles.jpg",
+                "href": "",
+                "objectFit": "cover"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 240,
+                  "w": 744,
+                  "x": 456,
+                  "y": 5392,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqpl162f-3bbqef",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 20px;\"><strong>Henri Becquerel</strong></span></p><p><span style=\"font-size: 20px;\">Over a hundred years ago, in early 1896, the French physicist, Henri Becquerel, discovered that a mysterious X-ray was produced by uranium. Becquerel's achievement was itself based on the work of the German scientist, Wilhelm Conrad Roentgen, who had discovered X-rays only a few months earlier in November 1895</span></p>",
+                "colorRole": "default"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 328,
+                  "w": 440,
+                  "x": 0,
+                  "y": 5400,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqpl162f-x7d8se",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "Earnest Lawrence Photo",
+                "src": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1782154978700-ctqtzhe-henri_becquerel.jpg",
+                "href": "",
+                "objectFit": "cover"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 672,
+                  "w": 1200,
+                  "x": 0,
+                  "y": 5768,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqpl3tbl-f40ju0",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 20px;\"><strong>Nuclear Fission</strong></span></p><p><span style=\"font-size: 20px;\">This is used in a variety of processes</span></p><ul><li><p><span style=\"font-size: 20px;\">In nuclear bombs</span></p></li><li><p><span style=\"font-size: 20px;\">In nuclear power stations</span></p></li><li><p><span style=\"font-size: 20px;\">To produce radioactive products for medical uses</span></p></li></ul><p><span style=\"font-size: 20px;\"><strong>Radioisotopes Used in Nuclear Medicine</strong></span></p><ul><li><p><span style=\"font-size: 20px;\">For imaging Technetium is used extensively, as it has a short physical half life of 6 hours. However, as the body is continually eliminating products the biological half life may be shorter. Thus the amount of radioactive exposure is limited.</span></p></li><li><p><span style=\"font-size: 20px;\">Technetium is a gamma emitter. This is important as the rays need to penetrate the body so the camera can detect them.</span></p></li><li><p><span style=\"font-size: 20px;\">Because it has such a short half life, it cannot be stored for very long because it will have decayed. It is generated by a molybdenum source (parent host) which has a much greater half life and the Tc extracted on the day it is required. The molybdenum is obtained from a nuclear reactor and imported.  For treatment of therapy, beta emitters are often used because they are absorbed locally.</span></p></li></ul><p></p>",
+                "colorRole": "default"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 208,
+                  "w": 744,
+                  "x": 456,
+                  "y": 6464,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqpl6mbk-8czdxt",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 20px;\"><strong>Hal Anger</strong></span></p><p><span style=\"font-size: 20px;\">Hal Anger revolutionized the field of nuclear medicine with his development of the gamma camera in the late 1950s. He also developed the well counter, widely used in laboratory tests with small samples of radioactive materials.</span></p>",
+                "colorRole": "default"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 328,
+                  "w": 440,
+                  "x": 0,
+                  "y": 6464,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqpl6mbk-48f73f",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "Earnest Lawrence Photo",
+                "src": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1782155216899-c80vwgf-hal_anger.png",
+                "href": "",
+                "objectFit": "cover"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 648,
+                  "w": 1200,
+                  "x": 0,
+                  "y": 6824,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqpl8n4w-m2yiqc",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 20px;\"><strong>Gamma Camera – what is it?</strong></span></p><p><span style=\"font-size: 20px;\">The following are the typical features of the scintillation crystal used in modern gamma cameras</span></p><ul><li><p><span style=\"font-size: 20px;\">most gamma cameras use thallium-activated NaI (NaI(Tl))</span></p></li><li><p><span style=\"font-size: 20px;\">NaI(Tl) emits blue-green light at about 415 nm</span></p></li><li><p><span style=\"font-size: 20px;\">the spectral output of such a scintillation crystal matches well the response of standard bialkali photomultipliers (e.g SbK2Cs )</span></p></li><li><p><span style=\"font-size: 20px;\">the linear attenuation coefficient of NaI(Tl) at 150 KeV is about 2.2 1/cm . Therefore about 90% of all photons are absorbed within about 10 mm</span></p></li><li><p><span style=\"font-size: 20px;\">NaI(Tl) is hyrdoscopic and therefore requires hermetic encapsulation</span></p></li><li><p><span style=\"font-size: 20px;\">NaI(Tl) has a high refractive index ( ~ 1.85) and thus a light guide is used to couple the scintillation crystal to the photomultiplier tube</span></p></li><li><p><span style=\"font-size: 20px;\">the scintillation crystal and associated electronics are surrounded by a lead shield to minimize the detection of unwanted radiation</span></p></li><li><p><span style=\"font-size: 20px;\">digital and/or analog methods are used for image capture</span></p></li></ul><p></p>",
+                "colorRole": "default"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 448,
+                  "w": 1200,
+                  "x": 0,
+                  "y": 7480,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqplbp2i-5xz3jv",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 20px;\"><strong>PET CT Imaging</strong></span></p><p><span style=\"font-size: 20px;\">\"Disease is a biological process, and PET is unique in that it provides images of the biological basis of disease.\" Take cancer, for instance. In a CT scan, cancer cells don't look any different from normal cells. We only see them when</span></p><p><span style=\"font-size: 20px;\">enough of them have come together to form an unusual structure. But because cancer cells metabolize glucose—the biological equivalent of gasoline—about ten times faster than normal ones, they can be pinpointed, even in minute</span></p><p><span style=\"font-size: 20px;\">concentrations. All that's needed is an injection of glucose tagged with a short-lived isotope such as fluorine-18 (18F). This forms a so-called tagged compound called fluorodeoxyglucose (FDG). The FDG concentrates where</span></p><p><span style=\"font-size: 20px;\">metabolism is highest, thus creating a bright spot on the scan that is a red flag for cancer.”</span></p><p><span style=\"font-size: 20px;\">Then to identify exactly where these abnormal cells lie you need the anatomy – which is provided in exquisite detail by the CT images. So by putting both pictures together and overlying them you have the best of both worlds.</span></p><p></p>",
+                "colorRole": "default"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            }
+          ]
+        }
+      ],
+      "background": null
+    },
+    "version": 1
+  }
+}

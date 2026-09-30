@@ -1,0 +1,737 @@
+import { expect, test } from "@playwright/test";
+import { membershipPaymentReportCsv } from "../api/_lib/membershipPaymentReportCsv.js";
+import { sortPaymentReportRows } from "../api/_lib/membershipPaymentReport.js";
+import { readFile } from "node:fs/promises";
+
+/*
+ * Task 4603 browser coverage is deliberately fixture-only. Every API and
+ * Supabase request is intercepted, all non-GET API methods are rejected, and
+ * no real tenant, login, provider, or database is contacted.
+ */
+
+const APP_ORIGIN = new URL(
+  process.env.PLAYWRIGHT_BASE_URL
+    || (process.env.REPLIT_DEV_DOMAIN
+      ? `https://${process.env.REPLIT_DEV_DOMAIN}`
+      : "http://127.0.0.1:5000"),
+).origin;
+
+const TENANT = {
+  id: "tenant-payment-report",
+  name: "Payment report fixture",
+  slug: "payment-report-fixture",
+};
+
+const REPORT_PERMISSION = "commerce.membership-payment-report";
+const MEMBERS_PERMISSION = "crm.members";
+
+const ROWS = [
+  {
+    memberId: "member-alex",
+    name: "Alex Card",
+    email: "alex@example.invalid",
+    tier: "Professional",
+    status: "active",
+    paymentMethod: "monthly_card",
+    nextPaymentDate: "2026-11-06",
+    scheduleState: "confirmed",
+  },
+  {
+    memberId: "member-billie",
+    name: "Billie Debit",
+    email: "billie@example.invalid",
+    tier: "Associate",
+    status: "payment_pending",
+    paymentMethod: "direct_debit",
+    nextPaymentDate: null,
+    scheduleState: "unavailable",
+  },
+  {
+    memberId: "member-upfront",
+    name: "Uma Upfront",
+    email: "uma@example.invalid",
+    tier: "Associate",
+    status: "active",
+    paymentMethod: "upfront",
+    nextPaymentDate: null,
+    scheduleState: "not_scheduled",
+    currentExpiryDate: "2026-12-09",
+    renewalDate: "2026-12-10",
+    renewalLabel: "Expected renewal",
+    paymentArrangement: "Upfront — no automatic collection scheduled",
+    nextStructureName: "Future personal",
+    nextStructureState: "Expected structure — not a commitment",
+    nextRenewalAmount: 150,
+    nextRenewalCurrency: "GBP",
+    nextRenewalAmountState: "Projected renewal amount including applicable VAT — not a commitment",
+  },
+];
+
+const METHODS = [
+  { value: "all", label: "All payment methods" },
+  { value: "card", label: "Card" },
+  { value: "monthly_card", label: "Monthly card" },
+  { value: "direct_debit", label: "Direct Debit" },
+  { value: "monthly_direct_debit", label: "Monthly Direct Debit" },
+  { value: "upfront", label: "Upfront" },
+  { value: "invoice", label: "Invoice" },
+  { value: "bank_transfer", label: "Bank transfer" },
+  { value: "other", label: "Other" },
+];
+
+function deferred() {
+  let release;
+  const promise = new Promise((resolve) => { release = resolve; });
+  return { promise, release };
+}
+
+function json(route, body, status = 200) {
+  return route.fulfill({
+    status,
+    contentType: "application/json",
+    headers: { "Cache-Control": "private, no-store" },
+    body: JSON.stringify(body),
+  });
+}
+
+function member(exclusions = []) {
+  const value = {
+    id: "admin-payment-report",
+    email: "payment-report-admin@example.invalid",
+    first_name: "Payment",
+    last_name: "Administrator",
+    tenant_id: TENANT.id,
+    organization_id: null,
+    role_id: "role-payment-report",
+    member_excluded_features: [],
+    is_team_member: true,
+  };
+  return {
+    ...value,
+    sessionRole: {
+      status: "ready",
+      member_id: value.id,
+      tenant_id: value.tenant_id,
+      role_id: value.role_id,
+      role: {
+        id: value.role_id,
+        name: "Payment report administrator",
+        excluded_features: exclusions,
+      },
+    },
+  };
+}
+
+async function installFixture(page, {
+  excluded = [],
+  canViewMembers = true,
+  fixtureRows = ROWS,
+  holdReport = false,
+  reportStatuses = [],
+  holdCsv = false,
+  csvStatuses = [],
+} = {}) {
+  const gate = deferred();
+  const csvGate = deferred();
+  const state = {
+    reportRequests: [],
+    csvRequests: [],
+    writes: [],
+    unexpectedExternal: [],
+    reportStatuses: [...reportStatuses],
+    csvStatuses: [...csvStatuses],
+    releaseReport: gate.release,
+    releaseCsv: csvGate.release,
+  };
+  if (!holdReport) gate.release();
+  if (!holdCsv) csvGate.release();
+  const currentMember = member(excluded);
+
+  await page.addInitScript(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+    URL.parse ??= (value, base) => {
+      try { return new URL(value, base); } catch { return null; }
+    };
+  });
+
+  await page.context().routeWebSocket("**/realtime/v1/websocket*", (socket) => {
+    socket.onMessage(() => {});
+  });
+  await page.context().route("**/*", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const method = request.method();
+
+    if (url.hostname.endsWith(".supabase.co")) {
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: { "content-range": "0-0/0" },
+        body: "[]",
+      });
+    }
+    if (url.origin !== APP_ORIGIN) {
+      if (["fonts.googleapis.com", "fonts.gstatic.com", "cdnjs.cloudflare.com",
+        "js.stripe.com", "va.vercel-scripts.com", "teeone.pythonanywhere.com"].includes(url.hostname)) {
+        return route.fulfill({ status: 204, body: "" });
+      }
+      state.unexpectedExternal.push(`${method} ${url.href}`);
+      return route.abort("blockedbyclient");
+    }
+    if (!url.pathname.startsWith("/api/")) return route.continue();
+    // Layout persists the current portal page on the fixture member. Keep
+    // that shell-only write local and successful; it is unrelated to the
+    // report and never reaches a database.
+    if (method === "PATCH"
+      && url.pathname === `/api/entities/Member/${currentMember.id}`) {
+      return json(route, currentMember);
+    }
+    if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
+      state.writes.push(`${method} ${url.pathname}`);
+      return json(route, { error: "Read-only payment report fixture" }, 599);
+    }
+
+    if (url.pathname === "/api/auth/me") return json(route, currentMember);
+    if (url.pathname === "/api/auth/tenant-user-me") {
+      return json(route, { authenticated: false }, 401);
+    }
+    if (url.pathname === "/api/admin/membership-payment-report") {
+      if (url.searchParams.get("format") === "csv") {
+        state.csvRequests.push({
+          format: url.searchParams.get("format"),
+          method: url.searchParams.get("method"),
+          search: url.searchParams.get("search"),
+          page: url.searchParams.get("page"),
+          pageSize: url.searchParams.get("pageSize"),
+          ...(url.searchParams.has("sortBy") ? {
+            sortBy: url.searchParams.get("sortBy"),
+            sortDirection: url.searchParams.get("sortDirection"),
+          } : {}),
+        });
+        await csvGate.promise;
+        const status = state.csvStatuses.shift() ?? 200;
+        if (status !== 200) {
+          return json(route, {
+            error: status === 403
+              ? "Membership payment report permission required"
+              : "Payment report export temporarily unavailable",
+          }, status);
+        }
+        const selectedMethod = url.searchParams.get("method") || "all";
+        return route.fulfill({
+          status: 200,
+          contentType: "text/csv; charset=utf-8",
+          headers: {
+            "Cache-Control": "private, no-store",
+            "Content-Disposition": `attachment; filename="individual-membership-payments-${selectedMethod}.csv"`,
+          },
+          body: membershipPaymentReportCsv(
+            sortPaymentReportRows(
+              fixtureRows.filter(row => selectedMethod === "all" || row.paymentMethod === selectedMethod),
+              url.searchParams.get("sortBy"), url.searchParams.get("sortDirection"),
+            ),
+            selectedMethod,
+          ),
+        });
+      }
+      state.reportRequests.push({
+        method: url.searchParams.get("method"),
+        search: url.searchParams.get("search"),
+        page: url.searchParams.get("page"),
+        pageSize: url.searchParams.get("pageSize"),
+        ...(url.searchParams.has("sortBy") ? {
+          sortBy: url.searchParams.get("sortBy"),
+          sortDirection: url.searchParams.get("sortDirection"),
+        } : {}),
+      });
+      await gate.promise;
+      const status = state.reportStatuses.shift() ?? 200;
+      if (status !== 200) {
+        return json(route, {
+          error: status === 403
+            ? "Membership payment report permission required"
+            : "Payment report temporarily unavailable",
+        }, status);
+      }
+      const selectedMethod = url.searchParams.get("method") || "all";
+      const selectedSearch = (url.searchParams.get("search") || "").trim().toLocaleLowerCase();
+      const requestedPage = Number(url.searchParams.get("page")) || 1;
+      const methodFiltered = selectedMethod === "all"
+        ? fixtureRows
+        : fixtureRows.filter((row) => row.paymentMethod === selectedMethod);
+      const filtered = selectedSearch
+        ? methodFiltered.filter((row) => `${row.name} ${row.email}`.toLocaleLowerCase().includes(selectedSearch))
+        : methodFiltered;
+      const ordered = sortPaymentReportRows([...filtered],
+        url.searchParams.get("sortBy"), url.searchParams.get("sortDirection"));
+      // Keep more than one page for the unfiltered view without manufacturing
+      // additional personally identifying row data.
+      const total = selectedMethod === "all" && !selectedSearch ? 27 : filtered.length;
+      const rows = requestedPage === 1 ? ordered : [{
+         ...fixtureRows[0],
+        memberId: "member-page-two",
+        name: "Casey Second Page",
+      }];
+      return json(route, {
+        rows,
+        total,
+        page: requestedPage,
+        pageSize: 25,
+        methods: METHODS,
+        canViewMembers,
+      });
+    }
+
+    if (url.pathname.startsWith("/api/entities/Role/")) {
+      return json(route, currentMember.sessionRole.role);
+    }
+    if (url.pathname === "/api/entities/Role") return json(route, [currentMember.sessionRole.role]);
+    if (url.pathname === "/api/entities/Member") return json(route, [currentMember]);
+    if (url.pathname.startsWith("/api/entities/Member/")) return json(route, currentMember);
+    if (url.pathname === "/api/entities/PortalMenu"
+      || url.pathname === "/api/entities/RoleAccessItem"
+      || url.pathname === "/api/entities/SystemSettings"
+      || url.pathname === "/api/entities/MemberGroupAssignment"
+      || url.pathname === "/api/entities/Booking"
+      || url.pathname === "/api/entities/PageBanner"
+      || url.pathname === "/api/entities/ResourceCategory"
+      || url.pathname === "/api/entities/PreferenceField"
+      || url.pathname === "/api/public/microsites"
+      || url.pathname === "/api/public/navigation-items"
+      || url.pathname === "/api/public/banners"
+      || url.pathname === "/api/public/typography-styles"
+      || url.pathname === "/api/entities/TypographyStyle"
+      || url.pathname === "/api/public/installed-fonts"
+      || url.pathname === "/api/zoom/webinars"
+      || url.pathname === "/api/bookmarks"
+      || url.pathname === "/api/bookmarks/enriched") return json(route, []);
+    if (url.pathname === "/api/custom-objects") return json(route, { objects: [], total: 0 });
+    if (url.pathname === "/api/communication/inbox/unread-count") return json(route, { unreadCount: 0 });
+    if (url.pathname === "/api/admin/form-submissions/stats") return json(route, {});
+    if (url.pathname === "/api/public/article-settings") return json(route, {});
+    if (url.pathname === "/api/public/favicon-url") return json(route, { faviconUrl: null });
+    if (url.pathname === "/api/public/platform-defaults") return json(route, {});
+    if (url.pathname === "/api/public/ai-help-persona") return json(route, { enabled: false });
+    if (url.pathname === "/api/public/form-consent-message") return json(route, { message: null });
+    if (url.pathname === "/api/tenant-canvas-theme") return json(route, { theme: null });
+    if (url.pathname === "/api/public/canvas-symbols") return json(route, { symbols: [] });
+    if (url.pathname.startsWith("/api/redirects/resolve")) return json(route, { found: false });
+    return json(route, []);
+  });
+
+  return state;
+}
+
+test("loads only after permission readiness and shows evidenced and unavailable schedules", async ({ page }) => {
+  const state = await installFixture(page, { holdReport: true });
+  await page.goto("/MembershipPaymentReport", { waitUntil: "domcontentloaded" });
+
+  await expect(page.getByTestId("text-page-title")).toHaveText("Individual Membership Payment Report");
+  await expect(page.getByTestId("membership-payment-loading")).toBeVisible();
+  expect(state.reportRequests).toEqual([{
+    method: "all", search: null, page: "1", pageSize: "25",
+  }]);
+
+  state.releaseReport();
+  await expect(page.getByTestId("row-payment-member-alex")).toContainText("06 Nov 2026");
+  await expect(page.getByTestId("row-payment-member-billie")).toContainText("Unknown");
+  await expect(page.getByTestId("row-payment-member-billie")).toContainText("Unavailable");
+  await expect(page.getByTestId("text-result-count")).toHaveText("27 members");
+  await expect(page.getByRole("link", { name: "Alex Card", exact: true }))
+    .toHaveAttribute("href", "/members/member-alex");
+  await expect(page.getByRole("link", {
+    name: "Individual Membership Payment Report",
+    exact: true,
+  })).toBeVisible();
+  await page.screenshot({
+    path: "/tmp/membership-payment-report-rendered.png",
+    fullPage: true,
+  });
+  expect(state.writes).toEqual([]);
+  expect(state.unexpectedExternal).toEqual([]);
+});
+
+test("pagination and method filtering send server-side query parameters and reset the page", async ({ page }) => {
+  const state = await installFixture(page);
+  await page.goto("/MembershipPaymentReport");
+  await expect(page.getByTestId("row-payment-member-alex")).toBeVisible();
+
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await expect(page.getByTestId("row-payment-member-page-two")).toBeVisible();
+  expect(state.reportRequests.at(-1)).toEqual({
+    method: "all", search: null, page: "2", pageSize: "25",
+  });
+
+  await page.getByTestId("select-payment-method").click();
+  await page.getByRole("option", { name: "Upfront", exact: true }).click();
+  await expect(page.getByTestId("row-payment-member-upfront")).toContainText("Upfront");
+  await expect(page.getByTestId("row-payment-member-upfront")).toContainText("10 Dec 2026");
+  await expect(page.getByTestId("row-payment-member-upfront")).toContainText("Future personal");
+  await expect(page.getByText("Page 1 of", { exact: false })).toHaveCount(0);
+  expect(state.reportRequests.at(-1)).toEqual({
+    method: "upfront", search: null, page: "1", pageSize: "25",
+  });
+
+  await page.getByTestId("select-payment-method").click();
+  await page.getByRole("option", { name: "Direct Debit", exact: true }).click();
+  await expect(page.getByTestId("row-payment-member-billie")).toBeVisible();
+  await expect(page.getByText("Page 1 of", { exact: false })).toHaveCount(0);
+  expect(state.reportRequests.at(-1)).toEqual({
+    method: "direct_debit", search: null, page: "1", pageSize: "25",
+  });
+
+  await page.getByTestId("select-payment-method").click();
+  await page.getByRole("option", { name: "Invoice", exact: true }).click();
+  await expect(page.getByTestId("text-no-payment-rows")).toBeVisible();
+  expect(state.reportRequests.at(-1)).toEqual({
+    method: "invoice", search: null, page: "1", pageSize: "25",
+  });
+});
+
+test("Upfront view trims only irrelevant columns and helper copy, retains review warnings", async ({ page }) => {
+  const review = {
+    ...ROWS[2],
+    memberId: "member-review",
+    name: "Rae Review",
+    renewalDate: null,
+    renewalLabel: "Renewal date missing",
+    nextStructureName: null,
+    nextStructureState: "Review required — renewal date missing",
+    nextRenewalAmount: null,
+    nextRenewalAmountState: "Review required — next structure unresolved",
+  };
+  const free = { ...ROWS[2], memberId: "member-free", name: "Fran Free",
+    nextRenewalAmount: 0, nextRenewalCurrency: "EUR" };
+  await installFixture(page, { fixtureRows: [...ROWS, review, free] });
+  await page.goto("/MembershipPaymentReport");
+  await expect(page.getByTestId("row-payment-member-upfront")).toBeVisible();
+
+  const headers = page.locator("table thead th");
+  const fullHeaders = ["Member", "Email", "Tier", "Status", "Payment method",
+    "Next payment", "Schedule", "Current expiry", "Membership renewal", "Next structure"];
+  await expect(headers).toHaveText([...fullHeaders, "Next payment amount"]);
+  await expect(page.getByTestId("row-payment-member-upfront").locator("td")).toHaveCount(fullHeaders.length + 1);
+
+  await page.getByTestId("select-payment-method").click();
+  await page.getByRole("option", { name: "Upfront", exact: true }).click();
+  const upfrontHeaders = ["Member", "Email", "Tier", "Status", "Payment method",
+    "Membership renewal ↕", "Next structure", "Next renewal amount (projected)"];
+  await expect(headers).toHaveText(upfrontHeaders);
+  const upfrontCells = page.getByTestId("row-payment-member-upfront").locator("td");
+  await expect(upfrontCells).toHaveCount(upfrontHeaders.length);
+  await expect(upfrontCells).toHaveText(["Uma Upfront", "uma@example.invalid", "Associate",
+    "Active", "Upfront", "10 Dec 2026", "Future personal", "£150.00"]);
+  const reviewCells = page.getByTestId("row-payment-member-review").locator("td");
+  await expect(reviewCells).toHaveCount(upfrontHeaders.length);
+  await expect(reviewCells.nth(5)).toHaveText("Renewal date missing");
+  await expect(reviewCells.nth(6)).toHaveText("Review required — renewal date missing");
+  await expect(reviewCells.nth(7)).toHaveText("Review required — next structure unresolved");
+  await expect(page.getByTestId("row-payment-member-free").locator("td").nth(7)).toHaveText("€0.00");
+  await expect(page.getByText("Expected renewal", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Reporting only; subject to membership status. No renewal or payment is booked.")).toHaveCount(0);
+  await page.screenshot({ path: "/tmp/membership-payment-upfront.png", fullPage: true });
+
+  await page.getByTestId("select-payment-method").click();
+  await page.getByRole("option", { name: "Direct Debit", exact: true }).click();
+  await expect(page.getByTestId("row-payment-member-billie")).toBeVisible();
+  await expect(headers).toHaveText([...fullHeaders.slice(0, 5), "Next payment ↕", "Schedule", "Collection structure", "Next payment amount"]);
+  await expect(page.getByTestId("row-payment-member-billie").locator("td")).toHaveCount(9);
+
+  await page.getByTestId("select-payment-method").click();
+  await page.getByRole("option", { name: "All payment methods", exact: true }).click();
+  await expect(page.getByTestId("row-payment-member-upfront")).toBeVisible();
+  await expect(headers).toHaveText([...fullHeaders, "Next payment amount"]);
+  await expect(page.getByTestId("row-payment-member-upfront").locator("td")).toHaveCount(fullHeaders.length + 1);
+});
+
+test("overdue upfront renewals stay visible with their original date and expired status", async ({ page }) => {
+  const overdue = { ...ROWS[2], status: "expired", currentExpiryDate: "2025-12-09",
+    renewalDate: "2025-12-10" };
+  await installFixture(page, { fixtureRows: [overdue] });
+  await page.goto("/MembershipPaymentReport");
+  await page.getByTestId("select-payment-method").click();
+  await page.getByRole("option", { name: "Upfront", exact: true }).click();
+  const row = page.getByTestId("row-payment-member-upfront");
+  await expect(row).toBeVisible();
+  await expect(row.locator("td").nth(3)).toHaveText("Expired");
+  await expect(row.locator("td").nth(5)).toHaveText("10 Dec 2025");
+  await expect(page.getByText("Upfront memberships and their renewal dates, including overdue renewals.")).toBeVisible();
+  await page.screenshot({ path: "/tmp/membership-payment-overdue.png", fullPage: true });
+});
+
+test("Monthly Direct Debit shows Current, collection amount and structure with CSV parity", async ({ page }) => {
+  const debit = { ...ROWS[1], paymentMethod: "monthly_direct_debit", status: "current",
+    nextPaymentDate: "2026-10-01", scheduleState: "planned",
+    nextPaymentAmount: 24, nextPaymentCurrency: "GBP",
+    nextPaymentAmountState: "Projected collection amount — not yet bank scheduled",
+    nextStructureName: "October personal structure", nextStructureState: "Structure effective on planned collection date" };
+  const held = { ...debit, memberId: "held", name: "Harper Held", nextPaymentDate: null,
+    paymentArrangement: "Collection held — not scheduled", nextPaymentAmountState: "Configured amount — collection held" };
+  const review = { ...debit, memberId: "review", name: "Rae Review", status: "membership_unverified",
+    statusLabel: "Membership status unverified",
+    nextPaymentAmount: null, nextStructureName: null,
+    nextPaymentAmountState: "Review required — collection pricing could not be resolved",
+    nextStructureState: "Review required — collection structure unavailable" };
+  const state = await installFixture(page, { fixtureRows: [debit, held, review, ROWS[2]] });
+  await page.goto("/MembershipPaymentReport");
+  await page.getByTestId("select-payment-method").click();
+  await page.getByRole("option", { name: "Monthly Direct Debit", exact: true }).click();
+  const row = page.getByTestId("row-payment-member-billie");
+  await expect(row).toContainText("Current");
+  await expect(row).not.toContainText("Pending Payment Setup");
+  await expect(row).toContainText("£24.00");
+  await expect(row).toContainText("October personal structure");
+  await expect(row).toContainText("not yet bank scheduled");
+  await expect(page.getByRole("columnheader", { name: "Collection structure", exact: true })).toBeVisible();
+  const count = await page.locator("table thead th").count();
+  await expect(row.locator("td")).toHaveCount(count);
+  await expect(page.getByTestId("row-payment-held")).toContainText("Collection held — not scheduled");
+  await expect(page.getByTestId("row-payment-review")).toContainText("Review required");
+  await expect(page.getByTestId("row-payment-review")).toContainText("Membership status unverified");
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByTestId("button-download-payment-report").click();
+  const download = await downloadPromise;
+  const csv = await readFile(await download.path(), "utf8");
+  expect(csv).toContain("Next payment amount,Currency,Payment amount basis");
+  expect(csv).toContain("24.00,GBP,Projected collection amount");
+  expect(csv).toContain("Current,Monthly Direct Debit");
+  await page.screenshot({ path: "/tmp/membership-payment-monthly-dd.png", fullPage: true });
+  await page.getByTestId("select-payment-method").click();
+  await page.getByRole("option", { name: "Upfront", exact: true }).click();
+  await expect(page.getByRole("columnheader", { name: "Next payment amount", exact: true })).toHaveCount(0);
+  await expect(page.getByTestId("row-payment-member-upfront")).toContainText("£150.00");
+  expect(state.writes).toEqual([]);
+  expect(state.unexpectedExternal).toEqual([]);
+});
+
+test("debounces trimmed member search, resets pagination, hides stale results, and clears accessibly", async ({ page }) => {
+  const state = await installFixture(page);
+  await page.goto("/MembershipPaymentReport");
+  await expect(page.getByTestId("row-payment-member-alex")).toBeVisible();
+
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await expect(page.getByTestId("row-payment-member-page-two")).toBeVisible();
+
+  const input = page.getByLabel("Find member");
+  await input.fill("  BILLIE@EXAMPLE.INVALID  ");
+  await expect(page.getByTestId("membership-payment-loading")).toBeVisible();
+  await expect(page.getByTestId("row-payment-member-page-two")).toHaveCount(0);
+  await expect(page.getByTestId("text-result-count")).toHaveCount(0);
+
+  // A rapid replacement must produce only the final debounced query.
+  await input.fill("  ALEX@EXAMPLE.INVALID  ");
+  await expect(page.getByTestId("row-payment-member-alex")).toBeVisible();
+  expect(state.reportRequests.filter((request) => request.search)).toEqual([{
+    method: "all",
+    search: "ALEX@EXAMPLE.INVALID",
+    page: "1",
+    pageSize: "25",
+  }]);
+  await expect(page.getByText("Page 1 of", { exact: false })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Clear member search" }).click();
+  await expect(input).toHaveValue("");
+  await expect(page.getByTestId("row-payment-member-billie")).toBeVisible();
+  // The unfiltered first page may be restored from React Query's fresh cache;
+  // either way, no filtered rows remain visible after clearing.
+  await expect(page.getByTestId("row-payment-member-alex")).toBeVisible();
+});
+
+test("search has a 200 character limit and a distinct no-match result", async ({ page }) => {
+  const state = await installFixture(page);
+  await page.goto("/MembershipPaymentReport");
+  await expect(page.getByTestId("row-payment-member-alex")).toBeVisible();
+
+  const input = page.getByLabel("Find member");
+  await input.fill(`nomatch${"x".repeat(250)}`);
+  await expect(input).toHaveValue(`nomatch${"x".repeat(193)}`);
+  await expect(page.getByTestId("text-no-payment-rows"))
+    .toContainText("No individual memberships match");
+  expect(state.reportRequests.at(-1).search).toHaveLength(200);
+  await expect(page.getByTestId("membership-payment-loading")).toHaveCount(0);
+  await expect(page.getByTestId("text-report-error")).toHaveCount(0);
+});
+
+test("downloads the selected full-report CSV with the server filename and leaves pagination intact", async ({ page }) => {
+  const state = await installFixture(page);
+  await page.goto("/MembershipPaymentReport");
+  await expect(page.getByTestId("row-payment-member-alex")).toBeVisible();
+
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await expect(page.getByText("Page 2 of 2", { exact: true })).toBeVisible();
+  await page.getByTestId("select-payment-method").click();
+  await page.getByRole("option", { name: "Upfront", exact: true }).click();
+  await expect(page.getByTestId("row-payment-member-upfront")).toBeVisible();
+  await page.getByLabel("Find member").fill("  uma@example.invalid ");
+  await expect(page.getByTestId("row-payment-member-upfront")).toBeVisible();
+
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByTestId("button-download-payment-report").click();
+  const download = await downloadPromise;
+
+  expect(download.suggestedFilename()).toBe("individual-membership-payments-upfront.csv");
+  expect(await readFile(await download.path(), "utf8")).toBe(
+    '\ufeffMember,Email,Tier,Status,Payment method,Membership renewal,Next structure,"Next renewal amount (projected, incl. VAT)",Currency\r\n'
+    + "Uma Upfront,uma@example.invalid,Associate,Active,Upfront,10 Dec 2026,Future personal,150.00,GBP\r\n",
+  );
+  expect(state.csvRequests).toEqual([{
+    format: "csv",
+    method: "upfront",
+    search: "uma@example.invalid",
+    page: null,
+    pageSize: null,
+  }]);
+  expect(state.reportRequests.at(-1)).toEqual({
+    method: "upfront",
+    search: "uma@example.invalid",
+    page: "1",
+    pageSize: "25",
+  });
+  await expect(page.getByTestId("row-payment-member-upfront")).toBeVisible();
+});
+
+test("prevents duplicate exports while pending and reports JSON export failures without hiding the report", async ({ page }) => {
+  const state = await installFixture(page, { holdCsv: true, csvStatuses: [500] });
+  await page.goto("/MembershipPaymentReport");
+  await expect(page.getByTestId("row-payment-member-alex")).toBeVisible();
+
+  await page.getByTestId("button-download-payment-report").evaluate((button) => {
+    button.click();
+    button.click();
+  });
+  await expect(page.getByTestId("button-download-payment-report"))
+    .toHaveText("Downloading…");
+  await expect(page.getByTestId("button-download-payment-report")).toBeDisabled();
+  expect(state.csvRequests).toHaveLength(1);
+
+  state.releaseCsv();
+  await expect(page.getByTestId("text-export-error"))
+    .toHaveText("Payment report export temporarily unavailable");
+  await expect(page.getByTestId("button-download-payment-report")).toHaveText("Download CSV");
+  await expect(page.getByTestId("button-download-payment-report")).toBeEnabled();
+  await expect(page.getByTestId("row-payment-member-alex")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Next", exact: true })).toBeVisible();
+
+  await page.getByTestId("select-payment-method").click();
+  await page.getByRole("option", { name: "Invoice", exact: true }).click();
+  await expect(page.getByTestId("text-export-error")).toHaveCount(0);
+});
+
+test("changing search cancels a pending export and suppresses its stale error", async ({ page }) => {
+  const state = await installFixture(page, { holdCsv: true, csvStatuses: [500] });
+  await page.goto("/MembershipPaymentReport");
+  await expect(page.getByTestId("row-payment-member-alex")).toBeVisible();
+
+  await page.getByTestId("button-download-payment-report").click();
+  await expect(page.getByTestId("button-download-payment-report")).toHaveText("Downloading…");
+  await page.getByLabel("Find member").fill("Alex");
+  await expect(page.getByTestId("button-download-payment-report")).toHaveText("Download CSV");
+
+  state.releaseCsv();
+  await expect(page.getByTestId("row-payment-member-alex")).toBeVisible();
+  await expect(page.getByTestId("text-export-error")).toHaveCount(0);
+  expect(state.csvRequests).toHaveLength(1);
+});
+
+test("member names remain plain text unless both client and endpoint allow member access", async ({ page }) => {
+  await installFixture(page, {
+    excluded: [MEMBERS_PERMISSION],
+    // An accidentally optimistic endpoint response must not override the role.
+    canViewMembers: true,
+  });
+  await page.goto("/MembershipPaymentReport");
+  await expect(page.getByTestId("row-payment-member-alex")).toBeVisible();
+  await expect(page.getByText("Alex Card", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Alex Card", exact: true })).toHaveCount(0);
+});
+
+test("the endpoint member permission cannot be overridden by an otherwise privileged client", async ({ page }) => {
+  await installFixture(page, { canViewMembers: false });
+  await page.goto("/MembershipPaymentReport");
+  await expect(page.getByTestId("row-payment-member-alex")).toBeVisible();
+  await expect(page.getByText("Alex Card", { exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Alex Card", exact: true })).toHaveCount(0);
+});
+
+test("endpoint failure is explicit rather than presenting an empty report", async ({ page }) => {
+  const state = await installFixture(page, { reportStatuses: [500] });
+  await page.goto("/MembershipPaymentReport");
+  await expect(page.getByTestId("text-report-error"))
+    .toHaveText("Payment report temporarily unavailable");
+  await expect(page.getByTestId("text-no-payment-rows")).toHaveCount(0);
+  expect(state.reportRequests).toHaveLength(1);
+});
+
+test("excluded users are redirected before any report request is made", async ({ page }) => {
+  const state = await installFixture(page, { excluded: [REPORT_PERMISSION] });
+  await page.goto("/MembershipPaymentReport", { waitUntil: "domcontentloaded" });
+  // The report asks for Events; the portal shell may subsequently apply the
+  // fixture role's configured landing-page fallback. Either way, protected
+  // report content must have been left before any report request is issued.
+  await expect(page).not.toHaveURL(/\/MembershipPaymentReport$/);
+  expect(state.reportRequests).toEqual([]);
+  expect(state.csvRequests).toEqual([]);
+  await expect(page.getByTestId("text-page-title")).toHaveCount(0);
+  await expect(page.getByTestId("button-download-payment-report")).toHaveCount(0);
+  await expect(page.getByRole("link", {
+    name: "Individual Membership Payment Report",
+    exact: true,
+  })).toHaveCount(0);
+});
+
+test("renewal header toggles sort, resets page, and CSV uses the selected direction", async ({ page }) => {
+  const fixtureRows = [
+    { ...ROWS[2], memberId: "late", name: "Late Renewal", renewalDate: "2027-02-01" },
+    { ...ROWS[2], memberId: "early", name: "Early Renewal", renewalDate: "2026-08-01" },
+    { ...ROWS[2], memberId: "unknown", name: "Unknown Renewal", renewalDate: null },
+  ];
+  const state = await installFixture(page, { fixtureRows });
+  await page.goto("/MembershipPaymentReport");
+  await expect(page.getByTestId("row-payment-late")).toBeVisible();
+  await page.getByTestId("select-payment-method").click();
+  await page.getByRole("option", { name: "Upfront", exact: true }).click();
+  const header = page.getByRole("columnheader").filter({
+    has: page.getByRole("button", { name: /Sort by membership renewal date/ }),
+  });
+  await expect(header).toHaveAttribute("aria-sort", "none");
+  await header.getByRole("button").click();
+  await expect(header).toHaveAttribute("aria-sort", "ascending");
+  await expect(page.locator("tbody tr").first()).toHaveAttribute("data-testid", "row-payment-early");
+  await header.getByRole("button").click();
+  await expect(header).toHaveAttribute("aria-sort", "descending");
+  await expect(page.locator("tbody tr").first()).toHaveAttribute("data-testid", "row-payment-late");
+  await page.getByTestId("button-download-payment-report").click();
+  await expect.poll(() => state.csvRequests.length).toBe(1);
+  expect(state.csvRequests[0]).toMatchObject({ method: "upfront", sortBy: "renewalDate", sortDirection: "desc" });
+  await page.getByTestId("select-payment-method").click();
+  await page.getByRole("option", { name: "Monthly Direct Debit", exact: true }).click();
+  expect(state.reportRequests.at(-1)).toMatchObject({ method: "monthly_direct_debit", page: "1" });
+  expect(state.reportRequests.at(-1)).not.toHaveProperty("sortBy");
+});
+
+test("Direct Debit payment date toggles and search resets page without losing sort", async ({ page }) => {
+  const fixtureRows = [
+    { ...ROWS[1], memberId: "dd-late", name: "Late Debit", paymentMethod: "monthly_direct_debit", nextPaymentDate: "2026-12-01" },
+    { ...ROWS[1], memberId: "dd-soon", name: "Soon Debit", paymentMethod: "monthly_direct_debit", nextPaymentDate: "2026-08-01" },
+    { ...ROWS[1], memberId: "dd-unknown", name: "Unknown Debit", paymentMethod: "monthly_direct_debit" },
+  ];
+  const state = await installFixture(page, { fixtureRows });
+  await page.goto("/MembershipPaymentReport");
+  await page.getByTestId("select-payment-method").click();
+  await page.getByRole("option", { name: "Monthly Direct Debit", exact: true }).click();
+  const header = page.getByRole("columnheader").filter({
+    has: page.getByRole("button", { name: /Sort by next payment date/ }),
+  });
+  await header.getByRole("button").click();
+  await expect(header).toHaveAttribute("aria-sort", "ascending");
+  await expect(page.locator("tbody tr").first()).toHaveAttribute("data-testid", "row-payment-dd-soon");
+  await header.getByRole("button").click();
+  await expect(header).toHaveAttribute("aria-sort", "descending");
+  await expect(page.locator("tbody tr").first()).toHaveAttribute("data-testid", "row-payment-dd-late");
+  await page.getByLabel("Find member").fill("Debit");
+  await expect.poll(() => state.reportRequests.at(-1)).toMatchObject({
+    method: "monthly_direct_debit", search: "Debit", page: "1",
+    sortBy: "nextPaymentDate", sortDirection: "desc",
+  });
+});

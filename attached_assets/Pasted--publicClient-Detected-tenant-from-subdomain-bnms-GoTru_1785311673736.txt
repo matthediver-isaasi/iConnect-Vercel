@@ -1,0 +1,166 @@
+ [publicClient] Detected tenant from subdomain: bnms
+ GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.93.3) 2026-07-29T07:51:53.403Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+ [usePendingPurchaseOrders] memberInfo: null
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+ [Layout] hasPendingPOs: false count: 0 isLoading: false
+ [Layout] currentPageName: IEditPageManagement currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: IEditPageManagement currentPortalPageId: null
+ [usePendingPurchaseOrders] Query running, memberInfo.id: f42f03b5-5ed7-441b-aac5-972038427e59
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: IEditPageManagement currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: IEditPageManagement currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: IEditPageManagement currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: IEditPageManagement currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: IEditPageManagement currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: IEditPageManagement currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: IEditPageManagement currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: IEditPageManagement currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BNxuawur.js:2021 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BNxuawur.js:2021 [Layout] currentPageName: IEditPageManagement currentPortalPageId: null
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BNxuawur.js:2021 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BNxuawur.js:2021 [Layout] currentPageName: IEditPageManagement currentPortalPageId: null
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BNxuawur.js:2021 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BNxuawur.js:2021 [Layout] currentPageName: IEditPageManagement currentPortalPageId: null
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BNxuawur.js:2021 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BNxuawur.js:2021 [Layout] currentPageName: IEditPageManagement currentPortalPageId: null
+index-BNxuawur.js:2021 [Layout] Server session found: sharon@onlinem.co.uk
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BNxuawur.js:2021 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BNxuawur.js:2021 [Layout] currentPageName: IEditPageManagement currentPortalPageId: null
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BNxuawur.js:2021 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BNxuawur.js:2021 [Layout] currentPageName: IEditPageManagement currentPortalPageId: null
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BNxuawur.js:2021 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BNxuawur.js:2021 [Layout] currentPageName: IEditPageManagement currentPortalPageId: null
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] Fetched bookings count: 0
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] Pending PO bookings: 0
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BNxuawur.js:2021 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BNxuawur.js:2021 [Layout] currentPageName: IEditPageManagement currentPortalPageId: null
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BNxuawur.js:2021 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BNxuawur.js:2021 [Layout] currentPageName: IEditPageManagement currentPortalPageId: null
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BNxuawur.js:2021 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BNxuawur.js:2021 [Layout] currentPageName: IEditPageManagement currentPortalPageId: null
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BNxuawur.js:2021 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BNxuawur.js:2021 [Layout] currentPageName: IEditPageManagement currentPortalPageId: null
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BNxuawur.js:2021 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BNxuawur.js:2021 [Layout] currentPageName: RoleManagement currentPortalPageId: null
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BNxuawur.js:2021 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BNxuawur.js:2021 [Layout] currentPageName: RoleManagement currentPortalPageId: null
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BNxuawur.js:2021 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BNxuawur.js:2021 [Layout] currentPageName: RoleManagement currentPortalPageId: null
+api/admin/roles/member-counts:1  Failed to load resource: the server responded with a status of 404 ()
+index-BNxuawur.js:2021 [Layout] Server session found: sharon@onlinem.co.uk
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BNxuawur.js:2021 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BNxuawur.js:2021 [Layout] currentPageName: RoleManagement currentPortalPageId: null
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BNxuawur.js:2021 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BNxuawur.js:2021 [Layout] currentPageName: RoleManagement currentPortalPageId: null
+index-BNxuawur.js:1661 Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+(anonymous) @ index-BNxuawur.js:1661
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BNxuawur.js:2021 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BNxuawur.js:2021 [Layout] currentPageName: RoleAccessConfigManagement currentPortalPageId: null
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BNxuawur.js:2021 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BNxuawur.js:2021 [Layout] currentPageName: RoleAccessConfigManagement currentPortalPageId: null
+index-BNxuawur.js:2021 [Layout] Server session found: sharon@onlinem.co.uk
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BNxuawur.js:2021 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BNxuawur.js:2021 [Layout] currentPageName: RoleAccessConfigManagement currentPortalPageId: null
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BNxuawur.js:2021 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BNxuawur.js:2021 [Layout] currentPageName: RoleAccessConfigManagement currentPortalPageId: null
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BNxuawur.js:2021 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BNxuawur.js:2021 [Layout] currentPageName: RoleAccessConfigManagement currentPortalPageId: null
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BNxuawur.js:2021 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BNxuawur.js:2021 [Layout] currentPageName: MembershipTierManagement currentPortalPageId: null
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-BNxuawur.js:2010 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BNxuawur.js:2021 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BNxuawur.js:2021 [Layout] currentPageName: MembershipTierManagement currentPortalPageId: null
+index-BNxuawur.js:41 ReferenceError: Cannot access 'Ae' before initialization
+    at index-BNxuawur.js:4736:14630
+    at oXe (index-BNxuawur.js:4736:14950)
+    at rne (index-BNxuawur.js:39:17091)
+    at VTe (index-BNxuawur.js:41:44309)
+    at zTe (index-BNxuawur.js:41:40005)
+    at Ott (index-BNxuawur.js:41:39928)
+    at pL (index-BNxuawur.js:41:39776)
+    at JQ (index-BNxuawur.js:41:36109)
+    at DTe (index-BNxuawur.js:41:35054)
+    at w (index-BNxuawur.js:26:1535)
+LQ @ index-BNxuawur.js:41
+index-BNxuawur.js:41 Uncaught ReferenceError: Cannot access 'Ae' before initialization
+    at index-BNxuawur.js:4736:14630
+    at oXe (index-BNxuawur.js:4736:14950)
+    at rne (index-BNxuawur.js:39:17091)
+    at VTe (index-BNxuawur.js:41:44309)
+    at zTe (index-BNxuawur.js:41:40005)
+    at Ott (index-BNxuawur.js:41:39928)
+    at pL (index-BNxuawur.js:41:39776)
+    at JQ (index-BNxuawur.js:41:36109)
+    at DTe (index-BNxuawur.js:41:35054)
+    at w (index-BNxuawur.js:26:1535)

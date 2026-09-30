@@ -1,0 +1,26 @@
+{
+    "name": "BlogPostAuthor",
+    "type": "object",
+    "properties": {
+      "blog_post_id": {
+        "type": "string",
+        "description": "Reference to the BlogPost this author entry belongs to"
+      },
+      "author_id": {
+        "type": "string",
+        "description": "Reference to Member author (null if this entry is a guest writer)"
+      },
+      "guest_writer_id": {
+        "type": "string",
+        "description": "Reference to GuestWriter author (null if this entry is a member)"
+      },
+      "display_order": {
+        "type": "integer",
+        "default": 0,
+        "description": "Order of this author in the post's author list (0 = primary author)"
+      }
+    },
+    "required": [
+      "blog_post_id"
+    ]
+  }

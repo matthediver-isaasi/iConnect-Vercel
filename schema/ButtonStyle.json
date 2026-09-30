@@ -19,7 +19,8 @@
         "enum": [
           "download",
           "video",
-          "external_link"
+          "external_link",
+          "tenant_form"
         ],
         "description": "For resource cards only: which resource type this style applies to"
       },
@@ -46,6 +47,7 @@
           "PlayCircle",
           "Eye",
           "FileText",
+          "ClipboardList",
           "Mail",
           "Plus",
           "none"

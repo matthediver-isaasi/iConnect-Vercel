@@ -1,0 +1,371 @@
+// AI Composition renderer helpers — Task #2849.
+//
+// React-free (node-testable) logic for rendering a validated AI Composition
+// document in-DOM:
+//   - buildAicCss(doc, instanceId): instance-scoped stylesheet. EVERY selector
+//     is prefixed with `[data-aic="<instanceId>"]` so generated styles can
+//     never leak outside the composition. Tablet/mobile emit BOTH real
+//     @media rules (public rendering) AND `[data-aic-bp="…"]` attribute
+//     variants (forced-breakpoint editor preview, where the viewport doesn't
+//     actually change).
+//   - sanitizeAicStyle / sanitizeAicHtml: defence-in-depth re-checks at render
+//     time (the validator already gates persistence — see aiCompositionSchema).
+//   - orderedElements(section): DOM order follows readingOrder.
+//
+// The document model mirrors api/_lib/aiCompositionSchema.js (schemaVersion 1).
+
+export const AIC_BREAKPOINT_WIDTHS = { desktop: 1200, tablet: 820, mobile: 390 };
+const TABLET_MAX = 1024;
+const MOBILE_MAX = 640;
+
+// Mirror of the server allowlist (client bundle must not import api/**).
+export const AIC_CSS_ALLOWLIST = new Set([
+  'color', 'backgroundColor', 'backgroundImage',
+  'fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'lineHeight',
+  'letterSpacing', 'textAlign', 'textTransform', 'textDecoration',
+  'padding', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
+  'margin', 'marginTop', 'marginRight', 'marginBottom', 'marginLeft',
+  'border', 'borderTop', 'borderRight', 'borderBottom', 'borderLeft',
+  'borderRadius', 'boxShadow', 'outline',
+  'gap', 'alignItems', 'justifyContent', 'flexDirection', 'flexWrap',
+  'gridTemplateColumns', 'aspectRatio',
+  'opacity', 'overflow', 'clipPath', 'filter', 'mixBlendMode',
+  'transform', 'objectFit', 'objectPosition',
+]);
+
+const UNSAFE_CSS_VALUE_RE = /url\s*\(|expression\s*\(|@import|javascript:|!important|var\s*\(|[{};]|<\//i;
+const GRADIENT_ONLY_RE = /^(linear|radial|conic)-gradient\(/i;
+const TRANSFORM_SAFE_RE = /^(\s*(rotate|rotateZ|translate|translateX|translateY|scale|scaleX|scaleY)\([^()]*\)\s*)+$/i;
+
+// Dimensional properties: bare numbers (or numeric strings) mean pixels.
+// Everything else keeps numbers unitless (lineHeight, opacity, fontWeight…).
+const AIC_PX_PROPS = new Set([
+  'fontSize', 'letterSpacing', 'borderRadius', 'gap',
+  'padding', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
+  'margin', 'marginTop', 'marginRight', 'marginBottom', 'marginLeft',
+]);
+const AIC_CSS_UNITS = new Set(['px', '%', 'em', 'rem', 'vw', 'vh']);
+
+/**
+ * Serialize one style value to a CSS string:
+ *   - `{ value, unit }` objects → "16px" / "1.5rem" (invalid → null, never
+ *     the previous String() behaviour of "[object Object]")
+ *   - bare numbers / numeric strings on dimensional props → px appended
+ *   - anything else → trimmed string (null when empty)
+ */
+export function serializeAicCssValue(key, value) {
+  if (value !== null && typeof value === 'object') {
+    if (Array.isArray(value)) return null;
+    const n = Number(value.value);
+    const unit = String(value.unit ?? 'px');
+    if (!Number.isFinite(n) || !AIC_CSS_UNITS.has(unit)) return null;
+    return `${n}${unit}`;
+  }
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return null;
+    return AIC_PX_PROPS.has(key) ? `${value}px` : String(value);
+  }
+  const str = String(value ?? '').trim();
+  if (!str) return null;
+  if (AIC_PX_PROPS.has(key) && /^-?\d+(\.\d+)?$/.test(str)) return `${str}px`;
+  return str;
+}
+
+/** Drop any non-allowlisted or unsafe style entries. Returns a clean object. */
+export function sanitizeAicStyle(style) {
+  const out = {};
+  if (!style || typeof style !== 'object') return out;
+  for (const [key, value] of Object.entries(style)) {
+    if (!AIC_CSS_ALLOWLIST.has(key)) continue;
+    const str = serializeAicCssValue(key, value);
+    if (!str) continue;
+    if (UNSAFE_CSS_VALUE_RE.test(str)) continue;
+    if (key === 'backgroundImage' && !GRADIENT_ONLY_RE.test(str)) continue;
+    if (key === 'transform' && !TRANSFORM_SAFE_RE.test(str)) continue;
+    out[key] = str;
+  }
+  return out;
+}
+
+// content.html may only carry a small inline-formatting tag set. Everything
+// else is stripped (tags removed, text kept). Attributes are always dropped.
+const HTML_TAG_ALLOWLIST = new Set(['p', 'strong', 'em', 'ul', 'ol', 'li', 'br', 'span', 'b', 'i']);
+
+export function sanitizeAicHtml(html) {
+  const s = String(html || '');
+  return s.replace(/<\/?\s*([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>/g, (m, tag) => {
+    const t = tag.toLowerCase();
+    if (!HTML_TAG_ALLOWLIST.has(t)) return '';
+    const close = /^<\s*\//.test(m);
+    return close ? `</${t}>` : (t === 'br' ? '<br/>' : `<${t}>`);
+  });
+}
+
+const kebab = (k) => k.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+
+function styleDecls(style) {
+  return Object.entries(sanitizeAicStyle(style))
+    .map(([k, v]) => `${kebab(k)}:${v};`)
+    .join('');
+}
+
+// CSS-escape an id used inside an attribute selector / class name.
+function cssSafe(id) {
+  return String(id || '').replace(/[^a-zA-Z0-9_-]/g, '');
+}
+
+/** Top-level elements of a section in readingOrder (DOM order = reading order). */
+export function orderedElements(section) {
+  const els = Array.isArray(section?.elements) ? section.elements.filter((e) => e && e.id) : [];
+  const ro = Array.isArray(section?.readingOrder) ? section.readingOrder : [];
+  const byId = new Map(els.map((e) => [e.id, e]));
+  const out = [];
+  for (const id of ro) {
+    if (byId.has(id)) { out.push(byId.get(id)); byId.delete(id); }
+  }
+  for (const e of byId.values()) out.push(e); // any stragglers keep source order
+  return out;
+}
+
+function mergeFrame(base, override) {
+  if (!override) return base || null;
+  return { ...(base || {}), ...Object.fromEntries(Object.entries(override).filter(([, v]) => v !== undefined)) };
+}
+
+/** Effective frame for an element at a breakpoint (tablet/mobile inherit desktop). */
+export function frameFor(doc, elementId, bp) {
+  const desktop = doc?.layouts?.desktop?.[elementId] || null;
+  if (bp === 'desktop') return desktop;
+  const tablet = mergeFrame(desktop, doc?.layouts?.tablet?.[elementId]);
+  if (bp === 'tablet') return tablet;
+  return mergeFrame(tablet, doc?.layouts?.mobile?.[elementId]);
+}
+
+function frameDecls(frame, containerMode) {
+  if (!frame) return '';
+  const d = [];
+  if (frame.visible === false) { return 'display:none;'; }
+  const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  if (frame.mode === 'absolute') {
+    d.push('position:absolute;');
+    if (num(frame.x) !== null) d.push(`left:${frame.x}px;`);
+    if (num(frame.y) !== null) d.push(`top:${frame.y}px;`);
+    if (num(frame.w) !== null) d.push(`width:${frame.w}px;`);
+    if (num(frame.h) !== null) d.push(`height:${frame.h}px;`);
+    if (num(frame.z) !== null) d.push(`z-index:${frame.z};`);
+  } else {
+    if (num(frame.w) !== null) d.push(`max-width:${frame.w}px;`);
+    if (num(frame.h) !== null) d.push(`min-height:${frame.h}px;`);
+  }
+  if (num(frame.minH) !== null) d.push(`min-height:${frame.minH}px;`);
+  if (num(frame.maxW) !== null) d.push(`max-width:${frame.maxW}px;`);
+  if (frame.mode === 'flex') {
+    d.push('display:flex;');
+    const f = frame.flex || {};
+    if (f.direction) d.push(`flex-direction:${cssSafe(f.direction) === 'row' ? 'row' : 'column'};`);
+    if (typeof f.gap === 'number') d.push(`gap:${f.gap}px;`);
+    if (f.align === 'center' || f.align === 'start' || f.align === 'end' || f.align === 'stretch') {
+      d.push(`align-items:${f.align === 'start' ? 'flex-start' : f.align === 'end' ? 'flex-end' : f.align};`);
+    }
+  }
+  if (frame.mode === 'grid') {
+    d.push('display:grid;');
+    const g = frame.grid || {};
+    const cols = Number(g.columns);
+    if (Number.isFinite(cols) && cols >= 1 && cols <= 12) {
+      d.push(`grid-template-columns:repeat(${Math.round(cols)},minmax(0,1fr));`);
+    }
+    if (typeof g.gap === 'number') d.push(`gap:${g.gap}px;`);
+  }
+  if (containerMode === 'absolute' && frame.mode !== 'absolute') {
+    // element flows inside an absolutely-positioned parent: nothing extra
+  }
+  return d.join('');
+}
+
+function collectElements(sections) {
+  const out = [];
+  const walk = (els, depth) => {
+    for (const el of els || []) {
+      if (!el || !el.id) continue;
+      out.push({ el, depth });
+      if (Array.isArray(el.children)) walk(el.children, depth + 1);
+    }
+  };
+  for (const s of sections || []) walk(s.elements, 0);
+  return out;
+}
+
+/**
+ * Build the full instance-scoped stylesheet for a document.
+ * Every rule is prefixed with `[data-aic="<instanceId>"]`; per-breakpoint
+ * overrides are emitted twice (real @media + [data-aic-bp] attribute variant).
+ */
+export function buildAicCss(doc, instanceId) {
+  const scope = `[data-aic="${cssSafe(instanceId)}"]`;
+  const rules = [];
+  const bpRules = { tablet: [], mobile: [] };
+
+  // Root + section shells.
+  rules.push(`${scope}{position:relative;width:100%;}`);
+  // Phase 3 structural prelude: image placeholders + HTML-text chart rows
+  // (factual values are always real text, never rasterised into images).
+  rules.push(
+    `${scope} .aic-img-placeholder{background:rgba(127,127,127,0.12);border:1px dashed rgba(127,127,127,0.4);border-radius:4px;min-height:60px;}`,
+    `${scope} .aic-chart-row{display:flex;align-items:center;gap:8px;margin:4px 0;}`,
+    `${scope} .aic-chart-label{flex:0 0 auto;min-width:80px;}`,
+    `${scope} .aic-chart-bar{display:block;height:10px;border-radius:5px;background:currentColor;opacity:0.55;min-width:2px;}`,
+    `${scope} .aic-chart-value{flex:0 0 auto;font-variant-numeric:tabular-nums;}`,
+    `${scope} .aic-step-marker{display:inline-block;margin-right:8px;font-weight:600;}`,
+    `${scope} .aic-step-desc{display:block;opacity:0.8;}`,
+  );
+  for (const section of doc?.sections || []) {
+    const sid = cssSafe(section.id);
+    const decls = styleDecls(section.style);
+    // Absolute-mode sections size to the max child extent per breakpoint.
+    rules.push(`${scope} .aic-s-${sid}{position:relative;width:100%;${decls}}`);
+    for (const bp of ['desktop', 'tablet', 'mobile']) {
+      const tops = orderedElements(section);
+      const anyAbs = tops.some((el) => frameFor(doc, el.id, bp)?.mode === 'absolute');
+      if (anyAbs) {
+        // Only frames with real numeric geometry may drive the section
+        // height; null/absent y or h must never coerce into a phantom 0.
+        const fin = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+        let maxBottom = 0;
+        for (const { el } of collectElements([section])) {
+          const f = frameFor(doc, el.id, bp);
+          if (f?.mode === 'absolute' && f.visible !== false) {
+            const y = fin(f.y);
+            if (y === null) continue;
+            const h = fin(f.h) ?? fin(f.minH) ?? 0;
+            const bottom = y + h;
+            if (bottom > maxBottom) maxBottom = bottom;
+          }
+        }
+        if (maxBottom > 0) {
+          const rule = `${scope} .aic-s-${sid}{min-height:${Math.ceil(maxBottom)}px;}`;
+          if (bp === 'desktop') rules.push(rule);
+          else bpRules[bp].push(rule);
+        }
+      }
+    }
+  }
+
+  // Elements.
+  const isCompleteAbsolute = (f) => {
+    if (!f || f.mode !== 'absolute') return false;
+    const fin = (v) => typeof v === 'number' && Number.isFinite(v);
+    return fin(f.x) && fin(f.y) && fin(f.w) && f.w > 0;
+  };
+  for (const { el } of collectElements(doc?.sections)) {
+    const cls = `.aic-e-${cssSafe(el.id)}`;
+    const desktopFrame = frameFor(doc, el.id, 'desktop');
+    let base = styleDecls(el.style) + frameDecls(desktopFrame);
+    // Backgrounds are decorative washes: never intercept clicks, and when
+    // their absolute geometry is incomplete, cover the whole section instead
+    // of collapsing into a stray box.
+    if (el.type === 'background' || el.type === 'section_background') {
+      base += 'pointer-events:none;';
+      if (!isCompleteAbsolute(desktopFrame)) {
+        base += 'position:absolute;inset:0;z-index:0;';
+      }
+    }
+    // A non-absolute container holding absolutely-positioned children must
+    // establish the positioning context, or the children escape the box.
+    // Evaluated per breakpoint: a child may only turn absolute at tablet or
+    // mobile via an override.
+    const needsRelative = (bp) => Array.isArray(el.children) && el.children.length
+      && frameFor(doc, el.id, bp)?.mode !== 'absolute'
+      && el.children.some((c) => c?.id && frameFor(doc, c.id, bp)?.mode === 'absolute');
+    if (needsRelative('desktop')) base += 'position:relative;';
+    rules.push(`${scope} ${cls}{${base}}`);
+    for (const bp of ['tablet', 'mobile']) {
+      const merged = frameFor(doc, el.id, bp);
+      const override = doc?.layouts?.[bp]?.[el.id];
+      const relHere = !needsRelative('desktop') && needsRelative(bp);
+      if (!override && !relHere) continue;
+      let decl = override ? frameDecls(merged) : '';
+      if (relHere) decl += 'position:relative;';
+      if (decl) bpRules[bp].push(`${scope} ${cls}{${decl}}`);
+    }
+  }
+
+  const css = [rules.join('\n')];
+  if (bpRules.tablet.length) {
+    css.push(`@media (max-width:${TABLET_MAX}px){${bpRules.tablet.join('\n')}}`);
+    css.push(bpRules.tablet.map((r) => r.replace(scope, `${scope}[data-aic-bp="tablet"]`)).join('\n'));
+  }
+  if (bpRules.mobile.length) {
+    css.push(`@media (max-width:${MOBILE_MAX}px){${bpRules.mobile.join('\n')}}`);
+    css.push(
+      bpRules.mobile.map((r) => r.replace(scope, `${scope}[data-aic-bp="mobile"]`)).join('\n'),
+      // Forced tablet preview also applies mobile rules? No — tablet shows tablet only.
+    );
+  }
+  return css.join('\n');
+}
+
+/** Heading tag for a heading element ('h2' default, clamped h1–h6). */
+export function headingTag(el) {
+  return /^h[1-6]$/.test(el?.role || '') ? el.role : 'h2';
+}
+
+// ---------------------------------------------------------------------------
+// Inspector draft-lifecycle helpers (pure, node-testable).
+//
+// A "draft" is a composition generated but NOT yet bound to the canvas block.
+// Regenerating an already-inserted composition adds a version to that SAME
+// composition — it must NEVER re-enter draft mode, because draft mode exposes
+// Insert/Discard and Discard deletes the composition (and all versions).
+
+/**
+ * After a generation completes, decide the new draftId.
+ * Returns the new composition id only when it is a genuinely uninserted draft;
+ * returns '' when generation targeted the already-inserted composition.
+ */
+export function resolveDraftAfterGeneration(insertedId, completedId) {
+  if (!completedId) return '';
+  return completedId === insertedId ? '' : completedId;
+}
+
+/** A draft may only be discarded (deleted) if it is NOT the inserted composition. */
+export function isDiscardableDraft(draftId, insertedId) {
+  return Boolean(draftId) && draftId !== insertedId;
+}
+
+/**
+ * Resolve an AI Composition link ref (spec §16 — record IDs, never raw URLs)
+ * into a navigable href, or null when no client-side route exists for it.
+ * Pure so it is testable in node.
+ */
+export function aicLinkHref(link) {
+  if (!link || typeof link !== 'object') return null;
+  const ident = (v) => (typeof v === 'string' && /^[a-zA-Z0-9_-]+$/.test(v) ? v : null);
+  switch (link.kind) {
+    case 'external':
+      return /^https?:\/\//i.test(link.url || '') ? link.url : null;
+    case 'email':
+      return link.address ? `mailto:${link.address}` : null;
+    case 'tel':
+      return link.number ? `tel:${link.number}` : null;
+    case 'anchor':
+      return ident(link.anchorId) ? `#${link.anchorId}` : null;
+    case 'page':
+      return ident(link.slug) ? `/${link.slug}` : null;
+    case 'event_registration':
+      return ident(link.eventId) ? `/EventDetails?id=${link.eventId}` : null;
+    case 'form':
+      return ident(link.slug) ? `/FormView?slug=${link.slug}` : null;
+    case 'membership_application':
+      return ident(link.tierId)
+        ? `/MembershipApplication?tier=${link.tierId}`
+        : '/MembershipApplication';
+    default:
+      return null;
+  }
+}
+
+/** External links open in a new tab; everything else navigates in place. */
+export function aicLinkTarget(link) {
+  return link?.kind === 'external' ? '_blank' : undefined;
+}

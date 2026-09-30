@@ -1,0 +1,29 @@
+index-Ber1s4PQ.js:1136 [Events] Debug - accessibleEvents count: 23
+index-Ber1s4PQ.js:1136 [Events] Debug - searchQuery: 
+index-Ber1s4PQ.js:1136 [Events] Debug - showPastEvents: false
+index-Ber1s4PQ.js:1136 [Events] Debug - memberInfo exists: true
+index-Ber1s4PQ.js:1136 [Events] Debug - memberInfo source: context
+index-Ber1s4PQ.js:1136 [Events] Filtered out: "International Employability: Unpacked" - search:true, filterTag:true, eventType:true, deliveryMode:false, time:false, isPast:true, start_date:2025-11-27T10:00:00+00:00
+index-Ber1s4PQ.js:1136 [Events] Filtered out: "International Employability: Unpacked" - search:true, filterTag:true, eventType:true, deliveryMode:false, time:false, isPast:true, start_date:2025-11-27T10:00:00+00:00
+index-Ber1s4PQ.js:1136 [Events] Filtered out: "test7" - search:true, filterTag:true, eventType:true, deliveryMode:false, time:false, isPast:true, start_date:2025-11-30T21:30:00+00:00
+index-Ber1s4PQ.js:1136 [Events] Filtered out: "test8" - search:true, filterTag:true, eventType:true, deliveryMode:false, time:false, isPast:true, start_date:2025-11-30T22:00:00+00:00
+index-Ber1s4PQ.js:1136 [Events] Filtered out: "test10" - search:true, filterTag:true, eventType:true, deliveryMode:false, time:false, isPast:true, start_date:2025-11-30T22:15:00+00:00
+index-Ber1s4PQ.js:1136 [Events] Filtered out: "test11" - search:true, filterTag:true, eventType:true, deliveryMode:false, time:false, isPast:true, start_date:2025-11-30T22:15:00+00:00
+index-Ber1s4PQ.js:1136 [Events] Filtered out: "TEst Sharon 0112" - search:true, filterTag:true, eventType:true, deliveryMode:false, time:false, isPast:true, start_date:2025-12-01T06:14:00+00:00
+index-Ber1s4PQ.js:1136 [Events] Filtered out: "testM2" - search:true, filterTag:true, eventType:true, deliveryMode:false, time:false, isPast:true, start_date:2025-12-01T08:05:00+00:00
+index-Ber1s4PQ.js:1136 [Events] Filtered out: "TestM3" - search:true, filterTag:true, eventType:true, deliveryMode:false, time:false, isPast:true, start_date:2025-12-01T09:14:00+00:00
+index-Ber1s4PQ.js:1136 [Events] Filtered out: "New test 011225 - Group" - search:true, filterTag:true, eventType:true, deliveryMode:false, time:false, isPast:true, start_date:2025-12-01T11:46:00+00:00
+index-Ber1s4PQ.js:1136 [Events] Filtered out: "testM1" - search:true, filterTag:true, eventType:true, deliveryMode:false, time:false, isPast:true, start_date:2025-12-01T13:26:00+00:00
+index-Ber1s4PQ.js:1136 [Events] Filtered out: "one off test A" - search:true, filterTag:true, eventType:true, deliveryMode:false, time:false, isPast:true, start_date:2025-12-02T19:28:00+00:00
+index-Ber1s4PQ.js:1136 [Events] Filtered out: "test one-off 2" - search:true, filterTag:true, eventType:true, deliveryMode:false, time:false, isPast:true, start_date:2025-12-02T19:35:00+00:00
+index-Ber1s4PQ.js:1136 [Events] Filtered out: "TEst Sharon" - search:true, filterTag:true, eventType:true, deliveryMode:false, time:false, isPast:true, start_date:2025-12-03T10:52:00+00:00
+index-Ber1s4PQ.js:1136 [Events] Filtered out: "test one off 10" - search:true, filterTag:true, eventType:true, deliveryMode:false, time:false, isPast:true, start_date:2025-12-03T20:36:00+00:00
+index-Ber1s4PQ.js:1136 [Events] Filtered out: "test" - search:true, filterTag:true, eventType:true, deliveryMode:false, time:false, isPast:true, start_date:2025-12-03T21:01:00+00:00
+index-Ber1s4PQ.js:1136 [Events] Filtered out: "Sharon test 041225" - search:true, filterTag:true, eventType:true, deliveryMode:false, time:false, isPast:true, start_date:2025-12-04T13:38:00+00:00
+index-Ber1s4PQ.js:1136 [Events] Filtered out: "Test 031225" - search:true, filterTag:true, eventType:true, deliveryMode:false, time:false, isPast:true, start_date:2025-12-04T18:02:00+00:00
+index-Ber1s4PQ.js:1136 [Events] Filtered out: "Group Work - with registration" - search:true, filterTag:true, eventType:true, deliveryMode:false, time:true, isPast:false, start_date:2025-12-25T10:00:00+00:00
+index-Ber1s4PQ.js:1136 [Events] Filtered out: "TEST 1" - search:true, filterTag:true, eventType:true, deliveryMode:false, time:true, isPast:false, start_date:2025-12-25T18:05:00+00:00
+index-Ber1s4PQ.js:1136 [Events] Filtered out: "TEST" - search:true, filterTag:true, eventType:true, deliveryMode:false, time:true, isPast:false, start_date:2025-12-25T18:05:00+00:00
+index-Ber1s4PQ.js:1136 [Events] Filtered out: "test" - search:true, filterTag:true, eventType:true, deliveryMode:false, time:true, isPast:false, start_date:2025-12-31T17:57:00+00:00
+index-Ber1s4PQ.js:1136 [Events] Filtered out: "Co-Creation in Action" - search:true, filterTag:true, eventType:true, deliveryMode:false, time:true, isPast:false, start_date:2026-01-28T14:00:00+00:00
+index-Ber1s4PQ.js:1136 [Events] Debug - filteredEvents count: 0

@@ -1,0 +1,2753 @@
+import { useEffect, useMemo, useState } from "react";
+import { EVENT_REVENUE_BASIS, validateEventRevenueConfig } from "@shared/eventRevenueContract.js";
+import { useQuery } from "@tanstack/react-query";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
+import { ChevronsUpDown, Loader2, Plus, Trash2 } from "lucide-react";
+// Recharts + chart container primitives — used by the inline preview body.
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  XAxis,
+  YAxis,
+} from "recharts";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+} from "@/components/ui/chart";
+import {
+  BAR_CHART_MARGIN,
+  getBarHeightProps,
+} from "@/components/dashboard/barChartHeight";
+import { formatNumber, WidgetBody } from "@/components/dashboard/WidgetCard";
+import { Textarea } from "@/components/ui/textarea";
+import { describeWidgetConfig } from "@shared/widgetDescriber.js";
+import { MEMBER_GROUP_MEASURES, changeGroupMeasure, groupFieldCompatible, isGroupTemporal } from "./memberGroupReporting";
+import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
+import {
+  dashboardWidgetChartColours,
+  normalizeDashboardWidgetPalette,
+  resolveDashboardWidgetColour,
+} from "@shared/dashboardWidgetPalette.js";
+import {
+  isWidgetDateOperator,
+  normalizeWidgetDate,
+  widgetDateError,
+} from "@shared/widgetFilterDates.js";
+
+const WIDGET_TYPES = [
+  { value: "stat", label: "Stat / KPI" },
+  { value: "bar", label: "Bar chart" },
+  { value: "pie", label: "Pie chart" },
+  { value: "donut", label: "Donut chart" },
+  { value: "line", label: "Line chart" },
+  { value: "list", label: "List" },
+];
+
+const WIDTHS = [
+  { value: "fifth", label: "1/5" },
+  { value: "third", label: "1/3" },
+  { value: "half", label: "1/2" },
+  { value: "full", label: "Full" },
+];
+
+const HEIGHTS = [
+  { value: "short", label: "Short" },
+  { value: "medium", label: "Medium" },
+  { value: "tall", label: "Tall" },
+  { value: "xtall", label: "Extra Tall" },
+  { value: "xxtall", label: "Huge" },
+];
+
+const AGGREGATORS = [
+  { value: "count", label: "Count" },
+  { value: "count_distinct", label: "Count distinct" },
+  { value: "sum", label: "Sum" },
+  { value: "avg", label: "Average" },
+  { value: "min", label: "Minimum" },
+  { value: "max", label: "Maximum" },
+];
+
+const TIME_GRANULARITIES = [
+  { value: "day", label: "Day" },
+  { value: "week", label: "Week" },
+  { value: "month", label: "Month" },
+  { value: "quarter", label: "Quarter" },
+  { value: "year", label: "Year" },
+];
+
+const FILTER_OPERATORS = [
+  { value: "eq", label: "equals" },
+  { value: "neq", label: "does not equal" },
+  { value: "contains", label: "contains" },
+  { value: "in", label: "is one of" },
+  { value: "gt", label: "is greater than" },
+  { value: "gte", label: "is at least" },
+  { value: "lt", label: "is less than" },
+  { value: "lte", label: "is at most" },
+  { value: "is_null", label: "is empty" },
+  { value: "is_not_null", label: "is not empty" },
+];
+
+// Operators that operate on the saved tenant value list rather than a
+// user-entered value — currently just "LMIC only", which expands at
+// query time to `country IN (tenant LMIC list)`.
+const TENANT_LIST_OPERATORS = [
+  { value: "lmic", label: "LMIC only (tenant list)" },
+  { value: "not_lmic", label: "Not LMIC (tenant list)" },
+];
+
+// A field is considered country-shaped (and so eligible for the LMIC
+// operator) when its name or label contains "country" or the plural
+// "countries". This deliberately matches both the system `country`
+// column, single-pick custom country preference fields, and plural
+// list-typed fields like `countries_of_operation`.
+function isCountryField(option) {
+  if (!option) return false;
+  const haystack = `${option.field || ""} ${option.label || ""}`.toLowerCase();
+  return haystack.includes("country") || haystack.includes("countries");
+}
+
+const DEFAULT_DRAFT = {
+  title: "",
+  widget_type: "stat",
+  width: "third",
+  height: "medium",
+  scope: "personal",
+  config: {
+    source: "organization",
+    color: "default",
+    measure: { aggregator: "count", field: null, fieldKind: null, fieldId: null },
+    groupBy: null,
+    // Optional "Active in period" split for grouped bar widgets (member
+    // source): stacks each group bucket into Active / Inactive.
+    seriesBy: null,
+    timeBucket: null,
+    // DD-only stage-transition mode; null for every other source.
+    transition: null,
+    // Form-conversion only; null for every other source.
+    conversion: null,
+    // Event Bookings only: organisation participation split; null otherwise.
+    participation: null,
+    // Stat/KPI-only number format; null = legacy compact style (1.5M).
+    numberFormat: null,
+    filters: [],
+    // Optional plain-text helper shown behind the ⓘ icon on the widget card.
+    helperText: "",
+    membershipValue: null,
+  },
+};
+
+function cloneDraft(draft) {
+  return JSON.parse(JSON.stringify(draft));
+}
+
+// Old widgets stored a single conversion targetFormId; normalise either
+// shape to a `targetFormIds` list when seeding the draft.
+function normalizeConversion(conv) {
+  if (!conv) return null;
+  const targetFormIds = Array.isArray(conv.targetFormIds)
+    ? conv.targetFormIds.filter(Boolean)
+    : conv.targetFormId
+      ? [conv.targetFormId]
+      : [];
+  return {
+    sourceFormId: conv.sourceFormId || null,
+    targetFormIds,
+    matchBy: conv.matchBy === "member" ? "member" : "organization",
+  };
+}
+
+function buildFieldOptions(source) {
+  if (!source) return [];
+  const system = (source.systemFields || []).map(f => ({
+    value: `system:${f.name}`,
+    label: f.label,
+    fieldKind: "system",
+    field: f.name,
+    fieldId: null,
+    type: f.type,
+    aggregatable: !!f.aggregatable,
+    options: Array.isArray(f.options) ? f.options : null,
+    // DD-only synthetic date dimension ("Date moved to stage …") needs a
+    // stage picked alongside it; carry the marker + canonical stage list.
+    stageField: !!f.stageField,
+    stageOptions: Array.isArray(f.stageOptions) ? f.stageOptions : null,
+    // Derived "Active in period" dimension: needs a From/To date range
+    // carried on whichever config references it (group-by / series /
+    // filter). Drives the date-range inputs in the builder.
+    periodField: !!f.periodField,
+    derived: f.derived || null,
+    // Derived dimensions (e.g. organisation Region) have no stored column
+    // and can't be measured or time-bucketed — the measure picker excludes
+    // them. `filterable` re-admits a derived dimension into the filter
+    // picker (the engine resolves such filters after bucket derivation).
+    groupOnly: !!f.groupOnly,
+    filterable: !!f.filterable,
+    supportedMeasures: f.supportedMeasures,
+    // Derived Region dimension: available classification schemes (app /
+    // World Bank), each with its own bucket list. Drives the scheme
+    // picker rendered under the Group-by select.
+    regionSchemes: Array.isArray(f.regionSchemes) ? f.regionSchemes : null,
+  }));
+  const custom = (source.customFields || []).map(f => ({
+    value: `custom:${f.id}`,
+    label: `${f.label} (custom)`,
+    fieldKind: "custom",
+    field: null,
+    fieldId: f.id,
+    type: f.type,
+    aggregatable: !!f.aggregatable,
+    options: Array.isArray(f.options) ? f.options : null,
+  }));
+  // Booking source only: ORGANISATION-level custom fields (application
+  // status, org type, ...). Filter-only — the engine resolves matching
+  // organisations and keeps their bookings; there is no per-booking value
+  // to measure, group or time-bucket over.
+  const org = (source.organisationFields || []).map(f => ({
+    value: `org:custom:${f.id}`,
+    label: `${f.label} (organisation)`,
+    fieldKind: "custom",
+    field: null,
+    fieldId: f.id,
+    type: f.type,
+    aggregatable: false,
+    options: Array.isArray(f.options) ? f.options : null,
+    orgField: true,
+    filterOnly: true,
+  }));
+  return [...system, ...custom, ...org];
+}
+
+// Resolve the descriptor behind a filter without confusing booking fields
+// with organisation-level custom fields. The latter use the same custom-field
+// shape but carry orgField so their type (including date) must come from the
+// organisation descriptor.
+function filterFieldOption(filter, fieldOptions) {
+  return fieldOptions.find(option =>
+    filter.fieldKind === "system"
+      ? option.fieldKind === "system" && option.field === filter.field
+      : option.fieldKind === "custom" && option.fieldId === filter.fieldId
+        && !!option.orgField === !!filter.orgField,
+  ) || null;
+}
+
+function dateFilterError(filter, fieldOptions) {
+  const option = filterFieldOption(filter, fieldOptions);
+  if (option?.type !== "date" || !isWidgetDateOperator(filter.operator)) return null;
+  if (filter.value === null || filter.value === undefined || filter.value === "") return null;
+  return widgetDateError(filter.value);
+}
+
+function normalizeFiltersForRequest(filters, fieldOptions, normalizeLists = false) {
+  return (filters || []).map(filter => {
+    if (normalizeLists && filter.operator === "in" && !Array.isArray(filter.value)) {
+      return {
+        ...filter,
+        value: String(filter.value || "").split(",").map(value => value.trim()).filter(Boolean),
+      };
+    }
+    const option = filterFieldOption(filter, fieldOptions);
+    if (option?.type !== "date" || !isWidgetDateOperator(filter.operator)) return filter;
+    const normalized = normalizeWidgetDate(filter.value);
+    return normalized ? { ...filter, value: normalized } : filter;
+  });
+}
+
+export default function WidgetBuilderModal({
+  open,
+  onClose,
+  onSave,
+  initialWidget = null,
+  prefillWidget = null,
+  defaultScope = "personal",
+  canSaveShared = false,
+  canSavePersonal = true,
+  isSaving = false,
+  palette,
+}) {
+  const { memberLabelPlural } = useMemberTerminology();
+  const colourOptions = useMemo(
+    () =>
+      normalizeDashboardWidgetPalette(palette).map(slot => ({
+        value: slot.key,
+        label: slot.label,
+        swatch: slot.color,
+      })),
+    [palette],
+  );
+
+  // Resolve the display label for a source descriptor, applying tenant
+  // member terminology to the "member" source so the dropdown reflects
+  // any custom name (e.g. "Contacts") instead of the hardcoded "Members".
+  const getSourceLabel = s => (s?.id === "member" ? memberLabelPlural : s?.label ?? "");
+
+  const [draft, setDraft] = useState(() => cloneDraft(DEFAULT_DRAFT));
+  const [previewData, setPreviewData] = useState(null);
+  const [previewError, setPreviewError] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  // Reset draft whenever the modal opens. `prefillWidget` (used by
+  // Duplicate) seeds a brand-new draft from another widget's config without
+  // flipping the modal into "edit" mode — only `initialWidget` controls
+  // that. If both are provided, `initialWidget` wins.
+  useEffect(() => {
+    if (!open) return;
+    const seed = initialWidget || prefillWidget;
+    if (seed) {
+      setDraft({
+        title: seed.title,
+        widget_type: seed.widget_type,
+        width: seed.width || "third",
+        height: seed.height || "medium",
+        scope: seed.scope,
+        config: {
+          source: seed.config?.source || "organization",
+          color: seed.config?.color || "default",
+          measure: seed.config?.measure || cloneDraft(DEFAULT_DRAFT).config.measure,
+          groupBy: seed.config?.groupBy || null,
+          seriesBy: seed.config?.seriesBy || null,
+          timeBucket: seed.config?.timeBucket || null,
+          cumulative: !!seed.config?.cumulative,
+          transition: seed.config?.transition || null,
+          conversion: normalizeConversion(seed.config?.conversion),
+          participation: seed.config?.participation === true ? true : null,
+          numberFormat: seed.config?.numberFormat || null,
+          filters: seed.config?.filters || [],
+          helperText: seed.config?.helperText || "",
+          membershipValue: seed.config?.membershipValue || null,
+          revenueCurrency: seed.config?.revenueCurrency || null,
+        },
+      });
+    } else {
+      setDraft({
+        ...cloneDraft(DEFAULT_DRAFT),
+        scope: defaultScope === "shared" && canSaveShared ? "shared" : "personal",
+      });
+    }
+    setPreviewData(null);
+    setPreviewError(null);
+  }, [open, initialWidget, prefillWidget, defaultScope, canSaveShared]);
+
+  const { data: sourcesPayload } = useQuery({
+    queryKey: ["/api/dashboard/sources"],
+    enabled: open,
+    queryFn: async () => {
+      const res = await fetch("/api/dashboard/sources", { credentials: "include" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`);
+      return body;
+    },
+  });
+  const sources = sourcesPayload?.sources || [];
+  const currentSource = sources.find(s => s.id === draft.config.source) || null;
+  const isMemberGroup = draft.config.source === "member_group";
+  const isEventSource = !!currentSource?.isEvent;
+  const isEventRevenueSource = draft.config.source === "event_revenue";
+  const groupMeasure = draft.config.measure?.field || "groups";
+  const fieldOptions = useMemo(() => {
+    const fields = buildFieldOptions(currentSource);
+    if (!isMemberGroup) return fields;
+    return [
+      ...MEMBER_GROUP_MEASURES.map(m => ({ ...m, value: `system:${m.field}`, fieldKind: "system", type: "number" })),
+      ...fields.filter(f => !MEMBER_GROUP_MEASURES.some(m => m.field === f.field)),
+    ];
+  }, [currentSource, isMemberGroup]);
+
+  // Group-by picker lists system + custom fields together, sorted A–Z by
+  // label (case-insensitive) so the dropdown is scannable regardless of
+  // registry order.
+  const groupByOptions = useMemo(
+    () =>
+      [...fieldOptions]
+        // Filter-only descriptors (organisation-level booking filters)
+        // never appear in the group-by picker.
+        .filter(o =>
+          !o.filterOnly &&
+          (!isMemberGroup || groupFieldCompatible(o, groupMeasure, "group")) &&
+          (!isEventSource || (o.fieldKind === "system" && ["event_kind", "status"].includes(o.field))) &&
+          (!isEventRevenueSource || ["event_id", "event_kind"].includes(o.field)),
+        )
+        .sort((a, b) =>
+          (a.label || "").localeCompare(b.label || "", undefined, { sensitivity: "base" }),
+        ),
+    [fieldOptions, isMemberGroup, groupMeasure, isEventSource, isEventRevenueSource],
+  );
+
+  // DD stage-transition capability (surfaced via the source's `isDd` flag so
+  // we don't hard-code the source id here). The From/To pickers reuse the
+  // canonical DD status list already published on the `workflow_status` field.
+  const isDdSource = !!currentSource?.isDd;
+  const transition = draft.config.transition || null;
+  const transitionActive = isDdSource && !!transition?.mode;
+
+  // Form-conversion capability (surfaced via the source's `isConversion`
+  // flag). The source/target pickers use the tenant's forms published on
+  // the source descriptor. Conversion widgets always render as a stat.
+  const isConversionSource = !!currentSource?.isConversion;
+  const isMembershipValueSource = draft.config.source === "organisation_membership";
+  const isBookingSource = !!currentSource?.isBooking;
+  const participationActive = isBookingSource && draft.config.participation === true;
+  const conversion = draft.config.conversion || null;
+  const conversionForms = currentSource?.forms || [];
+  const ddStageOptions = useMemo(() => {
+    const f = (currentSource?.systemFields || []).find(s => s.name === "workflow_status");
+    return Array.isArray(f?.options) ? f.options : [];
+  }, [currentSource]);
+
+  // Debounced preview.
+  useEffect(() => {
+    if (!open) return;
+    setPreviewError(null);
+    if (!draft.config.source || !currentSource) return;
+
+    const invalidDateIndex = (draft.config.filters || []).findIndex(
+      filter => !!dateFilterError(filter, fieldOptions),
+    );
+    if (invalidDateIndex !== -1) {
+      const error = dateFilterError(draft.config.filters[invalidDateIndex], fieldOptions);
+      setPreviewError(`Filter ${invalidDateIndex + 1}: ${error}`);
+      setPreviewData(null);
+      setPreviewLoading(false);
+      return;
+    }
+
+    const handle = setTimeout(async () => {
+      try {
+        setPreviewLoading(true);
+        const previewConfig = {
+          ...draft.config,
+          filters: normalizeFiltersForRequest(draft.config.filters, fieldOptions),
+        };
+        const res = await fetch("/api/dashboard/widgets/preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ config: previewConfig, widgetType: draft.widget_type }),
+        });
+        const body = await res.json();
+        if (!res.ok) {
+          throw new Error(body.error || "Preview failed");
+        }
+        setPreviewData(body.data);
+        setPreviewError(null);
+      } catch (err) {
+        setPreviewError(err.message);
+        setPreviewData(null);
+      } finally {
+        setPreviewLoading(false);
+      }
+    }, 350);
+
+    return () => clearTimeout(handle);
+  }, [draft.config, draft.widget_type, open, currentSource, fieldOptions]);
+
+  const updateConfig = patch => {
+    setDraft(prev => ({ ...prev, config: { ...prev.config, ...patch } }));
+  };
+
+  const updateMeasure = patch => {
+    setDraft(prev => ({
+      ...prev,
+      config: { ...prev.config, measure: { ...prev.config.measure, ...patch } },
+    }));
+  };
+
+  // Toggle DD stage-transition mode on/off. Turning it on forces a count
+  // measure (transitions are event counts), clears group-by / time-bucket
+  // (they don't apply), and defaults to the breakdown bar chart. Turning it
+  // off restores a plain count widget.
+  const setTransitionEnabled = on => {
+    setDraft(prev => {
+      if (on) {
+        return {
+          ...prev,
+          widget_type: "bar",
+          config: {
+            ...prev.config,
+            transition: { mode: "breakdown", fromStage: null, toStage: null },
+            measure: { aggregator: "count", field: null, fieldKind: null, fieldId: null },
+            groupBy: null,
+            seriesBy: null,
+            timeBucket: null,
+            cumulative: false,
+          },
+        };
+      }
+      return { ...prev, config: { ...prev.config, transition: null } };
+    });
+  };
+
+  // Breakdown -> bar (one bar per "From → To"); single -> stat (one count).
+  const setTransitionMode = mode => {
+    setDraft(prev => ({
+      ...prev,
+      widget_type: mode === "single" ? "stat" : "bar",
+      config: {
+        ...prev.config,
+        transition: { ...(prev.config.transition || {}), mode },
+      },
+    }));
+  };
+
+  const updateTransition = patch => {
+    setDraft(prev => ({
+      ...prev,
+      config: {
+        ...prev.config,
+        transition: { ...(prev.config.transition || {}), ...patch },
+      },
+    }));
+  };
+
+  const updateConversion = patch => {
+    setDraft(prev => ({
+      ...prev,
+      config: {
+        ...prev.config,
+        conversion: { ...(prev.config.conversion || {}), ...patch },
+      },
+    }));
+  };
+
+  const updateFilter = (index, patch) => {
+    setDraft(prev => {
+      const filters = [...(prev.config.filters || [])];
+      filters[index] = { ...filters[index], ...patch };
+      return { ...prev, config: { ...prev.config, filters } };
+    });
+  };
+
+  const addFilter = () => {
+    setDraft(prev => ({
+      ...prev,
+      config: {
+        ...prev.config,
+        filters: [
+          ...(prev.config.filters || []),
+          { fieldKind: "system", field: null, fieldId: null, operator: "eq", value: "" },
+        ],
+      },
+    }));
+  };
+
+  const removeFilter = idx => {
+    setDraft(prev => ({
+      ...prev,
+      config: {
+        ...prev.config,
+        filters: (prev.config.filters || []).filter((_, i) => i !== idx),
+      },
+    }));
+  };
+
+  // Only plain "count" allows a null field; count_distinct and the
+  // numeric aggregators all require one.
+  const requireMeasureField = draft.config.measure.aggregator !== "count";
+
+  // Derived validation: surfaces inline errors and gates the Save button so
+  // the user can never submit a configuration that would fail to render.
+  const validationErrors = useMemo(() => {
+    const errs = [];
+    if (!draft.title.trim()) errs.push("Add a widget title.");
+    if (!draft.config.source) errs.push("Choose a data source.");
+    (draft.config.filters || []).forEach((filter, index) => {
+      const error = dateFilterError(filter, fieldOptions);
+      if (error) errs.push(`Filter ${index + 1}: ${error}`);
+    });
+    if (isMembershipValueSource) {
+      const value = draft.config.membershipValue || {};
+      if (!Number.isInteger(Number(value.startMonth)) || Number(value.startMonth) < 1 || Number(value.startMonth) > 12) {
+        errs.push("Choose the annual period start month.");
+      }
+      if (!Number.isInteger(Number(value.startYear)) || Number(value.startYear) < 1900 || Number(value.startYear) > 9998) {
+        errs.push("Enter a valid annual period start year.");
+      }
+      (draft.config.filters || []).forEach((filter, index) => {
+        if (filter.fieldKind !== "custom" || !filter.fieldId) {
+          errs.push(`Filter ${index + 1}: choose an organisation classification field.`);
+        }
+        if (!["eq", "neq", "in", "contains", "is_null", "is_not_null"].includes(filter.operator)) {
+          errs.push(`Filter ${index + 1}: choose a supported comparison.`);
+        }
+        if (filter.operator === "in") {
+          const values = Array.isArray(filter.value)
+            ? filter.value
+            : String(filter.value || "").split(",").map(item => item.trim()).filter(Boolean);
+          if (values.length === 0) errs.push(`Filter ${index + 1}: list cannot be empty.`);
+        } else if (!["is_null", "is_not_null"].includes(filter.operator)
+          && (filter.value === null || filter.value === undefined || filter.value === "")) {
+          errs.push(`Filter ${index + 1}: enter a value.`);
+        }
+      });
+      return errs;
+    }
+    if (isMemberGroup) {
+      if (!MEMBER_GROUP_MEASURES.some(m => m.field === draft.config.measure.field)) errs.push("Choose a Member Groups measure.");
+      if (groupMeasure === "period_end_members" && !draft.config.timeBucket) errs.push("Period-end members requires a time bucket.");
+      if (draft.config.cumulative && groupMeasure !== "joins") errs.push("Only joins can use cumulative totals.");
+      if (isGroupTemporal(groupMeasure) && ["pie", "donut"].includes(draft.widget_type)) errs.push("Choose a stat, bar, line or list for membership history.");
+      if (draft.config.seriesBy && draft.widget_type === "stat") errs.push("Choose a bar, line or list to display named group series.");
+    }
+    if (isEventRevenueSource) {
+      try { validateEventRevenueConfig(draft.config); } catch (error) { errs.push(error.message); }
+    }
+    if (isEventSource) {
+      const measure = draft.config.measure || {};
+      if (measure.aggregator !== "count" || measure.field || measure.fieldId) {
+        errs.push("Events only support Count with no measure field.");
+      }
+      if (
+        draft.config.groupBy &&
+        (draft.config.groupBy.kind !== "system" ||
+          !["event_kind", "status"].includes(draft.config.groupBy.field))
+      ) {
+        errs.push("Events can only be grouped by Event kind or Status.");
+      }
+      if (
+        draft.config.timeBucket &&
+        (draft.config.timeBucket.field !== "event_start_date" ||
+          (draft.config.timeBucket.fieldKind &&
+            draft.config.timeBucket.fieldKind !== "system"))
+      ) {
+        errs.push("Events can only be time-bucketed by Event start date.");
+      }
+      if (draft.config.participation || draft.config.clickThrough) {
+        errs.push("Events do not support participation or CRM click-through.");
+      }
+    }
+    if (requireMeasureField && !draft.config.measure.field && !draft.config.measure.fieldId) {
+      const agg = draft.config.measure.aggregator;
+      const reqText = agg === "count_distinct" ? "needs a field" : "needs a numeric field";
+      errs.push(`${agg} ${reqText}.`);
+    }
+    if (isConversionSource) {
+      // Conversion widgets validate their own picker set; the measure /
+      // group-by / chart-type rules below don't apply.
+      const conv = draft.config.conversion || {};
+      const convTargets = Array.isArray(conv.targetFormIds)
+        ? conv.targetFormIds
+        : conv.targetFormId
+          ? [conv.targetFormId]
+          : [];
+      if (!conv.sourceFormId) errs.push("Choose a source form.");
+      if (convTargets.length === 0) errs.push("Choose at least one target form.");
+      if (conv.sourceFormId && convTargets.includes(conv.sourceFormId)) {
+        errs.push("The source form cannot also be a target form.");
+      }
+      (draft.config.filters || []).forEach((f, i) => {
+        if (!f.field && !f.fieldId) errs.push(`Filter ${i + 1}: choose a field.`);
+        if (
+          !["is_null", "is_not_null", "lmic", "not_lmic"].includes(f.operator) &&
+          (f.value === null || f.value === undefined || f.value === "")
+        ) {
+          errs.push(`Filter ${i + 1}: enter a value.`);
+        }
+      });
+      return errs;
+    }
+    const tActive = !!draft.config.transition?.mode;
+    if (participationActive) {
+      // Participation split has a fixed Booked / Not booked shape;
+      // group-by / time-bucket rules don't apply, but line charts do
+      // need a time series so they're not available in this mode.
+      if (draft.widget_type === "line") {
+        errs.push("Line charts aren't available for the participation split.");
+      }
+    } else if (tActive) {
+      // Stage transitions count history events; group-by / time-bucket
+      // don't apply, so only validate the single-transition picker.
+      if (
+        draft.config.transition.mode === "single" &&
+        (!draft.config.transition.fromStage || !draft.config.transition.toStage)
+      ) {
+        errs.push("Pick a From stage and a To stage for the transition.");
+      }
+    } else {
+      if (draft.config.groupBy && draft.config.timeBucket?.field) {
+        errs.push("Pick either group-by or a time bucket, not both.");
+      }
+      if (draft.widget_type === "line" && !draft.config.timeBucket?.field) {
+        errs.push("Line charts need a time bucket field.");
+      }
+      if (
+        ["bar", "pie"].includes(draft.widget_type) &&
+        !draft.config.groupBy &&
+        !draft.config.timeBucket?.field
+      ) {
+        errs.push("Bar and pie charts need a group-by or time bucket.");
+      }
+      if (draft.widget_type === "list" && !draft.config.groupBy
+          && !(isEventRevenueSource && draft.config.timeBucket?.field)) {
+        errs.push("List widgets need a group-by field.");
+      }
+      // "Date moved to stage …" needs a stage chosen alongside it.
+      const tbOpt = draft.config.timeBucket?.field
+        ? fieldOptions.find(o => o.fieldKind === "system" && o.field === draft.config.timeBucket.field)
+        : null;
+      if (tbOpt?.stageField && !draft.config.timeBucket?.stage) {
+        errs.push("Pick a stage for the time bucket.");
+      }
+      // "Active in period" needs its date range wherever it's referenced.
+      const gb = draft.config.groupBy;
+      const gbOpt = gb
+        ? fieldOptions.find(o => o.value === `${gb.kind}:${gb.field || gb.fieldId}`)
+        : null;
+      if (gbOpt?.periodField && !gb.from && !gb.to) {
+        errs.push('Pick a date range for the "Active in period" group-by.');
+      }
+      const sb = draft.config.seriesBy;
+      if (sb && !isMemberGroup) {
+        if (draft.widget_type !== "bar") {
+          errs.push("The activity split only works on bar charts.");
+        }
+        if (!gb) errs.push("The activity split needs a group-by field.");
+        if (!sb.from && !sb.to) {
+          errs.push("Pick a date range for the activity split.");
+        }
+      }
+    }
+    (draft.config.filters || []).forEach((f, i) => {
+      if (!f.field && !f.fieldId) errs.push(`Filter ${i + 1}: choose a field.`);
+      const fOpt = f.field
+        ? fieldOptions.find(o => o.fieldKind === "system" && o.field === f.field)
+        : null;
+      if (fOpt?.stageField && !f.stage) errs.push(`Filter ${i + 1}: choose a stage.`);
+      if (fOpt?.periodField && !f.from && !f.to) {
+        errs.push(`Filter ${i + 1}: pick a date range for "Active in period".`);
+      }
+      if (f.operator === "in") {
+        const list = Array.isArray(f.value)
+          ? f.value
+          : String(f.value || "").split(",").map(s => s.trim()).filter(Boolean);
+        if (list.length === 0) errs.push(`Filter ${i + 1}: list cannot be empty.`);
+      } else if (
+        !["is_null", "is_not_null", "lmic", "not_lmic"].includes(f.operator) &&
+        (f.value === null || f.value === undefined || f.value === "")
+      ) {
+        errs.push(`Filter ${i + 1}: enter a value.`);
+      }
+    });
+    return errs;
+  }, [draft, requireMeasureField, fieldOptions, isConversionSource, isMembershipValueSource, isEventSource, isEventRevenueSource, participationActive]);
+
+  const canSave = validationErrors.length === 0;
+
+  const handleSave = () => {
+    if (!canSave) return;
+    // Keep the draft untouched while typing, but persist date comparisons in
+    // their canonical ISO form (including legacy DD/MM/YYYY widget values).
+    // `in` filter values retain their existing array normalization.
+    const normalisedFilters = normalizeFiltersForRequest(
+      draft.config.filters,
+      fieldOptions,
+      true,
+    );
+    onSave({
+      title: draft.title.trim(),
+      widget_type: draft.widget_type,
+      width: draft.width,
+      height: draft.height,
+      scope: draft.scope,
+      config: {
+        ...draft.config,
+        filters: normalisedFilters,
+        helperText: (draft.config.helperText || "").trim().slice(0, 1000) || null,
+      },
+    });
+  };
+
+  // Fill the helper-text box from the deterministic config describer —
+  // same wording the backfill script generates for existing widgets.
+  const handleSuggestHelperText = () => {
+    const fieldLabel = ref => {
+      if (!ref) return null;
+      const match = fieldOptions.find(o =>
+        ref.fieldKind === "custom" || ref.kind === "custom"
+          ? o.fieldKind === "custom" && o.fieldId === ref.fieldId
+          : o.fieldKind === "system" && o.field === ref.field,
+      );
+      return match ? match.label.replace(/ \(custom\)$/, "") : null;
+    };
+    // Turn opaque stored filter values (e.g. a DD form's UUID) into their
+    // human names using the field's option list, when one exists.
+    const valueLabel = (ref, value) => {
+      const match = fieldOptions.find(o =>
+        ref.fieldKind === "custom"
+          ? o.fieldKind === "custom" && o.fieldId === ref.fieldId
+          : o.fieldKind === "system" && o.field === ref.field,
+      );
+      const opt = (match?.options || []).find(o =>
+        typeof o === "object" ? o.value === value : o === value,
+      );
+      return typeof opt === "object" ? opt.label : null;
+    };
+    const text = describeWidgetConfig(draft.config, {
+      widgetType: draft.widget_type,
+      sourceLabel: getSourceLabel(currentSource) || "records",
+      fieldLabel,
+      valueLabel,
+    });
+    if (text) {
+      setDraft(prev => ({ ...prev, config: { ...prev.config, helperText: text } }));
+    }
+  };
+
+  const previewWidget = useMemo(
+    () => ({
+      id: "__preview__",
+      title: draft.title || "Preview",
+      widget_type: draft.widget_type,
+      width: draft.width,
+      height: draft.height,
+      config: draft.config,
+    }),
+    [draft],
+  );
+
+  return (
+    <Dialog open={open} onOpenChange={v => !v && onClose?.()}>
+      <DialogContent
+        className="max-h-[90vh] max-w-5xl overflow-y-auto"
+        data-testid="dialog-widget-builder"
+      >
+        <DialogHeader>
+          <DialogTitle>{initialWidget ? "Edit widget" : "New widget"}</DialogTitle>
+          <DialogDescription>
+            Compose a chart or stat from your organisation and member data.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-6 lg:grid-cols-2">
+          {/* Builder */}
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="widget-title">Title</Label>
+              <Input
+                id="widget-title"
+                value={draft.title}
+                onChange={e => setDraft(prev => ({ ...prev, title: e.target.value }))}
+                placeholder="My new chart"
+                data-testid="input-widget-title"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Label htmlFor="widget-helper-text">
+                  Helper text{" "}
+                  <span className="font-normal text-muted-foreground">
+                    (optional — shown when someone clicks the ⓘ on the widget)
+                  </span>
+                </Label>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={handleSuggestHelperText}
+                  data-testid="button-suggest-helper-text"
+                >
+                  Suggest text
+                </Button>
+              </div>
+              <Textarea
+                id="widget-helper-text"
+                value={draft.config.helperText || ""}
+                onChange={e => updateConfig({ helperText: e.target.value })}
+                maxLength={1000}
+                rows={3}
+                placeholder="Explain what this widget shows and how to read it"
+                data-testid="input-widget-helper-text"
+              />
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              {!isMembershipValueSource && (
+              <div className="space-y-2">
+                <Label>Chart type</Label>
+                <Select
+                  value={draft.widget_type}
+                  onValueChange={value =>
+                    setDraft(prev => ({
+                      ...prev,
+                      widget_type: value,
+                      // Cumulative only applies to line charts; clear the
+                      // flag when switching to any other type so an invalid
+                      // combination can never be saved.
+                      config:
+                        value === "line"
+                          ? prev.config
+                          : { ...prev.config, cumulative: false, ...(isMemberGroup && value === "stat" ? { seriesBy: null } : {}) },
+                    }))
+                  }
+                >
+                  <SelectTrigger data-testid="select-widget-type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {WIDGET_TYPES
+                      // Conversion widgets only render as a stat card.
+                      .filter(t => !isConversionSource || t.value === "stat")
+                      .filter(t => !isMemberGroup || !isGroupTemporal(groupMeasure) || !["pie", "donut"].includes(t.value))
+                      .map(t => (
+                        <SelectItem key={t.value} value={t.value}>
+                          {t.label}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              )}
+              <div className="space-y-2">
+                <Label>Width</Label>
+                <Select
+                  value={draft.width}
+                  onValueChange={value => setDraft(prev => ({ ...prev, width: value }))}
+                >
+                  <SelectTrigger data-testid="select-widget-width">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {WIDTHS.map(w => (
+                      <SelectItem key={w.value} value={w.value}>
+                        {w.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Height</Label>
+                <Select
+                  value={draft.height || "medium"}
+                  onValueChange={value => setDraft(prev => ({ ...prev, height: value }))}
+                >
+                  <SelectTrigger data-testid="select-widget-height">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {HEIGHTS.map(h => (
+                      <SelectItem key={h.value} value={h.value}>
+                        {h.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Colour</Label>
+              <div className="flex flex-wrap gap-2" data-testid="widget-colour-options">
+                {colourOptions.map(opt => {
+                  const selected = (draft.config.color || "default") === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      aria-label={opt.label}
+                      aria-pressed={selected}
+                      onClick={() => updateConfig({ color: opt.value })}
+                      data-testid={`button-widget-colour-${opt.value}`}
+                      className={cn(
+                        "flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm hover-elevate",
+                        selected && "border-primary",
+                      )}
+                    >
+                      <span
+                        className="h-3 w-3 rounded-sm"
+                        style={{ backgroundColor: opt.swatch }}
+                      />
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {draft.widget_type === "stat" && !isMembershipValueSource && !isEventRevenueSource && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Number format</Label>
+                  <Select
+                    value={draft.config.numberFormat?.mode === "full" ? "full" : "compact"}
+                    onValueChange={value =>
+                      updateConfig({
+                        numberFormat:
+                          value === "full"
+                            ? {
+                                mode: "full",
+                                decimals: Number.isInteger(
+                                  draft.config.numberFormat?.decimals,
+                                )
+                                  ? draft.config.numberFormat.decimals
+                                  : 0,
+                              }
+                            : null,
+                      })
+                    }
+                  >
+                    <SelectTrigger data-testid="select-widget-number-format">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="compact">Compact (e.g. 1.5M)</SelectItem>
+                      <SelectItem value="full">Full number (e.g. 1,534,207)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {draft.config.numberFormat?.mode === "full" && (
+                  <div className="space-y-2">
+                    <Label>Decimal places</Label>
+                    <Select
+                      value={String(
+                        Number.isInteger(draft.config.numberFormat?.decimals)
+                          ? draft.config.numberFormat.decimals
+                          : 0,
+                      )}
+                      onValueChange={value =>
+                        updateConfig({
+                          numberFormat: { mode: "full", decimals: Number(value) },
+                        })
+                      }
+                    >
+                      <SelectTrigger data-testid="select-widget-decimals">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {[0, 1, 2, 3, 4].map(d => (
+                          <SelectItem key={d} value={String(d)}>
+                            {d}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {(canSaveShared || canSavePersonal) && (
+              <div className="space-y-2">
+                <Label>Visibility</Label>
+                <RadioGroup
+                  value={draft.scope}
+                  onValueChange={value => setDraft(prev => ({ ...prev, scope: value }))}
+                  className="flex flex-wrap gap-3"
+                >
+                  {canSavePersonal && (
+                    <Label
+                      htmlFor="scope-personal"
+                      className="flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2"
+                    >
+                      <RadioGroupItem
+                        id="scope-personal"
+                        value="personal"
+                        data-testid="radio-scope-personal"
+                      />
+                      Just me
+                    </Label>
+                  )}
+                  {canSaveShared && (
+                    <Label
+                      htmlFor="scope-shared"
+                      className="flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2"
+                    >
+                      <RadioGroupItem
+                        id="scope-shared"
+                        value="shared"
+                        data-testid="radio-scope-shared"
+                      />
+                      Everyone in this organisation
+                    </Label>
+                  )}
+                </RadioGroup>
+              </div>
+            )}
+
+            <Separator />
+
+            <div className="space-y-2">
+              <Label>Data source</Label>
+              <Select
+                value={draft.config.source}
+                onValueChange={value => {
+                  const sel = sources.find(s => s.id === value);
+                   const toConversion = !!sel?.isConversion;
+                   const toMembershipValue = value === "organisation_membership";
+                  setDraft(prev => ({
+                    ...prev,
+                     // Special-purpose sources only render as a stat card.
+                     widget_type: toConversion || toMembershipValue ? "stat" : prev.widget_type,
+                    config: {
+                      source: value,
+                      measure: value === "event_revenue"
+                        ? { aggregator: "sum", field: "booked_value", fieldKind: "system", fieldId: null }
+                        : { aggregator: "count", field: value === "member_group" ? "groups" : null, fieldKind: value === "member_group" ? "system" : null, fieldId: null },
+                      revenueCurrency: value === "event_revenue" ? "GBP" : null,
+                      groupBy: null,
+                      seriesBy: null,
+                      timeBucket: null,
+                      cumulative: false,
+                      conversion: toConversion
+                        ? { sourceFormId: null, targetFormIds: [], matchBy: "organization" }
+                        : null,
+                       membershipValue: toMembershipValue
+                         ? {
+                             startMonth: new Date().getMonth() + 1,
+                             startYear: new Date().getFullYear(),
+                             currency: null,
+                             configIds: [],
+                             bandIds: [],
+                           }
+                         : null,
+                      // Display-only settings survive a source change.
+                      color: prev.config.color || "default",
+                      numberFormat: prev.config.numberFormat || null,
+                      filters: [],
+                       helperText: prev.config.helperText || "",
+                    },
+                  }));
+                }}
+              >
+                <SelectTrigger data-testid="select-widget-source">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {sources.map(s => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {getSourceLabel(s)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {isEventRevenueSource && (
+              <div className="space-y-2 rounded-md border p-3" data-testid="event-revenue-controls">
+                <Label htmlFor="event-revenue-currency">Reporting currency (ISO code)</Label>
+                <Input
+                  id="event-revenue-currency"
+                  maxLength={3}
+                  value={draft.config.revenueCurrency || ""}
+                  onChange={event => updateConfig({ revenueCurrency: event.target.value.toUpperCase() })}
+                  placeholder="GBP"
+                />
+                <p className="text-xs text-muted-foreground">{EVENT_REVENUE_BASIS}</p>
+                <p className="text-xs text-muted-foreground">Only the selected currency is included. Choose Event filters to select one or several events. Unscheduled events must be excluded for time-bucketed views.</p>
+              </div>
+            )}
+            {isMembershipValueSource && (
+              <MembershipValueControls
+                value={draft.config.membershipValue}
+                source={currentSource}
+                onChange={membershipValue => updateConfig({ membershipValue })}
+              />
+            )}
+
+            {isConversionSource && (
+              <div className="space-y-3 rounded-md border p-3">
+                <div className="space-y-1">
+                  <Label>Form conversion</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Counts how many distinct organisations or members submitted
+                    the source form and any of the target forms. Date filters
+                    apply to the target forms' submissions.
+                  </p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Source form</Label>
+                    <Select
+                      value={conversion?.sourceFormId || ""}
+                      onValueChange={value => updateConversion({ sourceFormId: value })}
+                    >
+                      <SelectTrigger data-testid="select-conversion-source-form">
+                        <SelectValue placeholder="Choose form" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {conversionForms.map(f => (
+                          <SelectItem key={f.value} value={f.value}>
+                            {f.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Target forms</Label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          className="w-full justify-between font-normal"
+                          data-testid="select-conversion-target-forms"
+                        >
+                          <span className="truncate">
+                            {(() => {
+                              const ids = conversion?.targetFormIds || [];
+                              if (ids.length === 0) return "Choose forms";
+                              if (ids.length === 1) {
+                                return (
+                                  conversionForms.find(f => f.value === ids[0])?.label ||
+                                  "1 form"
+                                );
+                              }
+                              return `${ids.length} forms selected`;
+                            })()}
+                          </span>
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-64 max-h-72 overflow-y-auto p-2" align="start">
+                        {conversionForms.length === 0 ? (
+                          <p className="p-2 text-sm text-muted-foreground">No forms found.</p>
+                        ) : (
+                          conversionForms.map(f => {
+                            const ids = conversion?.targetFormIds || [];
+                            const checked = ids.includes(f.value);
+                            return (
+                              <label
+                                key={f.value}
+                                className="hover-elevate flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm"
+                                data-testid={`option-conversion-target-${f.value}`}
+                              >
+                                <Checkbox
+                                  checked={checked}
+                                  onCheckedChange={on =>
+                                    updateConversion({
+                                      targetFormIds: on
+                                        ? [...ids, f.value]
+                                        : ids.filter(id => id !== f.value),
+                                    })
+                                  }
+                                />
+                                <span className="truncate">{f.label}</span>
+                              </label>
+                            );
+                          })
+                        )}
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Match by</Label>
+                  <Select
+                    value={conversion?.matchBy || "organization"}
+                    onValueChange={value => updateConversion({ matchBy: value })}
+                  >
+                    <SelectTrigger data-testid="select-conversion-matchby">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="organization">
+                        Organisation (submission's organisation)
+                      </SelectItem>
+                      <SelectItem value="member">
+                        Member (submitter's email)
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
+
+            {isDdSource && (
+              <div className="space-y-3 rounded-md border p-3">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <Label htmlFor="switch-dd-transition">Count stage transitions</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Count moves between Due Diligence stages (e.g. New → Incomplete)
+                      instead of current submissions.
+                    </p>
+                  </div>
+                  <Switch
+                    id="switch-dd-transition"
+                    data-testid="switch-dd-transition"
+                    checked={transitionActive}
+                    onCheckedChange={setTransitionEnabled}
+                  />
+                </div>
+
+                {transitionActive && (
+                  <div className="space-y-3">
+                    <div className="space-y-2">
+                      <Label>Mode</Label>
+                      <Select
+                        value={transition.mode || "breakdown"}
+                        onValueChange={setTransitionMode}
+                      >
+                        <SelectTrigger data-testid="select-transition-mode">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="breakdown">All transitions (bar chart)</SelectItem>
+                          <SelectItem value="single">Single transition (stat)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {transition.mode === "single" && (
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label>From stage</Label>
+                          <Select
+                            value={transition.fromStage || ""}
+                            onValueChange={value => updateTransition({ fromStage: value })}
+                          >
+                            <SelectTrigger data-testid="select-transition-from">
+                              <SelectValue placeholder="Choose stage" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {ddStageOptions.map(o => (
+                                <SelectItem key={o.value} value={String(o.value)}>
+                                  {o.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>To stage</Label>
+                          <Select
+                            value={transition.toStage || ""}
+                            onValueChange={value => updateTransition({ toStage: value })}
+                          >
+                            <SelectTrigger data-testid="select-transition-to">
+                              <SelectValue placeholder="Choose stage" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {ddStageOptions.map(o => (
+                                <SelectItem key={o.value} value={String(o.value)}>
+                                  {o.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    )}
+
+                    <p className="text-xs text-muted-foreground">
+                      Each stage change counts once — if a submission moves to a stage,
+                      back, then forward again, that counts as two transitions. Date
+                      filters apply to when the transition happened.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {isBookingSource && (
+              <div className="space-y-3 rounded-md border p-3">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <Label htmlFor="switch-booking-participation">
+                      Organisation participation split
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Show organisations WITH vs WITHOUT at least one booking
+                      matching the filters, compared against all your
+                      organisations. Bookings without a linked organisation
+                      (e.g. guest bookings) are excluded from the split.
+                    </p>
+                  </div>
+                  <Switch
+                    id="switch-booking-participation"
+                    data-testid="switch-booking-participation"
+                    checked={participationActive}
+                    onCheckedChange={checked =>
+                      setDraft(prev => ({
+                        ...prev,
+                        // Line charts need a time series; swap to pie when
+                        // enabling the fixed two-bucket split.
+                        widget_type:
+                          checked && prev.widget_type === "line"
+                            ? "pie"
+                            : prev.widget_type,
+                        config: {
+                          ...prev.config,
+                          participation: checked ? true : null,
+                          measure: checked
+                            ? { aggregator: "count", field: null, fieldKind: null, fieldId: null }
+                            : prev.config.measure,
+                          groupBy: checked ? null : prev.config.groupBy,
+                          timeBucket: checked ? null : prev.config.timeBucket,
+                          cumulative: checked ? false : prev.config.cumulative,
+                        },
+                      }))
+                    }
+                  />
+                </div>
+                {participationActive && (
+                  <div className="flex items-center justify-between gap-4 rounded-md border p-3">
+                    <div className="space-y-1">
+                      <Label htmlFor="switch-widget-click-through-participation">
+                        Click through to CRM
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        Clicking Booked or Not booked opens the organisations
+                        list filtered to that group.
+                      </p>
+                    </div>
+                    <Switch
+                      id="switch-widget-click-through-participation"
+                      data-testid="switch-widget-click-through-participation"
+                      checked={!!draft.config.clickThrough}
+                      onCheckedChange={checked =>
+                        updateConfig({ clickThrough: checked })
+                      }
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {isEventSource && (
+              <div
+                className="space-y-1 rounded-md border p-3 text-xs text-muted-foreground"
+                data-testid="event-counting-semantics"
+              >
+                <p>
+                  Counts simple and complex events once each. Multi-day events
+                  are counted in the period in which they start.
+                </p>
+                <p>
+                  All statuses are included unless filtered. A date range&apos;s
+                  end date includes the whole selected day.
+                </p>
+              </div>
+            )}
+
+            {!transitionActive && !isConversionSource && !isMembershipValueSource && !participationActive && (
+            <>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Aggregation</Label>
+                <Select
+                  value={draft.config.measure.aggregator}
+                  onValueChange={value => updateMeasure({ aggregator: value })}
+                >
+                  <SelectTrigger data-testid="select-widget-aggregator">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {AGGREGATORS.filter(a =>
+                      isEventRevenueSource ? a.value === "sum" : ((!isMemberGroup && !isEventSource) || a.value === "count")
+                    ).map(a => (
+                      <SelectItem key={a.value} value={a.value}>
+                        {a.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Field</Label>
+                <Select
+                  value={
+                    draft.config.measure.fieldKind
+                      ? `${draft.config.measure.fieldKind}:${
+                          draft.config.measure.field || draft.config.measure.fieldId
+                        }`
+                      : ""
+                  }
+                  disabled={!isMemberGroup && !requireMeasureField && draft.config.measure.aggregator === "count"}
+                  onValueChange={value => {
+                    const opt = fieldOptions.find(o => o.value === value);
+                    if (!opt) return;
+                    if (isMemberGroup) {
+                      setDraft(prev => ({
+                        ...prev,
+                        widget_type: isGroupTemporal(opt.field) && ["pie", "donut"].includes(prev.widget_type) ? "line" : prev.widget_type,
+                        config: changeGroupMeasure(prev.config, opt.field),
+                      }));
+                      return;
+                    }
+                    updateMeasure({
+                      fieldKind: opt.fieldKind,
+                      field: opt.field,
+                      fieldId: opt.fieldId,
+                    });
+                  }}
+                >
+                  <SelectTrigger data-testid="select-widget-field">
+                    <SelectValue
+                      placeholder={
+                        draft.config.measure.aggregator === "count"
+                          ? "(records)"
+                          : "Select field"
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {fieldOptions
+                      .filter(opt => {
+                        if (isMemberGroup) return groupFieldCompatible(opt, groupMeasure, "measure");
+                        // Derived group-only dimensions (e.g. Region) have
+                        // no stored column to measure over.
+                        if (opt.groupOnly) return false;
+                        // Organisation-level booking filters are filter-only.
+                        if (opt.filterOnly) return false;
+                        // count / count_distinct accept any field type
+                        // (e.g. count_distinct on country); numeric
+                        // aggregators are restricted to aggregatable fields.
+                        const agg = draft.config.measure.aggregator;
+                        if (agg === 'count' || agg === 'count_distinct') return true;
+                        return opt.aggregatable;
+                      })
+                      .map(opt => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {isMemberGroup && (
+              <details className="text-xs text-muted-foreground" data-testid="member-group-semantics">
+                <summary className="cursor-pointer">Counting rules, history coverage and eligibility</summary>
+                <p className="mt-1">
+                  {describeWidgetConfig(draft.config, { widgetType: draft.widget_type })}
+                  {" "}Click-through to individual members is unavailable.
+                </p>
+              </details>
+            )}
+
+            <div className="space-y-2">
+              <Label>Group by</Label>
+              <Select
+                disabled={isMemberGroup && groupMeasure === "period_end_members"}
+                value={
+                  draft.config.groupBy
+                    ? `${draft.config.groupBy.kind}:${
+                        draft.config.groupBy.field || draft.config.groupBy.fieldId
+                      }`
+                    : "__none__"
+                }
+                onValueChange={value => {
+                  if (value === "__none__") {
+                    updateConfig({ groupBy: null, seriesBy: null });
+                    return;
+                  }
+                  const opt = fieldOptions.find(o => o.value === value);
+                  if (!opt) return;
+                  updateConfig({
+                    groupBy: { kind: opt.fieldKind, field: opt.field, fieldId: opt.fieldId },
+                    timeBucket: null,
+                    ...(isMemberGroup ? { seriesBy: null, cumulative: false } : {}),
+                    // Grouping by "Active in period" itself makes the
+                    // secondary Active/Inactive split redundant.
+                    ...(opt.periodField ? { seriesBy: null } : {}),
+                  });
+                }}
+              >
+                <SelectTrigger data-testid="select-widget-groupby">
+                  <SelectValue placeholder="No grouping" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">No grouping</SelectItem>
+                  {groupByOptions.map(opt => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                  {(() => {
+                    // Existing widgets may be grouped by a field a tenant
+                    // admin has since hidden from the catalog. Keep such a
+                    // selection visible (and re-saveable) instead of showing
+                    // an empty trigger — hiding only affects the option
+                    // list for new choices.
+                    const gb = draft.config.groupBy;
+                    if (!gb) return null;
+                    const key = `${gb.kind}:${gb.field || gb.fieldId}`;
+                    if (fieldOptions.some(o => o.value === key)) return null;
+                    return (
+                      <SelectItem value={key}>
+                        {gb.field || "Custom field"} (hidden field)
+                      </SelectItem>
+                    );
+                  })()}
+                </SelectContent>
+              </Select>
+              {(() => {
+                // Derived Region group-by: offer the classification-scheme
+                // picker. Absent scheme = app regions (legacy behaviour),
+                // so existing widgets prefill to "App regions".
+                const gb = draft.config.groupBy;
+                if (!gb) return null;
+                const selected = fieldOptions.find(
+                  o => o.value === `${gb.kind}:${gb.field || gb.fieldId}`,
+                );
+                if (!selected?.regionSchemes) return null;
+                return (
+                  <div className="space-y-2 pt-1">
+                    <Label>Region scheme</Label>
+                    <Select
+                      value={gb.regionScheme || "app"}
+                      onValueChange={value => {
+                        updateConfig({
+                          groupBy: { ...gb, regionScheme: value },
+                        });
+                      }}
+                    >
+                      <SelectTrigger data-testid="select-widget-region-scheme">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {selected.regionSchemes.map(s => (
+                          <SelectItem key={s.value} value={s.value}>
+                            {s.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <div className="flex items-center justify-between gap-4 rounded-md border p-3">
+                      <div className="space-y-1">
+                        <Label htmlFor="switch-widget-multi-region">
+                          Group multi-region records together
+                        </Label>
+                        <p className="text-xs text-muted-foreground">
+                          On: records spanning several regions appear once
+                          under "Multi-region". Off: they are counted once
+                          under each of their regions.
+                        </p>
+                      </div>
+                      <Switch
+                        id="switch-widget-multi-region"
+                        data-testid="switch-widget-multi-region"
+                        checked={gb.multiRegion !== false}
+                        onCheckedChange={checked =>
+                          updateConfig({
+                            groupBy: { ...gb, multiRegion: checked ? null : false },
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                );
+              })()}
+              {(() => {
+                // Grouping by the derived "Active in period" dimension needs
+                // the date range the Active/Inactive buckets are computed
+                // against.
+                const gb = draft.config.groupBy;
+                if (!gb) return null;
+                const selected = fieldOptions.find(
+                  o => o.value === `${gb.kind}:${gb.field || gb.fieldId}`,
+                );
+                if (!selected?.periodField) return null;
+                return (
+                  <div className="grid gap-2 pt-1 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Active from</Label>
+                      <Input
+                        type="date"
+                        value={gb.from || ""}
+                        onChange={e =>
+                          updateConfig({ groupBy: { ...gb, from: e.target.value || null } })
+                        }
+                        data-testid="input-groupby-period-from"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Active to</Label>
+                      <Input
+                        type="date"
+                        value={gb.to || ""}
+                        onChange={e =>
+                          updateConfig({ groupBy: { ...gb, to: e.target.value || null } })
+                        }
+                        data-testid="input-groupby-period-to"
+                      />
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {(() => {
+              // Secondary "Active in period" split: member-source bar widgets
+              // grouped by another field can stack each bucket into Active /
+              // Inactive members for a chosen date range (e.g. logins by
+              // organisation type).
+              const activeOpt = fieldOptions.find(o => o.periodField);
+              const gb = draft.config.groupBy;
+              const gbIsActive = !!(gb
+                && fieldOptions.find(
+                  o => o.value === `${gb.kind}:${gb.field || gb.fieldId}`,
+                )?.periodField);
+              if (!activeOpt || !gb || gbIsActive || draft.widget_type !== "bar" || transitionActive) {
+                return null;
+              }
+              const sb = draft.config.seriesBy || null;
+              return (
+                <div className="space-y-2 rounded-md border p-3">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <Label htmlFor="switch-widget-series-active">
+                        Split by activity in period
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        Stacks each bar into members active vs not active
+                        (by last login) in a chosen date range.
+                      </p>
+                    </div>
+                    <Switch
+                      id="switch-widget-series-active"
+                      data-testid="switch-widget-series-active"
+                      checked={!!sb}
+                      onCheckedChange={checked =>
+                        updateConfig({
+                          seriesBy: checked
+                            ? { kind: "system", field: activeOpt.field, from: null, to: null }
+                            : null,
+                        })
+                      }
+                    />
+                  </div>
+                  {sb && (
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Active from</Label>
+                        <Input
+                          type="date"
+                          value={sb.from || ""}
+                          onChange={e =>
+                            updateConfig({ seriesBy: { ...sb, from: e.target.value || null } })
+                          }
+                          data-testid="input-series-period-from"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Active to</Label>
+                        <Input
+                          type="date"
+                          value={sb.to || ""}
+                          onChange={e =>
+                            updateConfig({ seriesBy: { ...sb, to: e.target.value || null } })
+                          }
+                          data-testid="input-series-period-to"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {(!isMemberGroup || isGroupTemporal(groupMeasure)) && (<>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Time bucket — date field</Label>
+                <Select
+                  value={(() => {
+                    // Re-derive the option key (system:<name> or
+                    // custom:<id>) from the saved config so existing
+                    // widgets — including seeded ones that bucket on
+                    // a custom date field like member.go_live —
+                    // prefill correctly when re-opened in the builder.
+                    const tb = draft.config.timeBucket;
+                    if (!tb?.field && !tb?.fieldId) return "__none__";
+                    if (tb.fieldKind === "custom" && tb.fieldId) {
+                      return `custom:${tb.fieldId}`;
+                    }
+                    return `system:${tb.field}`;
+                  })()}
+                  onValueChange={value => {
+                    if (value === "__none__") {
+                      // Clearing the bucket invalidates a cumulative line, so
+                      // drop the flag alongside it.
+                      updateConfig({ timeBucket: null, cumulative: false, ...(isMemberGroup ? { seriesBy: null } : {}) });
+                      return;
+                    }
+                    const opt = fieldOptions.find(o => o.value === value);
+                    if (!opt) return;
+                    updateConfig({
+                      timeBucket: {
+                        // Persist all three keys so the engine can
+                        // hydrate via the preference store for custom
+                        // date fields and read directly off the row
+                        // for system date columns.
+                        field: opt.field || opt.fieldId,
+                        fieldKind: opt.fieldKind,
+                        fieldId: opt.fieldId,
+                        granularity: draft.config.timeBucket?.granularity || "month",
+                      },
+                      groupBy: null,
+                    });
+                  }}
+                >
+                  <SelectTrigger data-testid="select-widget-timebucket-field">
+                    <SelectValue placeholder="No bucket" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No bucket</SelectItem>
+                    {fieldOptions
+                      .filter(opt =>
+                        opt.type === "date" &&
+                        !opt.filterOnly &&
+                        (!isMemberGroup || groupFieldCompatible(opt, groupMeasure, "date")) &&
+                        (!isEventSource || (opt.fieldKind === "system" && opt.field === "event_start_date")),
+                      )
+                      .map(opt => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Granularity</Label>
+                <Select
+                  value={draft.config.timeBucket?.granularity || "month"}
+                  onValueChange={value =>
+                    updateConfig({
+                      timeBucket: draft.config.timeBucket
+                        ? { ...draft.config.timeBucket, granularity: value }
+                        : null,
+                    })
+                  }
+                  disabled={!draft.config.timeBucket?.field}
+                >
+                  <SelectTrigger data-testid="select-widget-timebucket-granularity">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TIME_GRANULARITIES.map(g => (
+                      <SelectItem key={g.value} value={g.value}>
+                        {g.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {draft.config.timeBucket?.field && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Show</Label>
+                  <Select
+                    value={draft.config.timeBucket?.window ? "window" : "all"}
+                    onValueChange={value =>
+                      updateConfig({
+                        timeBucket: {
+                          ...draft.config.timeBucket,
+                          window:
+                            value === "window"
+                              ? draft.config.timeBucket?.window || {
+                                  amount: 12,
+                                  unit:
+                                    draft.config.timeBucket?.granularity ||
+                                    "month",
+                                }
+                              : null,
+                        },
+                      })
+                    }
+                  >
+                    <SelectTrigger data-testid="select-widget-timebucket-window-mode">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All time</SelectItem>
+                      <SelectItem value="window">Last X periods</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {draft.config.timeBucket?.window && (
+                  <div className="space-y-2">
+                    <Label>Last</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        type="number"
+                        min={1}
+                        max={120}
+                        className="w-24"
+                        data-testid="input-widget-timebucket-window-amount"
+                        value={draft.config.timeBucket.window.amount ?? ""}
+                        onChange={e => {
+                          const raw = parseInt(e.target.value, 10);
+                          const amount = Number.isFinite(raw)
+                            ? Math.min(120, Math.max(1, raw))
+                            : 1;
+                          updateConfig({
+                            timeBucket: {
+                              ...draft.config.timeBucket,
+                              window: {
+                                ...draft.config.timeBucket.window,
+                                amount,
+                              },
+                            },
+                          });
+                        }}
+                      />
+                      <Select
+                        value={draft.config.timeBucket.window.unit || "month"}
+                        onValueChange={value =>
+                          updateConfig({
+                            timeBucket: {
+                              ...draft.config.timeBucket,
+                              window: {
+                                ...draft.config.timeBucket.window,
+                                unit: value,
+                              },
+                            },
+                          })
+                        }
+                      >
+                        <SelectTrigger
+                          className="flex-1"
+                          data-testid="select-widget-timebucket-window-unit"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {TIME_GRANULARITIES.map(g => (
+                            <SelectItem key={g.value} value={g.value}>
+                              {g.label}s
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Only the most recent periods are shown; the window
+                      rolls forward automatically.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {(() => {
+              // When the chosen time-bucket field is the synthetic "Date moved
+              // to stage …" DD field, surface a stage picker — the count is
+              // bucketed by when each submission first entered that stage.
+              const tb = draft.config.timeBucket;
+              const opt = tb?.field
+                ? fieldOptions.find(o => o.fieldKind === "system" && o.field === tb.field)
+                : null;
+              if (!opt?.stageField) return null;
+              return (
+                <div className="space-y-2">
+                  <Label>Stage</Label>
+                  <Select
+                    value={tb.stage || ""}
+                    onValueChange={value =>
+                      updateConfig({ timeBucket: { ...tb, stage: value } })
+                    }
+                  >
+                    <SelectTrigger data-testid="select-widget-timebucket-stage">
+                      <SelectValue placeholder="Choose stage" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(opt.stageOptions || []).map(o => (
+                        <SelectItem key={o.value} value={String(o.value)}>
+                          {o.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Counts each submission once, in the period it first reached
+                    this stage. Submissions that never reached it are excluded.
+                  </p>
+                </div>
+              );
+            })()}
+            </>)}
+
+            {isMemberGroup && draft.widget_type !== "stat" && isGroupTemporal(groupMeasure) && draft.config.timeBucket && (
+              <div className="flex items-center justify-between gap-4 rounded-md border p-3">
+                <Label htmlFor="switch-group-series">Separate series for each named group</Label>
+                <Switch id="switch-group-series" data-testid="switch-group-series"
+                  checked={draft.config.seriesBy?.field === "group_id"}
+                  onCheckedChange={checked => updateConfig({ seriesBy: checked ? { kind: "system", field: "group_id" } : null })}
+                />
+              </div>
+            )}
+
+            {(!isMemberGroup || groupMeasure === "joins") && draft.widget_type === "line" && draft.config.timeBucket?.field && (
+              <div className="flex items-center justify-between gap-4 rounded-md border p-3">
+                <div className="space-y-1">
+                  <Label htmlFor="switch-widget-cumulative">
+                    Cumulative (running total)
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Plot a running total across buckets instead of the
+                    value per bucket.
+                  </p>
+                </div>
+                <Switch
+                  id="switch-widget-cumulative"
+                  data-testid="switch-widget-cumulative"
+                  checked={!!draft.config.cumulative}
+                  onCheckedChange={checked =>
+                    updateConfig({ cumulative: checked })
+                  }
+                />
+              </div>
+            )}
+
+            {(["organization", "member"].includes(draft.config.source) ||
+              isBookingSource) &&
+              !!draft.config.groupBy && (
+              <div className="flex items-center justify-between gap-4 rounded-md border p-3">
+                <div className="space-y-1">
+                  <Label htmlFor="switch-widget-click-through">
+                    Click through to CRM
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Clicking a bar, slice or row opens the{" "}
+                    {draft.config.source === "member" ? "members" : "organisations"}{" "}
+                    list filtered to that group's records
+                    {isBookingSource
+                      ? " (the organisations behind that group's bookings)"
+                      : ""}.
+                  </p>
+                </div>
+                <Switch
+                  id="switch-widget-click-through"
+                  data-testid="switch-widget-click-through"
+                  checked={!!draft.config.clickThrough}
+                  onCheckedChange={checked =>
+                    updateConfig({ clickThrough: checked })
+                  }
+                />
+              </div>
+            )}
+            </>
+            )}
+
+            <Separator />
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Filters</Label>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={addFilter}
+                  data-testid="button-add-filter"
+                >
+                  <Plus className="mr-1 h-4 w-4" /> Add filter
+                </Button>
+              </div>
+              {(draft.config.filters || []).length === 0 && (
+                <p className="text-xs text-muted-foreground">No filters applied.</p>
+              )}
+              <div className="space-y-2">
+                {(draft.config.filters || []).map((filter, idx) => {
+                  const opt = filterFieldOption(filter, fieldOptions);
+                  const filterDateError = dateFilterError(filter, fieldOptions);
+                  // Region filters offer the bucket list of the filter's
+                  // chosen scheme (not the field's static app-scheme
+                  // options); every other field keeps its own options.
+                  const valueOptions = opt?.regionSchemes
+                    ? (opt.regionSchemes.find(
+                        s => s.value === (filter.regionScheme || "app"),
+                      )?.options || opt.options || null)
+                    : (opt?.options || null);
+                  return (
+                    <div
+                      key={idx}
+                      className="space-y-2 rounded-md border p-2"
+                      data-testid={`filter-row-${idx}`}
+                    >
+                    <div className="grid gap-2 sm:grid-cols-[1fr_1fr_1fr_auto]">
+                      <Select
+                        value={opt?.value || ""}
+                        onValueChange={value => {
+                          const sel = fieldOptions.find(o => o.value === value);
+                          if (!sel) return;
+                          updateFilter(idx, {
+                            fieldKind: sel.fieldKind,
+                            field: sel.field,
+                            fieldId: sel.fieldId,
+                            // Organisation-level booking filter marker: the
+                            // engine resolves these against the linked
+                            // organisation, not the booking row.
+                            orgField: sel.orgField ? true : null,
+                            // Stage only applies to the synthetic DD stage
+                            // field; drop it when switching to anything else.
+                            stage: sel.stageField ? (filter.stage || null) : null,
+                            // Region scheme only applies to the derived
+                            // Region dimension; seed the default scheme when
+                            // switching onto it, drop it otherwise. The value
+                            // is cleared because region buckets differ from
+                            // any previously chosen field's values.
+                            ...(sel.regionSchemes
+                              ? {
+                                  regionScheme: filter.regionScheme || "app",
+                                  value: opt?.regionSchemes ? filter.value : null,
+                                }
+                              : opt?.regionSchemes
+                                ? { regionScheme: null, value: null }
+                                : { regionScheme: null }),
+                          });
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Field" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {fieldOptions
+                            .filter(field => !isMemberGroup || groupFieldCompatible(field, groupMeasure, "filter"))
+                            // Derived dimensions with no stored column are
+                            // excluded unless explicitly marked filterable
+                            // (e.g. Region — resolved in JS server-side).
+                            .filter(o => !o.groupOnly || o.filterable)
+                            .filter(o => !isEventRevenueSource || o.field !== "booked_value")
+                            .map(o => (
+                              <SelectItem key={o.value} value={o.value}>
+                                {o.label}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                      <Select
+                        value={filter.operator}
+                        onValueChange={value => {
+                          // Tenant-list operators (e.g. LMIC) ignore the
+                          // user-entered value, so clear it on switch to
+                          // avoid stale values being re-sent on save.
+                          const patch = { operator: value };
+                          if (TENANT_LIST_OPERATORS.some(o => o.value === value)) {
+                            patch.value = null;
+                          }
+                          updateFilter(idx, patch);
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {FILTER_OPERATORS
+                            .filter(op => !isMembershipValueSource
+                              || ["eq", "neq", "in", "contains", "is_null", "is_not_null"].includes(op.value))
+                            .map(op => (
+                            <SelectItem key={op.value} value={op.value}>
+                              {op.label}
+                            </SelectItem>
+                          ))}
+                          {!isMemberGroup && isCountryField(opt) &&
+                            TENANT_LIST_OPERATORS.map(op => (
+                              <SelectItem key={op.value} value={op.value}>
+                                {op.label}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                      {["is_null", "is_not_null", "lmic", "not_lmic"].includes(filter.operator) ? (
+                        <div />
+                      ) : valueOptions?.length &&
+                        ["eq", "neq"].includes(filter.operator) ? (
+                        <Select
+                          value={
+                            filter.value === null || filter.value === undefined
+                              ? ""
+                              : String(filter.value)
+                          }
+                          onValueChange={value => updateFilter(idx, { value })}
+                        >
+                          <SelectTrigger data-testid={`select-filter-value-${idx}`}>
+                            <SelectValue placeholder="Choose value" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {valueOptions.map(o => (
+                              <SelectItem key={o.value} value={String(o.value)}>
+                                {o.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Input
+                          value={
+                            Array.isArray(filter.value)
+                              ? filter.value.join(", ")
+                              : filter.value ?? ""
+                          }
+                          onChange={e => updateFilter(idx, { value: e.target.value })}
+                          placeholder={
+                            opt?.type === "date" && isWidgetDateOperator(filter.operator)
+                              ? "DD/MM/YYYY or YYYY-MM-DD"
+                              : filter.operator === "in"
+                              ? "value1, value2, value3"
+                              : filter.operator === "contains"
+                                ? "Substring"
+                                : "Value"
+                          }
+                          data-testid={`input-filter-value-${idx}`}
+                          aria-invalid={filterDateError ? "true" : undefined}
+                          aria-describedby={
+                            opt?.type === "date" && isWidgetDateOperator(filter.operator)
+                              ? `filter-date-help-${idx}`
+                              : undefined
+                          }
+                        />
+                      )}
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => removeFilter(idx)}
+                        aria-label="Remove filter"
+                        data-testid={`button-remove-filter-${idx}`}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    {opt?.type === "date" && isWidgetDateOperator(filter.operator) && (
+                      <p
+                        id={`filter-date-help-${idx}`}
+                        className={cn(
+                          "text-xs",
+                          filterDateError ? "text-destructive" : "text-muted-foreground",
+                        )}
+                        data-testid={`text-filter-date-help-${idx}`}
+                      >
+                        {filterDateError || "Enter a complete date as DD/MM/YYYY or YYYY-MM-DD."}
+                      </p>
+                    )}
+                    {TENANT_LIST_OPERATORS.some(o => o.value === filter.operator) && (
+                      <p
+                        className="text-xs text-muted-foreground"
+                        data-testid={`text-lmic-help-${idx}`}
+                      >
+                        {filter.operator === "lmic"
+                          ? "Matches records whose country is on your tenant's LMIC list. Country values that can't be recognised (typos, free text) never match. If your LMIC list is empty, this filter matches nothing."
+                          : "Matches records whose country is recognised but not on your tenant's LMIC list. Values that can't be recognised as a country never match. If your LMIC list is empty, every recognised country matches."}
+                      </p>
+                    )}
+                    {opt?.regionSchemes && (
+                      <Select
+                        value={filter.regionScheme || "app"}
+                        onValueChange={value => {
+                          // Switching scheme invalidates a previously
+                          // chosen bucket value — buckets differ between
+                          // schemes — so clear it alongside.
+                          updateFilter(idx, { regionScheme: value, value: null });
+                        }}
+                      >
+                        <SelectTrigger data-testid={`select-filter-region-scheme-${idx}`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {opt.regionSchemes.map(s => (
+                            <SelectItem key={s.value} value={s.value}>
+                              {s.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                    {opt?.periodField && (
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <div className="space-y-1">
+                          <Label className="text-xs">Active from</Label>
+                          <Input
+                            type="date"
+                            value={filter.from || ""}
+                            onChange={e =>
+                              updateFilter(idx, { from: e.target.value || null })
+                            }
+                            data-testid={`input-filter-period-from-${idx}`}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Active to</Label>
+                          <Input
+                            type="date"
+                            value={filter.to || ""}
+                            onChange={e =>
+                              updateFilter(idx, { to: e.target.value || null })
+                            }
+                            data-testid={`input-filter-period-to-${idx}`}
+                          />
+                        </div>
+                      </div>
+                    )}
+                    {opt?.stageField && (
+                      <Select
+                        value={filter.stage || ""}
+                        onValueChange={value => updateFilter(idx, { stage: value })}
+                      >
+                        <SelectTrigger data-testid={`select-filter-stage-${idx}`}>
+                          <SelectValue placeholder="Choose stage to scope by" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(opt.stageOptions || []).map(o => (
+                            <SelectItem key={o.value} value={String(o.value)}>
+                              {o.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* Preview */}
+          <div className="space-y-2">
+            <Label>Live preview</Label>
+            <div
+              className="rounded-md border bg-muted/30 p-3"
+              data-testid="widget-preview-pane"
+            >
+              {previewLoading && !previewData && (
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-1/2" />
+                  <Skeleton className="h-32 w-full" />
+                </div>
+              )}
+              {previewError && (
+                <p className="text-sm text-destructive">{previewError}</p>
+              )}
+              {!previewError && (
+                <PreviewWidget widget={previewWidget} payload={previewData} palette={palette} />
+              )}
+            </div>
+          </div>
+        </div>
+
+        {validationErrors.length > 0 && (
+          <div
+            className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive"
+            data-testid="widget-validation-errors"
+          >
+            <p className="mb-1 font-medium">Fix these before saving:</p>
+            <ul className="list-disc space-y-0.5 pl-4">
+              {validationErrors.map((msg, i) => (
+                <li key={i}>{msg}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        <DialogFooter className="gap-2">
+          <Button variant="ghost" onClick={onClose} data-testid="button-cancel-widget">
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSave}
+            disabled={isSaving || !canSave}
+            data-testid="button-save-widget"
+          >
+            {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {initialWidget ? "Save changes" : "Create widget"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+const MONTHS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+function membershipCatalog(source) {
+  const catalog = source?.membershipCatalog || source?.catalog || {};
+  const configs = source?.membershipConfigs || catalog.configs || source?.configs || [];
+  const bands = source?.membershipBands || catalog.bands || source?.bands || [];
+  const currencies = source?.currencies || catalog.currencies || [];
+  const asOption = (item, fallback) => ({
+    value: String(item?.value ?? item?.id ?? ""),
+    label: String(item?.label ?? item?.name ?? item?.tier_label ?? fallback ?? ""),
+    configId: item?.configId ?? item?.config_id ?? null,
+  });
+  return {
+    configs: configs.map((item, i) => asOption(item, `Structure ${i + 1}`)).filter(o => o.value),
+    bands: bands.map((item, i) => asOption(item, `Band ${i + 1}`)).filter(o => o.value),
+    currencies: currencies.map(item =>
+      typeof item === "string"
+        ? { value: item, label: item }
+        : asOption(item, item?.code),
+    ).filter(o => o.value),
+  };
+}
+
+function MembershipMultiSelect({ label, options, selected, onChange, testId }) {
+  return (
+    <div className="space-y-2">
+      <Label>{label}</Label>
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button type="button" variant="outline" className="w-full justify-between font-normal" data-testid={testId}>
+            <span className="truncate">
+              {selected.length === 0
+                ? `All ${label.toLowerCase()}`
+                : `${selected.length} selected`}
+            </span>
+            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="max-h-72 w-72 overflow-y-auto p-2" align="start">
+          {options.length === 0 ? (
+            <p className="p-2 text-sm text-muted-foreground">No tenant choices are available.</p>
+          ) : options.map(option => {
+            const checked = selected.includes(option.value);
+            return (
+              <label key={option.value} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover-elevate">
+                <Checkbox
+                  checked={checked}
+                  onCheckedChange={on => onChange(on
+                    ? [...selected, option.value]
+                    : selected.filter(id => id !== option.value))}
+                />
+                <span className="truncate">{option.label}</span>
+              </label>
+            );
+          })}
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
+function MembershipValueControls({ value, source, onChange }) {
+  const current = value || {};
+  const catalog = membershipCatalog(source);
+  const configIds = Array.isArray(current.configIds) ? current.configIds.map(String) : [];
+  const bandIds = Array.isArray(current.bandIds) ? current.bandIds.map(String) : [];
+  const visibleBands = configIds.length === 0
+    ? catalog.bands
+    : catalog.bands.filter(band => !band.configId || configIds.includes(String(band.configId)));
+  const patch = next => onChange({ ...current, ...next });
+  return (
+    <div className="space-y-4 rounded-md border p-3" data-testid="membership-value-controls">
+      <div>
+        <Label>Annual membership value period</Label>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Uses recorded organisation memberships whose saved structure effective date falls in the exact 12-month period.
+          Unpaid records are included. Payments, refunds and credits are not reconciled.
+        </p>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-2">
+          <Label>Start month</Label>
+          <Select value={String(current.startMonth || "")} onValueChange={v => patch({ startMonth: Number(v) })}>
+            <SelectTrigger data-testid="select-membership-value-start-month"><SelectValue placeholder="Choose month" /></SelectTrigger>
+            <SelectContent>
+              {MONTHS.map((month, index) => <SelectItem key={month} value={String(index + 1)}>{month}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label>Start year</Label>
+          <Input
+            type="number"
+            min={1900}
+            max={9998}
+            value={current.startYear ?? ""}
+            onChange={e => patch({ startYear: e.target.value === "" ? null : Number(e.target.value) })}
+            data-testid="input-membership-value-start-year"
+          />
+        </div>
+      </div>
+      {catalog.currencies.length > 0 && (
+        <div className="space-y-2">
+          <Label>Currency</Label>
+          <Select value={current.currency || "__all__"} onValueChange={v => patch({ currency: v === "__all__" ? null : v })}>
+            <SelectTrigger data-testid="select-membership-value-currency"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">All recorded currencies</SelectItem>
+              {catalog.currencies.map(option => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          {!current.currency && catalog.currencies.length > 1 && (
+            <p className="text-xs text-amber-700">Values in different currencies cannot be added; choose one currency.</p>
+          )}
+        </div>
+      )}
+      {catalog.configs.length > 0 && (
+        <MembershipMultiSelect
+          label="Membership structures"
+          options={catalog.configs}
+          selected={configIds}
+          onChange={next => patch({
+            configIds: next,
+            bandIds: bandIds.filter(id => {
+              const band = catalog.bands.find(item => item.value === id);
+              return next.length === 0 || !band?.configId || next.includes(String(band.configId));
+            }),
+          })}
+          testId="select-membership-value-configs"
+        />
+      )}
+      {visibleBands.length > 0 && (
+        <MembershipMultiSelect
+          label="Membership bands"
+          options={visibleBands}
+          selected={bandIds}
+          onChange={next => patch({ bandIds: next })}
+          testId="select-membership-value-bands"
+        />
+      )}
+      <p className="text-xs text-muted-foreground">
+        Value is net of VAT and is allocated by the saved membership structure's effective date;
+        this is not cash received or an accounting-ledger balance.
+      </p>
+    </div>
+  );
+}
+
+function PreviewWidget({ widget, payload, palette }) {
+  // Reuse WidgetCard rendering by injecting fake query data via a thin wrapper.
+  // The card component fetches data on its own; in preview we render a minimal
+  // version using the same body components inline for instant updates.
+  if (!payload) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Preview will appear here once the configuration is valid.
+      </p>
+    );
+  }
+  if (["member_group", "organisation_membership", "event_revenue"].includes(widget.config?.source)) {
+    return <WidgetBody widget={widget} payload={payload} palette={palette} />;
+  }
+  return (
+    <PreviewBody widget={widget} payload={payload} palette={palette} />
+  );
+}
+
+function PreviewBody({ widget, payload, palette }) {
+  const rows = payload.rows || [];
+  const chartColours = dashboardWidgetChartColours(palette);
+  const selectedColour = resolveDashboardWidgetColour(palette, widget.config?.color);
+  if (payload.type === "conversion") {
+    const rate = payload.conversionRate;
+    return (
+      <div className="space-y-1">
+        <p
+          className="text-3xl font-semibold tracking-tight"
+          style={{ color: selectedColour }}
+        >
+          {formatNumber(payload.convertedCount, widget.config.numberFormat)}
+          {rate !== null && rate !== undefined && (
+            <span className="ml-2 text-base font-normal text-muted-foreground">
+              ({rate.toFixed(1)}% converted)
+            </span>
+          )}
+        </p>
+        <p className="text-xs uppercase text-muted-foreground">
+          {payload.sourceEntityCount ?? payload.sourceSubmissionCount ?? 0}{" "}
+          source ·{" "}
+          {payload.notConvertedCount ??
+            Math.max(
+              0,
+              (payload.sourceEntityCount ?? payload.sourceSubmissionCount ?? 0) -
+                (payload.convertedCount ?? 0),
+            )}{" "}
+          not converted{" "}
+          {payload.matchBy === "member" ? "members" : "organisations"}
+        </p>
+      </div>
+    );
+  }
+  switch (widget.widget_type) {
+    case "stat": {
+      const value = payload.type === "scalar" ? payload.value : rows[0]?.value;
+      return (
+        <div className="space-y-1">
+          <p
+            className="text-3xl font-semibold tracking-tight"
+            style={{ color: selectedColour }}
+          >
+            {widget.config.numberFormat?.mode === "full"
+              ? formatNumber(value, widget.config.numberFormat)
+              : value === null || value === undefined
+                ? "—"
+                : Number(value).toLocaleString()}
+          </p>
+          <p className="text-xs uppercase text-muted-foreground">
+            {widget.config.transition?.mode
+              ? `${payload.total ?? 0} transition${payload.total === 1 ? "" : "s"}`
+              : `${widget.config.measure?.aggregator || "count"} · ${payload.total ?? 0} record${
+                  payload.total === 1 ? "" : "s"
+                }`}
+          </p>
+        </div>
+      );
+    }
+    case "bar": {
+      if (rows.length === 0) return <EmptyPreview />;
+      // Multi-series payloads (activity split) carry a categories list
+      // other than the single default 'value' column — render stacked bars.
+      const cats = Array.isArray(payload?.categories) ? payload.categories : [];
+      const seriesCats =
+        cats.length > 0 && !(cats.length === 1 && cats[0] === "value") ? cats : null;
+      const barProps = getBarHeightProps(widget.height);
+      return (
+        <ChartContainer
+          config={
+            seriesCats
+              ? Object.fromEntries(
+                  seriesCats.map((c, i) => [
+                    c,
+                    { label: c, color: chartColours[i % chartColours.length] },
+                  ]),
+                )
+              : { value: { label: "Value", color: selectedColour } }
+          }
+          className={barProps.className}
+        >
+          <BarChart data={rows} margin={BAR_CHART_MARGIN}>
+            <CartesianGrid vertical={false} strokeDasharray="3 3" />
+            <XAxis
+              dataKey="key"
+              tickLine={false}
+              axisLine={false}
+              angle={barProps.angle}
+              textAnchor="end"
+              height={barProps.xAxisHeight}
+              interval={0}
+            />
+            <YAxis tickLine={false} axisLine={false} width={40} />
+            <ChartTooltip content={<ChartTooltipContent />} />
+            {seriesCats ? (
+              seriesCats.map((c, i) => (
+                <Bar
+                  key={c}
+                  dataKey={c}
+                  stackId="series"
+                  fill={chartColours[i % chartColours.length]}
+                  radius={i === seriesCats.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                />
+              ))
+            ) : (
+              <Bar dataKey="value" fill={selectedColour} radius={[4, 4, 0, 0]} />
+            )}
+          </BarChart>
+        </ChartContainer>
+      );
+    }
+    case "line":
+      if (rows.length === 0) return <EmptyPreview />;
+      return (
+        <ChartContainer
+          config={{ value: { label: "Value", color: selectedColour } }}
+          className="h-56 w-full"
+        >
+          <LineChart data={rows} margin={{ top: 10, right: 10, left: 0, bottom: 20 }}>
+            <CartesianGrid vertical={false} strokeDasharray="3 3" />
+            <XAxis dataKey="key" tickLine={false} axisLine={false} />
+            <YAxis tickLine={false} axisLine={false} width={40} />
+            <ChartTooltip content={<ChartTooltipContent />} />
+            <Line type="monotone" dataKey="value" stroke={selectedColour} strokeWidth={2} dot={false} />
+          </LineChart>
+        </ChartContainer>
+      );
+    case "list": {
+      if (rows.length === 0) return <EmptyPreview />;
+      const listTotal = rows.reduce((acc, r) => acc + (Number(r.value) || 0), 0);
+      return (
+        <div className="flex flex-col gap-2">
+          <div className="max-h-56 overflow-y-auto rounded-md border" data-testid="preview-list">
+            {rows.map((row, idx) => (
+              <div
+                key={`${row.key}-${idx}`}
+                className={cn(
+                  "flex items-center justify-between gap-3 px-3 py-1.5 text-sm",
+                  idx > 0 && "border-t",
+                )}
+              >
+                <span className="min-w-0 flex-1 truncate" title={row.key}>{row.key}</span>
+                <span
+                  className="shrink-0 tabular-nums font-medium"
+                  style={{ color: selectedColour }}
+                >
+                  {formatNumber(row.value)}
+                </span>
+              </div>
+            ))}
+          </div>
+          <p className="text-right text-xs text-muted-foreground">
+            {rows.length} group{rows.length === 1 ? "" : "s"} · Total: {formatNumber(listTotal)}
+          </p>
+        </div>
+      );
+    }
+    case "pie":
+    case "donut":
+      if (rows.length === 0) return <EmptyPreview />;
+      return (
+        <ChartContainer
+          config={Object.fromEntries(
+            rows.map((r, i) => [
+              r.key,
+              { label: r.key, color: chartColours[i % chartColours.length] },
+            ]),
+          )}
+          className="h-56 w-full"
+        >
+          <PieChart>
+            <ChartTooltip content={<ChartTooltipContent nameKey="key" />} />
+            <Pie
+              data={rows}
+              dataKey="value"
+              nameKey="key"
+              innerRadius={widget.widget_type === "donut" ? 50 : 0}
+              outerRadius={80}
+              paddingAngle={widget.widget_type === "donut" ? 2 : 0}
+            >
+              {rows.map((row, idx) => (
+                <Cell key={row.key} fill={chartColours[idx % chartColours.length]} />
+              ))}
+            </Pie>
+          </PieChart>
+        </ChartContainer>
+      );
+    default:
+      return <EmptyPreview />;
+  }
+}
+
+function EmptyPreview() {
+  return (
+    <p className="text-sm text-muted-foreground">No data to plot for this configuration yet.</p>
+  );
+}

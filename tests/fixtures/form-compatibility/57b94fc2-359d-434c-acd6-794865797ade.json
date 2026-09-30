@@ -1,0 +1,830 @@
+{
+  "schemaVersion": 1,
+  "source": "production read-only repeatable-read inventory",
+  "formId": "57b94fc2-359d-434c-acd6-794865797ade",
+  "tenantAlias": "tenant_43d3cc1d9f65",
+  "classification": {
+    "primaryFamily": "entity-pipelines-modern",
+    "families": [
+      "entity-pipelines-modern",
+      "split-entity-actions-current",
+      "legacy-field-mappings",
+      "legacy-auto-create"
+    ],
+    "access": "public",
+    "hasAccessPolicy": false,
+    "prefill": "organization",
+    "actionModes": [
+      "create",
+      "update"
+    ],
+    "existingRecordOperations": [
+      "member",
+      "organization"
+    ],
+    "mutationContract": {
+      "hasExistingRecordMutation": true,
+      "mutationTargets": [
+        "member",
+        "organization"
+      ],
+      "applicantContinuationSupported": true,
+      "applicantContinuationLimitations": [],
+      "targets": {
+        "member": {
+          "classification": "may_mutate_existing",
+          "evidence": [
+            {
+              "family": "entity_pipelines",
+              "access": "may_mutate_existing"
+            },
+            {
+              "family": "entity_pipelines",
+              "access": "may_mutate_existing"
+            }
+          ]
+        },
+        "organization": {
+          "classification": "may_mutate_existing",
+          "evidence": [
+            {
+              "family": "entity_pipelines",
+              "access": "may_mutate_existing"
+            }
+          ]
+        }
+      },
+      "accessAssessment": {
+        "ok": false,
+        "code": "UNSAFE_EXISTING_RECORD_MUTATION_CONTRACT",
+        "policyConfigured": false
+      }
+    },
+    "pipelineCount": 3,
+    "identityKeys": [
+      "email",
+      "name"
+    ],
+    "loginEnabled": {
+      "true": 0,
+      "false": 2
+    },
+    "mappingCount": 29,
+    "customWriteCount": 11,
+    "invoiceWriteCount": 2,
+    "entityWrites": {
+      "member": {
+        "pipelineCount": 2,
+        "identityKeys": [
+          "email"
+        ],
+        "customWriteCount": 2,
+        "invoiceWriteCount": 0
+      },
+      "organization": {
+        "pipelineCount": 1,
+        "identityKeys": [
+          "name"
+        ],
+        "hasNameIdentityMapping": true,
+        "customWriteCount": 9,
+        "invoiceWriteCount": 2
+      }
+    },
+    "exceptions": []
+  },
+  "structure": {
+    "layout_type": "standard",
+    "fields": [
+      {
+        "id": "ref_c7395ac3ed1b",
+        "type": "text",
+        "page_id": "ref_02badf23d313",
+        "required": true,
+        "allow_other": false,
+        "column_index": 0,
+        "prefill_field": "<redacted>"
+      },
+      {
+        "id": "ref_147649bef412",
+        "type": "text",
+        "page_id": "ref_02badf23d313",
+        "required": true,
+        "allow_other": false,
+        "column_index": 0,
+        "prefill_field": "<redacted>"
+      },
+      {
+        "id": "ref_10acf02307d7",
+        "type": "text",
+        "page_id": "ref_02badf23d313",
+        "required": true,
+        "allow_other": false,
+        "column_index": 0,
+        "prefill_field": "<redacted>"
+      },
+      {
+        "id": "ref_7bf9b539cd79",
+        "type": "email",
+        "locked": true,
+        "page_id": "ref_02badf23d313",
+        "required": false,
+        "allow_other": false,
+        "column_index": 0,
+        "prefill_field": "<redacted>"
+      },
+      {
+        "id": "ref_e855961276d8",
+        "type": "text",
+        "locked": true,
+        "page_id": "ref_48fa97caf5e6",
+        "required": false,
+        "allow_other": false,
+        "column_index": 0,
+        "prefill_field": "<redacted>",
+        "starts_hidden": false
+      },
+      {
+        "id": "ref_e3dd48d2451f",
+        "type": "tel",
+        "page_id": "ref_48fa97caf5e6",
+        "required": false,
+        "allow_other": false,
+        "column_index": 0,
+        "starts_hidden": false
+      },
+      {
+        "id": "ref_9783cc0e275c",
+        "type": "list",
+        "locked": true,
+        "page_id": "ref_48fa97caf5e6",
+        "required": false,
+        "allow_other": false,
+        "column_index": 0,
+        "prefill_field": "<redacted>",
+        "starts_hidden": true
+      },
+      {
+        "id": "ref_07d78db86374",
+        "type": "number",
+        "page_id": "ref_48fa97caf5e6",
+        "required": true,
+        "allow_other": false,
+        "column_index": 0,
+        "starts_hidden": false
+      },
+      {
+        "id": "ref_9418a3e1e50c",
+        "type": "custom_field",
+        "page_id": "ref_48fa97caf5e6",
+        "required": false,
+        "allow_other": false,
+        "column_index": 0,
+        "starts_hidden": false,
+        "custom_field_id": "ref_9e29dd67b805"
+      },
+      {
+        "id": "ref_cddb831bbcc7",
+        "type": "custom_field",
+        "page_id": "ref_48fa97caf5e6",
+        "required": false,
+        "allow_other": false,
+        "column_index": 0,
+        "starts_hidden": false,
+        "custom_field_id": "ref_86b9ea96652e"
+      },
+      {
+        "id": "ref_baea138b9d9d",
+        "type": "radio",
+        "page_id": "ref_48fa97caf5e6",
+        "required": false,
+        "allow_other": false,
+        "column_index": 0,
+        "starts_hidden": true
+      },
+      {
+        "id": "ref_10abee01dfb8",
+        "type": "radio",
+        "page_id": "ref_9f6e0fae147c",
+        "required": true,
+        "allow_other": false,
+        "column_index": 0,
+        "starts_hidden": false
+      },
+      {
+        "id": "ref_ee4865be9ab5",
+        "type": "email",
+        "page_id": "ref_9f6e0fae147c",
+        "required": true,
+        "allow_other": false,
+        "column_index": 0,
+        "starts_hidden": true,
+        "custom_field_id": "ref_c631ef0993e8"
+      },
+      {
+        "id": "ref_b660dc4cec68",
+        "type": "radio",
+        "page_id": "ref_7428ee549b65",
+        "required": true,
+        "allow_other": false,
+        "column_index": 0,
+        "starts_hidden": false
+      },
+      {
+        "id": "ref_4bddf193d2f5",
+        "type": "text",
+        "page_id": "ref_7428ee549b65",
+        "required": true,
+        "allow_other": false,
+        "column_index": 0,
+        "starts_hidden": true
+      },
+      {
+        "id": "ref_e0537afbf0e5",
+        "type": "text",
+        "page_id": "ref_7428ee549b65",
+        "required": true,
+        "allow_other": false,
+        "column_index": 0,
+        "starts_hidden": true
+      },
+      {
+        "id": "ref_390fbe9d5266",
+        "type": "text",
+        "page_id": "ref_7428ee549b65",
+        "required": true,
+        "allow_other": false,
+        "column_index": 0,
+        "starts_hidden": true
+      },
+      {
+        "id": "ref_a67347828fba",
+        "type": "email",
+        "page_id": "ref_7428ee549b65",
+        "required": true,
+        "allow_other": false,
+        "column_index": 0,
+        "starts_hidden": true
+      },
+      {
+        "id": "ref_2b239ee2104f",
+        "type": "textarea",
+        "page_id": "ref_9f6e0fae147c",
+        "required": true,
+        "allow_other": false,
+        "column_index": 0
+      },
+      {
+        "id": "ref_036a8baa98a3",
+        "type": "terms_conditions",
+        "page_id": "ref_7428ee549b65",
+        "required": true,
+        "allow_other": false,
+        "column_index": 0
+      }
+    ],
+    "pages": [
+      {
+        "id": "ref_02badf23d313",
+        "column_count": 1
+      },
+      {
+        "id": "ref_48fa97caf5e6",
+        "column_count": 1
+      },
+      {
+        "id": "ref_9f6e0fae147c",
+        "column_count": 1
+      },
+      {
+        "id": "ref_7428ee549b65",
+        "column_count": 1
+      }
+    ],
+    "require_authentication": false,
+    "is_active": true,
+    "is_application_form": true,
+    "application_level": "organization",
+    "uniqueness_checks": [],
+    "auto_create_entity": true,
+    "field_mappings": [
+      {
+        "id": "ref_f467a6aff02f",
+        "source_type": "field",
+        "target_type": "core",
+        "target_field": "email",
+        "target_entity": "member",
+        "transformation": "none",
+        "source_field_id": "ref_a67347828fba"
+      },
+      {
+        "id": "ref_7156b0dd7f1d",
+        "source_type": "field",
+        "target_type": "core",
+        "target_field": "first_name",
+        "target_entity": "member",
+        "transformation": "none",
+        "source_field_id": "ref_4bddf193d2f5"
+      },
+      {
+        "id": "ref_5f2da1cdd58a",
+        "source_type": "field",
+        "target_type": "core",
+        "target_field": "last_name",
+        "target_entity": "member",
+        "transformation": "none",
+        "source_field_id": "ref_e0537afbf0e5"
+      }
+    ],
+    "create_entity_type": "both",
+    "prefill_source": "organization",
+    "visibility_rules": [
+      {
+        "id": "ref_fdb42012191b",
+        "logic": "and",
+        "actions": [
+          {
+            "id": "ref_4346f4cb65b7",
+            "action_type": "visibility",
+            "field_states": {
+              "key_38f7910e15a6": {
+                "enabled": null,
+                "visible": true
+              },
+              "key_a037f8bc74e5": {
+                "enabled": null,
+                "visible": true
+              },
+              "key_ee4865be9ab5": {
+                "enabled": true,
+                "visible": true
+              },
+              "key_d29bc27cb491": {
+                "enabled": null,
+                "visible": true
+              }
+            }
+          }
+        ],
+        "operator": "equals",
+        "rule_type": "visibility",
+        "conditions": [
+          {
+            "id": "ref_66d85e77a0f0",
+            "field_id": "ref_10abee01dfb8",
+            "operator": "equals"
+          }
+        ],
+        "target_field_id": "",
+        "set_value_source": "static",
+        "target_field_ids": [],
+        "trigger_field_id": "ref_10abee01dfb8",
+        "set_value_field_id": "",
+        "set_value_prefill_field": ""
+      },
+      {
+        "id": "ref_e1cdac8a2c2b",
+        "logic": "and",
+        "actions": [
+          {
+            "id": "ref_2f9a109c0387",
+            "action_type": "set_value",
+            "target_field_id": "ref_ee4865be9ab5",
+            "set_value_source": "prefill",
+            "set_value_field_id": "",
+            "set_value_prefill_field": "<redacted>"
+          },
+          {
+            "id": "ref_366befd9bc4f",
+            "action_type": "visibility",
+            "field_states": {
+              "key_ee4865be9ab5": {
+                "enabled": null,
+                "visible": false
+              }
+            }
+          }
+        ],
+        "operator": "equals",
+        "rule_type": "visibility",
+        "conditions": [
+          {
+            "id": "ref_4951b4d2df1f",
+            "field_id": "ref_10abee01dfb8",
+            "operator": "equals"
+          }
+        ],
+        "target_field_id": "",
+        "set_value_source": "static",
+        "target_field_ids": [],
+        "trigger_field_id": "ref_10abee01dfb8",
+        "set_value_field_id": "",
+        "set_value_prefill_field": ""
+      },
+      {
+        "id": "ref_5e6b8c8c95d0",
+        "logic": "and",
+        "actions": [
+          {
+            "id": "ref_454765d78e9d",
+            "action_type": "set_value",
+            "target_field_id": "ref_e0537afbf0e5",
+            "set_value_source": "field",
+            "set_value_field_id": "ref_147649bef412",
+            "set_value_prefill_field": ""
+          },
+          {
+            "id": "ref_5b62cf70fa81",
+            "action_type": "set_value",
+            "target_field_id": "ref_390fbe9d5266",
+            "set_value_source": "field",
+            "set_value_field_id": "ref_10acf02307d7",
+            "set_value_prefill_field": ""
+          },
+          {
+            "id": "ref_2acf34308caf",
+            "action_type": "set_value",
+            "target_field_id": "ref_a67347828fba",
+            "set_value_source": "field",
+            "set_value_field_id": "ref_7bf9b539cd79",
+            "set_value_prefill_field": ""
+          },
+          {
+            "id": "ref_22347abd218b",
+            "action_type": "set_value",
+            "target_field_id": "ref_4bddf193d2f5",
+            "set_value_source": "field",
+            "set_value_field_id": "ref_c7395ac3ed1b",
+            "set_value_prefill_field": ""
+          },
+          {
+            "id": "ref_90b78773dd23",
+            "action_type": "visibility",
+            "field_states": {
+              "key_4bddf193d2f5": {
+                "enabled": null,
+                "visible": false
+              },
+              "key_e0537afbf0e5": {
+                "enabled": null,
+                "visible": false
+              },
+              "key_a67347828fba": {
+                "enabled": null,
+                "visible": false
+              },
+              "key_390fbe9d5266": {
+                "enabled": null,
+                "visible": false
+              }
+            }
+          }
+        ],
+        "operator": "equals",
+        "rule_type": "visibility",
+        "conditions": [
+          {
+            "id": "ref_813aa92835ce",
+            "field_id": "ref_b660dc4cec68",
+            "operator": "equals"
+          }
+        ],
+        "target_field_id": "",
+        "set_value_source": "static",
+        "target_field_ids": [],
+        "trigger_field_id": "ref_b660dc4cec68",
+        "set_value_field_id": "",
+        "set_value_prefill_field": ""
+      },
+      {
+        "id": "ref_d8aeee0acc2e",
+        "logic": "and",
+        "actions": [
+          {
+            "id": "ref_0d0d944f5a6a",
+            "action_type": "visibility",
+            "field_states": {
+              "key_4bddf193d2f5": {
+                "enabled": null,
+                "visible": true
+              },
+              "key_e0537afbf0e5": {
+                "enabled": null,
+                "visible": true
+              },
+              "key_a67347828fba": {
+                "enabled": null,
+                "visible": true
+              },
+              "key_390fbe9d5266": {
+                "enabled": null,
+                "visible": true
+              }
+            }
+          }
+        ],
+        "operator": "equals",
+        "rule_type": "visibility",
+        "conditions": [
+          {
+            "id": "ref_88c529be180e",
+            "field_id": "ref_b660dc4cec68",
+            "operator": "equals"
+          }
+        ],
+        "target_field_id": "",
+        "set_value_source": "static",
+        "target_field_ids": [],
+        "trigger_field_id": "ref_b660dc4cec68",
+        "set_value_field_id": "",
+        "set_value_prefill_field": ""
+      }
+    ],
+    "entity_action": "create",
+    "member_entity_action": "create",
+    "organization_entity_action": "update",
+    "default_member_role_id": null,
+    "additional_member_creations": [],
+    "entity_pipelines": {
+      "members": [
+        {
+          "id": "ref_14fd3c4c4479",
+          "role_id": "ref_a46f2123145c",
+          "mappings": [
+            {
+              "id": "ref_bdfb46e4203a",
+              "source_type": "field",
+              "target_type": "core",
+              "target_field": "first_name",
+              "target_entity": "member",
+              "transformation": "none",
+              "source_field_id": "ref_4bddf193d2f5"
+            },
+            {
+              "id": "ref_407b69676886",
+              "source_type": "field",
+              "target_type": "core",
+              "target_field": "last_name",
+              "target_entity": "member",
+              "transformation": "none",
+              "source_field_id": "ref_e0537afbf0e5"
+            },
+            {
+              "id": "ref_091c27713be4",
+              "source_type": "field",
+              "target_type": "core",
+              "target_field": "job_title",
+              "target_entity": "member",
+              "transformation": "none",
+              "source_field_id": "ref_390fbe9d5266"
+            },
+            {
+              "id": "ref_acd929ebe486",
+              "source_type": "field",
+              "target_type": "core",
+              "target_field": "email",
+              "target_entity": "member",
+              "transformation": "none",
+              "source_field_id": "ref_a67347828fba"
+            },
+            {
+              "id": "ref_ae585de90622",
+              "source_type": "static",
+              "target_type": "core",
+              "target_field": "show_in_directory",
+              "target_entity": "member",
+              "transformation": "none",
+              "source_field_id": ""
+            },
+            {
+              "id": "ref_ff1bc74c5682",
+              "source_type": "field",
+              "target_type": "core",
+              "target_field": "organization_id",
+              "target_entity": "member",
+              "transformation": "none",
+              "source_field_id": "ref_e855961276d8",
+              "source_category_id": ""
+            },
+            {
+              "id": "ref_8fd474a687ec",
+              "source_type": "static",
+              "target_type": "custom",
+              "target_field": "ref_d24f3e2fb6ab",
+              "target_entity": "member",
+              "transformation": "none",
+              "source_field_id": "",
+              "source_category_id": ""
+            }
+          ],
+          "isPrimary": true,
+          "login_enabled": false,
+          "uniqueness_key": "email"
+        },
+        {
+          "id": "ref_ef0194c8e84a",
+          "role_id": "ref_b87e4d9e4793",
+          "mappings": [
+            {
+              "id": "ref_06fc9a16f5b9",
+              "source_type": "field",
+              "target_type": "core",
+              "target_field": "first_name",
+              "target_entity": "member",
+              "transformation": "none",
+              "source_field_id": "ref_c7395ac3ed1b",
+              "source_category_id": ""
+            },
+            {
+              "id": "ref_10c39465bead",
+              "source_type": "field",
+              "target_type": "core",
+              "target_field": "last_name",
+              "target_entity": "member",
+              "transformation": "none",
+              "source_field_id": "ref_147649bef412",
+              "source_category_id": ""
+            },
+            {
+              "id": "ref_a237aa6b3d93",
+              "source_type": "field",
+              "target_type": "core",
+              "target_field": "job_title",
+              "target_entity": "member",
+              "transformation": "none",
+              "source_field_id": "ref_10acf02307d7",
+              "source_category_id": ""
+            },
+            {
+              "id": "ref_ec942dd97ede",
+              "source_type": "field",
+              "target_type": "core",
+              "target_field": "email",
+              "target_entity": "member",
+              "transformation": "none",
+              "source_field_id": "ref_7bf9b539cd79",
+              "source_category_id": ""
+            },
+            {
+              "id": "ref_92dfc8c0ee7a",
+              "source_type": "field",
+              "target_type": "core",
+              "target_field": "organization_id",
+              "target_entity": "member",
+              "transformation": "none",
+              "source_field_id": "ref_e855961276d8",
+              "source_category_id": ""
+            },
+            {
+              "id": "ref_0efb960c9e05",
+              "source_type": "static",
+              "target_type": "custom",
+              "target_field": "ref_d24f3e2fb6ab",
+              "target_entity": "member",
+              "transformation": "none",
+              "source_field_id": "",
+              "source_category_id": ""
+            }
+          ],
+          "isPrimary": false,
+          "login_enabled": false,
+          "uniqueness_key": "email"
+        }
+      ],
+      "organisations": [
+        {
+          "id": "ref_c37cdaca8e6e",
+          "mappings": [
+            {
+              "id": "ref_35b4498dba24",
+              "source_type": "field",
+              "target_type": "core",
+              "target_field": "name",
+              "target_entity": "organization",
+              "transformation": "none",
+              "source_field_id": "ref_e855961276d8"
+            },
+            {
+              "id": "ref_e55dfb2ea7ea",
+              "source_type": "field",
+              "target_type": "custom",
+              "target_field": "ref_9e29dd67b805",
+              "target_entity": "organization",
+              "transformation": "none",
+              "source_field_id": "ref_9418a3e1e50c"
+            },
+            {
+              "id": "ref_255b819685a3",
+              "source_type": "field",
+              "target_type": "custom",
+              "target_field": "ref_86b9ea96652e",
+              "target_entity": "organization",
+              "transformation": "none",
+              "source_field_id": "ref_cddb831bbcc7"
+            },
+            {
+              "id": "ref_4fe075bf342d",
+              "source_type": "static",
+              "target_type": "custom",
+              "target_field": "ref_f72977bf34bd",
+              "target_entity": "organization",
+              "transformation": "none",
+              "source_field_id": ""
+            },
+            {
+              "id": "ref_346d2cc381e3",
+              "source_type": "static",
+              "target_type": "custom",
+              "target_field": "ref_07adcadd864b",
+              "target_entity": "organization",
+              "transformation": "none",
+              "source_field_id": ""
+            },
+            {
+              "id": "ref_204898e763a1",
+              "source_type": "field",
+              "target_type": "core",
+              "target_field": "invoicing_address",
+              "target_entity": "organization",
+              "transformation": "none",
+              "source_field_id": "ref_2b239ee2104f"
+            },
+            {
+              "id": "ref_12122e388071",
+              "source_type": "field",
+              "target_type": "core",
+              "target_field": "invoicing_email",
+              "target_entity": "organization",
+              "transformation": "none",
+              "source_field_id": "ref_ee4865be9ab5"
+            },
+            {
+              "id": "ref_144a9b9c001f",
+              "source_type": "static",
+              "target_type": "custom",
+              "target_field": "ref_f72977bf34bd",
+              "target_entity": "organization",
+              "transformation": "none",
+              "source_field_id": ""
+            },
+            {
+              "id": "ref_ebb80e064c54",
+              "source_type": "field",
+              "target_type": "custom",
+              "target_field": "ref_9121e6620851",
+              "target_entity": "organization",
+              "transformation": "none",
+              "source_field_id": "ref_07d78db86374"
+            },
+            {
+              "id": "ref_074a13623f07",
+              "source_type": "field",
+              "target_type": "custom",
+              "target_field": "ref_2ba8cb13ee65",
+              "target_entity": "organization",
+              "transformation": "none",
+              "source_field_id": "ref_c7395ac3ed1b"
+            },
+            {
+              "id": "ref_dbec55a5d6de",
+              "source_type": "field",
+              "target_type": "custom",
+              "target_field": "ref_e7afefb5fcd5",
+              "target_entity": "organization",
+              "transformation": "none",
+              "source_field_id": "ref_147649bef412"
+            },
+            {
+              "id": "ref_f1edceffa210",
+              "source_type": "field",
+              "target_type": "custom",
+              "target_field": "ref_fe9383d20261",
+              "target_entity": "organization",
+              "transformation": "none",
+              "source_field_id": "ref_10acf02307d7"
+            },
+            {
+              "id": "ref_5c5f2cab78bf",
+              "source_type": "field",
+              "target_type": "core",
+              "target_field": "phone",
+              "target_entity": "organization",
+              "transformation": "none",
+              "source_field_id": "ref_e3dd48d2451f"
+            }
+          ],
+          "isPrimary": true,
+          "uniqueness_key": "name"
+        }
+      ]
+    },
+    "form_type": "standard",
+    "access_policy": null,
+    "mutation_access_policy": null,
+    "structured_actions": {
+      "actions": [],
+      "version": 1
+    },
+    "prefill_source_field_id": null
+  }
+}

@@ -1,0 +1,85 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+
+const adapters = [
+  ["Organisation", new URL("../../components/OrganisationDetailView.jsx", import.meta.url)],
+  ["routed Member", new URL("../MemberDetail.jsx", import.meta.url)],
+  ["Organisation Group", new URL("../../components/OrganisationGroupDetailView.jsx", import.meta.url)],
+];
+
+test("all core detail adapters use the shared relationship renderer", async () => {
+  for (const [name, path] of adapters) {
+    const source = await readFile(path, "utf8");
+    assert.match(source, /useRelatedRecordDefinitions/, `${name} must use shared metadata adapter`);
+    assert.match(source, /<RelatedRecordsPanel/, `${name} must use shared row renderer`);
+    assert.doesNotMatch(source, /(?:Department|Qualification|Chapter)Related/, `${name} must stay object-agnostic`);
+  }
+});
+
+test("the reusable member detail view also uses the generic surface", async () => {
+  const source = await readFile(
+    new URL("../../components/MemberDetailView.jsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /useRelatedRecordDefinitions/);
+  assert.match(source, /<RelatedRecordsPanel/);
+});
+
+test("the routed member overview embeds configured relationships without removing tabs", async () => {
+  const source = await readFile(
+    new URL("../MemberDetail.jsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /relatedRecords\.data != null \? relatedRecords\.panels : null/);
+  assert.match(source, /field\.type === 'relationship'/);
+  assert.match(source, /<RelatedRecordsPanel(?:(?!\/>).)*embedded(?:(?!\/>).)*loadingOverlay(?:(?!\/>).)*\/>/s);
+  assert.match(source, /relationshipTabValue\(definition, side\)/);
+  assert.match(source, /relatedRecords\.data != null[\s\S]*?RelatedRecordsDefinitionState query=\{relatedRecords\}/);
+  assert.match(source, /showHeading=\{false\} loadingOverlay/);
+  assert.match(source, /!relatedRecords\.isFetching && count != null/);
+  assert.match(source, /data-relationship-discovery>[\s\S]*?RelatedRecordsDefinitionState query=\{relatedRecords\}/);
+  assert.doesNotMatch(source, /TabsContent value=\{activeTab\}/);
+  assert.match(source, /setSearchParams\(searchForMemberTab\(searchParams, 'overview'\)/);
+});
+
+test("the organisation overview embeds configured relationships without removing tabs", async () => {
+  const source = await readFile(
+    new URL("../../components/OrganisationDetailView.jsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /relatedRecords\.data != null \? relatedRecords\.panels : null/);
+  assert.match(source, /field\.type === 'relationship'/);
+  assert.match(source, /<RelatedRecordsPanel(?:(?!\/>).)*embedded(?:(?!\/>).)*loadingOverlay(?:(?!\/>).)*\/>/s);
+  assert.match(source, /relationshipTabValue\(definition, side\)/);
+  assert.match(source, /relationshipPanels=\{relatedRecords\.panels\}/);
+  assert.match(source, /relatedRecords\.data != null[\s\S]*?RelatedRecordsDefinitionState query=\{relatedRecords\}/);
+  assert.match(source, /showHeading=\{false\}[\s\S]*?loadingOverlay/);
+  assert.match(source, /!relatedRecords\.isFetching && count != null/);
+  assert.match(source, /isNew \|\| !organization\?\.id[\s\S]*?\? \[\]/);
+  assert.match(source, /!isNew && organization\?\.id && activeTab\.startsWith\('relationship-'\)/);
+  assert.match(source, /data-relationship-discovery>[\s\S]*?RelatedRecordsDefinitionState query=\{relatedRecords\}/);
+  assert.doesNotMatch(source, /TabsContent value=\{activeTab\}/);
+});
+
+test("the reusable member view shows neutral discovery state and overlays tab refreshes", async () => {
+  const source = await readFile(
+    new URL("../../components/MemberDetailView.jsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /!isNew && member\?\.id && relatedRecords\.data == null/);
+  assert.match(source, /RelatedRecordsDefinitionState query=\{relatedRecords\}/);
+  assert.match(source, /showHeading=\{false\} loadingOverlay/);
+  assert.match(source, /!relatedRecords\.isFetching && count != null/);
+  assert.match(source, /!isNew && member\?\.id && activeTab\.startsWith\('relationship-'\)/);
+  assert.match(source, /data-relationship-discovery>[\s\S]*?RelatedRecordsDefinitionState query=\{relatedRecords\}/);
+  assert.doesNotMatch(source, /TabsContent value=\{activeTab\}/);
+});
+
+test("organisation groups preserve the old surface when definitions are empty", async () => {
+  const source = await readFile(
+    new URL("../../components/OrganisationGroupDetailView.jsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /relatedRecords\.panels\.length === 0 \? renderOverview\(\)/);
+});

@@ -1,0 +1,73 @@
+2index-CfufnFhT.js:1544 [PostJob] Submit button clicked, agreedToTerms: true step: form
+index-CfufnFhT.js:1544 [PostJob] handleSubmit called
+index-CfufnFhT.js:1544 [PostJob] formData: {
+  "title": "test",
+  "description": "<p>test</p>",
+  "company_name": "Abertay University",
+  "company_logo_url": "https://zkvgzcruhniduuswbfyh.supabase.co/storage/v1/object/public/file-repository/uploads/1764683742311-drswid3-Abertay.jpg",
+  "location": "test",
+  "salary_range": "",
+  "job_type": "Full-time",
+  "hours": "Full-time",
+  "closing_date": "2025-12-31T23:59:59Z",
+  "application_method": "email",
+  "application_value": "test@test",
+  "contact_name": "Mat Henderson",
+  "attachment_urls": [],
+  "attachment_names": []
+}
+index-CfufnFhT.js:1544 [PostJob] isLoggedIn: true
+index-CfufnFhT.js:1544 [PostJob] email: mat@isaasi.co.uk
+index-CfufnFhT.js:1544 [PostJob] agreedToTerms: true
+index-CfufnFhT.js:1544 [PostJob] Validation passed, setting step to submitting
+index-CfufnFhT.js:1544 [PostJob] Calling createJobPostingMember API with email: mat@isaasi.co.uk
+index-CfufnFhT.js:1544 [PostJob] API response: {
+  "data": {
+    "success": false,
+    "error": "Member not found"
+  }
+}
+index-CfufnFhT.js:1544 [PostJob] Submission error caught: Error: Member not found
+    at oe (index-CfufnFhT.js:1544:15596)
+oe @ index-CfufnFhT.js:1544
+await in oe
+SH @ index-CfufnFhT.js:37
+EH @ index-CfufnFhT.js:37
+PH @ index-CfufnFhT.js:37
+f3 @ index-CfufnFhT.js:37
+sF @ index-CfufnFhT.js:37
+(anonymous) @ index-CfufnFhT.js:37
+lC @ index-CfufnFhT.js:40
+SM @ index-CfufnFhT.js:37
+bj @ index-CfufnFhT.js:37
+D2 @ index-CfufnFhT.js:37
+HH @ index-CfufnFhT.js:37Understand this error
+index-CfufnFhT.js:1544 [PostJob] Error message: Member not found
+oe @ index-CfufnFhT.js:1544
+await in oe
+SH @ index-CfufnFhT.js:37
+EH @ index-CfufnFhT.js:37
+PH @ index-CfufnFhT.js:37
+f3 @ index-CfufnFhT.js:37
+sF @ index-CfufnFhT.js:37
+(anonymous) @ index-CfufnFhT.js:37
+lC @ index-CfufnFhT.js:40
+SM @ index-CfufnFhT.js:37
+bj @ index-CfufnFhT.js:37
+D2 @ index-CfufnFhT.js:37
+HH @ index-CfufnFhT.js:37Understand this error
+index-CfufnFhT.js:1544 [PostJob] Error stack: Error: Member not found
+    at oe (https://auth4.iconn.app/assets/index-CfufnFhT.js:1544:15596)
+oe @ index-CfufnFhT.js:1544
+await in oe
+SH @ index-CfufnFhT.js:37
+EH @ index-CfufnFhT.js:37
+PH @ index-CfufnFhT.js:37
+f3 @ index-CfufnFhT.js:37
+sF @ index-CfufnFhT.js:37
+(anonymous) @ index-CfufnFhT.js:37
+lC @ index-CfufnFhT.js:40
+SM @ index-CfufnFhT.js:37
+bj @ index-CfufnFhT.js:37
+D2 @ index-CfufnFhT.js:37
+HH @ index-CfufnFhT.js:37Understand this error

@@ -1,0 +1,20 @@
+2025-12-12 18:06:10.243 [info] [Entity PATCH] Entity: "OrganizationPreferenceValue", ID: 641b7da7-3f7d-4808-a3d4-1a050b33a493, Body: {"value":"Verified"}
+2025-12-12 18:06:10.243 [info] [Entity PATCH] Normalized entity: "organizationpreferencevalue"
+2025-12-12 18:06:10.243 [info] [Entity PATCH] isPreferenceValueEntity: true
+2025-12-12 18:06:10.246 [info] [Workflows] Evaluating 1 workflows for organization:2bf22089-abbb-4aa7-9830-a93b4d93b86a
+2025-12-12 18:06:10.246 [info] [Workflows] Skipping custom field workflow "test" - handled by preference value update
+2025-12-12 18:06:10.399 [info] [Entity PATCH] Preference PATCH - req.body.value: "Verified", data.value: "Verified"
+2025-12-12 18:06:10.399 [info] [Entity PATCH] Preference value updated - entityId: 2bf22089-abbb-4aa7-9830-a93b4d93b86a, fieldId: 1c395ccf-7df2-4818-917d-1cd672216f71, value: Verified
+2025-12-12 18:06:10.399 [info] [Entity PATCH] Full data returned: {"id":"641b7da7-3f7d-4808-a3d4-1a050b33a493","organization_id":"2bf22089-abbb-4aa7-9830-a93b4d93b86a","field_id":"1c395ccf-7df2-4818-917d-1cd672216f71","value":"Verified","created_at":"2025-12-12T12:28:08.903213+00:00","updated_at":"2025-12-12T12:28:08.903213+00:00"}
+2025-12-12 18:06:10.399 [info] [Entity PATCH] newValue to use: "Verified"
+2025-12-12 18:06:10.399 [info] [Entity PATCH] Calling triggerPreferenceWorkflows with entityType=organization, entityId=2bf22089-abbb-4aa7-9830-a93b4d93b86a, fieldId=1c395ccf-7df2-4818-917d-1cd672216f71, value=Verified
+2025-12-12 18:06:10.523 [info] [Workflows] Evaluating 1 workflows for organization preference field 1c395ccf-7df2-4818-917d-1cd672216f71, incoming value="Verified"
+2025-12-12 18:06:10.523 [info] [Workflows] Checking workflow "test": cfg.field_id=1c395ccf-7df2-4818-917d-1cd672216f71, our fieldId=1c395ccf-7df2-4818-917d-1cd672216f71, cfg.field_type=custom
+2025-12-12 18:06:10.523 [info] [Workflows] Comparing: actual="Verified" vs target="Verified", operator=changed_to
+2025-12-12 18:06:10.523 [info] [Workflows] Result: triggerMatches=true
+2025-12-12 18:06:10.654 [info] [Workflows] Executing workflow: test (trigger_mode=once_per_record)
+2025-12-12 18:06:10.811 [info] [Email Service] Sending email to: mat@isaasi.co.uk
+2025-12-12 18:06:10.811 [info] [Email Service] Subject:
+2025-12-12 18:06:11.099 [error] [Email Service] Failed to send email: Bad Request
+2025-12-12 18:06:11.223 [info] [Workflows] Logged execution for test
+2025-12-12 18:06:11.223 [info] [Entity PATCH] triggerPreferenceWorkflows completed

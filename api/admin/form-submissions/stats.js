@@ -1,0 +1,197 @@
+import { getSessionMember } from '../../_lib/session.js';
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
+const supabase = supabaseUrl && supabaseServiceKey 
+  ? createClient(supabaseUrl, supabaseServiceKey)
+  : null;
+
+export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  if (!supabase) {
+    return res.status(503).json({ error: 'Database not configured' });
+  }
+
+  const sessionMember = await getSessionMember(req);
+  
+  if (!sessionMember) {
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+
+  try {
+    // SECURITY: Extract tenant context first
+    const tenantId = sessionMember.tenant_id;
+    if (!tenantId) {
+      return res.status(403).json({ error: 'Tenant context required' });
+    }
+
+    const roleId = sessionMember.role_id;
+    
+    if (!roleId) {
+      return res.status(403).json({ error: 'No role assigned' });
+    }
+
+    // Role query uses the member's assigned role_id (already tenant-scoped via member)
+    const { data: role, error: roleError } = await supabase
+      .from('role')
+      .select('excluded_features')
+      .eq('id', roleId)
+      .single();
+
+    if (roleError || !role) {
+      return res.status(403).json({ error: 'Role not found' });
+    }
+
+    const excludedFeatures = role.excluded_features || [];
+    if (excludedFeatures.includes('page_FormSubmissions')) {
+      return res.status(403).json({ error: 'Access to form submissions required' });
+    }
+
+    // Get allowed roles setting - scoped to tenant
+    const { data: allowedRolesSetting } = await supabase
+      .from('system_settings')
+      .select('setting_value')
+      .eq('setting_key', 'submission_stats_allowed_roles')
+      .eq('tenant_id', tenantId)
+      .single();
+    
+    let allowedRoles = [];
+    if (allowedRolesSetting?.setting_value) {
+      try {
+        allowedRoles = JSON.parse(allowedRolesSetting.setting_value);
+      } catch (e) {
+        console.error('[FormSubmissionStats] Error parsing allowed_roles:', e);
+      }
+    }
+
+    // Get included form IDs setting - scoped to tenant
+    const { data: includedFormsSetting } = await supabase
+      .from('system_settings')
+      .select('setting_value')
+      .eq('setting_key', 'submission_stats_included_form_ids')
+      .eq('tenant_id', tenantId)
+      .single();
+
+    let includedFormIds = [];
+    if (includedFormsSetting?.setting_value) {
+      try {
+        const parsed = JSON.parse(includedFormsSetting.setting_value);
+        if (Array.isArray(parsed)) {
+          includedFormIds = parsed.filter(id => typeof id === 'string' && id.length > 0);
+        }
+      } catch (e) {
+        console.error('[FormSubmissionStats] Error parsing included_form_ids:', e);
+      }
+    }
+
+    // Get per-card style config (colour + label) - scoped to tenant
+    const { data: cardStylesSetting } = await supabase
+      .from('system_settings')
+      .select('setting_value')
+      .eq('setting_key', 'submission_stats_card_styles')
+      .eq('tenant_id', tenantId)
+      .single();
+
+    let cardStyles = {};
+    if (cardStylesSetting?.setting_value) {
+      try {
+        const parsed = JSON.parse(cardStylesSetting.setting_value);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          cardStyles = parsed;
+        }
+      } catch (e) {
+        console.error('[FormSubmissionStats] Error parsing card_styles:', e);
+      }
+    }
+
+    let totalQuery = supabase
+      .from('form_submission')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId);
+    if (includedFormIds.length > 0) {
+      totalQuery = totalQuery.in('form_id', includedFormIds);
+    }
+    const { count: totalCount, error: totalError } = await totalQuery;
+
+    if (totalError) {
+      console.error('[FormSubmissionStats] Error getting total count:', totalError);
+      return res.status(500).json({ error: 'Failed to get submission count' });
+    }
+
+    let newQuery = supabase
+      .from('form_submission')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId)
+      .or('status.eq.new,status.is.null');
+    if (includedFormIds.length > 0) {
+      newQuery = newQuery.in('form_id', includedFormIds);
+    }
+    const { count: newCount, error: newError } = await newQuery;
+
+    if (newError) {
+      console.error('[FormSubmissionStats] Error getting new count:', newError);
+      return res.status(500).json({ error: 'Failed to get new submission count' });
+    }
+
+    // Get pending job postings count (status = 'pending_approval')
+    const { count: pendingJobsCount, error: pendingJobsError } = await supabase
+      .from('job_posting')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId)
+      .eq('status', 'pending_approval');
+
+    if (pendingJobsError) {
+      console.error('[FormSubmissionStats] Error getting pending jobs count:', pendingJobsError);
+      // Don't fail the whole request, just set to 0
+    }
+
+    // Get pending cancellation requests count
+    const { count: pendingCancellationsCount, error: pendingCancellationsError } = await supabase
+      .from('booking_cancellation_request')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId)
+      .eq('status', 'pending');
+
+    if (pendingCancellationsError) {
+      console.error('[FormSubmissionStats] Error getting pending cancellations count:', pendingCancellationsError);
+    }
+
+    // Get pending transfer requests count
+    const { count: pendingTransfersCount, error: pendingTransfersError } = await supabase
+      .from('booking_transfer_request')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId)
+      .eq('status', 'pending');
+
+    if (pendingTransfersError) {
+      console.error('[FormSubmissionStats] Error getting pending transfers count:', pendingTransfersError);
+    }
+
+    const pendingCancellationsTransfers = (pendingCancellationsCount || 0) + (pendingTransfersCount || 0);
+
+    return res.json({ 
+      total: totalCount || 0, 
+      new: newCount || 0,
+      pending_jobs: pendingJobsCount || 0,
+      pending_cancellations_transfers: pendingCancellationsTransfers,
+      allowed_roles: allowedRoles,
+      card_styles: cardStyles
+    });
+  } catch (error) {
+    console.error('[Admin Form Submission Stats] Error:', error);
+    return res.status(500).json({ error: 'Failed to get form submission stats' });
+  }
+}

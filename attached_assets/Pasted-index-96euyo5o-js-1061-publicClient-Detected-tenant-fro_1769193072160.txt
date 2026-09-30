@@ -1,0 +1,141 @@
+index-96euyo5o.js:1061 [publicClient] Detected tenant from subdomain: gsf
+index-96euyo5o.js:1146 GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.84.0) 2026-01-23T18:30:42.873Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+Yg @ index-96euyo5o.js:1146
+bce @ index-96euyo5o.js:1147
+_initSupabaseAuthClient @ index-96euyo5o.js:1147
+vce @ index-96euyo5o.js:1147
+xB @ index-96euyo5o.js:1147
+(anonymous) @ index-96euyo5o.js:2129
+(anonymous) @ index-96euyo5o.js:1
+(anonymous) @ index-96euyo5o.js:2544
+index-96euyo5o.js:1450 [usePendingPurchaseOrders] memberInfo: null
+index-96euyo5o.js:1450 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-96euyo5o.js:1450 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-96euyo5o.js:1450 [Layout] currentPageName: ReviewSubmission currentPortalPageId: null
+index-96euyo5o.js:1450 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-96euyo5o.js:1450 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-96euyo5o.js:1450 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-96euyo5o.js:1450 [Layout] currentPageName: ReviewSubmission currentPortalPageId: null
+index-96euyo5o.js:1450 [usePendingPurchaseOrders] Query running, memberInfo.id: b24e022f-adcc-4930-8952-63a34cc16925
+index-96euyo5o.js:1450 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-96euyo5o.js:1450 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-96euyo5o.js:1450 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-96euyo5o.js:1450 [Layout] currentPageName: ReviewSubmission currentPortalPageId: null
+index-96euyo5o.js:1450 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-96euyo5o.js:1450 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-96euyo5o.js:1450 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-96euyo5o.js:1450 [Layout] currentPageName: ReviewSubmission currentPortalPageId: null
+index-96euyo5o.js:1450 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-96euyo5o.js:1450 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-96euyo5o.js:1450 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-96euyo5o.js:1450 [Layout] currentPageName: ReviewSubmission currentPortalPageId: null
+index-96euyo5o.js:1416 Error loading member record: {code: 'PGRST116', details: 'Results contain 3 rows, application/vnd.pgrst.object+json requires 1 row', hint: null, message: 'JSON object requested, multiple (or no) rows returned'}
+queryFn @ index-96euyo5o.js:1416
+await in queryFn
+i @ index-96euyo5o.js:1061
+b @ index-96euyo5o.js:1061
+start @ index-96euyo5o.js:1061
+fetch @ index-96euyo5o.js:1061
+Gf @ index-96euyo5o.js:1061
+onSubscribe @ index-96euyo5o.js:1061
+subscribe @ index-96euyo5o.js:1061
+(anonymous) @ index-96euyo5o.js:1061
+F$ @ index-96euyo5o.js:38
+Xy @ index-96euyo5o.js:40
+cx @ index-96euyo5o.js:40
+ZX @ index-96euyo5o.js:40
+Zu @ index-96euyo5o.js:40
+gF @ index-96euyo5o.js:40
+Fu @ index-96euyo5o.js:38
+(anonymous) @ index-96euyo5o.js:40
+setTimeout
+r @ index-96euyo5o.js:1061
+l @ index-96euyo5o.js:1061
+batch @ index-96euyo5o.js:1061
+Pc @ index-96euyo5o.js:1061
+setData @ index-96euyo5o.js:1061
+onSuccess @ index-96euyo5o.js:1061
+m @ index-96euyo5o.js:1061
+Promise.then
+b @ index-96euyo5o.js:1061
+start @ index-96euyo5o.js:1061
+fetch @ index-96euyo5o.js:1061
+Gf @ index-96euyo5o.js:1061
+onSubscribe @ index-96euyo5o.js:1061
+subscribe @ index-96euyo5o.js:1061
+(anonymous) @ index-96euyo5o.js:1061
+F$ @ index-96euyo5o.js:38
+Xy @ index-96euyo5o.js:40
+cx @ index-96euyo5o.js:40
+(anonymous) @ index-96euyo5o.js:40
+N @ index-96euyo5o.js:25
+E @ index-96euyo5o.js:25
+index-96euyo5o.js:1450 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-96euyo5o.js:1450 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-96euyo5o.js:1450 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-96euyo5o.js:1450 [Layout] currentPageName: ReviewSubmission currentPortalPageId: null
+index-96euyo5o.js:1450 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-96euyo5o.js:1450 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-96euyo5o.js:1450 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-96euyo5o.js:1450 [Layout] currentPageName: ReviewSubmission currentPortalPageId: null
+index-96euyo5o.js:1450 [Layout] Server session found: mat.the.diver@googlemail.com
+index-96euyo5o.js:1450 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-96euyo5o.js:1450 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-96euyo5o.js:1450 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-96euyo5o.js:1450 [Layout] currentPageName: ReviewSubmission currentPortalPageId: null
+index-96euyo5o.js:1450 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-96euyo5o.js:1450 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-96euyo5o.js:1450 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-96euyo5o.js:1450 [Layout] currentPageName: ReviewSubmission currentPortalPageId: null
+index-96euyo5o.js:1450 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-96euyo5o.js:1450 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-96euyo5o.js:1450 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-96euyo5o.js:1450 [Layout] currentPageName: ReviewSubmission currentPortalPageId: null
+index-96euyo5o.js:1450 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-96euyo5o.js:1450 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-96euyo5o.js:1450 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-96euyo5o.js:1450 [Layout] currentPageName: ReviewSubmission currentPortalPageId: null
+index-96euyo5o.js:1450 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-96euyo5o.js:1450 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-96euyo5o.js:1450 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-96euyo5o.js:1450 [Layout] currentPageName: ReviewSubmission currentPortalPageId: null
+index-96euyo5o.js:1450 [usePendingPurchaseOrders] Fetched bookings count: 0
+index-96euyo5o.js:1450 [usePendingPurchaseOrders] Pending PO bookings: 0
+index-96euyo5o.js:1450 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-96euyo5o.js:1450 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-96euyo5o.js:1450 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-96euyo5o.js:1450 [Layout] currentPageName: ReviewSubmission currentPortalPageId: null
+index-96euyo5o.js:2544 [DocumentsCard] Input props: {formSubmissionId: 'e19029e7-9c88-480d-8712-06f5b6ec99af', hasSubmissionData: true, submissionDataType: 'object', submissionDataKeys: Array(16), submissionDataSample: '{"field_1768821271046":"Mat","field_1768821297362"…109853362-xdpmwmc-INVOICE_999901552.pdf\\",\\"file_', …}
+index-96euyo5o.js:2544 [DocumentsCard] Processing schema: {hasSchemaFields: true, schemaFieldsCount: 79, hasSchemaPages: true, schemaPagesCount: 11, allFieldTypes: Array(79), …}
+index-96euyo5o.js:2544 [DocumentsCard] File field found: {fieldName: undefined, fieldId: 'field_1768830191531', fieldKey: 'field_1768830191531', hasMatch: true, submissionValue: 'present', …}
+index-96euyo5o.js:2544 [DocumentsCard] Found file field: {fieldKey: 'field_1768830191531', type: 'file', fileData: {…}}
+index-96euyo5o.js:2544 [DocumentsCard] File field found: {fieldName: undefined, fieldId: 'field_1768830271399', fieldKey: 'field_1768830271399', hasMatch: true, submissionValue: 'present', …}
+index-96euyo5o.js:2544 [DocumentsCard] Found file field: {fieldKey: 'field_1768830271399', type: 'file', fileData: {…}}
+index-96euyo5o.js:2544 [DocumentsCard] Found file field: {fieldKey: 'field_1768830324467', type: 'custom_field', fileData: {…}}
+index-96euyo5o.js:2544 [DocumentsCard] fileFieldsFromForm result: 3 files found
+index-96euyo5o.js:2544 [MeetingRequestsCard] Props: {formSubmissionId: 'e19029e7-9c88-480d-8712-06f5b6ec99af', formId: 'a9ec1559-495a-4705-9da9-d51517be7bb6'}
+index-96euyo5o.js:2544 [MeetingRequestsCard] State: {sentLoading: true, configuredLoading: true, isLoading: true, requestsCount: 0, configuredMeetingsCount: 0, …}
+index-96euyo5o.js:2544 [DocumentsCard] Input props: {formSubmissionId: 'e19029e7-9c88-480d-8712-06f5b6ec99af', hasSubmissionData: true, submissionDataType: 'object', submissionDataKeys: Array(16), submissionDataSample: '{"field_1768821271046":"Mat","field_1768821297362"…109853362-xdpmwmc-INVOICE_999901552.pdf\\",\\"file_', …}
+index-96euyo5o.js:2544 [MeetingRequestsCard] Props: {formSubmissionId: 'e19029e7-9c88-480d-8712-06f5b6ec99af', formId: 'a9ec1559-495a-4705-9da9-d51517be7bb6'}
+index-96euyo5o.js:2544 [MeetingRequestsCard] State: {sentLoading: true, configuredLoading: true, isLoading: true, requestsCount: 0, configuredMeetingsCount: 0, …}
+index-96euyo5o.js:2544 [MeetingRequestsCard] Props: {formSubmissionId: 'e19029e7-9c88-480d-8712-06f5b6ec99af', formId: 'a9ec1559-495a-4705-9da9-d51517be7bb6'}
+index-96euyo5o.js:2544 [MeetingRequestsCard] State: {sentLoading: true, configuredLoading: false, isLoading: true, requestsCount: 0, configuredMeetingsCount: 0, …}
+index-96euyo5o.js:2544 [MeetingRequestsCard] Props: {formSubmissionId: 'e19029e7-9c88-480d-8712-06f5b6ec99af', formId: 'a9ec1559-495a-4705-9da9-d51517be7bb6'}
+index-96euyo5o.js:2544 [MeetingRequestsCard] State: {sentLoading: false, configuredLoading: false, isLoading: false, requestsCount: 0, configuredMeetingsCount: 0, …}
+index-96euyo5o.js:2544 [MeetingRequestsCard] Returning null - no content or IDs
+index-96euyo5o.js:2544 [DocumentsCard] Input props: {formSubmissionId: 'e19029e7-9c88-480d-8712-06f5b6ec99af', hasSubmissionData: true, submissionDataType: 'object', submissionDataKeys: Array(16), submissionDataSample: '{"field_1768821271046":"Mat","field_1768821297362"…109853362-xdpmwmc-INVOICE_999901552.pdf\\",\\"file_', …}
+index-96euyo5o.js:2544 [MeetingRequestsCard] Props: {formSubmissionId: 'e19029e7-9c88-480d-8712-06f5b6ec99af', formId: 'a9ec1559-495a-4705-9da9-d51517be7bb6'}
+index-96euyo5o.js:2544 [MeetingRequestsCard] State: {sentLoading: false, configuredLoading: false, isLoading: false, requestsCount: 0, configuredMeetingsCount: 0, …}
+index-96euyo5o.js:2544 [MeetingRequestsCard] Returning null - no content or IDs
+index-96euyo5o.js:2544 [DocumentsCard] Input props: {formSubmissionId: 'e19029e7-9c88-480d-8712-06f5b6ec99af', hasSubmissionData: true, submissionDataType: 'object', submissionDataKeys: Array(16), submissionDataSample: '{"field_1768821271046":"Mat","field_1768821297362"…109853362-xdpmwmc-INVOICE_999901552.pdf\\",\\"file_', …}
+index-96euyo5o.js:2544 [MeetingRequestsCard] Props: {formSubmissionId: 'e19029e7-9c88-480d-8712-06f5b6ec99af', formId: 'a9ec1559-495a-4705-9da9-d51517be7bb6'}
+index-96euyo5o.js:2544 [MeetingRequestsCard] State: {sentLoading: false, configuredLoading: false, isLoading: false, requestsCount: 0, configuredMeetingsCount: 0, …}
+index-96euyo5o.js:2544 [MeetingRequestsCard] Returning null - no content or IDs
+index-96euyo5o.js:1450 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-96euyo5o.js:1450 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-96euyo5o.js:1450 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-96euyo5o.js:1450 [Layout] currentPageName: ReviewSubmission currentPortalPageId: null
+index-96euyo5o.js:2544 [DocumentsCard] Input props: {formSubmissionId: 'e19029e7-9c88-480d-8712-06f5b6ec99af', hasSubmissionData: true, submissionDataType: 'object', submissionDataKeys: Array(16), submissionDataSample: '{"field_1768821271046":"Mat","field_1768821297362"…109853362-xdpmwmc-INVOICE_999901552.pdf\\",\\"file_', …}
+index-96euyo5o.js:2544 [MeetingRequestsCard] Props: {formSubmissionId: 'e19029e7-9c88-480d-8712-06f5b6ec99af', formId: 'a9ec1559-495a-4705-9da9-d51517be7bb6'}
+index-96euyo5o.js:2544 [MeetingRequestsCard] State: {sentLoading: false, configuredLoading: false, isLoading: false, requestsCount: 0, configuredMeetingsCount: 0, …}
+index-96euyo5o.js:2544 [MeetingRequestsCard] Returning null - no content or IDs

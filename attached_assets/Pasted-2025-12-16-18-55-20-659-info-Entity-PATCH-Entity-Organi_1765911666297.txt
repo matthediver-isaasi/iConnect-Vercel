@@ -1,0 +1,33 @@
+2025-12-16 18:55:20.659 [info] [Entity PATCH] Entity: "OrganizationPreferenceValue", ID: ef811771-8700-4f18-9d51-279ee47d6c41, Body: {"value":"Verified"}
+2025-12-16 18:55:20.660 [info] [Entity PATCH] Normalized entity: "organizationpreferencevalue"
+2025-12-16 18:55:20.660 [info] [Entity PATCH] isPreferenceValueEntity: true
+2025-12-16 18:55:20.825 [info] [Entity PATCH] Preference PATCH - req.body.value: "Verified", data.value: "Verified"
+2025-12-16 18:55:20.825 [info] [Entity PATCH] Preference value updated - entityId: 5e4031e9-a33d-482f-8018-7ed22a7b15df, fieldId: 1c395ccf-7df2-4818-917d-1cd672216f71, value: Verified
+2025-12-16 18:55:20.825 [info] [Entity PATCH] Full data returned: {"id":"ef811771-8700-4f18-9d51-279ee47d6c41","organization_id":"5e4031e9-a33d-482f-8018-7ed22a7b15df","field_id":"1c395ccf-7df2-4818-917d-1cd672216f71","value":"Verified","created_at":"2025-12-16T18:29:46.236575+00:00","updated_at":"2025-12-16T18:29:46.236575+00:00"}
+2025-12-16 18:55:20.825 [info] [Entity PATCH] newValue to use: "Verified"
+2025-12-16 18:55:20.825 [info] [Entity PATCH] Calling triggerPreferenceWorkflows with entityType=organization, entityId=5e4031e9-a33d-482f-8018-7ed22a7b15df, fieldId=1c395ccf-7df2-4818-917d-1cd672216f71, value=Verified
+2025-12-16 18:55:20.967 [info] [Workflows] Evaluating 1 workflows for organization preference field 1c395ccf-7df2-4818-917d-1cd672216f71, incoming value="Verified"
+2025-12-16 18:55:20.967 [info] [Workflows] Checking workflow "Send full Uni application": cfg.field_id=1c395ccf-7df2-4818-917d-1cd672216f71, our fieldId=1c395ccf-7df2-4818-917d-1cd672216f71, cfg.field_type=custom
+2025-12-16 18:55:20.967 [info] [Workflows] Comparing: actual="Verified" vs target="Verified", operator=changed_to
+2025-12-16 18:55:20.967 [info] [Workflows] Result: triggerMatches=true
+2025-12-16 18:55:21.129 [info] [Workflows] Executing workflow: Send full Uni application (trigger_mode=once_per_record)
+2025-12-16 18:55:21.285 [info] [Workflows] send_email action config: {
+  "cc": "",
+  "to": "{{4a53827a-d7f0-4e81-b0db-5671f537550a}}",
+  "bcc": "mat@isaasi.co.uk",
+  "mode": "template",
+  "to_mode": "field",
+  "template_id": "2910b68d-6c87-4e4a-abc0-844fa597bb89"
+}
+2025-12-16 18:55:21.285 [info] [Workflows] Using template mode, fetching template: 2910b68d-6c87-4e4a-abc0-844fa597bb89
+2025-12-16 18:55:21.413 [info] [Workflows] Template fetch result: found
+2025-12-16 18:55:21.413 [info] [Workflows] Template loaded - subject: "Thank you for your interest in Graduate Futures", body length: 81
+2025-12-16 18:55:21.413 [info] [Workflows] Sending email - to: "{{4a53827a-d7f0-4e81-b0db-5671f537550a}}", subject: "Thank you for your interest in Graduate Futures", body length: 81
+2025-12-16 18:55:21.413 [info] [Workflows] BCC: "mat@isaasi.co.uk"
+2025-12-16 18:55:21.413 [info] [Email Service] Sending email to: {{4a53827a-d7f0-4e81-b0db-5671f537550a}}
+2025-12-16 18:55:21.413 [info] [Email Service] BCC: mat@isaasi.co.uk
+2025-12-16 18:55:21.413 [info] [Email Service] Subject: Thank you for your interest in Graduate Futures
+2025-12-16 18:55:21.685 [error] [Email Service] Failed to send email: Bad Request
+2025-12-16 18:55:21.685 [info] [Workflows] Email result: {"success":false,"error":"Bad Request"}
+2025-12-16 18:55:21.837 [info] [Workflows] Logged execution for Send full Uni application
+2025-12-16 18:55:21.837 [info] [Entity PATCH] triggerPreferenceWorkflows completed

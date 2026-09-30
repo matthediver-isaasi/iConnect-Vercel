@@ -1,0 +1,25 @@
+2025-12-23 08:08:08.131 [info] [Member Delete] Deleted records from member_group_assignment where member_id = 8b4f7e24-9f84-4b2b-a2a1-f9322b20e2e6
+2025-12-23 08:08:08.280 [info] [Member Delete] Note: Could not delete from member_group_guest.member_id: column member_group_guest.member_id does not exist
+2025-12-23 08:08:08.419 [info] [Member Delete] Deleted records from member_preference_value where member_id = 8b4f7e24-9f84-4b2b-a2a1-f9322b20e2e6
+2025-12-23 08:08:08.564 [info] [Member Delete] Deleted records from member_communication_preference where member_id = 8b4f7e24-9f84-4b2b-a2a1-f9322b20e2e6
+2025-12-23 08:08:08.703 [info] [Member Delete] Note: Could not delete from magic_link.member_id: column magic_link.member_id does not exist
+2025-12-23 08:08:08.848 [info] [Member Delete] Deleted records from member_credentials where member_id = 8b4f7e24-9f84-4b2b-a2a1-f9322b20e2e6
+2025-12-23 08:08:09.011 [info] [Member Delete] Deleted records from article_follow where follower_member_id = 8b4f7e24-9f84-4b2b-a2a1-f9322b20e2e6
+2025-12-23 08:08:09.156 [info] [Member Delete] Deleted records from article_follow where followed_member_id = 8b4f7e24-9f84-4b2b-a2a1-f9322b20e2e6
+2025-12-23 08:08:09.278 [info] [Member Delete] Note: Could not delete from article_comment.member_id: column article_comment.member_id does not exist
+2025-12-23 08:08:09.400 [info] [Member Delete] Note: Could not delete from article_view.member_id: column article_view.member_id does not exist
+2025-12-23 08:08:09.531 [info] [Member Delete] Note: Could not delete from article_reaction.member_id: column article_reaction.member_id does not exist
+2025-12-23 08:08:09.649 [info] [Member Delete] Note: Could not delete from comment_reaction.member_id: column comment_reaction.member_id does not exist
+2025-12-23 08:08:09.778 [info] [Member Delete] Note: Could not delete from form_submission.member_id: column form_submission.member_id does not exist
+2025-12-23 08:08:09.902 [info] [Member Delete] Note: Could not delete from support_ticket_response.member_id: column support_ticket_response.member_id does not exist
+2025-12-23 08:08:07.818 [info] [Member Delete] Starting anonymization and cleanup for member 8b4f7e24-9f84-4b2b-a2a1-f9322b20e2e6
+2025-12-23 08:08:07.984 [info] [Member Delete] Deleted records from member_resource_category where member_id = 8b4f7e24-9f84-4b2b-a2a1-f9322b20e2e6
+2025-12-23 08:08:10.026 [info] [Member Delete] Note: Could not delete from support_ticket.member_id: column support_ticket.member_id does not exist
+2025-12-23 08:08:10.151 [info] [Member Delete] Note: Could not delete from workflow_log.member_id: column workflow_log.member_id does not exist
+2025-12-23 08:08:10.282 [info] [Member Delete] Note: Could not delete from organization_note.author_member_id: column organization_note.author_member_id does not exist
+2025-12-23 08:08:10.409 [error] [Member Delete] Error anonymizing member 8b4f7e24-9f84-4b2b-a2a1-f9322b20e2e6: {
+  code: 'PGRST204',
+  details: null,
+  hint: null,
+  message: "Could not find the 'address' column of 'member' in the schema cache"
+}

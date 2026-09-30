@@ -1,0 +1,135 @@
+index-DedjG8gD.js:1066 GoTrueClient@sb-zkvgzcruhniduuswbfyh-auth-token:1 (2.84.0) 2026-01-03T19:52:45.655Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+mg @ index-DedjG8gD.js:1066
+Kie @ index-DedjG8gD.js:1067
+_initSupabaseAuthClient @ index-DedjG8gD.js:1067
+Gie @ index-DedjG8gD.js:1067
+T4 @ index-DedjG8gD.js:1067
+(anonymous) @ index-DedjG8gD.js:2074
+(anonymous) @ index-DedjG8gD.js:1
+(anonymous) @ index-DedjG8gD.js:2503
+index-DedjG8gD.js:1066 GoTrueClient@sb-zkvgzcruhniduuswbfyh-auth-token:2 (2.84.0) 2026-01-03T19:52:45.672Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+mg @ index-DedjG8gD.js:1066
+Kie @ index-DedjG8gD.js:1067
+_initSupabaseAuthClient @ index-DedjG8gD.js:1067
+Gie @ index-DedjG8gD.js:1067
+T4 @ index-DedjG8gD.js:1067
+(anonymous) @ index-DedjG8gD.js:2452
+(anonymous) @ index-DedjG8gD.js:1
+(anonymous) @ index-DedjG8gD.js:2503
+index-DedjG8gD.js:1370 [usePendingPurchaseOrders] memberInfo: null
+index-DedjG8gD.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DedjG8gD.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DedjG8gD.js:1370 [Layout] currentPageName: FormView currentPortalPageId: null
+index-DedjG8gD.js:1370 [usePendingPurchaseOrders] memberInfo: null
+index-DedjG8gD.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DedjG8gD.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DedjG8gD.js:1370 [Layout] currentPageName: FormView currentPortalPageId: null
+index-DedjG8gD.js:1370 [usePendingPurchaseOrders] memberInfo: null
+index-DedjG8gD.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DedjG8gD.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DedjG8gD.js:1370 [Layout] currentPageName: FormView currentPortalPageId: null
+index-DedjG8gD.js:1370 [usePendingPurchaseOrders] memberInfo: null
+index-DedjG8gD.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DedjG8gD.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DedjG8gD.js:1370 [Layout] currentPageName: FormView currentPortalPageId: null
+index-DedjG8gD.js:1370 [usePendingPurchaseOrders] memberInfo: null
+index-DedjG8gD.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DedjG8gD.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DedjG8gD.js:1370 [Layout] currentPageName: FormView currentPortalPageId: null
+index-DedjG8gD.js:2408 [FormView] entity_pipelines.members: undefined
+index-DedjG8gD.js:2408 [FormView] primaryMember: undefined
+index-DedjG8gD.js:2408 [FormView] Extracted primaryMemberRoleId: null
+index-DedjG8gD.js:1370 [usePendingPurchaseOrders] memberInfo: null
+index-DedjG8gD.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DedjG8gD.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DedjG8gD.js:1370 [Layout] currentPageName: FormView currentPortalPageId: null
+index-DedjG8gD.js:2408 [FormView] entity_pipelines.members: undefined
+index-DedjG8gD.js:2408 [FormView] primaryMember: undefined
+index-DedjG8gD.js:2408 [FormView] Extracted primaryMemberRoleId: null
+index-DedjG8gD.js:40 ReferenceError: slug is not defined
+    at VW (index-DedjG8gD.js:2408:229991)
+    at mk (index-DedjG8gD.js:38:17018)
+    at qR (index-DedjG8gD.js:40:44058)
+    at LR (index-DedjG8gD.js:40:39790)
+    at KJ (index-DedjG8gD.js:40:39718)
+    at Kv (index-DedjG8gD.js:40:39570)
+    at E2 (index-DedjG8gD.js:40:35934)
+    at hP (index-DedjG8gD.js:40:36738)
+    at nu (index-DedjG8gD.js:38:3279)
+    at index-DedjG8gD.js:40:34263
+f2 @ index-DedjG8gD.js:40
+a.callback @ index-DedjG8gD.js:40
+G5 @ index-DedjG8gD.js:38
+dP @ index-DedjG8gD.js:40
+DR @ index-DedjG8gD.js:40
+VJ @ index-DedjG8gD.js:40
+YJ @ index-DedjG8gD.js:40
+Pu @ index-DedjG8gD.js:40
+hP @ index-DedjG8gD.js:40
+nu @ index-DedjG8gD.js:38
+(anonymous) @ index-DedjG8gD.js:40
+setTimeout
+r @ index-DedjG8gD.js:981
+l @ index-DedjG8gD.js:981
+batch @ index-DedjG8gD.js:981
+rc @ index-DedjG8gD.js:981
+setData @ index-DedjG8gD.js:981
+onSuccess @ index-DedjG8gD.js:981
+u @ index-DedjG8gD.js:981
+Promise.then
+v @ index-DedjG8gD.js:981
+start @ index-DedjG8gD.js:981
+fetch @ index-DedjG8gD.js:981
+of @ index-DedjG8gD.js:981
+onSubscribe @ index-DedjG8gD.js:981
+subscribe @ index-DedjG8gD.js:981
+(anonymous) @ index-DedjG8gD.js:981
+nR @ index-DedjG8gD.js:38
+cj @ index-DedjG8gD.js:40
+Eh @ index-DedjG8gD.js:40
+(anonymous) @ index-DedjG8gD.js:40
+N @ index-DedjG8gD.js:25
+C @ index-DedjG8gD.js:25
+index-DedjG8gD.js:2408 Uncaught ReferenceError: slug is not defined
+    at VW (index-DedjG8gD.js:2408:229991)
+    at mk (index-DedjG8gD.js:38:17018)
+    at qR (index-DedjG8gD.js:40:44058)
+    at LR (index-DedjG8gD.js:40:39790)
+    at KJ (index-DedjG8gD.js:40:39718)
+    at Kv (index-DedjG8gD.js:40:39570)
+    at E2 (index-DedjG8gD.js:40:35934)
+    at hP (index-DedjG8gD.js:40:36738)
+    at nu (index-DedjG8gD.js:38:3279)
+    at index-DedjG8gD.js:40:34263
+VW @ index-DedjG8gD.js:2408
+mk @ index-DedjG8gD.js:38
+qR @ index-DedjG8gD.js:40
+LR @ index-DedjG8gD.js:40
+KJ @ index-DedjG8gD.js:40
+Kv @ index-DedjG8gD.js:40
+E2 @ index-DedjG8gD.js:40
+hP @ index-DedjG8gD.js:40
+nu @ index-DedjG8gD.js:38
+(anonymous) @ index-DedjG8gD.js:40
+setTimeout
+r @ index-DedjG8gD.js:981
+l @ index-DedjG8gD.js:981
+batch @ index-DedjG8gD.js:981
+rc @ index-DedjG8gD.js:981
+setData @ index-DedjG8gD.js:981
+onSuccess @ index-DedjG8gD.js:981
+u @ index-DedjG8gD.js:981
+Promise.then
+v @ index-DedjG8gD.js:981
+start @ index-DedjG8gD.js:981
+fetch @ index-DedjG8gD.js:981
+of @ index-DedjG8gD.js:981
+onSubscribe @ index-DedjG8gD.js:981
+subscribe @ index-DedjG8gD.js:981
+(anonymous) @ index-DedjG8gD.js:981
+nR @ index-DedjG8gD.js:38
+cj @ index-DedjG8gD.js:40
+Eh @ index-DedjG8gD.js:40
+(anonymous) @ index-DedjG8gD.js:40
+N @ index-DedjG8gD.js:25
+C @ index-DedjG8gD.js:25

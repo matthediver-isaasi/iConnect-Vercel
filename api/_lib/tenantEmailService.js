@@ -1,0 +1,212 @@
+import Mailgun from 'mailgun.js';
+import formData from 'form-data';
+import { supabase } from './database.js';
+import { isAmbiguousDeliveryFailure } from './emailService.js';
+import { recordTransactionalInboxMessage } from './transactionalInbox.js';
+import { resolveTransactionalPreferenceTokens } from './transactionalPreferences.js';
+
+const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY;
+const MAILGUN_REGION = process.env.MAILGUN_REGION || 'eu';
+const APP_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
+// Root domain for platform-level emails (no tenant context) - always use mail.iconn.app
+const ROOT_EMAIL_DOMAIN = `mail.${APP_DOMAIN}`;
+const DEFAULT_FROM = process.env.MAILGUN_FROM_EMAIL || `ICONN <noreply@${ROOT_EMAIL_DOMAIN}>`;
+
+let mailgunClient = null;
+const tenantEmailConfigCache = new Map();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+function getMailgunClient() {
+  if (!mailgunClient && MAILGUN_API_KEY) {
+    const mailgun = new Mailgun(formData);
+    const config = {
+      username: 'api',
+      key: MAILGUN_API_KEY,
+    };
+    if (MAILGUN_REGION === 'eu') {
+      config.url = 'https://api.eu.mailgun.net';
+    }
+    mailgunClient = mailgun.client(config);
+  }
+  return mailgunClient;
+}
+
+export async function getTenantEmailConfig(tenantId) {
+  if (!tenantId) {
+    return null;
+  }
+
+  const cacheKey = tenantId;
+  const cached = tenantEmailConfigCache.get(cacheKey);
+  if (cached && (Date.now() - cached.timestamp) < CACHE_TTL) {
+    return cached.config;
+  }
+
+  try {
+    const { data: tenant, error } = await supabase
+      .from('tenant')
+      .select('id, name, settings')
+      .eq('id', tenantId)
+      .single();
+
+    if (error || !tenant) {
+      console.log(`[Tenant Email] No tenant found for ${tenantId}`);
+      return null;
+    }
+
+    const emailDomainConfig = tenant.settings?.email_domain;
+    if (!emailDomainConfig || emailDomainConfig.status !== 'verified') {
+      console.log(`[Tenant Email] No verified email domain for tenant ${tenantId}`);
+      tenantEmailConfigCache.set(cacheKey, { config: null, timestamp: Date.now() });
+      return null;
+    }
+
+    const config = {
+      domain: emailDomainConfig.domain,
+      fromEmail: emailDomainConfig.from_email || `noreply@${emailDomainConfig.domain}`,
+      fromName: emailDomainConfig.from_name || tenant.name || 'ICONN',
+    };
+
+    tenantEmailConfigCache.set(cacheKey, { config, timestamp: Date.now() });
+    return config;
+
+  } catch (err) {
+    console.error('[Tenant Email] Error fetching tenant email config:', err);
+    return null;
+  }
+}
+
+export async function sendTenantEmail({ 
+  tenantId, 
+  to, 
+  subject, 
+  html, 
+  text, 
+  from, 
+  replyTo, 
+  cc, 
+  bcc,
+  footer,
+  inboxDelivery = null,
+  // Server-side callers do not supply this. It allows focused transport tests
+  // to exercise the same response/error translation without a real provider.
+  mailgunClient: injectedMailgunClient = null,
+}) {
+  if (!MAILGUN_API_KEY && !injectedMailgunClient) {
+    console.error('[Tenant Email] MAILGUN_API_KEY not configured');
+    return {
+      success: false,
+      error: 'Email service not configured',
+    };
+  }
+
+  const client = injectedMailgunClient || getMailgunClient();
+  if (!client) {
+    return {
+      success: false,
+      error: 'Failed to initialize email client',
+    };
+  }
+
+  // Get tenant-specific email configuration
+  const tenantConfig = await getTenantEmailConfig(tenantId);
+  
+  // Determine domain and from address
+  // Default to root email domain (mail.iconn.app) for platform-level emails
+  let domain = ROOT_EMAIL_DOMAIN;
+  let fromAddress = from || DEFAULT_FROM;
+  
+  if (tenantConfig) {
+    domain = tenantConfig.domain;
+    if (!from) {
+      fromAddress = `${tenantConfig.fromName} <${tenantConfig.fromEmail}>`;
+    }
+    console.log(`[Tenant Email] Using tenant-specific domain: ${domain}`);
+  } else {
+    console.log(`[Tenant Email] Using default domain: ${domain}`);
+  }
+
+  try {
+    let finalHtml = html || '';
+    if (footer) {
+      finalHtml = finalHtml + footer;
+    }
+
+    // This transport has an explicit-footer contract, unlike sendEmail's
+    // configured-footer path. Resolve only after that footer has been appended.
+    const resolved = await resolveTransactionalPreferenceTokens({
+      html: finalHtml, text, subject, to, cc, bcc, tenantId,
+    });
+    finalHtml = resolved.html;
+    text = resolved.text;
+    subject = resolved.subject;
+
+    console.log(`[Tenant Email] Sending to: ${to}, domain: ${domain}`);
+
+    const messageData = {
+      from: fromAddress,
+      to: Array.isArray(to) ? to : [to],
+      subject,
+      html: finalHtml,
+      text: text || finalHtml.replace(/<[^>]*>/g, ''),
+    };
+
+    if (replyTo) {
+      messageData['h:Reply-To'] = replyTo;
+    }
+    if (cc) {
+      messageData.cc = Array.isArray(cc) ? cc : [cc];
+    }
+    if (bcc) {
+      messageData.bcc = Array.isArray(bcc) ? bcc : [bcc];
+    }
+
+    const response = await client.messages.create(domain, messageData);
+
+    console.log(`[Tenant Email] Email sent successfully. Message ID: ${response.id}`);
+
+    // Opt-in inbox delivery: on a successful send, persist the final rendered
+    // HTML to the recipient member's inbox. Swallows its own errors (never
+    // throws) and must not alter sendTenantEmail's return contract.
+    if (inboxDelivery && inboxDelivery.memberId) {
+      await recordTransactionalInboxMessage({
+        tenantId,
+        memberId: inboxDelivery.memberId,
+        to,
+        subject,
+        html: finalHtml,
+        fromAddress,
+        preheader: inboxDelivery.preheader || null,
+        communicationCategoryId: inboxDelivery.communicationCategoryId || null,
+        labelKey: inboxDelivery.labelKey || null,
+      });
+    }
+
+    return {
+      success: true,
+      messageId: response.id,
+      domain: domain,
+    };
+
+  } catch (error) {
+    console.error('[Tenant Email] Failed to send email:', error.message || error);
+    return {
+      success: false,
+      error: error.message || 'Unknown error sending email',
+      // Transport adapters may know that a timeout/disconnect happened after
+      // the provider accepted the request. Do not erase that signal while
+      // translating the thrown provider response into this wrapper result.
+      ambiguousEffect: error?.ambiguousEffect === true
+        || error?.ddAmbiguousEffect === true
+        || isAmbiguousDeliveryFailure(error),
+    };
+  }
+}
+
+export function clearTenantEmailCache(tenantId) {
+  if (tenantId) {
+    tenantEmailConfigCache.delete(tenantId);
+  } else {
+    tenantEmailConfigCache.clear();
+  }
+}

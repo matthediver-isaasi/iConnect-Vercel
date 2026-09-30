@@ -1,0 +1,168 @@
+index-CBcKvMSN.js:1266 [publicClient] Detected tenant from subdomain: gfi
+index-CBcKvMSN.js:1351 GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.93.3) 2026-03-29T18:01:00.852Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+jw @ index-CBcKvMSN.js:1351
+index-CBcKvMSN.js:1655 [usePendingPurchaseOrders] memberInfo: null
+index-CBcKvMSN.js:1655 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CBcKvMSN.js:1659 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CBcKvMSN.js:1659 [Layout] currentPageName: ComplexEventDetail currentPortalPageId: null
+index-CBcKvMSN.js:1655 [usePendingPurchaseOrders] memberInfo: Object
+index-CBcKvMSN.js:1655 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CBcKvMSN.js:1659 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CBcKvMSN.js:1659 [Layout] currentPageName: ComplexEventDetail currentPortalPageId: null
+index-CBcKvMSN.js:1655 [usePendingPurchaseOrders] Query running, memberInfo.id: 9ac39222-22b8-457e-a5df-dfca45a99eb6
+index-CBcKvMSN.js:1655 [usePendingPurchaseOrders] memberInfo: Object
+index-CBcKvMSN.js:1655 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CBcKvMSN.js:1659 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CBcKvMSN.js:1659 [Layout] currentPageName: ComplexEventDetail currentPortalPageId: null
+index-CBcKvMSN.js:1655 [usePendingPurchaseOrders] memberInfo: Object
+index-CBcKvMSN.js:1655 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CBcKvMSN.js:1659 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CBcKvMSN.js:1659 [Layout] currentPageName: ComplexEventDetail currentPortalPageId: null
+index-CBcKvMSN.js:1655 [usePendingPurchaseOrders] memberInfo: Object
+index-CBcKvMSN.js:1655 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CBcKvMSN.js:1659 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CBcKvMSN.js:1659 [Layout] currentPageName: ComplexEventDetail currentPortalPageId: null
+index-CBcKvMSN.js:1655 [usePendingPurchaseOrders] memberInfo: Object
+index-CBcKvMSN.js:1655 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CBcKvMSN.js:1659 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CBcKvMSN.js:1659 [Layout] currentPageName: ComplexEventDetail currentPortalPageId: null
+index-CBcKvMSN.js:1655 [usePendingPurchaseOrders] memberInfo: Object
+index-CBcKvMSN.js:1655 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CBcKvMSN.js:1659 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CBcKvMSN.js:1659 [Layout] currentPageName: ComplexEventDetail currentPortalPageId: null
+index-CBcKvMSN.js:1655 [usePendingPurchaseOrders] memberInfo: Object
+index-CBcKvMSN.js:1655 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CBcKvMSN.js:1659 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CBcKvMSN.js:1659 [Layout] currentPageName: ComplexEventDetail currentPortalPageId: null
+index-CBcKvMSN.js:1655 [usePendingPurchaseOrders] memberInfo: Object
+index-CBcKvMSN.js:1655 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CBcKvMSN.js:1659 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CBcKvMSN.js:1659 [Layout] currentPageName: ComplexEventDetail currentPortalPageId: null
+index-CBcKvMSN.js:40 ReferenceError: Input is not defined
+    at q3t (index-CBcKvMSN.js:4041:334574)
+    at Z6 (index-CBcKvMSN.js:38:17050)
+    at Nae (index-CBcKvMSN.js:40:44191)
+    at yae (index-CBcKvMSN.js:40:39894)
+    at hSe (index-CBcKvMSN.js:40:39817)
+    at gE (index-CBcKvMSN.js:40:39666)
+    at TD (index-CBcKvMSN.js:40:36022)
+    at B9 (index-CBcKvMSN.js:40:36827)
+    at pg (index-CBcKvMSN.js:38:3292)
+    at index-CBcKvMSN.js:40:34339
+bD @ index-CBcKvMSN.js:40
+setTimeout
+r @ index-CBcKvMSN.js:1266
+l @ index-CBcKvMSN.js:1266
+batch @ index-CBcKvMSN.js:1266
+Mh @ index-CBcKvMSN.js:1266
+setData @ index-CBcKvMSN.js:1266
+onSuccess @ index-CBcKvMSN.js:1266
+u @ index-CBcKvMSN.js:1266
+Promise.then
+g @ index-CBcKvMSN.js:1266
+start @ index-CBcKvMSN.js:1266
+fetch @ index-CBcKvMSN.js:1266
+X_ @ index-CBcKvMSN.js:1266
+onSubscribe @ index-CBcKvMSN.js:1266
+subscribe @ index-CBcKvMSN.js:1266
+(anonymous) @ index-CBcKvMSN.js:1266
+Lse @ index-CBcKvMSN.js:38
+ZA @ index-CBcKvMSN.js:40
+K0 @ index-CBcKvMSN.js:40
+fSe @ index-CBcKvMSN.js:40
+Yg @ index-CBcKvMSN.js:40
+B9 @ index-CBcKvMSN.js:40
+pg @ index-CBcKvMSN.js:38
+(anonymous) @ index-CBcKvMSN.js:40
+setTimeout
+r @ index-CBcKvMSN.js:1266
+l @ index-CBcKvMSN.js:1266
+batch @ index-CBcKvMSN.js:1266
+Mh @ index-CBcKvMSN.js:1266
+setData @ index-CBcKvMSN.js:1266
+onSuccess @ index-CBcKvMSN.js:1266
+u @ index-CBcKvMSN.js:1266
+Promise.then
+g @ index-CBcKvMSN.js:1266
+start @ index-CBcKvMSN.js:1266
+fetch @ index-CBcKvMSN.js:1266
+X_ @ index-CBcKvMSN.js:1266
+onSubscribe @ index-CBcKvMSN.js:1266
+subscribe @ index-CBcKvMSN.js:1266
+(anonymous) @ index-CBcKvMSN.js:1266
+Lse @ index-CBcKvMSN.js:38
+ZA @ index-CBcKvMSN.js:40
+K0 @ index-CBcKvMSN.js:40
+(anonymous) @ index-CBcKvMSN.js:40
+N @ index-CBcKvMSN.js:25
+A @ index-CBcKvMSN.js:25
+index-CBcKvMSN.js:4041 Uncaught ReferenceError: Input is not defined
+    at q3t (index-CBcKvMSN.js:4041:334574)
+    at Z6 (index-CBcKvMSN.js:38:17050)
+    at Nae (index-CBcKvMSN.js:40:44191)
+    at yae (index-CBcKvMSN.js:40:39894)
+    at hSe (index-CBcKvMSN.js:40:39817)
+    at gE (index-CBcKvMSN.js:40:39666)
+    at TD (index-CBcKvMSN.js:40:36022)
+    at B9 (index-CBcKvMSN.js:40:36827)
+    at pg (index-CBcKvMSN.js:38:3292)
+    at index-CBcKvMSN.js:40:34339
+q3t @ index-CBcKvMSN.js:4041
+Z6 @ index-CBcKvMSN.js:38
+Nae @ index-CBcKvMSN.js:40
+yae @ index-CBcKvMSN.js:40
+hSe @ index-CBcKvMSN.js:40
+gE @ index-CBcKvMSN.js:40
+TD @ index-CBcKvMSN.js:40
+B9 @ index-CBcKvMSN.js:40
+pg @ index-CBcKvMSN.js:38
+(anonymous) @ index-CBcKvMSN.js:40
+setTimeout
+r @ index-CBcKvMSN.js:1266
+l @ index-CBcKvMSN.js:1266
+batch @ index-CBcKvMSN.js:1266
+Mh @ index-CBcKvMSN.js:1266
+setData @ index-CBcKvMSN.js:1266
+onSuccess @ index-CBcKvMSN.js:1266
+u @ index-CBcKvMSN.js:1266
+Promise.then
+g @ index-CBcKvMSN.js:1266
+start @ index-CBcKvMSN.js:1266
+fetch @ index-CBcKvMSN.js:1266
+X_ @ index-CBcKvMSN.js:1266
+onSubscribe @ index-CBcKvMSN.js:1266
+subscribe @ index-CBcKvMSN.js:1266
+(anonymous) @ index-CBcKvMSN.js:1266
+Lse @ index-CBcKvMSN.js:38
+ZA @ index-CBcKvMSN.js:40
+K0 @ index-CBcKvMSN.js:40
+fSe @ index-CBcKvMSN.js:40
+Yg @ index-CBcKvMSN.js:40
+B9 @ index-CBcKvMSN.js:40
+pg @ index-CBcKvMSN.js:38
+(anonymous) @ index-CBcKvMSN.js:40
+setTimeout
+r @ index-CBcKvMSN.js:1266
+l @ index-CBcKvMSN.js:1266
+batch @ index-CBcKvMSN.js:1266
+Mh @ index-CBcKvMSN.js:1266
+setData @ index-CBcKvMSN.js:1266
+onSuccess @ index-CBcKvMSN.js:1266
+u @ index-CBcKvMSN.js:1266
+Promise.then
+g @ index-CBcKvMSN.js:1266
+start @ index-CBcKvMSN.js:1266
+fetch @ index-CBcKvMSN.js:1266
+X_ @ index-CBcKvMSN.js:1266
+onSubscribe @ index-CBcKvMSN.js:1266
+subscribe @ index-CBcKvMSN.js:1266
+(anonymous) @ index-CBcKvMSN.js:1266
+Lse @ index-CBcKvMSN.js:38
+ZA @ index-CBcKvMSN.js:40
+K0 @ index-CBcKvMSN.js:40
+(anonymous) @ index-CBcKvMSN.js:40
+N @ index-CBcKvMSN.js:25
+A @ index-CBcKvMSN.js:25
+index-CBcKvMSN.js:1655 [usePendingPurchaseOrders] Fetched bookings count: 6
+index-CBcKvMSN.js:1655 [usePendingPurchaseOrders] Pending PO bookings: 1
+index-CBcKvMSN.js:1659 [Layout] Server session found: sharon@onlinem.co.uk

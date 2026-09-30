@@ -1,0 +1,68 @@
+Task: Add “Flag” Option to Boolean Fields in FormBuilder
+
+Following on from task 1253 on /FormBuilder, we need to add a new Flag option for boolean form fields.
+
+Objective
+
+When a boolean field is marked as Flag = true in the FormBuilder, that field should be highlighted during event check-in only if the attendee’s submitted answer is true.
+
+This will allow staff using the QR event check-in screen, or reviewing the event check-in report, to quickly identify attendees who may need additional attention without displaying unnecessary form information by default.
+
+FormBuilder Requirement
+
+For boolean fields, add a new configuration option:
+
+Flag this field
+
+This should be available only for boolean fields.
+
+When enabled, the system should treat this field as important during check-in if the submitted value is true.
+
+QR Event Check-In Behaviour
+
+On the QR check-in screen:
+
+If an attendee has submitted true for a boolean field where Flag = true, show a visible alert/indicator.
+
+Example:
+
+Boolean field label:
+
+Do you have any dietary requirements?
+
+If:
+
+The field has Flag = true
+The attendee answered Yes / true
+
+Then display something like:
+
+Attendee has dietary requirements
+
+Also show an icon or button that allows the check-in user to open the attendee’s full form submission.
+
+Event Check-In Report Behaviour
+
+The event check-in report should also show flagged boolean responses.
+
+If a flagged boolean field is true, display a clear indicator in the report so event staff can identify attendees who may require follow-up or special assistance.
+
+Example Use Case
+
+A form includes the boolean field:
+
+Do you have any dietary requirements?
+
+The event organiser sets this field to Flag = true in the FormBuilder.
+
+When an attendee submits the form and selects Yes, the QR check-in screen should display:
+
+Attendee has dietary requirements
+
+The check-in user can then click an icon or action button to open the full form submission and view the details.
+
+If the attendee selects No, nothing should be displayed on the QR check-in screen or report.
+
+Purpose
+
+This avoids cluttering the QR check-in screen with unnecessary form data, while still making it easy to identify attendees who may need additional help or review during event check-in.

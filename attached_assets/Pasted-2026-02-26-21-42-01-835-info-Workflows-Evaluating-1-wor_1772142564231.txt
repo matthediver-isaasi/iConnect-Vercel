@@ -1,0 +1,30 @@
+2026-02-26 21:42:01.835 [info] [Workflows] Evaluating 1 workflows for member preference field f0deca3a-bf38-4e8e-943f-954dc830b88e, incoming value="Verified", previousValue="Initial application" (tenant: fd82da65-aab7-4a5c-85b8-b2febeb2003d)
+2026-02-26 21:42:01.835 [info] [Workflows] Checking workflow "Member only application status set to Verified": cfg.field_id=f0deca3a-bf38-4e8e-943f-954dc830b88e, our fieldId=f0deca3a-bf38-4e8e-943f-954dc830b88e, cfg.field_type=custom
+2026-02-26 21:42:01.835 [info] [Workflows] Comparing: actual="Verified" vs target="Verified", operator=changed_to
+2026-02-26 21:42:01.835 [info] [Workflows] Result: triggerMatches=true
+2026-02-26 21:42:01.835 [info] [Workflows] Evaluating 1 conditions for preference workflow Member only application status set to Verified
+2026-02-26 21:42:01.965 [info] [Workflows] Pref condition 0: field="3e7c6379-ca2e-45bc-b232-25906019cc50", op="equals", value="Freelancer", actual="Freelancer", before="", met=true
+2026-02-26 21:42:01.965 [info] [Workflows] Final allConditionsMet for preference workflow Member only application status set to Verified: true
+2026-02-26 21:42:01.965 [info] [Workflows] Workflow "Member only application status set to Verified" requires user confirmation - adding to pending list (conditions_met=true)
+2026-02-26 21:42:00.238 [info] [TenantResolver] resolveTenantFromRequest called
+2026-02-26 21:42:00.238 [info] [TenantResolver] Params - tenant: undefined domain: undefined
+2026-02-26 21:42:00.238 [info] [TenantResolver] Falling back to host-based resolution, hostname: gfi.dev.iconn.app
+2026-02-26 21:42:00.238 [info] [TenantResolver] resolveTenantFromHost called with: gfi.dev.iconn.app
+2026-02-26 21:42:00.238 [info] [TenantResolver] Cache hit for: gfi.dev.iconn.app
+2026-02-26 21:42:00.238 [info] [TenantContext] About to call getSessionTenantUser
+2026-02-26 21:42:00.239 [info] [Session] getSession: Looking up session: c1fc92b8
+2026-02-26 21:42:00.400 [info] [Session] getSession: Session found, userType: member
+2026-02-26 21:42:00.401 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"c1fc92b8","userType":"member","memberId":"9ac39222-22b8-457e-a5df-dfca45a99eb6","identityId":"dc156a30-ae8d-4aee-b965-b54fe4b17105","tenantId":"fd82da65-aab7-4a5c-85b8-b2febeb2003d"}
+2026-02-26 21:42:00.401 [info] [Session] Found member session with identityId, attempting promotion
+2026-02-26 21:42:00.644 [info] [Session] No tenant_user record found for identity promotion
+2026-02-26 21:42:00.644 [info] [Session] Member session promotion failed
+2026-02-26 21:42:00.644 [info] [TenantContext] getSessionTenantUser returned: null
+2026-02-26 21:42:00.644 [info] [TenantContext] Checking for member session...
+2026-02-26 21:42:00.644 [info] [Session] getSession: Looking up session: c1fc92b8
+2026-02-26 21:42:00.767 [info] [Session] getSession: Session found, userType: member
+2026-02-26 21:42:00.767 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"c1fc92b8","userType":"member","memberId":"9ac39222-22b8-457e-a5df-dfca45a99eb6"}
+2026-02-26 21:42:00.898 [info] [TenantContext] Member found: {
+  memberId: '9ac39222-22b8-457e-a5df-dfca45a99eb6',
+  organizationId: 'ccbbbd4d-12e8-4e9e-b49e-cd29979623ae'
+}
+2026-02-26 21:42:00.898 [info] [TenantContext] Tenant from member: fd82da65-aab7-4a5c-85b8-b2febeb2003d

@@ -1,0 +1,29 @@
+2026-02-26 08:53:57.890 [info] [TenantResolver] resolveTenantFromRequest called
+2026-02-26 08:53:57.890 [info] [TenantResolver] Params - tenant: undefined domain: undefined
+2026-02-26 08:53:57.890 [info] [TenantResolver] Falling back to host-based resolution, hostname: gfi.dev.iconn.app
+2026-02-26 08:53:57.890 [info] [TenantResolver] resolveTenantFromHost called with: gfi.dev.iconn.app
+2026-02-26 08:53:57.890 [info] [TenantResolver] Cache hit for: gfi.dev.iconn.app
+2026-02-26 08:53:57.891 [info] [TenantContext] About to call getSessionTenantUser
+2026-02-26 08:53:57.891 [info] [Session] getSession: Looking up session: a7f639fb
+2026-02-26 08:53:58.026 [info] [Session] getSession: Session found, userType: member
+2026-02-26 08:53:58.026 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"a7f639fb","userType":"member","memberId":"9ac39222-22b8-457e-a5df-dfca45a99eb6","identityId":"dc156a30-ae8d-4aee-b965-b54fe4b17105","tenantId":"fd82da65-aab7-4a5c-85b8-b2febeb2003d"}
+2026-02-26 08:53:58.026 [info] [Session] Found member session with identityId, attempting promotion
+2026-02-26 08:53:58.294 [info] [Session] No tenant_user record found for identity promotion
+2026-02-26 08:53:58.294 [info] [Session] Member session promotion failed
+2026-02-26 08:53:58.294 [info] [TenantContext] getSessionTenantUser returned: null
+2026-02-26 08:53:58.294 [info] [TenantContext] Checking for member session...
+2026-02-26 08:53:58.294 [info] [Session] getSession: Looking up session: a7f639fb
+2026-02-26 08:53:58.408 [info] [Session] getSession: Session found, userType: member
+2026-02-26 08:53:58.409 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"a7f639fb","userType":"member","memberId":"9ac39222-22b8-457e-a5df-dfca45a99eb6"}
+2026-02-26 08:53:58.521 [info] [TenantContext] Member found: {
+  memberId: '9ac39222-22b8-457e-a5df-dfca45a99eb6',
+  organizationId: 'ccbbbd4d-12e8-4e9e-b49e-cd29979623ae'
+}
+2026-02-26 08:53:58.521 [info] [TenantContext] Tenant from member: fd82da65-aab7-4a5c-85b8-b2febeb2003d
+2026-02-26 08:53:58.521 [info] [Entity GET] Tenant-scoped entity MemberPreferenceValue, tenantCtx.tenantId: fd82da65-aab7-4a5c-85b8-b2febeb2003d isTenantAdmin: false
+2026-02-26 08:53:58.640 [error] Entity list error for MemberPreferenceValue (table: member_preference_value): {
+  code: '42703',
+  details: null,
+  hint: null,
+  message: 'column member_preference_value.tenant_id does not exist'
+}

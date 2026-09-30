@@ -1,0 +1,37 @@
+2026-02-16 08:03:11.315 [info] [TenantResolver] resolveTenantFromRequest called
+2026-02-16 08:03:11.315 [info] [TenantResolver] Params - tenant: undefined domain: undefined
+2026-02-16 08:03:11.315 [info] [TenantResolver] Falling back to host-based resolution, hostname: gfi.dev.iconn.app
+2026-02-16 08:03:11.315 [info] [TenantResolver] resolveTenantFromHost called with: gfi.dev.iconn.app
+2026-02-16 08:03:11.315 [info] [TenantResolver] Cache hit for: gfi.dev.iconn.app
+2026-02-16 08:03:11.315 [info] [TenantContext] About to call getSessionTenantUser
+2026-02-16 08:03:11.315 [info] [Session] getSession: Looking up session: 24c900aa
+2026-02-16 08:03:11.455 [info] [Session] getSession: Session found, userType: member
+2026-02-16 08:03:11.455 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"24c900aa","userType":"member","memberId":"9ac39222-22b8-457e-a5df-dfca45a99eb6","identityId":"dc156a30-ae8d-4aee-b965-b54fe4b17105","tenantId":"fd82da65-aab7-4a5c-85b8-b2febeb2003d"}
+2026-02-16 08:03:11.455 [info] [Session] Found member session with identityId, attempting promotion
+2026-02-16 08:03:11.730 [info] [Session] No tenant_user record found for identity promotion
+2026-02-16 08:03:11.730 [info] [Session] Member session promotion failed
+2026-02-16 08:03:11.730 [info] [TenantContext] getSessionTenantUser returned: null
+2026-02-16 08:03:11.730 [info] [TenantContext] Checking for member session...
+2026-02-16 08:03:11.730 [info] [Session] getSession: Looking up session: 24c900aa
+2026-02-16 08:03:11.843 [info] [Session] getSession: Session found, userType: member
+2026-02-16 08:03:11.843 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"24c900aa","userType":"member","memberId":"9ac39222-22b8-457e-a5df-dfca45a99eb6"}
+2026-02-16 08:03:11.954 [info] [TenantContext] Member found: {
+  memberId: '9ac39222-22b8-457e-a5df-dfca45a99eb6',
+  organizationId: 'ccbbbd4d-12e8-4e9e-b49e-cd29979623ae'
+}
+2026-02-16 08:03:11.954 [info] [TenantContext] Tenant from member: fd82da65-aab7-4a5c-85b8-b2febeb2003d
+2026-02-16 08:03:12.527 [info] [Workflows] Evaluating 2 workflows for organization preference field 1c395ccf-7df2-4818-917d-1cd672216f71, incoming value="Live", previousValue="undefined" (tenant: fd82da65-aab7-4a5c-85b8-b2febeb2003d)
+2026-02-16 08:03:12.527 [info] [Workflows] Checking workflow "Organisation status set to Verified": cfg.field_id=1c395ccf-7df2-4818-917d-1cd672216f71, our fieldId=1c395ccf-7df2-4818-917d-1cd672216f71, cfg.field_type=custom
+2026-02-16 08:03:12.527 [info] [Workflows] Comparing: actual="Live" vs target="Verified", operator=changed_to
+2026-02-16 08:03:12.528 [info] [Workflows] Result: triggerMatches=false
+2026-02-16 08:03:12.528 [info] [Workflows] Checking workflow "Organisation set to Live": cfg.field_id=1c395ccf-7df2-4818-917d-1cd672216f71, our fieldId=1c395ccf-7df2-4818-917d-1cd672216f71, cfg.field_type=custom
+2026-02-16 08:03:12.528 [info] [Workflows] Comparing: actual="Live" vs target="Live", operator=changed_to
+2026-02-16 08:03:12.528 [info] [Workflows] Result: triggerMatches=true
+2026-02-16 08:03:12.528 [info] [Workflows] Evaluating 3 conditions for preference workflow Organisation set to Live
+2026-02-16 08:03:12.642 [info] [Workflows] Pref condition 0: field="e5ac547d-edb1-4ff1-83ab-fc82c1813065", op="equals", value="University", actual="University", before="", met=true
+2026-02-16 08:03:12.763 [info] [Workflows] Pref condition 1: field="cc05916d-7570-4243-ba54-ab4d71700120", op="is_not_empty", value="", actual="5", before="", met=true
+2026-02-16 08:03:12.878 [info] [Workflows] Pref condition 2: field="d47e78b1-5bb6-4c68-a156-00b6f678028b", op="is_not_empty", value="", actual="", before="", met=false
+2026-02-16 08:03:12.878 [info] [Workflows] Final allConditionsMet for preference workflow Organisation set to Live: false
+2026-02-16 08:03:12.878 [info] [Workflows] Conditions not met for preference workflow: Organisation set to Live - SKIPPING
+2026-02-16 08:03:12.878 [info] [Workflows] Revert trigger enabled for "Organisation set to Live" - reverting custom field 1c395ccf-7df2-4818-917d-1cd672216f71 from "Live" back to "undefined"
+2026-02-16 08:03:12.990 [info] [Workflows] Successfully reverted custom field 1c395ccf-7df2-4818-917d-1cd672216f71 to "undefined"

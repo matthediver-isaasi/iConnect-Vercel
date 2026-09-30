@@ -1,0 +1,204 @@
+Error: Cannot find module 'babel-preset-expo'
+Require stack:
+- /Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/files/plugins.js
+- /Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/files/index.js
+- /Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/index.js
+- /Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/expo/node_modules/@expo/metro-config/build/transform-worker/metro-transform-worker.js
+- /Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/expo/node_modules/@expo/metro-config/build/transform-worker/transform-worker.js
+- /Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/metro/src/DeltaBundler/Worker.flow.js
+- /Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/metro/src/DeltaBundler/Worker.js
+- /Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/jest-worker/build/workers/processChild.js
+
+Make sure that all the Babel plugins and presets you are using
+are defined as dependencies or devDependencies in your package.json
+file. It's possible that the missing plugin is loaded by a preset
+you are using that forgot to add the plugin to its dependencies: you
+can workaround this problem by explicitly adding the missing package
+to your top-level package.json.
+
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1500:15)
+    at wrapResolveFilename (node:internal/modules/cjs/loader:1071:27)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1116:12)
+    at resolve (node:internal/modules/helpers:171:31)
+    at tryRequireResolve (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/files/plugins.js:128:11)
+    at resolveStandardizedNameForRequire (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/files/plugins.js:162:19)
+    at resolveStandardizedName (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/files/plugins.js:183:12)
+    at loadPreset (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/files/plugins.js:68:7)
+    at loadPreset.next (<anonymous>)
+    at createDescriptor (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/config-descriptors.js:140:16)
+    at createDescriptor.next (<anonymous>)
+    at evaluateSync (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/gensync/index.js:251:28)
+    at /Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/gensync/index.js:31:34
+    at Array.map (<anonymous>)
+    at gensync.sync (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/gensync/index.js:31:22)
+    at gensync.all (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/gensync/index.js:210:24)
+    at Generator.next (<anonymous>)
+    at createDescriptors (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/config-descriptors.js:102:41)
+    at createDescriptors.next (<anonymous>)
+    at createPresetDescriptors (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/config-descriptors.js:96:17)
+    at createPresetDescriptors.next (<anonymous>)
+    at /Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/gensync-utils/functional.js:22:27
+    at Generator.next (<anonymous>)
+    at mergeChainOpts (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/config-chain.js:350:34)
+    at mergeChainOpts.next (<anonymous>)
+    at chainWalker (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/config-chain.js:316:14)
+    at chainWalker.next (<anonymous>)
+    at loadFileChain (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/config-chain.js:191:24)
+    at loadFileChain.next (<anonymous>)
+    at mergeExtendsChain (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/config-chain.js:328:28)
+    at mergeExtendsChain.next (<anonymous>)
+    at chainWalker (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/config-chain.js:312:20)
+    at chainWalker.next (<anonymous>)
+    at buildRootChain (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/config-chain.js:56:36)
+    at buildRootChain.next (<anonymous>)
+    at loadPrivatePartialConfig (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/partial.js:72:62)
+    at loadPrivatePartialConfig.next (<anonymous>)
+    at loadFullConfig (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/full.js:36:46)
+    at loadFullConfig.next (<anonymous>)
+    at transform (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/transform.js:20:44)
+    at transform.next (<anonymous>)
+    at evaluateSync (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/gensync/index.js:251:28)
+    at sync (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/gensync/index.js:89:14)
+    at stopHiding - secret - don't use this - v1 (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/errors/rewrite-stack-trace.js:47:12)
+    at Object.transformSync (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/transform.js:40:76)
+    at parseWithBabel (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/expo/node_modules/@expo/metro-config/build/transformSync.js:75:18)
+    at transformSync (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/expo/node_modules/@expo/metro-config/build/transformSync.js:64:12)
+    at Object.transform (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/expo/node_modules/@expo/metro-config/build/babel-transformer.js:127:58)
+    at transformJSWithBabel (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/expo/node_modules/@expo/metro-config/build/transform-worker/metro-transform-worker.js:468:47)
+iOS Bundling failed 9ms node_modules/expo/AppEntry.js (1 module)
+ ERROR  Error: Cannot find module 'babel-preset-expo'
+Require stack:
+- /Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/files/plugins.js
+- /Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/files/index.js
+- /Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/index.js
+- /Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/expo/node_modules/@expo/metro-config/build/transform-worker/metro-transform-worker.js
+- /Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/expo/node_modules/@expo/metro-config/build/transform-worker/transform-worker.js
+- /Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/metro/src/DeltaBundler/Worker.flow.js
+- /Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/metro/src/DeltaBundler/Worker.js
+- /Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/jest-worker/build/workers/processChild.js
+
+Make sure that all the Babel plugins and presets you are using
+are defined as dependencies or devDependencies in your package.json
+file. It's possible that the missing plugin is loaded by a preset
+you are using that forgot to add the plugin to its dependencies: you
+can workaround this problem by explicitly adding the missing package
+to your top-level package.json.
+
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1500:15)
+    at wrapResolveFilename (node:internal/modules/cjs/loader:1071:27)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1116:12)
+    at resolve (node:internal/modules/helpers:171:31)
+    at tryRequireResolve (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/files/plugins.js:128:11)
+    at resolveStandardizedNameForRequire (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/files/plugins.js:162:19)
+    at resolveStandardizedName (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/files/plugins.js:183:12)
+    at loadPreset (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/files/plugins.js:68:7)
+    at loadPreset.next (<anonymous>)
+    at createDescriptor (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/config-descriptors.js:140:16)
+    at createDescriptor.next (<anonymous>)
+    at evaluateSync (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/gensync/index.js:251:28)
+    at /Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/gensync/index.js:31:34
+    at Array.map (<anonymous>)
+    at gensync.sync (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/gensync/index.js:31:22)
+    at gensync.all (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/gensync/index.js:210:24)
+    at Generator.next (<anonymous>)
+    at createDescriptors (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/config-descriptors.js:102:41)
+    at createDescriptors.next (<anonymous>)
+    at createPresetDescriptors (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/config-descriptors.js:96:17)
+    at createPresetDescriptors.next (<anonymous>)
+    at /Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/gensync-utils/functional.js:22:27
+    at Generator.next (<anonymous>)
+    at mergeChainOpts (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/config-chain.js:350:34)
+    at mergeChainOpts.next (<anonymous>)
+    at chainWalker (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/config-chain.js:316:14)
+    at chainWalker.next (<anonymous>)
+    at loadFileChain (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/config-chain.js:191:24)
+    at loadFileChain.next (<anonymous>)
+    at mergeExtendsChain (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/config-chain.js:328:28)
+    at mergeExtendsChain.next (<anonymous>)
+    at chainWalker (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/config-chain.js:312:20)
+    at chainWalker.next (<anonymous>)
+    at buildRootChain (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/config-chain.js:56:36)
+    at buildRootChain.next (<anonymous>)
+    at loadPrivatePartialConfig (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/partial.js:72:62)
+    at loadPrivatePartialConfig.next (<anonymous>)
+    at loadFullConfig (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/full.js:36:46)
+    at loadFullConfig.next (<anonymous>)
+    at transform (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/transform.js:20:44)
+    at transform.next (<anonymous>)
+    at evaluateSync (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/gensync/index.js:251:28)
+    at sync (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/gensync/index.js:89:14)
+    at stopHiding - secret - don't use this - v1 (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/errors/rewrite-stack-trace.js:47:12)
+    at Object.transformSync (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/transform.js:40:76)
+    at parseWithBabel (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/expo/node_modules/@expo/metro-config/build/transformSync.js:75:18)
+    at transformSync (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/expo/node_modules/@expo/metro-config/build/transformSync.js:64:12)
+    at Object.transform (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/expo/node_modules/@expo/metro-config/build/babel-transformer.js:127:58)
+    at transformJSWithBabel (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/expo/node_modules/@expo/metro-config/build/transform-worker/metro-transform-worker.js:468:47)
+iOS Bundling failed 4ms node_modules/expo/AppEntry.js (1 module)
+ ERROR  Error: Cannot find module 'babel-preset-expo'
+Require stack:
+- /Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/files/plugins.js
+- /Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/files/index.js
+- /Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/index.js
+- /Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/expo/node_modules/@expo/metro-config/build/transform-worker/metro-transform-worker.js
+- /Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/expo/node_modules/@expo/metro-config/build/transform-worker/transform-worker.js
+- /Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/metro/src/DeltaBundler/Worker.flow.js
+- /Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/metro/src/DeltaBundler/Worker.js
+- /Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/jest-worker/build/workers/processChild.js
+
+Make sure that all the Babel plugins and presets you are using
+are defined as dependencies or devDependencies in your package.json
+file. It's possible that the missing plugin is loaded by a preset
+you are using that forgot to add the plugin to its dependencies: you
+can workaround this problem by explicitly adding the missing package
+to your top-level package.json.
+
+    at Module._resolveFilename (node:internal/modules/cjs/loader:1500:15)
+    at wrapResolveFilename (node:internal/modules/cjs/loader:1071:27)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1116:12)
+    at resolve (node:internal/modules/helpers:171:31)
+    at tryRequireResolve (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/files/plugins.js:128:11)
+    at resolveStandardizedNameForRequire (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/files/plugins.js:162:19)
+    at resolveStandardizedName (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/files/plugins.js:183:12)
+    at loadPreset (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/files/plugins.js:68:7)
+    at loadPreset.next (<anonymous>)
+    at createDescriptor (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/config-descriptors.js:140:16)
+    at createDescriptor.next (<anonymous>)
+    at evaluateSync (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/gensync/index.js:251:28)
+    at /Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/gensync/index.js:31:34
+    at Array.map (<anonymous>)
+    at gensync.sync (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/gensync/index.js:31:22)
+    at gensync.all (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/gensync/index.js:210:24)
+    at Generator.next (<anonymous>)
+    at createDescriptors (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/config-descriptors.js:102:41)
+    at createDescriptors.next (<anonymous>)
+    at createPresetDescriptors (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/config-descriptors.js:96:17)
+    at createPresetDescriptors.next (<anonymous>)
+    at /Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/gensync-utils/functional.js:22:27
+    at Generator.next (<anonymous>)
+    at mergeChainOpts (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/config-chain.js:350:34)
+    at mergeChainOpts.next (<anonymous>)
+    at chainWalker (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/config-chain.js:316:14)
+    at chainWalker.next (<anonymous>)
+    at loadFileChain (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/config-chain.js:191:24)
+    at loadFileChain.next (<anonymous>)
+    at mergeExtendsChain (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/config-chain.js:328:28)
+    at mergeExtendsChain.next (<anonymous>)
+    at chainWalker (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/config-chain.js:312:20)
+    at chainWalker.next (<anonymous>)
+    at buildRootChain (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/config-chain.js:56:36)
+    at buildRootChain.next (<anonymous>)
+    at loadPrivatePartialConfig (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/partial.js:72:62)
+    at loadPrivatePartialConfig.next (<anonymous>)
+    at loadFullConfig (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/config/full.js:36:46)
+    at loadFullConfig.next (<anonymous>)
+    at transform (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/transform.js:20:44)
+    at transform.next (<anonymous>)
+    at evaluateSync (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/gensync/index.js:251:28)
+    at sync (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/gensync/index.js:89:14)
+    at stopHiding - secret - don't use this - v1 (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/errors/rewrite-stack-trace.js:47:12)
+    at Object.transformSync (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/@babel/core/lib/transform.js:40:76)
+    at parseWithBabel (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/expo/node_modules/@expo/metro-config/build/transformSync.js:75:18)
+    at transformSync (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/expo/node_modules/@expo/metro-config/build/transformSync.js:64:12)
+    at Object.transform (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/expo/node_modules/@expo/metro-config/build/babel-transformer.js:127:58)
+    at transformJSWithBabel (/Users/mathenderson/Downloads/iConnect-Vercel-iso2 2/mobile/node_modules/expo/node_modules/@expo/metro-config/build/transform-worker/metro-transform-worker.js:468:47)
+

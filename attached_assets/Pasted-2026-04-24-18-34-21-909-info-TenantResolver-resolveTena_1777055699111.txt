@@ -1,0 +1,52 @@
+2026-04-24 18:34:21.909 [info] [TenantResolver] resolveTenantFromRequest called
+2026-04-24 18:34:21.910 [info] [TenantResolver] Params - tenant: undefined domain: undefined
+2026-04-24 18:34:21.910 [info] [TenantResolver] Falling back to host-based resolution, hostname: gsf.dev.iconn.app
+2026-04-24 18:34:21.910 [info] [TenantResolver] resolveTenantFromHost called with: gsf.dev.iconn.app
+2026-04-24 18:34:21.910 [info] [TenantResolver] Cache hit for: gsf.dev.iconn.app
+2026-04-24 18:34:21.910 [info] [TenantContext] About to call getSessionTenantUser
+2026-04-24 18:34:21.911 [info] [Session] getSession: Looking up session: 44163af2
+2026-04-24 18:34:22.063 [warning] [ZohoCrmSync] Outbound value translation gaps: [
+  {
+    direction: 'iconnect_to_zoho',
+    iconnect_field: 'custom:24dd507a-43b4-45f8-a396-eb4b9b079f1d',
+    zoho_field: 'What_level_of_schooling_do_your_programs_support',
+    unmapped_value: '["ECED (0-3 years)","ECED (3-6 years)"]'
+  },
+  {
+    direction: 'iconnect_to_zoho',
+    iconnect_field: 'custom:7af40750-1543-44e8-8022-0e0e27bc2c5c',
+    zoho_field: 'Account_Type',
+    unmapped_value: 'Member – School and ECED Operators'
+  }
+]
+2026-04-24 18:34:22.087 [info] [Session] getSession: Session found, userType: member
+2026-04-24 18:34:22.087 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"44163af2","userType":"member","memberId":"49f0b578-2e2f-46f8-a151-2c4c08cc570c","identityId":"dc156a30-ae8d-4aee-b965-b54fe4b17105","tenantId":"21296ad6-1350-483a-a90c-1b06ece70501"}
+2026-04-24 18:34:22.087 [info] [Session] Found member session with identityId, attempting promotion
+2026-04-24 18:34:22.376 [info] [Session] No tenant_user record found for identity promotion
+2026-04-24 18:34:22.377 [info] [Session] Member session promotion failed
+2026-04-24 18:34:22.377 [info] [TenantContext] getSessionTenantUser returned: null
+2026-04-24 18:34:22.377 [info] [TenantContext] Checking for member session...
+2026-04-24 18:34:22.377 [info] [Session] getSession: Looking up session: 44163af2
+2026-04-24 18:34:22.533 [info] [Session] getSession: Session found, userType: member
+2026-04-24 18:34:22.533 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"44163af2","userType":"member","memberId":"49f0b578-2e2f-46f8-a151-2c4c08cc570c"}
+2026-04-24 18:34:22.702 [info] [TenantContext] Member found: {
+  memberId: '49f0b578-2e2f-46f8-a151-2c4c08cc570c',
+  organizationId: '7a097c15-1028-4e12-acde-c5ababb7201e'
+}
+2026-04-24 18:34:22.702 [info] [TenantContext] Tenant from member: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-04-24 18:34:22.942 [info] [ZohoCRM] getTenantZohoCrmDomains - raw credentials: {
+  hasCredentials: true,
+  storedAccountsDomain: '3e2b29797c3924fa9abd519514fbbf27:30aec9ce7945ed9d90309b0c8b097ec61bff82d84dda6ae920034252084b1408',
+  storedCrmDomain: 'https://www.zohoapis.eu',
+  storedRegion: '565c574e96e8b189044a9e5ce7b0cc73:c10047c826f32bc0e2cd7eaa50bed38e'
+}
+2026-04-24 18:34:22.997 [info] [ZohoCRM] Resolved accounts_domain: https://accounts.zoho.eu
+2026-04-24 18:34:22.997 [info] [ZohoCRM] Using stored crm_domain: https://www.zohoapis.eu
+2026-04-24 18:34:22.997 [info] [ZohoCRM] Final domains - accounts: https://accounts.zoho.eu crm: https://www.zohoapis.eu
+2026-04-24 18:34:22.997 [info] [ZohoCRM] API call: PUT https://www.zohoapis.eu/crm/v3/Accounts
+2026-04-24 18:34:23.432 [error] [ZohoCRM] API error: 400 {"data":[{"code":"INVALID_DATA","details":{"expected_data_type":"jsonarray","api_name":"What_level_of_schooling_do_your_programs_support","json_path":"$.data[0].What_level_of_schooling_do_your_programs_support"},"message":"invalid data","status":"error"}]}
+2026-04-24 18:34:23.433 [error] [ZohoCrmSync] Sync failed: Error: Zoho CRM API error: 400 - {"data":[{"code":"INVALID_DATA","details":{"expected_data_type":"jsonarray","api_name":"What_level_of_schooling_do_your_programs_support","json_path":"$.data[0].What_level_of_schooling_do_your_programs_support"},"message":"invalid data","status":"error"}]}
+    at zohoCrmApiCall (file:///var/task/api/_lib/zohoCrmClient.js:375:11)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async updateZohoCrmRecordById (file:///var/task/api/_lib/zohoCrmClient.js:1500:20)
+    at async syncEntityToZohoCrm (file:///var/task/api/_lib/zohoCrmSync.js:556:16)

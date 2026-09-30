@@ -1,0 +1,113 @@
+index-CuX-M39l.js:1056 GoTrueClient@sb-zkvgzcruhniduuswbfyh-auth-token:1 (2.84.0) 2025-12-31T11:13:57.511Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+ig @ index-CuX-M39l.js:1056
+pie @ index-CuX-M39l.js:1057
+_initSupabaseAuthClient @ index-CuX-M39l.js:1057
+fie @ index-CuX-M39l.js:1057
+g4 @ index-CuX-M39l.js:1057
+(anonymous) @ index-CuX-M39l.js:1939
+(anonymous) @ index-CuX-M39l.js:1
+(anonymous) @ index-CuX-M39l.js:2365
+index-CuX-M39l.js:1056 GoTrueClient@sb-zkvgzcruhniduuswbfyh-auth-token:2 (2.84.0) 2025-12-31T11:13:57.514Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+ig @ index-CuX-M39l.js:1056
+pie @ index-CuX-M39l.js:1057
+_initSupabaseAuthClient @ index-CuX-M39l.js:1057
+fie @ index-CuX-M39l.js:1057
+g4 @ index-CuX-M39l.js:1057
+(anonymous) @ index-CuX-M39l.js:2314
+(anonymous) @ index-CuX-M39l.js:1
+(anonymous) @ index-CuX-M39l.js:2365
+index-CuX-M39l.js:1360 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-CuX-M39l.js:1360 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CuX-M39l.js:1360 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CuX-M39l.js:1360 [Layout] currentPageName: IEditPageEditor currentPortalPageId: null
+index-CuX-M39l.js:1360 [usePendingPurchaseOrders] Query running, memberInfo.id: 48b25075-51da-437f-af20-17836a892bfe
+index-CuX-M39l.js:1360 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-CuX-M39l.js:1360 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CuX-M39l.js:1360 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CuX-M39l.js:1360 [Layout] currentPageName: IEditPageEditor currentPortalPageId: null
+index-CuX-M39l.js:1360 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-CuX-M39l.js:1360 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CuX-M39l.js:1360 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CuX-M39l.js:1360 [Layout] currentPageName: IEditPageEditor currentPortalPageId: null
+index-CuX-M39l.js:1360 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-CuX-M39l.js:1360 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CuX-M39l.js:1360 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CuX-M39l.js:1360 [Layout] currentPageName: IEditPageEditor currentPortalPageId: null
+index-CuX-M39l.js:1360 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-CuX-M39l.js:1360 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CuX-M39l.js:1360 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CuX-M39l.js:1360 [Layout] currentPageName: IEditPageEditor currentPortalPageId: null
+index-CuX-M39l.js:1360 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-CuX-M39l.js:1360 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CuX-M39l.js:1360 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CuX-M39l.js:1360 [Layout] currentPageName: IEditPageEditor currentPortalPageId: null
+index-CuX-M39l.js:1360 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-CuX-M39l.js:1360 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CuX-M39l.js:1360 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CuX-M39l.js:1360 [Layout] currentPageName: IEditPageEditor currentPortalPageId: null
+index-CuX-M39l.js:1360 [usePendingPurchaseOrders] Fetched bookings count: 2
+index-CuX-M39l.js:1360 [usePendingPurchaseOrders] Pending PO bookings: 0
+index-CuX-M39l.js:1360 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-CuX-M39l.js:1360 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CuX-M39l.js:1360 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CuX-M39l.js:1360 [Layout] currentPageName: IEditPageEditor currentPortalPageId: null
+index-CuX-M39l.js:1360 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-CuX-M39l.js:1360 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CuX-M39l.js:1360 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CuX-M39l.js:1360 [Layout] currentPageName: IEditPageEditor currentPortalPageId: null
+index-CuX-M39l.js:1360 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-CuX-M39l.js:1360 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CuX-M39l.js:1360 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CuX-M39l.js:1360 [Layout] currentPageName: IEditPageEditor currentPortalPageId: null
+index-CuX-M39l.js:1360 [Layout] Server session found: mat@isaasi.co.uk
+index-CuX-M39l.js:1360 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-CuX-M39l.js:1360 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CuX-M39l.js:1360 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CuX-M39l.js:1360 [Layout] currentPageName: IEditPageEditor currentPortalPageId: null
+index-CuX-M39l.js:1360 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-CuX-M39l.js:1360 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CuX-M39l.js:1360 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CuX-M39l.js:1360 [Layout] currentPageName: IEditPageEditor currentPortalPageId: null
+index-CuX-M39l.js:40 ReferenceError: useTypographyStyles is not defined
+    at J2e (index-CuX-M39l.js:1548:26096)
+    at XS (index-CuX-M39l.js:38:17018)
+    at ER (index-CuX-M39l.js:40:44058)
+    at CR (index-CuX-M39l.js:40:39790)
+    at xJ (index-CuX-M39l.js:40:39718)
+    at Lv (index-CuX-M39l.js:40:39570)
+    at v2 (index-CuX-M39l.js:40:35934)
+    at eP (index-CuX-M39l.js:40:36738)
+    at su (index-CuX-M39l.js:38:3279)
+    at index-CuX-M39l.js:40:34263
+l2 @ index-CuX-M39l.js:40
+a.callback @ index-CuX-M39l.js:40
+D5 @ index-CuX-M39l.js:38
+Q5 @ index-CuX-M39l.js:40
+jR @ index-CuX-M39l.js:40
+uJ @ index-CuX-M39l.js:40
+fJ @ index-CuX-M39l.js:40
+_u @ index-CuX-M39l.js:40
+eP @ index-CuX-M39l.js:40
+su @ index-CuX-M39l.js:38
+(anonymous) @ index-CuX-M39l.js:40
+index-CuX-M39l.js:1548 Uncaught ReferenceError: useTypographyStyles is not defined
+    at J2e (index-CuX-M39l.js:1548:26096)
+    at XS (index-CuX-M39l.js:38:17018)
+    at ER (index-CuX-M39l.js:40:44058)
+    at CR (index-CuX-M39l.js:40:39790)
+    at xJ (index-CuX-M39l.js:40:39718)
+    at Lv (index-CuX-M39l.js:40:39570)
+    at v2 (index-CuX-M39l.js:40:35934)
+    at eP (index-CuX-M39l.js:40:36738)
+    at su (index-CuX-M39l.js:38:3279)
+    at index-CuX-M39l.js:40:34263
+J2e @ index-CuX-M39l.js:1548
+XS @ index-CuX-M39l.js:38
+ER @ index-CuX-M39l.js:40
+CR @ index-CuX-M39l.js:40
+xJ @ index-CuX-M39l.js:40
+Lv @ index-CuX-M39l.js:40
+v2 @ index-CuX-M39l.js:40
+eP @ index-CuX-M39l.js:40
+su @ index-CuX-M39l.js:38
+(anonymous) @ index-CuX-M39l.js:40

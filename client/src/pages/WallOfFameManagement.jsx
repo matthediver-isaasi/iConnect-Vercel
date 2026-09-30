@@ -12,8 +12,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Trophy, Plus, Pencil, Trash2, Users, Folder, User, Upload, Loader2, ChevronDown, ChevronUp } from "lucide-react";
 import { toast } from "sonner";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
+import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
 
 export default function WallOfFameManagementPage() {
   const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
@@ -30,6 +32,10 @@ export default function WallOfFameManagementPage() {
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [expandedCategories, setExpandedCategories] = useState({});
   const [profilePhotoSize, setProfilePhotoSize] = useState("medium");
+  const [titleField, setTitleField] = useState("__none__");
+  const [selectedOrganizationForMember, setSelectedOrganizationForMember] = useState("");
+  const [memberSearchQuery, setMemberSearchQuery] = useState("");
+  const [debouncedMemberSearch, setDebouncedMemberSearch] = useState("");
 
   const queryClient = useQueryClient();
 
@@ -48,9 +54,52 @@ export default function WallOfFameManagementPage() {
     queryFn: () => base44.entities.WallOfFamePerson.list(),
   });
 
-  const { data: members = [] } = useQuery({
-    queryKey: ['members-for-selection'],
-    queryFn: () => base44.entities.Member.list(),
+  // Fetch organizations when person dialog is open
+  const { data: organizations = [], isLoading: organizationsLoading } = useQuery({
+    queryKey: ['organizations-for-member-selection'],
+    queryFn: async () => {
+      const orgs = await listOrganizationsForAdmin({ limit: 5000 });
+      return orgs.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    },
+    enabled: showPersonDialog
+  });
+
+  // Debounce the member search input so we don't hit the server on every keystroke.
+  useEffect(() => {
+    const handle = setTimeout(() => setDebouncedMemberSearch(memberSearchQuery.trim()), 300);
+    return () => clearTimeout(handle);
+  }, [memberSearchQuery]);
+
+  // Server-side member search scoped to the selected organisation (or "no org").
+  // This avoids fetching every tenant member into the browser, which is capped at
+  // ~1000 rows by the generic entity list API and silently hides members in large tenants.
+  const memberSearchEnabled =
+    showPersonDialog &&
+    !!selectedOrganizationForMember &&
+    selectedOrganizationForMember !== '__skip__' &&
+    debouncedMemberSearch.length >= 2;
+
+  const { data: members = [], isLoading: membersLoading } = useQuery({
+    queryKey: ['wall-of-fame-member-search', selectedOrganizationForMember, debouncedMemberSearch],
+    queryFn: async () => {
+      const orgParam =
+        selectedOrganizationForMember === '__no_org__'
+          ? '__no_org__'
+          : selectedOrganizationForMember;
+      const params = new URLSearchParams({
+        q: debouncedMemberSearch,
+        limit: '25',
+        organization_id: orgParam,
+      });
+      const resp = await fetch(`/api/members/search?${params.toString()}`, {
+        credentials: 'include',
+      });
+      if (!resp.ok) {
+        throw new Error('Failed to search members');
+      }
+      return resp.json();
+    },
+    enabled: memberSearchEnabled,
   });
 
   const { data: photoSizeSetting } = useQuery({
@@ -64,21 +113,59 @@ export default function WallOfFameManagementPage() {
     refetchOnMount: true
   });
 
+  const { data: titleFieldSetting } = useQuery({
+    queryKey: ['wall-of-fame-title-field'],
+    queryFn: async () => {
+      const allSettings = await base44.entities.SystemSettings.list();
+      const setting = allSettings.find(s => s.setting_key === 'wall_of_fame_title_field');
+      return setting ? { id: setting.id, value: setting.setting_value } : null;
+    },
+    staleTime: 0,
+    refetchOnMount: true
+  });
+
+  // Enumerate member core + custom fields so an admin can pick which one acts
+  // as the "title"/honorific prefix shown before each person's name.
+  const { data: memberFields } = useQuery({
+    queryKey: ['wall-of-fame-member-fields'],
+    queryFn: async () => {
+      const resp = await fetch('/api/imports/fields?entity=member', { credentials: 'include' });
+      if (!resp.ok) throw new Error('Failed to load member fields');
+      return resp.json();
+    },
+  });
+
+  // Resolve the title prefix per person the same way the public display does so
+  // the admin People list matches what visitors see.
+  const { data: titlePrefixMap = {} } = useQuery({
+    queryKey: ['wall-of-fame-title-prefixes', titleFieldSetting?.value],
+    queryFn: async () => {
+      const resp = await fetch('/api/wall-of-fame/title-prefixes', { credentials: 'include' });
+      if (!resp.ok) throw new Error('Failed to load title prefixes');
+      const data = await resp.json();
+      return data?.prefixes || {};
+    },
+  });
+
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_WallOfFameManagement')) {
+      if (isFeatureExcluded('page_WallOfFameManagement')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   useEffect(() => {
     if (photoSizeSetting?.value) {
       setProfilePhotoSize(photoSizeSetting.value);
     }
   }, [photoSizeSetting]);
+
+  useEffect(() => {
+    setTitleField(titleFieldSetting?.value || "__none__");
+  }, [titleFieldSetting]);
 
   const sectionMutation = useMutation({
     mutationFn: ({ id, data }) => id ? base44.entities.WallOfFameSection.update(id, data) : base44.entities.WallOfFameSection.create(data),
@@ -154,9 +241,31 @@ export default function WallOfFameManagementPage() {
     },
   });
 
+  const saveTitleFieldMutation = useMutation({
+    mutationFn: async (value) => {
+      // "__none__" clears the setting by storing an empty value.
+      const settingValue = value === '__none__' ? '' : value;
+      if (titleFieldSetting?.id) {
+        return await base44.entities.SystemSettings.update(titleFieldSetting.id, {
+          setting_value: settingValue
+        });
+      }
+      return await base44.entities.SystemSettings.create({
+        setting_key: 'wall_of_fame_title_field',
+        setting_value: settingValue,
+        description: 'Member field used as a title/honorific prefix before names on the Wall of Fame'
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['wall-of-fame-title-field'] });
+      queryClient.invalidateQueries({ queryKey: ['wall-of-fame-title-prefixes'] });
+      toast.success('Title field setting saved');
+    },
+  });
+
   if (!accessChecked) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
       </div>
     );
@@ -177,7 +286,7 @@ export default function WallOfFameManagementPage() {
       setEditingPerson({ ...editingPerson, profile_photo_url: result.file_url });
       toast.success('Photo uploaded');
     } catch (error) {
-      toast.error('Failed to upload photo');
+      showUploadErrorToast(error, 'Failed to upload photo');
     } finally {
       setIsUploadingPhoto(false);
     }
@@ -203,7 +312,7 @@ export default function WallOfFameManagementPage() {
   const sortedSections = [...sections].sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-8">
           <div>
@@ -335,7 +444,7 @@ export default function WallOfFameManagementPage() {
 
           <TabsContent value="people">
             <div className="mb-4">
-              <Button onClick={() => { setEditingPerson({ category_id: '', first_name: '', last_name: '', job_title: '', biography: '', profile_photo_url: '', linkedin_url: '', email: '', display_order: 0, is_active: true }); setShowPersonDialog(true); }} className="bg-blue-600 hover:bg-blue-700">
+              <Button onClick={() => { setEditingPerson({ category_id: '', first_name: '', last_name: '', job_title: '', biography: '', profile_photo_url: '', linkedin_url: '', email: '', display_order: 0, is_active: true }); setSelectedOrganizationForMember(''); setMemberSearchQuery(''); setShowPersonDialog(true); }} className="bg-blue-600 hover:bg-blue-700">
                 <Plus className="w-4 h-4 mr-2" />
                 Add Person
               </Button>
@@ -384,12 +493,12 @@ export default function WallOfFameManagementPage() {
                                           )}
                                         </div>
                                         <div className="flex-1 min-w-0">
-                                          <div className="font-medium">{person.first_name} {person.last_name}</div>
+                                          <div className="font-medium">{[titlePrefixMap[person.id], person.first_name, person.last_name].filter(Boolean).join(' ')}</div>
                                           {person.job_title && <div className="text-sm text-slate-600">{person.job_title}</div>}
                                           {person.member_id && <Badge variant="outline" className="text-xs mt-1">Linked Member</Badge>}
                                         </div>
                                         <div className="flex gap-2">
-                                          <Button variant="ghost" size="sm" onClick={() => { setEditingPerson(person); setShowPersonDialog(true); }}>
+                                          <Button variant="ghost" size="sm" onClick={() => { setEditingPerson(person); setSelectedOrganizationForMember(''); setMemberSearchQuery(''); setShowPersonDialog(true); }}>
                                             <Pencil className="w-3 h-3" />
                                           </Button>
                                           <Button variant="ghost" size="sm" onClick={() => deletePersonMutation.mutate(person.id)} className="text-red-600">
@@ -440,6 +549,37 @@ export default function WallOfFameManagementPage() {
                     </SelectContent>
                   </Select>
                 </div>
+
+                <div className="space-y-3">
+                  <Label className="text-base font-semibold">Title Field</Label>
+                  <p className="text-sm text-slate-600">
+                    Choose a member field (e.g. Dr, Professor) to show as a title before the person's name. Only applies to people linked to a member.
+                  </p>
+                  <Select
+                    value={titleField}
+                    onValueChange={(value) => {
+                      setTitleField(value);
+                      saveTitleFieldMutation.mutate(value);
+                    }}
+                  >
+                    <SelectTrigger className="w-64" data-testid="select-title-field">
+                      <SelectValue placeholder="Select a field" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">None</SelectItem>
+                      {(memberFields?.core || []).map((f) => (
+                        <SelectItem key={`core:${f.key}`} value={`core:${f.key}`}>
+                          {f.label}
+                        </SelectItem>
+                      ))}
+                      {(memberFields?.custom || []).length > 0 && (memberFields?.custom || []).map((f) => (
+                        <SelectItem key={f.key} value={f.key}>
+                          {f.label} (Custom)
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -447,12 +587,12 @@ export default function WallOfFameManagementPage() {
 
         {/* Section Dialog */}
         <Dialog open={showSectionDialog} onOpenChange={setShowSectionDialog}>
-          <DialogContent>
-            <DialogHeader>
+          <DialogContent className="flex flex-col max-h-[90vh]" aria-describedby={undefined}>
+            <DialogHeader className="shrink-0">
               <DialogTitle>{editingSection?.id ? 'Edit Section' : 'Create Section'}</DialogTitle>
             </DialogHeader>
             {editingSection && (
-              <div className="space-y-4">
+              <div className="space-y-4 overflow-y-auto flex-1 min-h-0 -mx-6 px-6">
                 <div className="space-y-2">
                   <Label>Name *</Label>
                   <Input value={editingSection.name} onChange={(e) => setEditingSection({ ...editingSection, name: e.target.value })} placeholder="e.g., Our Team" />
@@ -467,7 +607,7 @@ export default function WallOfFameManagementPage() {
                 </div>
               </div>
             )}
-            <DialogFooter>
+            <DialogFooter className="shrink-0">
               <Button variant="outline" onClick={() => setShowSectionDialog(false)}>Cancel</Button>
               <Button onClick={() => sectionMutation.mutate({ id: editingSection?.id, data: editingSection })} disabled={sectionMutation.isPending}>Save</Button>
             </DialogFooter>
@@ -476,12 +616,12 @@ export default function WallOfFameManagementPage() {
 
         {/* Category Dialog */}
         <Dialog open={showCategoryDialog} onOpenChange={setShowCategoryDialog}>
-          <DialogContent>
-            <DialogHeader>
+          <DialogContent className="flex flex-col max-h-[90vh]" aria-describedby={undefined}>
+            <DialogHeader className="shrink-0">
               <DialogTitle>{editingCategory?.id ? 'Edit Category' : 'Create Category'}</DialogTitle>
             </DialogHeader>
             {editingCategory && (
-              <div className="space-y-4">
+              <div className="space-y-4 overflow-y-auto flex-1 min-h-0 -mx-6 px-6">
                 <div className="space-y-2">
                   <Label>Section *</Label>
                   <Select value={editingCategory.section_id} onValueChange={(value) => setEditingCategory({ ...editingCategory, section_id: value })}>
@@ -507,7 +647,7 @@ export default function WallOfFameManagementPage() {
                 </div>
               </div>
             )}
-            <DialogFooter>
+            <DialogFooter className="shrink-0">
               <Button variant="outline" onClick={() => setShowCategoryDialog(false)}>Cancel</Button>
               <Button onClick={() => categoryMutation.mutate({ id: editingCategory?.id, data: editingCategory })} disabled={categoryMutation.isPending}>Save</Button>
             </DialogFooter>
@@ -515,13 +655,19 @@ export default function WallOfFameManagementPage() {
         </Dialog>
 
         {/* Person Dialog */}
-        <Dialog open={showPersonDialog} onOpenChange={setShowPersonDialog}>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
+        <Dialog open={showPersonDialog} onOpenChange={(open) => { 
+          setShowPersonDialog(open); 
+          if (!open) { 
+            setSelectedOrganizationForMember(''); 
+            setMemberSearchQuery(''); 
+          } 
+        }}>
+          <DialogContent className="max-w-2xl flex flex-col max-h-[90vh]" aria-describedby={undefined}>
+            <DialogHeader className="shrink-0">
               <DialogTitle>{editingPerson?.id ? 'Edit Person' : 'Add Person'}</DialogTitle>
             </DialogHeader>
             {editingPerson && (
-              <div className="space-y-4">
+              <div className="space-y-4 overflow-y-auto flex-1 min-h-0 -mx-6 px-6">
                 <div className="space-y-2">
                   <Label>Category *</Label>
                   <Select value={editingPerson.category_id} onValueChange={(value) => setEditingPerson({ ...editingPerson, category_id: value })}>
@@ -534,18 +680,96 @@ export default function WallOfFameManagementPage() {
                   </Select>
                 </div>
 
+                {/* Step 1: Select Organization */}
                 <div className="space-y-2">
-                  <Label>Link to Existing Member (Optional)</Label>
-                  <Select value={editingPerson.member_id || ''} onValueChange={handleMemberSelect}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select a member or create ad-hoc entry" />
+                  <Label>Step 1: Select Organisation (to link member)</Label>
+                  <Select 
+                    value={selectedOrganizationForMember} 
+                    onValueChange={(value) => {
+                      setSelectedOrganizationForMember(value);
+                      setMemberSearchQuery("");
+                      setEditingPerson({ ...editingPerson, member_id: null });
+                    }}
+                  >
+                    <SelectTrigger data-testid="select-organization-for-member">
+                      <SelectValue placeholder={organizationsLoading ? "Loading organisations..." : "Select an organisation first..."} />
                     </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={null}>Create ad-hoc entry</SelectItem>
-                      {members.map(m => <SelectItem key={m.id} value={m.id}>{m.first_name} {m.last_name} ({m.email})</SelectItem>)}
+                    <SelectContent className="max-h-[300px]">
+                      <SelectItem value="__skip__">Skip - Create ad-hoc entry</SelectItem>
+                      <SelectItem value="__no_org__">Members without organisation</SelectItem>
+                      {organizations.map(org => (
+                        <SelectItem key={org.id} value={org.id}>
+                          {org.name}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
+
+                {/* Step 2: Select Member (only shown after organization is selected) */}
+                {selectedOrganizationForMember && selectedOrganizationForMember !== '__skip__' && (
+                  <div className="space-y-2">
+                    <Label>Step 2: Search & Select Member</Label>
+                    <Input
+                      value={memberSearchQuery}
+                      onChange={(e) => setMemberSearchQuery(e.target.value)}
+                      placeholder="Search by name or email..."
+                      data-testid="input-member-search"
+                    />
+                    <div className="border border-slate-200 rounded-lg max-h-[200px] overflow-y-auto">
+                      {debouncedMemberSearch.length < 2 ? (
+                        <div className="p-4 text-center text-slate-500">
+                          Type at least 2 characters to search
+                        </div>
+                      ) : membersLoading ? (
+                        <div className="p-4 text-center text-slate-500">
+                          <Loader2 className="w-4 h-4 animate-spin inline mr-2" />
+                          Searching members...
+                        </div>
+                      ) : members.length === 0 ? (
+                        <div className="p-4 text-center text-slate-500">
+                          No members found
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-slate-200">
+                          {members.map(member => (
+                              <button
+                                key={member.id}
+                                type="button"
+                                onClick={() => handleMemberSelect(member.id)}
+                                className={`w-full p-3 text-left hover:bg-slate-50 transition-colors ${
+                                  editingPerson.member_id === member.id ? 'bg-blue-50 hover:bg-blue-100' : ''
+                                }`}
+                                data-testid={`button-select-member-${member.id}`}
+                              >
+                                <div className="font-medium text-sm">
+                                  {member.first_name} {member.last_name}
+                                </div>
+                                <div className="text-xs text-slate-500">{member.email}</div>
+                              </button>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+                    {editingPerson.member_id && (
+                      <div className="flex items-center gap-2 p-2 bg-green-50 rounded border border-green-200">
+                        <User className="w-4 h-4 text-green-600" />
+                        <span className="text-sm text-green-700">
+                          Member linked: {editingPerson.first_name} {editingPerson.last_name}
+                        </span>
+                        <Button 
+                          type="button" 
+                          variant="ghost" 
+                          size="sm" 
+                          className="ml-auto h-6 text-xs"
+                          onClick={() => setEditingPerson({ ...editingPerson, member_id: null })}
+                        >
+                          Clear
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
@@ -611,7 +835,7 @@ export default function WallOfFameManagementPage() {
                 </div>
               </div>
             )}
-            <DialogFooter>
+            <DialogFooter className="shrink-0">
               <Button variant="outline" onClick={() => setShowPersonDialog(false)}>Cancel</Button>
               <Button onClick={() => personMutation.mutate({ id: editingPerson?.id, data: editingPerson })} disabled={personMutation.isPending}>Save</Button>
             </DialogFooter>

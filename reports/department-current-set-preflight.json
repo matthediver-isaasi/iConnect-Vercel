@@ -1,0 +1,89 @@
+{
+  "review_version": 1,
+  "generated_at": "2026-09-17T12:51:54.840Z",
+  "tenantId": "ff2df806-b321-4254-b651-3af11fccf1db",
+  "formId": "8b6f44d3-83f8-449e-9496-b10b1dc28e5f",
+  "dryRun": true,
+  "configTable": "department_current_set_config",
+  "schemaReady": false,
+  "rolloutReadiness": "blocked: department_current_set_config migration is not installed",
+  "preflightFingerprint": "be9cb2317eced463a031c6dbd74a55f22a2143b730cefdde246fd9aa38e74909",
+  "desiredConfigFingerprint": "c757deba9ba00fbfecb05792df59709a8ed204ddc615435144a262ac7a8b76a2",
+  "rowCounts": {
+    "activeDepartments": 326,
+    "activeWorkforceParents": 3,
+    "activeWorkforceRows": 8,
+    "activeEquipment": 823,
+    "maximumEquipmentRowsForOneDepartment": 36,
+    "departmentsWithMultipleWorkforceParents": 0,
+    "workforceRowsWithoutExactlyOneParent": 0,
+    "equipmentWithoutExactlyOneDepartment": 0,
+    "equipmentWithoutExactlyOneType": 0,
+    "equipmentWithMultipleModels": 0,
+    "equipmentModelTypeMismatches": 0,
+    "existingEquipmentBlankSerial": 823,
+    "existingEquipmentMissingInstallationYear": 45
+  },
+  "form": {
+    "wasAuthenticationRequired": false,
+    "authenticationWillBeRequired": true,
+    "equipmentMaximumRowsBefore": 30,
+    "equipmentMaximumRowsAfter": 100,
+    "datesVerifiedYearOnly": true,
+    "formFieldIdsPreserved": true,
+    "repeatableContainerConstraints": [
+      {
+        "containerId": "field_1788530969408",
+        "min_rows": 0,
+        "first_row_required": null,
+        "required": false,
+        "requiredChildHeaders": []
+      },
+      {
+        "containerId": "field_1789479861104",
+        "min_rows": 0,
+        "first_row_required": null,
+        "required": false,
+        "requiredChildHeaders": [
+          {
+            "id": "row_field_1789639793360_0h7t0",
+            "label": "Serial number or unique identifier",
+            "type": "text"
+          },
+          {
+            "id": "row_field_1789483471565_28vfi",
+            "label": "Installation date",
+            "type": "date"
+          }
+        ]
+      }
+    ],
+    "deliberateEmptyWorkforceAndEquipmentAllowed": true
+  },
+  "existingConfig": "absent",
+  "legacyGraphObservations": {
+    "equipmentWithoutExactlyOneDepartment": 0,
+    "equipmentWithoutExactlyOneType": 0,
+    "equipmentWithMultipleModels": 0,
+    "equipmentModelTypeMismatches": 0,
+    "handling": "Reported only: rollout does not infer, repair, archive, or omit legacy records."
+  },
+  "rollout": {
+    "dataRecordsChanged": false,
+    "preparedWorkforceImportChanged": false,
+    "applyRequiresReviewedFingerprint": true,
+    "backupBeforeWrite": true,
+    "configWrittenOnlyWhenAbsentAndExact": true,
+    "guardedFormAndConfigTransaction": true,
+    "authenticatedWrappersRequiredBeforeConfig": true,
+    "stagedAfterApplicationDeployment": true,
+    "preservesDraftAndPublicationState": true,
+    "automaticPublish": false,
+    "postcheckRequired": true
+  },
+  "outstanding": [
+    "The separately prepared BNMS workforce CSV import was not read, changed, or executed.",
+    "Because this rollout changes related form/configuration metadata, repeat that import package’s required full destination re-audit and final approval review before any separate import execution.",
+    "Run a signed-in live verification for a respondent flagged true for one Department and false/absent for another after code, migration, and this configuration rollout are deployed."
+  ]
+}

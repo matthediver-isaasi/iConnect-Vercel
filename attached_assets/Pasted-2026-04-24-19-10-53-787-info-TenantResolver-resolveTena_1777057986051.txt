@@ -1,0 +1,42 @@
+2026-04-24 19:10:53.787 [info] [TenantResolver] resolveTenantFromRequest called
+2026-04-24 19:10:53.788 [info] [TenantResolver] Params - tenant: undefined domain: undefined
+2026-04-24 19:10:53.788 [info] [TenantResolver] Falling back to host-based resolution, hostname: gsf.dev.iconn.app
+2026-04-24 19:10:53.788 [info] [TenantResolver] resolveTenantFromHost called with: gsf.dev.iconn.app
+2026-04-24 19:10:53.788 [info] [TenantResolver] Cache hit for: gsf.dev.iconn.app
+2026-04-24 19:10:53.788 [info] [TenantContext] About to call getSessionTenantUser
+2026-04-24 19:10:53.788 [info] [Session] getSession: Looking up session: 44163af2
+2026-04-24 19:10:53.930 [info] [Session] getSession: Session found, userType: member
+2026-04-24 19:10:53.930 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"44163af2","userType":"member","memberId":"49f0b578-2e2f-46f8-a151-2c4c08cc570c","identityId":"dc156a30-ae8d-4aee-b965-b54fe4b17105","tenantId":"21296ad6-1350-483a-a90c-1b06ece70501"}
+2026-04-24 19:10:53.930 [info] [Session] Found member session with identityId, attempting promotion
+2026-04-24 19:10:54.184 [info] [ZohoCRM] getTenantZohoCrmDomains - raw credentials: {
+  hasCredentials: true,
+  storedAccountsDomain: '3e2b29797c3924fa9abd519514fbbf27:30aec9ce7945ed9d90309b0c8b097ec61bff82d84dda6ae920034252084b1408',
+  storedCrmDomain: 'https://www.zohoapis.eu',
+  storedRegion: '565c574e96e8b189044a9e5ce7b0cc73:c10047c826f32bc0e2cd7eaa50bed38e'
+}
+2026-04-24 19:10:54.237 [info] [ZohoCRM] Resolved accounts_domain: https://accounts.zoho.eu
+2026-04-24 19:10:54.237 [info] [ZohoCRM] Using stored crm_domain: https://www.zohoapis.eu
+2026-04-24 19:10:54.237 [info] [ZohoCRM] Final domains - accounts: https://accounts.zoho.eu crm: https://www.zohoapis.eu
+2026-04-24 19:10:54.237 [info] [ZohoCRM] API call: GET https://www.zohoapis.eu/crm/v3/settings/fields?module=Accounts&type=all
+2026-04-24 19:10:54.243 [info] [Session] No tenant_user record found for identity promotion
+2026-04-24 19:10:54.243 [info] [Session] Member session promotion failed
+2026-04-24 19:10:54.243 [info] [TenantContext] getSessionTenantUser returned: null
+2026-04-24 19:10:54.243 [info] [TenantContext] Checking for member session...
+2026-04-24 19:10:54.244 [info] [Session] getSession: Looking up session: 44163af2
+2026-04-24 19:10:54.370 [info] [Session] getSession: Session found, userType: member
+2026-04-24 19:10:54.370 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"44163af2","userType":"member","memberId":"49f0b578-2e2f-46f8-a151-2c4c08cc570c"}
+2026-04-24 19:10:54.500 [info] [TenantContext] Member found: {
+  memberId: '49f0b578-2e2f-46f8-a151-2c4c08cc570c',
+  organizationId: '7a097c15-1028-4e12-acde-c5ababb7201e'
+}
+2026-04-24 19:10:54.500 [info] [TenantContext] Tenant from member: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-04-24 19:10:55.341 [info] [ZohoCRM] getTenantZohoCrmDomains - raw credentials: {
+  hasCredentials: true,
+  storedAccountsDomain: '3e2b29797c3924fa9abd519514fbbf27:30aec9ce7945ed9d90309b0c8b097ec61bff82d84dda6ae920034252084b1408',
+  storedCrmDomain: 'https://www.zohoapis.eu',
+  storedRegion: '565c574e96e8b189044a9e5ce7b0cc73:c10047c826f32bc0e2cd7eaa50bed38e'
+}
+2026-04-24 19:10:55.395 [info] [ZohoCRM] Resolved accounts_domain: https://accounts.zoho.eu
+2026-04-24 19:10:55.395 [info] [ZohoCRM] Using stored crm_domain: https://www.zohoapis.eu
+2026-04-24 19:10:55.395 [info] [ZohoCRM] Final domains - accounts: https://accounts.zoho.eu crm: https://www.zohoapis.eu
+2026-04-24 19:10:55.395 [info] [ZohoCRM] API call: GET https://www.zohoapis.eu/crm/v3/settings/layouts?module=Accounts

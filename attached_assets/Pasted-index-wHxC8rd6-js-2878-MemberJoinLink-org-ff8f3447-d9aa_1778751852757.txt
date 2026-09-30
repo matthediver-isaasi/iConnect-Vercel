@@ -1,0 +1,17 @@
+index-wHxC8rd6.js:2878 [MemberJoinLink] org ff8f3447-d9aa-4a64-949c-b8d53bfa98ab
+index-wHxC8rd6.js:2878 orgTypeField {id: 'e5ac547d-edb1-4ff1-83ab-fc82c1813065', name: 'org_type'}
+index-wHxC8rd6.js:2878 raw OrganizationPreferenceValue.value undefined (typeof: undefined )
+index-wHxC8rd6.js:2878 extractPrimitiveValue(raw) null (typeof: object )
+index-wHxC8rd6.js:2878 orgTypeField.options (3) [{…}, {…}, {…}]
+index-wHxC8rd6.js:2878 normalizedOptions (3) [{…}, {…}, {…}]
+index-wHxC8rd6.js:2878 resolveToOption(orgTypeValue) null
+index-wHxC8rd6.js:2878 canonicalOrgTypeValue null
+index-wHxC8rd6.js:2878 joinFormsByOrgTypeSetting.value keys (2) ['University', 'Partner']
+index-wHxC8rd6.js:2878 mapping entries (2) [{…}, {…}]
+index-wHxC8rd6.js:2878 matched branch fallback-default
+index-wHxC8rd6.js:2878 resolvedForm {id: 'a39e6441-d187-4bde-a15a-12c08bd1edbc', slug: 'individual-join'}
+index-wHxC8rd6.js:2878 [MemberJoinLink] org ff8f3447-d9aa-4a64-949c-b8d53bfa98ab -> joinFormUrl {slug: 'individual-join', joinFormUrl: 'https://gfi.dev.iconn.app/FormView?slug=individual…anization_id=ff8f3447-d9aa-4a64-949c-b8d53bfa98ab'}joinFormUrl: "https://gfi.dev.iconn.app/FormView?slug=individual-join&organization_id=ff8f3447-d9aa-4a64-949c-b8d53bfa98ab"slug: "individual-join"[[Prototype]]: Object
+index-wHxC8rd6.js:2878 [MemberJoinLink] org ff8f3447-d9aa-4a64-949c-b8d53bfa98ab -> joinFormUrl {slug: 'individual-join', joinFormUrl: 'https://gfi.dev.iconn.app/FormView?slug=individual…anization_id=ff8f3447-d9aa-4a64-949c-b8d53bfa98ab'}joinFormUrl: "https://gfi.dev.iconn.app/FormView?slug=individual-join&organization_id=ff8f3447-d9aa-4a64-949c-b8d53bfa98ab"slug: "individual-join"[[Prototype]]: Object
+index-wHxC8rd6.js:2878 [MemberJoinLink] org ff8f3447-d9aa-4a64-949c-b8d53bfa98ab -> joinFormUrl {slug: 'individual-join', joinFormUrl: 'https://gfi.dev.iconn.app/FormView?slug=individual…anization_id=ff8f3447-d9aa-4a64-949c-b8d53bfa98ab'}joinFormUrl: "https://gfi.dev.iconn.app/FormView?slug=individual-join&organization_id=ff8f3447-d9aa-4a64-949c-b8d53bfa98ab"slug: "individual-join"[[Prototype]]: Object
+index-wHxC8rd6.js:2878 [MemberJoinLink] org ff8f3447-d9aa-4a64-949c-b8d53bfa98ab -> joinFormUrl {slug: 'individual-join', joinFormUrl: 'https://gfi.dev.iconn.app/FormView?slug=individual…anization_id=ff8f3447-d9aa-4a64-949c-b8d53bfa98ab'}joinFormUrl: "https://gfi.dev.iconn.app/FormView?slug=individual-join&organization_id=ff8f3447-d9aa-4a64-949c-b8d53bfa98ab"slug: "individual-join"[[Prototype]]: Object
+index-wHxC8rd6.js:2878 [MemberJoinLink] org ff8f3447-d9aa-4a64-949c-b8d53bfa98ab -> joinFormUrl {slug: 'individual-join', joinFormUrl: 'https://gfi.dev.iconn.app/FormView?slug=individual…anization_id=ff8f3447-d9aa-4a64-949c-b8d53bfa98ab'}joinFormUrl: "https://gfi.dev.iconn.app/FormView?slug=individual-join&organization_id=ff8f3447-d9aa-4a64-949c-b8d53bfa98ab"slug: "individual-join"[[Prototype]]: Object

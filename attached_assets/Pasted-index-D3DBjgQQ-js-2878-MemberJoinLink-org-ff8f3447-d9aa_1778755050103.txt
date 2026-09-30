@@ -1,0 +1,22 @@
+index-D3DBjgQQ.js:2878 [MemberJoinLink] org ff8f3447-d9aa-4a64-949c-b8d53bfa98ab
+index-D3DBjgQQ.js:2878 orgTypeField {id: 'e5ac547d-edb1-4ff1-83ab-fc82c1813065', name: 'org_type', is_active: true, entity_scope: 'organization', tenant_id: 'fd82da65-aab7-4a5c-85b8-b2febeb2003d'}
+index-D3DBjgQQ.js:2878 orgTypeFieldCandidates [{…}]0: {id: 'e5ac547d-edb1-4ff1-83ab-fc82c1813065', name: 'org_type', is_active: true, entity_scope: 'organization', tenant_id: 'fd82da65-aab7-4a5c-85b8-b2febeb2003d'}length: 1[[Prototype]]: Array(0)
+index-D3DBjgQQ.js:2878 orgTypeFieldIdSet ['e5ac547d-edb1-4ff1-83ab-fc82c1813065']
+index-D3DBjgQQ.js:2878 loading flags {fieldsLoading: false, valuesLoading: false}
+index-D3DBjgQQ.js:2878 orgPreferenceValues.length 12
+index-D3DBjgQQ.js:2878 orgPreferenceValues (all rows) (12) [{…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}]0: {preference_field_id: undefined, value: '["CV and application software","Work based learning platform","Careers service platform"]'}1: {preference_field_id: undefined, value: 'Partner'}preference_field_id: undefinedvalue: "Partner"[[Prototype]]: Object2: {preference_field_id: undefined, value: 'Sharon'}3: {preference_field_id: undefined, value: 'Test'}4: {preference_field_id: undefined, value: 'Partner test'}5: {preference_field_id: undefined, value: 'isaasitesting4@outlook.com'}6: {preference_field_id: undefined, value: 'onlinem.co.uk'}7: {preference_field_id: undefined, value: 'Live'}8: {preference_field_id: undefined, value: '2026-05-13'}9: {preference_field_id: undefined, value: '2026-05-13'}10: {preference_field_id: undefined, value: 'lots of description about me'}11: {preference_field_id: undefined, value: 'isaasitesting1@outlook.com'}length: 12[[Prototype]]: Array(0)
+index-D3DBjgQQ.js:2878 any row matches orgTypeField.id exactly? false null
+index-D3DBjgQQ.js:2878 selected orgTypeValueMatch (after legacy-id tolerance) null
+index-D3DBjgQQ.js:2878 raw OrganizationPreferenceValue.value undefined (typeof: undefined )
+index-D3DBjgQQ.js:2878 extractPrimitiveValue(raw) null (typeof: object )
+index-D3DBjgQQ.js:2878 orgTypeField.options (3) [{…}, {…}, {…}]
+index-D3DBjgQQ.js:2878 normalizedOptions (3) [{…}, {…}, {…}]
+index-D3DBjgQQ.js:2878 resolveToOption(orgTypeValue) null
+index-D3DBjgQQ.js:2878 canonicalOrgTypeValue null
+index-D3DBjgQQ.js:2878 joinFormsByOrgTypeSetting.value keys (2) ['University', 'Partner']
+index-D3DBjgQQ.js:2878 mapping entries (2) [{…}, {…}]
+index-D3DBjgQQ.js:2878 matched branch fallback-default
+index-D3DBjgQQ.js:2878 resolvedForm {id: 'a39e6441-d187-4bde-a15a-12c08bd1edbc', slug: 'individual-join'}
+index-D3DBjgQQ.js:2878 [MemberJoinLink] org ff8f3447-d9aa-4a64-949c-b8d53bfa98ab -> joinFormUrl {slug: 'individual-join', joinFormUrl: 'https://gfi.dev.iconn.app/FormView?slug=individual…anization_id=ff8f3447-d9aa-4a64-949c-b8d53bfa98ab'}
+index-D3DBjgQQ.js:2878 [MemberJoinLink] org ff8f3447-d9aa-4a64-949c-b8d53bfa98ab -> joinFormUrl {slug: 'individual-join', joinFormUrl: 'https://gfi.dev.iconn.app/FormView?slug=individual…anization_id=ff8f3447-d9aa-4a64-949c-b8d53bfa98ab'}
+index-D3DBjgQQ.js:2878 [MemberJoinLink] org ff8f3447-d9aa-4a64-949c-b8d53bfa98ab -> joinFormUrl {slug: 'individual-join', joinFormUrl: 'https://gfi.dev.iconn.app/FormView?slug=individual…anization_id=ff8f3447-d9aa-4a64-949c-b8d53bfa98ab'}

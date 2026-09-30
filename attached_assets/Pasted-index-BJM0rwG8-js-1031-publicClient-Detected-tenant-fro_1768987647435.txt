@@ -1,0 +1,144 @@
+index-BJM0rwG8.js:1031 [publicClient] Detected tenant from subdomain: gsf
+index-BJM0rwG8.js:1116 GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.84.0) 2026-01-21T09:26:40.310Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+qg @ index-BJM0rwG8.js:1116
+Roe @ index-BJM0rwG8.js:1117
+_initSupabaseAuthClient @ index-BJM0rwG8.js:1117
+$oe @ index-BJM0rwG8.js:1117
+Uz @ index-BJM0rwG8.js:1117
+(anonymous) @ index-BJM0rwG8.js:2099
+(anonymous) @ index-BJM0rwG8.js:1
+(anonymous) @ index-BJM0rwG8.js:2514
+index-BJM0rwG8.js:1420 [usePendingPurchaseOrders] memberInfo: null
+index-BJM0rwG8.js:1420 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BJM0rwG8.js:1420 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BJM0rwG8.js:1420 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-BJM0rwG8.js:1420 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-BJM0rwG8.js:1420 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BJM0rwG8.js:1420 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BJM0rwG8.js:1420 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-BJM0rwG8.js:1420 [usePendingPurchaseOrders] Query running, memberInfo.id: b24e022f-adcc-4930-8952-63a34cc16925
+index-BJM0rwG8.js:1420 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-BJM0rwG8.js:1420 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BJM0rwG8.js:1420 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BJM0rwG8.js:1420 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-BJM0rwG8.js:1420 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-BJM0rwG8.js:1420 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BJM0rwG8.js:1420 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BJM0rwG8.js:1420 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-BJM0rwG8.js:1420 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-BJM0rwG8.js:1420 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BJM0rwG8.js:1420 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BJM0rwG8.js:1420 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-BJM0rwG8.js:1420 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-BJM0rwG8.js:1420 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-BJM0rwG8.js:1420 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-BJM0rwG8.js:1420 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-BJM0rwG8.js:1420 [usePendingPurchaseOrders] Fetched bookings count: 0
+index-BJM0rwG8.js:1420 [usePendingPurchaseOrders] Pending PO bookings: 0
+index-BJM0rwG8.js:1420 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-BJM0rwG8.js:1420 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BJM0rwG8.js:1420 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BJM0rwG8.js:1420 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-BJM0rwG8.js:1420 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-BJM0rwG8.js:1420 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BJM0rwG8.js:1420 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BJM0rwG8.js:1420 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-BJM0rwG8.js:1420 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-BJM0rwG8.js:1420 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BJM0rwG8.js:1420 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BJM0rwG8.js:1420 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-BJM0rwG8.js:1386 Error loading member record: {code: 'PGRST116', details: 'Results contain 3 rows, application/vnd.pgrst.object+json requires 1 row', hint: null, message: 'JSON object requested, multiple (or no) rows returned'}
+queryFn @ index-BJM0rwG8.js:1386
+await in queryFn
+i @ index-BJM0rwG8.js:1031
+b @ index-BJM0rwG8.js:1031
+start @ index-BJM0rwG8.js:1031
+fetch @ index-BJM0rwG8.js:1031
+zf @ index-BJM0rwG8.js:1031
+onSubscribe @ index-BJM0rwG8.js:1031
+subscribe @ index-BJM0rwG8.js:1031
+(anonymous) @ index-BJM0rwG8.js:1031
+o$ @ index-BJM0rwG8.js:38
+By @ index-BJM0rwG8.js:40
+ex @ index-BJM0rwG8.js:40
+jX @ index-BJM0rwG8.js:40
+Gu @ index-BJM0rwG8.js:40
+nF @ index-BJM0rwG8.js:40
+ku @ index-BJM0rwG8.js:38
+(anonymous) @ index-BJM0rwG8.js:40
+setTimeout
+r @ index-BJM0rwG8.js:1031
+l @ index-BJM0rwG8.js:1031
+batch @ index-BJM0rwG8.js:1031
+Cc @ index-BJM0rwG8.js:1031
+setData @ index-BJM0rwG8.js:1031
+onSuccess @ index-BJM0rwG8.js:1031
+h @ index-BJM0rwG8.js:1031
+Promise.then
+b @ index-BJM0rwG8.js:1031
+start @ index-BJM0rwG8.js:1031
+fetch @ index-BJM0rwG8.js:1031
+zf @ index-BJM0rwG8.js:1031
+onSubscribe @ index-BJM0rwG8.js:1031
+subscribe @ index-BJM0rwG8.js:1031
+(anonymous) @ index-BJM0rwG8.js:1031
+o$ @ index-BJM0rwG8.js:38
+By @ index-BJM0rwG8.js:40
+ex @ index-BJM0rwG8.js:40
+(anonymous) @ index-BJM0rwG8.js:40
+N @ index-BJM0rwG8.js:25
+P @ index-BJM0rwG8.js:25
+index-BJM0rwG8.js:1420 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-BJM0rwG8.js:1420 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BJM0rwG8.js:1420 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BJM0rwG8.js:1420 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-BJM0rwG8.js:1420 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-BJM0rwG8.js:1420 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BJM0rwG8.js:1420 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BJM0rwG8.js:1420 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-BJM0rwG8.js:1420 [Layout] Server session found: mat.the.diver@googlemail.com
+index-BJM0rwG8.js:1420 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-BJM0rwG8.js:1420 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BJM0rwG8.js:1420 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BJM0rwG8.js:1420 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-BJM0rwG8.js:1420 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-BJM0rwG8.js:1420 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BJM0rwG8.js:1420 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BJM0rwG8.js:1420 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-BJM0rwG8.js:1420 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-BJM0rwG8.js:1420 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-BJM0rwG8.js:1420 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-BJM0rwG8.js:1420 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-BJM0rwG8.js:2406 [handleSave] customFieldValues: {268300dd-6e22-4f10-b3bd-213c0ee0f424: 'Henderson', 7af40750-1543-44e8-8022-0e0e27bc2c5c: 'SO', 1833e681-6bb7-4ccc-a953-70dda8cc4920: 'Tea Boy', df161bcf-c88f-400f-a8e3-0873117b938c: 'mat@isaasi.co.uk', 1c395ccf-7df2-4818-917d-1cd672216f71: 'Rejected', …}
+index-BJM0rwG8.js:2406 [handleSave] orgValues: (6) [{…}, {…}, {…}, {…}, {…}, {…}]
+index-BJM0rwG8.js:2406 [handleSave] Field: 268300dd-6e22-4f10-b3bd-213c0ee0f424 newValue: Henderson existingValue: Henderson changed: false
+index-BJM0rwG8.js:2406 [handleSave] Field: 7af40750-1543-44e8-8022-0e0e27bc2c5c newValue: SO existingValue: SO changed: false
+index-BJM0rwG8.js:2406 [handleSave] Field: 1833e681-6bb7-4ccc-a953-70dda8cc4920 newValue: Tea Boy existingValue: Tea Boy changed: false
+index-BJM0rwG8.js:2406 [handleSave] Field: df161bcf-c88f-400f-a8e3-0873117b938c newValue: mat@isaasi.co.uk existingValue: mat@isaasi.co.uk changed: false
+index-BJM0rwG8.js:2406 [handleSave] Field: 1c395ccf-7df2-4818-917d-1cd672216f71 newValue: Rejected existingValue: Initial application changed: true
+index-BJM0rwG8.js:2406 [handleSave] Field: 8f08906a-80b5-47bc-8d98-ee217d307b7d newValue: Mat existingValue: Mat changed: false
+index-BJM0rwG8.js:2406 [CustomField Mutation] fieldId: 1c395ccf-7df2-4818-917d-1cd672216f71 value: Rejected storedValue: Rejected existingRecordId: 6b4ea958-45b7-4eb6-a260-9e42be744450
+index-BJM0rwG8.js:1075  PATCH https://gsf.iconn.app/api/entities/OrganizationPreferenceValue/6b4ea958-45b7-4eb6-a260-9e42be744450 404 (Not Found)
+_apiRequest @ index-BJM0rwG8.js:1075
+update @ index-BJM0rwG8.js:1075
+mutationFn @ index-BJM0rwG8.js:2406
+fn @ index-BJM0rwG8.js:1031
+b @ index-BJM0rwG8.js:1031
+start @ index-BJM0rwG8.js:1031
+execute @ index-BJM0rwG8.js:1031
+await in execute
+mutate @ index-BJM0rwG8.js:1031
+(anonymous) @ index-BJM0rwG8.js:1031
+(anonymous) @ index-BJM0rwG8.js:2406
+st @ index-BJM0rwG8.js:2406
+LJ @ index-BJM0rwG8.js:37
+BJ @ index-BJM0rwG8.js:37
+qJ @ index-BJM0rwG8.js:37
+E5 @ index-BJM0rwG8.js:37
+WR @ index-BJM0rwG8.js:37
+(anonymous) @ index-BJM0rwG8.js:37
+t4 @ index-BJM0rwG8.js:40
+fR @ index-BJM0rwG8.js:37
+GN @ index-BJM0rwG8.js:37
+Pk @ index-BJM0rwG8.js:37
+nQ @ index-BJM0rwG8.js:37

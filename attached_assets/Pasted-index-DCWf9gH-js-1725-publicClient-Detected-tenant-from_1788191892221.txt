@@ -1,0 +1,203 @@
+index-DCWf9gH_.js:1725 [publicClient] Detected tenant from subdomain: bnms
+index-DCWf9gH_.js:1810 GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.93.3) 2026-08-31T15:57:44.428Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+A8 @ index-DCWf9gH_.js:1810
+K$t @ index-DCWf9gH_.js:1811
+_initSupabaseAuthClient @ index-DCWf9gH_.js:1811
+Y$t @ index-DCWf9gH_.js:1811
+VXe @ index-DCWf9gH_.js:1811
+(anonymous) @ index-DCWf9gH_.js:2977
+index-DCWf9gH_.js:2118 [usePendingPurchaseOrders] memberInfo: null
+index-DCWf9gH_.js:2118 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DCWf9gH_.js:2129 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DCWf9gH_.js:2129 [Layout] currentPageName: MembershipTierManagement currentPortalPageId: null
+index-DCWf9gH_.js:2118 [usePendingPurchaseOrders] memberInfo: {id: '3d291826-13d8-4fc1-9221-7627fc45830a', email: 'sharon@onlinem.co.uk'}
+index-DCWf9gH_.js:2118 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DCWf9gH_.js:2129 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DCWf9gH_.js:2129 [Layout] currentPageName: MembershipTierManagement currentPortalPageId: null
+index-DCWf9gH_.js:2118 [usePendingPurchaseOrders] Query running, memberInfo.id: 3d291826-13d8-4fc1-9221-7627fc45830a
+index-DCWf9gH_.js:2118 [usePendingPurchaseOrders] memberInfo: {id: '3d291826-13d8-4fc1-9221-7627fc45830a', email: 'sharon@onlinem.co.uk'}
+index-DCWf9gH_.js:2118 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DCWf9gH_.js:2129 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DCWf9gH_.js:2129 [Layout] currentPageName: MembershipTierManagement currentPortalPageId: null
+index-DCWf9gH_.js:2118 [usePendingPurchaseOrders] memberInfo: {id: '3d291826-13d8-4fc1-9221-7627fc45830a', email: 'sharon@onlinem.co.uk'}
+index-DCWf9gH_.js:2118 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DCWf9gH_.js:2129 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DCWf9gH_.js:2129 [Layout] currentPageName: MembershipTierManagement currentPortalPageId: null
+index-DCWf9gH_.js:2118 [usePendingPurchaseOrders] memberInfo: {id: '3d291826-13d8-4fc1-9221-7627fc45830a', email: 'sharon@onlinem.co.uk'}
+index-DCWf9gH_.js:2118 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DCWf9gH_.js:2129 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DCWf9gH_.js:2129 [Layout] currentPageName: MembershipTierManagement currentPortalPageId: null
+index-DCWf9gH_.js:2118 [usePendingPurchaseOrders] memberInfo: {id: '3d291826-13d8-4fc1-9221-7627fc45830a', email: 'sharon@onlinem.co.uk'}
+index-DCWf9gH_.js:2118 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DCWf9gH_.js:2129 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DCWf9gH_.js:2129 [Layout] currentPageName: MembershipTierManagement currentPortalPageId: null
+index-DCWf9gH_.js:2118 [usePendingPurchaseOrders] memberInfo: {id: '3d291826-13d8-4fc1-9221-7627fc45830a', email: 'sharon@onlinem.co.uk'}
+index-DCWf9gH_.js:2118 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DCWf9gH_.js:2129 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DCWf9gH_.js:2129 [Layout] currentPageName: MembershipTierManagement currentPortalPageId: null
+index-DCWf9gH_.js:2118 [usePendingPurchaseOrders] memberInfo: {id: '3d291826-13d8-4fc1-9221-7627fc45830a', email: 'sharon@onlinem.co.uk'}
+index-DCWf9gH_.js:2118 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DCWf9gH_.js:2129 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DCWf9gH_.js:2129 [Layout] currentPageName: MembershipTierManagement currentPortalPageId: null
+index-DCWf9gH_.js:2118 [usePendingPurchaseOrders] memberInfo: {id: '3d291826-13d8-4fc1-9221-7627fc45830a', email: 'sharon@onlinem.co.uk'}
+index-DCWf9gH_.js:2118 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DCWf9gH_.js:2129 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DCWf9gH_.js:2129 [Layout] currentPageName: MembershipTierManagement currentPortalPageId: null
+index-DCWf9gH_.js:2118 [usePendingPurchaseOrders] Fetched bookings count: 0
+index-DCWf9gH_.js:2118 [usePendingPurchaseOrders] Pending PO bookings: 0
+index-DCWf9gH_.js:2118 [usePendingPurchaseOrders] memberInfo: {id: '3d291826-13d8-4fc1-9221-7627fc45830a', email: 'sharon@onlinem.co.uk'}
+index-DCWf9gH_.js:2118 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DCWf9gH_.js:2129 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DCWf9gH_.js:2129 [Layout] currentPageName: MembershipTierManagement currentPortalPageId: null
+index-DCWf9gH_.js:2118 [usePendingPurchaseOrders] memberInfo: {id: '3d291826-13d8-4fc1-9221-7627fc45830a', email: 'sharon@onlinem.co.uk'}
+index-DCWf9gH_.js:2118 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DCWf9gH_.js:2129 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DCWf9gH_.js:2129 [Layout] currentPageName: MembershipTierManagement currentPortalPageId: null
+index-DCWf9gH_.js:2118 [usePendingPurchaseOrders] memberInfo: {id: '3d291826-13d8-4fc1-9221-7627fc45830a', email: 'sharon@onlinem.co.uk'}
+index-DCWf9gH_.js:2118 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DCWf9gH_.js:2129 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DCWf9gH_.js:2129 [Layout] currentPageName: MembershipTierManagement currentPortalPageId: null
+index-DCWf9gH_.js:2118 [usePendingPurchaseOrders] memberInfo: {id: '3d291826-13d8-4fc1-9221-7627fc45830a', email: 'sharon@onlinem.co.uk'}
+index-DCWf9gH_.js:2118 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DCWf9gH_.js:2129 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DCWf9gH_.js:2129 [Layout] currentPageName: MembershipTierManagement currentPortalPageId: null
+index-DCWf9gH_.js:41 Error: Minified React error #310; visit https://reactjs.org/docs/error-decoder.html?invariant=310 for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+    at Ev (index-DCWf9gH_.js:39:17730)
+    at Object.vKe [as useMemo] (index-DCWf9gH_.js:39:21460)
+    at Oo.useMemo (index-DCWf9gH_.js:10:6306)
+    at hCt (index-DCWf9gH_.js:4928:928)
+    at owe (index-DCWf9gH_.js:39:17131)
+    at Sfe (index-DCWf9gH_.js:41:3167)
+    at YKe (index-DCWf9gH_.js:41:45205)
+    at WKe (index-DCWf9gH_.js:41:40104)
+    at LEt (index-DCWf9gH_.js:41:40027)
+    at jJ (index-DCWf9gH_.js:41:39875)
+Nfe @ index-DCWf9gH_.js:41
+n.callback @ index-DCWf9gH_.js:41
+r4e @ index-DCWf9gH_.js:39
+j4e @ index-DCWf9gH_.js:41
+qKe @ index-DCWf9gH_.js:41
+IEt @ index-DCWf9gH_.js:41
+zEt @ index-DCWf9gH_.js:41
+rA @ index-DCWf9gH_.js:41
+UKe @ index-DCWf9gH_.js:41
+w @ index-DCWf9gH_.js:26
+A @ index-DCWf9gH_.js:26
+postMessage
+O @ index-DCWf9gH_.js:26
+W @ index-DCWf9gH_.js:26
+t.unstable_scheduleCallback @ index-DCWf9gH_.js:26
+QKe @ index-DCWf9gH_.js:41
+zEt @ index-DCWf9gH_.js:41
+rA @ index-DCWf9gH_.js:41
+N4e @ index-DCWf9gH_.js:41
+Z2 @ index-DCWf9gH_.js:39
+(anonymous) @ index-DCWf9gH_.js:41
+setTimeout
+r @ index-DCWf9gH_.js:1722
+l @ index-DCWf9gH_.js:1722
+batch @ index-DCWf9gH_.js:1722
+lN @ index-DCWf9gH_.js:1722
+setData @ index-DCWf9gH_.js:1722
+onSuccess @ index-DCWf9gH_.js:1722
+m @ index-DCWf9gH_.js:1722
+Promise.then
+f @ index-DCWf9gH_.js:1722
+start @ index-DCWf9gH_.js:1722
+fetch @ index-DCWf9gH_.js:1722
+H6 @ index-DCWf9gH_.js:1722
+onSubscribe @ index-DCWf9gH_.js:1722
+subscribe @ index-DCWf9gH_.js:1722
+(anonymous) @ index-DCWf9gH_.js:1722
+uKe @ index-DCWf9gH_.js:39
+Tse @ index-DCWf9gH_.js:41
+$3 @ index-DCWf9gH_.js:41
+N4e @ index-DCWf9gH_.js:41
+Z2 @ index-DCWf9gH_.js:39
+zEt @ index-DCWf9gH_.js:41
+rA @ index-DCWf9gH_.js:41
+UKe @ index-DCWf9gH_.js:41
+w @ index-DCWf9gH_.js:26
+A @ index-DCWf9gH_.js:26
+postMessage
+O @ index-DCWf9gH_.js:26
+W @ index-DCWf9gH_.js:26
+t.unstable_scheduleCallback @ index-DCWf9gH_.js:26
+QKe @ index-DCWf9gH_.js:41
+Ox @ index-DCWf9gH_.js:41
+X0 @ index-DCWf9gH_.js:41
+Mse @ index-DCWf9gH_.js:41
+Fse.render._we.render @ index-DCWf9gH_.js:41
+(anonymous) @ index-DCWf9gH_.js:4951
+index-DCWf9gH_.js:39 Uncaught Error: Minified React error #310; visit https://reactjs.org/docs/error-decoder.html?invariant=310 for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+    at Ev (index-DCWf9gH_.js:39:17730)
+    at Object.vKe [as useMemo] (index-DCWf9gH_.js:39:21460)
+    at Oo.useMemo (index-DCWf9gH_.js:10:6306)
+    at hCt (index-DCWf9gH_.js:4928:928)
+    at owe (index-DCWf9gH_.js:39:17131)
+    at Sfe (index-DCWf9gH_.js:41:3167)
+    at YKe (index-DCWf9gH_.js:41:45205)
+    at WKe (index-DCWf9gH_.js:41:40104)
+    at LEt (index-DCWf9gH_.js:41:40027)
+    at jJ (index-DCWf9gH_.js:41:39875)
+Ev @ index-DCWf9gH_.js:39
+vKe @ index-DCWf9gH_.js:39
+Oo.useMemo @ index-DCWf9gH_.js:10
+hCt @ index-DCWf9gH_.js:4928
+owe @ index-DCWf9gH_.js:39
+Sfe @ index-DCWf9gH_.js:41
+YKe @ index-DCWf9gH_.js:41
+WKe @ index-DCWf9gH_.js:41
+LEt @ index-DCWf9gH_.js:41
+jJ @ index-DCWf9gH_.js:41
+Ife @ index-DCWf9gH_.js:41
+UKe @ index-DCWf9gH_.js:41
+w @ index-DCWf9gH_.js:26
+A @ index-DCWf9gH_.js:26
+postMessage
+O @ index-DCWf9gH_.js:26
+W @ index-DCWf9gH_.js:26
+t.unstable_scheduleCallback @ index-DCWf9gH_.js:26
+QKe @ index-DCWf9gH_.js:41
+zEt @ index-DCWf9gH_.js:41
+rA @ index-DCWf9gH_.js:41
+N4e @ index-DCWf9gH_.js:41
+Z2 @ index-DCWf9gH_.js:39
+(anonymous) @ index-DCWf9gH_.js:41
+setTimeout
+r @ index-DCWf9gH_.js:1722
+l @ index-DCWf9gH_.js:1722
+batch @ index-DCWf9gH_.js:1722
+lN @ index-DCWf9gH_.js:1722
+setData @ index-DCWf9gH_.js:1722
+onSuccess @ index-DCWf9gH_.js:1722
+m @ index-DCWf9gH_.js:1722
+Promise.then
+f @ index-DCWf9gH_.js:1722
+start @ index-DCWf9gH_.js:1722
+fetch @ index-DCWf9gH_.js:1722
+H6 @ index-DCWf9gH_.js:1722
+onSubscribe @ index-DCWf9gH_.js:1722
+subscribe @ index-DCWf9gH_.js:1722
+(anonymous) @ index-DCWf9gH_.js:1722
+uKe @ index-DCWf9gH_.js:39
+Tse @ index-DCWf9gH_.js:41
+$3 @ index-DCWf9gH_.js:41
+N4e @ index-DCWf9gH_.js:41
+Z2 @ index-DCWf9gH_.js:39
+zEt @ index-DCWf9gH_.js:41
+rA @ index-DCWf9gH_.js:41
+UKe @ index-DCWf9gH_.js:41
+w @ index-DCWf9gH_.js:26
+A @ index-DCWf9gH_.js:26
+postMessage
+O @ index-DCWf9gH_.js:26
+W @ index-DCWf9gH_.js:26
+t.unstable_scheduleCallback @ index-DCWf9gH_.js:26
+QKe @ index-DCWf9gH_.js:41
+Ox @ index-DCWf9gH_.js:41
+X0 @ index-DCWf9gH_.js:41
+Mse @ index-DCWf9gH_.js:41
+Fse.render._we.render @ index-DCWf9gH_.js:41
+(anonymous) @ index-DCWf9gH_.js:4951
+index-DCWf9gH_.js:2129 [Layout] Server session found: sharon@onlinem.co.uk

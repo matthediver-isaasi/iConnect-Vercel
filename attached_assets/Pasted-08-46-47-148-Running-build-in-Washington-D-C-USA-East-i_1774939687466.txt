@@ -1,0 +1,74 @@
+08:46:47.148 Running build in Washington, D.C., USA (East) – iad1
+08:46:47.149 Build machine configuration: 4 cores, 8 GB
+08:46:47.282 Cloning github.com/matthediver-isaasi/iConnect-Vercel (Branch: seo1, Commit: 96e9963)
+08:46:47.283 Previous build caches not available.
+08:46:48.731 Cloning completed: 1.448s
+08:46:49.262 Running "vercel build"
+08:46:49.913 Vercel CLI 50.37.3
+08:46:52.526 Running "install" command: `npm install`...
+08:46:54.803 npm warn ERESOLVE overriding peer dependency
+08:46:54.804 npm warn While resolving: react-codemirror2@7.3.0
+08:46:54.804 npm warn Found: react@18.3.1
+08:46:54.805 npm warn node_modules/react
+08:46:54.805 npm warn   react@"^18.3.1" from the root project
+08:46:54.805 npm warn   123 more (@arco-design/web-react, @dnd-kit/accessibility, ...)
+08:46:54.805 npm warn
+08:46:54.806 npm warn Could not resolve dependency:
+08:46:54.806 npm warn peer react@">=15.5 <=17.x" from react-codemirror2@7.3.0
+08:46:54.806 npm warn node_modules/react-codemirror2
+08:46:54.806 npm warn   react-codemirror2@"^7.2.1" from easy-email-extensions@4.16.5
+08:46:54.807 npm warn   node_modules/easy-email-extensions
+08:46:54.807 npm warn
+08:46:54.807 npm warn Conflicting peer dependency: react@17.0.2
+08:46:54.807 npm warn node_modules/react
+08:46:54.808 npm warn   peer react@">=15.5 <=17.x" from react-codemirror2@7.3.0
+08:46:54.808 npm warn   node_modules/react-codemirror2
+08:46:54.808 npm warn     react-codemirror2@"^7.2.1" from easy-email-extensions@4.16.5
+08:46:54.808 npm warn     node_modules/easy-email-extensions
+08:46:58.022 npm warn deprecated lodash.isequal@4.5.0: This package is deprecated. Use require('node:util').isDeepStrictEqual instead.
+08:47:00.204 npm warn deprecated @esbuild-kit/esm-loader@2.6.5: Merged into tsx: https://tsx.is
+08:47:00.256 npm warn deprecated @esbuild-kit/core-utils@3.3.2: Merged into tsx: https://tsx.is
+08:47:11.357 
+08:47:11.358 added 903 packages, and audited 904 packages in 19s
+08:47:11.358 
+08:47:11.358 192 packages are looking for funding
+08:47:11.358   run `npm fund` for details
+08:47:11.412 
+08:47:11.412 29 vulnerabilities (3 low, 14 moderate, 11 high, 1 critical)
+08:47:11.412 
+08:47:11.413 To address issues that do not require attention, run:
+08:47:11.413   npm audit fix
+08:47:11.413 
+08:47:11.413 To address all issues possible (including breaking changes), run:
+08:47:11.413   npm audit fix --force
+08:47:11.413 
+08:47:11.413 Some issues need review, and may require choosing
+08:47:11.413 a different dependency.
+08:47:11.413 
+08:47:11.413 Run `npm audit` for details.
+08:47:12.058 [36mvite v5.4.20 [32mbuilding for production...[36m[39m
+08:47:12.111 transforming...
+08:47:18.002 [32m✓[39m 590 modules transformed.
+08:47:18.003 [31mx[39m Build failed in 5.92s
+08:47:18.003 [31merror during build:
+08:47:18.004 [31m[vite:esbuild] Transform failed with 1 error:
+08:47:18.004 /vercel/path0/client/src/pages/CreateComplexEvent.jsx:2962:0: ERROR: Unexpected end of file before a closing "div" tag[31m
+08:47:18.004 file: [36m/vercel/path0/client/src/pages/CreateComplexEvent.jsx:2962:0[31m
+08:47:18.004 [33m
+08:47:18.004 [33mUnexpected end of file before a closing "div" tag[33m
+08:47:18.004 2960|    );
+08:47:18.004 2961|  }
+08:47:18.004 2962|  
+08:47:18.004    |  ^
+08:47:18.004 [31m
+08:47:18.004     at failureErrorWithLog (/vercel/path0/node_modules/vite/node_modules/esbuild/lib/main.js:1472:15)
+08:47:18.004     at /vercel/path0/node_modules/vite/node_modules/esbuild/lib/main.js:755:50
+08:47:18.006     at responseCallbacks.<computed> (/vercel/path0/node_modules/vite/node_modules/esbuild/lib/main.js:622:9)
+08:47:18.006     at handleIncomingPacket (/vercel/path0/node_modules/vite/node_modules/esbuild/lib/main.js:677:12)
+08:47:18.006     at Socket.readFromStdout (/vercel/path0/node_modules/vite/node_modules/esbuild/lib/main.js:600:7)
+08:47:18.006     at Socket.emit (node:events:508:28)
+08:47:18.006     at addChunk (node:internal/streams/readable:563:12)
+08:47:18.006     at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)
+08:47:18.006     at Readable.push (node:internal/streams/readable:394:5)
+08:47:18.006     at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)[39m
+08:47:18.049 Error: Command "npx vite build" exited with 1

@@ -27,6 +27,10 @@
         "type": "string",
         "description": "URL to guest writer's profile photo"
       },
+      "linkedin_url": {
+        "type": "string",
+        "description": "URL to guest writer's LinkedIn profile"
+      },
       "is_active": {
         "type": "boolean",
         "default": true,

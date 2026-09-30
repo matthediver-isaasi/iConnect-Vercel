@@ -1,0 +1,169 @@
+import { supabase } from '../_lib/database.js';
+import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
+import { registerMailgunWebhooks } from '../_lib/emailDomainService.js';
+
+const ALLOWED_ORIGINS = ['https://iconn.app', 'https://www.iconn.app'];
+const BACKFILL_API_KEY = process.env.BACKFILL_API_KEY;
+const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY;
+const MAILGUN_REGION = process.env.MAILGUN_REGION || 'eu';
+
+async function getWebhookRegistrations(mailgunDomain) {
+  if (!MAILGUN_API_KEY) return { success: false, error: 'MAILGUN_API_KEY not configured' };
+
+  const apiBase = MAILGUN_REGION === 'eu'
+    ? 'https://api.eu.mailgun.net'
+    : 'https://api.mailgun.net';
+  const authHeader = 'Basic ' + Buffer.from(`api:${MAILGUN_API_KEY}`).toString('base64');
+
+  try {
+    const response = await fetch(`${apiBase}/v3/domains/${mailgunDomain}/webhooks`, {
+      method: 'GET',
+      headers: { 'Authorization': authHeader }
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      console.error(`[Backfill Webhooks] Failed to GET webhooks for ${mailgunDomain}:`, errorData);
+      return { success: false, error: JSON.stringify(errorData) };
+    }
+
+    const data = await response.json();
+    const webhooks = data.webhooks || {};
+    const registrations = {};
+    for (const [eventType, config] of Object.entries(webhooks)) {
+      registrations[eventType] = config.urls || config.url || null;
+    }
+
+    console.log(`[Backfill Webhooks] Current registrations for ${mailgunDomain}:`, JSON.stringify(registrations, null, 2));
+    return { success: true, registrations };
+  } catch (err) {
+    console.error(`[Backfill Webhooks] Error fetching webhooks for ${mailgunDomain}:`, err.message);
+    return { success: false, error: err.message };
+  }
+}
+
+function getAllowedOrigin(requestOrigin) {
+  if (!requestOrigin) return ALLOWED_ORIGINS[0];
+  if (ALLOWED_ORIGINS.includes(requestOrigin)) return requestOrigin;
+  if (requestOrigin.endsWith('.iconn.app')) return requestOrigin;
+  return ALLOWED_ORIGINS[0];
+}
+
+export default async function handler(req, res) {
+  const origin = getAllowedOrigin(req.headers.origin);
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Backfill-Key');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const backfillKey = req.headers['x-backfill-key'];
+  const { all } = req.body || {};
+  let scope = 'single_tenant';
+  let tenantId = null;
+
+  if (all === true) {
+    if (!BACKFILL_API_KEY || backfillKey !== BACKFILL_API_KEY) {
+      return res.status(403).json({ error: 'Forbidden - backfilling all tenants requires a valid X-Backfill-Key header' });
+    }
+    scope = 'all_tenants';
+    console.log('[Backfill Webhooks] All-tenant backfill authorized via API key');
+  } else {
+    const tenantContext = await getTenantContext(req);
+    if (!tenantContext.tenantId) {
+      return res.status(401).json({ error: 'Unauthorized - tenant required' });
+    }
+
+    const isAuthorized = await hasAdminAccess(tenantContext);
+    if (!isAuthorized) {
+      return res.status(403).json({ error: 'Forbidden - requires admin access' });
+    }
+
+    tenantId = tenantContext.tenantId;
+    console.log('[Backfill Webhooks] Single-tenant backfill started for tenant:', tenantId);
+  }
+
+  try {
+    let query = supabase.from('tenant').select('id, slug, name, settings');
+    if (scope === 'single_tenant') {
+      query = query.eq('id', tenantId);
+    }
+
+    const { data: tenants, error: tenantsError } = await query;
+    if (tenantsError) throw tenantsError;
+
+    const results = [];
+
+    for (const tenant of tenants || []) {
+      const emailDomain = tenant.settings?.email_domain?.domain;
+      if (!emailDomain) {
+        results.push({
+          tenant_id: tenant.id,
+          slug: tenant.slug,
+          status: 'skipped',
+          reason: 'No email domain configured'
+        });
+        continue;
+      }
+
+      try {
+        const diagnosticBefore = await getWebhookRegistrations(emailDomain);
+        const webhookResult = await registerMailgunWebhooks(emailDomain);
+        const diagnosticAfter = await getWebhookRegistrations(emailDomain);
+        results.push({
+          tenant_id: tenant.id,
+          slug: tenant.slug,
+          domain: emailDomain,
+          is_custom: tenant.settings?.email_domain?.is_custom || false,
+          status: webhookResult.success ? 'success' : 'failed',
+          summary: webhookResult.summary,
+          details: webhookResult.results,
+          diagnostics: {
+            before: diagnosticBefore.success ? diagnosticBefore.registrations : { error: diagnosticBefore.error },
+            after: diagnosticAfter.success ? diagnosticAfter.registrations : { error: diagnosticAfter.error }
+          }
+        });
+      } catch (err) {
+        results.push({
+          tenant_id: tenant.id,
+          slug: tenant.slug,
+          domain: emailDomain,
+          status: 'error',
+          error: err.message
+        });
+      }
+    }
+
+    const successCount = results.filter(r => r.status === 'success').length;
+    const skippedCount = results.filter(r => r.status === 'skipped').length;
+    const failedCount = results.filter(r => r.status === 'failed' || r.status === 'error').length;
+
+    console.log(`[Backfill Webhooks] Complete (${scope}): ${successCount} success, ${skippedCount} skipped, ${failedCount} failed`);
+
+    return res.status(200).json({
+      success: true,
+      scope,
+      summary: {
+        total: tenants?.length || 0,
+        success: successCount,
+        skipped: skippedCount,
+        failed: failedCount
+      },
+      results
+    });
+
+  } catch (error) {
+    console.error('[Backfill Webhooks] Error:', error);
+    return res.status(500).json({
+      error: 'Failed to backfill webhooks',
+      details: error.message
+    });
+  }
+}

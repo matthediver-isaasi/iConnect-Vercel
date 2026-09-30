@@ -1,0 +1,334 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { computeNewApplicantCost, quoteFromSimulationResult } from './membershipQuote.js';
+import { readFile } from 'node:fs/promises';
+import { membershipIncentiveSnapshot } from './membershipIncentiveSnapshot.js';
+import { calculateMembershipYearWindow } from './membershipYear.js';
+import { buildRollingCommitment } from './rollingMembershipCommitment.js';
+import { calculateOriginalIncentiveRollover } from './membershipSimulationCore.js';
+
+test('detached new-organisation quote freezes original entitlement before entity creation', async () => {
+  const config = { id: 'joining', start_mode: 'fixed_date', pricing_model: 'flat', flat_cost: 1000,
+    currency: 'GBP', billing_period: 'annual', membership_start_month: 1, membership_start_day: 1,
+    free_period_amount: 40, free_period_unit: 'percent', rollover_enabled: true, prorata_enabled: true };
+  const source = (await readFile(new URL('./membershipQuote.js', import.meta.url), 'utf8'))
+    .replace(/^import .*;$/gm, '').replace(/export /g, '');
+  const deps = {
+    supabase: { from() { throw new Error('Unexpected database access'); } },
+    membershipIncentiveSnapshot, calculateMembershipYearWindow, buildRollingCommitment,
+    getConfigByIdDirect: async () => config,
+    evaluateDiscountsForEntity: async () => ({ discountDetails: [] }),
+    evaluateVatOverrideForOrg: async () => null,
+  };
+  const quoteApplicant = new Function(...Object.keys(deps), `${source}; return quoteMembershipForNewApplicant;`)(...Object.values(deps));
+  const result = await quoteApplicant({ tenantId: 'tenant', configId: config.id, now: new Date('2026-10-01T00:00:00Z') });
+  assert.equal(result.success, true);
+  const persisted = JSON.parse(JSON.stringify(result.quote));
+  config.free_period_amount = 90;
+  config.flat_cost = 2000;
+  config.rollover_enabled = false;
+  assert.equal(persisted.target, 'organization');
+  assert.equal(persisted.commitment_snapshot.config.free_period_amount, 40);
+  const rollover = calculateOriginalIncentiveRollover({ history: persisted, originalConfig: config, annualCost: 2000 });
+  assert.equal(rollover.originalEntitlement, 400);
+  assert.equal(rollover.appliedDiscount, Math.round((400 - persisted.free_period_discount) * 100) / 100);
+});
+
+// A calendar year window (365 days, non-leap).
+const year = {
+  label: '2026/2027',
+  start: new Date(2026, 0, 1),
+  end: new Date(2026, 11, 31),
+};
+
+test('no pro-rata, no incentive: full annual cost', () => {
+  const r = computeNewApplicantCost({ config: {}, annualCost: 1000, membershipYear: year, joinDate: new Date(2026, 5, 1) });
+  assert.equal(r.finalCost, 1000);
+  assert.equal(r.proRataEnabled, false);
+  assert.equal(r.freeDiscount, 0);
+});
+
+test('pro-rata from join date (mirrors simulation year-1 math)', () => {
+  const join = new Date(2026, 6, 1); // 1 July 2026 → 184 days remain
+  const r = computeNewApplicantCost({ config: { prorata_enabled: true }, annualCost: 365, membershipYear: year, joinDate: join });
+  assert.equal(r.proRataEnabled, true);
+  assert.equal(r.prorataDays, 184);
+  assert.equal(r.dailyCost, 1); // 365/365
+  assert.equal(r.prorataCost, 184);
+  assert.equal(r.finalCost, 184);
+});
+
+test('pro-rata with free months reduces billable days', () => {
+  const join = new Date(2026, 6, 1);
+  const config = { prorata_enabled: true, free_period_amount: 1, free_period_unit: 'months' };
+  const r = computeNewApplicantCost({ config, annualCost: 365, membershipYear: year, joinDate: join });
+  const freeDays = Math.round(1 * 30.44); // 30
+  assert.equal(r.freePeriodDaysApplied, freeDays);
+  assert.equal(r.billableDays, 184 - freeDays);
+  assert.equal(r.finalCost, 184 - freeDays);
+});
+
+test('percent incentive with pro-rata is proportional', () => {
+  const join = new Date(2026, 0, 1); // full year
+  const config = { prorata_enabled: true, free_period_amount: 10, free_period_unit: 'percent' };
+  const r = computeNewApplicantCost({ config, annualCost: 1000, membershipYear: year, joinDate: join });
+  // Full-year join → full 10% discount
+  assert.equal(r.prorataDays, 365);
+  assert.equal(r.freeDiscount, 100);
+  assert.equal(r.finalCost, r.prorataCost - 100);
+});
+
+test('ROI discount, pro-rata, and newcomer percentage incentive compound in order', () => {
+  const membershipYear = {
+    label: '2026/2027',
+    start: new Date(2026, 7, 1),
+    end: new Date(2027, 6, 31),
+  };
+  const annualBase = 3206;
+  const roiDiscount = parseFloat((annualBase * 30 / 100).toFixed(2));
+  const annualAfterRoi = parseFloat((annualBase - roiDiscount).toFixed(2));
+
+  const result = computeNewApplicantCost({
+    config: {
+      prorata_enabled: true,
+      free_period_amount: 30,
+      free_period_unit: 'percent',
+    },
+    annualCost: annualAfterRoi,
+    membershipYear,
+    joinDate: new Date(2026, 8, 15),
+  });
+
+  assert.equal(roiDiscount, 961.80);
+  assert.equal(annualAfterRoi, 2244.20);
+  assert.equal(result.totalDaysInYear, 365);
+  assert.equal(result.prorataDays, 320);
+  assert.equal(result.dailyCost, 6.1485);
+  assert.equal(result.prorataCost, 1967.52);
+  assert.equal(result.freeDiscount, 590.26);
+  assert.equal(result.finalCost, 1377.26);
+});
+
+test('percent incentive without pro-rata applies to annual cost', () => {
+  const config = { free_period_amount: 25, free_period_unit: 'percent' };
+  const r = computeNewApplicantCost({ config, annualCost: 400, membershipYear: year, joinDate: new Date(2026, 3, 1) });
+  assert.equal(r.freeDiscount, 100);
+  assert.equal(r.finalCost, 300);
+});
+
+test('free period without pro-rata discounts free days from annual cost', () => {
+  const config = { free_period_amount: 2, free_period_unit: 'months' };
+  const r = computeNewApplicantCost({ config, annualCost: 365, membershipYear: year, joinDate: new Date(2026, 3, 1) });
+  const freeDays = Math.min(Math.round(2 * 30.44), 365); // 61
+  assert.equal(r.freePeriodDaysApplied, freeDays);
+  assert.equal(r.finalCost, parseFloat((365 - 1 * freeDays).toFixed(2)));
+});
+
+test('final cost never goes below zero', () => {
+  const config = { free_period_amount: 200, free_period_unit: 'percent' };
+  const r = computeNewApplicantCost({ config, annualCost: 100, membershipYear: year, joinDate: new Date(2026, 0, 1) });
+  assert.equal(r.finalCost, 0);
+});
+
+test('quoteFromSimulationResult adapts a simulation result to the quote shape', () => {
+  const quote = quoteFromSimulationResult({
+    success: true,
+    config: { id: 'cfg1', name: 'Standard', invoice_description: 'Membership {year}', dd_enabled: true },
+    matchedBand: { id: 'band1' },
+    tierLabel: 'Tier A',
+    fieldValue: 42,
+    annualCost: 900,
+    annualCostBeforeDiscounts: 1000,
+    customDiscountTotal: 100,
+    customDiscountDetails: [{ rule_id: 'd1' }],
+    finalCost: 850,
+    currency: 'GBP',
+    membershipYear: { label: '2026/2027' },
+    yearNumber: 1,
+    prorataCost: 850,
+    prorataDays: 300,
+    freeDiscount: 0,
+    freePeriodDaysApplied: 0,
+    billingPeriod: 'annual',
+    vatRatePercent: 20,
+    vatAmount: 170,
+    totalWithVat: 1020,
+    taxType: 'OUTPUT2',
+    taxLabel: '20% (VAT on Income)',
+    nominalCode: '200',
+  }, 'member');
+  assert.equal(quote.target, 'member');
+  assert.equal(quote.config_id, 'cfg1');
+  assert.equal(quote.membership_year, '2026/2027');
+  assert.equal(quote.final_cost, 850);
+  assert.equal(quote.total_with_vat, 1020);
+  assert.equal(quote.tax_type, 'OUTPUT2');
+  assert.equal(quote.nominal_code, '200');
+  assert.equal(quote.invoice_description, 'Membership {year}');
+  assert.equal(quote.direct_debit_allowed, false);
+});
+
+test('quoteFromSimulationResult denies Direct Debit unless the resolved schedule enables it', () => {
+  const base = {
+    success: true,
+    config: { id: 'cfg1', pricing_model: 'flat' },
+    annualCost: 100,
+    finalCost: 100,
+    membershipYear: { label: '2026/2027' },
+  };
+  assert.equal(quoteFromSimulationResult(base, 'member').direct_debit_allowed, false);
+  assert.equal(quoteFromSimulationResult({
+    ...base,
+    config: { ...base.config, dd_enabled: true, dd_monthly_amount: 10, dd_auto_renew: true },
+  }, 'member').direct_debit_allowed, true);
+});
+
+test('member quote exposes the flat monthly-card offer from the resolved structure', () => {
+  const quote = quoteFromSimulationResult({
+    success: true,
+    config: {
+      id: 'cfg-flat',
+      name: 'Individual',
+      pricing_model: 'flat',
+      card_monthly_enabled: true,
+      dd_monthly_amount: 25,
+      dd_instalment_count: 10,
+      currency: 'GBP',
+    },
+    matchedBand: null,
+    annualCost: 250,
+    finalCost: 250,
+    currency: 'GBP',
+    membershipYear: { label: '2026/2027', start: new Date('2026-01-01T00:00:00Z') },
+  }, 'member');
+
+  assert.deepEqual(quote.monthly_card_offer, {
+    monthlyAmount: 25,
+    monthlyAmountMinor: 2500,
+    instalmentCount: 10,
+    planTotal: 250,
+    currency: 'GBP',
+    activationRule: 'first_payment',
+    graceDays: 7,
+    termsVersion: 'v1',
+    invoicingMode: 'annual',
+    monthlyPostGraceCollectionPolicy: 'stop_collecting',
+    autoRenew: true,
+  });
+  assert.equal(quote.membership_year_start, '2026-01-01');
+});
+
+test('member quote uses the resolved pricing band monthly amount', () => {
+  const quote = quoteFromSimulationResult({
+    success: true,
+    config: {
+      id: 'cfg-tiered',
+      pricing_model: 'tiered',
+      card_monthly_enabled: true,
+      dd_monthly_amount: 999,
+      dd_instalment_count: 12,
+    },
+    matchedBand: { id: 'band-2', dd_monthly_amount: 17.5 },
+    annualCost: 200,
+    finalCost: 200,
+    currency: 'GBP',
+    membershipYear: { label: '2026/2027' },
+  }, 'member');
+
+  assert.equal(quote.monthly_card_offer.monthlyAmount, 17.5);
+  assert.equal(quote.monthly_card_offer.planTotal, 210);
+  assert.equal(quote.band_id, 'band-2');
+});
+
+test('member flat quote attaches the canonical Direct Debit offer', () => {
+  const quote = quoteFromSimulationResult({
+    success: true,
+    config: {
+      pricing_model: 'flat',
+      dd_enabled: true,
+      dd_monthly_amount: 25,
+      dd_auto_renew: true,
+      dd_instalment_count: 10,
+    },
+    annualCost: 999,
+    finalCost: 999,
+    currency: 'GBP',
+    membershipYear: { label: '2026/2027' },
+  }, 'member');
+  assert.equal(quote.direct_debit_allowed, true);
+  assert.equal(quote.direct_debit_offer.monthlyAmount, 25);
+  assert.equal(quote.direct_debit_offer.planTotal, 250);
+});
+
+test('member banded quote uses only the matched band Direct Debit amount', () => {
+  const quote = quoteFromSimulationResult({
+    success: true,
+    config: {
+      pricing_model: 'tiered',
+      dd_enabled: true,
+      dd_monthly_amount: 999,
+      dd_auto_renew: true,
+      dd_instalment_count: 12,
+    },
+    matchedBand: { id: 'band-2', dd_monthly_amount: 17.5 },
+    annualCost: 12345,
+    finalCost: 12345,
+    currency: 'GBP',
+    membershipYear: { label: '2026/2027' },
+  }, 'member');
+  assert.equal(quote.direct_debit_offer.monthlyAmount, 17.5);
+  assert.equal(quote.direct_debit_offer.planTotal, 210);
+});
+
+test('Direct Debit offer is independent of prorated annual quote total', () => {
+  const base = {
+    success: true,
+    config: {
+      pricing_model: 'flat',
+      dd_enabled: true,
+      dd_monthly_amount: 20,
+      dd_auto_renew: true,
+      dd_instalment_count: 12,
+    },
+    currency: 'GBP',
+    membershipYear: { label: '2026/2027' },
+  };
+  const full = quoteFromSimulationResult({ ...base, annualCost: 240, finalCost: 240 }, 'member');
+  const prorated = quoteFromSimulationResult({ ...base, annualCost: 240, finalCost: 37.26, prorataCost: 37.26 }, 'member');
+  assert.equal(full.direct_debit_offer.planTotal, 240);
+  assert.equal(prorated.direct_debit_offer.planTotal, 240);
+});
+
+test('monthly-card offer is omitted when disabled and for organisation quotes', () => {
+  const enabled = {
+    success: true,
+    config: {
+      id: 'cfg',
+      pricing_model: 'flat',
+      card_monthly_enabled: true,
+      dd_monthly_amount: 20,
+    },
+    annualCost: 240,
+    finalCost: 240,
+    currency: 'GBP',
+    membershipYear: { label: '2026/2027' },
+  };
+  assert.equal(quoteFromSimulationResult(enabled, 'organization').monthly_card_offer, undefined);
+  assert.equal(quoteFromSimulationResult({
+    ...enabled,
+    config: { ...enabled.config, card_monthly_enabled: false },
+  }, 'member').monthly_card_offer, undefined);
+});
+
+test('Direct Debit is disabled for organisation or when the amount is missing', () => {
+  const base = {
+    success: true,
+    config: { pricing_model: 'flat', dd_enabled: true },
+    annualCost: 100,
+    finalCost: 100,
+    currency: 'GBP',
+    membershipYear: { label: '2026/2027' },
+  };
+  assert.equal(quoteFromSimulationResult(base, 'member').direct_debit_offer, null);
+  assert.equal(quoteFromSimulationResult({ ...base, config: { ...base.config, dd_monthly_amount: 10 } }, 'organization').direct_debit_allowed, false);
+});

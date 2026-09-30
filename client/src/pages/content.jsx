@@ -2,8 +2,10 @@ import React, { useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import IEditElementRenderer from "../components/iedit/IEditElementRenderer";
+import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 export default function ContentPage() {
+  const { memberInfo } = useMemberAccess();
   // Try hash-based routing as fallback since query params are being stripped
   const urlParams = new URLSearchParams(window.location.search);
   const querySlug = urlParams.get('page');
@@ -37,7 +39,7 @@ export default function ContentPage() {
   // Set page title and meta description
   useEffect(() => {
     if (page) {
-      document.title = page.meta_title || page.title || 'AGCAS';
+      document.title = page.meta_title || page.title || 'Portal';
       
       if (page.meta_description) {
         let metaDesc = document.querySelector('meta[name="description"]');
@@ -123,6 +125,7 @@ export default function ContentPage() {
         <IEditElementRenderer
           key={element.id}
           element={element}
+          memberInfo={memberInfo}
           isFirst={index === 0}
         />
       ))}

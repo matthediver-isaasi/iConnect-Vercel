@@ -1,0 +1,131 @@
+{
+  "observedAt": "2026-09-18T06:29:16.574Z",
+  "databaseWrites": 0,
+  "tls": {
+    "encrypted": true,
+    "authorized": true
+  },
+  "blockers": [],
+  "evidence": {
+    "project": "lvmzliemqnieeoruhkik",
+    "tenantId": "ff2df806-b321-4254-b651-3af11fccf1db",
+    "object": {
+      "id": "cd1ebfd3-3e16-4091-be5a-99992d926f2f",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "object_key": "org_department",
+      "status": "active",
+      "archived_at": null
+    },
+    "phoneFieldId": "2126d5c5-ee9e-4ef4-b8f6-e584c5523b76",
+    "phoneKey": "phone_number",
+    "currentField": {
+      "id": "2126d5c5-ee9e-4ef4-b8f6-e584c5523b76",
+      "name": "phone_number",
+      "label": "Phone number",
+      "field_type": "number",
+      "options": null,
+      "is_required": false,
+      "display_order": 7,
+      "is_active": true,
+      "entity_scope": "custom_object",
+      "is_filterable": false,
+      "min_selections": null,
+      "max_selections": null,
+      "show_in_my_organisation": true,
+      "show_in_directory_card": true,
+      "show_in_admin_list": true,
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "allowed_file_types": null,
+      "all_countries": null,
+      "selected_countries": null,
+      "default_country": null,
+      "default_countries": null,
+      "public_access": null,
+      "show_in_my_preferences": true,
+      "show_in_member_directory": true,
+      "show_in_member_admin_list": true,
+      "min_length": null,
+      "max_length": null,
+      "directory_visibility": [],
+      "show_in_admin_column": true,
+      "show_in_admin_filter": true,
+      "show_in_member_admin_column": true,
+      "show_in_member_admin_filter": true,
+      "filter_multi_select": false,
+      "custom_object_id": "cd1ebfd3-3e16-4091-be5a-99992d926f2f"
+    },
+    "proposedField": {
+      "id": "2126d5c5-ee9e-4ef4-b8f6-e584c5523b76",
+      "name": "phone_number",
+      "label": "Phone number",
+      "field_type": "text",
+      "options": null,
+      "is_required": false,
+      "display_order": 7,
+      "is_active": true,
+      "entity_scope": "custom_object",
+      "is_filterable": false,
+      "min_selections": null,
+      "max_selections": null,
+      "show_in_my_organisation": true,
+      "show_in_directory_card": true,
+      "show_in_admin_list": true,
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "allowed_file_types": null,
+      "all_countries": null,
+      "selected_countries": null,
+      "default_country": null,
+      "default_countries": null,
+      "public_access": null,
+      "show_in_my_preferences": true,
+      "show_in_member_directory": true,
+      "show_in_member_admin_list": true,
+      "min_length": null,
+      "max_length": null,
+      "directory_visibility": [],
+      "show_in_admin_column": true,
+      "show_in_admin_filter": true,
+      "show_in_member_admin_column": true,
+      "show_in_member_admin_filter": true,
+      "filter_multi_select": false,
+      "custom_object_id": "cd1ebfd3-3e16-4091-be5a-99992d926f2f"
+    },
+    "settingsChangedByProposal": [
+      "field_type"
+    ],
+    "existingValueShape": {
+      "total_records": 326,
+      "active_records": 326,
+      "records_with_key": 1,
+      "json_null": 0,
+      "numeric_values": 1,
+      "string_values": 0,
+      "empty_strings": 0,
+      "other_values": 0
+    },
+    "configurationReferences": [
+      {
+        "table": "custom_object_definition",
+        "column": "configuration",
+        "rowId": "cd1ebfd3-3e16-4091-be5a-99992d926f2f",
+        "path": "views.detail.cards.0.fields.7.fieldId",
+        "reference": "field_id",
+        "numericTokens": []
+      },
+      {
+        "table": "custom_object_definition",
+        "column": "configuration",
+        "rowId": "cd1ebfd3-3e16-4091-be5a-99992d926f2f",
+        "path": "views.detail.cards.0.fields.7.field_id",
+        "reference": "field_id",
+        "numericTokens": []
+      }
+    ],
+    "numericConfigurationReferences": [],
+    "schemaReferences": {
+      "fieldRolePermissions": [],
+      "indexes": [],
+      "triggers": []
+    }
+  }
+}

@@ -1,0 +1,180 @@
+2026-02-26 16:15:30.630 [info] [AppProcessor] Entity pipelines - members: 1 organisations: 0
+2026-02-26 16:15:30.630 [info] [AppProcessor] Form values - all field IDs present: [
+  'field_1767007252055',
+  'field_1767007293541',
+  'field_1767007429208',
+  'field_1767007438674',
+  'field_1767007493574'
+]
+2026-02-26 16:15:30.631 [info] [AppProcessor] Form values sample (first 5 entries): [
+  'field_1767007252055=true',
+  'field_1767007293541="mat"',
+  'field_1767007429208="freelancer test"',
+  'field_1767007438674="mat.the.diver@googlemail.com"',
+  'field_1767007493574="sdsd"'
+]
+2026-02-26 16:15:30.631 [info] [AppProcessor] Entity actions - member: upsert organization: none
+2026-02-26 16:15:30.631 [info] [AppProcessor] Received role_id: null type: object
+2026-02-26 16:15:30.963 [info] [AppProcessor] Running server-side uniqueness validation, tenant_id: fd82da65-aab7-4a5c-85b8-b2febeb2003d
+2026-02-26 16:15:31.105 [info] [AppProcessor] Server-side uniqueness check passed
+2026-02-26 16:15:31.326 [info] [AppProcessor] Entity pipeline fields to skip in legacy field_mappings - member: [ 'email', 'first_name', 'last_name', 'show_in_directory' ] org: []
+2026-02-26 16:15:31.326 [info] [AppProcessor] Member pipelines: 1 Primary found: true
+2026-02-26 16:15:31.327 [info] [AppProcessor] Processing member from entity_pipelines (new format): Primary Member mappings: 8
+2026-02-26 16:15:31.327 [info] [AppProcessor] Primary Member mappings detail: [
+  {
+    "id": "mapping_1767041439333",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "email",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1767007438674"
+  },
+  {
+    "id": "mapping_1767041449267",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "first_name",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1767007293541"
+  },
+  {
+    "id": "mapping_1767041455384",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "last_name",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1767007429208"
+  },
+  {
+    "id": "mapping_1767041462351",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "6d2fd088-8995-44ef-a955-c21c8b390544",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1767007462058"
+  },
+  {
+    "id": "mapping_1767041558835",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "ec7a5a4e-1fb3-4886-b3e9-fd5617571451",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1767007480808"
+  },
+  {
+    "id": "mapping_1767041568785",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "5fd5abf0-609d-42e6-8548-28af1e44599f",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1767007493574"
+  },
+  {
+    "id": "mapping_1767515662232",
+    "source_type": "static",
+    "target_type": "core",
+    "static_value": "False",
+    "target_field": "show_in_directory",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": ""
+  },
+  {
+    "id": "mapping_1772104504080",
+    "source_type": "static",
+    "target_type": "custom",
+    "static_value": "Freelancer",
+    "target_field": "3e7c6379-ca2e-45bc-b232-25906019cc50",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "",
+    "source_category_id": ""
+  }
+]
+2026-02-26 16:15:31.327 [info] [AppProcessor] Form values for Primary Member:
+2026-02-26 16:15:31.327 [info] - email: form_values["field_1767007438674"] = "mat.the.diver@googlemail.com"
+2026-02-26 16:15:31.327 [info] - first_name: form_values["field_1767007293541"] = "mat"
+2026-02-26 16:15:31.327 [info] - last_name: form_values["field_1767007429208"] = "freelancer test"
+2026-02-26 16:15:31.327 [info] - 6d2fd088-8995-44ef-a955-c21c8b390544: form_values["field_1767007462058"] = "undefined"
+2026-02-26 16:15:31.327 [info] - ec7a5a4e-1fb3-4886-b3e9-fd5617571451: form_values["field_1767007480808"] = "undefined"
+2026-02-26 16:15:31.327 [info] - 5fd5abf0-609d-42e6-8548-28af1e44599f: form_values["field_1767007493574"] = "sdsd"
+2026-02-26 16:15:31.327 [info] [AppProcessor] Custom field mapping: target=6d2fd088-8995-44ef-a955-c21c8b390544, source=field_1767007462058, value=undefined, hasValue=false, skipReason=undefined
+2026-02-26 16:15:31.327 [info] [AppProcessor] Skipped custom field: 6d2fd088-8995-44ef-a955-c21c8b390544 (reason: undefined)
+2026-02-26 16:15:31.327 [info] [AppProcessor] Custom field mapping: target=ec7a5a4e-1fb3-4886-b3e9-fd5617571451, source=field_1767007480808, value=undefined, hasValue=false, skipReason=undefined
+2026-02-26 16:15:31.327 [info] [AppProcessor] Skipped custom field: ec7a5a4e-1fb3-4886-b3e9-fd5617571451 (reason: undefined)
+2026-02-26 16:15:31.327 [info] [AppProcessor] Custom field mapping: target=5fd5abf0-609d-42e6-8548-28af1e44599f, source=field_1767007493574, value="sdsd", hasValue=true
+2026-02-26 16:15:31.327 [info] [AppProcessor] Added custom field value: 5fd5abf0-609d-42e6-8548-28af1e44599f = "sdsd"
+2026-02-26 16:15:31.328 [info] [AppProcessor] Custom field mapping: target=3e7c6379-ca2e-45bc-b232-25906019cc50, source=, value="Freelancer", hasValue=true
+2026-02-26 16:15:31.328 [info] [AppProcessor] Added custom field value: 3e7c6379-ca2e-45bc-b232-25906019cc50 = "Freelancer"
+2026-02-26 16:15:31.328 [info] [AppProcessor] Using pipeline role_id: 39ed3e82-cf1b-4764-a059-42ba71bdf4b3
+2026-02-26 16:15:31.328 [info] [AppProcessor] Using pipeline login_enabled: false
+2026-02-26 16:15:31.328 [info] [AppProcessor] Extracted data: {
+  memberData: {
+    email: 'mat.the.diver@googlemail.com',
+    first_name: 'mat',
+    last_name: 'freelancer test',
+    show_in_directory: false,
+    role_id: '39ed3e82-cf1b-4764-a059-42ba71bdf4b3',
+    login_enabled: false
+  },
+  orgData: {},
+  memberCustomFields: 2,
+  orgCustomFields: 0,
+  orgCustomFieldsDetail: []
+}
+2026-02-26 16:15:31.328 [info] [AppProcessor] Member processing enabled. Action: upsert MemberData: {
+  email: 'mat.the.diver@googlemail.com',
+  first_name: 'mat',
+  last_name: 'freelancer test',
+  show_in_directory: false,
+  role_id: '39ed3e82-cf1b-4764-a059-42ba71bdf4b3',
+  login_enabled: false
+} PrefillMemberId: undefined
+2026-02-26 16:15:31.489 [info] [AppProcessor] Found member by email: undefined (tenant: fd82da65-aab7-4a5c-85b8-b2febeb2003d)
+2026-02-26 16:15:31.489 [info] [AppProcessor] Resolved orgIdForNewMember: null
+2026-02-26 16:15:31.489 [info] [AppProcessor] Role ID resolution: {
+  memberData_role_id: '39ed3e82-cf1b-4764-a059-42ba71bdf4b3',
+  role_id_param: null,
+  effectiveRoleId: '39ed3e82-cf1b-4764-a059-42ba71bdf4b3'
+}
+2026-02-26 16:15:31.489 [info] [AppProcessor] Adding role_id to member insert: 39ed3e82-cf1b-4764-a059-42ba71bdf4b3
+2026-02-26 16:15:31.490 [info] [checkRoleCapacity] Checking capacity for role: 39ed3e82-cf1b-4764-a059-42ba71bdf4b3 org: null
+2026-02-26 16:15:31.609 [info] [checkRoleCapacity] No max_members limit for role: Freelance partner
+2026-02-26 16:15:31.609 [info] [AppProcessor] Role capacity check result: {"hasCapacity":true,"maxMembers":null,"roleName":"Freelance partner"}
+2026-02-26 16:15:31.609 [info] [AppProcessor] login_enabled for member insert: false
+2026-02-26 16:15:31.609 [info] [AppProcessor] Final memberInsertData: {"email":"mat.the.diver@googlemail.com","first_name":"mat","last_name":"freelancer test","organization_id":null,"login_enabled":false,"show_in_directory":false,"tenant_id":"fd82da65-aab7-4a5c-85b8-b2febeb2003d","role_id":"39ed3e82-cf1b-4764-a059-42ba71bdf4b3"}
+2026-02-26 16:15:31.760 [info] [AppProcessor] Created member: 779bcaff-94a0-458c-b5b1-2234730d202b
+2026-02-26 16:15:31.762 [info] [Workflows] triggerWorkflows called: entityType=member, entityId=779bcaff-94a0-458c-b5b1-2234730d202b, triggerType=record_create
+2026-02-26 16:15:31.762 [info] [Workflows] afterData.tenant_id=fd82da65-aab7-4a5c-85b8-b2febeb2003d, beforeData.tenant_id=undefined
+2026-02-26 16:15:31.762 [info] [Workflows] Initial tenantId from data: fd82da65-aab7-4a5c-85b8-b2febeb2003d
+2026-02-26 16:15:31.762 [info] [Workflows] Querying workflows: entity_type=member, tenant_id=fd82da65-aab7-4a5c-85b8-b2febeb2003d, is_active=true
+2026-02-26 16:15:31.885 [info] [Workflows] Query result: 0 workflows found, error: null
+2026-02-26 16:15:31.885 [info] [Workflows] No matching workflows found for member in tenant fd82da65-aab7-4a5c-85b8-b2febeb2003d
+2026-02-26 16:15:31.885 [info] [AppProcessor] Workflow evaluation completed for member: 779bcaff-94a0-458c-b5b1-2234730d202b
+2026-02-26 16:15:31.885 [info] [AppProcessor] Triggered workflows for new member: 779bcaff-94a0-458c-b5b1-2234730d202b
+2026-02-26 16:15:32.822 [error] [AppProcessor] Failed to auto-approve fees: {
+  code: '42P10',
+  details: null,
+  hint: null,
+  message: 'there is no unique or exclusion constraint matching the ON CONFLICT specification'
+}
+2026-02-26 16:15:32.822 [info] [AppProcessor] Communication preferences path #1 check: createdMemberId=779bcaff-94a0-458c-b5b1-2234730d202b, fields=7 fields, form_values keys=5
+2026-02-26 16:15:32.823 [info] [AppProcessor] Found 0 communication_preferences fields in form fields array
+2026-02-26 16:15:32.947 [info] [AppProcessor] Tracking primary member email (from DB): mat.the.diver@googlemail.com -> {
+  id: '779bcaff-94a0-458c-b5b1-2234730d202b',
+  role_id: '39ed3e82-cf1b-4764-a059-42ba71bdf4b3',
+  organization_id: null
+}
+2026-02-26 16:15:32.947 [info] [AppProcessor] Using entity_pipelines.members: 0 non-primary entries

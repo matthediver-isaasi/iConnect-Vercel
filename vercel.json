@@ -2,10 +2,202 @@
   "version": 2,
   "buildCommand": "npx vite build",
   "outputDirectory": "dist/public",
+  "functions": {
+    "api/cron/reconcile-booking-credits.js": {
+      "maxDuration": 60
+    },
+    "api/reports/reconcile-booking-credits.js": {
+      "maxDuration": 60
+    },
+    "api/cron/backup-storage-to-r2.js": {
+      "maxDuration": 300
+    },
+    "api/cron/backup-database-to-r2.js": {
+      "maxDuration": 300
+    },
+    "api/cron/process-automatic-memberships.js": {
+      "maxDuration": 60
+    },
+    "api/platform/backups/run.js": {
+      "maxDuration": 300
+    },
+    "api/platform/demo-tenants/operate.js": {
+      "maxDuration": 300
+    },
+    "api/ai-compositions/generate.js": {
+      "maxDuration": 300
+    },
+    "api/ai-compositions/edit.js": {
+      "maxDuration": 300
+    },
+    "api/ai-compositions/images.js": {
+      "maxDuration": 300
+    },
+    "api/**/*.js": {
+      "maxDuration": 60
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/refresh-dashboard-widgets",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/send-event-reminders",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/process-membership-renewals",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/email-campaigns/process-scheduled",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/sync-outlook-emails",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/teams/attendance-auto-sync",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/zoho-crm-reconcile",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/zoho-crm-reconcile-outbound",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/sync-mailgun-campaign-events",
+      "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/reconcile-membership-invoice-payments",
+      "schedule": "0 */3 * * *"
+    },
+    {
+      "path": "/api/cron/reconcile-training-fund-purchases",
+      "schedule": "0 */3 * * *"
+    },
+    {
+      "path": "/api/cron/reconcile-booking-credits",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/reconcile-job-posting-payments",
+      "schedule": "30 * * * *"
+    },
+    {
+      "path": "/api/cron/sync-adzuna-job-feeds",
+      "schedule": "10 * * * *"
+    },
+    {
+      "path": "/api/cron/reconcile-form-payments",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/run-form-submission-export-jobs",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/run-import-jobs",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/recompute-tenant-storage",
+      "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/send-group-event-reminders",
+      "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/send-po-reminders",
+      "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron/run-scheduled-workflows",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/reindex-member-content",
+      "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/reindex-help-articles",
+      "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/backup-storage-to-r2",
+      "schedule": "*/10 2-7 * * *"
+    },
+    {
+      "path": "/api/cron/backup-database-to-r2",
+      "schedule": "5-59/10 2-7 * * *"
+    },
+    {
+      "path": "/api/cron/process-voucher-expiries",
+      "schedule": "30 1 * * *"
+    },
+    {
+      "path": "/api/cron/support-auto-close",
+      "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/cron/close-voucher-month",
+      "schedule": "15 2 1-3 * *"
+    },
+    {
+      "path": "/api/cron/reconcile-gocardless",
+      "schedule": "15 */6 * * *"
+    },
+    {
+      "path": "/api/cron/gocardless-arrears",
+      "schedule": "45 */6 * * *"
+    },
+    {
+      "path": "/api/cron/gocardless-auto-retries",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/reconcile-stripe-card-plans",
+      "schedule": "25 */6 * * *"
+    },
+    {
+      "path": "/api/cron/grant-speaker-awards",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/process-automatic-memberships",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/process-attendance-transitions",
+      "schedule": "* * * * *"
+    }
+  ],
   "rewrites": [
-    { "source": "/((?!api/).*)", "destination": "/index.html" }
+    { "source": "/robots.txt", "destination": "/api/public/robots.txt" },
+    { "source": "/sitemap.xml", "destination": "/api/public/sitemap.xml" },
+    { "source": "/((?!api/).*\\.(?:js|mjs|css|map|json|xml|txt|ico|png|jpg|jpeg|gif|webp|avif|svg|woff|woff2|ttf|otf|eot|pdf|zip|mp3|mp4|webm|wav|webmanifest|wasm))", "destination": "/$1" },
+    { "source": "/((?!api/).*)", "destination": "/api/render" }
   ],
   "headers": [
+    {
+      "source": "/sitemap.xml",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=3600, s-maxage=3600" }
+      ]
+    },
+    {
+      "source": "/robots.txt",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=300, s-maxage=300" }
+      ]
+    },
     {
       "source": "/api/(.*)",
       "headers": [
@@ -13,10 +205,35 @@
       ]
     },
     {
-      "source": "/(.*)",
+      "source": "/embed/(.*)",
       "headers": [
         { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "Content-Security-Policy", "value": "frame-ancestors *" },
+        { "key": "X-XSS-Protection", "value": "1; mode=block" }
+      ]
+    },
+    {
+      "source": "/EventDetails",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Content-Security-Policy", "value": "frame-ancestors *" },
+        { "key": "X-XSS-Protection", "value": "1; mode=block" }
+      ]
+    },
+    {
+      "source": "/api/storage/secure-url(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Content-Security-Policy", "value": "frame-ancestors 'self'" },
+        { "key": "X-XSS-Protection", "value": "1; mode=block" }
+      ]
+    },
+    {
+      "source": "/((?!embed/|EventDetails|api/storage/secure-url).*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "SAMEORIGIN" },
+        { "key": "Content-Security-Policy", "value": "frame-ancestors 'self'" },
         { "key": "X-XSS-Protection", "value": "1; mode=block" }
       ]
     }

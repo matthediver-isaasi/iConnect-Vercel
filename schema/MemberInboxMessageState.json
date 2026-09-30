@@ -1,0 +1,47 @@
+{
+  "name": "MemberInboxMessageState",
+  "type": "object",
+  "properties": {
+    "recipient_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "email_campaign_recipient.id this state row is for"
+    },
+    "is_read": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether the member has read the message"
+    },
+    "is_pinned": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether the member pinned the message"
+    },
+    "is_archived": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether the member archived the message"
+    },
+    "folder_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Optional member_inbox_folder the message is filed into"
+    },
+    "read_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the message was first marked read"
+    },
+    "member_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Owning member (auto-injected from session)"
+    },
+    "tenant_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Tenant the state belongs to (auto-injected from session)"
+    }
+  },
+  "required": ["recipient_id"]
+}

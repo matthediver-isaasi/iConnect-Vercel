@@ -1,0 +1,420 @@
+2026-02-05 08:13:43.534 [info] [Session] getSession: Looking up session: 23656293
+2026-02-05 08:13:43.754 [info] [Session] getSession: Session found, userType: member
+2026-02-05 08:13:43.755 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"23656293","userType":"member","memberId":"49f0b578-2e2f-46f8-a151-2c4c08cc570c"}
+2026-02-05 08:13:43.873 [info] [TenantResolver] resolveTenantFromRequest called
+2026-02-05 08:13:43.874 [info] [TenantResolver] Params - tenant: undefined domain: undefined
+2026-02-05 08:13:43.874 [info] [TenantResolver] Falling back to host-based resolution, hostname: gsf.dev.iconn.app
+2026-02-05 08:13:43.874 [info] [TenantResolver] resolveTenantFromHost called with: gsf.dev.iconn.app
+2026-02-05 08:13:43.874 [info] [TenantResolver] Parsed host: gsf.dev.iconn.app
+2026-02-05 08:13:43.874 [info] [TenantResolver] Preview environment detected, environment: dev
+2026-02-05 08:13:43.874 [info] [TenantResolver] Subdomain detected, slug: gsf
+2026-02-05 08:13:43.874 [info] [TenantResolver] Looking up by slug: gsf
+2026-02-05 08:13:43.876 [error] (node:4) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+2026-02-05 08:13:43.992 [info] [TenantResolver] Found tenant by slug: gsf
+2026-02-05 08:13:43.992 [info] [TenantContext] About to call getSessionTenantUser
+2026-02-05 08:13:43.992 [info] [Session] getSession: Looking up session: 23656293
+2026-02-05 08:13:44.108 [info] [Session] getSession: Session found, userType: member
+2026-02-05 08:13:44.108 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"23656293","userType":"member","memberId":"49f0b578-2e2f-46f8-a151-2c4c08cc570c","identityId":"dc156a30-ae8d-4aee-b965-b54fe4b17105","tenantId":"21296ad6-1350-483a-a90c-1b06ece70501"}
+2026-02-05 08:13:44.108 [info] [Session] Found member session with identityId, attempting promotion
+2026-02-05 08:13:44.358 [info] [Session] No tenant_user record found for identity promotion
+2026-02-05 08:13:44.359 [info] [Session] Member session promotion failed
+2026-02-05 08:13:44.359 [info] [TenantContext] getSessionTenantUser returned: null
+2026-02-05 08:13:44.359 [info] [TenantContext] Checking for member session...
+2026-02-05 08:13:44.359 [info] [Session] getSession: Looking up session: 23656293
+2026-02-05 08:13:44.482 [info] [Session] getSession: Session found, userType: member
+2026-02-05 08:13:44.482 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"23656293","userType":"member","memberId":"49f0b578-2e2f-46f8-a151-2c4c08cc570c"}
+2026-02-05 08:13:44.593 [info] [TenantContext] Member found: {
+  memberId: '49f0b578-2e2f-46f8-a151-2c4c08cc570c',
+  organizationId: '7a097c15-1028-4e12-acde-c5ababb7201e'
+}
+2026-02-05 08:13:44.594 [info] [TenantContext] Tenant from member.organization: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-02-05 08:13:45.241 [info] [DD Stage Actions] executeStageActions called: {
+  stageId: 'approved',
+  ddSubmissionId: '14384a7b-eaec-4c6a-9639-cf87f0cfb88b',
+  formSubmissionId: '4858a3dc-3755-4386-9dd7-b1b397f43558',
+  tenantId: '21296ad6-1350-483a-a90c-1b06ece70501',
+  triggeredBy: 'sharon@onlinem.co.uk'
+}
+2026-02-05 08:13:45.241 [info] [DD Stage Actions] Querying DD config for form_id: dd04a19b-019b-4cb2-9a7f-3a77027e9857 tenant_id: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-02-05 08:13:45.362 [info] [DD Stage Actions] Found DD config with 8 stages
+2026-02-05 08:13:45.362 [info] [DD Stage Actions] Found stage: approved
+2026-02-05 08:13:45.362 [info] [DD Stage Actions] Stage has 0 send_contracts actions: []
+2026-02-05 08:13:45.364 [info] [DD Meeting Request] ========== START executeMeetingRequestActions ==========
+2026-02-05 08:13:45.364 [info] [DD Meeting Request] Params: {
+  stageId: 'approved',
+  tenantId: '21296ad6-1350-483a-a90c-1b06ece70501',
+  triggeredBy: 'sharon@onlinem.co.uk',
+  selectedAgentId: null
+}
+2026-02-05 08:13:45.364 [info] [DD Meeting Request] ddSubmission ID: 14384a7b-eaec-4c6a-9639-cf87f0cfb88b
+2026-02-05 08:13:45.364 [info] [DD Meeting Request] form_submission_id: 4858a3dc-3755-4386-9dd7-b1b397f43558
+2026-02-05 08:13:45.364 [info] [DD Meeting Request] Querying stage_meeting_request for stageId: approved tenantId: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-02-05 08:13:45.479 [info] [DD Meeting Request] No meeting request configs found for this stage. Returning empty results.
+2026-02-05 08:13:45.479 [info] [DD Email Action] ========== START executeEmailTemplateActions ==========
+2026-02-05 08:13:45.479 [info] [DD Email Action] customMessage from options: null
+2026-02-05 08:13:45.479 [info] [DD Email Action] Params: {
+  stageId: 'approved',
+  tenantId: '21296ad6-1350-483a-a90c-1b06ece70501',
+  triggeredBy: 'sharon@onlinem.co.uk'
+}
+2026-02-05 08:13:45.479 [info] [DD Email Action] ddSubmission ID: 14384a7b-eaec-4c6a-9639-cf87f0cfb88b
+2026-02-05 08:13:45.479 [info] [DD Email Action] form_submission_id: 4858a3dc-3755-4386-9dd7-b1b397f43558
+2026-02-05 08:13:45.593 [info] [DD Email Action] Querying stage_email_action for stageId: approved tenantId: 21296ad6-1350-483a-a90c-1b06ece70501 formId: dd04a19b-019b-4cb2-9a7f-3a77027e9857
+2026-02-05 08:13:45.705 [info] [DD Email Action] No form-specific email actions found, checking for global actions (form_id is null)
+2026-02-05 08:13:45.836 [info] [DD Email Action] No email action configs found for this stage/form. Returning empty results.
+2026-02-05 08:13:45.837 [info] [DD Member Action] ========== START executeMemberCreationActions ==========
+2026-02-05 08:13:45.837 [info] [DD Member Action] Params: {
+  stageId: 'approved',
+  tenantId: '21296ad6-1350-483a-a90c-1b06ece70501',
+  triggeredBy: 'sharon@onlinem.co.uk',
+  configId: '680d24d6-c3ec-4c6a-bdc3-9773174f1211'
+}
+2026-02-05 08:13:45.837 [info] [DD Member Action] ddSubmission ID: 14384a7b-eaec-4c6a-9639-cf87f0cfb88b
+2026-02-05 08:13:45.837 [info] [DD Member Action] Filtering by config_id: 680d24d6-c3ec-4c6a-bdc3-9773174f1211
+2026-02-05 08:13:45.959 [info] [DD Member Action] Found 3 member action config(s)
+2026-02-05 08:13:46.775 [info] [DD Field Mapping] Field field_1768821469481: using reviewed value
+2026-02-05 08:13:47.004 [info] [DD Field Mapping] Field field_1768821515114: using reviewed value
+2026-02-05 08:13:47.253 [info] [DD Field Mapping] Field field_1768821524362: using reviewed value
+2026-02-05 08:13:47.496 [info] [DD Field Mapping] Field field_1768821532462: using reviewed value
+2026-02-05 08:13:47.724 [info] [DD Field Mapping] Field field_1770115219452: using reviewed value
+2026-02-05 08:13:47.952 [info] [DD Field Mapping] Field field_1768822369496: using reviewed value
+2026-02-05 08:13:48.072 [info] [DD Field Mapping] Field field_1768822408998: using reviewed value
+2026-02-05 08:13:48.311 [info] [DD Field Mapping] Field field_1768822819000: using reviewed value
+2026-02-05 08:13:48.543 [info] [DD Field Mapping] Field field_1768823008601: using reviewed value
+2026-02-05 08:13:48.765 [info] [DD Field Mapping] Field field_1768823054570: using reviewed value
+2026-02-05 08:13:48.996 [info] [DD Field Mapping] Field field_1768823662697: using reviewed value
+2026-02-05 08:13:49.227 [info] [DD Field Mapping] Field field_1768823696846: using reviewed value
+2026-02-05 08:13:49.452 [info] [DD Field Mapping] Field field_1768824122398: using reviewed value
+2026-02-05 08:13:49.679 [info] [DD Field Mapping] Field field_1768824139330: using reviewed value
+2026-02-05 08:13:49.947 [info] [DD Field Mapping] Field field_1768824153632: using reviewed value
+2026-02-05 08:13:50.182 [info] [DD Field Mapping] Field field_1768824172030: using reviewed value
+2026-02-05 08:13:50.479 [info] [DD Field Mapping] Field field_1768824354068: using reviewed value
+2026-02-05 08:13:50.725 [info] [DD Field Mapping] Field field_1768824592603: using reviewed value
+2026-02-05 08:13:50.966 [info] [DD Field Mapping] Field field_1768824705974: using reviewed value
+2026-02-05 08:13:51.223 [info] [DD Field Mapping] Field field_1768824780839: using reviewed value
+2026-02-05 08:13:51.454 [info] [DD Field Mapping] Field field_1769452270248: no value in reviewed or original data, skipping
+2026-02-05 08:13:51.454 [info] [DD Field Mapping] Field field_1768824803989: using reviewed value
+2026-02-05 08:13:51.688 [info] [DD Field Mapping] Field field_1768824823222: using reviewed value
+2026-02-05 08:13:51.912 [info] [DD Field Mapping] Field field_1768824844073: using reviewed value
+2026-02-05 08:13:52.140 [info] [DD Field Mapping] Field field_1768828287813: using reviewed value
+2026-02-05 08:13:52.369 [info] [DD Field Mapping] Field field_1768828316857: using reviewed value
+2026-02-05 08:13:52.598 [info] [DD Field Mapping] Field field_1768828423428: using reviewed value
+2026-02-05 08:13:52.826 [info] [DD Field Mapping] Field field_1768828506563: using reviewed value
+2026-02-05 08:13:53.063 [info] [DD Field Mapping] Field field_1768822353115: no value in reviewed or original data, skipping
+2026-02-05 08:13:53.063 [info] [DD Field Mapping] Target 7af40750-1543-44e8-8022-0e0e27bc2c5c: using static value "SO"
+2026-02-05 08:13:53.532 [info] [DD Field Mapping] Field field_1768822819000: using reviewed value
+2026-02-05 08:13:53.764 [info] [DD Field Mapping] Field field_1768823008601: using reviewed value
+2026-02-05 08:13:53.993 [info] [DD Field Mapping] Field field_1768823054570: using reviewed value
+2026-02-05 08:13:54.218 [info] [DD Field Mapping] Field field_1768823696846: using reviewed value
+2026-02-05 08:13:54.457 [info] [DD Field Mapping] Field field_1768824122398: using reviewed value
+2026-02-05 08:13:54.711 [info] [DD Field Mapping] Field field_1768824139330: using reviewed value
+2026-02-05 08:13:54.945 [info] [DD Field Mapping] Field field_1768824153632: using reviewed value
+2026-02-05 08:13:55.180 [info] [DD Field Mapping] Field field_1768824172030: using reviewed value
+2026-02-05 08:13:55.412 [info] [DD Field Mapping] Field field_1768824354068: using reviewed value
+2026-02-05 08:13:55.640 [info] [DD Field Mapping] Field field_1768824592603: using reviewed value
+2026-02-05 08:13:55.870 [info] [DD Field Mapping] Field field_1768824705974: using reviewed value
+2026-02-05 08:13:56.103 [info] [DD Field Mapping] Field field_1768824780839: using reviewed value
+2026-02-05 08:13:56.345 [info] [DD Field Mapping] Field field_1768824803989: using reviewed value
+2026-02-05 08:13:56.579 [info] [DD Field Mapping] Field field_1768824823222: using reviewed value
+2026-02-05 08:13:56.806 [info] [DD Field Mapping] Field field_1768824844073: using reviewed value
+2026-02-05 08:13:57.040 [info] [DD Field Mapping] Field field_1768828287813: using reviewed value
+2026-02-05 08:13:57.270 [info] [DD Field Mapping] Field field_1768828423428: using reviewed value
+2026-02-05 08:13:57.495 [info] [DD Field Mapping] Field field_1768828506563: using reviewed value
+2026-02-05 08:13:57.722 [info] [DD Field Mapping] Field field_1769452270248: no value in reviewed or original data, skipping
+2026-02-05 08:13:57.722 [info] [DD Field Mapping] Field field_1768828316857: using reviewed value
+2026-02-05 08:13:58.213 [info] [DD Field Mapping] Field field_1768821469481: using reviewed value
+2026-02-05 08:13:58.440 [info] [DD Field Mapping] Field field_1768821515114: using reviewed value
+2026-02-05 08:13:58.659 [info] [DD Field Mapping] Field field_1768821524362: using reviewed value
+2026-02-05 08:13:58.885 [info] [DD Field Mapping] Field field_1768821532462: using reviewed value
+2026-02-05 08:13:59.117 [info] [DD Field Mapping] Field field_1770191888608: no value in reviewed or original data, skipping
+2026-02-05 08:13:59.117 [info] [DD Field Mapping] Field field_1768822369496: using reviewed value
+2026-02-05 08:13:59.230 [info] [DD Field Mapping] Field field_1768822408998: using reviewed value
+2026-02-05 08:13:59.461 [info] [DD Field Mapping] Field field_1768822441662: using reviewed value
+2026-02-05 08:13:59.681 [info] [DD Field Mapping] Field field_1768822819000: using reviewed value
+2026-02-05 08:13:59.905 [info] [DD Field Mapping] Field field_1768823008601: using reviewed value
+2026-02-05 08:14:00.132 [info] [DD Field Mapping] Field field_1768823054570: using reviewed value
+2026-02-05 08:14:00.378 [info] [DD Field Mapping] Field field_1768823662697: using reviewed value
+2026-02-05 08:14:00.604 [info] [DD Field Mapping] Field field_1768823696846: using reviewed value
+2026-02-05 08:14:00.882 [info] [DD Field Mapping] Field field_1768824122398: using reviewed value
+2026-02-05 08:14:01.125 [info] [DD Field Mapping] Field field_1768824139330: using reviewed value
+2026-02-05 08:14:01.354 [info] [DD Field Mapping] Field field_1768824153632: using reviewed value
+2026-02-05 08:14:01.598 [info] [DD Field Mapping] Field field_1768991246953: no value in reviewed or original data, skipping
+2026-02-05 08:14:01.598 [info] [DD Field Mapping] Field field_1768824172030: using reviewed value
+2026-02-05 08:14:01.823 [info] [DD Field Mapping] Field field_1768991360588: no value in reviewed or original data, skipping
+2026-02-05 08:14:01.823 [info] [DD Field Mapping] Field field_1768824354068: using reviewed value
+2026-02-05 08:14:02.055 [info] [DD Field Mapping] Field field_1768824559686: using reviewed value
+2026-02-05 08:14:02.275 [info] [DD Field Mapping] Field field_1768991539365: no value in reviewed or original data, skipping
+2026-02-05 08:14:02.275 [info] [DD Field Mapping] Field field_1768824780839: using reviewed value
+2026-02-05 08:14:02.495 [info] [DD Field Mapping] Field field_1768992066770: no value in reviewed or original data, skipping
+2026-02-05 08:14:02.495 [info] [DD Field Mapping] Field field_1768824803989: using reviewed value
+2026-02-05 08:14:02.726 [info] [DD Field Mapping] Field field_1768824823222: using reviewed value
+2026-02-05 08:14:02.949 [info] [DD Field Mapping] Field field_1768824844073: using reviewed value
+2026-02-05 08:14:03.177 [info] [DD Field Mapping] Field field_1768828287813: using reviewed value
+2026-02-05 08:14:03.574 [info] [DD Field Mapping] Field field_1768828316857: using reviewed value
+2026-02-05 08:14:03.834 [info] [DD Field Mapping] Field field_1768828423428: using reviewed value
+2026-02-05 08:14:04.338 [info] [DD Field Mapping] Field field_1768828506563: using reviewed value
+2026-02-05 08:14:04.556 [info] [DD Field Mapping] Field field_1768822353115: no value in reviewed or original data, skipping
+2026-02-05 08:14:04.556 [info] [DD Field Mapping] Target 7af40750-1543-44e8-8022-0e0e27bc2c5c: using static value "ESO"
+2026-02-05 08:14:05.013 [info] [DD Zoho CRM] ========== START executeZohoCrmActions ==========
+2026-02-05 08:14:05.013 [info] [DD Zoho CRM] Params: {
+  stageId: 'approved',
+  tenantId: '21296ad6-1350-483a-a90c-1b06ece70501',
+  triggeredBy: 'sharon@onlinem.co.uk'
+}
+2026-02-05 08:14:05.014 [info] [DD Zoho CRM] ddSubmission ID: 14384a7b-eaec-4c6a-9639-cf87f0cfb88b
+2026-02-05 08:14:05.458 [info] [DD Zoho CRM] Found 2 Zoho CRM action(s)
+2026-02-05 08:14:05.702 [info] [DD Zoho CRM] Processing action: 88ed66e0-0c2b-423a-a9fc-04c837adb1db
+2026-02-05 08:14:05.703 [info] [DD Zoho CRM] Field values: {
+  orgName: 'afe1c0fd-3458-414f-871c-092a8f37d049',
+  website: 'website.com',
+  countriesCount: 3,
+  educationLevels: [ 'Primary' ],
+  orgType: 'Member - School and ECED Operators',
+  servicesCount: 0,
+  themesCount: 3,
+  logoUrl: null
+}
+2026-02-05 08:14:06.160 [info] [ZohoCRM] API call: GET https://www.zohoapis.com/crm/v3/Country/search?criteria=%28Name%3Aequals%3AAlbania%29&fields=id%2CName%2CGSF_Region_Classification%2CIncome_Group%2CFlag
+2026-02-05 08:14:06.367 [error] [ZohoCRM] API error: 401 {    "code": "INVALID_TOKEN",    "details": {},    "message": "invalid oauth token",    "status": "error"}
+2026-02-05 08:14:06.368 [info] [ZohoCRM] INVALID_TOKEN received, clearing cache and retrying...
+2026-02-05 08:14:06.710 [info] [ZohoCRM] Refreshing access token for tenant: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-02-05 08:14:07.339 [info] [ZohoCRM] Token refreshed, retrying API call...
+2026-02-05 08:14:07.597 [info] [ZohoCRM] API call: GET https://www.zohoapis.com/crm/v3/Country/search?criteria=%28Name%3Aequals%3AAlbania%29&fields=id%2CName%2CGSF_Region_Classification%2CIncome_Group%2CFlag
+2026-02-05 08:14:07.674 [error] [ZohoCRM] API error: 401 {    "code": "INVALID_TOKEN",    "details": {},    "message": "invalid oauth token",    "status": "error"}
+2026-02-05 08:14:07.675 [error] [ZohoCRM] Error looking up country: Albania Error: Zoho CRM API error: 401 - {    "code": "INVALID_TOKEN",    "details": {},    "message": "invalid oauth token",    "status": "error"}
+
+    at zohoCrmApiCall (file:///var/task/api/_lib/zohoCrmClient.js:282:11)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async searchZohoCrmRecords (file:///var/task/api/_lib/zohoCrmClient.js:300:18)
+    at async lookupCountryInZoho (file:///var/task/api/_lib/zohoCrmClient.js:315:21)
+    at async executeZohoCrmActions (file:///var/task/api/due-diligence/_stageActions.js:2023:33)
+    at async executeStageActions (file:///var/task/api/due-diligence/_stageActions.js:2261:26)
+    at async Object.handler (file:///var/task/api/due-diligence/update-status.js:126:27)
+    at async r (/opt/rust/nodejs.js:2:15572)
+    at async Server.<anonymous> (/opt/rust/nodejs.js:2:11594)
+    at async Server.<anonymous> (/opt/rust/nodejs.js:17:10042)
+2026-02-05 08:14:07.675 [info] [DD Zoho CRM] Country not found in Zoho: Albania
+2026-02-05 08:14:07.925 [info] [ZohoCRM] API call: GET https://www.zohoapis.com/crm/v3/Country/search?criteria=%28Name%3Aequals%3AAntigua+and+Barbuda%29&fields=id%2CName%2CGSF_Region_Classification%2CIncome_Group%2CFlag
+2026-02-05 08:14:07.989 [error] [ZohoCRM] API error: 401 {    "code": "INVALID_TOKEN",    "details": {},    "message": "invalid oauth token",    "status": "error"}
+2026-02-05 08:14:07.989 [info] [ZohoCRM] INVALID_TOKEN received, clearing cache and retrying...
+2026-02-05 08:14:08.329 [info] [ZohoCRM] Refreshing access token for tenant: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-02-05 08:14:08.776 [info] [ZohoCRM] Token refreshed, retrying API call...
+2026-02-05 08:14:09.025 [info] [ZohoCRM] API call: GET https://www.zohoapis.com/crm/v3/Country/search?criteria=%28Name%3Aequals%3AAntigua+and+Barbuda%29&fields=id%2CName%2CGSF_Region_Classification%2CIncome_Group%2CFlag
+2026-02-05 08:14:09.102 [error] [ZohoCRM] API error: 401 {    "code": "INVALID_TOKEN",    "details": {},    "message": "invalid oauth token",    "status": "error"}
+2026-02-05 08:14:09.102 [error] [ZohoCRM] Error looking up country: Antigua and Barbuda Error: Zoho CRM API error: 401 - {    "code": "INVALID_TOKEN",    "details": {},    "message": "invalid oauth token",    "status": "error"}
+
+    at zohoCrmApiCall (file:///var/task/api/_lib/zohoCrmClient.js:282:11)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async searchZohoCrmRecords (file:///var/task/api/_lib/zohoCrmClient.js:300:18)
+    at async lookupCountryInZoho (file:///var/task/api/_lib/zohoCrmClient.js:315:21)
+    at async executeZohoCrmActions (file:///var/task/api/due-diligence/_stageActions.js:2023:33)
+    at async executeStageActions (file:///var/task/api/due-diligence/_stageActions.js:2261:26)
+    at async Object.handler (file:///var/task/api/due-diligence/update-status.js:126:27)
+    at async r (/opt/rust/nodejs.js:2:15572)
+    at async Server.<anonymous> (/opt/rust/nodejs.js:2:11594)
+    at async Server.<anonymous> (/opt/rust/nodejs.js:17:10042)
+2026-02-05 08:14:09.102 [info] [DD Zoho CRM] Country not found in Zoho: Antigua and Barbuda
+2026-02-05 08:14:09.358 [info] [ZohoCRM] API call: GET https://www.zohoapis.com/crm/v3/Country/search?criteria=%28Name%3Aequals%3AArmenia%29&fields=id%2CName%2CGSF_Region_Classification%2CIncome_Group%2CFlag
+2026-02-05 08:14:09.423 [error] [ZohoCRM] API error: 401 {    "code": "INVALID_TOKEN",    "details": {},    "message": "invalid oauth token",    "status": "error"}
+2026-02-05 08:14:09.423 [info] [ZohoCRM] INVALID_TOKEN received, clearing cache and retrying...
+2026-02-05 08:14:09.766 [info] [ZohoCRM] Refreshing access token for tenant: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-02-05 08:14:10.202 [info] [ZohoCRM] Token refreshed, retrying API call...
+2026-02-05 08:14:10.456 [info] [ZohoCRM] API call: GET https://www.zohoapis.com/crm/v3/Country/search?criteria=%28Name%3Aequals%3AArmenia%29&fields=id%2CName%2CGSF_Region_Classification%2CIncome_Group%2CFlag
+2026-02-05 08:14:10.532 [error] [ZohoCRM] API error: 401 {    "code": "INVALID_TOKEN",    "details": {},    "message": "invalid oauth token",    "status": "error"}
+2026-02-05 08:14:10.533 [error] [ZohoCRM] Error looking up country: Armenia Error: Zoho CRM API error: 401 - {    "code": "INVALID_TOKEN",    "details": {},    "message": "invalid oauth token",    "status": "error"}
+
+    at zohoCrmApiCall (file:///var/task/api/_lib/zohoCrmClient.js:282:11)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async searchZohoCrmRecords (file:///var/task/api/_lib/zohoCrmClient.js:300:18)
+    at async lookupCountryInZoho (file:///var/task/api/_lib/zohoCrmClient.js:315:21)
+    at async executeZohoCrmActions (file:///var/task/api/due-diligence/_stageActions.js:2023:33)
+    at async executeStageActions (file:///var/task/api/due-diligence/_stageActions.js:2261:26)
+    at async Object.handler (file:///var/task/api/due-diligence/update-status.js:126:27)
+    at async r (/opt/rust/nodejs.js:2:15572)
+    at async Server.<anonymous> (/opt/rust/nodejs.js:2:11594)
+    at async Server.<anonymous> (/opt/rust/nodejs.js:17:10042)
+2026-02-05 08:14:10.533 [info] [DD Zoho CRM] Country not found in Zoho: Armenia
+2026-02-05 08:14:10.533 [info] [ZohoCRM] Creating organization: {
+  "data": [
+    {
+      "Account_Name": "afe1c0fd-3458-414f-871c-092a8f37d049",
+      "Lifecycle_Status": "Current",
+      "Type_of_Organisation": "Member - School and ECED Operators",
+      "Website": "website.com",
+      "Education_Levels": [
+        "Primary"
+      ],
+      "Countries_of_Operation": [
+        "Albania",
+        "Antigua and Barbuda",
+        "Armenia"
+      ],
+      "Themes_Focus": [
+        "Education in emergencies",
+        "Inclusive education",
+        "Foundational literacy and numeracy"
+      ],
+      "Countries": [
+        {
+          "Country_Name": "Albania"
+        },
+        {
+          "Country_Name": "Antigua and Barbuda"
+        },
+        {
+          "Country_Name": "Armenia"
+        }
+      ]
+    }
+  ],
+  "trigger": [
+    "workflow"
+  ]
+}
+2026-02-05 08:14:10.785 [info] [ZohoCRM] API call: POST https://www.zohoapis.com/crm/v3/Accounts
+2026-02-05 08:14:10.850 [error] [ZohoCRM] API error: 401 {    "code": "INVALID_TOKEN",    "details": {},    "message": "invalid oauth token",    "status": "error"}
+2026-02-05 08:14:10.850 [info] [ZohoCRM] INVALID_TOKEN received, clearing cache and retrying...
+2026-02-05 08:14:11.201 [info] [ZohoCRM] Refreshing access token for tenant: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-02-05 08:14:11.647 [info] [ZohoCRM] Token refreshed, retrying API call...
+2026-02-05 08:14:11.905 [info] [ZohoCRM] API call: POST https://www.zohoapis.com/crm/v3/Accounts
+2026-02-05 08:14:11.985 [error] [ZohoCRM] API error: 401 {    "code": "INVALID_TOKEN",    "details": {},    "message": "invalid oauth token",    "status": "error"}
+2026-02-05 08:14:11.985 [error] [DD Zoho CRM] Error executing action: 88ed66e0-0c2b-423a-a9fc-04c837adb1db Error: Zoho CRM API error: 401 - {    "code": "INVALID_TOKEN",    "details": {},    "message": "invalid oauth token",    "status": "error"}
+
+    at zohoCrmApiCall (file:///var/task/api/_lib/zohoCrmClient.js:282:11)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async createZohoOrganization (file:///var/task/api/_lib/zohoCrmClient.js:343:20)
+    at async executeZohoCrmActions (file:///var/task/api/due-diligence/_stageActions.js:2069:30)
+    at async executeStageActions (file:///var/task/api/due-diligence/_stageActions.js:2261:26)
+    at async Object.handler (file:///var/task/api/due-diligence/update-status.js:126:27)
+    at async r (/opt/rust/nodejs.js:2:15572)
+    at async Server.<anonymous> (/opt/rust/nodejs.js:2:11594)
+    at async Server.<anonymous> (/opt/rust/nodejs.js:17:10042)
+2026-02-05 08:14:11.985 [info] [DD Zoho CRM] Processing action: 4dbbc2a3-67e1-48f6-857b-96979dc792eb
+2026-02-05 08:14:11.985 [info] [DD Zoho CRM] Field values: {
+  orgName: 'afe1c0fd-3458-414f-871c-092a8f37d049',
+  website: 'website.com',
+  countriesCount: 3,
+  educationLevels: [ 'Primary' ],
+  orgType: 'Member - School and ECED Operators',
+  servicesCount: 0,
+  themesCount: 3,
+  logoUrl: null
+}
+2026-02-05 08:14:12.238 [info] [ZohoCRM] API call: GET https://www.zohoapis.com/crm/v3/Country/search?criteria=%28Name%3Aequals%3AAlbania%29&fields=id%2CName%2CGSF_Region_Classification%2CIncome_Group%2CFlag
+2026-02-05 08:14:12.303 [error] [ZohoCRM] API error: 401 {    "code": "INVALID_TOKEN",    "details": {},    "message": "invalid oauth token",    "status": "error"}
+2026-02-05 08:14:12.303 [info] [ZohoCRM] INVALID_TOKEN received, clearing cache and retrying...
+2026-02-05 08:14:12.655 [info] [ZohoCRM] Refreshing access token for tenant: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-02-05 08:14:13.092 [info] [ZohoCRM] Token refreshed, retrying API call...
+2026-02-05 08:14:13.352 [info] [ZohoCRM] API call: GET https://www.zohoapis.com/crm/v3/Country/search?criteria=%28Name%3Aequals%3AAlbania%29&fields=id%2CName%2CGSF_Region_Classification%2CIncome_Group%2CFlag
+2026-02-05 08:14:13.431 [error] [ZohoCRM] API error: 401 {    "code": "INVALID_TOKEN",    "details": {},    "message": "invalid oauth token",    "status": "error"}
+2026-02-05 08:14:13.431 [error] [ZohoCRM] Error looking up country: Albania Error: Zoho CRM API error: 401 - {    "code": "INVALID_TOKEN",    "details": {},    "message": "invalid oauth token",    "status": "error"}
+
+    at zohoCrmApiCall (file:///var/task/api/_lib/zohoCrmClient.js:282:11)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async searchZohoCrmRecords (file:///var/task/api/_lib/zohoCrmClient.js:300:18)
+    at async lookupCountryInZoho (file:///var/task/api/_lib/zohoCrmClient.js:315:21)
+    at async executeZohoCrmActions (file:///var/task/api/due-diligence/_stageActions.js:2023:33)
+    at async executeStageActions (file:///var/task/api/due-diligence/_stageActions.js:2261:26)
+    at async Object.handler (file:///var/task/api/due-diligence/update-status.js:126:27)
+    at async r (/opt/rust/nodejs.js:2:15572)
+    at async Server.<anonymous> (/opt/rust/nodejs.js:2:11594)
+    at async Server.<anonymous> (/opt/rust/nodejs.js:17:10042)
+2026-02-05 08:14:13.431 [info] [DD Zoho CRM] Country not found in Zoho: Albania
+2026-02-05 08:14:13.682 [info] [ZohoCRM] API call: GET https://www.zohoapis.com/crm/v3/Country/search?criteria=%28Name%3Aequals%3AAntigua+and+Barbuda%29&fields=id%2CName%2CGSF_Region_Classification%2CIncome_Group%2CFlag
+2026-02-05 08:14:13.746 [error] [ZohoCRM] API error: 401 {    "code": "INVALID_TOKEN",    "details": {},    "message": "invalid oauth token",    "status": "error"}
+2026-02-05 08:14:13.746 [info] [ZohoCRM] INVALID_TOKEN received, clearing cache and retrying...
+2026-02-05 08:14:14.094 [info] [ZohoCRM] Refreshing access token for tenant: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-02-05 08:14:14.543 [info] [ZohoCRM] Token refreshed, retrying API call...
+2026-02-05 08:14:14.799 [info] [ZohoCRM] API call: GET https://www.zohoapis.com/crm/v3/Country/search?criteria=%28Name%3Aequals%3AAntigua+and+Barbuda%29&fields=id%2CName%2CGSF_Region_Classification%2CIncome_Group%2CFlag
+2026-02-05 08:14:14.877 [error] [ZohoCRM] API error: 401 {    "code": "INVALID_TOKEN",    "details": {},    "message": "invalid oauth token",    "status": "error"}
+2026-02-05 08:14:14.877 [error] [ZohoCRM] Error looking up country: Antigua and Barbuda Error: Zoho CRM API error: 401 - {    "code": "INVALID_TOKEN",    "details": {},    "message": "invalid oauth token",    "status": "error"}
+
+    at zohoCrmApiCall (file:///var/task/api/_lib/zohoCrmClient.js:282:11)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async searchZohoCrmRecords (file:///var/task/api/_lib/zohoCrmClient.js:300:18)
+    at async lookupCountryInZoho (file:///var/task/api/_lib/zohoCrmClient.js:315:21)
+    at async executeZohoCrmActions (file:///var/task/api/due-diligence/_stageActions.js:2023:33)
+    at async executeStageActions (file:///var/task/api/due-diligence/_stageActions.js:2261:26)
+    at async Object.handler (file:///var/task/api/due-diligence/update-status.js:126:27)
+    at async r (/opt/rust/nodejs.js:2:15572)
+    at async Server.<anonymous> (/opt/rust/nodejs.js:2:11594)
+    at async Server.<anonymous> (/opt/rust/nodejs.js:17:10042)
+2026-02-05 08:14:14.877 [info] [DD Zoho CRM] Country not found in Zoho: Antigua and Barbuda
+2026-02-05 08:14:15.131 [info] [ZohoCRM] API call: GET https://www.zohoapis.com/crm/v3/Country/search?criteria=%28Name%3Aequals%3AArmenia%29&fields=id%2CName%2CGSF_Region_Classification%2CIncome_Group%2CFlag
+2026-02-05 08:14:15.196 [error] [ZohoCRM] API error: 401 {    "code": "INVALID_TOKEN",    "details": {},    "message": "invalid oauth token",    "status": "error"}
+2026-02-05 08:14:15.196 [info] [ZohoCRM] INVALID_TOKEN received, clearing cache and retrying...
+2026-02-05 08:14:15.548 [info] [ZohoCRM] Refreshing access token for tenant: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-02-05 08:14:15.995 [info] [ZohoCRM] Token refreshed, retrying API call...
+2026-02-05 08:14:16.251 [info] [ZohoCRM] API call: GET https://www.zohoapis.com/crm/v3/Country/search?criteria=%28Name%3Aequals%3AArmenia%29&fields=id%2CName%2CGSF_Region_Classification%2CIncome_Group%2CFlag
+2026-02-05 08:14:16.332 [error] [ZohoCRM] API error: 401 {    "code": "INVALID_TOKEN",    "details": {},    "message": "invalid oauth token",    "status": "error"}
+2026-02-05 08:14:16.333 [error] [ZohoCRM] Error looking up country: Armenia Error: Zoho CRM API error: 401 - {    "code": "INVALID_TOKEN",    "details": {},    "message": "invalid oauth token",    "status": "error"}
+
+    at zohoCrmApiCall (file:///var/task/api/_lib/zohoCrmClient.js:282:11)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async searchZohoCrmRecords (file:///var/task/api/_lib/zohoCrmClient.js:300:18)
+    at async lookupCountryInZoho (file:///var/task/api/_lib/zohoCrmClient.js:315:21)
+    at async executeZohoCrmActions (file:///var/task/api/due-diligence/_stageActions.js:2023:33)
+    at async executeStageActions (file:///var/task/api/due-diligence/_stageActions.js:2261:26)
+    at async Object.handler (file:///var/task/api/due-diligence/update-status.js:126:27)
+    at async r (/opt/rust/nodejs.js:2:15572)
+    at async Server.<anonymous> (/opt/rust/nodejs.js:2:11594)
+    at async Server.<anonymous> (/opt/rust/nodejs.js:17:10042)
+2026-02-05 08:14:16.333 [info] [DD Zoho CRM] Country not found in Zoho: Armenia
+2026-02-05 08:14:16.333 [info] [ZohoCRM] Creating organization: {
+  "data": [
+    {
+      "Account_Name": "afe1c0fd-3458-414f-871c-092a8f37d049",
+      "Lifecycle_Status": "Current",
+      "Type_of_Organisation": "Member - School and ECED Operators",
+      "Website": "website.com",
+      "Education_Levels": [
+        "Primary"
+      ],
+      "Countries_of_Operation": [
+        "Albania",
+        "Antigua and Barbuda",
+        "Armenia"
+      ],
+      "Themes_Focus": [
+        "Education in emergencies",
+        "Inclusive education",
+        "Foundational literacy and numeracy"
+      ],
+      "Countries": [
+        {
+          "Country_Name": "Albania"
+        },
+        {
+          "Country_Name": "Antigua and Barbuda"
+        },
+        {
+          "Country_Name": "Armenia"
+        }
+      ]
+    }
+  ],
+  "trigger": [
+    "workflow"
+  ]
+}
+2026-02-05 08:14:16.591 [info] [ZohoCRM] API call: POST https://www.zohoapis.com/crm/v3/Accounts
+2026-02-05 08:14:16.655 [error] [ZohoCRM] API error: 401 {    "code": "INVALID_TOKEN",    "details": {},    "message": "invalid oauth token",    "status": "error"}
+2026-02-05 08:14:16.655 [info] [ZohoCRM] INVALID_TOKEN received, clearing cache and retrying...
+2026-02-05 08:14:17.003 [info] [ZohoCRM] Refreshing access token for tenant: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-02-05 08:14:17.449 [info] [ZohoCRM] Token refreshed, retrying API call...
+2026-02-05 08:14:17.699 [info] [ZohoCRM] API call: POST https://www.zohoapis.com/crm/v3/Accounts
+2026-02-05 08:14:17.780 [error] [ZohoCRM] API error: 401 {    "code": "INVALID_TOKEN",    "details": {},    "message": "invalid oauth token",    "status": "error"}
+2026-02-05 08:14:17.780 [error] [DD Zoho CRM] Error executing action: 4dbbc2a3-67e1-48f6-857b-96979dc792eb Error: Zoho CRM API error: 401 - {    "code": "INVALID_TOKEN",    "details": {},    "message": "invalid oauth token",    "status": "error"}
+
+    at zohoCrmApiCall (file:///var/task/api/_lib/zohoCrmClient.js:282:11)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async createZohoOrganization (file:///var/task/api/_lib/zohoCrmClient.js:343:20)
+    at async executeZohoCrmActions (file:///var/task/api/due-diligence/_stageActions.js:2069:30)
+    at async executeStageActions (file:///var/task/api/due-diligence/_stageActions.js:2261:26)
+    at async Object.handler (file:///var/task/api/due-diligence/update-status.js:126:27)
+    at async r (/opt/rust/nodejs.js:2:15572)
+    at async Server.<anonymous> (/opt/rust/nodejs.js:2:11594)
+    at async Server.<anonymous> (/opt/rust/nodejs.js:17:10042)
+2026-02-05 08:14:17.780 [info] [DD Zoho CRM] ========== END executeZohoCrmActions ==========
+2026-02-05 08:14:17.780 [info] [DD Stage Actions] Completed all stage actions, total results: 8

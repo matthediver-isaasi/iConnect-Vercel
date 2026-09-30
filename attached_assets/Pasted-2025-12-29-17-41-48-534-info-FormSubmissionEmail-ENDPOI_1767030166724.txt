@@ -1,0 +1,46 @@
+2025-12-29 17:41:48.534 [info] [FormSubmissionEmail] === ENDPOINT CALLED ===
+2025-12-29 17:41:48.535 [info] [FormSubmissionEmail] Request received for form: edef4f0c-7a44-4ee8-b5df-642266298758 submission: 8e6de0f0-042b-40f3-9608-c455b7fd630a
+2025-12-29 17:41:48.535 [info] [FormSubmissionEmail] Created member_id: f621afb0-6819-4519-96a0-dbe50227f66c org_id: null
+2025-12-29 17:41:48.535 [info] [FormSubmissionEmail] form_values keys: [
+  'field_1765019805833',
+  'field_1765017571083',
+  'field_1765017795175',
+  'field_1765017805976',
+  'field_1765017830408',
+  'field_1765693757142',
+  'field_1765695007112',
+  'field_1765789870269'
+]
+2025-12-29 17:41:48.536 [info] [FormSubmissionEmail] CLIENT-SIDE form email config: {"hasSubmissionEmails":true,"submissionEmailsCount":1,"submissionEmailsValue":[{"cc":"","id":"email_1767027264085","bcc":"","recipient":"{{field_1765017830408}}","template_id":"4ef5245b-aea2-4f75-b3d4-288f693372b1","field_mapping":{}}],"legacyTemplateId":null,"legacyRecipient":null}
+2025-12-29 17:41:48.777 [info] [FormSubmissionEmail] Form loaded: HoS Join
+2025-12-29 17:41:48.778 [info] [FormSubmissionEmail] Form email config - submission_emails: [{"cc":"","id":"email_1767027264085","bcc":"","recipient":"{{field_1765017830408}}","template_id":"4ef5245b-aea2-4f75-b3d4-288f693372b1","field_mapping":{}}]
+2025-12-29 17:41:48.778 [info] [FormSubmissionEmail] Form email config - legacy template_id: null
+2025-12-29 17:41:48.778 [info] [FormSubmissionEmail] Form email config - legacy recipient:
+2025-12-29 17:41:48.778 [info] [FormSubmissionEmail] Using new multi-email format, count: 1
+2025-12-29 17:41:48.778 [info] [FormSubmissionEmail] Filtered emails to send: 1
+2025-12-29 17:41:48.778 [info] [FormSubmissionEmail] Derived baseUrl: https://nav.iconn.app
+2025-12-29 17:41:48.778 [info] [FormSubmissionEmail] Using member_id: f621afb0-6819-4519-96a0-dbe50227f66c organization_id: null
+2025-12-29 17:41:48.930 [error] [FormSubmissionEmail] Error fetching member: column member.phone does not exist code: 42703
+2025-12-29 17:41:48.930 [info] [FormSubmissionEmail] Member not found, retrying in 500 ms... (retries left: 2 )
+2025-12-29 17:41:49.582 [error] [FormSubmissionEmail] Error fetching member: column member.phone does not exist code: 42703
+2025-12-29 17:41:49.582 [info] [FormSubmissionEmail] Member not found, retrying in 1000 ms... (retries left: 1 )
+2025-12-29 17:41:50.724 [error] [FormSubmissionEmail] Error fetching member: column member.phone does not exist code: 42703
+2025-12-29 17:41:50.724 [info] [FormSubmissionEmail] Member not found after all retries
+2025-12-29 17:41:50.724 [info] [FormSubmissionEmail] Processing email: email_1767027264085 template: 4ef5245b-aea2-4f75-b3d4-288f693372b1
+2025-12-29 17:41:50.882 [info] [FormSubmissionEmail] Template loaded: Uni individual thank you registering
+2025-12-29 17:41:50.882 [info] [FormSubmissionEmail] Resolved field reference field_1765017830408 to: mat.the.diver@googlemail.com
+2025-12-29 17:41:50.882 [info] [FormSubmissionEmail] Resolved emails - to: mat.the.diver@googlemail.com cc:  bcc:
+2025-12-29 17:41:50.913 [warning] [FormSubmissionEmail] {{set_password_url}} placeholder found but missing member data or baseUrl
+2025-12-29 17:41:50.913 [info] [FormSubmissionEmail] memberData: undefined email: undefined baseUrl: https://nav.iconn.app
+2025-12-29 17:41:50.913 [info] [FormSubmissionEmail] Sending email...
+2025-12-29 17:41:50.913 [info] [FormSubmissionEmail] Subject: Welcome to the Graduate Futures Institute
+2025-12-29 17:41:51.059 [info] [Email Service] Email footer loaded successfully
+2025-12-29 17:41:51.205 [info] [Email Service] Email footer appended
+2025-12-29 17:41:51.205 [info] [Email Service] Sending email to: mat.the.diver@googlemail.com
+2025-12-29 17:41:51.205 [info] [Email Service] Subject: Welcome to the Graduate Futures Institute
+2025-12-29 17:41:51.541 [info] [Email Service] Email sent successfully. Message ID: <20251229174151.b763e79fe1367caf@agcas.isaasi.co.uk>
+2025-12-29 17:41:51.541 [info] [FormSubmissionEmail] Email result: {
+  success: true,
+  messageId: '<20251229174151.b763e79fe1367caf@agcas.isaasi.co.uk>'
+}
+2025-12-29 17:41:51.541 [info] [FormSubmissionEmail] All emails processed, results: 1

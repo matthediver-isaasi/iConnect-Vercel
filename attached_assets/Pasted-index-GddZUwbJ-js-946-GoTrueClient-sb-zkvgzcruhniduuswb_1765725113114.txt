@@ -1,0 +1,99 @@
+index-GddZUwbJ.js:946 GoTrueClient@sb-zkvgzcruhniduuswbfyh-auth-token:1 (2.84.0) 2025-12-14T15:09:02.002Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+xx @ index-GddZUwbJ.js:946
+Ine @ index-GddZUwbJ.js:947
+_initSupabaseAuthClient @ index-GddZUwbJ.js:947
+Lne @ index-GddZUwbJ.js:947
+sk @ index-GddZUwbJ.js:947
+(anonymous) @ index-GddZUwbJ.js:1454
+(anonymous) @ index-GddZUwbJ.js:1
+(anonymous) @ index-GddZUwbJ.js:1788
+index-GddZUwbJ.js:946 GoTrueClient@sb-zkvgzcruhniduuswbfyh-auth-token:2 (2.84.0) 2025-12-14T15:09:02.004Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+xx @ index-GddZUwbJ.js:946
+Ine @ index-GddZUwbJ.js:947
+_initSupabaseAuthClient @ index-GddZUwbJ.js:947
+Lne @ index-GddZUwbJ.js:947
+sk @ index-GddZUwbJ.js:947
+(anonymous) @ index-GddZUwbJ.js:1737
+(anonymous) @ index-GddZUwbJ.js:1
+(anonymous) @ index-GddZUwbJ.js:1788
+index-GddZUwbJ.js:1139 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-GddZUwbJ.js:1139 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-GddZUwbJ.js:1139 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-GddZUwbJ.js:1139 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-GddZUwbJ.js:1139 [usePendingPurchaseOrders] Query running, memberInfo.id: 48b25075-51da-437f-af20-17836a892bfe
+index-GddZUwbJ.js:1139 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-GddZUwbJ.js:1139 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-GddZUwbJ.js:1139 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-GddZUwbJ.js:1139 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-GddZUwbJ.js:1139 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-GddZUwbJ.js:1139 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-GddZUwbJ.js:1139 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-GddZUwbJ.js:1139 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-GddZUwbJ.js:1139 [usePendingPurchaseOrders] Fetched bookings count: 4
+index-GddZUwbJ.js:1139 [usePendingPurchaseOrders] Pending PO bookings: 3
+index-GddZUwbJ.js:1139 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-GddZUwbJ.js:1139 [usePendingPurchaseOrders] hasPendingPOs: true count: 3 isLoading: false
+index-GddZUwbJ.js:1139 [Layout] hasPendingPOs: true count: 3 isLoading: false
+index-GddZUwbJ.js:1139 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-GddZUwbJ.js:1139 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-GddZUwbJ.js:1139 [usePendingPurchaseOrders] hasPendingPOs: true count: 3 isLoading: false
+index-GddZUwbJ.js:1139 [Layout] hasPendingPOs: true count: 3 isLoading: false
+index-GddZUwbJ.js:1139 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-GddZUwbJ.js:1139 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-GddZUwbJ.js:1139 [usePendingPurchaseOrders] hasPendingPOs: true count: 3 isLoading: false
+index-GddZUwbJ.js:1139 [Layout] hasPendingPOs: true count: 3 isLoading: false
+index-GddZUwbJ.js:1139 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-GddZUwbJ.js:1139 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-GddZUwbJ.js:1139 [usePendingPurchaseOrders] hasPendingPOs: true count: 3 isLoading: false
+index-GddZUwbJ.js:1139 [Layout] hasPendingPOs: true count: 3 isLoading: false
+index-GddZUwbJ.js:1139 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-GddZUwbJ.js:1139 [Layout] Server session found: mat@isaasi.co.uk
+index-GddZUwbJ.js:1139 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-GddZUwbJ.js:1139 [usePendingPurchaseOrders] hasPendingPOs: true count: 3 isLoading: false
+index-GddZUwbJ.js:1139 [Layout] hasPendingPOs: true count: 3 isLoading: false
+index-GddZUwbJ.js:1139 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-GddZUwbJ.js:1139 [usePendingPurchaseOrders] memberInfo: {id: '48b25075-51da-437f-af20-17836a892bfe', email: 'mat@isaasi.co.uk'}
+index-GddZUwbJ.js:1139 [usePendingPurchaseOrders] hasPendingPOs: true count: 3 isLoading: false
+index-GddZUwbJ.js:1139 [Layout] hasPendingPOs: true count: 3 isLoading: false
+index-GddZUwbJ.js:1139 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-GddZUwbJ.js:1709 Error: Failed to fetch current selections
+    at I (index-GddZUwbJ.js:1709:13936)
+I @ index-GddZUwbJ.js:1709
+await in I
+iK @ index-GddZUwbJ.js:37
+oK @ index-GddZUwbJ.js:37
+cK @ index-GddZUwbJ.js:37
+l3 @ index-GddZUwbJ.js:37
+oO @ index-GddZUwbJ.js:37
+(anonymous) @ index-GddZUwbJ.js:37
+VC @ index-GddZUwbJ.js:40
+MF @ index-GddZUwbJ.js:37
+Kj @ index-GddZUwbJ.js:37
+bC @ index-GddZUwbJ.js:37
+CK @ index-GddZUwbJ.js:37
+index-GddZUwbJ.js:40 ReferenceError: Cannot access 'Ne' before initialization
+    at index-GddZUwbJ.js:1709:80395
+    at Array.filter (<anonymous>)
+    at index-GddZUwbJ.js:1709:80370
+    at Object.FO [as useMemo] (index-GddZUwbJ.js:38:21401)
+    at ca.useMemo (index-GddZUwbJ.js:9:6223)
+    at CV (index-GddZUwbJ.js:1709:80299)
+    at RC (index-GddZUwbJ.js:38:17018)
+    at Bw (index-GddZUwbJ.js:40:3139)
+    at oD (index-GddZUwbJ.js:40:44833)
+    at rD (index-GddZUwbJ.js:40:39790)
+zw @ index-GddZUwbJ.js:40
+a.callback @ index-GddZUwbJ.js:40
+b3 @ index-GddZUwbJ.js:38
+O3 @ index-GddZUwbJ.js:40
+tD @ index-GddZUwbJ.js:40
+RG @ index-GddZUwbJ.js:40
+BG @ index-GddZUwbJ.js:40
+Wd @ index-GddZUwbJ.js:40
+I3 @ index-GddZUwbJ.js:40
+Cd @ index-GddZUwbJ.js:38
+ku @ index-GddZUwbJ.js:40
+MF @ index-GddZUwbJ.js:37
+Kj @ index-GddZUwbJ.js:37
+bC @ index-GddZUwbJ.js:37
+CK @ index-GddZUwbJ.js:37

@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Accessibility in the iConnect CanvasBuilder</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="https://cdn.simplecss.org/simple.min.css" />
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">Accessibility in the iConnect CanvasBuilder</h1>
+<p class="subtitle">A Board Report on Design-Time Safeguards, Built-In
+Protections and Independent Verification</p>
+<p class="date">July 2026</p>
+</header>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#accessibility-in-the-iconnect-canvasbuilder"
+id="toc-accessibility-in-the-iconnect-canvasbuilder">Accessibility in
+the iConnect CanvasBuilder</a>
+<ul>
+<li><a
+href="#a-board-report-on-design-time-safeguards-built-in-protections-and-independent-verification"
+id="toc-a-board-report-on-design-time-safeguards-built-in-protections-and-independent-verification">A
+Board Report on Design-Time Safeguards, Built-In Protections and
+Independent Verification</a></li>
+<li><a href="#table-of-contents" id="toc-table-of-contents">Table of
+Contents</a></li>
+<li><a href="#executive-summary" id="toc-executive-summary">1. Executive
+Summary</a></li>
+<li><a href="#why-accessibility-matters-to-iconnect-clients"
+id="toc-why-accessibility-matters-to-iconnect-clients">2. Why
+Accessibility Matters to iConnect Clients</a></li>
+<li><a href="#design-time-safeguards-for-page-authors"
+id="toc-design-time-safeguards-for-page-authors">3. Design-Time
+Safeguards for Page Authors</a>
+<ul>
+<li><a href="#a-live-audit-on-every-change"
+id="toc-a-live-audit-on-every-change">A live audit on every
+change</a></li>
+<li><a href="#the-must-fix-list-at-publish-time"
+id="toc-the-must-fix-list-at-publish-time">The must-fix list at publish
+time</a></li>
+<li><a href="#colour-contrast-checking-to-wcag-aa-thresholds"
+id="toc-colour-contrast-checking-to-wcag-aa-thresholds">Colour-contrast
+checking to WCAG AA thresholds</a></li>
+<li><a href="#heading-structure-enforcement"
+id="toc-heading-structure-enforcement">Heading-structure
+enforcement</a></li>
+<li><a href="#further-checks-beyond-the-must-fix-list"
+id="toc-further-checks-beyond-the-must-fix-list">Further checks beyond
+the must-fix list</a></li>
+<li><a href="#the-in-editor-accessibility-panel"
+id="toc-the-in-editor-accessibility-panel">The in-editor Accessibility
+panel</a></li>
+</ul></li>
+<li><a href="#built-in-accessibility-of-published-pages"
+id="toc-built-in-accessibility-of-published-pages">4. Built-In
+Accessibility of Published Pages</a></li>
+<li><a href="#independent-verification-with-industry-standard-tooling"
+id="toc-independent-verification-with-industry-standard-tooling">5.
+Independent Verification with Industry-Standard Tooling</a>
+<ul>
+<li><a href="#in-editor-full-audits"
+id="toc-in-editor-full-audits">In-editor full audits</a></li>
+<li><a href="#the-administration-accessibility-audits-area"
+id="toc-the-administration-accessibility-audits-area">The administration
+Accessibility Audits area</a></li>
+</ul></li>
+<li><a href="#foundational-platform-choices"
+id="toc-foundational-platform-choices">6. Foundational Platform
+Choices</a></li>
+<li><a href="#known-limitations-and-managed-risks"
+id="toc-known-limitations-and-managed-risks">7. Known Limitations and
+Managed Risks</a></li>
+<li><a href="#summary-and-possible-next-steps"
+id="toc-summary-and-possible-next-steps">8. Summary and Possible Next
+Steps</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1 id="accessibility-in-the-iconnect-canvasbuilder">Accessibility in
+the iConnect CanvasBuilder</h1>
+<h2
+id="a-board-report-on-design-time-safeguards-built-in-protections-and-independent-verification">A
+Board Report on Design-Time Safeguards, Built-In Protections and
+Independent Verification</h2>
+<p><em>July 2026 — Version 1.0</em></p>
+<p><em>Classification: Commercial in Confidence</em></p>
+<hr />
+<h2 id="table-of-contents">Table of Contents</h2>
+<ol type="1">
+<li><a href="#1-executive-summary">Executive Summary</a></li>
+<li><a href="#2-why-accessibility-matters-to-iconnect-clients">Why
+Accessibility Matters to iConnect Clients</a></li>
+<li><a href="#3-design-time-safeguards-for-page-authors">Design-Time
+Safeguards for Page Authors</a></li>
+<li><a href="#4-built-in-accessibility-of-published-pages">Built-In
+Accessibility of Published Pages</a></li>
+<li><a
+href="#5-independent-verification-with-industry-standard-tooling">Independent
+Verification with Industry-Standard Tooling</a></li>
+<li><a href="#6-foundational-platform-choices">Foundational Platform
+Choices</a></li>
+<li><a href="#7-known-limitations-and-managed-risks">Known Limitations
+and Managed Risks</a></li>
+<li><a href="#8-summary-and-possible-next-steps">Summary and Possible
+Next Steps</a></li>
+</ol>
+<hr />
+<h2 id="executive-summary">1. Executive Summary</h2>
+<p>CanvasBuilder is iConnect’s visual page-building tool. It allows
+non-technical administrators to design and publish public-facing web
+pages — landing pages, information pages, campaign pages — without
+writing any code. Because these pages are often the first thing a member
+of the public sees, their accessibility directly affects the reputation
+and legal exposure of every organisation using the platform.</p>
+<p>iConnect takes a <strong>layered approach</strong> to accessibility
+in CanvasBuilder, oriented around the <strong>Web Content Accessibility
+Guidelines (WCAG) 2.1 Level AA</strong> — the internationally recognised
+standard referenced by UK and EU public-sector accessibility regulations
+and by most corporate accessibility policies. Rather than relying on a
+single check at the end of the process, accessibility is enforced at
+three distinct stages:</p>
+<ol type="1">
+<li><p><strong>While the page is being designed.</strong> A live audit
+engine, built into the editor itself, re-checks the page on every change
+and surfaces issues to the author immediately — before the page ever
+reaches the public. Must-fix issues (such as images without alternative
+text, or a page without a main heading) are flagged prominently, and the
+author cannot publish without explicitly acknowledging them.</p></li>
+<li><p><strong>In what the platform renders.</strong> Every published
+CanvasBuilder page carries a set of accessibility protections that
+authors get automatically and cannot accidentally remove: semantic page
+structure, screen-reader support, keyboard navigation, visible focus
+indicators, a skip-to-content link, and respect for users who have asked
+their device to reduce motion.</p></li>
+<li><p><strong>Through independent, industry-standard
+verification.</strong> Live published pages can be scanned — both from
+inside the editor and from a dedicated administration area — with
+<strong>axe-core</strong>, the open-source accessibility engine
+developed by Deque Systems. axe-core is the same engine used inside
+Google Lighthouse and by the majority of enterprise accessibility
+programmes worldwide, so the results are directly comparable with what
+an external auditor or a regulator’s tooling would find.</p></li>
+</ol>
+<p>This report describes each layer in turn, names the specific
+standards, tools and mechanisms involved, and — in the interests of
+transparency — sets out the current limitations and how they are
+managed. iConnect does not claim formal WCAG certification or a
+completed third-party conformance audit; what it offers is a robust,
+verifiable, tooling-backed process that makes accessible outcomes the
+default and makes deviations visible.</p>
+<hr />
+<h2 id="why-accessibility-matters-to-iconnect-clients">2. Why
+Accessibility Matters to iConnect Clients</h2>
+<p>Organisations using iConnect — membership bodies, trade associations,
+professional institutes, charities — publish pages that serve the
+general public as well as their own members. Two audiences are therefore
+affected:</p>
+<ul>
+<li><strong>Public visitors</strong> encounter CanvasBuilder pages as
+ordinary websites: event listings, campaign pages, information pages.
+Roughly one in five people has some form of disability; an inaccessible
+public page excludes them and, in many jurisdictions, creates legal risk
+under equality legislation.</li>
+<li><strong>Portal users</strong> — the administrators and editors who
+build pages, and the members who log in to use the portal — interact
+with the platform’s own interface every day. Their experience is
+governed by the accessibility of the platform’s components
+themselves.</li>
+</ul>
+<p>CanvasBuilder is designed so that both audiences are protected:
+authors are guided and checked as they work, and the pages they produce
+inherit accessible foundations regardless of the author’s expertise.</p>
+<hr />
+<h2 id="design-time-safeguards-for-page-authors">3. Design-Time
+Safeguards for Page Authors</h2>
+<h3 id="a-live-audit-on-every-change">A live audit on every change</h3>
+<p>The CanvasBuilder editor contains its own accessibility audit engine
+that runs <strong>continuously as the author works</strong>. Every time
+a block is added, moved, edited or restyled, the entire page design is
+re-audited and the results update in real time. There is no separate
+“check my page” step the author might forget — the audit is always
+on.</p>
+<p>Findings are classified into three severities:</p>
+<table>
+<colgroup>
+<col style="width: 52%" />
+<col style="width: 47%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Severity</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Error</strong></td>
+<td>A genuine accessibility failure that must be addressed — treated as
+a must-fix issue at publish time</td>
+</tr>
+<tr class="even">
+<td><strong>Warning</strong></td>
+<td>A likely problem or risky pattern the author should review</td>
+</tr>
+<tr class="odd">
+<td><strong>Info</strong></td>
+<td>Advisory information — something to be aware of, not necessarily
+wrong</td>
+</tr>
+</tbody>
+</table>
+<h3 id="the-must-fix-list-at-publish-time">The must-fix list at publish
+time</h3>
+<p>When an author attempts to publish, the platform assembles every
+must-fix finding — from the live audit and, where one has been run, from
+the axe-core scan of the rendered page — and presents them in a
+confirmation dialogue. The author sees exactly what is wrong, grouped by
+rule, and must make a deliberate, informed choice before the page goes
+live. The dialogue also warns the author if no full audit has been run
+yet, or if the page has changed since the last audit, prompting a
+re-scan.</p>
+<p>The rules treated as must-fix include:</p>
+<ul>
+<li><strong>Images without alternative text</strong> — including images
+inside cards, testimonial photographs and logo strips. Authors may
+legitimately mark an image as decorative, in which case it is correctly
+hidden from screen readers instead.</li>
+<li><strong>No main heading (H1) on the page</strong> — every page must
+have exactly one top-level heading, the anchor point for screen-reader
+navigation.</li>
+<li><strong>Buttons without an accessible name</strong> — a button with
+no visible label and no screen-reader label cannot be announced to
+assistive technology.</li>
+<li><strong>Linked images without an accessible name</strong> — an image
+acting as a link must describe its destination.</li>
+<li><strong>Elements hidden from screen readers but still
+keyboard-focusable</strong> — a contradiction that strands keyboard and
+screen-reader users on unannounced elements.</li>
+</ul>
+<p>Separately, hard block-validation errors (missing required content)
+prevent publishing outright.</p>
+<h3 id="colour-contrast-checking-to-wcag-aa-thresholds">Colour-contrast
+checking to WCAG AA thresholds</h3>
+<p>The audit engine computes colour-contrast ratios using the WCAG
+formula wherever both the text colour and the background colour of a
+block are knowable at design time, and applies the <strong>WCAG 2.1 AA
+thresholds: 4.5:1 for normal text and 3:1 for large text</strong>.
+Failures are reported with the actual measured ratio and the required
+target, so authors understand precisely how far short a combination
+falls. Severe failures are raised as errors; marginal ones as
+warnings.</p>
+<h3 id="heading-structure-enforcement">Heading-structure
+enforcement</h3>
+<p>Screen-reader users navigate by headings, so the engine enforces a
+coherent document outline:</p>
+<ul>
+<li>Exactly one H1 per page (extra H1s are flagged, missing H1 is a
+must-fix error).</li>
+<li>No skipped heading levels (jumping from H2 to H4 is flagged).</li>
+<li>When a new block is added, the editor <strong>suggests the correct
+heading level automatically</strong>, based on what already exists on
+the page — making the accessible outline the path of least
+resistance.</li>
+</ul>
+<h3 id="further-checks-beyond-the-must-fix-list">Further checks beyond
+the must-fix list</h3>
+<p>The live audit also covers, among others: icons with no label and no
+decorative marking; misuse of positive tab-index values that scramble
+reading order; a page whose visual order diverges from its screen-reader
+reading order; pricing-table tiers with unlabelled calls-to-action;
+interactive elements smaller than the recommended 44×44 pixel touch
+target on mobile; content that overflows the mobile viewport; text below
+14 pixels on mobile; and content hidden on mobile but shown on
+desktop.</p>
+<h3 id="the-in-editor-accessibility-panel">The in-editor Accessibility
+panel</h3>
+<p>All findings are presented in a dedicated <strong>Accessibility
+panel</strong> inside the editor. Each finding shows the affected block,
+the rule, a plain-language explanation and, where available, a link to
+further guidance. Two tools make remediation fast:</p>
+<ul>
+<li><strong>Jump to block</strong> — selects the offending block in the
+editor so the author can fix it immediately.</li>
+<li><strong>Locate</strong> — highlights the block on the canvas
+itself.</li>
+</ul>
+<p>A running count of errors, warnings and informational items is always
+visible in the editor toolbar, and each block in the layers panel
+carries an inline badge when it has open findings.</p>
+<hr />
+<h2 id="built-in-accessibility-of-published-pages">4. Built-In
+Accessibility of Published Pages</h2>
+<p>Authors’ choices are only half the picture. The renderer that turns a
+CanvasBuilder design into a live web page applies a set of protections
+automatically, on every page, for every visitor:</p>
+<ul>
+<li><strong>Semantic landmark structure.</strong> Every page has a
+single, correctly placed <code>main</code> content region, and authors
+can designate sections as <code>header</code>, <code>navigation</code>,
+<code>aside</code> or <code>footer</code> landmarks. The renderer
+actively prevents invalid combinations — for example, it will not allow
+nested main regions or landmark roles on elements that cannot
+legitimately carry them — so the landmark map screen readers rely on is
+always well-formed.</li>
+<li><strong>Screen-reader controls on every block.</strong> Blocks
+support screen-reader labels, decorative hiding and per-block language
+tagging, so multilingual content is announced with the correct
+pronunciation.</li>
+<li><strong>Skip-to-content link.</strong> The first element keyboard
+users reach on any page is a “Skip to content” link (visually hidden
+until focused) that jumps straight past any surrounding chrome to the
+main content.</li>
+<li><strong>Visible focus indication.</strong> Every focusable element
+on a CanvasBuilder page receives a consistent, clearly visible focus
+ring, so keyboard users always know where they are. This is applied at
+the page level and cannot be switched off by individual block
+styling.</li>
+<li><strong>Accessible in-page navigation.</strong> Anchor links scroll
+smoothly to their target, offset the position so content is not hidden
+behind sticky headers, and — critically — <strong>move keyboard focus to
+the target</strong>, so screen-reader and keyboard users land where the
+link promised, not merely where the viewport scrolled.</li>
+<li><strong>Reduced-motion support.</strong> Visitors whose operating
+system requests reduced motion get exactly that: animations and
+transitions on CanvasBuilder pages are effectively disabled, and anchor
+scrolling jumps instantly rather than animating.</li>
+<li><strong>Dedicated alternative-text fields.</strong> Every
+image-bearing block — images, cards, testimonials, logo strips — has an
+explicit alt-text field in its editing panel, with the option to mark
+genuinely decorative images so they are hidden from screen readers
+rather than announced as unlabelled.</li>
+<li><strong>No-JavaScript-first layout.</strong> Page layout is
+delivered as a stylesheet rather than computed by scripts, so pages
+render correctly and immediately even for users on slow connections or
+with scripting restricted.</li>
+</ul>
+<hr />
+<h2 id="independent-verification-with-industry-standard-tooling">5.
+Independent Verification with Industry-Standard Tooling</h2>
+<p>Heuristic checks at design time are valuable, but confidence requires
+verification of the <strong>real rendered page</strong> with a tool the
+wider industry trusts. iConnect provides this at two levels, both built
+on <strong>axe-core</strong>, the open-source accessibility testing
+engine developed by Deque Systems. axe-core is the de facto industry
+standard: it powers the accessibility audits in Google Lighthouse and
+Chrome DevTools and underpins most enterprise accessibility programmes,
+which means iConnect’s results are directly comparable with what an
+external auditor’s tooling would report.</p>
+<h3 id="in-editor-full-audits">In-editor full audits</h3>
+<p>From inside the editor, an author can run a full axe-core scan (using
+the axe-core 4.11 engine bundled with the platform) against the rendered
+preview of the page — including, for pages that appear differently to
+logged-in members and anonymous visitors, <strong>both views</strong>,
+so the public experience is verified as well as the portal one. The scan
+waits for the page, its images and its fonts to finish rendering before
+measuring, so results reflect what a visitor actually sees. Results are
+persisted per page, so authors can review past runs, and the publish
+flow warns when the latest audit is missing or has gone stale since the
+design changed.</p>
+<h3 id="the-administration-accessibility-audits-area">The administration
+Accessibility Audits area</h3>
+<p>A dedicated <strong>Accessibility Audits</strong> page in the
+administration area lets authorised administrators scan any of the
+organisation’s live public URLs on demand:</p>
+<ul>
+<li>Scans run <strong>axe-core version 4.10.2 in a real headless Chrome
+browser</strong>, hosted by <strong>browserless.io</strong>, against the
+live published URL — the same page a member of the public receives, not
+a simulation.</li>
+<li>Results are stored per organisation with a full severity breakdown —
+<strong>critical, serious, moderate and minor</strong> — alongside pass
+counts and an overall score.</li>
+<li>Every finding can be drilled into: the specific rule, the WCAG
+success criterion tags it maps to, a link to remediation guidance, and
+the exact page elements that failed, so issues can be located and fixed
+precisely.</li>
+<li>Individual URLs can be re-run after a fix to confirm the issue is
+resolved, and full results can be exported for record-keeping or sharing
+with external reviewers.</li>
+<li>Access to the feature is controlled through the platform’s
+role-based access control, so only authorised administrators can run and
+view audits.</li>
+</ul>
+<p>The current (version 1) service applies deliberate limits: up to
+<strong>10 URLs per run</strong>, public web addresses only (no
+credentialed or internal URLs), with a per-page time budget. These
+limits keep the service predictable and are revisited as usage
+grows.</p>
+<hr />
+<h2 id="foundational-platform-choices">6. Foundational Platform
+Choices</h2>
+<p>Accessibility in the portal interface itself — the experience of the
+administrators and members who use iConnect every day — rests on
+deliberate foundational choices rather than after-the-fact fixes:</p>
+<ul>
+<li><strong>Radix UI component primitives.</strong> The platform’s
+interface components — dialogues, menus, tabs, tooltips, form controls
+and more — are built on Radix UI, a component library engineered
+specifically for accessibility. Radix primitives implement the WAI-ARIA
+design patterns: correct roles and states for assistive technology,
+managed keyboard focus (including focus trapping in dialogues and focus
+return on close), and full keyboard operability out of the box. iConnect
+uses these primitives across the portal, so accessibility in the
+day-to-day interface is a property of the platform’s building blocks,
+not something each screen must re-implement.</li>
+<li><strong>A semantic colour system with AA-checked tokens.</strong>
+The platform’s design system defines semantic colour roles (including a
+dedicated warning colour) whose default pairings are chosen to meet WCAG
+AA contrast in both light and dark themes.</li>
+<li><strong>Accessibility as a first-class product feature.</strong> The
+audit engine, the editor panel, the publish gate and the administration
+audit area are maintained, tested product surfaces — not internal
+tooling — which keeps accessibility visible to the people who own the
+content.</li>
+</ul>
+<hr />
+<h2 id="known-limitations-and-managed-risks">7. Known Limitations and
+Managed Risks</h2>
+<p>Transparency about limits is part of a credible accessibility
+posture. The current, known limitations are set out below, together with
+how each is managed.</p>
+<table>
+<colgroup>
+<col style="width: 38%" />
+<col style="width: 61%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Limitation</th>
+<th>How it is managed</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Custom HTML blocks cannot be deeply scanned at design
+time.</strong> Authors can embed their own HTML, whose internals the
+live audit cannot fully interpret.</td>
+<td>Every custom HTML block is automatically flagged in the
+Accessibility panel with an explicit prompt for manual review — the risk
+is surfaced, never silent. The axe-core scans of the rendered page
+<strong>do</strong> examine the real output of custom HTML, providing a
+second line of defence.</td>
+</tr>
+<tr class="even">
+<td><strong>Contrast checks are best-effort where branding colours
+resolve at runtime.</strong> Some colours come from each organisation’s
+branding theme and are only final when the page renders.</td>
+<td>The design-time audit checks contrast wherever both colours are
+knowable, using conservative assumptions where they are not, and flags
+uncertain cases as warnings rather than passing them silently. The
+rendered-page axe-core scans then measure the actual resolved
+colours.</td>
+</tr>
+<tr class="odd">
+<td><strong>Dynamic list blocks inherit their accessibility from the
+underlying platform components.</strong> Blocks that render live content
+(event lists, directories and similar) reuse the platform’s standard
+components rather than being audited element-by-element at design
+time.</td>
+<td>Those shared components are built on the Radix UI foundations
+described above, and the rendered output is covered by the axe-core
+scans of the live page.</td>
+</tr>
+<tr class="even">
+<td><strong>No formal third-party conformance audit has yet been
+commissioned.</strong> iConnect does not claim WCAG certification or
+publish a conformance report (such as a VPAT/ACR).</td>
+<td>The tooling in place — axe-core against live pages, with exportable
+results — means the evidence base for such an audit already exists.
+Commissioning one is a realistic future step should client or regulatory
+demand warrant it (see Section 8).</td>
+</tr>
+</tbody>
+</table>
+<p>It is also worth stating plainly what automated tooling can and
+cannot do: automated engines such as axe-core reliably detect the
+majority of <em>machine-detectable</em> accessibility failures, but no
+automated tool can certify full WCAG conformance — some criteria (such
+as the appropriateness of alternative text, or the logic of a form’s
+error recovery) require human judgement. iConnect’s layered approach
+narrows that gap by guiding authors at the moment of creation, but human
+review remains part of any complete accessibility programme.</p>
+<hr />
+<h2 id="summary-and-possible-next-steps">8. Summary and Possible Next
+Steps</h2>
+<p>CanvasBuilder gives non-technical authors the freedom to build public
+web pages while keeping accessibility on rails:</p>
+<ul>
+<li><strong>Prevention</strong> — a continuously running audit engine in
+the editor, WCAG AA contrast thresholds, heading-structure enforcement,
+and an informed-consent gate on publishing with must-fix issues
+outstanding.</li>
+<li><strong>Protection</strong> — accessible foundations built into
+every rendered page: landmarks, skip links, focus visibility,
+keyboard-friendly navigation, reduced-motion support and dedicated
+alt-text everywhere an image can appear.</li>
+<li><strong>Proof</strong> — independent verification of live pages with
+axe-core, the industry-standard engine, run in real browsers against
+real URLs, with stored, exportable, drill-down results.</li>
+</ul>
+<p>Possible next steps the board may wish to consider, in rough order of
+effort:</p>
+<ol type="1">
+<li><strong>Scheduled automatic audits</strong> — running the axe-core
+scans on a recurring schedule and alerting administrators to
+regressions, rather than relying on on-demand runs.</li>
+<li><strong>Raising the version-1 audit limits</strong> as usage grows
+(more URLs per run; authenticated page scanning).</li>
+<li><strong>A commissioned third-party accessibility audit</strong> of
+representative tenant pages, producing a formal conformance statement —
+the strongest possible external signal, and one the existing tooling has
+already prepared the ground for.</li>
+</ol>
+<p>The direction of travel is clear: accessibility in CanvasBuilder is
+not a bolt-on check but a property of how pages are designed, rendered
+and verified — measured with the same tools the rest of the industry
+uses.</p>
+<hr />
+<p><em>This document reflects the platform as implemented at the date
+shown above. Statements about tooling and behaviour are drawn directly
+from the current production codebase.</em></p>
+</body>
+</html>

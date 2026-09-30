@@ -1,0 +1,82 @@
+index-DVFW1bpU.js:1176 [publicClient] Detected tenant from subdomain: gfi
+index-DVFW1bpU.js:1261 GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.93.3) 2026-02-13T11:08:30.017Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+Q_ @ index-DVFW1bpU.js:1261
+index-DVFW1bpU.js:1565 [usePendingPurchaseOrders] memberInfo: null
+index-DVFW1bpU.js:1565 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DVFW1bpU.js:1569 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DVFW1bpU.js:1569 [Layout] currentPageName: WorkflowManagement currentPortalPageId: null
+index-DVFW1bpU.js:1565 [usePendingPurchaseOrders] memberInfo: Object
+index-DVFW1bpU.js:1565 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DVFW1bpU.js:1569 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DVFW1bpU.js:1569 [Layout] currentPageName: WorkflowManagement currentPortalPageId: null
+index-DVFW1bpU.js:1565 [usePendingPurchaseOrders] Query running, memberInfo.id: 9ac39222-22b8-457e-a5df-dfca45a99eb6
+index-DVFW1bpU.js:1565 [usePendingPurchaseOrders] memberInfo: Object
+index-DVFW1bpU.js:1565 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DVFW1bpU.js:1569 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DVFW1bpU.js:1569 [Layout] currentPageName: WorkflowManagement currentPortalPageId: null
+index-DVFW1bpU.js:1565 [usePendingPurchaseOrders] memberInfo: Object
+index-DVFW1bpU.js:1565 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DVFW1bpU.js:1569 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DVFW1bpU.js:1569 [Layout] currentPageName: WorkflowManagement currentPortalPageId: null
+index-DVFW1bpU.js:1565 [usePendingPurchaseOrders] memberInfo: Object
+index-DVFW1bpU.js:1565 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DVFW1bpU.js:1569 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DVFW1bpU.js:1569 [Layout] currentPageName: WorkflowManagement currentPortalPageId: null
+index-DVFW1bpU.js:1565 [usePendingPurchaseOrders] memberInfo: Object
+index-DVFW1bpU.js:1565 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DVFW1bpU.js:1569 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DVFW1bpU.js:1569 [Layout] currentPageName: WorkflowManagement currentPortalPageId: null
+index-DVFW1bpU.js:1565 [usePendingPurchaseOrders] memberInfo: Object
+index-DVFW1bpU.js:1565 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DVFW1bpU.js:1569 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DVFW1bpU.js:1569 [Layout] currentPageName: WorkflowManagement currentPortalPageId: null
+index-DVFW1bpU.js:1565 [usePendingPurchaseOrders] memberInfo: Object
+index-DVFW1bpU.js:1565 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DVFW1bpU.js:1569 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DVFW1bpU.js:1569 [Layout] currentPageName: WorkflowManagement currentPortalPageId: null
+index-DVFW1bpU.js:1565 [usePendingPurchaseOrders] memberInfo: Object
+index-DVFW1bpU.js:1565 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DVFW1bpU.js:1569 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DVFW1bpU.js:1569 [Layout] currentPageName: WorkflowManagement currentPortalPageId: null
+index-DVFW1bpU.js:1565 [usePendingPurchaseOrders] Fetched bookings count: 3
+index-DVFW1bpU.js:1565 [usePendingPurchaseOrders] Pending PO bookings: 1
+index-DVFW1bpU.js:1565 [usePendingPurchaseOrders] memberInfo: Object
+index-DVFW1bpU.js:1565 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-DVFW1bpU.js:1569 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-DVFW1bpU.js:1569 [Layout] currentPageName: WorkflowManagement currentPortalPageId: null
+index-DVFW1bpU.js:1569 [Layout] Server session found: sharon@onlinem.co.uk
+index-DVFW1bpU.js:1565 [usePendingPurchaseOrders] memberInfo: Object
+index-DVFW1bpU.js:1565 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-DVFW1bpU.js:1569 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-DVFW1bpU.js:1569 [Layout] currentPageName: WorkflowManagement currentPortalPageId: null
+index-DVFW1bpU.js:1565 [usePendingPurchaseOrders] memberInfo: Object
+index-DVFW1bpU.js:1565 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-DVFW1bpU.js:1569 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-DVFW1bpU.js:1569 [Layout] currentPageName: WorkflowManagement currentPortalPageId: null
+index-DVFW1bpU.js:1565 [usePendingPurchaseOrders] memberInfo: Object
+index-DVFW1bpU.js:1565 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-DVFW1bpU.js:1569 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-DVFW1bpU.js:1569 [Layout] currentPageName: WorkflowManagement currentPortalPageId: null
+index-DVFW1bpU.js:40 ReferenceError: actionIndex is not defined
+    at index-DVFW1bpU.js:2306:144338
+    at Array.map (<anonymous>)
+    at qde (index-DVFW1bpU.js:2306:117041)
+    at FI (index-DVFW1bpU.js:38:17031)
+    at c5 (index-DVFW1bpU.js:40:3143)
+    at nee (index-DVFW1bpU.js:40:44894)
+    at eee (index-DVFW1bpU.js:40:39827)
+    at h_e (index-DVFW1bpU.js:40:39750)
+    at EC (index-DVFW1bpU.js:40:39600)
+    at y5 (index-DVFW1bpU.js:40:35961)
+o5 @ index-DVFW1bpU.js:40
+index-DVFW1bpU.js:38 Uncaught ReferenceError: actionIndex is not defined
+    at index-DVFW1bpU.js:2306:144338
+    at Array.map (<anonymous>)
+    at qde (index-DVFW1bpU.js:2306:117041)
+    at FI (index-DVFW1bpU.js:38:17031)
+    at c5 (index-DVFW1bpU.js:40:3143)
+    at nee (index-DVFW1bpU.js:40:44894)
+    at eee (index-DVFW1bpU.js:40:39827)
+    at h_e (index-DVFW1bpU.js:40:39750)
+    at EC (index-DVFW1bpU.js:40:39600)
+    at y5 (index-DVFW1bpU.js:40:35961)

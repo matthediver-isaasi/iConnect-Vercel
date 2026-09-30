@@ -1,0 +1,75 @@
+ [publicClient] Detected tenant from subdomain: mts
+ GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.93.3) 2026-02-18T17:10:27.978Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+rw @ index-C5JcUfag.js:1291
+ [usePendingPurchaseOrders] memberInfo: null
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+ [Layout] hasPendingPOs: false count: 0 isLoading: false
+ [Layout] currentPageName: FundraisingManagement currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: FundraisingManagement currentPortalPageId: null
+ [usePendingPurchaseOrders] Query running, memberInfo.id: 2f1c7f68-97b4-43cc-ac3b-3380b2109784
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-C5JcUfag.js:1599 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-C5JcUfag.js:1599 [Layout] currentPageName: FundraisingManagement currentPortalPageId: null
+index-C5JcUfag.js:1595 [usePendingPurchaseOrders] memberInfo: Object
+index-C5JcUfag.js:1595 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-C5JcUfag.js:1599 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-C5JcUfag.js:1599 [Layout] currentPageName: FundraisingManagement currentPortalPageId: null
+index-C5JcUfag.js:1595 [usePendingPurchaseOrders] memberInfo: Object
+index-C5JcUfag.js:1595 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-C5JcUfag.js:1599 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-C5JcUfag.js:1599 [Layout] currentPageName: FundraisingManagement currentPortalPageId: null
+index-C5JcUfag.js:1595 [usePendingPurchaseOrders] memberInfo: Object
+index-C5JcUfag.js:1595 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-C5JcUfag.js:1599 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-C5JcUfag.js:1599 [Layout] currentPageName: FundraisingManagement currentPortalPageId: null
+index-C5JcUfag.js:1595 [usePendingPurchaseOrders] memberInfo: Object
+index-C5JcUfag.js:1595 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-C5JcUfag.js:1599 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-C5JcUfag.js:1599 [Layout] currentPageName: FundraisingManagement currentPortalPageId: null
+index-C5JcUfag.js:1595 [usePendingPurchaseOrders] memberInfo: Object
+index-C5JcUfag.js:1595 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-C5JcUfag.js:1599 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-C5JcUfag.js:1599 [Layout] currentPageName: FundraisingManagement currentPortalPageId: null
+index-C5JcUfag.js:1595 [usePendingPurchaseOrders] memberInfo: Object
+index-C5JcUfag.js:1595 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-C5JcUfag.js:1599 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-C5JcUfag.js:1599 [Layout] currentPageName: FundraisingManagement currentPortalPageId: null
+index-C5JcUfag.js:1595 [usePendingPurchaseOrders] memberInfo: Object
+index-C5JcUfag.js:1595 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-C5JcUfag.js:1599 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-C5JcUfag.js:1599 [Layout] currentPageName: FundraisingManagement currentPortalPageId: null
+index-C5JcUfag.js:1595 [usePendingPurchaseOrders] Fetched bookings count: 1
+index-C5JcUfag.js:1595 [usePendingPurchaseOrders] Pending PO bookings: 0
+index-C5JcUfag.js:1595 [usePendingPurchaseOrders] memberInfo: Object
+index-C5JcUfag.js:1595 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-C5JcUfag.js:1599 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-C5JcUfag.js:1599 [Layout] currentPageName: FundraisingManagement currentPortalPageId: null
+index-C5JcUfag.js:1599 [Layout] Server session found: sharon@onlinem.co.uk
+index-C5JcUfag.js:1595 [usePendingPurchaseOrders] memberInfo: Object
+index-C5JcUfag.js:1595 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-C5JcUfag.js:1599 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-C5JcUfag.js:1599 [Layout] currentPageName: FundraisingManagement currentPortalPageId: null
+index-C5JcUfag.js:1595 [usePendingPurchaseOrders] memberInfo: Object
+index-C5JcUfag.js:1595 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-C5JcUfag.js:1599 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-C5JcUfag.js:1599 [Layout] currentPageName: FundraisingManagement currentPortalPageId: null
+index-C5JcUfag.js:1595 [usePendingPurchaseOrders] memberInfo: Object
+index-C5JcUfag.js:1595 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-C5JcUfag.js:1599 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-C5JcUfag.js:1599 [Layout] currentPageName: FundraisingManagement currentPortalPageId: null
+index-C5JcUfag.js:40 Error: Minified React error #310; visit https://reactjs.org/docs/error-decoder.html?invariant=310 for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+    at $d (index-C5JcUfag.js:38:17629)
+    at Object.UZ [as useMemo] (index-C5JcUfag.js:38:21323)
+    at nr.useMemo (index-C5JcUfag.js:9:6253)
+    at ACt (index-C5JcUfag.js:3867:49755)
+    at UI (index-C5JcUfag.js:38:17031)
+    at _M (index-C5JcUfag.js:40:3144)
+    at bee (index-C5JcUfag.js:40:44935)
+    at fee (index-C5JcUfag.js:40:39866)
+    at M_e (index-C5JcUfag.js:40:39789)
+    at LC (index-C5JcUfag.js:40:39638)
+jM @ index-C5JcUfag.js:40

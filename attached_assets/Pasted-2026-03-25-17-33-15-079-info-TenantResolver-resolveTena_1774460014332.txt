@@ -1,0 +1,20 @@
+2026-03-25 17:33:15.079 [info] [TenantResolver] resolveTenantFromRequest called
+2026-03-25 17:33:15.080 [info] [TenantResolver] Params - tenant: undefined domain: undefined
+2026-03-25 17:33:15.080 [info] [TenantResolver] Falling back to host-based resolution, hostname: gfi.dev.iconn.app
+2026-03-25 17:33:15.081 [info] [TenantResolver] resolveTenantFromHost called with: gfi.dev.iconn.app
+2026-03-25 17:33:15.081 [info] [TenantResolver] Parsed host: gfi.dev.iconn.app
+2026-03-25 17:33:15.081 [info] [TenantResolver] Preview environment detected, environment: dev
+2026-03-25 17:33:15.081 [info] [TenantResolver] Subdomain detected, slug: gfi
+2026-03-25 17:33:15.081 [info] [TenantResolver] Looking up by slug: gfi
+2026-03-25 17:33:15.109 [error] (node:4) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+2026-03-25 17:33:15.429 [info] [TenantResolver] Found tenant by slug: gfi
+2026-03-25 17:33:15.429 [info] [Sitemap] Tenant resolved: id=fd82da65-aab7-4a5c-85b8-b2febeb2003d, slug=gfi, name=Graduate Futures Institute
+2026-03-25 17:33:15.429 [info] [Sitemap] Base URL: https://graduatefutures.org
+2026-03-25 17:33:15.819 [warning] [Sitemap] event.tenant_id not recognised by PostgREST, retrying without tenant filter
+2026-03-25 17:33:16.200 [error] [Sitemap] Events query error: {"code":"42703","details":null,"hint":null,"message":"column event.updated_at does not exist"}
+2026-03-25 17:33:16.201 [error] [Sitemap] Articles query error: {"code":"42703","details":null,"hint":null,"message":"column blog_post.updated_at does not exist"}
+2026-03-25 17:33:16.201 [error] [Sitemap] News query error: {"code":"42703","details":null,"hint":null,"message":"column news_post.updated_at does not exist"}
+2026-03-25 17:33:16.201 [error] [Sitemap] Jobs query error: {"code":"42703","details":null,"hint":null,"message":"column job_posting.updated_at does not exist"}
+2026-03-25 17:33:16.201 [error] [Sitemap] Pages query error: {"code":"42703","details":null,"hint":null,"message":"column i_edit_page.updated_at does not exist"}
+2026-03-25 17:33:16.201 [info] [Sitemap] Query results - events: null, articles: null, news: null, jobs: null, pages: null

@@ -1,0 +1,11 @@
+{
+  "offlineReplay": "exact_match",
+  "workbookChecksumVerified": true,
+  "snapshotByteChecksumVerified": true,
+  "generatorChecksumsVerified": true,
+  "sourceRows": 1445,
+  "allMemberOnlyRowsRemainRestricted": true,
+  "spreadsheetRowsVerified": 1445,
+  "tests": "14 passed",
+  "databaseWrites": 0
+}

@@ -1,0 +1,78 @@
+{
+  "name": "VacancyDecisionEmail",
+  "type": "object",
+  "properties": {
+    "member_group_id": {
+      "type": "string",
+      "description": "Reference to the MemberGroup this decision email belongs to"
+    },
+    "vacancy_id": {
+      "type": "string",
+      "description": "Reference to the Vacancy the decision relates to"
+    },
+    "decision_type": {
+      "type": "string",
+      "enum": [
+        "approval",
+        "decline"
+      ],
+      "description": "Whether the email was sent for an approval (award) or a decline decision"
+    },
+    "source_type": {
+      "type": "string",
+      "enum": [
+        "submission",
+        "application"
+      ],
+      "description": "Where the applicant came from: a form 'submission' or a legacy express-interest 'application'"
+    },
+    "source_id": {
+      "type": "string",
+      "description": "Id of the originating form_submission or vacancy_application row"
+    },
+    "to_email": {
+      "type": "string",
+      "format": "email",
+      "description": "Recipient email address (the applicant)"
+    },
+    "cc_email": {
+      "type": "string",
+      "description": "Optional CC recipient(s)"
+    },
+    "subject": {
+      "type": "string",
+      "description": "Email subject line"
+    },
+    "body_html": {
+      "type": "string",
+      "description": "Rich-text (HTML) email body that was sent"
+    },
+    "sent_by_email": {
+      "type": "string",
+      "description": "Email of the admin who sent the decision email"
+    },
+    "sent_by_member_id": {
+      "type": "string",
+      "description": "Member id of the admin who sent the decision email, if available"
+    },
+    "delivery_status": {
+      "type": "string",
+      "enum": [
+        "sent",
+        "failed"
+      ],
+      "default": "sent",
+      "description": "Whether the email was accepted by the mail provider"
+    },
+    "delivery_error": {
+      "type": "string",
+      "description": "Provider error string when delivery failed"
+    }
+  },
+  "required": [
+    "member_group_id",
+    "decision_type",
+    "to_email",
+    "subject"
+  ]
+}

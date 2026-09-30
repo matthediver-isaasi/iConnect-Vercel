@@ -1,0 +1,48 @@
+---
+name: Stripe membership invoice addresses
+description: Authority and recovery rules for addresses on Stripe-funded membership invoices
+---
+
+Stripe membership payments started from forms must use a normalized, payment-time Stripe billing-address snapshot for every accounting invoice. Never fall back to member, organisation, preference, or form values when that Stripe snapshot is missing or unreadable.
+
+**Why:** Mutable application records can drift after payment, while the payer's verified Stripe address is the authoritative invoice address. Silent fallback creates incorrect accounting documents.
+
+**How to apply:** Annual PaymentIntents snapshot into Stripe payment metadata and form payment metadata where available; monthly Checkout snapshots live with the billing agreement. Initial invoicing, webhooks, reconciliation, renewal cron, instalment posting, and admin retries must recover the same snapshot and fail retryably if it cannot be established. Non-Stripe methods keep their existing resolver.
+
+Compatibility must not turn malformed canonical evidence into permission to use another snapshot. A legacy payment-time snapshot is acceptable only when the canonical snapshot is absent, not when it is present but invalid.
+
+**Why:** Choosing whichever address validates would silently change invoice authority on replay. Repair the consumer contract rather than backfilling immutable consent terms or copying a current Customer address.
+
+**How to apply:** Keep producer-to-consumer regression tests using real persisted metadata shapes, alongside invalid-canonical/valid-legacy cases; consumer-only fixtures can conceal a namespace mismatch.
+
+Form membership payments may not have a valid payer email before payment. A required Stripe Customer must still be created without email using a deterministic idempotency key; never pass the unvalidated source email as `receipt_email`.
+
+**Why:** Stripe Customers can collect the authoritative billing address without an email, while rejecting the payment before Elements opens would make otherwise valid public membership forms unpayable.
+
+**How to apply:** Normalize email once for required Customer preparation and reuse only that normalized value for Stripe receipt fields. Pending pre-change PaymentIntents without a Customer must be cancelled and replaced before reuse.
+
+Copying a Stripe billing address into application records is a separate obligation from accounting and monthly-plan setup. Monthly Checkout completion alone is not evidence that money was received.
+
+**Why:** Subscription setup can finish before a successful instalment; using setup completion as payment success would modify profiles from pending or zero-payment checkouts. Conversely, a profile-mapping failure must not invalidate the charge or replace the invoice address with mutable profile data.
+
+**How to apply:** Gate profile mappings on verified payment evidence, preserve their own atomic completion record, and retain the original Stripe snapshot as accounting authority regardless of profile-processing retries.
+
+Do not impose membership's reusable-Customer requirement on ordinary form address mappings.
+
+**Why:** Ordinary PaymentIntents can validly have no Customer. Reusing a strict membership capture helper without distinguishing the payment purpose leaves a successful ordinary charge permanently unprocessable.
+
+**How to apply:** Keep Customer requirements strict for membership accounting, but allow verified customerless address capture for ordinary form mappings. Test that branch through snapshot persistence and the record-mapping retry, not just mocked browser confirmation.
+
+For one-off PaymentIntents, the only acceptable late recovery source is
+`PaymentIntent.latest_charge` → `Charge.billing_details.address`. PaymentMethod
+billing details, Customer addresses, and PaymentIntent metadata can be edited
+after the charge and are not payment-time evidence. Persist the first normalized
+charge snapshot with a write-once database operation; if that evidence cannot
+be retrieved, leave the paid completion retryable/attention-required rather
+than silently substituting mutable data.
+
+Monthly plan creation must not depend on profile address mapping when that mapping's payment proof is recorded on the plan itself.
+
+**Why:** The monthly processor returned an address-pending response before membership binding, while mapping waited for a paid invoice recorded on the still-nonexistent plan. Every retry repeated the same dependency cycle.
+
+**How to apply:** Preserve payment-gated address writes as an independent pending obligation. Only a successful full processor response with an explicit first-payment-wait signal may let monthly setup proceed; an early partial response or a created member alone does not prove that structured actions and relationships completed. Do not turn setup confirmation into payment proof.

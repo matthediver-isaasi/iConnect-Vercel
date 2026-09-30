@@ -8,7 +8,21 @@
       },
       "url": {
         "type": "string",
-        "description": "Page URL/slug (leave empty for parent menus)"
+        "description": "Internal page slug, or a complete HTTP(S) URL for external links (leave empty for parent menus)"
+      },
+      "link_type": {
+        "type": "string",
+        "enum": [
+          "internal",
+          "external"
+        ],
+        "default": "internal",
+        "description": "Whether the destination is an internal portal page or an external website"
+      },
+      "open_in_new_tab": {
+        "type": "boolean",
+        "default": false,
+        "description": "For external links, whether to open the destination in a new tab"
       },
       "icon": {
         "type": "string",

@@ -1,0 +1,26 @@
+{
+    "name": "IEditPageFolder",
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string",
+        "description": "Folder name"
+      },
+      "parent_id": {
+        "type": "string",
+        "description": "Reference to parent IEditPageFolder entity for nested folders (optional)"
+      },
+      "display_order": {
+        "type": "number",
+        "default": 0,
+        "description": "Order in which this folder should appear within its parent"
+      },
+      "microsite_id": {
+        "type": "string",
+        "description": "Microsite this folder belongs to in the admin page manager (task #2534). Null = primary tenant site. Admin-only organisation metadata; does not affect public rendering, navigation, or routing."
+      }
+    },
+    "required": [
+      "name"
+    ]
+  }

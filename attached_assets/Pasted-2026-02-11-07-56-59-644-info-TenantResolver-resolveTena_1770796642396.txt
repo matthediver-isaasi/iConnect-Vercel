@@ -1,0 +1,28 @@
+2026-02-11 07:56:59.644 [info] [TenantResolver] resolveTenantFromRequest called
+2026-02-11 07:56:59.644 [info] [TenantResolver] Params - tenant: undefined domain: undefined
+2026-02-11 07:56:59.644 [info] [TenantResolver] Falling back to host-based resolution, hostname: gfi.dev.iconn.app
+2026-02-11 07:56:59.644 [info] [TenantResolver] resolveTenantFromHost called with: gfi.dev.iconn.app
+2026-02-11 07:56:59.644 [info] [TenantResolver] Cache hit for: gfi.dev.iconn.app
+2026-02-11 07:56:59.644 [info] [TenantContext] About to call getSessionTenantUser
+2026-02-11 07:56:59.645 [info] [Session] getSession: Looking up session: 088f8c34
+2026-02-11 07:56:59.774 [info] [Session] getSession: Session found, userType: member
+2026-02-11 07:56:59.774 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"088f8c34","userType":"member","memberId":"9ac39222-22b8-457e-a5df-dfca45a99eb6","identityId":"dc156a30-ae8d-4aee-b965-b54fe4b17105","tenantId":"fd82da65-aab7-4a5c-85b8-b2febeb2003d"}
+2026-02-11 07:56:59.774 [info] [Session] Found member session with identityId, attempting promotion
+2026-02-11 07:56:59.995 [info] [Session] No tenant_user record found for identity promotion
+2026-02-11 07:56:59.995 [info] [Session] Member session promotion failed
+2026-02-11 07:56:59.995 [info] [TenantContext] getSessionTenantUser returned: null
+2026-02-11 07:56:59.995 [info] [TenantContext] Checking for member session...
+2026-02-11 07:56:59.995 [info] [Session] getSession: Looking up session: 088f8c34
+2026-02-11 07:57:00.129 [info] [Session] getSession: Session found, userType: member
+2026-02-11 07:57:00.129 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"088f8c34","userType":"member","memberId":"9ac39222-22b8-457e-a5df-dfca45a99eb6"}
+2026-02-11 07:57:00.252 [info] [TenantContext] Member found: {
+  memberId: '9ac39222-22b8-457e-a5df-dfca45a99eb6',
+  organizationId: 'ccbbbd4d-12e8-4e9e-b49e-cd29979623ae'
+}
+2026-02-11 07:57:00.252 [info] [TenantContext] Tenant from member: fd82da65-aab7-4a5c-85b8-b2febeb2003d
+2026-02-11 07:57:00.485 [error] [Membership Tiers] Error updating config: {
+  code: 'PGRST204',
+  details: null,
+  hint: null,
+  message: "Could not find the 'structure_field_id' column of 'membership_tier_config' in the schema cache"
+}

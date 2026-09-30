@@ -137,6 +137,27 @@
         },
         "default": [],
         "description": "Original filenames of uploaded documents"
+      },
+      "external_source": {
+        "type": "string",
+        "description": "External job-feed provider, for example adzuna"
+      },
+      "external_id": {
+        "type": "string",
+        "description": "Provider-owned stable vacancy identifier"
+      },
+      "external_url": {
+        "type": "string",
+        "description": "Provider redirect URL for applications"
+      },
+      "source_attribution": {
+        "type": "string",
+        "description": "Public provider attribution label"
+      },
+      "external_last_seen_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "Most recent successful feed refresh which included this vacancy"
       }
     },
     "required": [

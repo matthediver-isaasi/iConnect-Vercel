@@ -1,0 +1,29 @@
+2026-04-20 18:21:40.901 [info] [TenantResolver] resolveTenantFromRequest called
+2026-04-20 18:21:40.901 [info] [TenantResolver] Params - tenant: undefined domain: undefined
+2026-04-20 18:21:40.901 [info] [TenantResolver] Falling back to host-based resolution, hostname: dev.iconn.app
+2026-04-20 18:21:40.901 [info] [TenantResolver] resolveTenantFromHost called with: dev.iconn.app
+2026-04-20 18:21:40.901 [info] [TenantResolver] Parsed host: dev.iconn.app
+2026-04-20 18:21:40.901 [info] [TenantResolver] Subdomain detected, slug: null
+2026-04-20 18:21:40.901 [info] [TenantResolver] No slug or custom domain found
+2026-04-20 18:21:40.901 [info] [TenantContext] About to call getSessionTenantUser
+2026-04-20 18:21:40.901 [info] [Session] getSession: Looking up session: 41bd1630
+2026-04-20 18:21:41.033 [info] [Session] getSession: Session found, userType: tenant_user
+2026-04-20 18:21:41.034 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"41bd1630","userType":"tenant_user","tenantUserId":"dc156a30-ae8d-4aee-b965-b54fe4b17105","identityId":"dc156a30-ae8d-4aee-b965-b54fe4b17105","tenantId":"21296ad6-1350-483a-a90c-1b06ece70501"}
+2026-04-20 18:21:41.034 [info] [Session] Found tenant_user session, continuing with normal handling
+2026-04-20 18:21:41.334 [info] [Session] Verified via unified identity system: sharon@onlinem.co.uk
+2026-04-20 18:21:41.334 [info] [TenantContext] getSessionTenantUser returned: tenant_user found
+2026-04-20 18:21:41.334 [info] [Session] getSession: Looking up session: 41bd1630
+2026-04-20 18:21:41.478 [info] [Session] getSession: Session found, userType: tenant_user
+2026-04-20 18:21:41.478 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"41bd1630","userType":"tenant_user"}
+2026-04-20 18:21:41.887 [info] [ZohoCRM] Refreshing access token for tenant: 21296ad6-1350-483a-a90c-1b06ece70501
+2026-04-20 18:21:42.870 [info] [ZohoCRM] getTenantZohoCrmDomains - raw credentials: {
+  hasCredentials: true,
+  storedAccountsDomain: '3e2b29797c3924fa9abd519514fbbf27:30aec9ce7945ed9d90309b0c8b097ec61bff82d84dda6ae920034252084b1408',
+  storedCrmDomain: 'https://www.zohoapis.eu',
+  storedRegion: '565c574e96e8b189044a9e5ce7b0cc73:c10047c826f32bc0e2cd7eaa50bed38e'
+}
+2026-04-20 18:21:42.924 [info] [ZohoCRM] Resolved accounts_domain: https://accounts.zoho.eu
+2026-04-20 18:21:42.978 [error] [ZohoCRM] Decryption error: Invalid initialization vector
+2026-04-20 18:21:42.978 [info] [ZohoCRM] Using stored crm_domain: https://www.zohoapis.eu
+2026-04-20 18:21:42.978 [info] [ZohoCRM] Final domains - accounts: https://accounts.zoho.eu crm: https://www.zohoapis.eu
+2026-04-20 18:21:42.978 [info] [ZohoCRM] API call: GET https://www.zohoapis.eu/crm/v3/settings/fields?module=Accounts

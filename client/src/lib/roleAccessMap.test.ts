@@ -1,0 +1,617 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import {
+  LEGACY_TO_NEW_MAPPING,
+  ROLE_ACCESS_MAP,
+  getAllResourceIds,
+  migrateLegacyFeatureId,
+  migrateLegacyExcludedFeatures,
+} from "./roleAccessMap.ts";
+import { isResourceExcluded, isResourceVisible, setDbRoleAccessOverlay } from "./roleVisibility.ts";
+
+const validResourceIds = new Set(getAllResourceIds());
+
+/**
+ * Snapshot of known legacy feature IDs and the canonical key each must resolve
+ * to. This is the regression guard: if a page URL or feature ID is renamed in
+ * ROLE_ACCESS_MAP but LEGACY_TO_NEW_MAPPING is not updated in lockstep, the
+ * assertions below fail before the gap can reach production and silently leave
+ * pages visible that should be hidden.
+ *
+ * Covers every legacy naming family found in the codebase:
+ *   page_user_*, page_admin_*, page_*, element_*, action_*, payment_*,
+ *   feature_*, edit_*, view_*, admin_can_*, and dotted legacy aliases.
+ */
+const LEGACY_ID_SNAPSHOT: Record<string, string> = {
+  // page_user_* family
+  page_user_BuyProgramTickets: "commerce.buy-tickets",
+  page_user_Events: "events.browse-events",
+  page_user_Preferences: "user.about-me",
+  page_user_MyJobPostings: "jobs.my-postings",
+  page_user_NMCJournal: "content.nmc-journal",
+  page_CpdPoints: "cpd.member_cpd",
+  page_user_CpdPoints: "cpd.member_cpd",
+  page_admin_CpdPoints: "cpd.member_cpd",
+  // page_admin_* family
+  page_admin_RoleManagement: "admin.role-management",
+  page_admin_DiscountCodeManagement: "events.discount-codes",
+  page_admin_PageBuilder: "site-builder",
+  page_admin_EventCheckInDashboard: "events.event-checkin",
+  page_admin_BriefSettings: "content.brief-settings",
+  page_admin_MembershipPaymentReport: "commerce.membership-payment-report",
+  // page_* family
+  page_Events: "events.browse-events",
+  page_CancellationRequests: "commerce.event-cancellations",
+  page_MembershipPaymentReport: "commerce.membership-payment-report",
+  page_MembersList: "crm.members",
+  page_BriefManagement: "publications.briefmanagement",
+  page_BriefSettings: "content.brief-settings",
+  page_PhotoGalleries: "content.gallery",
+  page_GalleryDirectory: "content.gallery.directory",
+  page_EventCheckIn: "events.event-checkin",
+  page_OrganisationEngagementReport: "reports.org-engagement",
+  page_admin_OrganisationEngagementReport: "reports.org-engagement",
+  page_user_CPDCertificateTemplates: "cpd.certificate-templates",
+  page_admin_CPDCertificateTemplates: "cpd.certificate-templates",
+  // element_* family
+  element_EventsSearch: "events.browse-events.search-filters",
+  element_SelfRegistration: "events.event-details.self-registration",
+  element_NewsTickerBar: "system.news-ticker.display",
+  // action_* / payment_* / feature_* / edit_* / view_* / admin_can_* families
+  action_org_logo_edit: "membership.organisation-directory.edit-logo",
+  action_article_edit: "content.articles.edit",
+  payment_training_vouchers: "commerce.buy-tickets.use-vouchers",
+  payment_training_fund: "commerce.buy-tickets.use-training-fund",
+  feature_PostJobOnBehalfOfOrg: "jobs.post-job.post-on-behalf",
+  edit_professional_biography: "communication.preferences.edit-biography",
+  view_member_biography: "membership.member-directory.view-biography",
+  admin_can_edit_members: "admin.member-role-assignment.edit-members",
+  admin_can_manage_communications: "communication",
+  // dotted legacy aliases (old canonical keys that were later renamed)
+  "membership.my-organisation": "organisation.my-organisation",
+  "membership.organisation-preferences": "organisation.field-permissions",
+  "data": "admin.data-studio",
+  "data.custom-objects": "admin.data-studio",
+  "page_CustomObjectsAdmin": "admin.data-studio",
+  "page_admin_CustomObjectsAdmin": "admin.data-studio",
+  // "communication.preferences" is a live resource, NOT a legacy alias: it must
+  // resolve to itself so its exclusions are honored (a stale alias to
+  // "user.about-me" previously shadowed it and prevented hiding the page).
+  "communication.preferences": "communication.preferences",
+};
+
+test("snapshot: every known legacy ID resolves to its expected canonical key", () => {
+  for (const [legacyId, expected] of Object.entries(LEGACY_ID_SNAPSHOT)) {
+    assert.equal(
+      migrateLegacyFeatureId(legacyId),
+      expected,
+      `Legacy ID "${legacyId}" should resolve to "${expected}"`,
+    );
+  }
+});
+
+test("snapshot: every expected canonical key exists in ROLE_ACCESS_MAP", () => {
+  for (const [legacyId, expected] of Object.entries(LEGACY_ID_SNAPSHOT)) {
+    assert.ok(
+      validResourceIds.has(expected),
+      `Snapshot for "${legacyId}" points at "${expected}", which is not a real resource in ROLE_ACCESS_MAP`,
+    );
+  }
+});
+
+test("Member CPD is a CPD page and honors canonical, parent and legacy exclusions", () => {
+  assert.deepEqual(
+    ROLE_ACCESS_MAP.find(module => module.id === "cpd")?.pages.find(page => page.id === "cpd.member_cpd"),
+    { id: "cpd.member_cpd", label: "Member CPD" },
+  );
+  assert.equal(isResourceVisible([], "cpd.member_cpd"), true);
+  for (const excluded of ["cpd", "cpd.member_cpd", "page_CpdPoints", "page_user_CpdPoints", "page_admin_CpdPoints"]) {
+    assert.equal(isResourceExcluded([excluded], "cpd.member_cpd"), true);
+  }
+  assert.equal(isResourceExcluded(["cpd.member_cpd"], "cpd.points-corrections"), false);
+  assert.equal(isResourceExcluded(["cpd.points-corrections"], "cpd.member_cpd"), false);
+});
+
+test("CPD certificate templates are a dedicated main portal capability", () => {
+  const cpdModule = ROLE_ACCESS_MAP.find((module) => module.id === "cpd");
+  assert.ok(cpdModule, "CPD must be registered as a top-level portal module");
+  assert.equal(cpdModule.label, "CPD");
+  assert.deepEqual(
+    cpdModule.pages.find((page) => page.id === "cpd.certificate-templates"),
+    {
+      id: "cpd.certificate-templates",
+      label: "Certificate Templates",
+    },
+  );
+  assert.equal(
+    migrateLegacyFeatureId("page_CPDCertificateTemplates"),
+    "cpd.certificate-templates",
+  );
+  assert.equal(
+    migrateLegacyFeatureId("page_user_CPDCertificateTemplates"),
+    "cpd.certificate-templates",
+  );
+  assert.equal(
+    migrateLegacyFeatureId("page_admin_CPDCertificateTemplates"),
+    "cpd.certificate-templates",
+  );
+  assert.equal(
+    isResourceExcluded(["cpd"], "cpd.certificate-templates"),
+    true,
+    "excluding the CPD portal module must gate certificate-template management",
+  );
+});
+
+test("gallery directory is a separately controllable gallery capability", () => {
+  const content = ROLE_ACCESS_MAP.find((module) => module.id === "content");
+  const gallery = content?.pages.find((page) => page.id === "content.gallery");
+  assert.ok(gallery?.features?.some((feature) => feature.id === "content.gallery.directory"));
+  assert.equal(migrateLegacyFeatureId("page_GalleryDirectory"), "content.gallery.directory");
+  assert.equal(migrateLegacyFeatureId("page_user_GalleryDirectory"), "content.gallery.directory");
+});
+
+test("NMC Journal is a canonical page permission under Content", () => {
+  const content = ROLE_ACCESS_MAP.find((module) => module.id === "content");
+  assert.deepEqual(
+    content?.pages.find((page) => page.id === "content.nmc-journal"),
+    {
+      id: "content.nmc-journal",
+      label: "NMC Journal",
+    },
+  );
+  assert.equal(validResourceIds.has("content.nmc-journal"), true);
+  assert.equal(getPageForResource("content.nmc-journal"), "content.nmc-journal");
+  assert.equal(getModuleForResource("content.nmc-journal"), "content");
+});
+
+test("NMC Journal client access honors direct, parent, and legacy exclusions", () => {
+  assert.equal(isResourceVisible([], "content.nmc-journal"), true, "allowed role sees the link");
+  assert.equal(
+    isResourceExcluded(["content.nmc-journal"], "content.nmc-journal"),
+    true,
+    "canonical deny hides the link",
+  );
+  assert.equal(
+    isResourceExcluded(["content"], "content.nmc-journal"),
+    true,
+    "Content parent deny hides the link",
+  );
+  assert.equal(
+    isResourceExcluded(["page_user_NMCJournal"], "content.nmc-journal"),
+    true,
+    "stored legacy deny still hides the canonical link",
+  );
+  assert.equal(
+    isResourceExcluded(["content.nmc-journal"], "page_user_NMCJournal"),
+    true,
+    "legacy navigation key is checked against a canonical deny",
+  );
+  assert.equal(
+    isResourceExcluded(["content.nmc-journal"], "content.resources"),
+    false,
+    "the Journal deny does not affect an unrelated Content page",
+  );
+});
+
+test("individual membership payment report is a dedicated Commerce capability", () => {
+  const commerce = ROLE_ACCESS_MAP.find((module) => module.id === "commerce");
+  assert.deepEqual(
+    commerce?.pages.find((page) => page.id === "commerce.membership-payment-report"),
+    {
+      id: "commerce.membership-payment-report",
+      label: "Individual Membership Payment Report",
+    },
+  );
+  assert.equal(
+    migrateLegacyFeatureId("page_MembershipPaymentReport"),
+    "commerce.membership-payment-report",
+  );
+  assert.equal(
+    migrateLegacyFeatureId("page_admin_MembershipPaymentReport"),
+    "commerce.membership-payment-report",
+  );
+  assert.equal(
+    isResourceExcluded(["commerce"], "commerce.membership-payment-report"),
+    true,
+  );
+});
+
+test("organisation engagement report is a dedicated Reports capability", () => {
+  const reports = ROLE_ACCESS_MAP.find((module) => module.id === "reports");
+  assert.deepEqual(reports, {
+    id: "reports",
+    label: "Reports",
+    icon: "BarChart3",
+    pages: [
+      {
+        id: "reports.org-engagement",
+        label: "Organisation Engagement Report",
+      },
+    ],
+  });
+  assert.equal(
+    migrateLegacyFeatureId("page_OrganisationEngagementReport"),
+    "reports.org-engagement",
+  );
+  assert.equal(
+    migrateLegacyFeatureId("page_admin_OrganisationEngagementReport"),
+    "reports.org-engagement",
+  );
+  assert.equal(isResourceExcluded(["reports"], "reports.org-engagement"), true);
+  assert.equal(
+    isResourceExcluded(["reports.org-engagement"], "reports.org-engagement"),
+    true,
+  );
+  assert.equal(
+    isResourceExcluded(["page_OrganisationEngagementReport"], "reports.org-engagement"),
+    true,
+  );
+  assert.equal(
+    isResourceExcluded(["reports.org-engagement"], "page_admin_OrganisationEngagementReport"),
+    true,
+  );
+});
+
+test("every LEGACY_TO_NEW_MAPPING target is a real resource in ROLE_ACCESS_MAP", () => {
+  const broken: string[] = [];
+  for (const [legacyId, canonicalId] of Object.entries(LEGACY_TO_NEW_MAPPING)) {
+    if (!validResourceIds.has(canonicalId)) {
+      broken.push(`${legacyId} -> ${canonicalId}`);
+    }
+  }
+  assert.deepEqual(
+    broken,
+    [],
+    `These legacy mappings point at canonical keys that no longer exist in ROLE_ACCESS_MAP. ` +
+      `Update the mapping (or re-add the resource) so stored exclusions are not silently ignored:\n` +
+      broken.join("\n"),
+  );
+});
+
+test("migrateLegacyFeatureId is idempotent (no legacy target is itself legacy)", () => {
+  for (const legacyId of Object.keys(LEGACY_TO_NEW_MAPPING)) {
+    const once = migrateLegacyFeatureId(legacyId);
+    const twice = migrateLegacyFeatureId(once);
+    assert.equal(
+      once,
+      twice,
+      `Mapping for "${legacyId}" resolves to "${once}" which is itself a legacy ID resolving to "${twice}". ` +
+        `Mapping targets must be canonical, not chained.`,
+    );
+  }
+});
+
+test("canonical resource IDs are passed through unchanged", () => {
+  for (const canonicalId of validResourceIds) {
+    assert.equal(
+      migrateLegacyFeatureId(canonicalId),
+      canonicalId,
+      `Canonical ID "${canonicalId}" must not be rewritten by migrateLegacyFeatureId`,
+    );
+  }
+});
+
+test("unknown IDs pass through unchanged", () => {
+  assert.equal(migrateLegacyFeatureId("totally_unknown_id"), "totally_unknown_id");
+  assert.equal(migrateLegacyFeatureId(""), "");
+});
+
+test("stored legacy exclusions still hide the canonical resource", () => {
+  // A role storing a stale legacy ID must still hide the canonical resource...
+  assert.equal(isResourceExcluded(["page_CancellationRequests"], "commerce.event-cancellations"), true);
+  assert.equal(isResourceVisible(["page_CancellationRequests"], "commerce.event-cancellations"), false);
+
+  // ...and querying with a legacy ID against a canonical exclusion also works.
+  assert.equal(isResourceExcluded(["commerce.event-cancellations"], "page_CancellationRequests"), true);
+
+  // A legacy module/page exclusion cascades to its children.
+  assert.equal(isResourceExcluded(["page_admin_PageBuilder"], "site-builder.pages"), true);
+  assert.equal(isResourceExcluded(["data.custom-objects"], "admin.data-studio"), true);
+  assert.equal(
+    isResourceExcluded(["admin.data-studio"], "page_admin_CustomObjectsAdmin"),
+    true,
+  );
+  assert.equal(
+    isResourceExcluded(["data"], "data.custom-objects.manage-data-model"),
+    true,
+  );
+
+  // Unrelated resources remain visible.
+  assert.equal(isResourceExcluded(["page_CancellationRequests"], "events.browse-events"), false);
+});
+
+test("migrateLegacyExcludedFeatures maps only known legacy IDs", () => {
+  const result = migrateLegacyExcludedFeatures([
+    "page_CancellationRequests",
+    "totally_unknown_id",
+  ]);
+  assert.deepEqual(result, ["commerce.event-cancellations"]);
+});
+
+test("ROLE_ACCESS_MAP has no duplicate resource IDs", () => {
+  const seen = new Set<string>();
+  const duplicates: string[] = [];
+  for (const module of ROLE_ACCESS_MAP) {
+    const push = (id: string) => {
+      if (seen.has(id)) duplicates.push(id);
+      seen.add(id);
+    };
+    push(module.id);
+    for (const page of module.pages) {
+      push(page.id);
+      for (const feature of page.features ?? []) push(feature.id);
+    }
+  }
+  assert.deepEqual(duplicates, [], `Duplicate resource IDs found: ${duplicates.join(", ")}`);
+});
+
+// ---------------------------------------------------------------------------
+// Map-driven parent resolution (task: blocked-section toggle flips)
+// Several ids nest under parents that do not match their dot-prefix; reads
+// and writes must agree via the real ROLE_ACCESS_MAP nesting.
+// ---------------------------------------------------------------------------
+import {
+  buildRoleAccessHierarchy,
+  getModuleForResource,
+  getPageForResource,
+  isModuleId,
+  isPageId,
+} from "./roleAccessMap.ts";
+import { toggleResourceExclusion, getPageExclusionState, getModuleExclusionState } from "./roleVisibility.ts";
+import * as generated from "../../../api/_lib/roleAccessHierarchy.generated.js";
+
+// [childId, containing pageId, containing moduleId]
+const MISMATCHED: Array<[string, string | null, string]> = [
+  ["content.articles.edit", "content.articles", "content"],
+  ["content.guest-writers", "content.articles", "content"],
+  ["content.news-editor", "content.news", "content"],
+  ["content.news.edit", "content.news", "content"],
+  ["content.resources.show-count", "content.resources", "content"],
+  ["content.resource-settings", "content.resources", "content"],
+  ["admin.canvas-links-manager", "admin.canvas-links-manager", "site-builder"],
+  ["dashboard.view", "dashboard.view", "system"],
+  ["dashboard.shared-widgets.manage", "dashboard.view", "system"],
+  ["dashboard.personal-widgets.manage", "dashboard.view", "system"],
+  ["data.custom-objects.manage-data-model", "admin.data-studio", "admin"],
+];
+
+test("parent resolution follows the map, not the dot-prefix", () => {
+  for (const [child, page, mod] of MISMATCHED) {
+    assert.equal(getPageForResource(child), page, `page of ${child}`);
+    assert.equal(getModuleForResource(child), mod, `module of ${child}`);
+  }
+  // mismatched pages/features must not be misclassified by dot count
+  assert.equal(isPageId("content.guest-writers"), false, "guest-writers is a feature");
+  assert.equal(isPageId("dashboard.view"), true);
+  assert.equal(isModuleId("dashboard.view"), false);
+  // prefix fallback still works for ids not in the map
+  assert.equal(getModuleForResource("unknown.page.feature"), "unknown");
+  assert.equal(getPageForResource("unknown.page.feature"), "unknown.page");
+});
+
+test("parent-level exclusions gate mismatched children", () => {
+  // page-level exclusion gates features whose ids don't share the page prefix
+  assert.equal(isResourceExcluded(["content.articles"], "content.guest-writers"), true);
+  assert.equal(isResourceExcluded(["content.news"], "content.news-editor"), true);
+  assert.equal(isResourceExcluded(["content.resources"], "content.resource-settings"), true);
+  // module-level exclusion gates pages under a differently-prefixed module
+  assert.equal(isResourceExcluded(["site-builder"], "admin.canvas-links-manager"), true);
+  assert.equal(isResourceExcluded(["system"], "dashboard.view"), true);
+  assert.equal(isResourceExcluded(["system"], "dashboard.shared-widgets.manage"), true);
+  assert.equal(
+    isResourceExcluded(["admin.data-studio"], "data.custom-objects.manage-data-model"),
+    true,
+  );
+  // sanity: unrelated parents don't gate them
+  assert.equal(isResourceExcluded(["admin"], "admin.canvas-links-manager"), false);
+  assert.equal(isResourceExcluded(["dashboard"], "dashboard.view"), false);
+});
+
+test("blocking a section keeps mismatched children effectively excluded", () => {
+  // Start with an explicit child exclusion, then block the parent page:
+  // the child's explicit entry is collapsed into the page entry, and the
+  // read side must still see it excluded (this was the off->on flip bug).
+  for (const [child, page] of MISMATCHED) {
+    if (!page || page === child) continue;
+    const result = toggleResourceExclusion([child], page, true);
+    assert.ok(result.includes(page));
+    assert.ok(!result.includes(child), `${child} collapsed into ${page}`);
+    assert.equal(isResourceExcluded(result, child), true, `${child} still excluded after blocking ${page}`);
+  }
+  // Same at module level for mismatched pages
+  const modResult = toggleResourceExclusion(["admin.canvas-links-manager"], "site-builder", true);
+  assert.ok(modResult.includes("site-builder"));
+  assert.equal(isResourceExcluded(modResult, "admin.canvas-links-manager"), true);
+  const sysResult = toggleResourceExclusion(["dashboard.view"], "system", true);
+  assert.equal(isResourceExcluded(sysResult, "dashboard.view"), true);
+});
+
+test("re-enabling one child under a blocked parent keeps siblings blocked (mismatched ids)", () => {
+  // Feature under blocked page
+  let result = toggleResourceExclusion(["content.articles"], "content.guest-writers", false);
+  assert.equal(isResourceExcluded(result, "content.guest-writers"), false, "re-enabled child visible");
+  assert.equal(isResourceExcluded(result, "content.articles.edit"), true, "sibling stays blocked");
+  assert.equal(isResourceExcluded(result, "content.my-articles"), true, "sibling stays blocked");
+  assert.equal(getPageExclusionState(result, "content.articles"), "some");
+
+  // Page under blocked module (mismatched prefix)
+  result = toggleResourceExclusion(["site-builder"], "admin.canvas-links-manager", false);
+  assert.equal(isResourceExcluded(result, "admin.canvas-links-manager"), false);
+  assert.equal(isResourceExcluded(result, "site-builder.pages"), true, "other site-builder pages stay blocked");
+  assert.equal(getModuleExclusionState(result, "site-builder"), "some");
+
+  result = toggleResourceExclusion(["system"], "dashboard.view", false);
+  assert.equal(isResourceExcluded(result, "dashboard.view"), false);
+  assert.equal(isResourceExcluded(result, "system.site-map"), true);
+});
+
+// ---------------------------------------------------------------------------
+// DB-derived accessMap support (task: keep toggles honest when the access
+// list comes from role_access_item). Helpers must resolve hierarchy from the
+// SAME map the page renders, not always the hardcoded ROLE_ACCESS_MAP.
+// ---------------------------------------------------------------------------
+test("helpers honor a custom accessMap whose nesting diverges from ROLE_ACCESS_MAP", () => {
+  // A DB tree that nests a page under a different module than the hardcoded
+  // map, and includes a brand-new key absent from ROLE_ACCESS_MAP.
+  const dbMap = [
+    {
+      id: "alpha",
+      label: "Alpha",
+      pages: [
+        // in ROLE_ACCESS_MAP this page lives under "site-builder"
+        { id: "admin.canvas-links-manager", label: "Canvas Links Manager" },
+        {
+          id: "alpha.new-page",
+          label: "New Page",
+          features: [{ id: "alpha.new-page.brand-new", label: "Brand New Feature" }],
+        },
+      ],
+    },
+    {
+      id: "beta",
+      label: "Beta",
+      pages: [{ id: "beta.other", label: "Other" }],
+    },
+  ];
+
+  // Parent resolution follows the custom map
+  assert.equal(getModuleForResource("admin.canvas-links-manager", dbMap), "alpha");
+  assert.equal(getPageForResource("alpha.new-page.brand-new", dbMap), "alpha.new-page");
+  assert.equal(isModuleId("alpha", dbMap), true);
+  assert.equal(isPageId("alpha.new-page", dbMap), true);
+
+  // Module exclusion gates the re-nested page via the custom map...
+  assert.equal(isResourceExcluded(["alpha"], "admin.canvas-links-manager", dbMap), true);
+  // ...AND still via the hardcoded map's nesting (Task #3349: matching is a
+  // fail-safe UNION of old-map and DB-map placement, so exclusions stored
+  // under the old canonical parent never silently stop matching).
+  assert.equal(isResourceExcluded(["site-builder"], "admin.canvas-links-manager", dbMap), true);
+  // New keys unknown to ROLE_ACCESS_MAP are gated by their custom-map parents
+  assert.equal(isResourceExcluded(["alpha.new-page"], "alpha.new-page.brand-new", dbMap), true);
+
+  // Toggling a module off collapses child entries using the custom nesting
+  const excluded = toggleResourceExclusion(["admin.canvas-links-manager"], "alpha", true, dbMap);
+  assert.ok(excluded.includes("alpha"));
+  assert.ok(!excluded.includes("admin.canvas-links-manager"), "child collapsed into custom-map module");
+  assert.equal(isResourceExcluded(excluded, "admin.canvas-links-manager", dbMap), true);
+
+  // Re-enabling one page under the blocked module keeps siblings blocked
+  const reEnabled = toggleResourceExclusion(excluded, "admin.canvas-links-manager", false, dbMap);
+  assert.equal(isResourceExcluded(reEnabled, "admin.canvas-links-manager", dbMap), false);
+  assert.equal(isResourceExcluded(reEnabled, "alpha.new-page", dbMap), true, "sibling page stays blocked");
+  assert.equal(getModuleExclusionState(reEnabled, "alpha", dbMap), "some");
+
+  // Section-state helpers read from the custom map
+  assert.equal(getModuleExclusionState(["alpha"], "alpha", dbMap), "all");
+  assert.equal(getPageExclusionState(["alpha.new-page.brand-new"], "alpha.new-page", dbMap), "some");
+});
+
+test("omitting accessMap keeps hardcoded-map behavior unchanged", () => {
+  // Spot-check that the default path is identical to passing ROLE_ACCESS_MAP.
+  const stored = ["content.articles"];
+  assert.equal(
+    isResourceExcluded(stored, "content.guest-writers"),
+    isResourceExcluded(stored, "content.guest-writers", ROLE_ACCESS_MAP),
+  );
+  assert.deepEqual(
+    toggleResourceExclusion(stored, "content.guest-writers", false).sort(),
+    toggleResourceExclusion(stored, "content.guest-writers", false, ROLE_ACCESS_MAP).sort(),
+  );
+  assert.equal(
+    getModuleExclusionState(stored, "content"),
+    getModuleExclusionState(stored, "content", ROLE_ACCESS_MAP),
+  );
+  assert.equal(
+    getPageExclusionState(stored, "content.articles"),
+    getPageExclusionState(stored, "content.articles", ROLE_ACCESS_MAP),
+  );
+});
+
+test("generated server hierarchy matches the client map (no drift)", () => {
+  const h = buildRoleAccessHierarchy(ROLE_ACCESS_MAP);
+  assert.deepEqual(
+    [...h.moduleIds].sort(), [...generated.MODULE_IDS].sort(),
+    "MODULE_IDS drifted — re-run npx tsx scripts/generate-role-access-hierarchy.mjs");
+  assert.deepEqual([...h.pageIds].sort(), [...generated.PAGE_IDS].sort(), "PAGE_IDS drifted — re-run the generator");
+  assert.deepEqual(Object.fromEntries(h.featureToPage), generated.FEATURE_TO_PAGE, "FEATURE_TO_PAGE drifted — re-run the generator");
+  assert.deepEqual(Object.fromEntries(h.resourceToModule), generated.RESOURCE_TO_MODULE, "RESOURCE_TO_MODULE drifted — re-run the generator");
+});
+
+test("generated server legacy mapping matches the client mapping (no drift)", () => {
+  assert.deepEqual(
+    (generated as any).LEGACY_TO_NEW_MAPPING,
+    LEGACY_TO_NEW_MAPPING,
+    "LEGACY_TO_NEW_MAPPING drifted — re-run npx tsx scripts/generate-role-access-hierarchy.mjs",
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Task #3349: DB-tree overlay enforcement. The role_access_item table can
+// place items under different modules than ROLE_ACCESS_MAP (production case:
+// events.discount-codes and events.pending-purchase-orders under "commerce").
+// Enforcement must match exclusions against the tree as displayed, as a UNION
+// with the hardcoded map (never removing existing matches).
+const OVERLAY_DB_ROWS = [
+  { id: "m-commerce", item_type: "module", item_key: "commerce", parent_id: null, is_active: true },
+  { id: "m-events", item_type: "module", item_key: "events", parent_id: null, is_active: true },
+  { id: "p-discount", item_type: "page", item_key: "events.discount-codes", parent_id: "m-commerce", is_active: true },
+  { id: "p-ppo", item_type: "page", item_key: "events.pending-purchase-orders", parent_id: "m-commerce", is_active: true },
+  { id: "p-browse", item_type: "page", item_key: "events.browse-events", parent_id: "m-events", is_active: true },
+  { id: "f-create", item_type: "feature", item_key: "events.browse-events.create", parent_id: "p-browse", is_active: true },
+  { id: "p-legacy", item_type: "page", item_key: "page_TicketSalesAnalytics", parent_id: "m-commerce", is_active: true },
+];
+
+test("DB overlay: module exclusion hides children as placed in the DB tree", (t) => {
+  setDbRoleAccessOverlay(OVERLAY_DB_ROWS);
+  t.after(() => setDbRoleAccessOverlay(null));
+
+  // Reported case: Commerce & Finance fully disabled must hide Discount Codes
+  // and Pending Purchase Orders Report (nav items use page_* feature ids).
+  assert.equal(isResourceExcluded(["commerce"], "events.discount-codes"), true);
+  assert.equal(isResourceExcluded(["commerce"], "page_DiscountCodeManagement"), true);
+  assert.equal(isResourceExcluded(["commerce"], "events.pending-purchase-orders"), true);
+  assert.equal(isResourceExcluded(["commerce"], "page_PendingPurchaseOrdersReport"), true);
+  // Items placed under other modules stay visible.
+  assert.equal(isResourceExcluded(["commerce"], "events.browse-events"), false);
+  // Legacy-keyed DB rows alias to their canonical id.
+  assert.equal(isResourceExcluded(["commerce"], "events.ticket-analytics"), true);
+  // Feature rows resolve page + module parents from the DB tree.
+  assert.equal(isResourceExcluded(["events.browse-events"], "events.browse-events.create"), true);
+});
+
+test("DB overlay is a union: old-map exclusions keep matching (no widening)", (t) => {
+  setDbRoleAccessOverlay(OVERLAY_DB_ROWS);
+  t.after(() => setDbRoleAccessOverlay(null));
+
+  assert.equal(isResourceExcluded(["events"], "events.discount-codes"), true);
+  assert.equal(isResourceExcluded(["page_DiscountCodeManagement"], "events.discount-codes"), true);
+  // Union also applies when a caller passes a DB-derived accessMap whose
+  // placement differs: hardcoded-map parents are still consulted.
+  const dbLikeMap = [
+    { id: "commerce", label: "Commerce & Finance", pages: [{ id: "events.discount-codes", label: "Discount Codes" }] },
+  ];
+  assert.equal(isResourceExcluded(["events"], "events.discount-codes", dbLikeMap), true);
+  assert.equal(isResourceExcluded(["commerce"], "events.discount-codes", dbLikeMap), true);
+});
+
+test("empty role_access_item table keeps hardcoded-map behavior", (t) => {
+  setDbRoleAccessOverlay([]);
+  t.after(() => setDbRoleAccessOverlay(null));
+  assert.equal(isResourceExcluded(["events"], "events.discount-codes"), true);
+  assert.equal(isResourceExcluded(["commerce"], "events.discount-codes"), false);
+});
+
+// Task #3332 regression: the Survey Reports nav item must be hidden when a
+// role excludes the canonical forms.survey-reports key, whichever identifier
+// the navigation entry uses (canonical or legacy page_* variants).
+test("survey-reports exclusion hides nav regardless of identifier variant", () => {
+  const excluded = new Set(["forms.survey-reports"]);
+  for (const id of ["forms.survey-reports", "page_SurveyReports", "page_admin_SurveyReports"]) {
+    assert.equal(
+      excluded.has(migrateLegacyFeatureId(id)),
+      true,
+      `identifier "${id}" must resolve to the excluded canonical key`
+    );
+  }
+});

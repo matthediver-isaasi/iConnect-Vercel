@@ -1,0 +1,1964 @@
+import { supabase } from './database.js';
+import { getXeroCredentials } from './xeroCredentials.js';
+import { resolveMembershipInvoiceReference } from './membershipInvoiceReference.js';
+import { accountingOperationIdentity } from './accountingOperationIdentity.js';
+import { fetchFormAccountingTransport, formAccountingTransport } from './formAccountingTransport.js';
+import { BNMS_BETA_BANK, assertBnmsBetaAccountingContext } from './bnmsBetaAccounting.js';
+import { BNMS_ALPHA_BANK, assertBnmsAlphaAccountingContext } from './bnmsAlphaAccounting.js';
+import { MANUAL_BANK_SOURCE, assertManualAccountingContext } from './bnmsManualCohort.js';
+
+const usesExactImportedContact = context =>
+  [BNMS_ALPHA_BANK.source, MANUAL_BANK_SOURCE].includes(context?.snapshot?.source);
+const importedInvoiceRpc = (context, action) =>
+  `${context?.snapshot?.source === MANUAL_BANK_SOURCE ? 'bnms_manual' : 'bnms_alpha'}_${action}_invoice`;
+
+async function alphaContact({ appTenantId, context, xeroTenantId, accessToken, fetch }) {
+  if (context?.snapshot?.source === MANUAL_BANK_SOURCE) assertManualAccountingContext(appTenantId, context);
+  else assertBnmsAlphaAccountingContext(appTenantId, context);
+  if (xeroTenantId !== context.snapshot.xero_tenant_id) throw new Error('Alpha Xero tenant mismatch');
+  const response = await fetch(`https://api.xero.com/api.xro/2.0/Contacts/${encodeURIComponent(context.contactId)}`, {
+    method: 'GET', headers: { Authorization: `Bearer ${accessToken}`, 'xero-tenant-id': xeroTenantId, Accept: 'application/json' },
+  });
+  const contacts = (await safeXeroJson(response, 'alpha-exact-contact'))?.Contacts;
+  if (contacts?.length !== 1 || contacts[0].ContactID !== context.contactId
+    || contacts[0].ContactStatus !== 'ACTIVE'
+    || contacts[0].EmailAddress?.trim().toLowerCase() !== context.contactEmail) {
+    throw new Error('Alpha exact Xero contact is inactive or ownership/email changed; review required');
+  }
+  return context.contactId;
+}
+
+async function alphaInvoiceRpc(database, name, args) {
+  const { data, error } = await database.rpc(name, args);
+  if (error || !data) throw new Error(`Alpha invoice operation blocked; review required: ${error?.message || 'missing durable evidence'}`);
+  return data;
+}
+
+// Task #4533: code-less historical BANK account, approved for this pilot only.
+// This is an allowlist, NOT a generic metadata-provided AccountID override.
+import { BNMS_PILOT_ACCOUNTING, assertBnmsPilotAccountingContext } from './bnmsPilotAccountingContext.js';
+export { BNMS_PILOT_ACCOUNTING, assertBnmsPilotAccountingContext } from './bnmsPilotAccountingContext.js';
+
+export async function validateBnmsPilotXeroAccount({
+  appTenantId, context, xeroTenantId, accessToken, fetch: request = fetch,
+}) {
+  assertBnmsPilotAccountingContext(appTenantId, context);
+  return validateBnmsXeroAccount({ appTenantId, context, xeroTenantId, accessToken, fetch: request });
+}
+
+export function assertBnmsAccountingContext(appTenantId, context) {
+  if (context?.snapshot?.source === MANUAL_BANK_SOURCE) return assertManualAccountingContext(appTenantId, context);
+  if (context?.snapshot?.source === BNMS_ALPHA_BANK.source) {
+    return assertBnmsAlphaAccountingContext(appTenantId, context);
+  }
+  return context?.snapshot?.source === BNMS_BETA_BANK.source
+    ? assertBnmsBetaAccountingContext(appTenantId, context)
+    : assertBnmsPilotAccountingContext(appTenantId, context);
+}
+
+export async function validateBnmsXeroAccount({
+  appTenantId, context, xeroTenantId, accessToken, fetch: request = fetch,
+}) {
+  const mapping = assertBnmsAccountingContext(appTenantId, context);
+  if (xeroTenantId !== mapping.xero_tenant_id) {
+    throw new Error('BNMS pilot connected Xero organisation mismatch');
+  }
+  const get = async (path) => safeXeroJson(await request(`https://api.xero.com/api.xro/2.0/${path}`, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${accessToken}`, 'xero-tenant-id': xeroTenantId, Accept: 'application/json' },
+  }), 'bnms-pilot-account-validation');
+  const organisations = (await get('Organisation'))?.Organisations;
+  if (organisations?.length !== 1 || organisations[0].OrganisationID !== mapping.xero_tenant_id
+    || organisations[0].BaseCurrency !== 'GBP') {
+    throw new Error('BNMS pilot live Xero organisation/currency mismatch');
+  }
+  const accounts = (await get(`Accounts/${mapping.bank_account_id}`))?.Accounts;
+  const bank = accounts?.[0];
+  // Xero permits BANK payments even when EnablePaymentsToAccount is false.
+  if (accounts?.length !== 1 || bank.AccountID !== mapping.bank_account_id
+    || bank.Status !== 'ACTIVE' || bank.Type !== 'BANK' || bank.CurrencyCode !== 'GBP') {
+    throw new Error('BNMS pilot Xero bank must be the pinned ACTIVE GBP BANK');
+  }
+  const revenues = (await get(`Accounts?where=Code=="${mapping.revenue_account_code}"`))?.Accounts;
+  if (revenues?.length !== 1 || revenues[0].Code !== mapping.revenue_account_code || revenues[0].Status !== 'ACTIVE'
+    || ([BNMS_BETA_BANK.source, BNMS_ALPHA_BANK.source, MANUAL_BANK_SOURCE].includes(mapping.source) && revenues[0].Type !== 'REVENUE')) {
+    throw new Error('BNMS pilot Xero revenue account 200 must be ACTIVE');
+  }
+  return bank;
+}
+
+export function buildXeroMembershipReference(reference) {
+  return resolveMembershipInvoiceReference(reference);
+}
+
+const validStripePaymentIntentId = (value) => /^pi_[A-Za-z0-9]+$/.test(String(value || ''));
+const containsExactStripePaymentIntent = (value, paymentIntentId) => {
+  const escaped = String(paymentIntentId).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?:^|[^A-Za-z0-9])${escaped}(?:$|[^A-Za-z0-9])`).test(String(value || ''));
+};
+
+async function safeXeroJson(response, context) {
+  const contentType = response.headers.get('content-type') || '';
+  if (!response.ok) {
+    if (contentType.includes('application/json')) {
+      const errorData = await response.json().catch(() => null);
+      const error = new Error(`[Xero ${context}] HTTP ${response.status}: ${JSON.stringify(errorData).substring(0, 500)}`);
+      error.status = response.status;
+      error.statusCode = response.status;
+      throw error;
+    }
+    const text = await response.text();
+    const error = new Error(`[Xero ${context}] HTTP ${response.status} (non-JSON response): ${text.substring(0, 300)}`);
+    error.status = response.status;
+    error.statusCode = response.status;
+    throw error;
+  }
+  if (!contentType.includes('application/json')) {
+    const text = await response.text();
+    throw new Error(`[Xero ${context}] Unexpected content-type '${contentType}': ${text.substring(0, 300)}`);
+  }
+  return response.json();
+}
+
+export async function getValidXeroAccessToken(appTenantId, transportOptions = null) {
+  if (!supabase) throw new Error('Supabase not configured');
+  
+  if (!appTenantId) {
+    throw new Error('appTenantId is required for Xero token lookup');
+  }
+  
+  const { data: tokens, error } = await supabase
+    .from('xero_token')
+    .select('*')
+    .eq('app_tenant_id', appTenantId);
+
+  if (error) {
+    console.error('[Xero] Token lookup error:', error);
+    throw new Error('Failed to lookup Xero token');
+  }
+
+  if (!tokens || tokens.length === 0) {
+    throw new Error('No Xero token found for this tenant. Please authenticate first.');
+  }
+
+  const token = tokens[0];
+  
+  if (token.tenant_id === 'PENDING_SELECTION') {
+    throw new Error('Xero authentication incomplete. Please select a Xero organization.');
+  }
+  
+  const expiresAt = new Date(token.expires_at);
+  const now = new Date();
+  const fiveMinutesFromNow = new Date(now.getTime() + 5 * 60 * 1000);
+
+  if (expiresAt > fiveMinutesFromNow) {
+    return { accessToken: token.access_token, tenantId: token.tenant_id };
+  }
+
+  const xeroCredentials = await getXeroCredentials(appTenantId);
+  
+  if (!xeroCredentials || !xeroCredentials.client_id || !xeroCredentials.client_secret) {
+    throw new Error('Xero credentials not configured for this tenant');
+  }
+  if (!token.refresh_token) {
+    throw new Error('Xero connection cannot be refreshed because its refresh token is missing. Please reconnect Xero.');
+  }
+
+  const tokenRequest = {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Authorization': 'Basic ' + Buffer.from(`${xeroCredentials.client_id}:${xeroCredentials.client_secret}`).toString('base64')
+    },
+    body: new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: token.refresh_token,
+    }).toString(),
+  };
+  const tokenResponse = transportOptions
+    ? await fetchFormAccountingTransport(
+      transportOptions.fetch || fetch,
+      'https://identity.xero.com/connect/token',
+      tokenRequest,
+      transportOptions,
+    )
+    : await fetch('https://identity.xero.com/connect/token', tokenRequest);
+
+  const tokenData = await safeXeroJson(tokenResponse, 'token-refresh');
+
+  if (tokenData.error) {
+    throw new Error(`Failed to refresh Xero token: ${JSON.stringify(tokenData)}`);
+  }
+
+  const newExpiresAt = new Date(Date.now() + (tokenData.expires_in * 1000)).toISOString();
+
+  const { error: updateError } = await supabase
+    .from('xero_token')
+    .update({
+      access_token: tokenData.access_token,
+      refresh_token: tokenData.refresh_token,
+      expires_at: newExpiresAt,
+    })
+    .eq('id', token.id);
+  if (updateError) {
+    throw new Error(`Xero token refreshed but rotated credentials could not be saved: ${updateError.message}`);
+  }
+
+  return { accessToken: tokenData.access_token, tenantId: token.tenant_id };
+}
+
+function parseAddressLines(addressText) {
+  if (!addressText) return null;
+  const lines = addressText.split('\n').map(l => l.trim()).filter(Boolean);
+  if (lines.length === 0) return null;
+  const address = { AddressType: 'POBOX' };
+  if (lines.length === 1) {
+    address.AddressLine1 = lines[0];
+  } else if (lines.length === 2) {
+    address.AddressLine1 = lines[0];
+    address.City = lines[1];
+  } else if (lines.length === 3) {
+    address.AddressLine1 = lines[0];
+    address.City = lines[1];
+    address.PostalCode = lines[2];
+  } else {
+    address.AddressLine1 = lines[0];
+    address.AddressLine2 = lines[1];
+    address.City = lines[2];
+    address.PostalCode = lines[3];
+    if (lines[4]) address.Country = lines[4];
+  }
+  return address;
+}
+
+export async function findOrCreateXeroContact(accessToken, xeroTenantId, contactInfo, transportOptions = null) {
+  const info = typeof contactInfo === 'string'
+    ? { name: contactInfo, email: null, isOrganization: true, address: null }
+    : contactInfo;
+
+  console.log(`[Xero] Finding/creating contact: ${info.name}`);
+
+  const parsedAddress = parseAddressLines(info.address);
+
+  const escapedName = info.name.replace(/"/g, '\\"');
+  const transportFetch = (url, init = {}) => transportOptions
+    ? fetchFormAccountingTransport(transportOptions.fetch || fetch, url, init, transportOptions)
+    : fetch(url, init);
+  const contactSearchResponse = await transportFetch(
+    `https://api.xero.com/api.xro/2.0/Contacts?where=${encodeURIComponent(`Name=="${escapedName}"`)}`,
+    {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'xero-tenant-id': xeroTenantId,
+        'Accept': 'application/json'
+      }
+    }
+  );
+
+  const contactData = await safeXeroJson(contactSearchResponse, 'contact-search');
+  if (contactData.Contacts && contactData.Contacts.length > 0) {
+    const existingContact = contactData.Contacts[0];
+    console.log(`[Xero] Found existing contact: ${existingContact.ContactID}`);
+
+    if (parsedAddress || info.email) {
+      try {
+        const updateContact = { ContactID: existingContact.ContactID };
+        if (parsedAddress) updateContact.Addresses = [parsedAddress];
+        if (info.email) updateContact.EmailAddress = info.email;
+        const updatePayload = { Contacts: [updateContact] };
+        const updateResponse = await transportFetch('https://api.xero.com/api.xro/2.0/Contacts', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'xero-tenant-id': xeroTenantId,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify(updatePayload)
+        });
+        await safeXeroJson(updateResponse, 'contact-update');
+        console.log(`[Xero] Updated contact details for: ${info.name}`);
+      } catch (addrErr) {
+        console.warn(`[Xero] Failed to update contact details (non-fatal): ${addrErr.message}`);
+      }
+    }
+
+    return existingContact.ContactID;
+  }
+
+  console.log(`[Xero] Creating new contact...`);
+  const newContact = { Name: info.name };
+  if (info.email) newContact.EmailAddress = info.email;
+  if (parsedAddress) newContact.Addresses = [parsedAddress];
+
+  const createContactResponse = await transportFetch('https://api.xero.com/api.xro/2.0/Contacts', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'xero-tenant-id': xeroTenantId,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    },
+    body: JSON.stringify({ Contacts: [newContact] })
+  });
+
+  const newContactData = await safeXeroJson(createContactResponse, 'contact-create');
+  if (newContactData.Contacts && newContactData.Contacts.length > 0) {
+    console.log(`[Xero] Created new contact: ${newContactData.Contacts[0].ContactID}`);
+    return newContactData.Contacts[0].ContactID;
+  }
+
+  console.error(`[Xero] Failed to create contact:`, JSON.stringify(newContactData).substring(0, 500));
+  throw new Error('Failed to create Xero contact');
+}
+
+export async function findXeroSalesCustomers(appTenantId, { name }) {
+  const { accessToken, tenantId } = await getValidXeroAccessToken(appTenantId);
+  const escaped = String(name || '').replace(/"/g, '\\"');
+  const response = await fetch(`https://api.xero.com/api.xro/2.0/Contacts?where=${encodeURIComponent(`Name=="${escaped}"`)}`, {
+    headers: { Authorization: `Bearer ${accessToken}`, 'xero-tenant-id': tenantId, Accept: 'application/json' },
+  });
+  const data = await safeXeroJson(response, 'sales-contact-search');
+  return (data?.Contacts || []).map((item) => ({
+    id: item.ContactID, name: item.Name, email: item.EmailAddress || null,
+  }));
+}
+
+export async function createXeroSalesCustomer(appTenantId, customer) {
+  const { accessToken, tenantId } = await getValidXeroAccessToken(appTenantId);
+  return findOrCreateXeroContact(accessToken, tenantId, customer);
+}
+
+export async function listXeroSalesTaxCodes(appTenantId) {
+  const { accessToken, tenantId } = await getValidXeroAccessToken(appTenantId);
+  const response = await fetch('https://api.xero.com/api.xro/2.0/TaxRates', {
+    headers: { Authorization: `Bearer ${accessToken}`, 'xero-tenant-id': tenantId, Accept: 'application/json' },
+  });
+  const data = await safeXeroJson(response, 'sales-tax-rates');
+  return (data?.TaxRates || []).filter((rate) =>
+    rate.Status === 'ACTIVE' && rate.CanApplyToRevenue !== false).map((rate) => ({
+    id: String(rate.TaxType), name: rate.Name || rate.TaxType,
+  }));
+}
+
+const roundedPositiveDivide = (numerator, denominator) =>
+  (numerator + denominator / 2n) / denominator;
+
+/**
+ * Xero accepts UnitAmount at four decimal places when unitdp=4. Derive that
+ * effective unit amount from the accepted final net, rather than reapplying
+ * the original discount. Fail closed when Xero's quantity × 4dp unit amount
+ * would round to a different minor-unit net.
+ */
+export function buildXeroSalesInvoiceLine(line) {
+  const rawQuantity = String(line.quantity);
+  const quantity = rawQuantity.includes('.')
+    ? rawQuantity.replace(/0+$/, '').replace(/\.$/, '')
+    : rawQuantity;
+  const match = /^(0|[1-9]\d*)(?:\.(\d{1,4}))?$/.exec(quantity);
+  const netMinor = Number(line.netMinor);
+  const taxMinor = Number(line.taxMinor);
+  const grossMinor = Number(line.grossMinor);
+  const fail = (message) => {
+    const error = new Error(`Xero cannot represent accepted invoice line: ${message}`);
+    error.code = 'ACCOUNTING_UNREPRESENTABLE';
+    throw error;
+  };
+  if (!match || /^0(?:\.0*)?$/.test(quantity)) fail('quantity is invalid');
+  if (![netMinor, taxMinor, grossMinor].every(Number.isSafeInteger)
+      || netMinor < 0 || taxMinor < 0 || grossMinor !== netMinor + taxMinor) {
+    fail('net, tax, or gross snapshot is invalid');
+  }
+  const decimals = match[2] ? match[2].length : 0;
+  const scale = 10n ** BigInt(decimals);
+  const quantityUnits = BigInt(quantity.replace('.', ''));
+  // UnitAmount in ten-thousandths of one currency unit:
+  // (netMinor / 100) / (quantityUnits / scale) * 10000.
+  const unitAmount4 = roundedPositiveDivide(BigInt(netMinor) * scale * 100n, quantityUnits);
+  const representedNetMinor = roundedPositiveDivide(quantityUnits * unitAmount4, scale * 100n);
+  if (representedNetMinor !== BigInt(netMinor)) {
+    fail(`four-decimal UnitAmount rounds to ${representedNetMinor} minor units, expected ${netMinor}`);
+  }
+  return {
+    Description: line.description,
+    Quantity: Number(quantity),
+    UnitAmount: Number(unitAmount4) / 10000,
+    AccountCode: line.accountCode,
+    TaxType: line.taxCode,
+    TaxAmount: taxMinor / 100,
+  };
+}
+
+export function buildXeroSalesInvoicePayload(invoice) {
+  return { Invoices: [{
+    Type: 'ACCREC', Contact: { ContactID: invoice.customerId },
+    Status: 'AUTHORISED', CurrencyCode: invoice.currency,
+    Reference: [invoice.purchaseOrderReference, invoice.customerReference].filter(Boolean).join(' / ') || undefined,
+    LineAmountTypes: 'Exclusive',
+    LineItems: invoice.lines.map(buildXeroSalesInvoiceLine),
+  }] };
+}
+
+const xeroMoneyMinor = (value, label) => {
+  const amount = Number(value);
+  const scaled = amount * 100;
+  if (value == null || !Number.isFinite(amount) || !Number.isSafeInteger(Math.round(scaled))
+      || Math.abs(scaled - Math.round(scaled)) > 1e-7) {
+    const error = new Error(`Xero returned an invalid ${label}`);
+    error.code = 'ACCOUNTING_TOTAL_MISMATCH';
+    error.details = { field: label };
+    throw error;
+  }
+  return Math.round(scaled);
+};
+
+export function verifyXeroSalesInvoice(invoice, accepted) {
+  const mismatch = (field, expectedMinor, actualMinor, line = null) => {
+    const error = new Error(`Xero invoice ${field} does not match the accepted sale`);
+    error.code = 'ACCOUNTING_TOTAL_MISMATCH';
+    error.details = { field, expectedMinor, actualMinor, ...(line == null ? {} : { line }) };
+    throw error;
+  };
+  const actualLines = Array.isArray(invoice?.LineItems) ? invoice.LineItems : [];
+  if (actualLines.length !== accepted.lines.length) mismatch('lineCount', accepted.lines.length, actualLines.length);
+  let aggregateNet = 0;
+  actualLines.forEach((line, index) => {
+    const actual = xeroMoneyMinor(line?.LineAmount, `line ${index + 1} amount`);
+    const expected = Number(accepted.lines[index].netMinor);
+    if (actual !== expected) mismatch('lineNet', expected, actual, index + 1);
+    aggregateNet += actual;
+  });
+  if (aggregateNet !== Number(accepted.netMinor)) mismatch('net', Number(accepted.netMinor), aggregateNet);
+  const subtotal = xeroMoneyMinor(invoice?.SubTotal, 'subtotal');
+  if (subtotal !== Number(accepted.netMinor)) mismatch('subtotal', Number(accepted.netMinor), subtotal);
+  const tax = xeroMoneyMinor(invoice?.TotalTax, 'tax');
+  if (tax !== Number(accepted.taxMinor)) mismatch('tax', Number(accepted.taxMinor), tax);
+  const gross = xeroMoneyMinor(invoice?.Total, 'gross');
+  if (gross !== Number(accepted.grossMinor)) mismatch('gross', Number(accepted.grossMinor), gross);
+  return invoice;
+}
+
+export async function createXeroSalesInvoice(appTenantId, invoice, dependencies = {}) {
+  const tokenResolver = dependencies.getValidXeroAccessToken || getValidXeroAccessToken;
+  const { accessToken, tenantId } = await tokenResolver(appTenantId);
+  const payload = buildXeroSalesInvoicePayload(invoice);
+  const response = await fetch('https://api.xero.com/api.xro/2.0/Invoices?unitdp=4', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'xero-tenant-id': tenantId,
+      'Content-Type': 'application/json', Accept: 'application/json',
+      'Idempotency-Key': String(invoice.idempotencyKey) },
+    body: JSON.stringify(payload),
+  });
+  const data = await safeXeroJson(response, 'sales-invoice-create');
+  const result = data?.Invoices?.[0];
+  if (!result?.InvoiceID) throw new Error('Xero did not return an invoice identifier');
+  // POST responses (including idempotent replays) are not trusted as the
+  // accounting result. Read the persisted provider invoice at unitdp=4 and
+  // compare only money/count/order facts with the immutable accepted snapshot.
+  const verifyResponse = await fetch(
+    `https://api.xero.com/api.xro/2.0/Invoices/${encodeURIComponent(result.InvoiceID)}?unitdp=4`,
+    { headers: { Authorization: `Bearer ${accessToken}`, 'xero-tenant-id': tenantId, Accept: 'application/json' } },
+  );
+  const verifyData = await safeXeroJson(verifyResponse, 'sales-invoice-verify');
+  const verified = verifyXeroSalesInvoice(verifyData?.Invoices?.[0], invoice);
+  let url = null;
+  try {
+    const online = await fetch(`https://api.xero.com/api.xro/2.0/Invoices/${verified.InvoiceID}/OnlineInvoice`, {
+      headers: { Authorization: `Bearer ${accessToken}`, 'xero-tenant-id': tenantId, Accept: 'application/json' },
+    });
+    const onlineData = await safeXeroJson(online, 'sales-invoice-url');
+    url = onlineData?.OnlineInvoices?.[0]?.OnlineInvoiceUrl || null;
+  } catch (error) {
+    console.warn(`[Xero] Sales invoice URL unavailable: ${error.message}`);
+  }
+  return { id: verified.InvoiceID, number: verified.InvoiceNumber || null, url,
+    status: verified.Status, createdAt: verified.DateString || null };
+}
+
+function assertPilotInvoice(invoice, contactId, amount, invoiceId, settled = false, revenueCode = '200') {
+  const expected = settlementMoney(amount, 'BNMS pilot canonical amount');
+  if (!contactId || !invoice?.InvoiceID || (invoiceId && invoice.InvoiceID !== invoiceId)
+    || invoice.Contact?.ContactID !== contactId || invoice.CurrencyCode !== 'GBP'
+    || !invoice.LineItems?.length || invoice.LineItems.some(line => line.AccountCode !== revenueCode)
+    || invoice.Total !== expected || invoice.AmountDue !== (settled ? 0 : expected)
+    || (settled ? invoice.Status !== 'PAID' || invoice.AmountPaid !== expected
+      : !['DRAFT', 'SUBMITTED', 'AUTHORISED'].includes(invoice.Status)
+        || (invoice.AmountPaid != null && invoice.AmountPaid !== 0))
+    || (invoice.AmountCredited != null && invoice.AmountCredited !== 0)) {
+    throw new Error('BNMS pilot invoice contact, currency or revenue, total or settlement mismatch');
+  }
+}
+
+async function verifyPilotPayment(data, { fetch, accessToken, xeroTenantId, invoiceId, contactId, amount, revenueCode = '200' }) {
+  const payment = data?.Payments?.[0];
+  if (data?.Payments?.length !== 1 || !payment?.PaymentID || payment.Amount !== amount
+    || payment.Invoice?.InvoiceID !== invoiceId || payment.Status !== 'AUTHORISED'
+    || payment.Account?.AccountID !== BNMS_PILOT_ACCOUNTING.bank_account_id) {
+    throw new Error('BNMS pilot payment response mismatch; reconciliation required');
+  }
+  const response = await fetch(`https://api.xero.com/api.xro/2.0/Invoices/${invoiceId}`, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${accessToken}`, 'xero-tenant-id': xeroTenantId, Accept: 'application/json' },
+  });
+  const verified = await safeXeroJson(response, 'bnms-pilot-settlement-verify');
+  assertPilotInvoice(verified?.Invoices?.[0], contactId, amount, invoiceId, true, revenueCode);
+}
+
+// A PAID invoice is not proof that our canonical DD payment settled it. Recover
+// only the single exact existing allocation; never POST a replacement payment.
+async function recoverBnmsSettlement({ invoice, contactId, amount, mapping, paymentReference,
+  paymentKey, fetch, accessToken, xeroTenantId }) {
+  const expected = settlementMoney(amount, 'BNMS canonical recovery amount');
+  const match = /^GoCardless DD: (PM[A-Za-z0-9]+)$/.exec(paymentReference || '');
+  if (!match || paymentKey !== `mii-gc-${match[1]}-pay`) {
+    throw new Error('BNMS recovery requires canonical payment reference and idempotency identity');
+  }
+  assertPilotInvoice(invoice, contactId, expected, invoice.InvoiceID, true, mapping.revenue_account_code);
+  if (invoice.Payments?.length !== 1 || !invoice.Payments[0].PaymentID) {
+    throw new Error('BNMS settled invoice has ambiguous or missing payment allocation');
+  }
+  const paymentId = invoice.Payments[0].PaymentID;
+  const get = async resource => safeXeroJson(await fetch(`https://api.xero.com/api.xro/2.0/${resource}`, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${accessToken}`, 'xero-tenant-id': xeroTenantId, Accept: 'application/json' },
+  }), 'bnms-settlement-recovery');
+  const data = await get(`Payments/${encodeURIComponent(paymentId)}`);
+  const payment = data?.Payments?.[0];
+  if (data?.Payments?.length !== 1 || payment?.PaymentID !== paymentId
+    || payment.Status !== 'AUTHORISED' || payment.Reference !== paymentReference
+    || payment.Amount !== expected || payment.Account?.AccountID !== mapping.bank_account_id
+    || payment.Invoice?.InvoiceID !== invoice.InvoiceID || payment.Invoice?.CurrencyCode !== 'GBP'
+    || payment.Invoice?.Contact?.ContactID !== contactId
+    || (payment.CurrencyRate != null && payment.CurrencyRate !== 1)
+    || (payment.BankAmount != null && payment.BankAmount !== expected)
+    || (payment.PaymentType != null && payment.PaymentType !== 'ACCRECPAY')) {
+    throw new Error('BNMS existing payment does not match canonical settlement evidence');
+  }
+  const fresh = (await get(`Invoices/${encodeURIComponent(invoice.InvoiceID)}`))?.Invoices?.[0];
+  assertPilotInvoice(fresh, contactId, expected, invoice.InvoiceID, true, mapping.revenue_account_code);
+  if (fresh.Payments?.length !== 1 || fresh.Payments[0].PaymentID !== paymentId) {
+    throw new Error('BNMS settlement allocation changed during recovery');
+  }
+  return { invoice_id: fresh.InvoiceID, invoice_number: fresh.InvoiceNumber, total: fresh.Total,
+    status: 'PAID', payment_recorded: true, payment_id: paymentId, online_invoice_url: null,
+    provider_context: { xero_tenant_id: xeroTenantId } };
+}
+
+export async function createXeroMembershipInvoice({
+  appTenantId, organizationName, invoicingEmail, invoicingAddress, membershipYear,
+  tierLabel, finalCost, currency, reference, paymentReference = null, vatRate, markAsPaid,
+  deferStripeSettlement = false, stripePaymentIntentId, invoiceDescription,
+  extraLineItems, nominalCode, bankAccountSettingKey, strictBankAccount, ddAccountingMigration = null,
+  idempotencyKey, paymentIdempotencyKey, expectedProviderContext = null,
+  transportTimeoutMs, deadlineAt, signal,
+}, dependencies = {}) {
+  const database = dependencies.supabase || supabase;
+  if (!database) throw new Error('Supabase not configured');
+  if (!appTenantId) throw new Error('appTenantId is required');
+  if (!organizationName) throw new Error('organizationName is required');
+  if (stripePaymentIntentId && !validStripePaymentIntentId(stripePaymentIntentId)) {
+    throw new Error('stripePaymentIntentId must be a full PaymentIntent identifier');
+  }
+  if (deferStripeSettlement && (!stripePaymentIntentId || !idempotencyKey)) {
+    throw new Error('deferStripeSettlement requires stripePaymentIntentId and idempotencyKey');
+  }
+
+  const tokenResolver = dependencies.getValidXeroAccessToken || getValidXeroAccessToken;
+  const contactResolver = dependencies.findOrCreateXeroContact || findOrCreateXeroContact;
+  const transport = formAccountingTransport({
+    timeoutMs: transportTimeoutMs,
+    deadlineAt,
+    signal,
+    fetch: dependencies.fetch,
+  });
+  const transportFetch = (url, init = {}) =>
+    fetchFormAccountingTransport(dependencies.fetch || fetch, url, init, transport);
+  const { accessToken, tenantId: xeroTenantId } = await tokenResolver(appTenantId, transport);
+  const expectedTenant = typeof expectedProviderContext === 'string'
+    ? expectedProviderContext
+    : expectedProviderContext?.xero_tenant_id;
+  if (expectedTenant && String(expectedTenant) !== String(xeroTenantId)) {
+    throw new Error('Connected Xero organisation does not match the invoice provider context');
+  }
+  const pilotBankAccount = ddAccountingMigration ? await validateBnmsXeroAccount({
+    appTenantId, context: ddAccountingMigration, xeroTenantId, accessToken, fetch: transportFetch,
+  }) : null;
+  if (pilotBankAccount && (currency !== 'GBP' || String(nominalCode) !== ddAccountingMigration.snapshot.revenue_account_code
+    || strictBankAccount !== true || bankAccountSettingKey !== 'xero_gocardless_bank_account_code'
+    || extraLineItems?.length || stripePaymentIntentId || deferStripeSettlement)) {
+    throw new Error('BNMS pilot invoice currency, revenue or payment rail mismatch');
+  }
+  if (pilotBankAccount) {
+    settlementMoney(finalCost, 'BNMS pilot canonical amount');
+    if (!idempotencyKey || !paymentIdempotencyKey) throw new Error('BNMS pilot invoice and payment idempotency keys required');
+  }
+  const isAlpha = usesExactImportedContact(ddAccountingMigration);
+  const contactId = isAlpha ? await alphaContact({
+    appTenantId, context: ddAccountingMigration, xeroTenantId, accessToken, fetch: transportFetch,
+  }) : await contactResolver(accessToken, xeroTenantId, {
+    name: organizationName,
+    email: invoicingEmail || null,
+    address: invoicingAddress || null,
+  }, transport);
+
+  const { data: membershipLedgerSetting } = await database
+    .from('system_settings')
+    .select('setting_value')
+    .eq('setting_key', 'membership_nominal_ledger')
+    .eq('tenant_id', appTenantId)
+    .maybeSingle();
+
+  let xeroAccountCode = membershipLedgerSetting?.setting_value;
+  if (!xeroAccountCode) {
+    const { data: accountCodeSetting } = await database
+      .from('system_settings')
+      .select('setting_value')
+      .eq('setting_key', 'xero_sales_account_code')
+      .eq('tenant_id', appTenantId)
+      .maybeSingle();
+    xeroAccountCode = accountCodeSetting?.setting_value || '200';
+  }
+  // An explicit nominal code (e.g. the Training Fund default from Membership
+  // Settings) overrides the membership ledger for the main invoice line.
+  if (nominalCode && String(nominalCode).trim()) {
+    xeroAccountCode = String(nominalCode).trim();
+  }
+
+  const { data: invoiceStatusSetting } = await database
+    .from('system_settings')
+    .select('setting_value')
+    .eq('setting_key', 'xero_invoice_status')
+    .eq('tenant_id', appTenantId)
+    .maybeSingle();
+
+  const configuredInvoiceStatus = invoiceStatusSetting?.setting_value || 'DRAFT';
+  const xeroInvoiceStatus = (markAsPaid || deferStripeSettlement) ? 'AUTHORISED' : configuredInvoiceStatus;
+
+  let taxType = null;
+  let taxLabel = null;
+  if (vatRate) {
+    try {
+      const parsed = typeof vatRate === 'string' ? JSON.parse(vatRate) : vatRate;
+      taxType = parsed.taxType || null;
+      taxLabel = parsed.name || null;
+    } catch {
+      taxType = vatRate;
+    }
+  }
+
+  const firstLine = invoiceDescription
+    ? invoiceDescription.replace(/\{year\}/gi, membershipYear)
+    : `Membership subscription for ${membershipYear}`;
+  const description = `${firstLine}.\nTier: ${tierLabel || 'Standard'}\nFee: ${currency} ${parseFloat(finalCost).toFixed(2)}${
+    deferStripeSettlement && stripePaymentIntentId
+      ? `\nForm membership Stripe PaymentIntent: ${stripePaymentIntentId}`
+      : ''
+  }`;
+
+  const lineItem = {
+    Description: description,
+    Quantity: 1,
+    UnitAmount: parseFloat(finalCost).toFixed(2),
+    AccountCode: xeroAccountCode
+  };
+  if (taxType) {
+    lineItem.TaxType = taxType;
+  }
+
+  const lineItems = [lineItem];
+  // Add-on lines (e.g. Training Fund top-up, free-form extras) appended after
+  // the membership fee line. Each carries its own nominal code + VAT type.
+  for (const extra of (Array.isArray(extraLineItems) ? extraLineItems : [])) {
+    const extraLine = {
+      Description: extra.description || 'Additional item',
+      Quantity: Number(extra.quantity) > 0 ? Number(extra.quantity) : 1,
+      UnitAmount: (Number(extra.unitCost) || 0).toFixed(2),
+      AccountCode: extra.nominalCode || xeroAccountCode,
+    };
+    const extraTaxType = extra.vatRate?.taxType || (typeof extra.vatRate === 'string' ? extra.vatRate : null);
+    if (extraTaxType) extraLine.TaxType = extraTaxType;
+    lineItems.push(extraLine);
+  }
+
+  const invoicePayload = {
+    Invoices: [{
+      Type: 'ACCREC',
+      Contact: { ContactID: contactId },
+      Reference: buildXeroMembershipReference(reference),
+      Status: xeroInvoiceStatus,
+      ...(pilotBankAccount ? { CurrencyCode: 'GBP' } : {}),
+      DueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      LineItems: lineItems
+    }]
+  };
+
+  console.log(`[Xero] Creating membership invoice for ${organizationName}, ${membershipYear}, ${currency} ${finalCost}`);
+
+  const createHeaders = {
+    'Authorization': `Bearer ${accessToken}`,
+    'xero-tenant-id': xeroTenantId,
+    'Content-Type': 'application/json',
+    'Accept': 'application/json'
+  };
+  // Task #3633: provider-side idempotency — Xero replays the original
+  // response for a repeated Idempotency-Key instead of creating a second
+  // invoice, so a crash between create and our local linkage write cannot
+  // duplicate on retry.
+  if (idempotencyKey) {
+    createHeaders['Idempotency-Key'] = deferStripeSettlement
+      ? accountingOperationIdentity(idempotencyKey, 'inv', 128)
+      : String(idempotencyKey).slice(0, 128);
+  }
+  // The non-expiring database claim is committed BEFORE any POST. An unknown
+  // provider outcome is quarantined, never blindly replayed after key expiry.
+  let alphaOperation = null;
+  if (isAlpha) {
+    const paymentId = /^GoCardless DD: (PM[A-Za-z0-9]+)$/.exec(paymentReference || '')?.[1];
+    if (!paymentId) throw new Error('Alpha canonical collection reference required');
+    alphaOperation = await alphaInvoiceRpc(database, importedInvoiceRpc(ddAccountingMigration, 'claim'), {
+      p_tenant: appTenantId, p_plan: ddAccountingMigration.planId, p_payment: paymentId,
+      p_identity: { contactId, xeroTenantId, amountMinor: Math.round(Number(finalCost) * 100),
+        currency, revenueCode: String(nominalCode), paymentReference, idempotencyKey, paymentIdempotencyKey },
+    });
+  }
+  const invoiceResponse = alphaOperation?.invoice_id
+    ? await transportFetch(`https://api.xero.com/api.xro/2.0/Invoices/${encodeURIComponent(alphaOperation.invoice_id)}`, {
+      method: 'GET', headers: createHeaders,
+    }) : await transportFetch('https://api.xero.com/api.xro/2.0/Invoices', {
+    method: 'POST',
+    headers: createHeaders,
+    body: JSON.stringify(invoicePayload)
+  });
+
+  const invoiceData = await safeXeroJson(invoiceResponse, 'invoice-create');
+
+  if (!invoiceData.Invoices || invoiceData.Invoices.length === 0) {
+    console.error(`[Xero] Failed to create membership invoice:`, JSON.stringify(invoiceData).substring(0, 500));
+    throw new Error(`Failed to create Xero invoice: ${JSON.stringify(invoiceData)}`);
+  }
+
+  const invoice = invoiceData.Invoices[0];
+  if (isAlpha) {
+    assertPilotInvoice(invoice, contactId, finalCost, alphaOperation.invoice_id || undefined,
+      invoice.Status === 'PAID', ddAccountingMigration.snapshot.revenue_account_code);
+    if (!alphaOperation.invoice_id) await alphaInvoiceRpc(database, importedInvoiceRpc(ddAccountingMigration, 'link'), {
+      p_operation: alphaOperation.id, p_token: alphaOperation.token, p_invoice: invoice.InvoiceID,
+    });
+  }
+  if (pilotBankAccount) {
+    if (invoice.Status === 'PAID') return recoverBnmsSettlement({
+      invoice, contactId, amount: finalCost, mapping: ddAccountingMigration.snapshot,
+      paymentReference, paymentKey: paymentIdempotencyKey, fetch: transportFetch, accessToken, xeroTenantId,
+    });
+    assertPilotInvoice(invoice, contactId, finalCost, undefined, false, ddAccountingMigration.snapshot.revenue_account_code);
+    if (!paymentIdempotencyKey) throw new Error('BNMS pilot payment idempotency key required');
+  }
+  console.log(`[Xero] Membership invoice created: ${invoice.InvoiceNumber} (${invoice.InvoiceID}) - Status: ${invoice.Status}`);
+
+  let paymentRecorded = false;
+  let paymentId = null;
+  let annotationRecorded = false;
+
+  if (deferStripeSettlement && stripePaymentIntentId && invoice.InvoiceID) {
+    const trace = `Stripe PaymentIntent: ${stripePaymentIntentId}`;
+    try {
+      const historyUrl = `https://api.xero.com/api.xro/2.0/Invoices/${encodeURIComponent(invoice.InvoiceID)}/History`;
+        const historyResponse = await transportFetch(historyUrl, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'xero-tenant-id': xeroTenantId,
+          'Accept': 'application/json',
+        },
+      });
+      const historyData = await safeXeroJson(historyResponse, 'invoice-history-retrieve');
+      annotationRecorded = (historyData?.HistoryRecords || []).some((record) =>
+        containsExactStripePaymentIntent(record?.Details, stripePaymentIntentId));
+      if (!annotationRecorded) {
+        const annotationResponse = await transportFetch(historyUrl, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'xero-tenant-id': xeroTenantId,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            ...(idempotencyKey ? {
+              'Idempotency-Key': accountingOperationIdentity(idempotencyKey, 'trace', 128),
+            } : {}),
+          },
+          body: JSON.stringify({ HistoryRecords: [{ Details: trace }] }),
+        });
+        await safeXeroJson(annotationResponse, 'invoice-history-create');
+        annotationRecorded = true;
+      }
+    } catch (annotationError) {
+      console.error(`[Xero] Invoice created but Stripe trace annotation failed: ${annotationError.message}`);
+    }
+  }
+
+  if (markAsPaid && !deferStripeSettlement && invoice.InvoiceID && invoice.Status === 'AUTHORISED') {
+    try {
+      // Task #3633: callers may name a dedicated bank-account setting (e.g.
+      // the GoCardless one for DD instalment invoices); fall back to the
+      // Stripe bank account setting when unset — unless strictBankAccount,
+      // where the caller's rail requires its OWN account (falling back would
+      // book the money to the wrong account) and payment_recorded=false must
+      // surface recoverably instead.
+      let stripeBankAccountCode = null;
+      if (bankAccountSettingKey && bankAccountSettingKey !== 'xero_stripe_bank_account_code') {
+        const { data: dedicated } = await database
+          .from('system_settings')
+          .select('setting_value')
+          .eq('setting_key', bankAccountSettingKey)
+          .eq('tenant_id', appTenantId)
+          .maybeSingle();
+        stripeBankAccountCode = dedicated?.setting_value || null;
+      }
+      const strictDedicated = strictBankAccount === true
+        && bankAccountSettingKey && bankAccountSettingKey !== 'xero_stripe_bank_account_code';
+      if (!stripeBankAccountCode && !strictDedicated) {
+        const { data: stripeBankCodeSetting } = await database
+          .from('system_settings')
+          .select('setting_value')
+          .eq('setting_key', 'xero_stripe_bank_account_code')
+          .eq('tenant_id', appTenantId)
+          .maybeSingle();
+        stripeBankAccountCode = stripeBankCodeSetting?.setting_value;
+      }
+
+      if (stripeBankAccountCode || pilotBankAccount) {
+        const accountsResponse = pilotBankAccount ? null : await transportFetch(`https://api.xero.com/api.xro/2.0/Accounts?where=Code=="${stripeBankAccountCode}"`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'xero-tenant-id': xeroTenantId,
+            'Accept': 'application/json'
+          }
+        });
+
+        const accountsData = accountsResponse ? await safeXeroJson(accountsResponse, 'accounts-lookup') : null;
+        const bankAccount = pilotBankAccount || accountsData?.Accounts?.[0];
+
+        if (bankAccount?.AccountID) {
+          const paymentPayload = {
+            Invoice: { InvoiceID: invoice.InvoiceID },
+            Account: { AccountID: bankAccount.AccountID },
+            Date: new Date().toISOString().split('T')[0],
+            Amount: pilotBankAccount ? settlementMoney(finalCost, 'BNMS pilot canonical amount') : parseFloat(invoice.Total),
+            Reference: paymentReference || (stripePaymentIntentId ? `Stripe: ${stripePaymentIntentId}` : 'Stripe payment')
+          };
+
+          console.log(`[Xero] Recording Stripe payment for membership invoice ${invoice.InvoiceNumber} - Amount: ${parseFloat(invoice.Total).toFixed(2)}, Bank Account: ${stripeBankAccountCode}`);
+
+          // Payment creation is a separate request — give it its own
+          // Idempotency-Key so a crash after the payment succeeded but
+          // before our linkage write can't record a second payment on retry.
+          const payHeaders = {
+            'Authorization': `Bearer ${accessToken}`,
+            'xero-tenant-id': xeroTenantId,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          };
+          if (paymentIdempotencyKey) payHeaders['Idempotency-Key'] = String(paymentIdempotencyKey).slice(0, 128);
+          const paymentResponse = await transportFetch('https://api.xero.com/api.xro/2.0/Payments', {
+            method: 'POST',
+            headers: payHeaders,
+            body: JSON.stringify({ Payments: [paymentPayload] })
+          });
+
+          const paymentData = await safeXeroJson(paymentResponse, 'payment-create');
+          if (pilotBankAccount) await verifyPilotPayment(paymentData, {
+            fetch: transportFetch, accessToken, xeroTenantId, invoiceId: invoice.InvoiceID,
+            contactId, amount: settlementMoney(finalCost, 'BNMS pilot canonical amount'),
+            revenueCode: ddAccountingMigration.snapshot.revenue_account_code,
+          });
+
+          if (paymentData?.Payments?.[0]?.PaymentID) {
+            paymentRecorded = true;
+            paymentId = paymentData.Payments[0].PaymentID;
+            console.log(`[Xero] Membership payment recorded - PaymentID: ${paymentId}`);
+          } else {
+            console.error(`[Xero] Failed to record membership payment: ${JSON.stringify(paymentData).substring(0, 500)}`);
+          }
+        } else {
+          console.warn(`[Xero] Bank account not found for code: ${stripeBankAccountCode} - invoice created but payment not recorded`);
+        }
+      } else {
+        console.log(`[Xero] xero_stripe_bank_account_code not configured - membership invoice created as AUTHORISED but payment not recorded`);
+      }
+    } catch (paymentError) {
+      console.error(`[Xero] Error recording membership payment (non-fatal): ${paymentError.message}`);
+    }
+  }
+
+  let onlineInvoiceUrl = null;
+  if (invoice.InvoiceID && invoice.Status !== 'DRAFT') {
+    try {
+      const onlineResponse = await transportFetch(`https://api.xero.com/api.xro/2.0/Invoices/${invoice.InvoiceID}/OnlineInvoice`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'xero-tenant-id': xeroTenantId,
+          'Accept': 'application/json'
+        }
+      });
+      const onlineData = await safeXeroJson(onlineResponse, 'online-invoice-url');
+      onlineInvoiceUrl = onlineData?.OnlineInvoices?.[0]?.OnlineInvoiceUrl || null;
+      if (onlineInvoiceUrl) {
+        console.log(`[Xero] Online invoice URL retrieved for ${invoice.InvoiceNumber}`);
+      }
+    } catch (urlErr) {
+      console.warn(`[Xero] Could not fetch online invoice URL (non-fatal): ${urlErr.message}`);
+    }
+  }
+
+  return {
+    invoice_id: invoice.InvoiceID,
+    invoice_number: invoice.InvoiceNumber,
+    total: invoice.Total,
+    status: paymentRecorded ? 'PAID' : invoice.Status,
+    payment_recorded: paymentRecorded,
+    annotation_recorded: annotationRecorded,
+    payment_id: paymentId,
+    online_invoice_url: onlineInvoiceUrl,
+    provider_context: { xero_tenant_id: xeroTenantId },
+  };
+}
+
+export async function updateXeroInvoiceReference(appTenantId, invoiceId, reference) {
+  if (!appTenantId) throw new Error('appTenantId is required');
+  if (!invoiceId) throw new Error('invoiceId is required');
+
+  const trimmedReference = typeof reference === 'string' ? reference.trim() : '';
+  if (!trimmedReference) {
+    throw new Error('reference must be a non-empty string');
+  }
+
+  const { accessToken, tenantId: xeroTenantId } = await getValidXeroAccessToken(appTenantId);
+
+  const updatePayload = {
+    Invoices: [{
+      InvoiceID: invoiceId,
+      Reference: trimmedReference
+    }]
+  };
+
+  const response = await fetch(`https://api.xero.com/api.xro/2.0/Invoices/${invoiceId}`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'xero-tenant-id': xeroTenantId,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    },
+    body: JSON.stringify(updatePayload)
+  });
+
+  const data = await safeXeroJson(response, 'invoice-update-reference');
+  const updatedInvoice = data?.Invoices?.[0];
+
+  if (!updatedInvoice?.InvoiceID) {
+    throw new Error(`Failed to update Xero invoice reference: ${JSON.stringify(data).substring(0, 500)}`);
+  }
+
+  return {
+    invoiceId: updatedInvoice.InvoiceID,
+    invoiceNumber: updatedInvoice.InvoiceNumber,
+    reference: updatedInvoice.Reference
+  };
+}
+
+/**
+ * Update a Xero invoice's line-item descriptions after an attendee transfer.
+ *
+ * Walks each LineItem.Description line-by-line and replaces any line whose
+ * trimmed text exactly matches the original attendee's full name or email
+ * with the new attendee's full name (falling back to their email).
+ *
+ * Skips silently (returns { skipped: true, reason }) when:
+ *   - the invoice has no line items
+ *   - the invoice is PAID or VOIDED (cannot be edited)
+ *   - no description line matches the original attendee
+ */
+export async function updateXeroInvoiceLineAttendeeDescription({
+  appTenantId,
+  invoiceId,
+  originalFirstName,
+  originalLastName,
+  originalEmail,
+  newFirstName,
+  newLastName,
+  newEmail,
+}) {
+  if (!appTenantId) throw new Error('appTenantId is required');
+  if (!invoiceId) throw new Error('invoiceId is required');
+
+  const { accessToken, tenantId: xeroTenantId } = await getValidXeroAccessToken(appTenantId);
+  if (!accessToken || !xeroTenantId) {
+    throw new Error('Missing Xero token or tenant ID');
+  }
+
+  const invoiceResponse = await fetch(
+    `https://api.xero.com/api.xro/2.0/Invoices/${invoiceId}`,
+    {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'xero-tenant-id': xeroTenantId,
+        'Accept': 'application/json',
+      },
+    },
+  );
+
+  if (!invoiceResponse.ok) {
+    const errText = await invoiceResponse.text();
+    throw new Error(`Failed to fetch Xero invoice ${invoiceId}: ${invoiceResponse.status} ${errText.substring(0, 300)}`);
+  }
+
+  const invoiceData = await invoiceResponse.json();
+  const invoice = invoiceData?.Invoices?.[0];
+
+  if (!invoice || !invoice.LineItems || invoice.LineItems.length === 0) {
+    return { skipped: true, reason: 'no-lines' };
+  }
+  if (invoice.Status === 'PAID' || invoice.Status === 'VOIDED') {
+    return { skipped: true, reason: `status-${invoice.Status}` };
+  }
+
+  const originalName = [originalFirstName, originalLastName].filter(Boolean).join(' ').trim();
+  const newName = [newFirstName, newLastName].filter(Boolean).join(' ').trim();
+  const replacement = newName || newEmail || '';
+
+  let descriptionUpdated = false;
+  const updatedLineItems = invoice.LineItems.map((item) => {
+    if (!item.Description) return item;
+    const updatedDescription = item.Description.split('\n').map((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return line;
+      if (originalName && trimmed === originalName) {
+        descriptionUpdated = true;
+        return replacement;
+      }
+      if (originalEmail && trimmed === originalEmail) {
+        descriptionUpdated = true;
+        return replacement;
+      }
+      return line;
+    }).join('\n');
+    if (updatedDescription === item.Description) return item;
+    return { ...item, Description: updatedDescription };
+  });
+
+  if (!descriptionUpdated) {
+    return { skipped: true, reason: 'no-match' };
+  }
+
+  const updatePayload = {
+    Invoices: [{
+      InvoiceID: invoiceId,
+      LineItems: updatedLineItems.map((li) => ({
+        LineItemID: li.LineItemID,
+        Description: li.Description,
+        Quantity: li.Quantity,
+        UnitAmount: li.UnitAmount,
+        AccountCode: li.AccountCode,
+        TaxType: li.TaxType,
+        Tracking: li.Tracking,
+      })),
+    }],
+  };
+
+  const updateResponse = await fetch('https://api.xero.com/api.xro/2.0/Invoices', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'xero-tenant-id': xeroTenantId,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    },
+    body: JSON.stringify(updatePayload),
+  });
+
+  if (!updateResponse.ok) {
+    const errText = await updateResponse.text();
+    throw new Error(`Failed to update Xero invoice ${invoiceId}: ${updateResponse.status} ${errText.substring(0, 300)}`);
+  }
+
+  const updateData = await updateResponse.json();
+  const updatedInvoice = updateData?.Invoices?.[0];
+  return {
+    invoiceId: updatedInvoice?.InvoiceID || invoiceId,
+    invoiceNumber: updatedInvoice?.InvoiceNumber || null,
+    updated: true,
+  };
+}
+
+/**
+ * Push a PO number into the matching Xero invoice's Reference field, swallow
+ * any Xero failure (so the local database update is not undone), and return
+ * a uniform shape every PO entry point can forward back to the client.
+ *
+ * @param {Object} args
+ * @param {string} args.appTenantId          Application tenant id used to look up the Xero token.
+ * @param {string|null} args.xeroInvoiceId   Xero invoice id (skipped when falsy).
+ * @param {string} args.purchaseOrderNumber  Trimmed PO number to push.
+ * @param {string} [args.contextLabel]       Logging label.
+ * @returns {Promise<{xeroUpdated: boolean, xeroError: string|null, skipped?: boolean}>}
+ */
+export async function pushPurchaseOrderToXero({
+  appTenantId,
+  xeroInvoiceId,
+  purchaseOrderNumber,
+  contextLabel = 'PO sync'
+}) {
+  if (!xeroInvoiceId) {
+    console.log(`[${contextLabel}] PO saved locally but no xero_invoice_id present — skipping Xero push`);
+    return { xeroUpdated: false, xeroError: null, skipped: true };
+  }
+
+  if (!appTenantId) {
+    const msg = 'Cannot determine tenant for Xero token lookup';
+    console.error(`[${contextLabel}] Xero reference update FAILED for invoice ${xeroInvoiceId}: ${msg}`);
+    return { xeroUpdated: false, xeroError: msg };
+  }
+
+  try {
+    await updateXeroInvoiceReference(appTenantId, xeroInvoiceId, purchaseOrderNumber);
+    console.log(`[${contextLabel}] Xero reference updated for invoice ${xeroInvoiceId} -> "${purchaseOrderNumber}"`);
+    return { xeroUpdated: true, xeroError: null };
+  } catch (xeroErr) {
+    const errMsg = xeroErr?.message || 'Unknown Xero error';
+    console.error(`[${contextLabel}] Xero reference update FAILED for invoice ${xeroInvoiceId}: ${errMsg}`);
+    return { xeroUpdated: false, xeroError: errMsg };
+  }
+}
+
+/**
+ * Apply a Stripe payment to an *existing* Xero invoice (created earlier by
+ * the auto-renewal cron). Used when a membership_fee_token already carries a
+ * xero_invoice_id — we must not create a second invoice for the same year.
+ *
+ * If the invoice is currently DRAFT, it is first promoted to AUTHORISED.
+ * Payment is recorded against the tenant's configured Stripe bank account
+ * (system setting `xero_stripe_bank_account_code`). The current online
+ * invoice URL is fetched and returned for display on the payer's confirmation
+ * screen.
+ */
+export async function applyStripePaymentToXeroInvoice({
+  appTenantId,
+  xeroInvoiceId,
+  stripePaymentIntentId,
+  amount = null,
+  reference = null,
+  paymentReference = null,
+  bankAccountSettingKey = 'xero_stripe_bank_account_code',
+  strictBankAccount = false,
+  ddAccountingMigration = null,
+  expectedContact = null,
+  idempotencyKey = null,
+}, dependencies = {}) {
+  if (!appTenantId) throw new Error('appTenantId is required');
+  if (!xeroInvoiceId) throw new Error('xeroInvoiceId is required');
+  if (stripePaymentIntentId && !validStripePaymentIntentId(stripePaymentIntentId)) {
+    throw new Error('stripePaymentIntentId must be a full PaymentIntent identifier');
+  }
+
+  const { accessToken, tenantId: xeroTenantId } = await (dependencies.getValidXeroAccessToken || getValidXeroAccessToken)(appTenantId);
+  const fetch = dependencies.fetch || globalThis.fetch;
+  const pilotBankAccount = ddAccountingMigration ? await validateBnmsXeroAccount({
+    appTenantId, context: ddAccountingMigration, xeroTenantId, accessToken, fetch,
+  }) : null;
+  if (pilotBankAccount && (strictBankAccount !== true || bankAccountSettingKey !== 'xero_gocardless_bank_account_code'
+    || stripePaymentIntentId)) {
+    throw new Error('BNMS pilot payment rail mismatch');
+  }
+
+  const invResp = await fetch(`https://api.xero.com/api.xro/2.0/Invoices/${xeroInvoiceId}`, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'xero-tenant-id': xeroTenantId,
+      'Accept': 'application/json',
+    },
+  });
+  const invData = await safeXeroJson(invResp, 'invoice-retrieve');
+  const invoice = invData?.Invoices?.[0];
+  if (!invoice) throw new Error(`Xero invoice ${xeroInvoiceId} not found`);
+  let pilotContactId = null;
+  if (pilotBankAccount) {
+    if (usesExactImportedContact(ddAccountingMigration)) {
+      pilotContactId = await alphaContact({ appTenantId, context: ddAccountingMigration, xeroTenantId, accessToken, fetch });
+      const paymentId = /^GoCardless DD: (PM[A-Za-z0-9]+)$/.exec(paymentReference || '')?.[1];
+      if (!paymentId) throw new Error('Alpha canonical collection reference required');
+      await alphaInvoiceRpc(dependencies.supabase || supabase, importedInvoiceRpc(ddAccountingMigration, 'assert'), {
+        p_tenant: appTenantId, p_plan: ddAccountingMigration.planId, p_payment: paymentId,
+        p_invoice: xeroInvoiceId, p_contact: pilotContactId,
+      });
+    } else {
+    if (!expectedContact?.name || !idempotencyKey) throw new Error('BNMS pilot expected contact and payment key required');
+    const escaped = String(expectedContact.name).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const response = await fetch(`https://api.xero.com/api.xro/2.0/Contacts?where=${encodeURIComponent(`Name=="${escaped}"`)}`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${accessToken}`, 'xero-tenant-id': xeroTenantId, Accept: 'application/json' },
+    });
+    const contacts = (await safeXeroJson(response, 'bnms-pilot-contact-check'))?.Contacts;
+    if (contacts?.length !== 1 || contacts[0].Name !== expectedContact.name
+      || (expectedContact.email && contacts[0].EmailAddress?.toLowerCase() !== expectedContact.email.toLowerCase())) {
+      throw new Error('BNMS pilot expected contact is ambiguous or mismatched');
+    }
+    pilotContactId = contacts[0].ContactID;
+    }
+    if (invoice.Status === 'PAID') return recoverBnmsSettlement({
+      invoice, contactId: pilotContactId, amount, mapping: ddAccountingMigration.snapshot,
+      paymentReference, paymentKey: idempotencyKey, fetch, accessToken, xeroTenantId,
+    });
+    assertPilotInvoice(invoice, pilotContactId, amount, xeroInvoiceId, false, ddAccountingMigration.snapshot.revenue_account_code);
+  }
+
+  if (invoice.Status === 'DRAFT' || invoice.Status === 'SUBMITTED') {
+    const authResp = await fetch(`https://api.xero.com/api.xro/2.0/Invoices/${xeroInvoiceId}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'xero-tenant-id': xeroTenantId,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify({ Invoices: [{ InvoiceID: xeroInvoiceId, Status: 'AUTHORISED' }] }),
+    });
+    const authorised = await safeXeroJson(authResp, 'invoice-authorise');
+    if (pilotBankAccount) {
+      assertPilotInvoice(authorised?.Invoices?.[0], pilotContactId, amount, xeroInvoiceId, false, ddAccountingMigration.snapshot.revenue_account_code);
+      if (authorised.Invoices[0].Status !== 'AUTHORISED') throw new Error('BNMS pilot invoice authorisation not confirmed');
+    }
+  }
+
+  let paymentRecorded = false;
+  let paymentId = null;
+  try {
+    const { data: stripeBankCodeSetting } = await (dependencies.supabase || supabase)
+      .from('system_settings')
+      .select('setting_value')
+      .eq('setting_key', bankAccountSettingKey)
+      .eq('tenant_id', appTenantId)
+      .maybeSingle();
+    let bankCode = stripeBankCodeSetting?.setting_value;
+    if (!bankCode && bankAccountSettingKey !== 'xero_stripe_bank_account_code' && strictBankAccount !== true) {
+      // Fall back to the Stripe bank code when a dedicated one isn't set
+      // (never in strict mode — the caller's rail requires its own account).
+      const { data: fallbackSetting } = await supabase
+        .from('system_settings')
+        .select('setting_value')
+        .eq('setting_key', 'xero_stripe_bank_account_code')
+        .eq('tenant_id', appTenantId)
+        .maybeSingle();
+      bankCode = fallbackSetting?.setting_value;
+    }
+    if (bankCode || pilotBankAccount) {
+      const accountsResp = pilotBankAccount ? null : await fetch(`https://api.xero.com/api.xro/2.0/Accounts?where=Code=="${bankCode}"`, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${accessToken}`, 'xero-tenant-id': xeroTenantId, 'Accept': 'application/json' },
+      });
+      const accountsData = accountsResp ? await safeXeroJson(accountsResp, 'accounts-lookup') : null;
+      const bankAccount = pilotBankAccount || accountsData?.Accounts?.[0];
+      if (bankAccount?.AccountID) {
+        const paymentPayload = {
+          Invoice: { InvoiceID: xeroInvoiceId },
+          Account: { AccountID: bankAccount.AccountID },
+          Date: new Date().toISOString().split('T')[0],
+          Amount: amount != null ? Number(parseFloat(amount).toFixed(2)) : parseFloat(invoice.Total),
+          Reference: paymentReference || reference || (stripePaymentIntentId ? `Stripe: ${stripePaymentIntentId}` : 'Stripe payment'),
+        };
+        // Idempotent payment create — Xero replays the original response for
+        // a repeated Idempotency-Key, so retries can't double-pay the invoice.
+        const payHeaders = {
+          'Authorization': `Bearer ${accessToken}`,
+          'xero-tenant-id': xeroTenantId,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        };
+        if (idempotencyKey) payHeaders['Idempotency-Key'] = String(idempotencyKey).slice(0, 128);
+        const payResp = await fetch('https://api.xero.com/api.xro/2.0/Payments', {
+          method: 'POST',
+          headers: payHeaders,
+          body: JSON.stringify({ Payments: [paymentPayload] }),
+        });
+        const payData = await safeXeroJson(payResp, 'payment-create');
+        if (pilotBankAccount) await verifyPilotPayment(payData, {
+          fetch, accessToken, xeroTenantId, invoiceId: xeroInvoiceId, contactId: pilotContactId,
+          amount: settlementMoney(amount, 'BNMS pilot canonical amount'),
+          revenueCode: ddAccountingMigration.snapshot.revenue_account_code,
+        });
+        if (payData?.Payments?.[0]?.PaymentID) {
+          paymentRecorded = true;
+          paymentId = payData.Payments[0].PaymentID;
+          console.log(`[Xero] Payment recorded against existing invoice ${invoice.InvoiceNumber} - PaymentID: ${paymentId}`);
+        }
+      } else {
+        console.warn(`[Xero] Bank account not found for code ${bankCode} - invoice authorised but payment not recorded`);
+      }
+    } else {
+      console.log(`[Xero] xero_stripe_bank_account_code not configured - invoice authorised but payment not recorded`);
+    }
+  } catch (payErr) {
+    console.error(`[Xero] Error recording payment against existing invoice (non-fatal): ${payErr.message}`);
+  }
+
+  let onlineInvoiceUrl = null;
+  try {
+    const onlineResp = await fetch(`https://api.xero.com/api.xro/2.0/Invoices/${xeroInvoiceId}/OnlineInvoice`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${accessToken}`, 'xero-tenant-id': xeroTenantId, 'Accept': 'application/json' },
+    });
+    const onlineData = await safeXeroJson(onlineResp, 'online-invoice-url');
+    onlineInvoiceUrl = onlineData?.OnlineInvoices?.[0]?.OnlineInvoiceUrl || null;
+  } catch (urlErr) {
+    console.warn(`[Xero] Could not fetch online invoice URL (non-fatal): ${urlErr.message}`);
+  }
+
+  return {
+    invoice_id: xeroInvoiceId,
+    invoice_number: invoice.InvoiceNumber,
+    total: invoice.Total,
+    payment_recorded: paymentRecorded,
+    payment_id: paymentId,
+    online_invoice_url: onlineInvoiceUrl,
+  };
+}
+
+const settlementMoney = (value, label) => {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0
+      || Math.abs(number * 100 - Math.round(number * 100)) > 1e-7) {
+    throw new Error(`${label} must be a positive major-unit amount with at most two decimals`);
+  }
+  return Math.round(number * 100) / 100;
+};
+
+/**
+ * Safely settles a verified Stripe PaymentIntent against an existing Xero
+ * invoice. Annotation and payment are deliberately independent operations:
+ * the invoice history remains useful even when the clearing account is not
+ * configured, while retries inspect provider state before attempting a write.
+ */
+export async function settleFormStripeXeroInvoice(args, dependencies = {}) {
+  const {
+    appTenantId, invoiceId, stripePaymentIntentId, amount, currency, paidAt,
+    dryRun = false, annotationOnly = false, expectedAccount = null, operationKey,
+  } = args || {};
+  if (!appTenantId) throw new Error('appTenantId is required');
+  if (!invoiceId) throw new Error('invoiceId is required');
+  if (!validStripePaymentIntentId(stripePaymentIntentId)) {
+    throw new Error('stripePaymentIntentId must be a full PaymentIntent identifier');
+  }
+  if (!/^[A-Z]{3}$/.test(String(currency || '').toUpperCase())) throw new Error('currency is required');
+  const paymentOperationId = accountingOperationIdentity(operationKey, 'pay', 128);
+  const annotationOperationId = accountingOperationIdentity(operationKey, 'note', 128);
+  const payAmount = settlementMoney(amount, 'amount');
+  const tokenResolver = dependencies.getValidXeroAccessToken || getValidXeroAccessToken;
+  const transport = formAccountingTransport({
+    timeoutMs: args?.transportTimeoutMs,
+    deadlineAt: args?.deadlineAt,
+    signal: args?.signal,
+    fetch: dependencies.fetch,
+  });
+  const fetcher = (url, init = {}) =>
+    fetchFormAccountingTransport(dependencies.fetch || fetch, url, init, transport);
+  const database = dependencies.supabase || supabase;
+  if (!database) throw new Error('Supabase not configured');
+  const { accessToken, tenantId: xeroTenantId } = await tokenResolver(appTenantId, transport);
+  const expectedProviderContext = args?.expectedProviderContext;
+  const expectedXeroTenant = typeof expectedProviderContext === 'string'
+    ? expectedProviderContext
+    : expectedProviderContext?.xero_tenant_id;
+  if (expectedXeroTenant && String(expectedXeroTenant) !== String(xeroTenantId)) {
+    throw new Error('Connected Xero organisation does not match the invoice provider context');
+  }
+  const headers = {
+    Authorization: `Bearer ${accessToken}`, 'xero-tenant-id': xeroTenantId,
+    Accept: 'application/json',
+  };
+  const readInvoice = async () => {
+    const response = await fetcher(
+      `https://api.xero.com/api.xro/2.0/Invoices/${encodeURIComponent(invoiceId)}`,
+      { headers },
+    );
+    const data = await safeXeroJson(response, 'form-settlement-invoice-retrieve');
+    const value = data?.Invoices?.[0];
+    if (!value?.InvoiceID) throw new Error(`Xero invoice ${invoiceId} not found`);
+    return value;
+  };
+  let invoice = await readInvoice();
+  const invoiceTotal = settlementMoney(invoice.Total, 'Xero invoice total');
+  const invoiceCurrency = String(invoice.CurrencyCode || '').toUpperCase();
+  if (invoiceTotal !== payAmount) {
+    throw new Error(`Stripe amount ${payAmount.toFixed(2)} does not match Xero invoice total ${invoiceTotal.toFixed(2)}`);
+  }
+  if (invoiceCurrency !== String(currency).toUpperCase()) {
+    throw new Error(`Stripe currency ${String(currency).toUpperCase()} does not match Xero invoice currency ${invoiceCurrency || '(missing)'}`);
+  }
+
+  const trace = `Stripe PaymentIntent: ${stripePaymentIntentId}`;
+  const paymentMatches = (value) =>
+    containsExactStripePaymentIntent(value?.Reference, stripePaymentIntentId)
+    && value?.Amount != null
+    && settlementMoney(value.Amount, 'Xero payment amount') === payAmount;
+  let matchingPayment = (invoice.Payments || []).find(paymentMatches) || null;
+  if (invoice.AmountDue == null) throw new Error('Xero invoice returned no balance');
+  let balance = Math.round(Number(invoice.AmountDue) * 100) / 100;
+  if (!Number.isFinite(balance) || balance < 0) throw new Error('Xero invoice returned an invalid balance');
+
+  let annotationRecorded = false;
+  let annotationError = null;
+  try {
+    const historyResponse = await fetcher(
+      `https://api.xero.com/api.xro/2.0/Invoices/${encodeURIComponent(invoiceId)}/History`,
+      { headers },
+    );
+    const historyData = await safeXeroJson(historyResponse, 'form-settlement-history-retrieve');
+    annotationRecorded = (historyData?.HistoryRecords || []).some((record) =>
+      containsExactStripePaymentIntent(record?.Details, stripePaymentIntentId));
+    if (!annotationRecorded && !dryRun) {
+      const createResponse = await fetcher(
+        `https://api.xero.com/api.xro/2.0/Invoices/${encodeURIComponent(invoiceId)}/History`,
+        {
+          method: 'PUT',
+          headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': annotationOperationId },
+          body: JSON.stringify({ HistoryRecords: [{ Details: trace }] }),
+        },
+      );
+      await safeXeroJson(createResponse, 'form-settlement-history-create');
+      annotationRecorded = true;
+    }
+  } catch (error) {
+    annotationError = error.message;
+    try {
+      const verifyResponse = await fetcher(
+        `https://api.xero.com/api.xro/2.0/Invoices/${encodeURIComponent(invoiceId)}/History`,
+        { headers },
+      );
+      const verifyData = await safeXeroJson(verifyResponse, 'form-settlement-history-verify');
+      annotationRecorded = (verifyData?.HistoryRecords || []).some((record) =>
+        containsExactStripePaymentIntent(record?.Details, stripePaymentIntentId));
+      if (annotationRecorded) annotationError = null;
+    } catch {
+      // Preserve the original actionable annotation error.
+    }
+  }
+
+  let account = null;
+  let settlementError = null;
+  let settlementState = 'retry';
+  if (annotationOnly) {
+    if (matchingPayment && balance === 0) {
+      settlementState = annotationRecorded ? 'done' : 'retry';
+    } else if (balance !== invoiceTotal) {
+      settlementState = 'blocked';
+      settlementError = 'Annotation recorded, but invoice is partially or manually settled';
+    } else {
+      settlementState = 'retry';
+      settlementError = 'Annotation-only operation completed; Stripe settlement remains pending';
+    }
+  } else if (matchingPayment && balance === 0) {
+    settlementState = annotationRecorded ? 'done' : 'retry';
+  } else if (balance !== invoiceTotal) {
+    settlementState = 'blocked';
+    settlementError = matchingPayment
+      ? 'The Stripe-linked payment does not fully settle the invoice'
+      : 'Invoice has a partial or manual payment; refusing to create an excess payment';
+  } else if (!['AUTHORISED', 'PAID'].includes(invoice.Status)) {
+    settlementState = 'blocked';
+    settlementError = `Xero invoice status ${invoice.Status || '(missing)'} cannot accept payment`;
+  } else {
+    const { data: setting, error: settingError } = await database
+      .from('system_settings').select('setting_value')
+      .eq('setting_key', 'xero_stripe_bank_account_code')
+      .eq('tenant_id', appTenantId).maybeSingle();
+    if (settingError) throw new Error(`Failed to read Xero Stripe clearing-account configuration: ${settingError.message}`);
+    const configuredCode = setting?.setting_value ? String(setting.setting_value) : null;
+    if (!configuredCode) {
+      settlementState = 'blocked';
+      settlementError = 'Xero Stripe clearing account is not configured (xero_stripe_bank_account_code)';
+    } else if (expectedAccount != null && String(expectedAccount) !== configuredCode) {
+      settlementState = 'blocked';
+      settlementError = `Configured Xero Stripe clearing account does not match explicitly confirmed account ${expectedAccount}`;
+      account = configuredCode;
+    } else {
+      const accountResponse = await fetcher(
+        `https://api.xero.com/api.xro/2.0/Accounts?where=${encodeURIComponent(`Code=="${configuredCode.replace(/"/g, '\\"')}"`)}`,
+        { headers },
+      );
+      const accountData = await safeXeroJson(accountResponse, 'form-settlement-account-retrieve');
+      const bankAccount = (accountData?.Accounts || []).find((item) => String(item.Code) === configuredCode);
+      account = configuredCode;
+      if (!bankAccount?.AccountID || bankAccount.Status === 'ARCHIVED' || bankAccount.Type !== 'BANK') {
+        settlementState = 'blocked';
+        settlementError = `Configured Xero Stripe clearing account ${configuredCode} is not an active bank account`;
+      } else if (dryRun) {
+        settlementState = 'retry';
+        settlementError = 'Dry run: payment and/or annotation still need to be recorded';
+      } else {
+        try {
+          const response = await fetcher('https://api.xero.com/api.xro/2.0/Payments', {
+            method: 'PUT',
+            headers: { ...headers, 'Content-Type': 'application/json', 'Idempotency-Key': paymentOperationId },
+            body: JSON.stringify({ Payments: [{
+              Invoice: { InvoiceID: invoiceId },
+              Account: { AccountID: bankAccount.AccountID },
+              Date: new Date(paidAt || Date.now()).toISOString().split('T')[0],
+              Amount: payAmount,
+              Reference: trace,
+            }] }),
+          });
+          await safeXeroJson(response, 'form-settlement-payment-create');
+        } catch (error) {
+          settlementError = error.message;
+        }
+        // A read-after-write also resolves timeout/ambiguous response cases.
+        invoice = await readInvoice();
+        if (invoice.AmountDue == null) throw new Error('Xero invoice returned no balance');
+        balance = Math.round(Number(invoice.AmountDue) * 100) / 100;
+        matchingPayment = (invoice.Payments || []).find(paymentMatches) || null;
+        if (matchingPayment && balance === 0) {
+          settlementState = annotationRecorded ? 'done' : 'retry';
+          settlementError = null;
+        } else {
+          settlementState = 'retry';
+          settlementError ||= 'Xero did not confirm the Stripe-linked payment';
+        }
+      }
+    }
+  }
+  if (dryRun && settlementState === 'retry' && !settlementError) {
+    settlementError = 'Dry run: invoice annotation still needs to be recorded';
+  }
+  const errors = [settlementError, annotationError && `Invoice annotation: ${annotationError}`].filter(Boolean);
+  return {
+    payment_recorded: !!matchingPayment && balance === 0,
+    annotation_recorded: annotationRecorded,
+    settlement_state: settlementState,
+    error: errors.join('; ') || null,
+    invoice_id: invoice.InvoiceID,
+    invoice_number: invoice.InvoiceNumber || null,
+    balance,
+    account,
+    provider_context: { xero_tenant_id: xeroTenantId },
+  };
+}
+
+/**
+ * Bounded recovery lookup for the create-success/local-linkage-failed window.
+ * Deferred membership invoices carry the exact PI in a line description, so
+ * this read-only scan can recover only a unique, explicitly marked invoice.
+ */
+export async function findFormStripeXeroInvoice(args, dependencies = {}) {
+  const {
+    appTenantId, stripePaymentIntentId, createdAfter, expectedProviderContext = null,
+  } = args || {};
+  if (!appTenantId) throw new Error('appTenantId is required');
+  if (!validStripePaymentIntentId(stripePaymentIntentId)) {
+    throw new Error('stripePaymentIntentId must be a full PaymentIntent identifier');
+  }
+  const after = new Date(createdAfter);
+  if (!createdAfter || Number.isNaN(after.getTime())) throw new Error('createdAfter must be a valid date');
+  const tokenResolver = dependencies.getValidXeroAccessToken || getValidXeroAccessToken;
+  const transport = formAccountingTransport({
+    timeoutMs: args?.transportTimeoutMs,
+    deadlineAt: args?.deadlineAt,
+    signal: args?.signal,
+    fetch: dependencies.fetch,
+  });
+  const fetcher = (url, init = {}) =>
+    fetchFormAccountingTransport(dependencies.fetch || fetch, url, init, transport);
+  const { accessToken, tenantId: xeroTenantId } = await tokenResolver(appTenantId, transport);
+  const expectedTenant = typeof expectedProviderContext === 'string'
+    ? expectedProviderContext
+    : expectedProviderContext?.xero_tenant_id;
+  if (expectedTenant && String(expectedTenant) !== String(xeroTenantId)) {
+    throw new Error('Connected Xero organisation does not match the invoice provider context');
+  }
+  const headers = {
+    Authorization: `Bearer ${accessToken}`, 'xero-tenant-id': xeroTenantId,
+    Accept: 'application/json',
+  };
+  const dateFloor = `${after.getUTCFullYear()},${after.getUTCMonth() + 1},${after.getUTCDate()}`;
+  const matches = [];
+  const pageSize = 100;
+  for (let page = 1; page <= 100; page += 1) {
+    const where = `Type=="ACCREC"&&Date>=DateTime(${dateFloor})`;
+    const response = await fetcher(
+      `https://api.xero.com/api.xro/2.0/Invoices?page=${page}&where=${encodeURIComponent(where)}`,
+      { headers },
+    );
+    const data = await safeXeroJson(response, 'form-invoice-discovery');
+    const batch = data?.Invoices || [];
+    for (const invoice of batch) {
+      const marked = (invoice.LineItems || []).some((line) =>
+        String(line?.Description || '').includes('Form membership Stripe PaymentIntent:')
+        && containsExactStripePaymentIntent(line?.Description, stripePaymentIntentId));
+      if (marked) matches.push(invoice);
+    }
+    if (batch.length < pageSize) break;
+    if (page === 100) {
+      throw new Error('Xero invoice discovery exceeded the safe 10,000-invoice inspection limit');
+    }
+  }
+  if (matches.length > 1) {
+    throw new Error(`Multiple Xero membership invoices carry PaymentIntent ${stripePaymentIntentId}; refusing ambiguous recovery`);
+  }
+  const invoice = matches[0];
+  if (!invoice) return null;
+  if (invoice.AmountDue == null) throw new Error('Xero discovered invoice returned no balance');
+  return {
+    invoice_id: invoice.InvoiceID,
+    invoice_number: invoice.InvoiceNumber || null,
+    total: Number(invoice.Total),
+    balance: Number(invoice.AmountDue),
+    currency: invoice.CurrencyCode || null,
+    provider_context: { xero_tenant_id: xeroTenantId },
+  };
+}
+
+/**
+ * Fetch a Xero invoice (raw API response shape).
+ * Used by the reconciliation helper and as a building block for any
+ * status/PDF/line-edit code that needs the latest server-side invoice.
+ */
+export async function getXeroInvoice(invoiceId, appTenantId) {
+  if (!appTenantId) throw new Error('appTenantId is required');
+  if (!invoiceId) throw new Error('invoiceId is required');
+
+  const { accessToken, tenantId: xeroTenantId } = await getValidXeroAccessToken(appTenantId);
+
+  const response = await fetch(
+    `https://api.xero.com/api.xro/2.0/Invoices/${invoiceId}`,
+    {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'xero-tenant-id': xeroTenantId,
+        'Accept': 'application/json',
+      },
+    },
+  );
+
+  const data = await safeXeroJson(response, 'invoice-retrieve');
+  return data?.Invoices?.[0] || null;
+}
+
+/**
+ * Returns a normalised payment-state snapshot for a Xero invoice.
+ *   status     — 'paid' | 'voided' | 'partial' | 'unpaid'
+ *   balance    — outstanding balance
+ *   totalAmt   — invoice total
+ *   amountPaid — total paid so far
+ *   paidAt     — ISO timestamp of the last payment (best-effort)
+ *   voided     — boolean
+ *   raw        — original Xero invoice object (for debugging)
+ */
+export async function fetchXeroInvoiceStatus(invoiceId, appTenantId) {
+  const invoice = await getXeroInvoice(invoiceId, appTenantId);
+  if (!invoice) return null;
+
+  const xStatus = invoice.Status || '';
+  const total = parseFloat(invoice.Total || 0);
+  const balance = parseFloat(invoice.AmountDue ?? invoice.amountDue ?? 0);
+  const amountPaid = parseFloat(invoice.AmountPaid ?? invoice.amountPaid ?? 0);
+
+  let status = 'unpaid';
+  if (xStatus === 'PAID' || (total > 0 && balance === 0 && amountPaid >= total)) {
+    status = 'paid';
+  } else if (xStatus === 'VOIDED' || xStatus === 'DELETED') {
+    status = 'voided';
+  } else if (amountPaid > 0 && balance > 0) {
+    status = 'partial';
+  }
+
+  // Best-effort: most recent payment date from the Payments[] sub-array.
+  let paidAt = null;
+  if (status === 'paid' && Array.isArray(invoice.Payments) && invoice.Payments.length > 0) {
+    const dates = invoice.Payments
+      .map((p) => p?.Date)
+      .filter(Boolean)
+      .map((d) => parseXeroDate(d))
+      .filter(Boolean)
+      .sort((a, b) => b - a);
+    if (dates.length > 0) paidAt = new Date(dates[0]).toISOString();
+  }
+  if (status === 'paid' && !paidAt && invoice.FullyPaidOnDate) {
+    const t = parseXeroDate(invoice.FullyPaidOnDate);
+    if (t) paidAt = new Date(t).toISOString();
+  }
+  if (status === 'paid' && !paidAt) {
+    paidAt = new Date().toISOString();
+  }
+
+  return {
+    status,
+    balance,
+    totalAmt: total,
+    amountPaid,
+    paidAt,
+    voided: xStatus === 'VOIDED' || xStatus === 'DELETED',
+    raw: invoice,
+  };
+}
+
+// Xero serialises dates as "/Date(1700000000000+0000)/" — extract the millis.
+function parseXeroDate(value) {
+  if (!value) return null;
+  if (typeof value === 'number') return value;
+  const m = String(value).match(/\/Date\((-?\d+)/);
+  if (m) return Number(m[1]);
+  const t = Date.parse(value);
+  return Number.isNaN(t) ? null : t;
+}
+
+export async function fetchXeroInvoicePdf(invoiceId, appTenantId) {
+  const { accessToken, tenantId } = await getValidXeroAccessToken(appTenantId);
+  
+  const pdfResponse = await fetch(`https://api.xero.com/api.xro/2.0/Invoices/${invoiceId}`, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'xero-tenant-id': tenantId,
+      'Accept': 'application/pdf'
+    }
+  });
+
+  if (!pdfResponse.ok) {
+    throw new Error(`Failed to fetch invoice PDF from Xero: ${pdfResponse.status}`);
+  }
+
+  const pdfBuffer = await pdfResponse.arrayBuffer();
+  return Buffer.from(pdfBuffer);
+}
+
+export async function fetchXeroCreditNotePdf(creditNoteId, appTenantId) {
+  const { accessToken, tenantId } = await getValidXeroAccessToken(appTenantId);
+
+  const pdfResponse = await fetch(`https://api.xero.com/api.xro/2.0/CreditNotes/${creditNoteId}`, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'xero-tenant-id': tenantId,
+      'Accept': 'application/pdf'
+    }
+  });
+
+  if (!pdfResponse.ok) {
+    throw new Error(`Failed to fetch credit note PDF from Xero: ${pdfResponse.status}`);
+  }
+
+  const pdfBuffer = await pdfResponse.arrayBuffer();
+  return Buffer.from(pdfBuffer);
+}
+
+export async function emailXeroCreditNote({ appTenantId, creditNoteId, creditNoteNumber, toEmail, tenantId }) {
+  if (!creditNoteId) throw new Error('creditNoteId is required');
+  if (!toEmail) throw new Error('toEmail is required');
+
+  console.log(`[Xero] Fetching credit note ${creditNoteNumber || creditNoteId} PDF to email to ${toEmail}`);
+  const pdfBuffer = await fetchXeroCreditNotePdf(creditNoteId, appTenantId);
+
+  const { sendEmail } = await import('./emailService.js');
+
+  const filename = `credit-note-${creditNoteNumber || creditNoteId}.pdf`;
+  await sendEmail({
+    tenantId: tenantId || appTenantId,
+    to: toEmail,
+    subject: `Credit Note ${creditNoteNumber || ''}`.trim(),
+    html: `<p>Please find attached your credit note${creditNoteNumber ? ` (${creditNoteNumber})` : ''}.</p>`,
+    attachments: [{
+      filename,
+      data: pdfBuffer,
+      contentType: 'application/pdf',
+    }],
+  });
+
+  console.log(`[Xero] Credit note ${creditNoteNumber || creditNoteId} emailed to ${toEmail}`);
+  return { success: true, email: toEmail };
+}
+
+export async function createXeroCreditNote({ appTenantId, invoiceId, creditAmount, description, reference }) {
+  if (!appTenantId) throw new Error('appTenantId is required');
+  if (!invoiceId) throw new Error('invoiceId is required');
+
+  const numericAmount = Number(creditAmount);
+  if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+    throw new Error(`creditAmount must be a positive number, got: ${creditAmount}`);
+  }
+
+  const { accessToken, tenantId: xeroTenantId } = await getValidXeroAccessToken(appTenantId);
+
+  console.log(`[Xero] Retrieving invoice ${invoiceId} for credit note creation`);
+  const invoiceResponse = await fetch(`https://api.xero.com/api.xro/2.0/Invoices/${invoiceId}`, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'xero-tenant-id': xeroTenantId,
+      'Accept': 'application/json'
+    }
+  });
+
+  const invoiceData = await safeXeroJson(invoiceResponse, 'invoice-retrieve');
+  const invoice = invoiceData?.Invoices?.[0];
+
+  if (!invoice) {
+    throw new Error(`Invoice ${invoiceId} not found in Xero`);
+  }
+
+  if (invoice.Status === 'VOIDED') {
+    return { skipped: true, reason: 'Invoice is voided', invoiceId, invoiceNumber: invoice.InvoiceNumber };
+  }
+
+  if (invoice.Status === 'DRAFT') {
+    return { skipped: true, reason: 'Invoice is in draft status — credit note cannot be allocated against drafts', invoiceId, invoiceNumber: invoice.InvoiceNumber };
+  }
+
+  const amountDue = Number(invoice.AmountDue) || 0;
+  const amountCredited = Number(invoice.AmountCredited) || 0;
+  const invoiceTotal = Number(invoice.Total) || 0;
+  const remainingCreditable = Math.max(0, invoiceTotal - amountCredited);
+
+  if (remainingCreditable <= 0) {
+    return { skipped: true, reason: 'Invoice already fully credited', invoiceId, invoiceNumber: invoice.InvoiceNumber };
+  }
+
+  const effectiveAmount = Math.min(numericAmount, remainingCreditable);
+
+  if (reference) {
+    const existingResponse = await fetch(`https://api.xero.com/api.xro/2.0/CreditNotes?where=Reference=="${encodeURIComponent(reference)}"`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'xero-tenant-id': xeroTenantId,
+        'Accept': 'application/json'
+      }
+    });
+    const existingData = await safeXeroJson(existingResponse, 'creditnote-dedup-check');
+    const existingCreditNotes = existingData?.CreditNotes || [];
+    const matchingCN = existingCreditNotes.find(cn => cn.Status !== 'DELETED' && cn.Status !== 'VOIDED');
+    if (matchingCN) {
+      console.log(`[Xero] Credit note already exists for reference "${reference}": ${matchingCN.CreditNoteNumber}`);
+      return {
+        creditNoteId: matchingCN.CreditNoteID,
+        creditNoteNumber: matchingCN.CreditNoteNumber,
+        amount: matchingCN.Total == null ? null : Number(matchingCN.Total),
+        currency: matchingCN.CurrencyCode,
+        status: matchingCN.Status,
+        allocated: (Number(matchingCN.Total) - Number(matchingCN.RemainingCredit || 0)) > 0,
+        invoiceId,
+        invoiceNumber: invoice.InvoiceNumber,
+        alreadyExisted: true,
+      };
+    }
+  }
+
+  const contactId = invoice.Contact?.ContactID;
+  if (!contactId) {
+    throw new Error(`Invoice ${invoiceId} has no associated contact in Xero`);
+  }
+
+  const originalLineItem = invoice.LineItems?.[0];
+  const accountCode = originalLineItem?.AccountCode || '200';
+  const taxType = originalLineItem?.TaxType || null;
+
+  const lineItem = {
+    Description: description || `Credit note for cancelled booking`,
+    Quantity: 1,
+    UnitAmount: Number(effectiveAmount.toFixed(2)),
+    AccountCode: accountCode,
+  };
+  if (taxType) {
+    lineItem.TaxType = taxType;
+  }
+
+  const creditNotePayload = {
+    CreditNotes: [{
+      Type: 'ACCRECCREDIT',
+      Contact: { ContactID: contactId, Addresses: invoice.Contact?.Addresses || [] },
+      Date: new Date().toISOString().split('T')[0],
+      Reference: reference || '',
+      Status: 'AUTHORISED',
+      LineItems: [lineItem],
+    }]
+  };
+
+  console.log(`[Xero] Creating credit note for £${effectiveAmount.toFixed(2)} against invoice ${invoice.InvoiceNumber} (requested: £${numericAmount.toFixed(2)}, creditable: £${remainingCreditable.toFixed(2)})`);
+  const creditNoteResponse = await fetch('https://api.xero.com/api.xro/2.0/CreditNotes', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'xero-tenant-id': xeroTenantId,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    },
+    body: JSON.stringify(creditNotePayload)
+  });
+
+  const creditNoteData = await safeXeroJson(creditNoteResponse, 'creditnote-create');
+  const creditNote = creditNoteData?.CreditNotes?.[0];
+
+  if (!creditNote?.CreditNoteID) {
+    throw new Error(`Failed to create Xero credit note: ${JSON.stringify(creditNoteData).substring(0, 500)}`);
+  }
+
+  console.log(`[Xero] Credit note created: ${creditNote.CreditNoteNumber} (${creditNote.CreditNoteID})`);
+
+  let allocated = false;
+  const allocatableAmount = Math.min(effectiveAmount, amountDue);
+  if (allocatableAmount > 0) {
+    try {
+      const allocationPayload = {
+        Allocations: [{
+          Invoice: { InvoiceID: invoiceId },
+          Amount: Number(allocatableAmount.toFixed(2)),
+          Date: new Date().toISOString().split('T')[0],
+        }]
+      };
+
+      const allocationResponse = await fetch(`https://api.xero.com/api.xro/2.0/CreditNotes/${creditNote.CreditNoteID}/Allocations`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'xero-tenant-id': xeroTenantId,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(allocationPayload)
+      });
+
+      const allocationData = await safeXeroJson(allocationResponse, 'creditnote-allocate');
+      if (allocationData?.Allocations?.length > 0) {
+        allocated = true;
+        console.log(`[Xero] Credit note ${creditNote.CreditNoteNumber} allocated £${allocatableAmount.toFixed(2)} against invoice ${invoice.InvoiceNumber}`);
+      }
+    } catch (allocErr) {
+      console.warn(`[Xero] Failed to allocate credit note (non-fatal): ${allocErr.message}`);
+    }
+  } else {
+    console.log(`[Xero] Invoice ${invoice.InvoiceNumber} has no amount due — credit note created but not allocated`);
+  }
+
+  return {
+    creditNoteId: creditNote.CreditNoteID,
+    creditNoteNumber: creditNote.CreditNoteNumber,
+    amount: creditNote.Total == null ? null : Number(creditNote.Total),
+    currency: creditNote.CurrencyCode,
+    status: creditNote.Status,
+    allocated,
+    invoiceId,
+    invoiceNumber: invoice.InvoiceNumber,
+  };
+}
+
+export async function readXeroCreditNoteEvidence(appTenantId, creditNoteId) {
+  const { accessToken, tenantId } = await getValidXeroAccessToken(appTenantId);
+  const response = await fetch(`https://api.xero.com/api.xro/2.0/CreditNotes/${encodeURIComponent(creditNoteId)}`, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${accessToken}`, 'xero-tenant-id': tenantId, Accept: 'application/json' },
+  });
+  if (!response.ok) throw new Error(`Credit note lookup failed (${response.status})`);
+  const note = (await response.json()).CreditNotes?.[0];
+  if (!note || note.CreditNoteID !== creditNoteId) throw new Error('Credit note identity mismatch');
+  return { providerId: note.CreditNoteID, amount: note.Total == null ? null : Number(note.Total), currency: note.CurrencyCode, status: note.Status };
+}

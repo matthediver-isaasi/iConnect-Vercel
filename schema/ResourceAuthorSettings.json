@@ -36,6 +36,11 @@
           "email"
         ],
         "description": "Which social sharing icons to display on resource cards"
+      },
+      "hide_empty_subcategories": {
+        "type": "boolean",
+        "default": false,
+        "description": "Whether to hide subcategory filter options that have no resources available"
       }
     },
     "required": []

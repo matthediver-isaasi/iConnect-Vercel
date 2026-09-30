@@ -1,0 +1,842 @@
+# Replit Build Scope — Modern Accordion Element for CanvasBuilder
+
+## Objective
+
+Add a modern **Accordion element** to CanvasBuilder.
+
+This scope covers the **rendered website behaviour and capabilities** of the accordion. Admin/editor controls should be implemented as required to configure these behaviours, but the primary requirement is that the published accordion behaves consistently, responsively and accessibly.
+
+The accordion must be designed as a reusable CanvasBuilder component rather than a simple FAQ-only widget.
+
+A key requirement is that each expanded accordion panel acts as a **CanvasBuilder content container**, capable of containing normal supported CanvasBuilder elements.
+
+---
+
+# 1. Core Accordion Behaviour
+
+The Accordion element must contain one or more **Accordion Items**.
+
+Each item consists of:
+
+* Header / trigger area
+* Expand/collapse indicator
+* Expandable content panel
+
+The entire header row must be clickable/tappable. Users must not have to click directly on the expand/collapse icon.
+
+Support the following accordion operating modes:
+
+### Multiple Open
+
+Any number of accordion items may be expanded simultaneously.
+
+Opening another item does not close previously opened items.
+
+### Single Open
+
+Only one accordion item may be expanded at a time.
+
+Opening another item automatically closes the currently open item.
+
+### Single Open — Always One Open
+
+Only one accordion item may be expanded at a time, but the accordion must never be completely collapsed.
+
+If the user attempts to close the currently open item, it remains open unless another item is selected.
+
+The rendered component architecture should support these modes cleanly without requiring separate accordion implementations.
+
+---
+
+# 2. Initial Open State
+
+The Accordion must support configurable initial states.
+
+Supported options must include:
+
+* All items closed
+* First item open
+* Specific selected item open
+* Multiple selected items open where Multiple Open mode is enabled
+
+Initial state must be reflected immediately when the page renders and must not briefly display the incorrect state during page load.
+
+If a deep-link URL targets a specific accordion item, deep-link behaviour takes priority over the configured initial state.
+
+---
+
+# 3. Rich Accordion Panel Content
+
+This is a critical requirement.
+
+The content area inside an Accordion Item must **not** be restricted to a plain text or rich-text field.
+
+Each Accordion Item content panel must behave as a CanvasBuilder container capable of holding normal supported CanvasBuilder elements.
+
+Examples include:
+
+* Text
+* Headings
+* Images
+* Buttons
+* Links
+* Lists
+* Video
+* Tables
+* Icons
+* Cards
+* Columns
+* Layout elements
+* Other supported CanvasBuilder elements
+
+Example:
+
+```text
+Accordion
+│
+├── Membership Fees
+│
+│   └── Content Container
+│       ├── Heading
+│       ├── Text
+│       ├── Pricing Table
+│       └── Button
+│
+├── Eligibility
+│
+│   └── Content Container
+│       ├── Two Column Layout
+│       │   ├── Text
+│       │   └── Image
+│       └── Button
+│
+└── How to Apply
+    └── Content Container
+        ├── Text
+        └── CTA
+```
+
+The usual CanvasBuilder rendering system should therefore be reused inside accordion panels rather than creating a separate limited accordion-content editor.
+
+---
+
+# 4. Accordion Header Structure
+
+Each Accordion Item header should support the following visual structure:
+
+```text
+[Optional Icon]  Title
+                 Optional Subtitle                 [Toggle Icon]
+```
+
+Supported rendered components should include:
+
+### Required
+
+* Main title
+* Expand/collapse indicator
+
+### Optional
+
+* Leading icon
+* Supporting/subtitle text
+* Badge or small label
+
+Example:
+
+```text
+[Icon]  Delivery Options
+        UK and international delivery available              +
+```
+
+The layout must remain stable when optional elements are absent.
+
+For example, removing the icon should not leave unnecessary spacing.
+
+---
+
+# 5. Expand / Collapse Indicator
+
+Every accordion item must have an obvious visual affordance indicating that it can be opened.
+
+The component should support common patterns such as:
+
+* Plus → Minus
+* Chevron Down → Chevron Up
+* Chevron Right → Chevron Down
+* Arrow
+* Configurable/custom icon where supported by the existing CanvasBuilder icon system
+
+The icon should visually reflect the current state.
+
+Example:
+
+```text
+Closed
+
+Membership Fees                         +
+
+Open
+
+Membership Fees                         −
+```
+
+or:
+
+```text
+Closed
+
+Membership Fees                         ▼
+
+Open
+
+Membership Fees                         ▲
+```
+
+Icons should be treated as decorative for accessibility purposes where the item title already communicates the control.
+
+---
+
+# 6. Opening and Closing Animation
+
+Accordion expansion and collapse should support smooth animation.
+
+The animation should be subtle and responsive rather than decorative.
+
+Recommended behaviour:
+
+* Approx. 150–250ms default transition
+* Height/content reveal animation
+* Optional subtle icon rotation
+* No large movement or page jumping
+
+Avoid implementations based on hard-coded heights because accordion content may contain arbitrary CanvasBuilder components.
+
+The animation system must therefore cope with dynamic content height.
+
+Animation must respect the browser/user:
+
+```css
+prefers-reduced-motion
+```
+
+setting.
+
+If reduced motion is requested, expansion and collapse should happen immediately or with minimal animation.
+
+---
+
+# 7. Independent Styling Areas
+
+The rendered Accordion must expose clear styling boundaries so CanvasBuilder can style each logical area independently.
+
+## Accordion Container
+
+The overall Accordion wrapper should support the normal styling architecture available to CanvasBuilder elements, including where applicable:
+
+* Width
+* Maximum width
+* Background
+* Border
+* Border radius
+* Shadow
+* Internal spacing
+* External spacing
+
+## Accordion Item
+
+Individual items should support:
+
+* Background
+* Border
+* Border radius
+* Divider
+* Item spacing
+* Hover state
+
+## Accordion Header
+
+The header/trigger area should support:
+
+* Background
+* Text colour
+* Typography
+* Padding
+* Minimum height
+* Alignment
+* Icon alignment
+
+## Open Header State
+
+An expanded item header must support styling independently from a closed item.
+
+For example:
+
+```text
+CLOSED
+
+White background
+Dark text
+
+
+OPEN
+
+Brand background
+White text
+```
+
+The component architecture should expose an obvious state selector/class/data attribute for this.
+
+For example:
+
+```html
+data-state="open"
+```
+
+and:
+
+```html
+data-state="closed"
+```
+
+or equivalent React state classes.
+
+## Content Panel
+
+The expanded panel should independently support:
+
+* Background
+* Padding
+* Border
+* Text colour
+* Internal spacing
+
+The Content Panel's own styling must not interfere with the styling of CanvasBuilder elements placed inside it.
+
+---
+
+# 8. Supported Visual Accordion Styles
+
+The underlying component should support multiple visual treatments without requiring separate accordion implementations.
+
+At minimum, the styling architecture should allow these patterns.
+
+## Divider Style
+
+```text
+What is membership?
+────────────────────────
+
+How do I join?
+────────────────────────
+
+How much does it cost?
+────────────────────────
+```
+
+Typically:
+
+* Minimal background
+* Horizontal separators
+* Little or no outer border
+
+## Card Style
+
+```text
+╭──────────────────────────────╮
+│ What is membership?        + │
+╰──────────────────────────────╯
+
+╭──────────────────────────────╮
+│ How do I join?             + │
+╰──────────────────────────────╯
+```
+
+Typically:
+
+* Individual item backgrounds
+* Radius
+* Gap between items
+
+## Joined Accordion Style
+
+```text
+╭──────────────────────────────╮
+│ What is membership?        + │
+├──────────────────────────────┤
+│ How do I join?             + │
+├──────────────────────────────┤
+│ How much does it cost?     + │
+╰──────────────────────────────╯
+```
+
+Typically:
+
+* One outer container
+* Shared border
+* Internal dividers
+* Top/bottom corner treatment
+
+## Filled Style
+
+Individual headers can use strong background colours or contrasting open states.
+
+These do not need to exist as hard-coded "themes" if the existing CanvasBuilder style engine can reproduce them.
+
+The requirement is that the underlying HTML/CSS architecture does not prevent these treatments.
+
+---
+
+# 9. Responsive Behaviour
+
+The Accordion must work cleanly at all CanvasBuilder breakpoints.
+
+On smaller screens it should naturally occupy the available width unless otherwise configured.
+
+Do not use fixed accordion item heights.
+
+Headers must support:
+
+* Multi-line titles
+* Multi-line subtitles
+* Long words
+* Increased browser accessibility font sizes
+* Different icon sizes
+* Flexible padding
+
+Example mobile rendering:
+
+```text
+What qualifications do I
+need to become a member?       +
+```
+
+rather than shrinking the text unnaturally to keep the title on one line.
+
+The toggle icon must remain aligned correctly even where the title becomes several lines high.
+
+Recommended header layout:
+
+```css
+display: flex;
+align-items: center;
+```
+
+with the title/content area allowed to grow and the toggle icon prevented from shrinking.
+
+Conceptually:
+
+```text
+Header
+
+├── Leading Icon
+├── Text Area        flex: 1
+│   ├── Title
+│   └── Subtitle
+└── Toggle Icon      flex-shrink: 0
+```
+
+The content panel must expand vertically according to its actual contents.
+
+No content should:
+
+* Overflow horizontally
+* Be clipped vertically
+* Cause fixed-height layout issues
+* Break the CanvasBuilder responsive grid
+
+---
+
+# 10. Deep Linking to Accordion Items
+
+Each Accordion Item must be capable of having a unique HTML anchor/ID.
+
+Example:
+
+```text
+/membership#subscription-costs
+```
+
+If the page loads with an anchor targeting an Accordion Item, the renderer must:
+
+1. Identify the targeted Accordion Item.
+2. Expand that item.
+3. Override its normal initial state if necessary.
+4. Scroll the targeted accordion item into view.
+
+Example item identifier:
+
+```text
+subscription-costs
+```
+
+should allow:
+
+```text
+https://example.com/membership#subscription-costs
+```
+
+This is particularly useful for:
+
+* FAQ pages
+* Membership information
+* Help pages
+* AI-generated support links
+* Email links
+* Documentation
+* Internal navigation
+
+Item IDs must be unique within the page.
+
+Where the title is used to generate an ID automatically, sanitise it into an appropriate URL-safe slug.
+
+For example:
+
+```text
+How Much Does Membership Cost?
+```
+
+could become:
+
+```text
+how-much-does-membership-cost
+```
+
+Where duplicate generated IDs occur, automatically make them unique.
+
+Example:
+
+```text
+membership-cost
+membership-cost-2
+```
+
+---
+
+# 11. Optional URL Update When Opening Items
+
+The accordion architecture should support updating the browser URL fragment when an item is opened.
+
+For example:
+
+```text
+/faqs
+```
+
+becomes:
+
+```text
+/faqs#changing-my-address
+```
+
+This behaviour should be configurable because it will not be desirable for every accordion.
+
+Where enabled:
+
+* Opening an item updates the URL hash.
+* The page must not reload.
+* Existing page state must remain intact.
+* The updated URL can be copied/shared.
+* Loading the copied URL later must invoke the deep-link behaviour described above.
+
+Avoid unnecessarily polluting browser history.
+
+Using:
+
+```javascript
+history.replaceState()
+```
+
+may therefore be preferable in many cases to creating a new browser-history entry every time an accordion item is opened.
+
+If the current CanvasBuilder routing architecture has an established convention for hash navigation, follow that convention.
+
+---
+
+# 12. Accessibility
+
+Accessibility must be built into the Accordion renderer and must not depend on the CanvasBuilder administrator configuring it correctly.
+
+The component should meet appropriate WCAG expectations for a disclosure/accordion interface.
+
+## Keyboard Operation
+
+Each accordion header must be keyboard accessible.
+
+Required behaviour:
+
+* `Tab` can focus the accordion header.
+* `Enter` opens/closes the item.
+* `Space` opens/closes the item.
+
+The user must never require a mouse or touch device to operate the accordion.
+
+## Focus Indicator
+
+The focused accordion header must have a clearly visible focus state.
+
+Do not globally suppress:
+
+```css
+outline
+```
+
+without replacing it with an equivalent accessible focus treatment.
+
+Prefer:
+
+```css
+:focus-visible
+```
+
+where appropriate.
+
+## Screen Reader State
+
+Assistive technology must be able to identify whether an accordion item is:
+
+* Expanded
+* Collapsed
+
+Where using custom button-based behaviour, use appropriate semantics such as:
+
+```html
+aria-expanded="true"
+```
+
+and:
+
+```html
+aria-expanded="false"
+```
+
+with an explicit relationship between trigger and content panel.
+
+For example:
+
+```html
+<button
+  aria-expanded="false"
+  aria-controls="accordion-panel-membership"
+>
+  Membership
+</button>
+
+<div
+  id="accordion-panel-membership"
+  role="region"
+  aria-labelledby="accordion-trigger-membership"
+>
+  ...
+</div>
+```
+
+Exact markup may vary depending upon the implementation architecture.
+
+## Native Disclosure Option
+
+The implementation may use native:
+
+```html
+<details>
+<summary>
+```
+
+where this integrates cleanly with CanvasBuilder and provides all required styling/animation behaviour.
+
+Alternatively, a custom button + panel architecture may be used.
+
+The key requirement is accessibility compliance rather than enforcing one implementation approach.
+
+## Heading Structure
+
+Accordion titles should integrate correctly with the page heading hierarchy.
+
+Do not arbitrarily introduce invalid heading levels.
+
+For example, an accordion title should not automatically be rendered as an `<h2>` if its location within the CanvasBuilder page means that is semantically incorrect.
+
+Where the existing CanvasBuilder architecture supports configurable semantic heading levels, reuse that system.
+
+## Decorative Icons
+
+Toggle icons such as chevrons and plus/minus symbols should not produce unnecessary screen-reader output where the title already explains the control.
+
+Use:
+
+```html
+aria-hidden="true"
+```
+
+or equivalent where appropriate.
+
+## Content Visibility
+
+Collapsed content must not remain keyboard-focusable.
+
+For example, a button inside a collapsed accordion must not be reachable using `Tab` until its parent accordion item is opened.
+
+This must be handled automatically by the accordion implementation.
+
+## Focus Behaviour
+
+Opening or closing an accordion item must not unexpectedly move keyboard focus.
+
+Focus should normally remain on the accordion trigger after it is opened or closed.
+
+---
+
+# Recommended Component Structure
+
+The logical React/CanvasBuilder component structure should approximately be:
+
+```text
+Accordion
+│
+├── AccordionItem
+│   │
+│   ├── AccordionHeader
+│   │   ├── Optional Leading Icon
+│   │   ├── Header Content
+│   │   │   ├── Title
+│   │   │   └── Optional Subtitle
+│   │   ├── Optional Badge
+│   │   └── Toggle Icon
+│   │
+│   └── AccordionPanel
+│       └── CanvasBuilder Content Container
+│           ├── Element
+│           ├── Element
+│           └── Element
+│
+├── AccordionItem
+│   └── ...
+│
+└── AccordionItem
+    └── ...
+```
+
+The Accordion should manage shared behaviour such as:
+
+* Single vs multiple open mode
+* Initial state
+* Deep linking
+* URL hash behaviour
+
+Each Accordion Item should manage:
+
+* Its unique identifier
+* Header content
+* Expanded/collapsed state
+* Panel relationship
+
+The Accordion Panel should delegate its contents to the existing CanvasBuilder renderer.
+
+---
+
+# Suggested Rendered Data Structure
+
+Do not treat this as a mandatory database schema, but the component state will likely require something broadly equivalent to:
+
+```typescript
+type AccordionConfig = {
+  mode: "multiple" | "single" | "single-required";
+
+  initialOpenItems: string[];
+
+  updateUrlOnOpen: boolean;
+
+  items: AccordionItemConfig[];
+};
+
+type AccordionItemConfig = {
+  id: string;
+
+  title: string;
+
+  subtitle?: string;
+
+  icon?: IconConfig;
+
+  badge?: string;
+
+  content: CanvasBuilderElement[];
+};
+```
+
+Styling information should follow the existing CanvasBuilder styling architecture rather than introducing a completely separate styling system.
+
+---
+
+# Important Implementation Requirement — Do Not Build This as an FAQ Widget
+
+The Accordion should be implemented as a **general CanvasBuilder layout/content component**.
+
+Avoid an architecture such as:
+
+```text
+Question
+Answer
+Question
+Answer
+Question
+Answer
+```
+
+where the "answer" is simply a string or rich-text field.
+
+Instead use:
+
+```text
+Accordion
+    Accordion Item
+        Header
+        CanvasBuilder Container
+```
+
+This distinction is important because it allows the same component to be used for:
+
+* FAQs
+* Membership information
+* Product information
+* Event information
+* Policies
+* Pricing
+* Services
+* Specifications
+* Educational content
+* Application guidance
+* Help documentation
+* Complex content sections
+
+without needing additional accordion variants later.
+
+---
+
+# Acceptance Criteria
+
+The implementation can be considered complete when:
+
+* An Accordion can contain multiple Accordion Items.
+* Each item has a clickable full-width header and content panel.
+* Multiple-open mode works.
+* Single-open mode works.
+* Single-open/always-one-open mode works.
+* All-closed, first-open and selected-item initial states work.
+* Accordion panels can contain normal CanvasBuilder elements.
+* Titles, subtitles, icons and toggle indicators render correctly.
+* Open and closed states can be styled independently.
+* Expansion and collapse animation works with dynamic-height content.
+* Reduced-motion preferences are respected.
+* Accordion layouts work correctly across mobile, tablet and desktop.
+* Long and multi-line headings do not break the header layout.
+* Accordion Items can have unique deep-link anchors.
+* Loading a URL containing an Accordion Item anchor automatically opens and scrolls to that item.
+* Optional URL hash updating works without reloading the page.
+* The component is fully usable using keyboard controls.
+* Expanded/collapsed state is exposed correctly to assistive technology.
+* Collapsed panel controls cannot accidentally receive keyboard focus.
+* Visible focus states are retained.
+* Opening and closing panels does not unexpectedly move user focus.
+* Accordion content continues to use the existing CanvasBuilder rendering and styling architecture.
+* The Accordion is implemented as a reusable layout/content component rather than a dedicated FAQ widget.

@@ -1,0 +1,101 @@
+index-L8mWg7rc.js:1066 GoTrueClient@sb-zkvgzcruhniduuswbfyh-auth-token:1 (2.84.0) 2026-01-04T09:43:06.497Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+mg @ index-L8mWg7rc.js:1066
+Kie @ index-L8mWg7rc.js:1067
+_initSupabaseAuthClient @ index-L8mWg7rc.js:1067
+Gie @ index-L8mWg7rc.js:1067
+T4 @ index-L8mWg7rc.js:1067
+(anonymous) @ index-L8mWg7rc.js:2074
+(anonymous) @ index-L8mWg7rc.js:1
+(anonymous) @ index-L8mWg7rc.js:2503
+index-L8mWg7rc.js:1066 GoTrueClient@sb-zkvgzcruhniduuswbfyh-auth-token:2 (2.84.0) 2026-01-04T09:43:06.499Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+mg @ index-L8mWg7rc.js:1066
+Kie @ index-L8mWg7rc.js:1067
+_initSupabaseAuthClient @ index-L8mWg7rc.js:1067
+Gie @ index-L8mWg7rc.js:1067
+T4 @ index-L8mWg7rc.js:1067
+(anonymous) @ index-L8mWg7rc.js:2452
+(anonymous) @ index-L8mWg7rc.js:1
+(anonymous) @ index-L8mWg7rc.js:2503
+index-L8mWg7rc.js:1370 [usePendingPurchaseOrders] memberInfo: {id: 'f07ac550-de9f-4a37-ba2b-f320d93f1e4d', email: 'mat.the.diver@googlemail.com'}
+index-L8mWg7rc.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-L8mWg7rc.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-L8mWg7rc.js:1370 [Layout] currentPageName: about-me currentPortalPageId: portal_about_me
+index-L8mWg7rc.js:1370 [usePendingPurchaseOrders] Query running, memberInfo.id: f07ac550-de9f-4a37-ba2b-f320d93f1e4d
+index-L8mWg7rc.js:1370 [usePendingPurchaseOrders] memberInfo: {id: 'f07ac550-de9f-4a37-ba2b-f320d93f1e4d', email: 'mat.the.diver@googlemail.com'}
+index-L8mWg7rc.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-L8mWg7rc.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-L8mWg7rc.js:1370 [Layout] currentPageName: about-me currentPortalPageId: portal_about_me
+index-L8mWg7rc.js:1370 [usePendingPurchaseOrders] Fetched bookings count: 0
+index-L8mWg7rc.js:1370 [usePendingPurchaseOrders] Pending PO bookings: 0
+index-L8mWg7rc.js:1370 [usePendingPurchaseOrders] memberInfo: {id: 'f07ac550-de9f-4a37-ba2b-f320d93f1e4d', email: 'mat.the.diver@googlemail.com'}
+index-L8mWg7rc.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-L8mWg7rc.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-L8mWg7rc.js:1370 [Layout] currentPageName: about-me currentPortalPageId: portal_about_me
+index-L8mWg7rc.js:1370 [usePendingPurchaseOrders] memberInfo: {id: 'f07ac550-de9f-4a37-ba2b-f320d93f1e4d', email: 'mat.the.diver@googlemail.com'}
+index-L8mWg7rc.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-L8mWg7rc.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-L8mWg7rc.js:1370 [Layout] currentPageName: about-me currentPortalPageId: portal_about_me
+index-L8mWg7rc.js:1370 [usePendingPurchaseOrders] memberInfo: {id: 'f07ac550-de9f-4a37-ba2b-f320d93f1e4d', email: 'mat.the.diver@googlemail.com'}
+index-L8mWg7rc.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-L8mWg7rc.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-L8mWg7rc.js:1370 [Layout] currentPageName: about-me currentPortalPageId: portal_about_me
+index-L8mWg7rc.js:1370 [usePendingPurchaseOrders] memberInfo: {id: 'f07ac550-de9f-4a37-ba2b-f320d93f1e4d', email: 'mat.the.diver@googlemail.com'}
+index-L8mWg7rc.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-L8mWg7rc.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-L8mWg7rc.js:1370 [Layout] currentPageName: about-me currentPortalPageId: portal_about_me
+index-L8mWg7rc.js:1370 [usePendingPurchaseOrders] memberInfo: {id: 'f07ac550-de9f-4a37-ba2b-f320d93f1e4d', email: 'mat.the.diver@googlemail.com'}
+index-L8mWg7rc.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-L8mWg7rc.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-L8mWg7rc.js:1370 [Layout] currentPageName: about-me currentPortalPageId: portal_about_me
+index-L8mWg7rc.js:1370 [usePendingPurchaseOrders] memberInfo: {id: 'f07ac550-de9f-4a37-ba2b-f320d93f1e4d', email: 'mat.the.diver@googlemail.com'}
+index-L8mWg7rc.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-L8mWg7rc.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-L8mWg7rc.js:1370 [Layout] currentPageName: about-me currentPortalPageId: portal_about_me
+index-L8mWg7rc.js:1370 [usePendingPurchaseOrders] memberInfo: {id: 'f07ac550-de9f-4a37-ba2b-f320d93f1e4d', email: 'mat.the.diver@googlemail.com'}
+index-L8mWg7rc.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-L8mWg7rc.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-L8mWg7rc.js:1370 [Layout] currentPageName: about-me currentPortalPageId: portal_about_me
+index-L8mWg7rc.js:1370 [Layout] Matched banners for about-me : 1
+index-L8mWg7rc.js:1370 [usePendingPurchaseOrders] memberInfo: {id: 'f07ac550-de9f-4a37-ba2b-f320d93f1e4d', email: 'mat.the.diver@googlemail.com'}
+index-L8mWg7rc.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-L8mWg7rc.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-L8mWg7rc.js:1370 [Layout] currentPageName: about-me currentPortalPageId: portal_about_me
+index-L8mWg7rc.js:1336 [PortalHeroBanner] Rendering banner: My Profile type: hero hasHeroContent: true hasImageUrl: false
+index-L8mWg7rc.js:1336 [PortalHeroBanner] Rendering as hero element: My Profile
+index-L8mWg7rc.js:1370 [usePendingPurchaseOrders] memberInfo: {id: 'f07ac550-de9f-4a37-ba2b-f320d93f1e4d', email: 'mat.the.diver@googlemail.com'}
+index-L8mWg7rc.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-L8mWg7rc.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-L8mWg7rc.js:1370 [Layout] currentPageName: about-me currentPortalPageId: portal_about_me
+index-L8mWg7rc.js:1336 [PortalHeroBanner] Rendering banner: My Profile type: hero hasHeroContent: true hasImageUrl: false
+index-L8mWg7rc.js:1336 [PortalHeroBanner] Rendering as hero element: My Profile
+index-L8mWg7rc.js:1370 [usePendingPurchaseOrders] memberInfo: {id: 'f07ac550-de9f-4a37-ba2b-f320d93f1e4d', email: 'mat.the.diver@googlemail.com'}
+index-L8mWg7rc.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-L8mWg7rc.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-L8mWg7rc.js:1370 [Layout] currentPageName: about-me currentPortalPageId: portal_about_me
+index-L8mWg7rc.js:1336 [PortalHeroBanner] Rendering banner: My Profile type: hero hasHeroContent: true hasImageUrl: false
+index-L8mWg7rc.js:1336 [PortalHeroBanner] Rendering as hero element: My Profile
+index-L8mWg7rc.js:1370 [usePendingPurchaseOrders] memberInfo: {id: 'f07ac550-de9f-4a37-ba2b-f320d93f1e4d', email: 'mat.the.diver@googlemail.com'}
+index-L8mWg7rc.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-L8mWg7rc.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-L8mWg7rc.js:1370 [Layout] currentPageName: about-me currentPortalPageId: portal_about_me
+index-L8mWg7rc.js:1336 [PortalHeroBanner] Rendering banner: My Profile type: hero hasHeroContent: true hasImageUrl: false
+index-L8mWg7rc.js:1336 [PortalHeroBanner] Rendering as hero element: My Profile
+index-L8mWg7rc.js:1370 [Layout] Server session found: mat.the.diver@googlemail.com
+index-L8mWg7rc.js:1370 [usePendingPurchaseOrders] memberInfo: {id: 'f07ac550-de9f-4a37-ba2b-f320d93f1e4d', email: 'mat.the.diver@googlemail.com'}
+index-L8mWg7rc.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-L8mWg7rc.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-L8mWg7rc.js:1370 [Layout] currentPageName: about-me currentPortalPageId: portal_about_me
+index-L8mWg7rc.js:1336 [PortalHeroBanner] Rendering banner: My Profile type: hero hasHeroContent: true hasImageUrl: false
+index-L8mWg7rc.js:1336 [PortalHeroBanner] Rendering as hero element: My Profile
+index-L8mWg7rc.js:1370 [usePendingPurchaseOrders] memberInfo: {id: 'f07ac550-de9f-4a37-ba2b-f320d93f1e4d', email: 'mat.the.diver@googlemail.com'}
+index-L8mWg7rc.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-L8mWg7rc.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-L8mWg7rc.js:1370 [Layout] currentPageName: about-me currentPortalPageId: portal_about_me
+index-L8mWg7rc.js:1336 [PortalHeroBanner] Rendering banner: My Profile type: hero hasHeroContent: true hasImageUrl: false
+index-L8mWg7rc.js:1336 [PortalHeroBanner] Rendering as hero element: My Profile
+index-L8mWg7rc.js:2344 [Preferences] Fetched member field permissions: {5fd5abf0-609d-42e6-8548-28af1e44599f: 'hidden', ec7a5a4e-1fb3-4886-b3e9-fd5617571451: 'hidden'}
+index-L8mWg7rc.js:2344 [Preferences] /api/auth/me response status: 200
+index-L8mWg7rc.js:2344 [Preferences] Fresh member data from API: {id: 'f07ac550-de9f-4a37-ba2b-f320d93f1e4d', email: 'mat.the.diver@googlemail.com', first_name: 'mat', last_name: 'henderson', handle: 'mat-henderson-1', …}
+index-L8mWg7rc.js:2344 [Preferences] created_at value: undefined
+index-L8mWg7rc.js:2344 [Preferences] Merged memberRecord: {id: 'f07ac550-de9f-4a37-ba2b-f320d93f1e4d', email: 'mat.the.diver@googlemail.com', first_name: 'mat', last_name: 'henderson', handle: 'mat-henderson-1', …}
+index-L8mWg7rc.js:2344 [Preferences] memberRecord.created_at: undefined

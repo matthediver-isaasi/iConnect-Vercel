@@ -1,0 +1,69 @@
+{
+    "success": true,
+    "domain": "gsf.iconn.app",
+    "events": [
+        {
+            "id": "AnGiksy2Qyq5qWWEbZTnXA",
+            "event": "delivered",
+            "timestamp": 1768921523.4631839,
+            "recipient": "mat@isaasi.co.uk",
+            "subject": "Join the GSF Community – Empowering Education Together",
+            "from": "noreply@gsf.iconn.app",
+            "messageId": "20260120150521.4e8a915765d7a804@gsf.iconn.app",
+            "deliveryStatus": {
+                "attempt-no": 1,
+                "enhanced-code": "",
+                "description": "",
+                "mx-host": "mx.zoho.com",
+                "code": 250,
+                "first-delivery-attempt-seconds": 0.042,
+                "session-seconds": 2.212,
+                "certificate-verified": true,
+                "tls": true,
+                "message": "OK"
+            },
+            "severity": null,
+            "reason": null,
+            "tags": []
+        },
+        {
+            "id": "G4T5jzS9RhmY1e0fn6zAZA",
+            "event": "accepted",
+            "timestamp": 1768921521.2457883,
+            "recipient": "mat@isaasi.co.uk",
+            "subject": "Join the GSF Community – Empowering Education Together",
+            "from": "noreply@gsf.iconn.app",
+            "messageId": "20260120150521.4e8a915765d7a804@gsf.iconn.app",
+            "deliveryStatus": null,
+            "severity": null,
+            "reason": null,
+            "tags": []
+        }
+    ],
+    "paging": {
+        "previous": {
+            "id": "previous",
+            "page": "WzMseyJiIjoiMjAyNi0wMS0yMFQxNTo1Njo1Mi41MDUrMDA6MDAiLCJlIjoiMjAyNi0wMS0xNVQxNTo1Njo1Mi41MTErMDA6MDAifSx7ImIiOiIyMDI2LTAxLTIwVDE1OjA1OjIzLjQ2MyswMDowMCIsImUiOiIyMDI2LTAxLTIwVDE1OjU2OjUyLjUwNSswMDowMCJ9LCJfZG9jI0FuR2lrc3kyUXlxNXFXV0ViWlRuWEEiLFsicCIsImYiXSxudWxsLFtbImFjY291bnQuaWQiLCI1ZTgzNjZjNWE5ZjM4ZDRhN2FkNGZjOTciXSxbImRvbWFpbi5uYW1lIiwiZ3NmLmljb25uLmFwcCJdXSw1MF0=",
+            "iteratorPosition": null,
+            "url": "https://api.eu.mailgun.net/v3/gsf.iconn.app/events/WzMseyJiIjoiMjAyNi0wMS0yMFQxNTo1Njo1Mi41MDUrMDA6MDAiLCJlIjoiMjAyNi0wMS0xNVQxNTo1Njo1Mi41MTErMDA6MDAifSx7ImIiOiIyMDI2LTAxLTIwVDE1OjA1OjIzLjQ2MyswMDowMCIsImUiOiIyMDI2LTAxLTIwVDE1OjU2OjUyLjUwNSswMDowMCJ9LCJfZG9jI0FuR2lrc3kyUXlxNXFXV0ViWlRuWEEiLFsicCIsImYiXSxudWxsLFtbImFjY291bnQuaWQiLCI1ZTgzNjZjNWE5ZjM4ZDRhN2FkNGZjOTciXSxbImRvbWFpbi5uYW1lIiwiZ3NmLmljb25uLmFwcCJdXSw1MF0="
+        },
+        "next": {
+            "id": "next",
+            "page": "WzMseyJiIjoiMjAyNi0wMS0yMFQxNTo1Njo1Mi41MDUrMDA6MDAiLCJlIjoiMjAyNi0wMS0xNVQxNTo1Njo1Mi41MTErMDA6MDAifSx7ImIiOiIyMDI2LTAxLTIwVDE1OjA1OjIxLjI0NSswMDowMCIsImUiOiIyMDI2LTAxLTE1VDE1OjU2OjUyLjUxMSswMDowMCJ9LCJfZG9jI0c0VDVqelM5UmhtWTFlMGZuNnpBWkEiLFsiZiJdLG51bGwsW1siYWNjb3VudC5pZCIsIjVlODM2NmM1YTlmMzhkNGE3YWQ0ZmM5NyJdLFsiZG9tYWluLm5hbWUiLCJnc2YuaWNvbm4uYXBwIl1dLDUwXQ==",
+            "iteratorPosition": null,
+            "url": "https://api.eu.mailgun.net/v3/gsf.iconn.app/events/WzMseyJiIjoiMjAyNi0wMS0yMFQxNTo1Njo1Mi41MDUrMDA6MDAiLCJlIjoiMjAyNi0wMS0xNVQxNTo1Njo1Mi41MTErMDA6MDAifSx7ImIiOiIyMDI2LTAxLTIwVDE1OjA1OjIxLjI0NSswMDowMCIsImUiOiIyMDI2LTAxLTE1VDE1OjU2OjUyLjUxMSswMDowMCJ9LCJfZG9jI0c0VDVqelM5UmhtWTFlMGZuNnpBWkEiLFsiZiJdLG51bGwsW1siYWNjb3VudC5pZCIsIjVlODM2NmM1YTlmMzhkNGE3YWQ0ZmM5NyJdLFsiZG9tYWluLm5hbWUiLCJnc2YuaWNvbm4uYXBwIl1dLDUwXQ=="
+        },
+        "first": {
+            "id": "first",
+            "page": "WzMseyJiIjoiMjAyNi0wMS0yMFQxNTo1Njo1Mi41MDUrMDA6MDAiLCJlIjoiMjAyNi0wMS0xNVQxNTo1Njo1Mi41MTErMDA6MDAifSx7ImIiOiIyMDI2LTAxLTIwVDE1OjU2OjUyLjUwNSswMDowMCIsImUiOiIyMDI2LTAxLTE1VDE1OjU2OjUyLjUxMSswMDowMCJ9LG51bGwsWyJmIl0sbnVsbCxbWyJhY2NvdW50LmlkIiwiNWU4MzY2YzVhOWYzOGQ0YTdhZDRmYzk3Il0sWyJkb21haW4ubmFtZSIsImdzZi5pY29ubi5hcHAiXV0sNTBd",
+            "iteratorPosition": null,
+            "url": "https://api.eu.mailgun.net/v3/gsf.iconn.app/events/WzMseyJiIjoiMjAyNi0wMS0yMFQxNTo1Njo1Mi41MDUrMDA6MDAiLCJlIjoiMjAyNi0wMS0xNVQxNTo1Njo1Mi41MTErMDA6MDAifSx7ImIiOiIyMDI2LTAxLTIwVDE1OjU2OjUyLjUwNSswMDowMCIsImUiOiIyMDI2LTAxLTE1VDE1OjU2OjUyLjUxMSswMDowMCJ9LG51bGwsWyJmIl0sbnVsbCxbWyJhY2NvdW50LmlkIiwiNWU4MzY2YzVhOWYzOGQ0YTdhZDRmYzk3Il0sWyJkb21haW4ubmFtZSIsImdzZi5pY29ubi5hcHAiXV0sNTBd"
+        },
+        "last": {
+            "id": "last",
+            "page": "WzMseyJiIjoiMjAyNi0wMS0yMFQxNTo1Njo1Mi41MDUrMDA6MDAiLCJlIjoiMjAyNi0wMS0xNVQxNTo1Njo1Mi41MTErMDA6MDAifSx7ImIiOiIyMDI2LTAxLTE1VDE1OjU2OjUyLjUxMSswMDowMCIsImUiOiIyMDI2LTAxLTIwVDE1OjU2OjUyLjUwNSswMDowMCJ9LG51bGwsWyJwIiwiZiJdLG51bGwsW1siYWNjb3VudC5pZCIsIjVlODM2NmM1YTlmMzhkNGE3YWQ0ZmM5NyJdLFsiZG9tYWluLm5hbWUiLCJnc2YuaWNvbm4uYXBwIl1dLDUwXQ==",
+            "iteratorPosition": null,
+            "url": "https://api.eu.mailgun.net/v3/gsf.iconn.app/events/WzMseyJiIjoiMjAyNi0wMS0yMFQxNTo1Njo1Mi41MDUrMDA6MDAiLCJlIjoiMjAyNi0wMS0xNVQxNTo1Njo1Mi41MTErMDA6MDAifSx7ImIiOiIyMDI2LTAxLTE1VDE1OjU2OjUyLjUxMSswMDowMCIsImUiOiIyMDI2LTAxLTIwVDE1OjU2OjUyLjUwNSswMDowMCJ9LG51bGwsWyJwIiwiZiJdLG51bGwsW1siYWNjb3VudC5pZCIsIjVlODM2NmM1YTlmMzhkNGE3YWQ0ZmM5NyJdLFsiZG9tYWluLm5hbWUiLCJnc2YuaWNvbm4uYXBwIl1dLDUwXQ=="
+        }
+    }
+}

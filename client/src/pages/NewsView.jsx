@@ -1,30 +1,75 @@
-import React, { useEffect, useState } from "react";
-import { base44 } from "@/api/base44Client";
-import { useQuery } from "@tanstack/react-query";
+import React, { useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Calendar, Edit, Tag, Linkedin, Mail } from "lucide-react";
+import { ArrowLeft, Calendar, Edit, Tag, Linkedin, Mail, Bookmark } from "lucide-react";
 import { format } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { Link } from "react-router-dom";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useTenantBranding } from "@/contexts/TenantBrandingContext";
+import { useNewsPostBySlug } from "@/hooks/useNewsPostData";
+import BookmarkButton from "@/components/bookmarks/BookmarkButton";
 
 export default function NewsViewPage() {
   const { memberInfo, isAdmin } = useMemberAccess();
+  const { branding } = useTenantBranding();
   const urlParams = new URLSearchParams(window.location.search);
   const slug = urlParams.get('slug');
 
-  const isLoggedIn = !!sessionStorage.getItem('agcas_member');
+  const { data: news, isLoading } = useNewsPostBySlug(slug);
 
-  const { data: news, isLoading } = useQuery({
-    queryKey: ['news-by-slug', slug],
-    queryFn: async () => {
-      const allNews = await base44.entities.NewsPost.list();
-      return allNews.find(n => n.slug === slug);
-    },
-    enabled: !!slug,
-  });
+  useEffect(() => {
+    if (news) {
+      document.title = news.seo_title || news.title || 'News';
+      
+      let metaDescription = document.querySelector('meta[name="description"]');
+      if (!metaDescription) {
+        metaDescription = document.createElement('meta');
+        metaDescription.name = 'description';
+        document.head.appendChild(metaDescription);
+      }
+      metaDescription.content = news.seo_description || news.summary || '';
+
+      let ogTitle = document.querySelector('meta[property="og:title"]');
+      if (!ogTitle) {
+        ogTitle = document.createElement('meta');
+        ogTitle.setAttribute('property', 'og:title');
+        document.head.appendChild(ogTitle);
+      }
+      ogTitle.content = news.seo_title || news.title || '';
+
+      let ogDescription = document.querySelector('meta[property="og:description"]');
+      if (!ogDescription) {
+        ogDescription = document.createElement('meta');
+        ogDescription.setAttribute('property', 'og:description');
+        document.head.appendChild(ogDescription);
+      }
+      ogDescription.content = news.seo_description || news.summary || '';
+
+      if (news.feature_image_url) {
+        let ogImage = document.querySelector('meta[property="og:image"]');
+        if (!ogImage) {
+          ogImage = document.createElement('meta');
+          ogImage.setAttribute('property', 'og:image');
+          document.head.appendChild(ogImage);
+        }
+        ogImage.content = news.feature_image_url;
+      }
+
+      let ogType = document.querySelector('meta[property="og:type"]');
+      if (!ogType) {
+        ogType = document.createElement('meta');
+        ogType.setAttribute('property', 'og:type');
+        document.head.appendChild(ogType);
+      }
+      ogType.content = 'article';
+    }
+
+    return () => {
+      document.title = branding?.name || 'Portal';
+    };
+  }, [news, branding?.name]);
 
   const handleLinkedInShare = () => {
     const newsUrl = encodeURIComponent(window.location.href);
@@ -42,7 +87,7 @@ export default function NewsViewPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <div className="animate-pulse text-slate-600">Loading news...</div>
       </div>
     );
@@ -50,10 +95,10 @@ export default function NewsViewPage() {
 
   if (!news) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+      <div className="min-h-screen p-4 md:p-8">
         <div className="max-w-4xl mx-auto text-center py-16">
           <h2 className="text-2xl font-bold text-slate-900 mb-4">News not found</h2>
-          <Link to={isLoggedIn ? createPageUrl('MyNews') : createPageUrl('PublicNews')}>
+          <Link to={createPageUrl('News')}>
             <Button>Back to News</Button>
           </Link>
         </div>
@@ -62,11 +107,11 @@ export default function NewsViewPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-4xl mx-auto">
         <div className="flex items-center justify-between mb-8">
           <Link 
-            to={isLoggedIn ? createPageUrl('MyNews') : createPageUrl('PublicNews')} 
+            to={createPageUrl('News')} 
             className="inline-flex items-center gap-2 text-slate-600 hover:text-slate-900"
           >
             <ArrowLeft className="w-4 h-4" />
@@ -90,11 +135,21 @@ export default function NewsViewPage() {
                 src={news.feature_image_url} 
                 alt={news.title}
                 className="w-full h-full object-cover"
+                style={{ objectPosition: news.feature_image_focal_point ? `${news.feature_image_focal_point.x}% ${news.feature_image_focal_point.y}%` : '50% 50%' }}
               />
             </div>
           )}
           
           <CardContent className="pt-8 pb-12 px-8 md:px-12">
+            <div className="flex items-start gap-3 mb-4">
+              <h1 className="text-4xl md:text-5xl font-bold text-slate-900 flex-1">
+                {news.title}
+              </h1>
+              {memberInfo && news.id && (
+                <BookmarkButton entityType="news_post" entityId={news.id} />
+              )}
+            </div>
+
             <div className="flex flex-wrap items-center gap-4 text-sm text-slate-600 mb-6">
               {news.subcategories && news.subcategories.length > 0 && (
                 <>
@@ -117,10 +172,6 @@ export default function NewsViewPage() {
                 </div>
               )}
             </div>
-
-            <h1 className="text-4xl md:text-5xl font-bold text-slate-900 mb-6">
-              {news.title}
-            </h1>
 
             {news.summary && (
               <p className="text-xl text-slate-600 mb-8 leading-relaxed">

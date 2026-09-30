@@ -1,0 +1,358 @@
+{
+  "name": "FormConfiguration",
+  "type": "object",
+  "properties": {
+    "zoho_form_id": {
+      "type": "string",
+      "description": "The Zoho Form ID / link name"
+    },
+    "form_name": {
+      "type": "string",
+      "description": "Name of the form"
+    },
+    "permalink": {
+      "type": "string",
+      "description": "Public permalink URL for the form"
+    },
+    "form_structure": {
+      "type": "object",
+      "description": "The complete form structure scraped from permalink",
+      "additionalProperties": true
+    },
+    "scoring_approach": {
+      "type": "string",
+      "enum": [
+        "dynamic",
+        "static_traffic_light"
+      ],
+      "default": "dynamic",
+      "description": "The scoring approach to use for this form"
+    },
+    "default_review_state": {
+      "type": "string",
+      "enum": [
+        "amended",
+        "approved"
+      ],
+      "default": "amended",
+      "description": "Default state for fields when loading a submission for review"
+    },
+    "scoring_rules": {
+      "type": "object",
+      "description": "Rules for calculating due diligence scores (dynamic approach)",
+      "additionalProperties": true
+    },
+    "static_questions": {
+      "type": "array",
+      "description": "Static questions for traffic light scoring approach",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "custom_risk_levels": {
+      "type": "array",
+      "description": "Custom risk level thresholds with names and colors",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "threshold": {
+            "type": "number"
+          },
+          "color": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "workflow_stages": {
+      "type": "array",
+      "description": "Configurable workflow stages for this form's submissions",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique identifier for the stage"
+          },
+          "label": {
+            "type": "string",
+            "description": "Display name of the stage"
+          },
+          "color": {
+            "type": "string",
+            "description": "Hex color code for badges/UI"
+          },
+          "is_initial": {
+            "type": "boolean",
+            "description": "Whether this is the initial stage for new submissions",
+            "default": false
+          },
+          "include_in_housekeeping": {
+            "type": "boolean",
+            "description": "Whether submissions in this stage should be processed by the housekeeping/reminders function",
+            "default": true
+          },
+          "order": {
+            "type": "number",
+            "description": "Display order of the stage"
+          },
+          "selection_conditions": {
+            "type": "object",
+            "description": "Conditions that must be met before this stage can be selected",
+            "properties": {
+              "require_all_signatures": {
+                "type": "boolean",
+                "description": "All signature agreements must be signed",
+                "default": false
+              },
+              "require_all_attachments_approved": {
+                "type": "boolean",
+                "description": "All CRM attachments must be approved",
+                "default": false
+              },
+              "require_logo_designated": {
+                "type": "boolean",
+                "description": "An organization logo must be designated",
+                "default": false
+              },
+              "min_score_threshold": {
+                "type": "number",
+                "description": "Minimum due diligence score required (0-100, null = no requirement)"
+              },
+              "max_score_threshold": {
+                "type": "number",
+                "description": "Maximum due diligence score allowed (0-100, null = no requirement)"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "color"
+        ]
+      },
+      "default": [
+        {
+          "id": "new",
+          "label": "New",
+          "color": "#f97316",
+          "is_initial": true,
+          "include_in_housekeeping": true,
+          "order": 0
+        },
+        {
+          "id": "in_review",
+          "label": "In Review",
+          "color": "#a855f7",
+          "is_initial": false,
+          "include_in_housekeeping": true,
+          "order": 1
+        },
+        {
+          "id": "verified",
+          "label": "Verified",
+          "color": "#3b82f6",
+          "is_initial": false,
+          "include_in_housekeeping": true,
+          "order": 2
+        },
+        {
+          "id": "approved",
+          "label": "Approved",
+          "color": "#22c55e",
+          "is_initial": false,
+          "include_in_housekeeping": false,
+          "order": 3
+        },
+        {
+          "id": "rejected",
+          "label": "Rejected",
+          "color": "#ef4444",
+          "is_initial": false,
+          "include_in_housekeeping": false,
+          "order": 4
+        }
+      ]
+    },
+    "status_change_webhooks": {
+      "type": "array",
+      "description": "General webhooks triggered on submission status changes with optional reminder system",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique identifier for this webhook"
+          },
+          "name": {
+            "type": "string",
+            "description": "User-friendly name for the webhook"
+          },
+          "trigger_status_id": {
+            "type": "string",
+            "description": "The workflow stage ID that triggers this webhook"
+          },
+          "webhook_url": {
+            "type": "string",
+            "description": "The URL to call when the status changes"
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether this webhook is active",
+            "default": true
+          },
+          "reminder_interval_days": {
+            "type": "number",
+            "description": "Number of days between reminder attempts (0 = no reminders)",
+            "default": 0
+          },
+          "max_reminders": {
+            "type": "number",
+            "description": "Maximum number of reminder attempts (0 = no reminders)",
+            "default": 0
+          },
+          "stop_condition_field": {
+            "type": "string",
+            "description": "Submission field to check for stop condition",
+            "default": ""
+          },
+          "stop_condition_operator": {
+            "type": "string",
+            "description": "Operator for stop condition (not_empty, is_empty, equals, not_equals, contains)",
+            "default": "not_empty"
+          },
+          "stop_condition_value": {
+            "type": "string",
+            "description": "Value to compare against for stop condition (if operator requires it)",
+            "default": ""
+          },
+          "payload_type": {
+            "type": "string",
+            "enum": [
+              "default",
+              "custom"
+            ],
+            "description": "Type of payload to send - default uses hardcoded structure, custom uses template",
+            "default": "default"
+          },
+          "custom_payload_template": {
+            "type": "string",
+            "description": "JSON template string with placeholders like {{submission.applicant_name}} for custom payloads",
+            "default": ""
+          },
+          "prompt_for_custom_message": {
+            "type": "boolean",
+            "description": "If true, prompts for a custom message before triggering, which is included in the payload",
+            "default": false
+          },
+          "custom_message_prompt_label": {
+            "type": "string",
+            "description": "Label for the custom message prompt (e.g., 'Rejection Reason', 'Feedback')",
+            "default": "Custom Message"
+          },
+          "custom_message_payload_key": {
+            "type": "string",
+            "description": "The key name for the custom message in the webhook payload (e.g., 'rejection_reason')",
+            "default": "custom_message"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "trigger_status_id",
+          "webhook_url"
+        ]
+      },
+      "default": []
+    },
+    "crm_attachment_config": {
+      "type": "object",
+      "description": "Configuration for linking to Zoho CRM attachments",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "submission_org_name_field": {
+          "type": "string",
+          "description": "The field name from form_data containing the organisation's name"
+        },
+        "label": {
+          "type": "string",
+          "description": "Display label for the documents section",
+          "default": "Documents"
+        },
+        "module_name": {
+          "type": "string",
+          "description": "The Zoho CRM module API name to search for attachments (e.g., 'Accounts', 'isaasi_Organisations')"
+        },
+        "crm_lookup_field": {
+          "type": "string",
+          "description": "The field name in the CRM module to use for searching/matching organizations (e.g., 'Name', 'Account_Name')",
+          "default": "Name"
+        }
+      },
+      "additionalProperties": false
+    },
+    "crm_logo_upload_config": {
+      "type": "object",
+      "description": "Configuration for uploading the designated organization logo to Zoho CRM",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether logo upload to CRM is enabled"
+        },
+        "trigger_status_id": {
+          "type": "string",
+          "description": "The workflow stage ID that triggers the logo upload (e.g., 'approved')",
+          "default": "approved"
+        },
+        "module_name": {
+          "type": "string",
+          "description": "The Zoho CRM module API name to upload the logo to (e.g., 'Accounts', 'isaasi_Organisations')"
+        },
+        "field_name": {
+          "type": "string",
+          "description": "The specific field API name within the CRM module where the logo should be uploaded"
+        },
+        "submission_org_name_field": {
+          "type": "string",
+          "description": "The field name from form_data containing the organisation's name to search/create in CRM"
+        },
+        "crm_lookup_field": {
+          "type": "string",
+          "description": "The field name in the CRM module to use for searching/matching organizations (e.g., 'Name', 'Account_Name')",
+          "default": "Name"
+        }
+      },
+      "additionalProperties": false
+    },
+    "applicant_name_field": {
+      "type": "string",
+      "description": "The field name containing the applicant's full name"
+    },
+    "applicant_email_field": {
+      "type": "string",
+      "description": "The field name containing the applicant's main email address for signature requests"
+    },
+    "applicant_organization_name_field": {
+      "type": "string",
+      "description": "The field name containing the applicant's organization name"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "required": [
+    "zoho_form_id",
+    "form_name"
+  ]
+}

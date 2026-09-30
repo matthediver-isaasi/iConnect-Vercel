@@ -1,0 +1,5178 @@
+import {
+  CUSTOM_OBJECT_AUDIT_ENTITY_TYPES,
+  CustomObjectDomainError,
+  assertImmutableInternalKey,
+  coerceCustomObjectFieldValue,
+  getCustomObjectFieldMetadata,
+  projectCustomObjectRecordData,
+  resolveCustomObjectFieldAccess,
+  resolveCustomObjectDisplayValue,
+  resolveCustomObjectLifecycleUpdate,
+  resolveCustomObjectPermission,
+  reconcileCustomObjectPresentationConfiguration,
+  validateCustomObjectFieldDefinition,
+  validateCustomObjectPresentationConfiguration,
+  validateCustomObjectRelationshipPreviewConfiguration,
+  validateCustomObjectViewConfiguration,
+  validateCustomObjectRecordData,
+  validateCustomObjectRelationshipDefinition,
+  validateCustomObjectRelationshipEndpoints,
+} from './customObjectDomain.js';
+import { CSV_BOM, CSV_ROW_SEPARATOR, escapeCsvCell } from './csvCell.js';
+import { randomUUID } from 'node:crypto';
+import { createChainedListService } from './customObjectChainedList.js';
+import { isDeletedRelationshipMember } from './customObjectMemberEligibility.js';
+
+export class CustomObjectHttpError extends Error {
+  constructor(status, message, details = null) {
+    super(message);
+    this.status = status;
+    this.details = details;
+  }
+}
+
+const OBJECT_COLUMNS = [
+  'object_key', 'singular_label', 'plural_label', 'description', 'icon',
+  'primary_display_field_id', 'status', 'configuration',
+];
+const FIELD_COLUMNS = [
+  'name', 'label', 'field_type', 'is_required', 'options', 'min_selections',
+  'max_selections', 'min_length', 'max_length', 'all_countries',
+  'selected_countries', 'default_country', 'default_countries',
+  'allowed_file_types', 'public_access', 'display_order',
+];
+const RELATIONSHIP_DEFINITION_COLUMNS = [
+  'relationship_key', 'source_kind', 'source_custom_object_id', 'target_kind',
+  'target_custom_object_id', 'cardinality', 'source_label', 'target_label',
+  'is_required', 'show_on_source', 'show_on_target', 'edit_from_source',
+  'edit_from_target', 'status', 'configuration',
+];
+const PERMISSION_COLUMNS = [
+  'can_view_records', 'can_create_records', 'can_edit_records',
+  'can_archive_records', 'can_export_records',
+];
+const RECORD_CAPABILITY_KEYS = Object.freeze({
+  view: 'view_records',
+  create: 'create_records',
+  edit: 'edit_records',
+  archive: 'archive_records',
+  export: 'export_records',
+});
+const SAFE_JSON_KEY = /^[a-z][a-z0-9_]{0,99}$/;
+const SEARCHABLE_FIELD_TYPES = new Set(['text', 'textarea', 'email', 'url', 'dropdown', 'country']);
+const TEXT_FILTER_TYPES = new Set(['text', 'textarea', 'email', 'url']);
+const NUMERIC_FILTER_TYPES = new Set(['number', 'decimal']);
+const OPTION_FILTER_TYPES = new Set(['picklist', 'dropdown', 'country', 'countries', 'list']);
+const CORE_RELATIONSHIP_KINDS = new Set(['member', 'organization', 'organization_group']);
+const LIST_FIELD_TYPES = new Set([
+  'text', 'textarea', 'email', 'url', 'number', 'decimal', 'date',
+  'boolean', 'dropdown', 'picklist', 'country', 'countries', 'list', 'file',
+]);
+const RELATIONSHIP_FILTER_OPERATORS = new Set([
+  'any_of', 'none_of', 'is_empty', 'is_not_empty',
+]);
+const LIST_RELATIONSHIP_PROJECTION_LIMIT = 100;
+const ENDPOINT_ID_BATCH_SIZE = 200;
+const RELATIONSHIP_FIELD_TYPES = new Set(['boolean']);
+const V2_REPORT_MAX_CELL_EXPANSION = 10_000;
+const V2_REPORT_MAX_PAGE_EXPANSION = 100_000;
+
+function relationshipFieldDefinitions(definition) {
+  const configuration = definition?.configuration;
+  if (!configuration || typeof configuration !== 'object' || Array.isArray(configuration)) return [];
+  const raw = configuration.relationship_fields ?? configuration.relationshipFields ?? [];
+  if (!Array.isArray(raw)) {
+    throw new CustomObjectHttpError(400, 'Relationship fields must be an array');
+  }
+  const ids = new Set();
+  const keys = new Set();
+  return raw.map((item, index) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new CustomObjectHttpError(400, `Relationship field ${index + 1} must be an object`);
+    }
+    const id = String(item.id ?? item.field_id ?? '').trim();
+    const key = String(item.key ?? item.name ?? '').trim();
+    const type = String(item.type ?? item.field_type ?? '').trim();
+    const label = String(item.label ?? key).trim();
+    if (!id || !SAFE_JSON_KEY.test(key) || !label || !RELATIONSHIP_FIELD_TYPES.has(type)) {
+      throw new CustomObjectHttpError(400, `Relationship field ${index + 1} has invalid typed metadata`);
+    }
+    if (ids.has(id) || keys.has(key)) {
+      throw new CustomObjectHttpError(400, 'Relationship field IDs and keys must be unique');
+    }
+    ids.add(id);
+    keys.add(key);
+    return {
+      id, key, label, type,
+      required: item.required ?? item.is_required ?? false,
+      default_value: item.default_value ?? item.defaultValue ?? item.default,
+      display_on_source: item.display_on_source ?? item.show_on_source
+        ?? item.display?.source ?? item.display ?? true,
+      display_on_target: item.display_on_target ?? item.show_on_target
+        ?? item.display?.target ?? item.display ?? true,
+      edit_from_source: item.edit_from_source ?? item.editFromSource
+        ?? item.editable?.source ?? item.editable ?? true,
+      edit_from_target: item.edit_from_target ?? item.editFromTarget
+        ?? item.editable?.target ?? item.editable ?? false,
+    };
+  }).map((field) => {
+    for (const property of [
+      'required', 'display_on_source', 'display_on_target',
+      'edit_from_source', 'edit_from_target',
+    ]) {
+      if (typeof field[property] !== 'boolean') {
+        throw new CustomObjectHttpError(400, `Relationship field ${field.key} ${property} must be a boolean`);
+      }
+    }
+    if (field.default_value !== undefined && typeof field.default_value !== 'boolean') {
+      throw new CustomObjectHttpError(400, `Relationship field ${field.key} default must be a boolean`);
+    }
+    if (field.required && field.default_value === undefined) {
+      throw new CustomObjectHttpError(400, `Required relationship field ${field.key} must have a default`);
+    }
+    return field;
+  });
+}
+
+function normalizeRelationshipValues(definition, supplied, {
+  side, existing = {}, create = false,
+} = {}) {
+  if (supplied === undefined) supplied = {};
+  if (!supplied || typeof supplied !== 'object' || Array.isArray(supplied)) {
+    throw new CustomObjectHttpError(400, 'Relationship values must be an object');
+  }
+  const fields = relationshipFieldDefinitions(definition);
+  const byReference = new Map();
+  for (const field of fields) {
+    byReference.set(field.id, field);
+    byReference.set(field.key, field);
+  }
+  const output = { ...(existing && typeof existing === 'object' && !Array.isArray(existing) ? existing : {}) };
+  for (const [reference, value] of Object.entries(supplied)) {
+    const field = byReference.get(reference);
+    if (!field) throw new CustomObjectHttpError(400, `Unknown relationship field: ${reference}`);
+    if (!field[`edit_from_${side}`]) {
+      throw new CustomObjectHttpError(403, `Relationship field ${field.label} cannot be edited from the routed side`);
+    }
+    if (value !== null && typeof value !== 'boolean') {
+      throw new CustomObjectHttpError(400, `Relationship field ${field.label} must be a boolean`);
+    }
+    if (value === null) delete output[field.key];
+    else output[field.key] = value;
+  }
+  if (create) {
+    for (const field of fields) {
+      if (!Object.hasOwn(output, field.key) && field.default_value !== undefined) {
+        output[field.key] = field.default_value;
+      }
+    }
+  }
+  // Never retain caller-forged or stale keys. Values are definition-bound.
+  const configuredKeys = new Set(fields.map((field) => field.key));
+  for (const key of Object.keys(output)) if (!configuredKeys.has(key)) delete output[key];
+  for (const field of fields) {
+    if (field.required && !Object.hasOwn(output, field.key)) {
+      throw new CustomObjectHttpError(400, `Relationship field ${field.label} is required`);
+    }
+  }
+  return output;
+}
+
+function projectRelationshipValues(definition, edge, side) {
+  const fields = relationshipFieldDefinitions(definition)
+    .filter((field) => field[`display_on_${side}`]);
+  const values = {};
+  for (const field of fields) {
+    if (Object.hasOwn(edge?.field_values || {}, field.key)) {
+      values[field.key] = edge.field_values[field.key];
+    }
+  }
+  return {
+    field_values: values,
+    relationship_fields: fields.map((field) => ({
+      id: field.id,
+      key: field.key,
+      label: field.label,
+      type: field.type,
+      required: field.required,
+      default_value: field.default_value,
+      editable: field[`edit_from_${side}`],
+      value: Object.hasOwn(values, field.key) ? values[field.key] : null,
+    })),
+  };
+}
+
+function listFieldOperators(type) {
+  if (TEXT_FILTER_TYPES.has(type)) return ['contains', 'equals', 'is_empty', 'is_not_empty'];
+  if (NUMERIC_FILTER_TYPES.has(type) || type === 'date') return ['equals', 'gte', 'lte'];
+  if (OPTION_FILTER_TYPES.has(type)) return ['any_of', 'none_of'];
+  if (type === 'boolean') return ['equals'];
+  return [];
+}
+
+function listFieldValueShape(type) {
+  if (['picklist', 'countries', 'list'].includes(type)) return 'array';
+  if (type === 'file') return 'file';
+  if (type === 'boolean') return 'boolean';
+  if (['number', 'decimal'].includes(type)) return 'number';
+  if (type === 'date') return 'date';
+  return 'scalar';
+}
+
+function relationshipValueShape(cardinality, side) {
+  return cardinality === 'many_to_many'
+    || (cardinality === 'one_to_many' && side === 'source')
+    || (cardinality === 'many_to_one' && side === 'target')
+    ? 'many'
+    : 'one';
+}
+
+function queryError(message, details = null) {
+  throw new CustomObjectHttpError(400, message, details);
+}
+
+function parseRecordFilters(rawFilters) {
+  if (rawFilters === undefined || rawFilters === null || rawFilters === '') return {};
+  let parsed = rawFilters;
+  if (typeof rawFilters === 'string') {
+    try {
+      parsed = JSON.parse(rawFilters);
+    } catch {
+      queryError('filters must be a valid JSON object');
+    }
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    queryError('filters must be a JSON object keyed by field id');
+  }
+  return parsed;
+}
+
+function parseJsonObject(value, label) {
+  if (value === undefined || value === null || value === '') return {};
+  let parsed = value;
+  if (typeof value === 'string') {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      queryError(`${label} must be valid JSON`);
+    }
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    queryError(`${label} must be a JSON object`);
+  }
+  return parsed;
+}
+
+function parseJsonArray(value, label) {
+  if (value === undefined || value === null || value === '') return null;
+  let parsed = value;
+  if (typeof value === 'string') {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      queryError(`${label} must be valid JSON`);
+    }
+  }
+  if (!Array.isArray(parsed)) queryError(`${label} must be a JSON array`);
+  return parsed;
+}
+
+function relationshipListKey(definitionId, side) {
+  return `relationship:${definitionId}:${side}`;
+}
+
+function parseRelationshipListKey(value) {
+  const match = String(value || '').match(/^relationship:([^:]+):(source|target)$/);
+  return match ? { definitionId: match[1], side: match[2] } : null;
+}
+
+function quotePostgrestValue(value) {
+  return `"${String(value).replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
+}
+
+function filterValues(value, label) {
+  const values = Array.isArray(value) ? value : [value];
+  if (values.length === 0) queryError(`${label} requires at least one value`);
+  return values;
+}
+
+function coerceFilterValue(field, value) {
+  const result = coerceCustomObjectFieldValue(value, field);
+  if (!result.ok) queryError(`Invalid filter value: ${result.error}`);
+  return result.value;
+}
+
+function buildRecordQueryPlan(query, definitions) {
+  const activeById = new Map();
+  for (const field of definitions) {
+    const metadata = getCustomObjectFieldMetadata(field);
+    if (metadata.active && SAFE_JSON_KEY.test(metadata.key)) activeById.set(String(field.id), { field, metadata });
+  }
+
+  const filters = [];
+  for (const [fieldId, specification] of Object.entries(parseRecordFilters(query?.filters))) {
+    const definition = activeById.get(fieldId);
+    if (!definition) queryError(`Unknown or inactive filter field: ${fieldId}`);
+    if (!specification || typeof specification !== 'object' || Array.isArray(specification)) {
+      queryError(`Filter for ${fieldId} must contain an operator and value`);
+    }
+    const { field, metadata } = definition;
+    const op = specification.op;
+    const column = `data->${metadata.key}`;
+    const textColumn = `data->>${metadata.key}`;
+
+    if (TEXT_FILTER_TYPES.has(metadata.type)) {
+      if (!['contains', 'equals', 'is_empty', 'is_not_empty'].includes(op)) {
+        queryError(`Operator ${op || '(empty)'} is not supported for ${metadata.type}`);
+      }
+      if (op === 'contains') filters.push({ kind: 'filter', column: textColumn, op: 'ilike', value: `*${String(specification.value ?? '')}*` });
+      else if (op === 'equals') filters.push({ kind: 'filter', column: textColumn, op: 'eq', value: String(specification.value ?? '') });
+      else filters.push({ kind: op, column: textColumn });
+      continue;
+    }
+    if (NUMERIC_FILTER_TYPES.has(metadata.type) || metadata.type === 'date') {
+      if (!['equals', 'gte', 'lte'].includes(op)) {
+        queryError(`Operator ${op || '(empty)'} is not supported for ${metadata.type}`);
+      }
+      const value = coerceFilterValue(field, specification.value);
+      filters.push({ kind: 'filter', column, op: { equals: 'eq', gte: 'gte', lte: 'lte' }[op], value: JSON.stringify(value) });
+      continue;
+    }
+    if (OPTION_FILTER_TYPES.has(metadata.type)) {
+      if (!['any_of', 'none_of'].includes(op)) {
+        queryError(`Operator ${op || '(empty)'} is not supported for ${metadata.type}`);
+      }
+      const values = filterValues(specification.value, op).map((value) => {
+        const coerced = coerceFilterValue(field, ['picklist', 'countries', 'list'].includes(metadata.type) ? [value] : value);
+        return Array.isArray(coerced) ? coerced[0] : coerced;
+      });
+      filters.push({
+        kind: ['picklist', 'countries', 'list'].includes(metadata.type) ? `${op}_array` : `${op}_scalar`,
+        column,
+        textColumn,
+        values,
+      });
+      continue;
+    }
+    if (metadata.type === 'boolean') {
+      if (op !== 'equals') queryError(`Operator ${op || '(empty)'} is not supported for boolean`);
+      filters.push({ kind: 'filter', column, op: 'eq', value: JSON.stringify(coerceFilterValue(field, specification.value)) });
+      continue;
+    }
+    queryError(`Field type ${metadata.type} cannot be filtered`);
+  }
+
+  const sortField = query?.sortField || 'created_at';
+  let sortColumn;
+  if (['created_at', 'updated_at'].includes(sortField)) {
+    sortColumn = sortField;
+  } else {
+    const definition = activeById.get(String(sortField));
+    if (!definition) queryError('sortField must be created_at, updated_at, or an active field id');
+    sortColumn = `data->${definition.metadata.key}`;
+  }
+  const sortDir = query?.sortDir || 'desc';
+  if (!['asc', 'desc'].includes(sortDir)) queryError('sortDir must be asc or desc');
+
+  const search = typeof query?.search === 'string' ? query.search.trim() : '';
+  const searchableColumns = [...activeById.values()]
+    .filter(({ metadata }) => SEARCHABLE_FIELD_TYPES.has(metadata.type))
+    .map(({ metadata }) => `data->>${metadata.key}`);
+  return { filters, search, searchableColumns, sortColumn, ascending: sortDir === 'asc' };
+}
+
+function applyRecordQueryPlan(q, plan) {
+  for (const filter of plan.filters) {
+    if (filter.kind === 'filter') q = q.filter(filter.column, filter.op, filter.value);
+    else if (filter.kind === 'is_empty') q = q.or(`${filter.column}.is.null,${filter.column}.eq.""`);
+    else if (filter.kind === 'is_not_empty') {
+      q = q.not(filter.column, 'is', null).neq(filter.column, '');
+    }
+    else if (filter.kind === 'any_of_scalar') {
+      q = q.in(filter.textColumn, filter.values.map(String));
+    } else if (filter.kind === 'none_of_scalar') {
+      q = q.not(filter.textColumn, 'in', `(${filter.values.map(quotePostgrestValue).join(',')})`);
+    } else if (filter.kind === 'any_of_array') {
+      q = q.or(filter.values.map((value) => `${filter.column}.cs.${quotePostgrestValue(JSON.stringify([value]))}`).join(','));
+    } else if (filter.kind === 'none_of_array') {
+      for (const value of filter.values) q = q.not(filter.column, 'cs', JSON.stringify([value]));
+    }
+  }
+  if (plan.search && plan.searchableColumns.length > 0) {
+    const searchValue = quotePostgrestValue(`*${plan.search}*`);
+    q = q.or(plan.searchableColumns.map((column) => `${column}.ilike.${searchValue}`).join(','));
+  }
+  q = q.order(plan.sortColumn, { ascending: plan.ascending, nullsFirst: false });
+  if (plan.sortColumn !== 'id') q = q.order('id', { ascending: plan.ascending });
+  return q;
+}
+
+function pick(body, columns) {
+  return Object.fromEntries(columns.filter((column) => body?.[column] !== undefined)
+    .map((column) => [column, body[column]]));
+}
+
+function actor(context) {
+  if (context.tenantUserId) return { id: String(context.tenantUserId), type: 'tenant_user' };
+  if (context.memberId) return { id: String(context.memberId), type: 'member' };
+  return { id: null, type: 'system' };
+}
+
+function pagination(query = {}, maximum = 100) {
+  const page = Math.max(Number.parseInt(query.page, 10) || 1, 1);
+  const pageSize = Math.min(Math.max(Number.parseInt(query.pageSize, 10) || 25, 1), maximum);
+  return { page, pageSize, from: (page - 1) * pageSize, to: page * pageSize - 1 };
+}
+
+function throwDb(error, fallback = 'Database operation failed') {
+  if (!error) return;
+  if (error.code === '23505') {
+    const constraint = error.constraint || error.details || error.message || '';
+    let message = 'A record with this unique key already exists';
+    if (/custom_object_definition.*key|tenant_key/i.test(constraint)) {
+      message = 'A Custom Object with this object key already exists';
+    } else if (/preference_field.*name|field_object/i.test(constraint)) {
+      message = 'A field with this field key already exists on this Custom Object';
+    } else if (/custom_object_relationship_definition.*key/i.test(constraint)) {
+      message = 'A relationship with this relationship key already exists';
+    } else if (/custom_object_relationship_active_pair_unique/i.test(constraint)) {
+      message = 'This relationship already exists';
+    } else if (/custom_object_relationship_(source|target)_cardinality/i.test(constraint)) {
+      message = 'Relationship cardinality would be exceeded';
+    }
+    throw new CustomObjectHttpError(409, message);
+  }
+  if (error.code === '23503' || error.code === '23514') {
+    const constraint = error.constraint || error.details || error.message || '';
+    if (
+      /custom_object_relationship_required_source/i.test(constraint)
+      || /required relationship cannot lose its final active edge/i.test(error.message || '')
+    ) {
+      throw new CustomObjectHttpError(
+        409,
+        'A required relationship cannot lose its final active edge',
+        { code: 'REQUIRED_RELATIONSHIP' },
+      );
+    }
+    if (/custom_object_relationship_(source|target)_valid|same_tenant|active|bnms_.*_organization_(required|match)/i.test(constraint)) {
+      throw new CustomObjectHttpError(400, error.message || 'Relationship endpoint is unavailable');
+    }
+    throw new CustomObjectHttpError(400, error.message || fallback);
+  }
+  if (error.code === '22P02') throw new CustomObjectHttpError(400, error.message || fallback);
+  throw new CustomObjectHttpError(500, error.message || fallback);
+}
+
+function isRequiredRelationshipConflict(error) {
+  const diagnostic = [
+    error?.constraint,
+    error?.details,
+    error?.message,
+  ].filter(Boolean).join(' ');
+  return /custom_object_relationship_required_source/i.test(diagnostic)
+    || /required relationship cannot lose its final active edge/i.test(diagnostic);
+}
+
+function throwAtomicCreateDb(error) {
+  if (
+    error?.code === 'PGRST202'
+    || /create_custom_object_record_with_relationships.*(schema cache|could not find|does not exist)/i.test(error?.message || '')
+  ) {
+    throw new CustomObjectHttpError(
+      503,
+      'Contextual record creation is not available because the atomic database function is missing. Apply migration 20260925_custom_object_record_relationship_create.sql to the destination database and reload the PostgREST schema cache.',
+    );
+  }
+  throwDb(error);
+}
+
+function throwRelationshipListRpcDb(error) {
+  if (
+    error?.code === 'PGRST202'
+    || /custom_object_record_relationship_(?:list|projection).*(schema cache|could not find|does not exist)/i.test(error?.message || '')
+  ) {
+    throw new CustomObjectHttpError(
+      503,
+      'Relationship list queries are unavailable because the required database function is missing. Apply migration 20260928_custom_object_relationship_list_rpc.sql to the destination database and reload the PostgREST schema cache.',
+    );
+  }
+  throwDb(error);
+}
+
+function throwReportOccurrenceRpcDb(error) {
+  if (
+    error?.code === 'PGRST202'
+    || /custom_object_report_occurrence_page.*(schema cache|could not find|does not exist)/i.test(error?.message || '')
+  ) {
+    throw new CustomObjectHttpError(
+      503,
+      'Occurrence report preview is temporarily unavailable because its database migration is incomplete. Apply migration 20261009_restore_custom_object_report_occurrence_page.sql to the destination database before retrying.',
+    );
+  }
+  throwDb(error);
+}
+
+function throwReportV2RpcDb(error) {
+  if (
+    error?.code === 'PGRST202'
+    || /custom_object_report_(?:summary_page|distinct_count).*(schema cache|could not find|does not exist)/i.test(error?.message || '')
+  ) {
+    throw new CustomObjectHttpError(
+      503,
+      'Version 2 reports are temporarily unavailable because the required database functions are missing.',
+    );
+  }
+  throwDb(error);
+}
+
+function domainGuard(fn) {
+  try {
+    return fn();
+  } catch (error) {
+    if (error instanceof CustomObjectDomainError) {
+      throw new CustomObjectHttpError(400, error.message, error.details);
+    }
+    throw error;
+  }
+}
+
+export function createCustomObjectService({
+  db,
+  context,
+  isAdmin = false,
+  canViewSchema = false,
+  canManageSchema = false,
+  now = () => new Date().toISOString(),
+}) {
+  if (!context?.isAuthenticated) throw new CustomObjectHttpError(401, 'Authentication required');
+  if (context.tenantMismatch) throw new CustomObjectHttpError(409, 'Tenant context mismatch');
+  if (!context.tenantId) throw new CustomObjectHttpError(400, 'Tenant context not found');
+  if (!db) throw new CustomObjectHttpError(503, 'Database unavailable');
+
+  const tenantId = context.tenantId;
+  const chainedLists = createChainedListService({
+    db, tenantId, isAdmin, activeObject, hasCapability, fieldAccess,
+    getFieldMetadata: getCustomObjectFieldMetadata, ErrorClass: CustomObjectHttpError,
+  });
+  const currentActor = actor(context);
+  const currentActorReference = currentActor.id
+    ? `${currentActor.type}:${currentActor.id}`
+    : null;
+  const authored = (kind = 'updated') => ({
+    [`${kind}_by`]: currentActorReference,
+  });
+
+  async function one(table, id, extra = {}) {
+    let query = db.from(table).select('*').eq('tenant_id', tenantId).eq('id', id);
+    for (const [column, value] of Object.entries(extra)) query = query.eq(column, value);
+    const { data, error } = await query.maybeSingle();
+    throwDb(error);
+    if (!data) throw new CustomObjectHttpError(404, 'Resource not found');
+    return data;
+  }
+
+  async function object(objectId) {
+    return one('custom_object_definition', objectId);
+  }
+
+  async function activeObject(objectId, message = 'Custom Object endpoint is unavailable') {
+    const definition = await object(objectId);
+    if (definition.status !== 'active') throw new CustomObjectHttpError(409, message);
+    return definition;
+  }
+
+  async function fields(objectId, activeOnly = false) {
+    let query = db.from('preference_field').select('*')
+      .eq('tenant_id', tenantId).eq('custom_object_id', objectId)
+      .eq('entity_scope', 'custom_object').order('display_order', { ascending: true })
+      .order('id', { ascending: true });
+    if (activeOnly) query = query.eq('is_active', true);
+    const { data, error } = await query;
+    throwDb(error);
+    return data || [];
+  }
+
+  async function presentationRelationships(objectId) {
+    const { data, error } = await db.from('custom_object_relationship_definition').select('*')
+      .eq('tenant_id', tenantId)
+      .or(`source_custom_object_id.eq.${objectId},target_custom_object_id.eq.${objectId}`);
+    throwDb(error);
+    return (data || []).filter((definition) =>
+      definition.source_custom_object_id === objectId
+      || definition.target_custom_object_id === objectId);
+  }
+
+  async function validatePresentation(objectId, configuration, definitions = null) {
+    const validation = validateCustomObjectPresentationConfiguration(
+      configuration,
+      definitions || await fields(objectId),
+      await presentationRelationships(objectId),
+      objectId,
+      tenantId,
+    );
+    if (!validation.ok) {
+      throw new CustomObjectHttpError(400, 'Invalid CRM presentation configuration', validation.errors);
+    }
+  }
+
+  async function reconcilePresentation(definition) {
+    if (
+      definition.configuration?.views?.detail?.version === undefined
+      && definition.configuration?.views?.organisation_directory === undefined
+    ) return definition;
+    let [definitions, relationships] = await Promise.all([
+      fields(definition.id),
+      presentationRelationships(definition.id),
+    ]);
+    if (!isAdmin && !canViewSchema && !canManageSchema) {
+      const access = await fieldAccess(definition.id, definitions);
+      definitions = allowedFields(definitions, access);
+      if (relationships.length === 0 || !context.roleId) relationships = [];
+      else {
+        const { data: grants, error } = await db.from('custom_object_role_permission')
+          .select('custom_object_id')
+          .eq('tenant_id', tenantId)
+          .eq('role_id', context.roleId)
+          .eq('can_view_records', true);
+        throwDb(error);
+        const allowedObjectIds = new Set((grants || []).map((grant) => grant.custom_object_id));
+        relationships = relationships.filter((relationship) =>
+          relationship.source_kind === 'custom_object'
+          && relationship.target_kind === 'custom_object'
+          && allowedObjectIds.has(relationship.source_custom_object_id)
+          && allowedObjectIds.has(relationship.target_custom_object_id));
+      }
+    }
+    return {
+      ...definition,
+      configuration: reconcileCustomObjectPresentationConfiguration(
+        definition.configuration, definitions, relationships, definition.id, tenantId,
+      ),
+    };
+  }
+
+  async function permission(objectId) {
+    if (!context.roleId) return null;
+    const { data, error } = await db.from('custom_object_role_permission').select('*')
+      .eq('tenant_id', tenantId).eq('custom_object_id', objectId)
+      .eq('role_id', context.roleId).maybeSingle();
+    throwDb(error);
+    return data || null;
+  }
+
+  async function fieldAccess(objectId, definitions) {
+    const ids = (definitions || []).map((field) => String(field.id));
+    const access = new Map(ids.map((id) => [id, 'edit']));
+    if (isAdmin || !context.roleId || ids.length === 0) return access;
+    const { data, error } = await db.from('custom_object_field_role_permission').select('*')
+      .eq('tenant_id', tenantId).eq('custom_object_id', objectId)
+      .eq('role_id', context.roleId).in('field_id', ids);
+    throwDb(error);
+    for (const row of data || []) access.set(String(row.field_id), resolveCustomObjectFieldAccess({ permission: row }));
+    return access;
+  }
+
+  function allowedFields(definitions, access, minimum = 'read') {
+    return definitions.filter((field) => {
+      const value = access.get(String(field.id));
+      return minimum === 'edit' ? value === 'edit' : value !== 'none';
+    });
+  }
+
+  function projectRecord(definition, record, definitions, access) {
+    const visible = allowedFields(definitions, access);
+    const projected = { ...record, data: projectCustomObjectRecordData({
+      data: record.data, fields: definitions, accessByFieldId: access,
+    }) };
+    return {
+      ...projected,
+      display_value: resolveCustomObjectDisplayValue({
+        objectDefinition: definition, record: projected, fields: visible,
+      }),
+    };
+  }
+
+  async function recordListMetadata(objectId, readableDefinitions) {
+    const scalarFields = readableDefinitions
+      .filter((field) => {
+        const metadata = getCustomObjectFieldMetadata(field);
+        return metadata.active && LIST_FIELD_TYPES.has(metadata.type);
+      })
+      .map((field) => {
+        const metadata = getCustomObjectFieldMetadata(field);
+        return {
+          id: String(field.id),
+          kind: 'field',
+          field_id: field.id,
+          key: metadata.key,
+          label: metadata.label,
+          field_type: metadata.type,
+          value_shape: listFieldValueShape(metadata.type),
+          operators: listFieldOperators(metadata.type),
+          filterable: listFieldOperators(metadata.type).length > 0,
+          sortable: metadata.type !== 'file',
+        };
+      });
+
+    const { data, error } = await db.from('custom_object_relationship_definition').select('*')
+      .eq('tenant_id', tenantId).eq('status', 'active')
+      .or(`source_custom_object_id.eq.${objectId},target_custom_object_id.eq.${objectId}`);
+    throwDb(error);
+    const candidates = [];
+    for (const relationship of data || []) {
+      if (relationship.status !== 'active' || relationship.tenant_id !== tenantId) continue;
+      for (const side of ['source', 'target']) {
+        if (
+          relationship[`${side}_kind`] !== 'custom_object'
+          || String(relationship[`${side}_custom_object_id`]) !== String(objectId)
+          || relationship[`show_on_${side}`] === false
+        ) continue;
+        const opposite = side === 'source' ? 'target' : 'source';
+        const endpointKind = relationship[`${opposite}_kind`];
+        const endpointObjectId = relationship[`${opposite}_custom_object_id`] || null;
+        // Core endpoints are administrator-only throughout the relationship
+        // service. Do not advertise a list column that the caller cannot read.
+        if (!isAdmin && endpointKind !== 'custom_object') continue;
+        let endpointObject = null;
+        let displayField = null;
+        if (endpointKind === 'custom_object') {
+          try {
+            endpointObject = await activeObject(endpointObjectId);
+          } catch (caught) {
+            if ([404, 409].includes(caught?.status)) continue;
+            throw caught;
+          }
+          if (!(await hasCapability(endpointObjectId, 'view_records'))) continue;
+          const endpointDefinitions = await fields(endpointObjectId, true);
+          const endpointAccess = await fieldAccess(endpointObjectId, endpointDefinitions);
+          const primary = endpointDefinitions.find((field) =>
+            String(field.id) === String(endpointObject.primary_display_field_id));
+          if (!primary || endpointAccess.get(String(primary.id)) === 'none') continue;
+          const metadata = getCustomObjectFieldMetadata(primary);
+          displayField = {
+            field_id: primary.id,
+            key: metadata.key,
+            label: metadata.label,
+            field_type: metadata.type,
+          };
+        }
+        candidates.push({
+          id: relationshipListKey(relationship.id, side),
+          kind: 'relationship',
+          relationship_definition_id: relationship.id,
+          side,
+          label: (side === 'source' ? relationship.source_label : relationship.target_label)
+            || 'Related records',
+          cardinality: relationship.cardinality,
+          value_shape: relationshipValueShape(relationship.cardinality, side),
+          operators: [...RELATIONSHIP_FILTER_OPERATORS],
+          filterable: true,
+          // Core endpoint labels are resolved by adapters, not SQL columns.
+          // They remain filterable but cannot be label-sorted by this RPC.
+          sortable: endpointKind === 'custom_object' && Boolean(displayField),
+          endpoint: {
+            kind: endpointKind,
+            custom_object_id: endpointObjectId,
+            ...(endpointObject ? {
+              singular_label: endpointObject.singular_label,
+              plural_label: endpointObject.plural_label,
+            } : {}),
+            ...(displayField ? { display_field: displayField } : {}),
+          },
+        });
+      }
+    }
+    const chained = await chainedLists.discover(objectId);
+    return {
+      fields: scalarFields,
+      relationships: candidates,
+      columns: [...scalarFields, ...candidates],
+      chained_columns: chained.columns,
+      ...(chained.error ? { chained_columns_error: chained.error } : {}),
+    };
+  }
+
+  function relationshipQuerySpecification(query, metadata) {
+    const available = new Map(metadata.relationships.map((item) => [item.id, item]));
+    const filters = [];
+    const explicit = parseJsonObject(
+      query?.relationshipFilters ?? query?.relationship_filters,
+      'relationshipFilters',
+    );
+    const unified = parseRecordFilters(query?.filters);
+    for (const [key, raw] of [
+      ...Object.entries(explicit),
+      ...Object.entries(unified).filter(([key]) => available.has(key)),
+    ]) {
+      const item = available.get(key);
+      if (!item) queryError(`Unknown or inaccessible relationship list field: ${key}`);
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)
+        || !RELATIONSHIP_FILTER_OPERATORS.has(raw.op)) {
+        queryError(`Unsupported relationship filter for ${key}`);
+      }
+      const values = ['any_of', 'none_of'].includes(raw.op)
+        ? filterValues(raw.value ?? raw.values, raw.op).map(String)
+        : [];
+      filters.push({ item, op: raw.op, values });
+    }
+    const sortKey = query?.relationshipSort
+      ?? query?.relationship_sort
+      ?? (parseRelationshipListKey(query?.sortField) ? query.sortField : null);
+    if (!sortKey) return { filters, sort: null };
+    const item = available.get(sortKey);
+    if (!item) queryError(`Unknown or inaccessible relationship list field: ${sortKey}`);
+    if (item.sortable === false) queryError('Relationship label sorting is not supported for this endpoint');
+    const mode = query?.relationshipSortMode ?? query?.relationship_sort_mode ?? 'label';
+    if (!['label', 'count'].includes(mode)) queryError('relationshipSortMode must be label or count');
+    const direction = query?.sortDir || 'asc';
+    if (!['asc', 'desc'].includes(direction)) queryError('sortDir must be asc or desc');
+    return { filters, sort: { item, mode, ascending: direction === 'asc' } };
+  }
+
+  function relationshipProjectionItems(query, metadata) {
+    const available = new Map(metadata.relationships.map((item) => [item.id, item]));
+    const parsed = parseJsonArray(
+      query?.relationshipColumns ?? query?.relationship_columns,
+      'relationshipColumns',
+    );
+    const ids = [...new Set((parsed ?? metadata.relationships.map((item) => item.id)).map(String))];
+    if (ids.length > LIST_RELATIONSHIP_PROJECTION_LIMIT) {
+      queryError(`relationshipColumns supports at most ${LIST_RELATIONSHIP_PROJECTION_LIMIT} items`);
+    }
+    return ids.map((id) => {
+      const item = available.get(id);
+      if (!item) queryError(`Unknown or inaccessible relationship list field: ${id}`);
+      return item;
+    });
+  }
+
+  function chainedProjectionItems(query, metadata) {
+    const parsed = parseJsonArray(
+      query?.chainedColumns ?? query?.chained_columns,
+      'chainedColumns',
+    );
+    if (parsed === null) return [];
+    if (parsed.length > CHAINED_LIST_PROJECTION_LIMIT) {
+      queryError(`chainedColumns supports at most ${CHAINED_LIST_PROJECTION_LIMIT} items`);
+    }
+    if (parsed.some((id) => typeof id !== 'string')) {
+      queryError('chainedColumns must contain column IDs only');
+    }
+    const available = new Map((metadata.chained_columns || []).map((item) => [item.id, item]));
+    return [...new Set(parsed)].map((id) => {
+      const item = available.get(id);
+      if (!item) queryError(`Unknown or unavailable chained list column: ${id}`);
+      return item;
+    });
+  }
+
+  async function chainedEndpointRows(endpoint_, ids) {
+    const uniqueIds = [...new Set(ids.filter(Boolean))];
+    if (endpoint_.kind !== 'custom_object' && !isAdmin) {
+      throw new CustomObjectHttpError(403, 'Tenant administrator access is required for relationships with core entities');
+    }
+    const table = {
+      custom_object: 'custom_object_record',
+      member: 'member',
+      organization: 'organization',
+      organization_group: 'organization_group',
+    }[endpoint_.kind];
+    if (!table) throw new CustomObjectHttpError(400, 'Unsupported relationship endpoint kind');
+    let definition = null;
+    let endpointFields = [];
+    let access = null;
+    if (endpoint_.kind === 'custom_object') {
+      definition = await activeObject(endpoint_.custom_object_id);
+      await requireCapability(endpoint_.custom_object_id, 'view_records');
+      endpointFields = await fields(endpoint_.custom_object_id, true);
+      access = await fieldAccess(endpoint_.custom_object_id, endpointFields);
+    }
+    if (uniqueIds.length === 0) return {
+      rows: new Map(), definition, fields: endpointFields, access,
+    };
+    const rows = [];
+    for (let offset = 0; offset < uniqueIds.length; offset += ENDPOINT_ID_BATCH_SIZE) {
+      let request = db.from(table).select('*').eq('tenant_id', tenantId)
+        .in('id', uniqueIds.slice(offset, offset + ENDPOINT_ID_BATCH_SIZE));
+      if (endpoint_.kind === 'custom_object') {
+        request = request.eq('custom_object_id', endpoint_.custom_object_id).is('archived_at', null);
+      }
+      const { data, error } = await request;
+      throwDb(error);
+      rows.push(...(data || []).filter((row) =>
+        endpoint_.kind !== 'member' || !isDeletedRelationshipMember(row)));
+    }
+    return {
+      rows: new Map(rows.map((row) => [String(row.id), row])),
+      definition, fields: endpointFields, access,
+    };
+  }
+
+  async function chainedEdges(definitionId, fromSide, recordIds) {
+    const ids = [...new Set(recordIds.filter(Boolean))];
+    const rows = [];
+    for (let offset = 0; offset < ids.length; offset += ENDPOINT_ID_BATCH_SIZE) {
+      const { data, error } = await db.from('custom_object_relationship').select('*')
+        .eq('tenant_id', tenantId).eq('relationship_definition_id', definitionId)
+        .is('archived_at', null)
+        .in(`${fromSide}_record_id`, ids.slice(offset, offset + ENDPOINT_ID_BATCH_SIZE));
+      throwDb(error);
+      rows.push(...(data || []));
+    }
+    return rows;
+  }
+
+  function chainedTerminalLabel(item, row, endpointInfo) {
+    if (item.terminal.kind === 'label' && item.endpoint.kind !== 'custom_object') {
+      return String(endpointLabel(item.endpoint.kind, row).primary_label || '');
+    }
+    const field = endpointInfo.fields.find((candidate) =>
+      String(candidate.id) === String(item.terminal.field_id));
+    if (!field || endpointInfo.access.get(String(field.id)) === 'none') {
+      throw new CustomObjectHttpError(400, 'Chained list column terminal is unavailable');
+    }
+    const value = row.data?.[getCustomObjectFieldMetadata(field).key];
+    if (value == null) return '';
+    if (Array.isArray(value)) return value.map(String).join(', ');
+    return typeof value === 'object' ? JSON.stringify(value) : String(value);
+  }
+
+  async function projectChainedListValues(records, items) {
+    if (records.length === 0 || items.length === 0) return records;
+    const valuesByRecord = new Map(records.map((record) => [String(record.id), {}]));
+    for (const item of items) {
+      let states = records.map((record) => ({
+        rootId: String(record.id), recordId: String(record.id),
+      }));
+      let terminalInfo = null;
+      for (const hop of item.path) {
+        const edges = await chainedEdges(
+          hop.relationship_definition_id,
+          hop.from_side,
+          states.map((state) => state.recordId),
+        );
+        const oppositeSide = hop.from_side === 'source' ? 'target' : 'source';
+        const endpointInfo = await chainedEndpointRows(
+          hop.to_endpoint,
+          edges.map((edge) => edge[`${oppositeSide}_record_id`]),
+        );
+        const edgesByRecord = new Map();
+        for (const edge of edges) {
+          const sourceId = String(edge[`${hop.from_side}_record_id`]);
+          const targetId = String(edge[`${oppositeSide}_record_id`]);
+          if (!endpointInfo.rows.has(targetId)) continue;
+          const targets = edgesByRecord.get(sourceId) || [];
+          targets.push(targetId);
+          edgesByRecord.set(sourceId, targets);
+        }
+        const next = new Map();
+        for (const state of states) {
+          for (const targetId of edgesByRecord.get(state.recordId) || []) {
+            next.set(`${state.rootId}\u0000${targetId}`, {
+              rootId: state.rootId, recordId: targetId,
+            });
+          }
+        }
+        states = [...next.values()];
+        terminalInfo = endpointInfo;
+        if (states.length === 0) break;
+      }
+      const labelsByRoot = new Map(records.map((record) => [String(record.id), new Map()]));
+      for (const state of states) {
+        const row = terminalInfo?.rows.get(state.recordId);
+        if (row) labelsByRoot.get(state.rootId).set(
+          state.recordId,
+          chainedTerminalLabel(item, row, terminalInfo),
+        );
+      }
+      for (const record of records) {
+        const labels = [...labelsByRoot.get(String(record.id)).entries()]
+          .sort(([leftId, left], [rightId, right]) =>
+            left.localeCompare(right) || leftId.localeCompare(rightId));
+        valuesByRecord.get(String(record.id))[item.id] = {
+          records: labels.slice(0, 3).map(([, label]) => ({ label })),
+          count: labels.length,
+        };
+      }
+    }
+    return records.map((record) => ({
+      ...record,
+      chained_values: valuesByRecord.get(String(record.id)),
+    }));
+  }
+
+  async function projectListRelationships(records, relationshipItems) {
+    if (records.length === 0 || relationshipItems.length === 0) return records;
+    const { data: projection, error } = await db.rpc(
+      'custom_object_record_relationship_projection',
+      {
+        p_tenant_id: tenantId,
+        p_custom_object_id: records[0].custom_object_id,
+        p_items: relationshipItems.map((item) => ({
+          list_field_id: item.id,
+          relationship_definition_id: item.relationship_definition_id,
+          side: item.side,
+          endpoint_kind: item.endpoint.kind,
+          endpoint_custom_object_id: item.endpoint.custom_object_id,
+          display_key: item.endpoint.display_field?.key || null,
+        })),
+        p_record_ids: records.map((row) => row.id),
+        p_label_limit: 3,
+      },
+    );
+    throwRelationshipListRpcDb(error);
+    const rowsByItem = new Map();
+    for (const item of relationshipItems) {
+      const rows = (projection || []).filter((row) => row.list_field_id === item.id);
+      const ids = rows.map((row) => row.opposite_record_id);
+      const endpointRows = await resolveEndpointRows(
+        item.endpoint.kind, item.endpoint.custom_object_id, ids,
+      );
+      rowsByItem.set(item.id, { rows, endpointRows });
+    }
+    return records.map((record) => ({
+      ...record,
+      relationships: Object.fromEntries(relationshipItems.map((item) => {
+        const projected = rowsByItem.get(item.id);
+        const projectionRows = projected.rows
+          .filter((row) => String(row.routed_record_id) === String(record.id));
+        const linked = projectionRows
+          .map((row) => projected.endpointRows.get(row.opposite_record_id))
+          .filter(Boolean)
+          .map((endpoint) => ({
+            id: endpoint.id,
+            kind: item.endpoint.kind,
+            custom_object_id: item.endpoint.custom_object_id,
+            primary_label: endpoint.primary_label,
+            secondary_text: endpoint.secondary_text,
+            ...(endpoint.compact_fields ? { compact_fields: endpoint.compact_fields } : {}),
+          }))
+          .sort((a, b) =>
+            String(a.primary_label || '').localeCompare(String(b.primary_label || ''))
+            || String(a.id).localeCompare(String(b.id)));
+        return [item.id, {
+          count: Number(projectionRows[0]?.total_count) || 0,
+          records: linked,
+        }];
+      })),
+    }));
+  }
+
+  async function validateRecordWrite(objectId, bodyData, existingData = null, mode = 'create') {
+    const definitions = await fields(objectId, true);
+    const access = await fieldAccess(objectId, definitions);
+    const writable = allowedFields(definitions, access, 'edit');
+    for (const key of Object.keys(bodyData || {})) {
+      const definition = definitions.find((field) => getCustomObjectFieldMetadata(field).key === key);
+      if (definition && access.get(String(definition.id)) !== 'edit') {
+        throw new CustomObjectHttpError(403, `Field is read-only or unavailable: ${key}`);
+      }
+    }
+    const validation = validateCustomObjectRecordData({
+      data: bodyData, fields: writable, existingData, mode,
+    });
+    if (!validation.ok) throw new CustomObjectHttpError(400, 'Invalid record data', validation.errors);
+    return validation;
+  }
+
+  function projectCapabilities(definition, permissionRow = null) {
+    return Object.fromEntries(Object.entries(RECORD_CAPABILITY_KEYS).map(([name, capability]) => [
+      name,
+      !(['create', 'edit'].includes(name) && definition.status !== 'active') && (
+        isAdmin || (
+          definition.status !== 'draft'
+          && resolveCustomObjectPermission({
+            permission: permissionRow,
+            capability,
+            isTenantAdmin: false,
+          })
+        )
+      ),
+    ]));
+  }
+
+  async function hasCapability(objectId, capability) {
+    if (!isAdmin) {
+      const definition = await object(objectId);
+      if (
+        definition.status === 'draft'
+        || (
+          definition.status === 'archived'
+          && ['create_records', 'edit_records'].includes(capability)
+        )
+      ) {
+        return false;
+      }
+    }
+    return resolveCustomObjectPermission({
+      permission: await permission(objectId),
+      capability,
+      isTenantAdmin: isAdmin,
+    });
+  }
+
+  async function requireCapability(objectId, capability) {
+    const allowed = await hasCapability(objectId, capability);
+    if (!allowed) throw new CustomObjectHttpError(403, 'Access denied');
+  }
+
+  async function throwRelationshipArchiveDb(error, definition, edge) {
+    if (!error) return;
+    if (!isRequiredRelationshipConflict(error)) throwDb(error);
+
+    const details = { code: 'REQUIRED_RELATIONSHIP' };
+    const sourceObjectId = definition?.source_kind === 'custom_object'
+      ? definition.source_custom_object_id
+      : null;
+    if (sourceObjectId && edge?.source_record_id) {
+      try {
+        const sourceObject = await activeObject(sourceObjectId);
+        const [canView, canArchive] = await Promise.all([
+          hasCapability(sourceObjectId, 'view_records'),
+          hasCapability(sourceObjectId, 'archive_records'),
+        ]);
+        if (canView && canArchive) {
+          const sourceRecord = await one(
+            'custom_object_record',
+            edge.source_record_id,
+            { custom_object_id: sourceObjectId, archived_at: null },
+          );
+          const sourceFields = await fields(sourceObjectId, true);
+          const access = await fieldAccess(sourceObjectId, sourceFields);
+          details.archive_record = {
+            object_id: sourceObjectId,
+            record_id: sourceRecord.id,
+            label: endpointLabel(
+              'custom_object',
+              sourceRecord,
+              sourceObject,
+              sourceFields,
+              access,
+            ).primary_label,
+          };
+        }
+      } catch (contextError) {
+        if (
+          !(contextError instanceof CustomObjectHttpError)
+          || ![403, 404, 409].includes(contextError.status)
+        ) {
+          throw contextError;
+        }
+      }
+    }
+    throw new CustomObjectHttpError(
+      409,
+      'A required relationship cannot lose its final active edge',
+      details,
+    );
+  }
+
+  function relationshipObjectIds(definition) {
+    return [...new Set([
+      definition.source_kind === 'custom_object' ? definition.source_custom_object_id : null,
+      definition.target_kind === 'custom_object' ? definition.target_custom_object_id : null,
+    ].filter(Boolean))];
+  }
+
+  async function requireRelationshipCapabilities(
+    definition,
+    capability,
+    { allowArchivedObjects = false } = {},
+  ) {
+    if (
+      !isAdmin
+      && [definition.source_kind, definition.target_kind].some((kind) => kind !== 'custom_object')
+    ) {
+      throw new CustomObjectHttpError(403, 'Tenant administrator access is required for relationships with core entities');
+    }
+    for (const relatedObjectId of relationshipObjectIds(definition)) {
+      if (allowArchivedObjects) await object(relatedObjectId);
+      else await activeObject(relatedObjectId);
+      await requireCapability(relatedObjectId, capability);
+    }
+  }
+
+  function requireSchemaManager() {
+    if (!canManageSchema) throw new CustomObjectHttpError(403, 'Data model management access required');
+  }
+
+  function requireSchemaViewer() {
+    if (!canViewSchema && !canManageSchema) throw new CustomObjectHttpError(403, 'Custom Object catalogue access required');
+  }
+
+  function requireMutableObject(definition) {
+    if (definition.status === 'archived') {
+      throw new CustomObjectHttpError(409, 'Archived Custom Objects cannot have their data model modified');
+    }
+  }
+
+  async function validatePrimaryDisplayField(objectId, fieldId) {
+    if (!fieldId) throw new CustomObjectHttpError(400, 'An active Custom Object requires a primary display field');
+    let query = db.from('preference_field').select('*')
+      .eq('tenant_id', tenantId).eq('custom_object_id', objectId)
+      .eq('entity_scope', 'custom_object').eq('id', fieldId).eq('is_active', true);
+    const { data, error } = await query.maybeSingle();
+    throwDb(error);
+    if (!data) {
+      throw new CustomObjectHttpError(400, 'Primary display field must be an active field on the same Custom Object');
+    }
+    const validation = validateCustomObjectFieldDefinition(data, {
+      tenantId,
+      customObjectId: objectId,
+    });
+    if (!validation.ok) {
+      throw new CustomObjectHttpError(400, 'Primary display field has an invalid field definition', validation.errors);
+    }
+    return data;
+  }
+
+  async function validateRelationshipPreview(definition) {
+    const fieldsBySide = {};
+    const relationshipsBySide = {};
+    const objectIdsBySide = {};
+    for (const side of ['source', 'target']) {
+      const customObjectId = definition[`${side}_kind`] === 'custom_object'
+        ? definition[`${side}_custom_object_id`]
+        : null;
+      objectIdsBySide[side] = customObjectId;
+      fieldsBySide[side] = customObjectId ? await fields(customObjectId) : [];
+      relationshipsBySide[side] = customObjectId
+        ? (await presentationRelationships(customObjectId)).filter((candidate) => {
+          if (candidate.status !== 'active' || String(candidate.id) === String(definition.id)) return false;
+          return ['source', 'target'].some((candidateSide) =>
+            candidate[`${candidateSide}_kind`] === 'custom_object'
+            && String(candidate[`${candidateSide}_custom_object_id`]) === String(customObjectId));
+        })
+        : [];
+    }
+    const validation = validateCustomObjectRelationshipPreviewConfiguration(
+      definition.configuration,
+      fieldsBySide,
+      relationshipsBySide,
+      objectIdsBySide,
+    );
+    if (!validation.ok) throw new CustomObjectHttpError(400, 'Invalid compact preview configuration', validation.errors);
+  }
+
+  async function listObjects(query) {
+    const p = pagination(query);
+    const requestedStatus = typeof query?.status === 'string' ? query.status.trim() : '';
+    if (requestedStatus && !['draft', 'active', 'archived'].includes(requestedStatus)) {
+      throw new CustomObjectHttpError(400, 'status must be draft, active, or archived');
+    }
+    let allowedObjectIds = null;
+    if (!isAdmin && !canViewSchema && !canManageSchema) {
+      if (!context.roleId) {
+        return { data: [], total: 0, page: p.page, pageSize: p.pageSize };
+      }
+      const { data: grants, error: grantError } = await db.from('custom_object_role_permission')
+        .select('custom_object_id').eq('tenant_id', tenantId).eq('role_id', context.roleId)
+        .eq('can_view_records', true);
+      throwDb(grantError);
+      allowedObjectIds = (grants || []).map((grant) => grant.custom_object_id);
+      if (allowedObjectIds.length === 0) {
+        return { data: [], total: 0, page: p.page, pageSize: p.pageSize };
+      }
+    }
+    let q = db.from('custom_object_definition').select('*', { count: 'exact' })
+      .eq('tenant_id', tenantId).order('created_at', { ascending: false })
+      .order('id', { ascending: false });
+    if (allowedObjectIds) q = q.in('id', allowedObjectIds);
+    if (requestedStatus) q = q.eq('status', requestedStatus);
+    if (!canViewSchema && !canManageSchema) {
+      if (requestedStatus && requestedStatus !== 'active' && query?.includeArchived !== 'true') {
+        return { data: [], total: 0, page: p.page, pageSize: p.pageSize };
+      }
+      q = query?.includeArchived === 'true'
+        ? q.neq('status', 'draft')
+        : q.eq('status', 'active');
+    }
+    else if (query?.includeArchived !== 'true' && requestedStatus !== 'archived') q = q.neq('status', 'archived');
+    const { data, error, count } = await q.range(p.from, p.to);
+    throwDb(error);
+    const rows = data || [];
+    const objectIds = rows.map((row) => row.id);
+    if (objectIds.length === 0) {
+      return { data: [], total: count || 0, page: p.page, pageSize: p.pageSize };
+    }
+    const permissionQuery = !isAdmin && context.roleId
+      ? db.from('custom_object_role_permission').select('*')
+        .eq('tenant_id', tenantId).eq('role_id', context.roleId)
+        .in('custom_object_id', objectIds)
+      : Promise.resolve({ data: [], error: null });
+    const [catalogueCountResult, permissionResult] = await Promise.all([
+      db.rpc('custom_object_catalogue_counts', {
+        p_tenant_id: tenantId,
+        p_custom_object_ids: objectIds,
+      }),
+      permissionQuery,
+    ]);
+    throwDb(catalogueCountResult.error);
+    throwDb(permissionResult.error);
+    const countsByObjectId = new Map(
+      (catalogueCountResult.data || []).map((item) => [item.custom_object_id, item]),
+    );
+    const permissionsByObjectId = new Map(
+      (permissionResult.data || []).map((row) => [row.custom_object_id, row]),
+    );
+    return {
+      data: rows.map((row) => {
+        const counts = countsByObjectId.get(row.id) || {};
+        const projected = {
+          ...row,
+          record_count: Number(counts.record_count) || 0,
+          field_count: Number(counts.field_count) || 0,
+          relationship_count: Number(counts.relationship_count) || 0,
+          capabilities: projectCapabilities(row, permissionsByObjectId.get(row.id) || null),
+        };
+        if (!isAdmin && !canViewSchema && !canManageSchema) {
+          delete projected.configuration;
+          delete projected.primary_display_field_id;
+        }
+        return projected;
+      }),
+      total: count || 0,
+      page: p.page,
+      pageSize: p.pageSize,
+    };
+  }
+
+  async function createObject(body) {
+    requireSchemaManager();
+    const payload = {
+      ...pick(body, OBJECT_COLUMNS), tenant_id: tenantId, status: body?.status || 'draft',
+      configuration: body?.configuration || {}, ...authored('created'), ...authored(),
+    };
+    if (payload.status !== 'draft') {
+      throw new CustomObjectHttpError(400, 'Custom Objects must be created as draft and activated after fields are configured');
+    }
+    const presentationValidation = validateCustomObjectPresentationConfiguration(
+      payload.configuration, [], [], null,
+    );
+    if (!presentationValidation.ok) {
+      throw new CustomObjectHttpError(400, 'Invalid CRM presentation configuration', presentationValidation.errors);
+    }
+    const { data, error } = await db.from('custom_object_definition').insert(payload).select('*').single();
+    throwDb(error);
+    return data;
+  }
+
+  async function getObject(objectId) {
+    const row = await object(objectId);
+    const permissionRow = isAdmin ? null : await permission(objectId);
+    const capabilities = projectCapabilities(row, permissionRow);
+    if (!canViewSchema && !canManageSchema && !capabilities.view) {
+      throw new CustomObjectHttpError(403, 'Access denied');
+    }
+    return { ...(await reconcilePresentation(row)), capabilities };
+  }
+
+  async function updateObject(objectId, body, archive = false) {
+    requireSchemaManager();
+    const before = await object(objectId);
+    if (before.status === 'archived') {
+      if (archive) return before;
+      throw new CustomObjectHttpError(409, 'Archived Custom Objects cannot be modified or reactivated');
+    }
+    const payload = pick(body, OBJECT_COLUMNS);
+    if (payload.configuration !== undefined) {
+      const validation = validateCustomObjectViewConfiguration(payload.configuration, await fields(objectId));
+      if (!validation.ok) throw new CustomObjectHttpError(400, 'Invalid view configuration', validation.errors);
+      await validatePresentation(objectId, payload.configuration);
+    }
+    if (payload.object_key !== undefined) domainGuard(() => assertImmutableInternalKey(before.object_key, payload.object_key, 'Object key'));
+    const nextStatus = archive ? 'archived' : (payload.status || before.status);
+    if (nextStatus === 'active' && (
+      before.status !== 'active'
+      || payload.primary_display_field_id !== undefined
+    )) {
+      await validatePrimaryDisplayField(
+        objectId,
+        payload.primary_display_field_id ?? before.primary_display_field_id,
+      );
+    }
+    if (archive || payload.status !== undefined) {
+      Object.assign(payload, domainGuard(() => resolveCustomObjectLifecycleUpdate({
+        currentStatus: before.status, nextStatus, currentArchivedAt: before.archived_at,
+        hasPrimaryDisplayField: Boolean(payload.primary_display_field_id ?? before.primary_display_field_id),
+        now: now(),
+      })));
+      if (nextStatus === 'archived') payload.archived_by = currentActorReference;
+    }
+    Object.assign(payload, authored());
+    const { data, error } = await db.from('custom_object_definition').update(payload)
+      .eq('tenant_id', tenantId).eq('id', objectId).select('*').single();
+    throwDb(error);
+    return data;
+  }
+
+  async function listFields(objectId, query) {
+    await object(objectId);
+    if (!canViewSchema && !canManageSchema) await requireCapability(objectId, 'view_records');
+    const p = pagination(query);
+    let q = db.from('preference_field').select('*', { count: 'exact' })
+      .eq('tenant_id', tenantId).eq('custom_object_id', objectId)
+      .eq('entity_scope', 'custom_object').order('display_order', { ascending: true })
+      .order('id', { ascending: true });
+    if (query?.includeInactive !== 'true') q = q.eq('is_active', true);
+    const { data, error, count } = await q.range(p.from, p.to);
+    throwDb(error);
+    const access = await fieldAccess(objectId, data || []);
+    return {
+      data: (data || []).filter((field) => canViewSchema || canManageSchema || access.get(String(field.id)) !== 'none')
+        .map((field) => ({ ...field, field_access: access.get(String(field.id)) || 'none' })),
+      total: count || 0, page: p.page, pageSize: p.pageSize,
+    };
+  }
+
+  async function createField(objectId, body) {
+    requireSchemaManager();
+    requireMutableObject(await object(objectId));
+    const payload = {
+      ...pick(body, FIELD_COLUMNS), tenant_id: tenantId, custom_object_id: objectId,
+      entity_scope: 'custom_object', is_active: true,
+      ...authored('created'), ...authored(),
+    };
+    const validation = validateCustomObjectFieldDefinition(payload, { tenantId, customObjectId: objectId });
+    if (!validation.ok) throw new CustomObjectHttpError(400, 'Invalid field definition', validation.errors);
+    const { data, error } = await db.from('preference_field').insert(payload).select('*').single();
+    throwDb(error);
+    return data;
+  }
+
+  async function updateField(objectId, fieldId, body, deactivate = false) {
+    requireSchemaManager();
+    const definition = await object(objectId);
+    requireMutableObject(definition);
+    const before = await one('preference_field', fieldId, { custom_object_id: objectId });
+    if (
+      deactivate
+      && definition.status === 'active'
+      && definition.primary_display_field_id === before.id
+    ) {
+      throw new CustomObjectHttpError(409, 'The primary display field of an active Custom Object cannot be deactivated');
+    }
+    const payload = { ...before, ...pick(body, FIELD_COLUMNS), is_active: deactivate ? false : before.is_active };
+    if (body?.name !== undefined) domainGuard(() => assertImmutableInternalKey(before.name, body.name, 'Field key'));
+    const validation = validateCustomObjectFieldDefinition(payload, { tenantId, customObjectId: objectId });
+    if (!validation.ok) throw new CustomObjectHttpError(400, 'Invalid field definition', validation.errors);
+    const update = {
+      ...pick(payload, FIELD_COLUMNS),
+      is_active: payload.is_active,
+      ...authored(),
+    };
+    const { data, error } = await db.from('preference_field').update(update)
+      .eq('tenant_id', tenantId).eq('custom_object_id', objectId).eq('id', fieldId)
+      .select('*').single();
+    throwDb(error);
+    return data;
+  }
+
+  async function listRecords(objectId, query) {
+    const definition = await object(objectId);
+    await requireCapability(objectId, 'view_records');
+    const definitions = await fields(objectId);
+    const access = await fieldAccess(objectId, definitions);
+    const readableDefinitions = allowedFields(definitions, access);
+    const metadata = await recordListMetadata(objectId, readableDefinitions);
+    const relationshipQuery = relationshipQuerySpecification(query, metadata);
+    const projectionItems = relationshipProjectionItems(query, metadata);
+    const chainedColumns = chainedLists.select(query?.chainedColumns ?? query?.chained_columns, metadata);
+    const p = pagination(query, query?._exportPage === true ? 1000 : 100);
+    const rawFilters = parseRecordFilters(query?.filters);
+    const scalarFilters = Object.fromEntries(Object.entries(rawFilters)
+      .filter(([key]) => !metadata.relationships.some((item) => item.id === key)));
+    const scalarQuery = parseRelationshipListKey(query?.sortField)
+      ? { ...query, filters: scalarFilters, sortField: 'created_at' }
+      : { ...query, filters: scalarFilters };
+    const plan = buildRecordQueryPlan(scalarQuery, readableDefinitions);
+    let q = db.from('custom_object_record').select('*', { count: 'exact' })
+      .eq('tenant_id', tenantId).eq('custom_object_id', objectId);
+    if (query?.includeArchived !== 'true') q = q.is('archived_at', null);
+    q = applyRecordQueryPlan(q, plan);
+    if (relationshipQuery.filters.length > 0 || relationshipQuery.sort) {
+      // Relationship predicates must be evaluated before range/count.  Do not
+      // fetch an unbounded candidate set into the application process.
+      const { data: selection, error } = await db.rpc('custom_object_record_relationship_list', {
+        p_tenant_id: tenantId,
+        p_custom_object_id: objectId,
+        p_include_archived: query?.includeArchived === 'true',
+        p_scalar_plan: {
+          filters: plan.filters,
+          search: plan.search,
+          searchable_columns: plan.searchableColumns,
+          sort_column: relationshipQuery.sort ? null : plan.sortColumn,
+          ascending: plan.ascending,
+        },
+        p_filters: relationshipQuery.filters.map(({ item, op, values }) => ({
+          relationship_definition_id: item.relationship_definition_id,
+          side: item.side, op, values,
+          endpoint_kind: item.endpoint.kind,
+          endpoint_custom_object_id: item.endpoint.custom_object_id,
+        })),
+        p_sort: relationshipQuery.sort && {
+          relationship_definition_id: relationshipQuery.sort.item.relationship_definition_id,
+          side: relationshipQuery.sort.item.side,
+          mode: relationshipQuery.sort.mode,
+          ascending: relationshipQuery.sort.ascending,
+          endpoint_kind: relationshipQuery.sort.item.endpoint.kind,
+          endpoint_custom_object_id: relationshipQuery.sort.item.endpoint.custom_object_id,
+          display_key: relationshipQuery.sort.item.endpoint.display_field?.key || null,
+        },
+        p_offset: p.from,
+        p_limit: p.pageSize,
+      });
+      throwRelationshipListRpcDb(error);
+      const selected = selection || [];
+      const ids = selected.map((row) => row.record_id).filter(Boolean);
+      // The RPC owns relationship filtering, ordering, exact count and range.
+      // This bounded projection only loads the selected record page.
+      let pageData = [];
+      if (ids.length > 0) {
+        let pageQuery = db.from('custom_object_record').select('*')
+          .eq('tenant_id', tenantId).eq('custom_object_id', objectId).in('id', ids);
+        if (query?.includeArchived !== 'true') pageQuery = pageQuery.is('archived_at', null);
+        const pageResult = await pageQuery;
+        throwDb(pageResult.error);
+        pageData = pageResult.data || [];
+      }
+      const pageById = new Map((pageData || []).map((row) => [String(row.id), row]));
+      const pageRows = ids.map((id) => pageById.get(String(id))).filter(Boolean)
+        .map((record) => projectRecord(definition, record, definitions, access));
+      return {
+        data: await chainedLists.project(await projectListRelationships(pageRows, projectionItems), chainedColumns),
+        total: Number(selected[0]?.total_count) || 0,
+        page: p.page,
+        pageSize: p.pageSize,
+        metadata,
+      };
+    }
+    const { data, error, count } = await q.range(p.from, p.to);
+    throwDb(error);
+    const projected = (data || []).map((record) =>
+      projectRecord(definition, record, definitions, access));
+    return {
+      data: await chainedLists.project(await projectListRelationships(projected, projectionItems), chainedColumns),
+      total: count || 0, page: p.page, pageSize: p.pageSize,
+      metadata,
+    };
+  }
+
+  // Export pages are bounded per request, while clients paginate to the exact
+  // filtered total. This avoids both oversized responses and silent truncation.
+  async function exportRecords(objectId, query) {
+    await requireCapability(objectId, 'export_records');
+    const definitions = await fields(objectId);
+    const access = await fieldAccess(objectId, definitions);
+    const readable = allowedFields(definitions, access);
+    const requestedPage = Number.parseInt(query?.page, 10);
+    const requestedPageSize = Number.parseInt(query?.pageSize, 10);
+    const page = Math.max(Number.isFinite(requestedPage) ? requestedPage : 1, 1);
+    const pageSize = Math.min(Math.max(Number.isFinite(requestedPageSize) ? requestedPageSize : 500, 1), 1000);
+    // listRecords intentionally protects interactive requests at 100 rows;
+    // export is the sole 1,000-row bounded transport contract.
+    const listed = await listRecords(objectId, { ...query, page, pageSize, _exportPage: true });
+    return {
+      columns: readable.map((field) => {
+        const metadata = getCustomObjectFieldMetadata(field);
+        return { field_id: field.id, key: metadata.key, label: metadata.label, field_type: metadata.type };
+      }),
+      relationship_columns: listed.metadata.relationships,
+      chained_columns: listed.metadata.chained_columns,
+      metadata: listed.metadata,
+      data: listed.data.map((projected) => ({
+          id: projected.id,
+          display_value: projected.display_value,
+          created_at: projected.created_at,
+          updated_at: projected.updated_at,
+          data: projected.data,
+          relationships: projected.relationships,
+          chained_values: projected.chained_values,
+        })),
+      total: listed.total,
+      page,
+      pageSize,
+    };
+  }
+
+  async function relationshipFilterOptions(objectId, query = {}) {
+    await object(objectId);
+    await requireCapability(objectId, 'view_records');
+    const definitions = await fields(objectId);
+    const access = await fieldAccess(objectId, definitions);
+    const metadata = await recordListMetadata(objectId, allowedFields(definitions, access));
+    const fieldId = query.fieldId ?? query.field_id;
+    const item = metadata.relationships.find((relationship) => relationship.id === fieldId);
+    if (!item) queryError('Unknown or inaccessible relationship list field');
+
+    const kind = item.endpoint.kind;
+    const customObjectId = item.endpoint.custom_object_id;
+    const table = {
+      custom_object: 'custom_object_record',
+      member: 'member',
+      organization: 'organization',
+      organization_group: 'organization_group',
+    }[kind];
+    if (!table) queryError('Unsupported relationship endpoint kind');
+
+    let selectedIds = [];
+    if (query.selected !== undefined && query.selected !== '') {
+      try {
+        selectedIds = Array.isArray(query.selected) ? query.selected : JSON.parse(query.selected);
+      } catch {
+        queryError('selected must be a JSON array');
+      }
+      if (
+        !Array.isArray(selectedIds)
+        || selectedIds.length > 50
+        || selectedIds.some((id) => typeof id !== 'string' || id.trim() === '')
+      ) {
+        queryError('selected must contain at most 50 record IDs');
+      }
+      selectedIds = [...new Set(selectedIds)];
+    }
+    const p = pagination(query);
+    const endpointQuery = (withCount = false) => {
+      let endpoint = db.from(table).select('*', withCount ? { count: 'exact' } : {})
+        .eq('tenant_id', tenantId);
+      if (kind === 'custom_object') {
+        endpoint = endpoint.eq('custom_object_id', customObjectId).is('archived_at', null);
+      }
+      return endpoint;
+    };
+    let q = endpointQuery(true);
+    const search = typeof query.search === 'string' ? query.search.trim() : '';
+    if (search) {
+      const pattern = quotePostgrestValue(`*${search}*`);
+      if (kind === 'member') {
+        q = q.or(`first_name.ilike.${pattern},last_name.ilike.${pattern},email.ilike.${pattern}`);
+      } else if (kind === 'custom_object') {
+        const key = item.endpoint.display_field?.key;
+        if (!key) {
+          return { data: [], total: 0, page: p.page, pageSize: p.pageSize };
+        }
+        q = q.filter(`data->>${key}`, 'ilike', `*${search}*`);
+      } else {
+        q = q.ilike('name', `%${search}%`);
+      }
+    }
+    q = q.order(
+      kind === 'member' ? 'last_name' : (kind === 'custom_object' ? 'created_at' : 'name'),
+      { ascending: true },
+    ).order('id', { ascending: true });
+    const selectedQuery = selectedIds.length
+      ? endpointQuery().in('id', selectedIds)
+      : Promise.resolve({ data: [], error: null });
+    const [{ data, error, count }, selectedResult] = await Promise.all([
+      kind === 'member' ? scanMemberPicker(q, p, new Set(), search) : q.range(p.from, p.to),
+      selectedQuery,
+    ]);
+    throwDb(error);
+    throwDb(selectedResult.error);
+
+    let endpointDefinition = null;
+    let endpointFields = [];
+    let endpointAccess = null;
+    if (kind === 'custom_object') {
+      endpointDefinition = await activeObject(customObjectId);
+      endpointFields = await fields(customObjectId, true);
+      endpointAccess = await fieldAccess(customObjectId, endpointFields);
+    }
+    const rows = [];
+    const seen = new Set();
+    for (const row of [...(selectedResult.data || []), ...(data || [])]) {
+      if (kind === 'member' && isDeletedRelationshipMember(row)) continue;
+      if (!seen.has(String(row.id))) {
+        seen.add(String(row.id));
+        rows.push(row);
+      }
+    }
+    return {
+      data: rows.map((row) => ({
+        id: row.id,
+        kind,
+        custom_object_id: customObjectId,
+        ...endpointLabel(kind, row, endpointDefinition, endpointFields, endpointAccess),
+      })),
+      total: count || 0,
+      page: p.page,
+      pageSize: p.pageSize,
+    };
+  }
+
+  async function createRecord(objectId, body) {
+    const definition = await object(objectId);
+    await requireCapability(objectId, 'create_records');
+    if (definition.status !== 'active') {
+      throw new CustomObjectHttpError(409, 'Records can only be created for active Custom Objects');
+    }
+    const validation = await validateRecordWrite(objectId, body?.data, null, 'create');
+    const payload = { tenant_id: tenantId, custom_object_id: objectId, data: validation.data, ...authored('created'), ...authored() };
+    const { data, error } = await db.from('custom_object_record').insert(payload).select('*').single();
+    throwDb(error);
+    return data;
+  }
+
+  // Internal-only persistence entry point for an administrator-authored form
+  // action. It is intentionally not used by the HTTP route and is only
+  // available on an admin service instance, so callers cannot choose IDs.
+  async function writeTrustedPersistedRecord(objectId, {
+    data: inputData,
+    existingRecordId = null,
+    reservedRecordId = null,
+  } = {}) {
+    if (!isAdmin) throw new CustomObjectHttpError(403, 'Administrator access required');
+    await activeObject(objectId, 'Records can only be written for active Custom Objects');
+    const candidateId = existingRecordId || reservedRecordId;
+    let existing = null;
+    if (candidateId) {
+      const result = await db.from('custom_object_record').select('*')
+        .eq('tenant_id', tenantId).eq('custom_object_id', objectId)
+        .eq('id', candidateId).is('archived_at', null).maybeSingle();
+      throwDb(result.error);
+      existing = result.data || null;
+    }
+    if (existing) {
+      // A row found solely by the ledger reservation is crash recovery: the
+      // original validated create already completed, so do not turn it into
+      // an unrelated update.
+      if (!existingRecordId) return { record: existing, operation: 'recovered' };
+      const validation = await validateRecordWrite(
+        objectId, inputData, existing.data, 'update',
+      );
+      const result = await db.from('custom_object_record').update({
+        data: validation.data,
+        ...authored(),
+      }).eq('tenant_id', tenantId).eq('custom_object_id', objectId)
+        .eq('id', existing.id).select('*').single();
+      throwDb(result.error);
+      return { record: result.data, operation: 'updated' };
+    }
+    const validation = await validateRecordWrite(objectId, inputData, null, 'create');
+    const payload = {
+      ...(reservedRecordId ? { id: reservedRecordId } : {}),
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      data: validation.data,
+      ...authored('created'),
+      ...authored(),
+    };
+    const result = await db.from('custom_object_record').insert(payload).select('*').single();
+    throwDb(result.error);
+    return { record: result.data, operation: 'created' };
+  }
+
+  // Internal companion to writeTrustedPersistedRecord. It deliberately has no
+  // persistence side effect and lets trusted form processing use the exact
+  // canonical values for identity lookup and eventual write.
+  async function normalizeTrustedPersistedRecordData(objectId, data, {
+    existingData = null,
+    mode = 'create',
+  } = {}) {
+    if (!isAdmin) throw new CustomObjectHttpError(403, 'Administrator access required');
+    await activeObject(objectId, 'Records can only be written for active Custom Objects');
+    const validation = await validateRecordWrite(objectId, data, existingData, mode);
+    return validation.data;
+  }
+
+  // Creates the record and all of its first edges in one database transaction.
+  // The relationship entries are deliberately expressed from the new record's
+  // routed side: this works equally for a Custom Object on either definition
+  // side and avoids accepting client-supplied source/target identities.
+  async function createRecordWithRelationships(objectId, body = {}) {
+    const definition = await activeObject(objectId, 'Records can only be created for active Custom Objects');
+    await requireCapability(objectId, 'create_records');
+    const validation = await validateRecordWrite(objectId, body.data, null, 'create');
+    if (typeof db.rpc !== 'function') {
+      throw new CustomObjectHttpError(503, 'Record relationship transaction is unavailable');
+    }
+
+    const originating = body.originating_relationship ?? body.originatingRelationship ?? null;
+    const additional = body.initial_relationships ?? body.initialRelationships ?? body.relationships ?? [];
+    if (originating !== null && (!originating || typeof originating !== 'object' || Array.isArray(originating))) {
+      throw new CustomObjectHttpError(400, 'originating_relationship must be an object');
+    }
+    if (!Array.isArray(additional)) {
+      throw new CustomObjectHttpError(400, 'initial_relationships must be an array');
+    }
+    const entries = [...(originating ? [{ ...originating, _originating: true }] : []), ...additional];
+    const seen = new Set();
+    const relationships = [];
+    const scopeChecks = [];
+    for (const entry of entries) {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        throw new CustomObjectHttpError(400, 'Each initial relationship must be an object');
+      }
+      const relationshipDefinitionId = entry.relationship_definition_id ?? entry.relationshipDefinitionId;
+      const relatedRecordId = entry.related_record_id ?? entry.relatedRecordId;
+      if (!relationshipDefinitionId || !relatedRecordId) {
+        throw new CustomObjectHttpError(400, 'Each initial relationship requires relationship_definition_id and related_record_id');
+      }
+      const relationship = await one('custom_object_relationship_definition', relationshipDefinitionId);
+      if (relationship.status !== 'active') throw new CustomObjectHttpError(409, 'Relationship definition is not active');
+      const matchingSides = ['source', 'target'].filter((side) =>
+        relationship[`${side}_kind`] === 'custom_object'
+        && relationship[`${side}_custom_object_id`] === objectId);
+      const side = entry.routed_side ?? entry.routedSide ?? (matchingSides.length === 1 ? matchingSides[0] : null);
+      if (!['source', 'target'].includes(side) || !matchingSides.includes(side)) {
+        throw new CustomObjectHttpError(400, 'routed_side must identify the new record side of the relationship');
+      }
+      // An originating edge is initiated from the existing card, not the new
+      // record.  `routed_side` still describes where the new row belongs.
+      const initiatedSide = entry._originating ? (side === 'source' ? 'target' : 'source') : side;
+      if (relationship[`show_on_${initiatedSide}`] === false) {
+        throw new CustomObjectHttpError(403, 'This relationship is hidden on the routed side');
+      }
+      if (relationship[`edit_from_${initiatedSide}`] === false) {
+        throw new CustomObjectHttpError(403, 'This relationship cannot be edited from the routed side');
+      }
+      await requireRelationshipCapabilities(relationship, 'edit_records');
+      const relatedSide = side === 'source' ? 'target' : 'source';
+      const related = await endpoint(relationship[`${relatedSide}_kind`], relatedRecordId);
+      domainGuard(() => validateCustomObjectRelationshipEndpoints({
+        tenantId,
+        definition: relationship,
+        source: side === 'source'
+          ? { tenant_id: tenantId, kind: 'custom_object', custom_object_id: objectId, archived_at: null }
+          : related,
+        target: side === 'target'
+          ? { tenant_id: tenantId, kind: 'custom_object', custom_object_id: objectId, archived_at: null }
+          : related,
+      }));
+      const key = `${relationshipDefinitionId}:${side}:${relatedRecordId}`;
+      if (seen.has(key)) throw new CustomObjectHttpError(400, 'Initial relationships must not contain duplicates');
+      seen.add(key);
+      relationships.push({
+        relationship_definition_id: relationshipDefinitionId,
+        routed_side: side,
+        related_record_id: relatedRecordId,
+        originating: entry._originating === true,
+      });
+      scopeChecks.push({ definition: relationship, routedSide: side, candidate: related });
+    }
+    const virtualRecordId = '00000000-0000-0000-0000-000000000000';
+    const virtualEdges = relationships.map((relationship) => ({
+      relationship_definition_id: relationship.relationship_definition_id,
+      source_record_id: relationship.routed_side === 'source'
+        ? virtualRecordId : relationship.related_record_id,
+      target_record_id: relationship.routed_side === 'target'
+        ? virtualRecordId : relationship.related_record_id,
+    }));
+    for (const check of scopeChecks) {
+      if (check.definition.configuration?.picker_scope?.version !== 2) continue;
+      const pickerScope = await configuredPickerScope(
+        check.definition,
+        check.routedSide,
+        virtualRecordId,
+        virtualEdges,
+      );
+      if (!pickerScopeAllowsCandidate(pickerScope, check.candidate)) {
+        throw new CustomObjectHttpError(400, 'Initial related record is outside the configured picker scope');
+      }
+    }
+    const { data, error } = await db.rpc('create_custom_object_record_with_relationships', {
+      p_tenant_id: tenantId,
+      p_custom_object_id: objectId,
+      p_data: validation.data,
+      p_relationships: relationships,
+      p_created_by: currentActorReference,
+    }).single();
+    throwAtomicCreateDb(error);
+    return data;
+  }
+
+  async function initialRelationshipCandidates(objectId, query = {}) {
+    await activeObject(objectId, 'Initial relationship candidates are only available for active Custom Objects');
+    await requireCapability(objectId, 'create_records');
+    const definitionId = query.definitionId;
+    const side = query.newRecordSide ?? query.new_record_side ?? query.side;
+    if (!definitionId || !['source', 'target'].includes(side)) {
+      throw new CustomObjectHttpError(400, 'definitionId and newRecordSide are required');
+    }
+    const definition = await one('custom_object_relationship_definition', definitionId);
+    if (definition.status !== 'active') throw new CustomObjectHttpError(409, 'Relationship definition is not active');
+    if (
+      definition[`${side}_kind`] !== 'custom_object'
+      || definition[`${side}_custom_object_id`] !== objectId
+    ) {
+      throw new CustomObjectHttpError(400, 'newRecordSide does not match the new Custom Object');
+    }
+    if (definition[`show_on_${side}`] === false || definition[`edit_from_${side}`] === false) {
+      throw new CustomObjectHttpError(403, 'This relationship is not visible and editable from the new record side');
+    }
+    await requireRelationshipCapabilities(definition, 'edit_records');
+    const candidateSide = side === 'source' ? 'target' : 'source';
+    const kind = definition[`${candidateSide}_kind`];
+    const table = {
+      custom_object: 'custom_object_record', member: 'member',
+      organization: 'organization', organization_group: 'organization_group',
+    }[kind];
+    if (!table) throw new CustomObjectHttpError(400, 'Unsupported relationship endpoint kind');
+    const customObjectId = kind === 'custom_object' ? definition[`${candidateSide}_custom_object_id`] : null;
+    let endpointDefinition = null;
+    let endpointFields = [];
+    let endpointAccess = null;
+    if (kind === 'custom_object') {
+      endpointDefinition = await activeObject(customObjectId);
+      await requireCapability(customObjectId, 'view_records');
+      endpointFields = await fields(customObjectId, true);
+      endpointAccess = await fieldAccess(customObjectId, endpointFields);
+    }
+    const p = pagination(query);
+    const search = typeof query.search === 'string' ? query.search.trim() : '';
+    const eligibility = await pickerExcludedRecordIds(definition, side, '__new_record__');
+    let pickerScope = null;
+    if (definition.configuration?.picker_scope?.version === 2) {
+      let proposed;
+      try {
+        proposed = query.proposedRelationships
+          ? JSON.parse(query.proposedRelationships)
+          : [];
+      } catch {
+        throw new CustomObjectHttpError(400, 'proposedRelationships must be valid JSON');
+      }
+      if (!Array.isArray(proposed) || proposed.length > 50) {
+        throw new CustomObjectHttpError(400, 'proposedRelationships must be an array of at most 50 entries');
+      }
+      const virtualRecordId = '00000000-0000-0000-0000-000000000000';
+      const virtualEdges = [];
+      for (const entry of proposed) {
+        const proposedDefinitionId = entry?.relationship_definition_id;
+        const proposedSide = entry?.routed_side;
+        const proposedRelatedId = entry?.related_record_id;
+        if (!proposedDefinitionId || !['source', 'target'].includes(proposedSide) || !proposedRelatedId) {
+          throw new CustomObjectHttpError(400, 'Each proposed relationship is malformed');
+        }
+        const proposedDefinition = await one('custom_object_relationship_definition', proposedDefinitionId);
+        if (proposedDefinition.status !== 'active'
+          || proposedDefinition[`${proposedSide}_kind`] !== 'custom_object'
+          || proposedDefinition[`${proposedSide}_custom_object_id`] !== objectId) {
+          throw new CustomObjectHttpError(400, 'A proposed relationship does not match the new Custom Object');
+        }
+        const proposedRelatedSide = oppositeRelationshipSide(proposedSide);
+        const proposedRelated = await endpoint(
+          proposedDefinition[`${proposedRelatedSide}_kind`],
+          proposedRelatedId,
+        );
+        domainGuard(() => validateCustomObjectRelationshipEndpoints({
+          tenantId,
+          definition: proposedDefinition,
+          source: proposedSide === 'source'
+            ? { tenant_id: tenantId, kind: 'custom_object', custom_object_id: objectId, archived_at: null }
+            : proposedRelated,
+          target: proposedSide === 'target'
+            ? { tenant_id: tenantId, kind: 'custom_object', custom_object_id: objectId, archived_at: null }
+            : proposedRelated,
+        }));
+        virtualEdges.push({
+          relationship_definition_id: proposedDefinition.id,
+          source_record_id: proposedSide === 'source' ? virtualRecordId : proposedRelatedId,
+          target_record_id: proposedSide === 'target' ? virtualRecordId : proposedRelatedId,
+        });
+      }
+      pickerScope = await configuredPickerScope(definition, side, virtualRecordId, virtualEdges);
+      if (pickerScope.candidateRecordIds.length === 0) {
+        return { data: [], total: 0, page: p.page, pageSize: p.pageSize };
+      }
+      const customSearchKey = kind === 'custom_object'
+        ? getCustomObjectFieldMetadata(endpointFields.find((field) =>
+          field.id === endpointDefinition.primary_display_field_id
+          && endpointAccess.get(String(field.id)) !== 'none')).key
+        : null;
+      const scoped = await scopedPickerRows({
+        table,
+        kind,
+        customObjectId,
+        candidateRecordIds: pickerScope.candidateRecordIds,
+        excluded: eligibility.excluded,
+        search,
+        customSearchKey,
+        page: p,
+      });
+      return {
+        data: scoped.rows.map((row) => ({
+          id: row.id, kind, custom_object_id: customObjectId,
+          ...endpointLabel(
+            kind, row, endpointDefinition, endpointFields, endpointAccess,
+            configuredCompactPreviewFieldIds(definition, candidateSide),
+          ),
+        })),
+        total: scoped.total, page: p.page, pageSize: p.pageSize,
+      };
+    }
+    let q = db.from(table).select('*', { count: 'exact' }).eq('tenant_id', tenantId);
+    if (kind === 'custom_object') q = q.eq('custom_object_id', customObjectId).is('archived_at', null);
+    if (search) {
+      if (kind === 'member') {
+        const pattern = quotePostgrestValue(`*${search}*`);
+        q = q.or(`first_name.ilike.${pattern},last_name.ilike.${pattern},email.ilike.${pattern}`);
+      } else if (kind !== 'custom_object') q = q.ilike('name', `%${search}%`);
+      else {
+        const primary = endpointFields.find((field) => field.id === endpointDefinition.primary_display_field_id
+          && endpointAccess.get(String(field.id)) !== 'none');
+        const key = getCustomObjectFieldMetadata(primary).key;
+        if (key) q = q.filter(`data->>${key}`, 'ilike', `*${search}*`);
+      }
+    }
+    // There is no routed record yet: only candidates whose own cardinality is
+    // already full are excluded. Passing an impossible id avoids considering
+    // routed saturation while retaining the shared generic calculation.
+    if (kind !== 'member') q = applyPickerExclusions(q, eligibility);
+    q = q.order(kind === 'member' ? 'last_name' : (kind === 'custom_object' ? 'created_at' : 'name'), { ascending: true })
+      .order('id', { ascending: true });
+    const { data, error, count } = kind === 'member'
+      ? await scanMemberPicker(q, p, eligibility.excluded, search)
+      : await q.range(p.from, p.to);
+    throwDb(error);
+    return {
+      data: (data || []).map((row) => ({
+        id: row.id, kind, custom_object_id: customObjectId,
+        ...endpointLabel(
+          kind, row, endpointDefinition, endpointFields, endpointAccess,
+          configuredCompactPreviewFieldIds(definition, candidateSide),
+        ),
+      })),
+      total: count || 0, page: p.page, pageSize: p.pageSize,
+    };
+  }
+
+  async function getRecord(objectId, recordId) {
+    const definition = await object(objectId);
+    await requireCapability(objectId, 'view_records');
+    const record = await one('custom_object_record', recordId, { custom_object_id: objectId });
+    const definitions = await fields(objectId);
+    return projectRecord(definition, record, definitions, await fieldAccess(objectId, definitions));
+  }
+
+  async function updateRecord(objectId, recordId, body, archive = false) {
+    const definition = await object(objectId);
+    await requireCapability(objectId, archive ? 'archive_records' : 'edit_records');
+    if (!archive && definition.status !== 'active') {
+      throw new CustomObjectHttpError(409, 'Records can only be edited for active Custom Objects');
+    }
+    const before = await one('custom_object_record', recordId, { custom_object_id: objectId });
+    let payload;
+    if (archive) {
+      if (before.archived_at) return before;
+      payload = { archived_at: before.archived_at || now(), archived_by: currentActorReference, archive_reason: body?.archive_reason || null, ...authored() };
+    } else {
+      if (before.archived_at) throw new CustomObjectHttpError(409, 'Archived records cannot be edited');
+      const validation = await validateRecordWrite(objectId, body?.data, before.data, 'update');
+      payload = { data: validation.data, ...authored() };
+    }
+    const { data, error } = await db.from('custom_object_record').update(payload)
+      .eq('tenant_id', tenantId).eq('custom_object_id', objectId).eq('id', recordId)
+      .select('*').single();
+    throwDb(error);
+    const definitions = await fields(objectId);
+    return projectRecord(definition, data, definitions, await fieldAccess(objectId, definitions));
+  }
+
+  async function listRelationshipDefinitions(objectId, query) {
+    await object(objectId);
+    if (!canViewSchema && !canManageSchema) await requireCapability(objectId, 'view_records');
+    const p = pagination(query);
+    let allowedObjectIds = null;
+    if (!isAdmin && !canViewSchema && !canManageSchema) {
+      if (!context.roleId) {
+        return { data: [], total: 0, page: p.page, pageSize: p.pageSize };
+      }
+      const { data: grants, error: grantError } = await db.from('custom_object_role_permission')
+        .select('custom_object_id').eq('tenant_id', tenantId).eq('role_id', context.roleId)
+        .eq('can_view_records', true);
+      throwDb(grantError);
+      allowedObjectIds = (grants || []).map((grant) => grant.custom_object_id);
+      if (!allowedObjectIds.includes(objectId)) {
+        return { data: [], total: 0, page: p.page, pageSize: p.pageSize };
+      }
+    }
+    let q = db.from('custom_object_relationship_definition').select('*', { count: 'exact' })
+      .eq('tenant_id', tenantId)
+      .or(`source_custom_object_id.eq.${objectId},target_custom_object_id.eq.${objectId}`)
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false });
+    if (allowedObjectIds) {
+      q = q.eq('source_kind', 'custom_object').eq('target_kind', 'custom_object')
+        .in('source_custom_object_id', allowedObjectIds)
+        .in('target_custom_object_id', allowedObjectIds);
+    }
+    if (query?.includeArchived !== 'true') q = q.neq('status', 'archived');
+    const { data, error, count } = await q.range(p.from, p.to);
+    throwDb(error);
+    const visible = data || [];
+    for (const definition of visible) {
+      if (definition.status === 'archived') continue;
+      for (const relatedObjectId of relationshipObjectIds(definition)) {
+        await activeObject(relatedObjectId);
+      }
+    }
+    return {
+      data: visible,
+      total: count || 0,
+      page: p.page,
+      pageSize: p.pageSize,
+    };
+  }
+
+  async function relationshipDefinitionGraph(objectId) {
+    requireSchemaManager();
+    await object(objectId);
+    const loadDefinitions = async () => {
+      const output = [];
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await db.from('custom_object_relationship_definition').select('*')
+          .eq('tenant_id', tenantId)
+          .eq('status', 'active')
+          .order('created_at', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, from + 999);
+        throwDb(error);
+        output.push(...(data || []));
+        if ((data || []).length < 1000) return output;
+      }
+    };
+    const loadObjects = async () => {
+      const output = [];
+      for (let from = 0; ; from += 1000) {
+        const { data, error } = await db.from('custom_object_definition')
+          .select('id,singular_label,plural_label')
+          .eq('tenant_id', tenantId)
+          .eq('status', 'active')
+          .order('id', { ascending: true })
+          .range(from, from + 999);
+        throwDb(error);
+        output.push(...(data || []).map((item) => ({
+          id: item.id,
+          singular_label: item.singular_label,
+          plural_label: item.plural_label,
+        })));
+        if ((data || []).length < 1000) return output;
+      }
+    };
+    const [definitions, activeObjects] = await Promise.all([
+      loadDefinitions(),
+      loadObjects(),
+    ]);
+    const activeIds = new Set(activeObjects.map((item) => String(item.id)));
+    return {
+      data: definitions.filter((definition) =>
+        relationshipObjectIds(definition).every((id) => activeIds.has(String(id)))),
+      objects: activeObjects,
+    };
+  }
+
+  async function createRelationshipDefinition(objectId, body) {
+    requireSchemaManager();
+    const routedObject = await object(objectId);
+    requireMutableObject(routedObject);
+    if (routedObject.status !== 'active') {
+      throw new CustomObjectHttpError(409, 'Relationships can only be configured for active Custom Objects');
+    }
+    const payload = {
+      ...pick(body, RELATIONSHIP_DEFINITION_COLUMNS), tenant_id: tenantId,
+      status: body?.status || 'draft', configuration: body?.configuration || {},
+      is_required: body?.is_required ?? false,
+      show_on_source: body?.show_on_source ?? true,
+      show_on_target: body?.show_on_target ?? true,
+      edit_from_source: body?.edit_from_source ?? true,
+      edit_from_target: body?.edit_from_target ?? false,
+      ...authored('created'), ...authored(),
+    };
+    if (payload.source_kind === 'custom_object' && !payload.source_custom_object_id) payload.source_custom_object_id = objectId;
+    if (payload.target_kind === 'custom_object' && !payload.target_custom_object_id) payload.target_custom_object_id = objectId;
+    if (payload.source_custom_object_id !== objectId && payload.target_custom_object_id !== objectId) {
+      throw new CustomObjectHttpError(400, 'Relationship must reference the routed Custom Object');
+    }
+    for (const relatedObjectId of relationshipObjectIds(payload)) {
+      await activeObject(relatedObjectId);
+    }
+    const validation = validateCustomObjectRelationshipDefinition(payload);
+    if (!validation.ok) throw new CustomObjectHttpError(400, 'Invalid relationship definition', validation.errors);
+    relationshipFieldDefinitions(payload);
+    await validateRelationshipPreview(payload);
+    await pickerScopeV2Schema(payload);
+    if (payload.status !== 'draft') Object.assign(payload, domainGuard(() => resolveCustomObjectLifecycleUpdate({ currentStatus: 'draft', nextStatus: payload.status, hasPrimaryDisplayField: true, now: now() })));
+    const { data, error } = await db.from('custom_object_relationship_definition').insert(payload).select('*').single();
+    throwDb(error);
+    return data;
+  }
+
+  async function updateRelationshipDefinition(objectId, id, body, archive = false) {
+    requireSchemaManager();
+    const routedObject = await object(objectId);
+    requireMutableObject(routedObject);
+    if (routedObject.status !== 'active') {
+      throw new CustomObjectHttpError(409, 'Relationships can only be configured for active Custom Objects');
+    }
+    const before = await one('custom_object_relationship_definition', id);
+    if (before.source_custom_object_id !== objectId && before.target_custom_object_id !== objectId) throw new CustomObjectHttpError(404, 'Resource not found');
+    const payload = pick(body, RELATIONSHIP_DEFINITION_COLUMNS);
+    if (payload.relationship_key !== undefined) domainGuard(() => assertImmutableInternalKey(before.relationship_key, payload.relationship_key, 'Relationship key'));
+    for (const immutable of [
+      'source_kind', 'source_custom_object_id', 'target_kind',
+      'target_custom_object_id', 'cardinality',
+    ]) {
+      if (payload[immutable] !== undefined && payload[immutable] !== before[immutable]) {
+        throw new CustomObjectHttpError(409, 'Relationship endpoints and cardinality cannot be changed after creation');
+      }
+    }
+    const candidate = { ...before, ...payload, status: archive ? 'archived' : (payload.status || before.status) };
+    for (const relatedObjectId of relationshipObjectIds(candidate)) await activeObject(relatedObjectId);
+    const validation = validateCustomObjectRelationshipDefinition(candidate);
+    if (!validation.ok) throw new CustomObjectHttpError(400, 'Invalid relationship definition', validation.errors);
+    relationshipFieldDefinitions(candidate);
+    await validateRelationshipPreview(candidate);
+    if (!archive) await pickerScopeV2Schema(candidate);
+    if (archive || payload.status !== undefined) Object.assign(payload, domainGuard(() => resolveCustomObjectLifecycleUpdate({
+      currentStatus: before.status, nextStatus: archive ? 'archived' : payload.status,
+      currentArchivedAt: before.archived_at, hasPrimaryDisplayField: true, now: now(),
+    })));
+    if ((payload.status || (archive && 'archived')) === 'archived') payload.archived_by = currentActorReference;
+    Object.assign(payload, authored());
+    const { data, error } = await db.from('custom_object_relationship_definition').update(payload)
+      .eq('tenant_id', tenantId).eq('id', id).select('*').single();
+    throwDb(error);
+    return data;
+  }
+
+  async function endpoint(kind, id) {
+    const table = {
+      custom_object: 'custom_object_record', member: 'member',
+      organization: 'organization', organization_group: 'organization_group',
+    }[kind];
+    if (!table) throw new CustomObjectHttpError(400, 'Unsupported relationship endpoint kind');
+    return { ...(await one(table, id)), kind };
+  }
+
+  function endpointLabel(kind, row, definition = null, endpointFields = [], access = null, previewFieldIds = []) {
+    if (kind === 'member') {
+      return {
+        primary_label: [row.first_name, row.last_name].filter(Boolean).join(' ').trim()
+          || row.full_name || row.email || row.id,
+        secondary_text: isAdmin ? (row.email || null) : null,
+      };
+    }
+    if (kind === 'organization') {
+      return { primary_label: row.name || row.id, secondary_text: isAdmin ? (row.email || null) : null };
+    }
+    if (kind === 'organization_group') {
+      return { primary_label: row.name || row.id, secondary_text: row.description || null };
+    }
+    const readableFields = access ? allowedFields(endpointFields, access) : endpointFields;
+    const preview = previewFieldIds.map(String)
+      .map((id) => readableFields.find((field) => String(field.id) === id))
+      .filter(Boolean)
+      .map((field) => {
+        const metadata = getCustomObjectFieldMetadata(field);
+        return { field_id: field.id, key: metadata.key, label: metadata.label, value: row.data?.[metadata.key] ?? null };
+      });
+    return {
+      primary_label: resolveCustomObjectDisplayValue({
+        objectDefinition: definition, record: row, fields: readableFields,
+      }),
+      secondary_text: preview.map((item) => String(item.value ?? '')).filter(Boolean).join(' · ') || null,
+      compact_fields: preview,
+    };
+  }
+
+  function configuredCompactPreviewFieldIds(definition, side) {
+    const previews = compactPreviewConfigurations(definition);
+    const ids = previews.flatMap((preview) => {
+      const configured = preview[`${side}_field_ids`] ?? preview[side] ?? [];
+      return Array.isArray(configured) ? configured : [];
+    });
+    // Current column descriptors may carry field IDs in addition to the
+    // scalar aliases.  Legacy compact_preview_fields never had columns.
+    const columnIds = previews.slice(0, 1).flatMap((preview) =>
+      Array.isArray(preview[`${side}_columns`])
+        ? preview[`${side}_columns`]
+          .filter((column) => column?.type === 'field')
+          .map((column) => column.field_id)
+        : []);
+    return [...new Set([
+      ...ids,
+      ...columnIds,
+    ].filter(Boolean).map(String))];
+  }
+
+  function configuredCompactPreviewScalarFieldIds(definition, side) {
+    return [...new Set(compactPreviewConfigurations(definition).flatMap((preview) => {
+      const configured = preview[`${side}_field_ids`] ?? preview[side] ?? [];
+      return Array.isArray(configured) ? configured : [];
+    }).filter(Boolean).map(String))];
+  }
+
+  function compactPreviewConfigurations(definition) {
+    return [
+      definition?.configuration?.compact_preview,
+      definition?.configuration?.compact_preview_fields,
+    ].filter((preview) => preview && typeof preview === 'object' && !Array.isArray(preview));
+  }
+
+  function hasExplicitCompactPreview(definition, side) {
+    const keys = [`${side}_field_ids`, `${side}_columns`, side];
+    return compactPreviewConfigurations(definition)
+      .some((preview) => keys.some((key) => Object.hasOwn(preview, key)));
+  }
+
+  function configuredCompactPreviewColumns(definition, side) {
+    const previews = compactPreviewConfigurations(definition);
+    const preview = previews[0] || {};
+    const configured = preview[`${side}_columns`];
+    if (Array.isArray(configured)) {
+      const currentFieldIds = new Set(configured
+        .filter((column) => column?.type === 'field' && column.field_id)
+        .map((column) => String(column.field_id)));
+      const scalarFields = configuredCompactPreviewScalarFieldIds(definition, side)
+        .filter((fieldId) => !currentFieldIds.has(fieldId))
+        .map((fieldId) => ({
+          type: 'field', field_id: String(fieldId),
+        }));
+      // Scalar aliases are prepended as the legacy client does, while current
+      // column descriptors retain authored order and labels.
+      return [
+        ...scalarFields,
+        ...configured,
+      ];
+    }
+    return configuredCompactPreviewFieldIds(definition, side).map((fieldId) => ({
+      type: 'field', field_id: String(fieldId),
+    }));
+  }
+
+  async function effectiveRelationshipPreviewColumns(
+    definition,
+    relatedSide,
+    { includeArchived = false, allowUnavailableExplicit = false } = {},
+  ) {
+    if (definition[`${relatedSide}_kind`] !== 'custom_object') return [];
+    const explicit = hasExplicitCompactPreview(definition, relatedSide);
+    const customObjectId = definition[`${relatedSide}_custom_object_id`];
+    let endpointDefinition;
+    let endpointFields;
+    let endpointAccess;
+    try {
+      endpointDefinition = includeArchived
+        ? await object(customObjectId)
+        : await activeObject(customObjectId);
+      endpointFields = await fields(customObjectId, true);
+      endpointAccess = await fieldAccess(customObjectId, endpointFields);
+    } catch (error) {
+      if (
+        !allowUnavailableExplicit
+        || !explicit
+        || !(error instanceof CustomObjectHttpError)
+        || ![404, 409].includes(error.status)
+      ) throw error;
+      return configuredCompactPreviewColumns(definition, relatedSide).flatMap((column) => {
+        if (column?.type === 'field' && column.field_id) return [{
+          type: 'field',
+          field_id: String(column.field_id),
+          label: String(column.label || 'Field'),
+        }];
+        if (
+          column?.type === 'relationship'
+          && column.relationship_definition_id
+          && ['source', 'target'].includes(column.side)
+        ) return [{
+          type: 'relationship',
+          relationship_definition_id: String(column.relationship_definition_id),
+          side: column.side,
+          label: String(column.label || 'Related record'),
+        }];
+        return [];
+      });
+    }
+    const readableById = new Map(
+      allowedFields(endpointFields, endpointAccess)
+        .map((field) => [String(field.id), field]),
+    );
+    const configured = explicit
+      ? configuredCompactPreviewColumns(definition, relatedSide)
+      : (Array.isArray(endpointDefinition.configuration?.views?.list?.field_ids)
+        ? [...new Set(endpointDefinition.configuration.views.list.field_ids
+          .filter(Boolean).map(String))]
+          .map((fieldId) => ({ type: 'field', field_id: fieldId }))
+        : []);
+    return configured.flatMap((column) => {
+      if (column?.type === 'field') {
+        const field = readableById.get(String(column.field_id));
+        if (!field) return [];
+        const metadata = getCustomObjectFieldMetadata(field);
+        return [{
+          type: 'field',
+          field_id: String(field.id),
+          label: String(column.label || metadata.label || metadata.key),
+        }];
+      }
+      if (
+        column?.type === 'relationship'
+        && column.relationship_definition_id
+        && ['source', 'target'].includes(column.side)
+      ) {
+        return [{
+          type: 'relationship',
+          relationship_definition_id: String(column.relationship_definition_id),
+          side: column.side,
+          label: String(column.label || 'Related record'),
+        }];
+      }
+      return [];
+    }).filter((column, index, all) => all.findIndex((candidate) =>
+      column.type === 'field'
+        ? candidate.type === 'field' && candidate.field_id === column.field_id
+        : candidate.type === 'relationship'
+          && candidate.relationship_definition_id === column.relationship_definition_id
+          && candidate.side === column.side) === index);
+  }
+
+  function configuredPickerContextColumn(definition, side) {
+    const column = definition?.configuration?.picker_context?.[`${side}_column`];
+    if (!column || !column.relationship_definition_id
+      || !['source', 'target'].includes(column.side)) return null;
+    return {
+      type: 'relationship',
+      relationship_definition_id: String(column.relationship_definition_id),
+      side: column.side,
+      label: String(column.label || '').trim() || 'Related record',
+    };
+  }
+
+  function pickerContextMetadata(definition, side, primaryColumnLabel) {
+    const column = configuredPickerContextColumn(definition, side);
+    return column ? {
+      primaryColumnLabel,
+      contextColumnLabel: column.label,
+    } : {};
+  }
+
+  async function projectPickerContext(rows, definition, candidateSide) {
+    const column = configuredPickerContextColumn(definition, candidateSide);
+    if (!column || !rows.length || definition[`${candidateSide}_kind`] !== 'custom_object') return rows;
+    const input = new Map(rows.map((row) => [String(row.id), row]));
+    const projected = await projectDirectRelationshipColumns(input, {
+      ...definition,
+      configuration: { compact_preview: { [`${candidateSide}_columns`]: [column] } },
+    }, candidateSide);
+    return rows.map((row) => {
+      const labels = (projected.get(String(row.id))?.relationship_columns || [])
+        .map((item) => item.value?.primary_label)
+        .filter((value) => value !== null && value !== undefined && String(value).trim());
+      return { ...row, picker_context_label: labels.length ? labels.join(', ') : null };
+    });
+  }
+
+  async function relationshipListSort(definition, side, relatedSide, query) {
+    const sortField = query?.sortField;
+    if (query?.sortDir !== undefined && !['asc', 'desc'].includes(query.sortDir)) {
+      throw new CustomObjectHttpError(400, 'sortDir must be asc or desc');
+    }
+    if (sortField === undefined || sortField === null || sortField === '') return null;
+    if (typeof sortField !== 'string') {
+      throw new CustomObjectHttpError(400, 'Unsupported relationship sort field');
+    }
+    const direction = query?.sortDir ?? 'asc';
+    if (!['asc', 'desc'].includes(direction)) {
+      throw new CustomObjectHttpError(400, 'sortDir must be asc or desc');
+    }
+    if (sortField === 'record') return { kind: 'record', ascending: direction === 'asc' };
+
+    const relationshipFieldMatch = sortField.match(/^relationship_field:(.+)$/);
+    if (relationshipFieldMatch) {
+      const field = relationshipFieldDefinitions(definition).find((candidate) =>
+        String(candidate.id) === relationshipFieldMatch[1]
+        && candidate[`display_on_${side}`]);
+      if (!field) throw new CustomObjectHttpError(400, 'Unsupported relationship sort field');
+      return {
+        kind: 'relationship_field',
+        field,
+        ascending: direction === 'asc',
+      };
+    }
+
+    const previewFieldMatch = sortField.match(/^field:(.+)$/);
+    if (previewFieldMatch) {
+      const previewColumns = await effectiveRelationshipPreviewColumns(definition, relatedSide);
+      const configured = previewColumns.some((column) =>
+        column.type === 'field' && column.field_id === previewFieldMatch[1]);
+      if (!configured || definition[`${relatedSide}_kind`] !== 'custom_object') {
+        throw new CustomObjectHttpError(400, 'Unsupported relationship sort field');
+      }
+      const endpointFields = await fields(definition[`${relatedSide}_custom_object_id`], true);
+      const access = await fieldAccess(definition[`${relatedSide}_custom_object_id`], endpointFields);
+      const field = allowedFields(endpointFields, access)
+        .find((candidate) => String(candidate.id) === previewFieldMatch[1]);
+      if (!field || !LIST_FIELD_TYPES.has(getCustomObjectFieldMetadata(field).type)) {
+        throw new CustomObjectHttpError(400, 'Unsupported relationship sort field');
+      }
+      return {
+        kind: 'field',
+        fieldId: previewFieldMatch[1],
+        ascending: direction === 'asc',
+      };
+    }
+
+    const relationshipMatch = sortField.match(/^relationship:([^:]+):(source|target)$/);
+    if (relationshipMatch) {
+      const [, relationshipDefinitionId, routedSide] = relationshipMatch;
+      const previewColumns = await effectiveRelationshipPreviewColumns(definition, relatedSide);
+      const configured = previewColumns
+        .some((column) => column?.type === 'relationship'
+          && String(column.relationship_definition_id) === relationshipDefinitionId
+          && column.side === routedSide);
+      if (!configured || definition[`${relatedSide}_kind`] !== 'custom_object') {
+        throw new CustomObjectHttpError(400, 'Unsupported relationship sort field');
+      }
+      let directDefinition;
+      try {
+        directDefinition = await one(
+          'custom_object_relationship_definition',
+          relationshipDefinitionId,
+        );
+      } catch (error) {
+        if (error instanceof CustomObjectHttpError && error.status === 404) {
+          throw new CustomObjectHttpError(400, 'Unsupported relationship sort field');
+        }
+        throw error;
+      }
+      if (
+        directDefinition.status !== 'active'
+        || directDefinition[`${routedSide}_kind`] !== 'custom_object'
+        || String(directDefinition[`${routedSide}_custom_object_id`])
+          !== String(definition[`${relatedSide}_custom_object_id`])
+      ) {
+        throw new CustomObjectHttpError(400, 'Unsupported relationship sort field');
+      }
+      await requireRelationshipCapabilities(directDefinition, 'view_records');
+      return {
+        kind: 'relationship',
+        relationshipDefinitionId,
+        side: routedSide,
+        ascending: direction === 'asc',
+      };
+    }
+    throw new CustomObjectHttpError(400, 'Unsupported relationship sort field');
+  }
+
+  function sortRelationshipListRows(rows, sort) {
+    const valueFor = (row) => {
+      if (sort.kind === 'record') return row.related?.primary_label;
+      if (sort.kind === 'relationship_field') {
+        return Object.hasOwn(row.field_values || {}, sort.field.key)
+          ? row.field_values[sort.field.key]
+          : (sort.field.default_value ?? null);
+      }
+      if (sort.kind === 'field') {
+        return row.related?.compact_fields?.find((item) =>
+          String(item.field_id) === sort.fieldId)?.value;
+      }
+      const labels = (row.related?.relationship_columns || [])
+        .filter((item) =>
+          String(item.relationship_definition_id) === sort.relationshipDefinitionId
+          && item.side === sort.side)
+        .map((item) => item.value?.primary_label)
+        .filter((value) => value !== null && value !== undefined && String(value).trim() !== '')
+        .map(String)
+        .sort((left, right) => left.localeCompare(right, undefined, { sensitivity: 'base' }));
+      return labels.length ? labels.join(', ') : null;
+    };
+    const blank = (value) =>
+      value === null || value === undefined || (typeof value === 'string' && value.trim() === '');
+    rows.sort((left, right) => {
+      const a = valueFor(left);
+      const b = valueFor(right);
+      if (blank(a) || blank(b)) {
+        if (blank(a) !== blank(b)) return blank(a) ? 1 : -1;
+      } else {
+        let comparison;
+        if (typeof a === 'number' && typeof b === 'number') comparison = a - b;
+        else if (typeof a === 'boolean' && typeof b === 'boolean') comparison = Number(a) - Number(b);
+        else comparison = String(a).localeCompare(String(b), undefined, {
+          sensitivity: 'base',
+          numeric: true,
+        });
+        if (comparison) return sort.ascending ? comparison : -comparison;
+      }
+      return String(left.relationship_id).localeCompare(String(right.relationship_id));
+    });
+    return rows;
+  }
+
+  async function relationshipPanelPreferenceContext(query) {
+    if (!isAdmin) {
+      throw new CustomObjectHttpError(
+        403,
+        'Tenant administrator access is required for relationship panel preferences',
+      );
+    }
+    if (!currentActorReference) {
+      throw new CustomObjectHttpError(401, 'Authenticated administrator identity is required');
+    }
+    const definitionId = query?.definitionId;
+    const side = query?.side;
+    if (!definitionId || !['source', 'target'].includes(side)) {
+      throw new CustomObjectHttpError(400, 'definitionId and side are required');
+    }
+    const definition = await one('custom_object_relationship_definition', definitionId);
+    if (!definition[`${side}_kind`]) {
+      throw new CustomObjectHttpError(400, 'Side does not belong to the relationship definition');
+    }
+    const relatedSide = side === 'source' ? 'target' : 'source';
+    const previewColumns = await effectiveRelationshipPreviewColumns(definition, relatedSide, {
+      allowUnavailableExplicit: true,
+    });
+    const columns = [
+      { id: 'record', sortField: 'record', defaultWidth: 240 },
+      ...relationshipFieldDefinitions(definition)
+        .filter((field) => field[`display_on_${side}`])
+        .map((field) => ({
+          id: `relationship-field:${field.id}`,
+          sortField: `relationship_field:${field.id}`,
+          defaultWidth: 180,
+        })),
+      ...previewColumns.filter((column) => column.type === 'field').map((column) => ({
+        id: `field:${column.field_id}`,
+        sortField: `field:${column.field_id}`,
+        defaultWidth: 180,
+      })),
+      ...previewColumns
+        .filter((column) => column.type === 'relationship')
+        .map((column) => ({
+          id: `relationship:${column.relationship_definition_id}:${column.side}`,
+          sortField: `relationship:${column.relationship_definition_id}:${column.side}`,
+          defaultWidth: 220,
+        })),
+    ].filter((column, index, all) =>
+      all.findIndex((candidate) => candidate.id === column.id) === index);
+    const actorKey = `${currentActor.type}_${currentActor.id}`;
+    return {
+      definition,
+      side,
+      columns,
+      settingKey: `relationship_columns_${actorKey}_${definition.id}_${side}`,
+    };
+  }
+
+  function normalizeRelationshipPanelPreference(raw, columns) {
+    const supplied = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+    const available = new Map(columns.map((column) => [column.id, column]));
+    const savedOrder = Array.isArray(supplied.order)
+      ? [...new Set(supplied.order.map(String))].filter((id) => available.has(id))
+      : [];
+    const order = [...savedOrder, ...columns.map(({ id }) => id)
+      .filter((id) => !savedOrder.includes(id))];
+    const widths = Object.fromEntries(order.map((id) => {
+      const parsed = Number(supplied.widths?.[id]);
+      const fallback = available.get(id).defaultWidth;
+      return [id, Math.round(Math.max(120, Math.min(480,
+        Number.isFinite(parsed) ? parsed : fallback)))];
+    }));
+    const sortFields = new Set(columns.map(({ sortField }) => sortField));
+    return {
+      order,
+      widths,
+      sortField: sortFields.has(supplied.sortField) ? supplied.sortField : '',
+      sortDir: supplied.sortDir === 'desc' ? 'desc' : 'asc',
+    };
+  }
+
+  async function getRelationshipPanelPreference(query) {
+    const preferenceContext = await relationshipPanelPreferenceContext(query);
+    const { data, error } = await db.from('system_settings')
+      .select('id, setting_value')
+      .eq('tenant_id', tenantId)
+      .eq('setting_key', preferenceContext.settingKey)
+      .maybeSingle();
+    throwDb(error);
+    let saved = null;
+    try {
+      saved = data?.setting_value ? JSON.parse(data.setting_value) : null;
+    } catch {
+      saved = null;
+    }
+    return {
+      preference: normalizeRelationshipPanelPreference(saved, preferenceContext.columns),
+    };
+  }
+
+  async function saveRelationshipPanelPreference(query, body) {
+    const preferenceContext = await relationshipPanelPreferenceContext(query);
+    const preference = normalizeRelationshipPanelPreference(
+      body?.preference ?? body,
+      preferenceContext.columns,
+    );
+    const payload = {
+      tenant_id: tenantId,
+      setting_key: preferenceContext.settingKey,
+      setting_value: JSON.stringify(preference),
+      description: 'Personal related-record column configuration',
+    };
+    const existing = await db.from('system_settings')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('setting_key', preferenceContext.settingKey)
+      .maybeSingle();
+    throwDb(existing.error);
+    let write;
+    if (existing.data?.id) {
+      write = await db.from('system_settings')
+        .update({
+          setting_value: payload.setting_value,
+          description: payload.description,
+        })
+        .eq('tenant_id', tenantId)
+        .eq('setting_key', preferenceContext.settingKey)
+        .eq('id', existing.data.id)
+        .select('id')
+        .single();
+    } else {
+      write = await db.from('system_settings').insert(payload).select('id').single();
+      // The partial unique index makes simultaneous first saves deterministic:
+      // if another request inserted first, this request updates that one row.
+      if (write.error?.code === '23505') {
+        write = await db.from('system_settings')
+          .update({
+            setting_value: payload.setting_value,
+            description: payload.description,
+          })
+          .eq('tenant_id', tenantId)
+          .eq('setting_key', preferenceContext.settingKey)
+          .select('id')
+          .single();
+      }
+    }
+    throwDb(write.error);
+    return { preference };
+  }
+
+  async function projectDirectRelationshipColumns(endpointRows, definition, relatedSide) {
+    const columns = configuredCompactPreviewColumns(definition, relatedSide)
+      .filter((column) => column?.type === 'relationship');
+    if (endpointRows.size === 0 || columns.length === 0) return endpointRows;
+    const recordIds = [...endpointRows.keys()];
+    const projectedByRecord = new Map(recordIds.map((id) => [String(id), []]));
+    for (const column of columns) {
+      let directDefinition;
+      try {
+        directDefinition = await one(
+          'custom_object_relationship_definition',
+          column.relationship_definition_id,
+        );
+        if (directDefinition.status !== 'active') continue;
+        const routedSide = column.side;
+        if (
+          !['source', 'target'].includes(routedSide)
+          || directDefinition[`${routedSide}_kind`] !== 'custom_object'
+          || String(directDefinition[`${routedSide}_custom_object_id`])
+            !== String(definition[`${relatedSide}_custom_object_id`])
+        ) continue;
+        await requireRelationshipCapabilities(directDefinition, 'view_records');
+        const oppositeSide = routedSide === 'source' ? 'target' : 'source';
+        const edges = [];
+        for (let offset = 0; offset < recordIds.length; offset += ENDPOINT_ID_BATCH_SIZE) {
+          const batchIds = recordIds.slice(offset, offset + ENDPOINT_ID_BATCH_SIZE);
+          for (let from = 0;; from += ENDPOINT_ID_BATCH_SIZE) {
+            const { data, error } = await db.from('custom_object_relationship').select('*')
+              .eq('tenant_id', tenantId)
+              .eq('relationship_definition_id', directDefinition.id)
+              .is('archived_at', null)
+              .in(`${routedSide}_record_id`, batchIds)
+              .order('id', { ascending: true })
+              .range(from, from + ENDPOINT_ID_BATCH_SIZE - 1);
+            throwDb(error);
+            edges.push(...(data || []));
+            if (!data || data.length < ENDPOINT_ID_BATCH_SIZE) break;
+          }
+        }
+        const resolved = await resolveEndpointRows(
+          directDefinition[`${oppositeSide}_kind`],
+          directDefinition[`${oppositeSide}_custom_object_id`],
+          edges.map((edge) => edge[`${oppositeSide}_record_id`]),
+        );
+        for (const edge of edges) {
+          const value = resolved.get(edge[`${oppositeSide}_record_id`]);
+          if (!value) continue;
+          projectedByRecord.get(String(edge[`${routedSide}_record_id`]))?.push({
+            relationship_definition_id: directDefinition.id,
+            side: routedSide,
+            label: column.label || directDefinition[`${routedSide}_label`] || 'Related record',
+            value,
+          });
+        }
+      } catch (error) {
+        if (error instanceof CustomObjectHttpError && [403, 404, 409].includes(error.status)) continue;
+        throw error;
+      }
+    }
+    return new Map([...endpointRows].map(([id, row]) => [id, {
+      ...row,
+      relationship_columns: projectedByRecord.get(String(id)) || [],
+    }]));
+  }
+
+  async function resolveEndpointRows(kind, customObjectId, ids, {
+    includeArchived = false, previewFieldIds = [], excludedIds = new Set(),
+  } = {}) {
+    const uniqueIds = [...new Set(ids.filter(Boolean))];
+    if (uniqueIds.length === 0) return new Map();
+    const table = {
+      custom_object: 'custom_object_record', member: 'member',
+      organization: 'organization', organization_group: 'organization_group',
+    }[kind];
+    if (!table) throw new CustomObjectHttpError(400, 'Unsupported relationship endpoint kind');
+    let endpointDefinition = null;
+    let endpointFields = [];
+    let endpointAccess = null;
+    if (kind === 'custom_object') {
+      endpointDefinition = includeArchived
+        ? await object(customObjectId)
+        : await activeObject(customObjectId);
+      await requireCapability(customObjectId, 'view_records');
+      endpointFields = await fields(customObjectId, true);
+      endpointAccess = await fieldAccess(customObjectId, endpointFields);
+    }
+    const rows = [];
+    for (let offset = 0; offset < uniqueIds.length; offset += ENDPOINT_ID_BATCH_SIZE) {
+      const batchIds = uniqueIds.slice(offset, offset + ENDPOINT_ID_BATCH_SIZE);
+      let q = db.from(table).select('*').eq('tenant_id', tenantId).in('id', batchIds);
+      if (kind === 'custom_object') {
+        q = q.eq('custom_object_id', customObjectId);
+        if (!includeArchived) q = q.is('archived_at', null);
+      }
+      const { data, error } = await q;
+      throwDb(error);
+      for (const row of data || []) {
+        if (kind === 'member' && isDeletedRelationshipMember(row)) excludedIds.add(row.id);
+        else rows.push(row);
+      }
+    }
+    return new Map(rows.map((row) => {
+      const labels = endpointLabel(kind, row, endpointDefinition, endpointFields, endpointAccess, previewFieldIds);
+      return [row.id, {
+        id: row.id,
+        kind,
+        custom_object_id: kind === 'custom_object' ? customObjectId : null,
+        ...(kind === 'custom_object' && includeArchived ? {
+          archived_at: row.archived_at || null,
+          custom_object_status: endpointDefinition.status,
+        } : {}),
+        ...labels,
+      }];
+    }));
+  }
+
+  function requireCoreKind(kind) {
+    if (!CORE_RELATIONSHIP_KINDS.has(kind)) {
+      throw new CustomObjectHttpError(400, 'kind must be member, organization, or organization_group');
+    }
+  }
+
+  function coreSide(definition, kind) {
+    const sides = ['source', 'target'].filter((side) => definition[`${side}_kind`] === kind);
+    return sides.length === 1 ? sides[0] : null;
+  }
+
+  async function coreRelationshipContext(kind, recordId, definitionId, capability = 'view_records') {
+    requireCoreKind(kind);
+    if (!recordId || !definitionId) {
+      throw new CustomObjectHttpError(400, 'kind, recordId, and definitionId are required');
+    }
+    if (!isAdmin) {
+      throw new CustomObjectHttpError(403, 'Tenant administrator access is required for relationships with core entities');
+    }
+    await endpoint(kind, recordId);
+    const definition = await one('custom_object_relationship_definition', definitionId);
+    if (definition.status !== 'active') {
+      throw new CustomObjectHttpError(409, 'Relationship definition is not active');
+    }
+    const side = coreSide(definition, kind);
+    if (!side) throw new CustomObjectHttpError(404, 'Relationship definition is unavailable for this core entity');
+    if (definition[`show_on_${side}`] === false) {
+      throw new CustomObjectHttpError(403, 'This relationship is hidden on the routed side');
+    }
+    await requireRelationshipCapabilities(definition, capability);
+    return { definition, side, relatedSide: side === 'source' ? 'target' : 'source' };
+  }
+
+  const pickerScopeEndpoint = (definition, side) => ({
+    kind: definition[`${side}_kind`],
+    customObjectId: definition[`${side}_custom_object_id`] || null,
+  });
+  const pickerScopeEndpointKey = (endpoint_) =>
+    `${endpoint_.kind}:${endpoint_.customObjectId || ''}`;
+  const samePickerScopeEndpoint = (left, right) =>
+    pickerScopeEndpointKey(left) === pickerScopeEndpointKey(right);
+  const oppositeRelationshipSide = (side) => side === 'source' ? 'target' : 'source';
+  const PICKER_SCOPE_RESULT_LIMIT = 5000;
+  const PICKER_SCOPE_EDGE_SCAN_LIMIT = 20000;
+  const PICKER_SCOPE_CORE_TERMINAL_FIELDS = Object.freeze({
+    member: Object.freeze({
+      organization_id: Object.freeze({ kind: 'organization', customObjectId: null }),
+    }),
+  });
+  const chunked = (values, size = 100) => Array.from(
+    { length: Math.ceil(values.length / size) },
+    (_, index) => values.slice(index * size, (index + 1) * size),
+  );
+
+  async function pickerScopeV2Schema(definition) {
+    const scope = definition.configuration?.picker_scope;
+    if (scope?.version !== 2) return null;
+    if (scope.match !== 'intersects'
+      || !Array.isArray(scope.source_path) || !scope.source_path.length || scope.source_path.length > 3
+      || !Array.isArray(scope.target_path) || !scope.target_path.length || scope.target_path.length > 3) {
+      throw new CustomObjectHttpError(409, 'Configured picker scope path is malformed');
+    }
+    const hops = [...scope.source_path, ...scope.target_path];
+    if (hops.some((hop) => !hop || typeof hop.relationship_definition_id !== 'string'
+      || !['source', 'target'].includes(hop.from_side))) {
+      throw new CustomObjectHttpError(409, 'Configured picker scope path is malformed');
+    }
+    const ids = [...new Set(hops.map((hop) => hop.relationship_definition_id))];
+    const { data, error } = await db.from('custom_object_relationship_definition').select('*')
+      .eq('tenant_id', tenantId).in('id', ids);
+    throwDb(error);
+    const byId = new Map((data || []).map((item) => [String(item.id), item]));
+    if (byId.size !== ids.length) {
+      throw new CustomObjectHttpError(409, 'Configured picker scope references an unavailable relationship');
+    }
+    const validatePath = (path, startingEndpoint, terminalSources) => {
+      let current = startingEndpoint;
+      const visitedEndpoints = new Set([pickerScopeEndpointKey(current)]);
+      const visitedDefinitions = new Set();
+      const resolved = path.map((hop) => {
+        const pathDefinition = byId.get(String(hop.relationship_definition_id));
+        if (!pathDefinition || pathDefinition.status !== 'active'
+          || String(pathDefinition.id) === String(definition.id)
+          || visitedDefinitions.has(String(pathDefinition.id))) {
+          throw new CustomObjectHttpError(409, 'Configured picker scope path is unavailable or cyclic');
+        }
+        if (!samePickerScopeEndpoint(
+          current,
+          pickerScopeEndpoint(pathDefinition, hop.from_side),
+        )) {
+          throw new CustomObjectHttpError(409, 'Configured picker scope path endpoints do not connect');
+        }
+        const toSide = oppositeRelationshipSide(hop.from_side);
+        const next = pickerScopeEndpoint(pathDefinition, toSide);
+        if (visitedEndpoints.has(pickerScopeEndpointKey(next))) {
+          throw new CustomObjectHttpError(409, 'Configured picker scope path is cyclic');
+        }
+        visitedDefinitions.add(String(pathDefinition.id));
+        visitedEndpoints.add(pickerScopeEndpointKey(next));
+        current = next;
+        return { definition: pathDefinition, fromSide: hop.from_side, toSide };
+      });
+      const sources = terminalSources === undefined ? [] : terminalSources;
+      if (!Array.isArray(sources)
+        || (terminalSources !== undefined && sources.length === 0)
+        || sources.some((source) =>
+        !source || source.type !== 'core_field'
+        || typeof source.field !== 'string'
+        || Object.keys(source).some((key) => !['type', 'field'].includes(key)))) {
+        throw new CustomObjectHttpError(409, 'Configured picker scope terminal source is malformed');
+      }
+      const seenSources = new Set();
+      const resolvedSources = sources.map((source) => {
+        const terminal = PICKER_SCOPE_CORE_TERMINAL_FIELDS[startingEndpoint.kind]?.[source.field];
+        if (!terminal || !samePickerScopeEndpoint(terminal, current) || seenSources.has(source.field)) {
+          throw new CustomObjectHttpError(409, 'Configured picker scope terminal source is unavailable');
+        }
+        seenSources.add(source.field);
+        return { ...source, endpoint: startingEndpoint };
+      });
+      return { hops: resolved, terminal: current, terminalSources: resolvedSources };
+    };
+    const source = validatePath(
+      scope.source_path,
+      pickerScopeEndpoint(definition, 'source'),
+      scope.source_terminal_sources,
+    );
+    const target = validatePath(
+      scope.target_path,
+      pickerScopeEndpoint(definition, 'target'),
+      scope.target_terminal_sources,
+    );
+    if (!samePickerScopeEndpoint(source.terminal, target.terminal)) {
+      throw new CustomObjectHttpError(409, 'Configured picker scope paths must end at the same record type');
+    }
+    return { scope, source, target };
+  }
+
+  async function activePickerScopeEndpointIds(endpoint_, recordIds) {
+    const unique = [...new Set(recordIds.filter(Boolean).map(String))];
+    if (!unique.length) return [];
+    const table = {
+      custom_object: 'custom_object_record',
+      member: 'member',
+      organization: 'organization',
+      organization_group: 'organization_group',
+    }[endpoint_.kind];
+    if (!table) throw new CustomObjectHttpError(409, 'Configured picker scope endpoint is unsupported');
+    if (endpoint_.kind === 'custom_object') {
+      await activeObject(endpoint_.customObjectId);
+    }
+    const result = [];
+    for (const ids of chunked(unique)) {
+      let q = db.from(table).select(endpoint_.kind === 'member' ? 'id, email' : 'id')
+        .eq('tenant_id', tenantId).in('id', ids);
+      if (endpoint_.kind === 'custom_object') {
+        q = q.eq('custom_object_id', endpoint_.customObjectId).is('archived_at', null);
+      }
+      const { data, error } = await q;
+      throwDb(error);
+      result.push(...(data || [])
+        .filter((row) => endpoint_.kind !== 'member' || !isDeletedRelationshipMember(row))
+        .map((row) => String(row.id)));
+    }
+    return result;
+  }
+
+  async function pickerScopeEdges(hop, recordIds, reverse = false, virtualEdges = []) {
+    const inputSide = reverse ? hop.toSide : hop.fromSide;
+    const outputSide = reverse ? hop.fromSide : hop.toSide;
+    const unique = [...new Set(recordIds.filter(Boolean).map(String))];
+    const result = new Set();
+    let scannedEdges = 0;
+    for (const edge of virtualEdges) {
+      if (String(edge.relationship_definition_id) !== String(hop.definition.id)
+        || !unique.includes(String(edge[`${inputSide}_record_id`]))) continue;
+      scannedEdges += 1;
+      const outputId = edge[`${outputSide}_record_id`];
+      if (outputId) result.add(String(outputId));
+    }
+    for (const ids of chunked(unique)) {
+      for (let from = 0;; from += 1000) {
+        const { data, error } = await db.from('custom_object_relationship')
+          .select('source_record_id, target_record_id')
+          .eq('tenant_id', tenantId)
+          .eq('relationship_definition_id', hop.definition.id)
+          .in(`${inputSide}_record_id`, ids)
+          .is('archived_at', null)
+          .order('id', { ascending: true })
+          .range(from, from + 999);
+        throwDb(error);
+        const edges = data || [];
+        scannedEdges += edges.length;
+        if (scannedEdges > PICKER_SCOPE_EDGE_SCAN_LIMIT) {
+          throw new CustomObjectHttpError(
+            409,
+            `Configured picker scope scans more than ${PICKER_SCOPE_EDGE_SCAN_LIMIT} relationships; narrow the relationship paths`,
+          );
+        }
+        for (const edge of edges) {
+          const outputId = edge[`${outputSide}_record_id`];
+          if (outputId) result.add(String(outputId));
+          if (result.size > PICKER_SCOPE_RESULT_LIMIT) {
+            throw new CustomObjectHttpError(
+              409,
+              `Configured picker scope reaches more than ${PICKER_SCOPE_RESULT_LIMIT} records; narrow the relationship paths`,
+            );
+          }
+        }
+        if (edges.length < 1000) break;
+      }
+    }
+    return [...result];
+  }
+
+  async function resolvePickerScopePath(startIds, path, reverse = false, virtualEdges = []) {
+    let current = [...new Set(startIds.filter(Boolean).map(String))];
+    const hops = reverse ? [...path.hops].reverse() : path.hops;
+    for (const hop of hops) {
+      current = await pickerScopeEdges(hop, current, reverse, virtualEdges);
+      const outputSide = reverse ? hop.fromSide : hop.toSide;
+      current = await activePickerScopeEndpointIds(
+        pickerScopeEndpoint(hop.definition, outputSide),
+        current,
+      );
+      if (current.length > PICKER_SCOPE_RESULT_LIMIT) {
+        throw new CustomObjectHttpError(
+          409,
+          `Configured picker scope reaches more than ${PICKER_SCOPE_RESULT_LIMIT} records; narrow the relationship paths`,
+        );
+      }
+      if (!current.length) break;
+    }
+    return [...new Set(current)];
+  }
+
+  async function resolvePickerScopeTerminal(startIds, path, reverse = false, virtualEdges = []) {
+    const graphIds = await resolvePickerScopePath(startIds, path, reverse, virtualEdges);
+    if (!path.terminalSources.length) return graphIds;
+    const result = new Set(graphIds);
+    for (const source of path.terminalSources) {
+      const table = {
+        member: 'member',
+        organization: 'organization',
+        organization_group: 'organization_group',
+      }[source.endpoint.kind];
+      if (!table) throw new CustomObjectHttpError(409, 'Configured picker scope terminal source is unsupported');
+      if (!reverse) {
+        for (const ids of chunked([...new Set(startIds.filter(Boolean).map(String))])) {
+          const { data, error } = await db.from(table).select(`id, ${source.field}${source.endpoint.kind === 'member' ? ', email' : ''}`)
+            .eq('tenant_id', tenantId).in('id', ids);
+          throwDb(error);
+          for (const row of data || []) {
+            if (source.endpoint.kind === 'member' && isDeletedRelationshipMember(row)) continue;
+            if (row[source.field]) result.add(String(row[source.field]));
+          }
+        }
+      } else {
+        for (const ids of chunked([...new Set(startIds.filter(Boolean).map(String))])) {
+          for (let from = 0;; from += 1000) {
+            const { data, error } = await db.from(table).select(source.endpoint.kind === 'member' ? 'id, email' : 'id')
+              .eq('tenant_id', tenantId).in(source.field, ids)
+              .order('id', { ascending: true })
+              .range(from, from + 999);
+            throwDb(error);
+            const rows = data || [];
+            for (const row of rows) {
+              if (source.endpoint.kind === 'member' && isDeletedRelationshipMember(row)) continue;
+              result.add(String(row.id));
+              if (result.size > PICKER_SCOPE_RESULT_LIMIT) {
+                throw new CustomObjectHttpError(
+                  409,
+                  `Configured picker scope reaches more than ${PICKER_SCOPE_RESULT_LIMIT} records; narrow the relationship paths`,
+                );
+              }
+            }
+            if (rows.length < 1000) break;
+          }
+        }
+      }
+    }
+    if (result.size > PICKER_SCOPE_RESULT_LIMIT) {
+      throw new CustomObjectHttpError(
+        409,
+        `Configured picker scope reaches more than ${PICKER_SCOPE_RESULT_LIMIT} records; narrow the relationship paths`,
+      );
+    }
+    return [...result];
+  }
+
+  // Legacy v1 scopes compare a core field to one parent relationship. Keep
+  // this path byte-for-byte compatible while v2 scopes use graph traversal.
+  async function legacyConfiguredPickerScope(definition, routedSide, routedRecordId) {
+    const scope = definition.configuration?.picker_scope;
+    if (!scope) return null;
+    if (!scope || typeof scope !== 'object' || Array.isArray(scope)
+      || typeof scope.via_relationship_key !== 'string'
+      || !/^[a-z][a-z0-9_]{0,99}$/.test(scope.via_relationship_key)
+      || typeof scope.routed_core_field !== 'string'
+      || !/^[a-z][a-z0-9_]{0,99}$/.test(scope.routed_core_field)
+      || definition.source_kind !== 'custom_object' || !definition.source_custom_object_id
+      || definition.target_kind !== 'member' || definition.target_custom_object_id !== null
+      || !['one_to_many', 'many_to_many'].includes(definition.cardinality)) {
+      throw new CustomObjectHttpError(409, 'Configured picker scope schema is malformed');
+    }
+    const sourceObject = await one('custom_object_definition', definition.source_custom_object_id);
+    if (sourceObject.status !== 'active') {
+      throw new CustomObjectHttpError(409, 'Configured picker scope schema is malformed');
+    }
+    const { data: parentDefinitions, error: parentError } = await db
+      .from('custom_object_relationship_definition').select('*')
+      .eq('tenant_id', tenantId).eq('relationship_key', scope.via_relationship_key).eq('status', 'active')
+      .eq('is_required', true).eq('source_kind', 'custom_object')
+      .eq('source_custom_object_id', sourceObject.id).eq('target_kind', 'organization');
+    throwDb(parentError);
+    if ((parentDefinitions || []).length !== 1
+      || parentDefinitions[0].cardinality !== 'many_to_one'
+      || parentDefinitions[0].target_custom_object_id !== null) {
+      throw new CustomObjectHttpError(409, 'Configured picker parent relationship schema is malformed');
+    }
+    const parentDefinition = parentDefinitions[0];
+    const readEdges = async (configure) => {
+      const result = [];
+      for (let from = 0;; from += 1000) {
+        const { data, error } = await configure(
+          db.from('custom_object_relationship').select('source_record_id, target_record_id')
+            .eq('tenant_id', tenantId).eq('relationship_definition_id', parentDefinition.id)
+            .is('archived_at', null),
+        ).range(from, from + 999);
+        throwDb(error);
+        result.push(...(data || []));
+        if (!data || data.length < 1000) return result;
+      }
+    };
+    if (routedSide === 'target') {
+      const member = await one('member', routedRecordId);
+      const routedValue = member[scope.routed_core_field];
+      if (!routedValue) return { candidateRecordIds: [] };
+      // Read every parent edge (paged) so a corrupt source with multiple
+      // organisations is excluded rather than accidentally accepted because
+      // one of its edges happens to match this member.
+      const edges = await readEdges(q => q);
+      const bySource = new Map();
+      for (const edge of edges) {
+        const organisations = bySource.get(edge.source_record_id) || [];
+        organisations.push(edge.target_record_id);
+        bySource.set(edge.source_record_id, organisations);
+      }
+      return {
+        candidateRecordIds: [...bySource.entries()]
+          .filter(([, organisations]) => organisations.length === 1
+            && organisations[0] === routedValue)
+          .map(([id]) => id),
+      };
+    }
+    if (routedSide === 'source') {
+      const edges = await readEdges(q => q.eq('source_record_id', routedRecordId));
+      if (edges.length !== 1 || !edges[0].target_record_id) {
+        throw new CustomObjectHttpError(409, 'Configured source record must have exactly one active parent');
+      }
+      return {
+        candidateFilter: {
+          field: scope.routed_core_field,
+          value: edges[0].target_record_id,
+        },
+      };
+    }
+    return null;
+  }
+
+  async function configuredPickerScope(definition, routedSide, routedRecordId, virtualEdges = []) {
+    const scope = definition.configuration?.picker_scope;
+    if (!scope) return null;
+    if (scope.version !== 2) {
+      return legacyConfiguredPickerScope(definition, routedSide, routedRecordId);
+    }
+    const schema = await pickerScopeV2Schema(definition);
+    const candidateSide = oppositeRelationshipSide(routedSide);
+    const routedPath = schema[routedSide];
+    const candidatePath = schema[candidateSide];
+    const terminalIds = await resolvePickerScopeTerminal([routedRecordId], routedPath, false, virtualEdges);
+    if (!terminalIds.length) return { candidateRecordIds: [] };
+    return {
+      candidateRecordIds: await resolvePickerScopeTerminal(terminalIds, candidatePath, true, virtualEdges),
+    };
+  }
+
+  function pickerScopeAllowsCandidate(scope, candidate) {
+    if (!scope) return true;
+    if (scope.candidateRecordIds) {
+      return scope.candidateRecordIds.map(String).includes(String(candidate.id));
+    }
+    if (scope.candidateFilter) {
+      return String(candidate[scope.candidateFilter.field] || '') === String(scope.candidateFilter.value);
+    }
+    return false;
+  }
+
+  // The relationship trigger remains the authority for cardinality, but a
+  // picker must not offer a choice that the trigger will necessarily reject.
+  // Read active edges once so this works identically for Custom Object and
+  // every core endpoint table.
+  async function pickerExcludedRecordIds(definition, routedSide, routedRecordId) {
+    const candidateSide = routedSide === 'source' ? 'target' : 'source';
+    const routedHasSingleEdge = routedSide === 'source'
+      ? ['one_to_one', 'many_to_one'].includes(definition.cardinality)
+      : ['one_to_one', 'one_to_many'].includes(definition.cardinality);
+    const candidateHasSingleEdge = candidateSide === 'source'
+      ? ['one_to_one', 'many_to_one'].includes(definition.cardinality)
+      : ['one_to_one', 'one_to_many'].includes(definition.cardinality);
+    const excluded = new Set();
+    let routedSaturated = false;
+    for (let from = 0;; from += 1000) {
+      const { data, error } = await db.from('custom_object_relationship')
+        .select('source_record_id, target_record_id')
+        .eq('tenant_id', tenantId)
+        .eq('relationship_definition_id', definition.id)
+        .is('archived_at', null)
+        .order('id', { ascending: true })
+        .range(from, from + 999);
+      throwDb(error);
+      const edges = data || [];
+      for (const edge of edges) {
+        // A duplicate pair is never useful, including for many-to-many.
+        if (edge[`${routedSide}_record_id`] === routedRecordId) {
+          excluded.add(edge[`${candidateSide}_record_id`]);
+          if (routedHasSingleEdge) routedSaturated = true;
+        }
+        // Only exclude candidates whose own endpoint has reached its limit.
+        if (candidateHasSingleEdge) excluded.add(edge[`${candidateSide}_record_id`]);
+      }
+      if (edges.length < 1000) return { excluded, routedSaturated };
+    }
+  }
+
+  function applyPickerExclusions(q, eligibility) {
+    if (eligibility.excluded.size === 0) return q;
+    return q.not('id', 'in', `(${[...eligibility.excluded].map(quotePostgrestValue).join(',')})`);
+  }
+
+  // Scan bounded, tenant-scoped queries rather than filtering a requested page
+  // or constructing an arbitrarily large NOT IN list of deleted/linked IDs.
+  // The database supplies the stable order; only eligible rows consume a slot.
+  async function scanMemberPicker(q, page, excluded = new Set(), search = '') {
+    const data = [];
+    let count = 0;
+    const needle = search.toLocaleLowerCase();
+    for (let from = 0;; from += ENDPOINT_ID_BATCH_SIZE) {
+      const { data: batch, error } = await q.range(from, from + ENDPOINT_ID_BATCH_SIZE - 1);
+      throwDb(error);
+      for (const row of batch || []) {
+        if (isDeletedRelationshipMember(row) || excluded.has(String(row.id))) continue;
+        if (needle && ![row.first_name, row.last_name, row.email].some((value) =>
+          String(value || '').toLocaleLowerCase().includes(needle))) continue;
+        if (count >= page.from && count <= page.to) data.push(row);
+        count += 1;
+      }
+      if (!batch || batch.length < ENDPOINT_ID_BATCH_SIZE) break;
+    }
+    return { data, count, error: null };
+  }
+
+  async function scopedPickerRows({
+    table,
+    kind,
+    customObjectId = null,
+    candidateRecordIds,
+    excluded = new Set(),
+    search = '',
+    customSearchKey = null,
+    page,
+  }) {
+    const ids = [...new Set(candidateRecordIds.map(String))]
+      .filter((id) => !excluded.has(id));
+    const rows = [];
+    for (const batch of chunked(ids)) {
+      let q = db.from(table).select('*').eq('tenant_id', tenantId).in('id', batch);
+      if (kind === 'custom_object') {
+        q = q.eq('custom_object_id', customObjectId).is('archived_at', null);
+      }
+      const { data, error } = await q;
+      throwDb(error);
+      rows.push(...(data || []).filter((row) =>
+        kind !== 'member' || !isDeletedRelationshipMember(row)));
+    }
+    const normalizedSearch = search.toLocaleLowerCase();
+    const matchedRows = normalizedSearch ? rows.filter((row) => {
+      if (kind === 'member') {
+        return [row.first_name, row.last_name, row.email]
+          .some((value) => String(value || '').toLocaleLowerCase().includes(normalizedSearch));
+      }
+      if (kind === 'custom_object') {
+        return String(row.data?.[customSearchKey] || '')
+          .toLocaleLowerCase().includes(normalizedSearch);
+      }
+      return String(row.name || '').toLocaleLowerCase().includes(normalizedSearch);
+    }) : rows;
+    const sortColumn = kind === 'member'
+      ? 'last_name'
+      : (kind === 'custom_object' ? 'created_at' : 'name');
+    matchedRows.sort((left, right) =>
+      String(left[sortColumn] || '').localeCompare(String(right[sortColumn] || ''))
+      || String(left.id).localeCompare(String(right.id)));
+    return {
+      rows: matchedRows.slice(page.from, page.to + 1),
+      total: matchedRows.length,
+    };
+  }
+
+  async function listCoreRelationshipDefinitions(kind, recordId) {
+    requireCoreKind(kind);
+    if (!recordId) throw new CustomObjectHttpError(400, 'kind and recordId are required');
+    if (!isAdmin) {
+      throw new CustomObjectHttpError(403, 'Tenant administrator access is required for relationships with core entities');
+    }
+    await endpoint(kind, recordId);
+    const { data, error } = await db.from('custom_object_relationship_definition').select('*')
+      .eq('tenant_id', tenantId).eq('status', 'active')
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true });
+    throwDb(error);
+    const candidates = (data || []).map((definition) => ({
+      definition,
+      side: coreSide(definition, kind),
+    })).filter(({ definition, side }) => side && definition[`show_on_${side}`] !== false);
+    const visible = [];
+    for (const candidate of candidates) {
+      const { definition, side } = candidate;
+      try {
+        await requireRelationshipCapabilities(definition, 'view_records');
+      } catch (error_) {
+        if (error_ instanceof CustomObjectHttpError && [403, 404, 409].includes(error_.status)) continue;
+        throw error_;
+      }
+      const relatedSide = side === 'source' ? 'target' : 'source';
+      const relatedObjectId = definition[`${relatedSide}_custom_object_id`];
+      if (definition[`${relatedSide}_kind`] !== 'custom_object' || !relatedObjectId) continue;
+      const relatedObject = await activeObject(relatedObjectId);
+      const { data: edges, error: edgeError, count } = await db.from('custom_object_relationship')
+        .select('id', { count: 'exact', head: true })
+        .eq('tenant_id', tenantId)
+        .eq('relationship_definition_id', definition.id)
+        .eq(`${side}_record_id`, recordId)
+        .is('archived_at', null);
+      throwDb(edgeError);
+      visible.push({
+        definition: {
+          id: definition.id,
+          relationship_key: definition.relationship_key,
+          status: definition.status,
+          source_kind: definition.source_kind,
+          source_custom_object_id: definition.source_custom_object_id,
+          target_kind: definition.target_kind,
+          target_custom_object_id: definition.target_custom_object_id,
+          source_label: definition.source_label,
+          target_label: definition.target_label,
+          cardinality: definition.cardinality,
+          show_on_source: definition.show_on_source,
+          show_on_target: definition.show_on_target,
+          edit_from_source: definition.edit_from_source,
+          edit_from_target: definition.edit_from_target,
+          ...(definition.configuration ? { configuration: definition.configuration } : {}),
+        },
+        side,
+        label: definition[`${side}_label`],
+        related_object: {
+          id: relatedObject.id,
+          object_key: relatedObject.object_key,
+          singular_label: relatedObject.singular_label,
+          plural_label: relatedObject.plural_label,
+        },
+        count: count ?? (edges || []).length,
+        can_edit: definition[`edit_from_${side}`] !== false,
+      });
+    }
+    return { data: visible };
+  }
+
+  async function listMemberRelationships({
+    definition, side, relatedSide, recordId, page, sort, previewColumns,
+    includeArchived = false, core = false,
+  }) {
+    const projected = [];
+    for (let from = 0;; from += ENDPOINT_ID_BATCH_SIZE) {
+      let q = db.from('custom_object_relationship').select('*')
+        .eq('tenant_id', tenantId).eq('relationship_definition_id', definition.id)
+        .eq(`${side}_record_id`, recordId)
+        .order('created_at', { ascending: false }).order('id', { ascending: false });
+      if (!includeArchived) q = q.is('archived_at', null);
+      const { data, error } = await q.range(from, from + ENDPOINT_ID_BATCH_SIZE - 1);
+      throwDb(error);
+      const edges = data || [];
+      const excludedIds = new Set();
+      const resolved = await resolveEndpointRows('member', null,
+        edges.map((edge) => edge[`${relatedSide}_record_id`]), { excludedIds });
+      for (const edge of edges) {
+        const id = edge[`${relatedSide}_record_id`];
+        if (excludedIds.has(id)) continue;
+        if (!resolved.has(id)) {
+          throw new CustomObjectHttpError(409, 'A related endpoint is missing, archived, or unavailable');
+        }
+        projected.push({
+          relationship_id: edge.id,
+          relationship_definition_id: edge.relationship_definition_id,
+          ...(!core ? {
+            source_record_id: edge.source_record_id,
+            target_record_id: edge.target_record_id,
+          } : {}),
+          ...projectRelationshipValues(definition, edge, side),
+          ...(includeArchived ? { archived_at: edge.archived_at || null } : {}),
+          related: resolved.get(id),
+        });
+      }
+      if (edges.length < ENDPOINT_ID_BATCH_SIZE) break;
+    }
+    return {
+      data: (sort ? sortRelationshipListRows(projected, sort) : projected)
+        .slice(page.from, page.to + 1),
+      total: projected.length,
+      page: page.page,
+      pageSize: page.pageSize,
+      preview_columns: previewColumns,
+    };
+  }
+
+  async function listCoreRelationships(kind, recordId, query) {
+    const { definition, side, relatedSide } = await coreRelationshipContext(
+      kind, recordId, query?.definitionId, 'view_records',
+    );
+    const p = pagination(query);
+    const sort = await relationshipListSort(definition, side, relatedSide, query);
+    const previewColumns = await effectiveRelationshipPreviewColumns(definition, relatedSide);
+    if (definition[`${relatedSide}_kind`] === 'member') {
+      return listMemberRelationships({
+        definition, side, relatedSide, recordId, page: p, sort, previewColumns, core: true,
+      });
+    }
+    let q = db.from('custom_object_relationship').select('*', { count: 'exact' })
+      .eq('tenant_id', tenantId)
+      .eq('relationship_definition_id', definition.id)
+      .eq(`${side}_record_id`, recordId)
+      .is('archived_at', null)
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false });
+    const { data, error, count } = await q.range(sort ? 0 : p.from, sort ? 999 : p.to);
+    throwDb(error);
+    const rows = [...(data || [])];
+    if (sort) {
+      for (let from = 1000; rows.length === from; from += 1000) {
+        const { data: batch, error: batchError } = await db.from('custom_object_relationship')
+          .select('*')
+          .eq('tenant_id', tenantId)
+          .eq('relationship_definition_id', definition.id)
+          .eq(`${side}_record_id`, recordId)
+          .is('archived_at', null)
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: false })
+          .range(from, from + 999);
+        throwDb(batchError);
+        rows.push(...(batch || []));
+        if (!batch || batch.length < 1000) break;
+      }
+    }
+    let resolved = await resolveEndpointRows(
+      definition[`${relatedSide}_kind`],
+      definition[`${relatedSide}_custom_object_id`],
+      rows.map((edge) => edge[`${relatedSide}_record_id`]),
+      {
+        previewFieldIds: previewColumns
+          .filter((column) => column.type === 'field')
+          .map((column) => column.field_id),
+      },
+    );
+    if (definition[`${relatedSide}_kind`] === 'custom_object') {
+      resolved = await projectDirectRelationshipColumns(resolved, definition, relatedSide);
+    }
+    if (resolved.size !== new Set(rows.map((edge) => edge[`${relatedSide}_record_id`])).size) {
+      throw new CustomObjectHttpError(409, 'A related endpoint is missing, archived, or unavailable');
+    }
+    let projected = rows.map((edge) => ({
+        relationship_id: edge.id,
+        relationship_definition_id: edge.relationship_definition_id,
+        ...projectRelationshipValues(definition, edge, side),
+        related: resolved.get(edge[`${relatedSide}_record_id`]),
+      }));
+    if (sort) projected = sortRelationshipListRows(projected, sort).slice(p.from, p.to + 1);
+    return {
+      data: projected,
+      total: count || 0,
+      page: p.page,
+      pageSize: p.pageSize,
+      preview_columns: previewColumns,
+    };
+  }
+
+  async function coreEntityPicker(kind, recordId, query) {
+    const { definition, side, relatedSide } = await coreRelationshipContext(
+      kind, recordId, query?.definitionId, 'edit_records',
+    );
+    if (definition[`edit_from_${side}`] === false) {
+      throw new CustomObjectHttpError(403, 'This relationship cannot be edited from the routed side');
+    }
+    const customObjectId = definition[`${relatedSide}_custom_object_id`];
+    if (definition[`${relatedSide}_kind`] !== 'custom_object' || !customObjectId) {
+      throw new CustomObjectHttpError(409, 'Core relationship picker requires a Custom Object endpoint');
+    }
+    const objectDefinition = await activeObject(customObjectId);
+    const endpointFields = await fields(customObjectId, true);
+    const p = pagination(query);
+    const pickerScope = await configuredPickerScope(definition, side, recordId);
+    if (pickerScope?.candidateRecordIds?.length === 0) {
+      return { data: [], total: 0, page: p.page, pageSize: p.pageSize };
+    }
+    const search = typeof query?.search === 'string' ? query.search.trim() : '';
+    const primary = endpointFields.find((field) => field.id === objectDefinition.primary_display_field_id);
+    const customSearchKey = getCustomObjectFieldMetadata(primary).key;
+    const eligibility = await pickerExcludedRecordIds(definition, side, recordId);
+    if (eligibility.routedSaturated) {
+      return { data: [], total: 0, page: p.page, pageSize: p.pageSize };
+    }
+    if (pickerScope?.candidateRecordIds) {
+      const scoped = await scopedPickerRows({
+        table: 'custom_object_record',
+        kind: 'custom_object',
+        customObjectId,
+        candidateRecordIds: pickerScope.candidateRecordIds,
+        excluded: eligibility.excluded,
+        search,
+        customSearchKey,
+        page: p,
+      });
+      const projected = scoped.rows.map((row) => ({
+          id: row.id,
+          kind: 'custom_object',
+          custom_object_id: customObjectId,
+          ...endpointLabel('custom_object', row, objectDefinition, endpointFields),
+        }));
+      return {
+        data: await projectPickerContext(projected, definition, relatedSide),
+        ...pickerContextMetadata(
+          definition,
+          relatedSide,
+          objectDefinition.singular_label || 'Record',
+        ),
+        total: scoped.total,
+        page: p.page,
+        pageSize: p.pageSize,
+      };
+    }
+    let q = db.from('custom_object_record').select('*', { count: 'exact' })
+      .eq('tenant_id', tenantId).eq('custom_object_id', customObjectId)
+      .is('archived_at', null);
+    if (search) {
+      if (customSearchKey) q = q.filter(`data->>${customSearchKey}`, 'ilike', `*${search}*`);
+    }
+    q = applyPickerExclusions(q, eligibility);
+    q = q.order('created_at', { ascending: true }).order('id', { ascending: true });
+    const { data, error, count } = await q.range(p.from, p.to);
+    throwDb(error);
+    const projected = (data || []).map((row) => ({
+        id: row.id,
+        kind: 'custom_object',
+        custom_object_id: customObjectId,
+        ...endpointLabel('custom_object', row, objectDefinition, endpointFields),
+      }));
+    return {
+      data: await projectPickerContext(projected, definition, relatedSide),
+      ...pickerContextMetadata(
+        definition,
+        relatedSide,
+        objectDefinition.singular_label || 'Record',
+      ),
+      total: count || 0,
+      page: p.page,
+      pageSize: p.pageSize,
+    };
+  }
+
+  async function createCoreRelationship(kind, recordId, body) {
+    const { definition, side, relatedSide } = await coreRelationshipContext(
+      kind, recordId, body?.relationship_definition_id, 'edit_records',
+    );
+    if (definition[`edit_from_${side}`] === false) {
+      throw new CustomObjectHttpError(403, 'This relationship cannot be edited from the routed side');
+    }
+    const relatedRecordId = body?.related_record_id;
+    if (!relatedRecordId) throw new CustomObjectHttpError(400, 'related_record_id is required');
+    const sourceId = side === 'source' ? recordId : relatedRecordId;
+    const targetId = side === 'target' ? recordId : relatedRecordId;
+    const source = await endpoint(definition.source_kind, sourceId);
+    const target = await endpoint(definition.target_kind, targetId);
+    domainGuard(() => validateCustomObjectRelationshipEndpoints({ tenantId, definition, source, target }));
+    const pickerScope = await configuredPickerScope(definition, side, recordId);
+    const candidate = side === 'source' ? target : source;
+    if (!pickerScopeAllowsCandidate(pickerScope, candidate)) {
+      throw new CustomObjectHttpError(400, 'Related record is outside the configured picker scope');
+    }
+    const { data, error } = await db.from('custom_object_relationship').insert({
+      tenant_id: tenantId,
+      relationship_definition_id: definition.id,
+      source_record_id: source.id,
+      target_record_id: target.id,
+      field_values: normalizeRelationshipValues(
+        definition, body?.field_values ?? body?.values, {
+        side, create: true,
+        },
+      ),
+      ...authored('created'),
+    }).select('*').single();
+    throwDb(error);
+    return data;
+  }
+
+  async function archiveCoreRelationship(kind, recordId, edgeId) {
+    if (!edgeId) throw new CustomObjectHttpError(400, 'relationshipId is required');
+    const edge = await one('custom_object_relationship', edgeId);
+    if (edge.archived_at) throw new CustomObjectHttpError(409, 'Relationship edge is already archived');
+    const { definition, side } = await coreRelationshipContext(
+      kind, recordId, edge.relationship_definition_id, 'edit_records',
+    );
+    if (edge[`${side}_record_id`] !== recordId) throw new CustomObjectHttpError(404, 'Resource not found');
+    if (definition[`edit_from_${side}`] === false) {
+      throw new CustomObjectHttpError(403, 'This relationship cannot be edited from the routed side');
+    }
+    const { data, error } = await db.rpc('archive_custom_object_relationship', {
+      p_tenant_id: tenantId,
+      p_relationship_id: edgeId,
+      p_archived_by: currentActorReference,
+      p_archived_at: now(),
+    }).single();
+    await throwRelationshipArchiveDb(error, definition, edge);
+    return data;
+  }
+
+  async function entityPicker(objectId, query) {
+    await activeObject(objectId, 'Entity picker is only available for active Custom Objects');
+    if (query?.kind !== undefined || query?.customObjectId !== undefined) {
+      throw new CustomObjectHttpError(400, 'Picker endpoint type is derived from definitionId and side');
+    }
+    const definitionId = query?.definitionId;
+    const recordId = query?.recordId;
+    const side = query?.side;
+    if (!definitionId || !recordId || !['source', 'target'].includes(side)) {
+      throw new CustomObjectHttpError(400, 'definitionId, recordId, and side are required');
+    }
+    const definition = await one('custom_object_relationship_definition', definitionId);
+    if (definition.status !== 'active') throw new CustomObjectHttpError(409, 'Relationship definition is not active');
+    if (
+      definition[`${side}_kind`] !== 'custom_object'
+      || definition[`${side}_custom_object_id`] !== objectId
+    ) {
+      throw new CustomObjectHttpError(400, 'Routed side does not match the routed Custom Object');
+    }
+    if (definition[`show_on_${side}`] === false) {
+      throw new CustomObjectHttpError(403, 'This relationship is hidden on the routed side');
+    }
+    if (definition[`edit_from_${side}`] === false) {
+      throw new CustomObjectHttpError(403, 'This relationship cannot be edited from the routed side');
+    }
+    const routedRecord = await one('custom_object_record', recordId, { custom_object_id: objectId });
+    if (routedRecord.archived_at) throw new CustomObjectHttpError(409, 'Routed record is archived');
+    await requireRelationshipCapabilities(definition, 'edit_records');
+    const oppositeSide = side === 'source' ? 'target' : 'source';
+    const pickerScope = await configuredPickerScope(definition, side, recordId);
+    const kind = definition[`${oppositeSide}_kind`];
+    const table = {
+      custom_object: 'custom_object_record', member: 'member',
+      organization: 'organization', organization_group: 'organization_group',
+    }[kind];
+    if (!table) throw new CustomObjectHttpError(400, 'kind must be member, organization, organization_group, or custom_object');
+    const customObjectId = kind === 'custom_object'
+      ? definition[`${oppositeSide}_custom_object_id`]
+      : null;
+    let endpointDefinition = null;
+    let endpointFields = [];
+    let endpointAccess = null;
+    if (kind === 'custom_object') {
+      endpointDefinition = await activeObject(customObjectId);
+      await requireCapability(customObjectId, 'view_records');
+      endpointFields = await fields(customObjectId, true);
+      endpointAccess = await fieldAccess(customObjectId, endpointFields);
+    }
+    const p = pagination(query);
+    const search = typeof query?.search === 'string' ? query.search.trim() : '';
+    const customSearchKey = kind === 'custom_object'
+      ? getCustomObjectFieldMetadata(endpointFields.find((field) =>
+        field.id === endpointDefinition.primary_display_field_id
+        && endpointAccess.get(String(field.id)) !== 'none')).key
+      : null;
+    const eligibility = await pickerExcludedRecordIds(definition, side, recordId);
+    if (eligibility.routedSaturated || pickerScope?.candidateRecordIds?.length === 0) {
+      return { data: [], total: 0, page: p.page, pageSize: p.pageSize };
+    }
+    if (pickerScope?.candidateRecordIds) {
+      const scoped = await scopedPickerRows({
+        table,
+        kind,
+        customObjectId,
+        candidateRecordIds: pickerScope.candidateRecordIds,
+        excluded: eligibility.excluded,
+        search,
+        customSearchKey,
+        page: p,
+      });
+      const projected = scoped.rows.map((row) => ({
+          id: row.id, kind, custom_object_id: customObjectId,
+          ...endpointLabel(kind, row, endpointDefinition, endpointFields, endpointAccess),
+        }));
+      return {
+        data: await projectPickerContext(projected, definition, oppositeSide),
+        ...pickerContextMetadata(
+          definition,
+          oppositeSide,
+          endpointDefinition?.singular_label || definition[`${oppositeSide}_label`] || 'Record',
+        ),
+        total: scoped.total, page: p.page, pageSize: p.pageSize,
+      };
+    }
+    let q = db.from(table).select('*', { count: 'exact' }).eq('tenant_id', tenantId);
+    if (pickerScope?.candidateFilter) {
+      q = q.eq(pickerScope.candidateFilter.field, pickerScope.candidateFilter.value);
+    }
+    if (kind === 'custom_object') {
+      q = q.eq('custom_object_id', customObjectId).is('archived_at', null);
+    }
+    if (search) {
+      const pattern = quotePostgrestValue(`*${search}*`);
+      if (kind === 'member') {
+        q = q.or(`first_name.ilike.${pattern},last_name.ilike.${pattern},email.ilike.${pattern}`);
+      }
+      else if (kind !== 'custom_object') q = q.ilike('name', `%${search}%`);
+      else {
+        if (customSearchKey) q = q.filter(`data->>${customSearchKey}`, 'ilike', `*${search}*`);
+      }
+    }
+    if (kind !== 'member') q = applyPickerExclusions(q, eligibility);
+    q = q.order(kind === 'member' ? 'last_name' : (kind === 'custom_object' ? 'created_at' : 'name'), { ascending: true })
+      .order('id', { ascending: true });
+    const { data, error, count } = kind === 'member'
+      ? await scanMemberPicker(q, p, eligibility.excluded, search)
+      : await q.range(p.from, p.to);
+    throwDb(error);
+    const projected = (data || []).map((row) => ({
+        id: row.id,
+        kind,
+        custom_object_id: kind === 'custom_object' ? customObjectId : null,
+        ...endpointLabel(
+          kind, row, endpointDefinition, endpointFields, endpointAccess,
+          configuredCompactPreviewFieldIds(definition, oppositeSide),
+        ),
+      }));
+    return {
+      data: await projectPickerContext(projected, definition, oppositeSide),
+      ...pickerContextMetadata(
+        definition,
+        oppositeSide,
+        endpointDefinition?.singular_label || definition[`${oppositeSide}_label`] || 'Record',
+      ),
+      page: p.page,
+      pageSize: p.pageSize,
+      total: count || 0,
+    };
+  }
+
+  async function listRelationships(objectId, query) {
+    const includeArchived = query?.includeArchived === 'true';
+    if (includeArchived) await object(objectId);
+    else await activeObject(objectId, 'Relationships are only available for active Custom Objects');
+    await requireCapability(objectId, 'view_records');
+    const recordId = query?.recordId;
+    const definitionId = query?.definitionId;
+    if (!recordId || !definitionId) {
+      throw new CustomObjectHttpError(400, 'recordId and definitionId are required');
+    }
+    const definition = await one('custom_object_relationship_definition', definitionId);
+    if (definition.status !== 'active' && !(includeArchived && definition.status === 'archived')) {
+      throw new CustomObjectHttpError(409, 'Relationship definition is not active');
+    }
+    const sourceSide = definition.source_kind === 'custom_object'
+      && definition.source_custom_object_id === objectId;
+    const targetSide = definition.target_kind === 'custom_object'
+      && definition.target_custom_object_id === objectId;
+    const requestedSide = query?.side;
+    let side = requestedSide;
+    if (!side) {
+      if (sourceSide === targetSide) throw new CustomObjectHttpError(400, 'side is required when both endpoints use the routed Custom Object');
+      side = sourceSide ? 'source' : 'target';
+    }
+    if (!['source', 'target'].includes(side)
+      || (side === 'source' && !sourceSide)
+      || (side === 'target' && !targetSide)) {
+      throw new CustomObjectHttpError(400, 'Routed side does not match the relationship definition');
+    }
+    if (definition[`show_on_${side}`] === false) throw new CustomObjectHttpError(403, 'This relationship is hidden on the routed side');
+    const routedRecord = await one('custom_object_record', recordId, { custom_object_id: objectId });
+    if (routedRecord.archived_at && !includeArchived) throw new CustomObjectHttpError(409, 'Routed record is archived');
+    await requireRelationshipCapabilities(definition, 'view_records', {
+      allowArchivedObjects: includeArchived,
+    });
+    const p = pagination(query);
+    const relatedSide = side === 'source' ? 'target' : 'source';
+    const sort = await relationshipListSort(definition, side, relatedSide, query);
+    const previewColumns = await effectiveRelationshipPreviewColumns(definition, relatedSide, {
+      includeArchived,
+    });
+    if (definition[`${relatedSide}_kind`] === 'member') {
+      return listMemberRelationships({
+        definition, side, relatedSide, recordId, page: p, sort, previewColumns, includeArchived,
+      });
+    }
+    let q = db.from('custom_object_relationship').select('*', { count: 'exact' })
+      .eq('tenant_id', tenantId).eq('relationship_definition_id', definition.id)
+      .eq(`${side}_record_id`, recordId)
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false });
+    if (!includeArchived) q = q.is('archived_at', null);
+    const { data, error, count } = await q.range(sort ? 0 : p.from, sort ? 999 : p.to);
+    throwDb(error);
+    const rows = [...(data || [])];
+    if (sort) {
+      for (let from = 1000; rows.length === from; from += 1000) {
+        let batchQuery = db.from('custom_object_relationship').select('*')
+          .eq('tenant_id', tenantId).eq('relationship_definition_id', definition.id)
+          .eq(`${side}_record_id`, recordId)
+          .order('created_at', { ascending: false })
+          .order('id', { ascending: false });
+        if (!includeArchived) batchQuery = batchQuery.is('archived_at', null);
+        const { data: batch, error: batchError } = await batchQuery.range(from, from + 999);
+        throwDb(batchError);
+        rows.push(...(batch || []));
+        if (!batch || batch.length < 1000) break;
+      }
+    }
+    let resolved = await resolveEndpointRows(
+      definition[`${relatedSide}_kind`],
+      definition[`${relatedSide}_custom_object_id`],
+      rows.map((edge) => edge[`${relatedSide}_record_id`]),
+      {
+        includeArchived,
+        previewFieldIds: previewColumns
+          .filter((column) => column.type === 'field')
+          .map((column) => column.field_id),
+      },
+    );
+    if (definition[`${relatedSide}_kind`] === 'custom_object') {
+      resolved = await projectDirectRelationshipColumns(resolved, definition, relatedSide);
+    }
+    if (resolved.size !== new Set(rows.map((edge) => edge[`${relatedSide}_record_id`])).size) {
+      throw new CustomObjectHttpError(409, 'A related endpoint is missing, archived, or unavailable');
+    }
+    let projected = rows.map((edge) => ({
+        relationship_id: edge.id,
+        relationship_definition_id: edge.relationship_definition_id,
+        source_record_id: edge.source_record_id,
+        target_record_id: edge.target_record_id,
+        ...projectRelationshipValues(definition, edge, side),
+        ...(includeArchived ? { archived_at: edge.archived_at || null } : {}),
+        related: resolved.get(edge[`${relatedSide}_record_id`]) || null,
+      }));
+    if (sort) projected = sortRelationshipListRows(projected, sort).slice(p.from, p.to + 1);
+    return {
+      data: projected,
+      total: count || 0, page: p.page, pageSize: p.pageSize,
+      preview_columns: previewColumns,
+    };
+  }
+
+  function routedRelationshipSide(definition, objectId, suppliedSide) {
+    if (!['source', 'target'].includes(suppliedSide)) {
+      throw new CustomObjectHttpError(400, 'routed_side must be source or target');
+    }
+    if (definition[`${suppliedSide}_kind`] !== 'custom_object'
+      || definition[`${suppliedSide}_custom_object_id`] !== objectId) {
+      throw new CustomObjectHttpError(400, 'Routed side does not match the routed Custom Object');
+    }
+    return suppliedSide;
+  }
+
+  async function createRelationship(objectId, body) {
+    await activeObject(objectId, 'Relationships are only available for active Custom Objects');
+    const definition = await one('custom_object_relationship_definition', body?.relationship_definition_id);
+    if (definition.status !== 'active') {
+      throw new CustomObjectHttpError(409, 'Relationship definition is not active');
+    }
+    if (definition.source_custom_object_id !== objectId && definition.target_custom_object_id !== objectId) throw new CustomObjectHttpError(404, 'Resource not found');
+    const routedSide = routedRelationshipSide(definition, objectId, body?.routed_side);
+    if (definition[`show_on_${routedSide}`] === false) {
+      throw new CustomObjectHttpError(403, 'This relationship is hidden on the routed side');
+    }
+    if (!body?.routed_record_id || body.routed_record_id !== body?.[`${routedSide}_record_id`]) {
+      throw new CustomObjectHttpError(400, 'routed_record_id must match the endpoint on routed_side');
+    }
+    await requireRelationshipCapabilities(definition, 'edit_records');
+    if (definition[`edit_from_${routedSide}`] === false) {
+      throw new CustomObjectHttpError(403, 'This relationship cannot be edited from the routed Custom Object');
+    }
+    const source = await endpoint(definition.source_kind, body?.source_record_id);
+    const target = await endpoint(definition.target_kind, body?.target_record_id);
+    domainGuard(() => validateCustomObjectRelationshipEndpoints({ tenantId, definition, source, target }));
+    const pickerScope = await configuredPickerScope(definition, routedSide, body.routed_record_id);
+    const candidate = routedSide === 'source' ? target : source;
+    if (!pickerScopeAllowsCandidate(pickerScope, candidate)) {
+      throw new CustomObjectHttpError(400, 'Related record is outside the configured picker scope');
+    }
+    const payload = {
+      tenant_id: tenantId, relationship_definition_id: definition.id,
+      source_record_id: source.id, target_record_id: target.id, ...authored('created'),
+      field_values: normalizeRelationshipValues(
+        definition, body?.field_values ?? body?.values, {
+        side: routedSide, create: true,
+        },
+      ),
+    };
+    const { data, error } = await db.from('custom_object_relationship').insert(payload).select('*').single();
+    throwDb(error);
+    return data;
+  }
+
+  async function archiveRelationship(objectId, id, body = {}) {
+    await activeObject(objectId, 'Relationships are only available for active Custom Objects');
+    const before = await one('custom_object_relationship', id);
+    if (before.archived_at) throw new CustomObjectHttpError(409, 'Relationship edge is already archived');
+    const definition = await one('custom_object_relationship_definition', before.relationship_definition_id);
+    if (definition.source_custom_object_id !== objectId && definition.target_custom_object_id !== objectId) throw new CustomObjectHttpError(404, 'Resource not found');
+    const routedSide = routedRelationshipSide(definition, objectId, body?.routed_side);
+    if (definition[`show_on_${routedSide}`] === false) {
+      throw new CustomObjectHttpError(403, 'This relationship is hidden on the routed side');
+    }
+    if (!body?.routed_record_id || body.routed_record_id !== before[`${routedSide}_record_id`]) {
+      throw new CustomObjectHttpError(400, 'routed_record_id does not match this relationship edge');
+    }
+    await requireRelationshipCapabilities(definition, 'edit_records');
+    if (definition[`edit_from_${routedSide}`] === false) {
+      throw new CustomObjectHttpError(403, 'This relationship cannot be edited from the routed Custom Object');
+    }
+    const source = await endpoint(definition.source_kind, before.source_record_id);
+    const target = await endpoint(definition.target_kind, before.target_record_id);
+    domainGuard(() => validateCustomObjectRelationshipEndpoints({
+      tenantId, definition, source, target,
+    }));
+    if (typeof db.rpc !== 'function') {
+      throw new CustomObjectHttpError(503, 'Relationship archive transaction is unavailable');
+    }
+    const { data, error } = await db.rpc('archive_custom_object_relationship', {
+      p_tenant_id: tenantId,
+      p_relationship_id: id,
+      p_archived_by: currentActorReference,
+      p_archived_at: now(),
+    }).single();
+    await throwRelationshipArchiveDb(error, definition, before);
+    return data;
+  }
+
+  async function updateRelationship(objectId, id, body = {}) {
+    await activeObject(objectId, 'Relationships are only available for active Custom Objects');
+    const before = await one('custom_object_relationship', id);
+    if (before.archived_at) throw new CustomObjectHttpError(409, 'Archived relationship edges cannot be edited');
+    const definition = await one('custom_object_relationship_definition', before.relationship_definition_id);
+    if (definition.status !== 'active') throw new CustomObjectHttpError(409, 'Relationship definition is not active');
+    if (definition.source_custom_object_id !== objectId && definition.target_custom_object_id !== objectId) {
+      throw new CustomObjectHttpError(404, 'Resource not found');
+    }
+    const routedSide = routedRelationshipSide(definition, objectId, body?.routed_side);
+    if (definition[`show_on_${routedSide}`] === false) {
+      throw new CustomObjectHttpError(403, 'This relationship is hidden on the routed side');
+    }
+    if (!body?.routed_record_id || body.routed_record_id !== before[`${routedSide}_record_id`]) {
+      throw new CustomObjectHttpError(400, 'routed_record_id does not match this relationship edge');
+    }
+    await requireRelationshipCapabilities(definition, 'edit_records');
+    if (definition[`edit_from_${routedSide}`] === false) {
+      throw new CustomObjectHttpError(403, 'This relationship cannot be edited from the routed Custom Object');
+    }
+    const fieldValues = normalizeRelationshipValues(
+      definition, body?.field_values ?? body?.values, {
+      side: routedSide, existing: before.field_values,
+    });
+    const { data, error } = await db.from('custom_object_relationship').update({
+      field_values: fieldValues, ...authored(), updated_at: now(),
+    })
+      .eq('tenant_id', tenantId).eq('id', id).is('archived_at', null)
+      .select('*').single();
+    throwDb(error);
+    return { ...data, ...projectRelationshipValues(definition, data, routedSide) };
+  }
+
+  async function updateCoreRelationship(kind, recordId, edgeId, body = {}) {
+    if (!edgeId) throw new CustomObjectHttpError(400, 'relationshipId is required');
+    const before = await one('custom_object_relationship', edgeId);
+    if (before.archived_at) throw new CustomObjectHttpError(409, 'Archived relationship edges cannot be edited');
+    const { definition, side } = await coreRelationshipContext(
+      kind, recordId, before.relationship_definition_id, 'edit_records',
+    );
+    if (before[`${side}_record_id`] !== recordId) throw new CustomObjectHttpError(404, 'Resource not found');
+    if (definition[`edit_from_${side}`] === false) {
+      throw new CustomObjectHttpError(403, 'This relationship cannot be edited from the routed side');
+    }
+    const fieldValues = normalizeRelationshipValues(
+      definition, body?.field_values ?? body?.values, {
+      side, existing: before.field_values,
+    });
+    const { data, error } = await db.from('custom_object_relationship').update({
+      field_values: fieldValues, ...authored(), updated_at: now(),
+    })
+      .eq('tenant_id', tenantId).eq('id', edgeId).is('archived_at', null)
+      .select('*').single();
+    throwDb(error);
+    return { ...data, ...projectRelationshipValues(definition, data, side) };
+  }
+
+  async function listPermissions(objectId, query) {
+    requireSchemaViewer();
+    await object(objectId);
+    const p = pagination(query);
+    const [permissionResult, roleResult] = await Promise.all([
+      db.from('custom_object_role_permission')
+        .select('*', { count: 'exact' }).eq('tenant_id', tenantId)
+        .eq('custom_object_id', objectId).order('created_at', { ascending: false })
+        .order('id', { ascending: false })
+        .range(p.from, p.to),
+      db.from('role').select('id,name,is_system')
+        .eq('tenant_id', tenantId).order('name', { ascending: true }),
+    ]);
+    throwDb(permissionResult.error);
+    throwDb(roleResult.error);
+    return {
+      data: permissionResult.data || [],
+      roles: roleResult.data || [],
+      total: permissionResult.count || 0,
+      page: p.page,
+      pageSize: p.pageSize,
+    };
+  }
+
+  async function upsertPermission(objectId, body) {
+    requireSchemaManager();
+    requireMutableObject(await object(objectId));
+    if (!body?.role_id) throw new CustomObjectHttpError(400, 'role_id is required');
+    await one('role', body.role_id);
+    for (const column of PERMISSION_COLUMNS) {
+      if (body[column] !== undefined && typeof body[column] !== 'boolean') {
+        throw new CustomObjectHttpError(400, `${column} must be a boolean`);
+      }
+    }
+    const { data: existing, error: existingError } = await db
+      .from('custom_object_role_permission')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .eq('custom_object_id', objectId)
+      .eq('role_id', body.role_id)
+      .maybeSingle();
+    throwDb(existingError);
+    const capabilities = Object.fromEntries(PERMISSION_COLUMNS.map((column) => [
+      column,
+      body[column] ?? existing?.[column] ?? false,
+    ]));
+    if (
+      !capabilities.can_view_records
+      && [
+        'can_create_records',
+        'can_edit_records',
+        'can_archive_records',
+        'can_export_records',
+      ].some((column) => capabilities[column])
+    ) {
+      throw new CustomObjectHttpError(
+        400,
+        'View records permission is required for create, edit, archive, or export permissions',
+      );
+    }
+    const payload = {
+      tenant_id: tenantId, custom_object_id: objectId, role_id: body.role_id,
+      ...capabilities,
+      ...(!existing ? authored('created') : {}),
+      ...authored(),
+    };
+    const { data, error } = await db.from('custom_object_role_permission')
+      .upsert(payload, { onConflict: 'tenant_id,custom_object_id,role_id' }).select('*').single();
+    throwDb(error);
+    return data;
+  }
+
+  async function listFieldPermissions(objectId, query) {
+    requireSchemaViewer();
+    await object(objectId);
+    const p = pagination(query);
+    let q = db.from('custom_object_field_role_permission').select('*', { count: 'exact' })
+      .eq('tenant_id', tenantId).eq('custom_object_id', objectId)
+      .order('created_at', { ascending: false }).order('id', { ascending: false });
+    if (query?.roleId) q = q.eq('role_id', query.roleId);
+    const { data, error, count } = await q.range(p.from, p.to);
+    throwDb(error);
+    return { data: data || [], total: count || 0, page: p.page, pageSize: p.pageSize };
+  }
+
+  async function upsertFieldPermission(objectId, body) {
+    requireSchemaManager();
+    requireMutableObject(await object(objectId));
+    if (!body?.role_id || !body?.field_id) {
+      throw new CustomObjectHttpError(400, 'role_id and field_id are required');
+    }
+    const accessLevel = body.access_level ?? body.access;
+    if (!['none', 'read', 'edit'].includes(accessLevel)) {
+      throw new CustomObjectHttpError(400, 'access_level must be none, read, or edit');
+    }
+    await one('role', body.role_id);
+    await one('preference_field', body.field_id, { custom_object_id: objectId });
+    const payload = {
+      tenant_id: tenantId, custom_object_id: objectId, field_id: body.field_id,
+      role_id: body.role_id, access_level: accessLevel, ...authored('created'), ...authored(),
+    };
+    const { data, error } = await db.from('custom_object_field_role_permission')
+      .upsert(payload, { onConflict: 'tenant_id,custom_object_id,field_id,role_id' }).select('*').single();
+    throwDb(error);
+    return data;
+  }
+
+  async function listAudit(objectId, query) {
+    requireSchemaViewer();
+    await object(objectId);
+    const p = pagination(query);
+    let q = db.from('custom_object_audit_event').select('*', { count: 'exact' })
+      .eq('tenant_id', tenantId).eq('custom_object_id', objectId)
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false });
+    if (query?.entityType) {
+      if (!CUSTOM_OBJECT_AUDIT_ENTITY_TYPES.includes(query.entityType)) {
+        throw new CustomObjectHttpError(400, 'Invalid Custom Object audit entity type');
+      }
+      q = q.eq('entity_type', query.entityType);
+    }
+    const { data, error, count } = await q.range(p.from, p.to);
+    throwDb(error);
+    return { data: data || [], total: count || 0, page: p.page, pageSize: p.pageSize };
+  }
+
+  // Reports deliberately use ids, rather than labels, in their persisted contract.  Labels are
+  // presentation only: this prevents a rename from silently changing the meaning of a report.
+  async function validateReportDefinitionV2(objectId, report) {
+    await activeObject(objectId);
+    await requireCapability(objectId, 'view_records');
+    if (String(report.start_object_id || '') !== String(objectId)) {
+      throw new CustomObjectHttpError(400, 'Report start_object_id must match its owning Custom Object');
+    }
+    const normalizeEndpoint = (value, label) => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)
+        || !['custom_object', ...CORE_RELATIONSHIP_KINDS].includes(value.kind)) {
+        throw new CustomObjectHttpError(400, `${label} is malformed`);
+      }
+      const customObjectId = value.customObjectId ?? value.custom_object_id ?? null;
+      if ((value.kind === 'custom_object' && !customObjectId)
+        || (value.kind !== 'custom_object' && customObjectId != null)) {
+        throw new CustomObjectHttpError(400, `${label} is malformed`);
+      }
+      return { kind: value.kind, customObjectId: customObjectId ? String(customObjectId) : null };
+    };
+    const startEndpoint = normalizeEndpoint(report.start_endpoint, 'Report start endpoint');
+    if (typeof report.include_empty !== 'boolean') {
+      throw new CustomObjectHttpError(400, 'Report include_empty must be a boolean');
+    }
+    if ((report.multi_value ?? 'join') !== 'join') {
+      throw new CustomObjectHttpError(400, 'Report multi_value must be join');
+    }
+    const grainPath = report.grain_path;
+    if (!Array.isArray(grainPath) || grainPath.length > 6
+      || !Array.isArray(report.columns) || !report.columns.length) {
+      throw new CustomObjectHttpError(400, 'Report requires a grain path and at least one column');
+    }
+    const activeDefinitions = [];
+    for (let from = 0; ; from += 1000) {
+      const { data: definitions, error } = await db.from('custom_object_relationship_definition')
+        .select('*').eq('tenant_id', tenantId).eq('status', 'active')
+        .order('id', { ascending: true })
+        .range(from, from + 999);
+      throwDb(error);
+      activeDefinitions.push(...(definitions || []).filter((item) => item.archived_at == null));
+      if ((definitions || []).length < 1000) break;
+    }
+    const byId = new Map(activeDefinitions.map((item) => [String(item.id), item]));
+    const endpointFor = (definition, side) => ({
+      kind: definition[`${side}_kind`],
+      customObjectId: definition[`${side}_custom_object_id`] || null,
+    });
+    const endpointKey = (value) => `${value.kind}:${value.customObjectId || ''}`;
+    const opposite = (side) => side === 'source' ? 'target' : 'source';
+    const authorizeEndpoint = async (value) => {
+      if (value.kind === 'custom_object') {
+        await activeObject(value.customObjectId);
+        await requireCapability(value.customObjectId, 'view_records');
+      } else if (!isAdmin) {
+        throw new CustomObjectHttpError(
+          403,
+          'Tenant administrator access is required for reports containing core entities',
+        );
+      }
+    };
+
+    // The start endpoint is selected from the owner's graph, not accepted as an
+    // arbitrary tenant endpoint. Search only routes the caller can traverse,
+    // and use the same six-hop bound as the report builder.
+    const ownerEndpoint = { kind: 'custom_object', customObjectId: objectId };
+    const targetKey = endpointKey(startEndpoint);
+    const queue = [{ endpoint: ownerEndpoint, depth: 0 }];
+    const seen = new Set([endpointKey(ownerEndpoint)]);
+    let authorizedStart = targetKey === endpointKey(ownerEndpoint);
+    let deniedEndpointSeen = false;
+    while (queue.length && !authorizedStart) {
+      const current = queue.shift();
+      if (current.depth >= 6) continue;
+      for (const definition of activeDefinitions) {
+        for (const side of ['source', 'target']) {
+          if (endpointKey(endpointFor(definition, side)) !== endpointKey(current.endpoint)) continue;
+          const next = endpointFor(definition, opposite(side));
+          const key = endpointKey(next);
+          if (seen.has(key)) continue;
+          try {
+            await authorizeEndpoint(next);
+          } catch (authorizationError) {
+            if (authorizationError instanceof CustomObjectHttpError
+              && [403, 404, 409].includes(authorizationError.status)) {
+              if (key === targetKey) deniedEndpointSeen = true;
+              continue;
+            }
+            throw authorizationError;
+          }
+          seen.add(key);
+          if (key === targetKey) {
+            authorizedStart = true;
+            break;
+          }
+          queue.push({ endpoint: next, depth: current.depth + 1 });
+        }
+        if (authorizedStart) break;
+      }
+    }
+    if (!authorizedStart) {
+      if (deniedEndpointSeen || (startEndpoint.kind !== 'custom_object' && !isAdmin)) {
+        throw new CustomObjectHttpError(403, 'Report start endpoint is not authorized');
+      }
+      throw new CustomObjectHttpError(409, 'Report start endpoint is disconnected or unavailable');
+    }
+
+    const resolvePath = async (path, label, initialEndpoint) => {
+      if (!Array.isArray(path) || path.length > 6) {
+        throw new CustomObjectHttpError(400, `${label} is malformed`);
+      }
+      let current = initialEndpoint;
+      const endpointSeen = new Set([endpointKey(current)]);
+      const definitionSeen = new Set();
+      const resolved = [];
+      for (const hop of path) {
+        const id = String(hop?.relationship_definition_id || '');
+        const fromSide = hop?.from_side;
+        const definition = byId.get(id);
+        if (!definition || !['source', 'target'].includes(fromSide)
+          || definitionSeen.has(id)
+          || endpointKey(endpointFor(definition, fromSide)) !== endpointKey(current)) {
+          throw new CustomObjectHttpError(
+            409,
+            `${label} references a disconnected, unavailable, or cyclic relationship`,
+          );
+        }
+        const next = endpointFor(definition, opposite(fromSide));
+        if (endpointSeen.has(endpointKey(next))) {
+          throw new CustomObjectHttpError(409, `${label} is cyclic`);
+        }
+        await authorizeEndpoint(next);
+        const resolvedHop = {
+          definition,
+          fromSide,
+          toSide: opposite(fromSide),
+          endpoint: next,
+        };
+        resolved.push(resolvedHop);
+        definitionSeen.add(id);
+        endpointSeen.add(endpointKey(next));
+        current = next;
+      }
+      return { endpoint: current, hops: resolved };
+    };
+    const grain = await resolvePath(grainPath, 'Report grain path', startEndpoint);
+    const resolvedColumns = [];
+    for (const column of report.columns) {
+      if (!column || typeof column !== 'object' || Array.isArray(column)) {
+        throw new CustomObjectHttpError(400, 'Report column is malformed');
+      }
+      if (column.empty_label !== undefined && typeof column.empty_label !== 'string') {
+        throw new CustomObjectHttpError(400, 'Report column empty_label must be a string');
+      }
+      if (column.kind === 'count_distinct') {
+        if (!Array.isArray(column.path) || !column.path.length) {
+          throw new CustomObjectHttpError(
+            400,
+            'Count distinct column path must be a nonempty row-relative path',
+          );
+        }
+        const path = await resolvePath(column.path, 'Report count column path', grain.endpoint);
+        resolvedColumns.push({
+          ...column,
+          path,
+          label: column.label || 'Count',
+          countDistinct: true,
+        });
+        continue;
+      }
+      if (!['field', 'relationship_field'].includes(column.kind)) {
+        throw new CustomObjectHttpError(
+          400,
+          'Report column kind must be field, relationship_field, or count_distinct',
+        );
+      }
+      const path = await resolvePath(column.path ?? [], 'Report column path', startEndpoint);
+      const fieldId = String(column.field_id || '');
+      const relationshipFieldId = String(column.relationship_field_id || '');
+      if (column.kind === 'relationship_field') {
+        const hop = path.hops.at(-1);
+        if (!relationshipFieldId
+          || String(column.relationship_definition_id || '') !== String(hop?.definition.id || '')) {
+          throw new CustomObjectHttpError(409, 'Report relationship field is stale or unavailable');
+        }
+        const relationshipField = hop && relationshipFieldDefinitions(hop.definition)
+          .find((item) => String(item.id) === relationshipFieldId);
+        if (!relationshipField || relationshipField[`display_on_${hop.fromSide}`] === false) {
+          throw new CustomObjectHttpError(409, 'Report relationship field is stale or unavailable');
+        }
+        resolvedColumns.push({
+          ...column, path, relationshipField, label: column.label || relationshipField.label,
+        });
+      } else if (path.endpoint.kind === 'custom_object') {
+        const builtInField = String(column.field || fieldId);
+        if (builtInField === 'id') {
+          resolvedColumns.push({
+            ...column, path, coreField: 'id', label: column.label || 'ID',
+          });
+          continue;
+        }
+        const available = await fields(path.endpoint.customObjectId, true);
+        const access = await fieldAccess(path.endpoint.customObjectId, available);
+        const fieldDefinition = available.find((item) => String(item.id) === fieldId);
+        if (!fieldDefinition || access.get(String(fieldDefinition.id)) === 'none') {
+          throw new CustomObjectHttpError(403, 'Report field is unavailable');
+        }
+        resolvedColumns.push({
+          ...column,
+          path,
+          fieldDefinition,
+          label: column.label || fieldDefinition.label,
+        });
+      } else {
+        const allowed = path.endpoint.kind === 'member'
+          ? new Set(['id', 'first_name', 'last_name', 'full_name', 'email', 'organization_id'])
+          : new Set(['id', 'name', 'email']);
+        const coreField = String(column.field || fieldId);
+        if (!allowed.has(coreField)) {
+          throw new CustomObjectHttpError(403, 'Report core field is unavailable');
+        }
+        resolvedColumns.push({
+          ...column, path, coreField, label: column.label || coreField,
+        });
+      }
+    }
+    return {
+      version: 2, report, startEndpoint, grain, columns: resolvedColumns,
+    };
+  }
+
+  async function validateReportDefinition(objectId, supplied) {
+    let report = supplied;
+    if (typeof supplied === 'string') {
+      try { report = JSON.parse(supplied); } catch { throw new CustomObjectHttpError(400, 'Report definition must be valid JSON'); }
+    }
+    if (report?.version === 2) return validateReportDefinitionV2(objectId, report);
+    if (!report || typeof report !== 'object' || Array.isArray(report) || report.version !== 1) {
+      throw new CustomObjectHttpError(400, 'Report definition must use version 1');
+    }
+    await activeObject(objectId);
+    await requireCapability(objectId, 'view_records');
+    const grainPath = report.grain_path ?? report.grainPath ?? [];
+    const columns = report.columns;
+    if (!Array.isArray(grainPath) || grainPath.length > 6 || !Array.isArray(columns) || !columns.length) {
+      throw new CustomObjectHttpError(400, 'Report requires a grain path and at least one column');
+    }
+    if ((report.multi_value ?? report.multiValue ?? 'join') !== 'join') {
+      throw new CustomObjectHttpError(400, 'Report multi_value must be join');
+    }
+    const { data: definitions, error } = await db.from('custom_object_relationship_definition').select('*')
+      .eq('tenant_id', tenantId).eq('status', 'active');
+    throwDb(error);
+    const byId = new Map((definitions || []).map((item) => [String(item.id), item]));
+    const endpointFor = (definition, side) => ({
+      kind: definition[`${side}_kind`], customObjectId: definition[`${side}_custom_object_id`] || null,
+    });
+    const endpointKey = (value) => `${value.kind}:${value.customObjectId || ''}`;
+    const opposite = (side) => side === 'source' ? 'target' : 'source';
+    const resolvePath = async (path, label) => {
+      if (!Array.isArray(path) || path.length > 6) throw new CustomObjectHttpError(400, `${label} is malformed`);
+      let current = { kind: 'custom_object', customObjectId: objectId };
+      const endpointSeen = new Set([endpointKey(current)]);
+      const definitionSeen = new Set();
+      const resolved = [];
+      for (const hop of path) {
+        const id = String(hop?.relationship_definition_id ?? hop?.relationshipDefinitionId ?? '');
+        const fromSide = hop?.from_side ?? hop?.fromSide;
+        const definition = byId.get(id);
+        if (!definition || !['source', 'target'].includes(fromSide)
+          || definitionSeen.has(id) || endpointKey(endpointFor(definition, fromSide)) !== endpointKey(current)) {
+          throw new CustomObjectHttpError(409, `${label} references a disconnected, unavailable, or cyclic relationship`);
+        }
+        const toSide = opposite(fromSide);
+        const next = endpointFor(definition, toSide);
+        if (endpointSeen.has(endpointKey(next))) throw new CustomObjectHttpError(409, `${label} is cyclic`);
+        if (next.kind === 'custom_object') {
+          await activeObject(next.customObjectId);
+          await requireCapability(next.customObjectId, 'view_records');
+        }
+        else if (!isAdmin) throw new CustomObjectHttpError(403, 'Tenant administrator access is required for reports containing core entities');
+        definitionSeen.add(id); endpointSeen.add(endpointKey(next));
+        resolved.push({ definition, fromSide, toSide, endpoint: next });
+        current = next;
+      }
+      return { endpoint: current, hops: resolved };
+    };
+    const grain = await resolvePath(grainPath, 'Report grain path');
+    const resolvedColumns = [];
+    for (const column of columns) {
+      if (!column || typeof column !== 'object') throw new CustomObjectHttpError(400, 'Report column is malformed');
+      const path = await resolvePath(column.path ?? [], 'Report column path');
+      const fieldId = String(column.field_id ?? column.fieldId ?? '');
+      const relationshipFieldId = String(column.relationship_field_id ?? column.relationshipFieldId ?? '');
+      if (relationshipFieldId) {
+        const hop = path.hops.at(-1);
+        const relationshipField = hop && relationshipFieldDefinitions(hop.definition)
+          .find((field) => String(field.id) === relationshipFieldId);
+        if (!relationshipField) throw new CustomObjectHttpError(409, 'Report relationship field is stale or unavailable');
+        resolvedColumns.push({ ...column, path, relationshipField, label: column.label || relationshipField.label });
+      } else if (path.endpoint.kind === 'custom_object') {
+        const builtInField = String(column.field ?? fieldId);
+        if (builtInField === 'id') {
+          resolvedColumns.push({ ...column, path, coreField: 'id', label: column.label || 'ID' });
+          continue;
+        }
+        const available = await fields(path.endpoint.customObjectId, true);
+        const access = await fieldAccess(path.endpoint.customObjectId, available);
+        const field = available.find((item) => String(item.id) === fieldId);
+        if (!field || access.get(String(field.id)) === 'none') {
+          throw new CustomObjectHttpError(403, 'Report field is unavailable');
+        }
+        resolvedColumns.push({ ...column, path, fieldDefinition: field, label: column.label || field.label });
+      } else {
+        const allowed = path.endpoint.kind === 'member'
+          ? new Set(['id', 'first_name', 'last_name', 'full_name', 'email', 'organization_id'])
+          : new Set(['id', 'name', 'email']);
+        const field = String(column.field ?? fieldId);
+        if (!allowed.has(field)) throw new CustomObjectHttpError(403, 'Report core field is unavailable');
+        resolvedColumns.push({ ...column, path, coreField: field, label: column.label || field });
+      }
+    }
+    return { report, grain, columns: resolvedColumns };
+  }
+
+  async function reportEndpointRows(endpoint_, ids) {
+    const table = { custom_object: 'custom_object_record', member: 'member', organization: 'organization', organization_group: 'organization_group' }[endpoint_.kind];
+    if (!table) throw new CustomObjectHttpError(400, 'Unsupported report endpoint');
+    const unique = [...new Set(ids.filter(Boolean).map(String))];
+    const output = new Map();
+    for (const batch of chunked(unique, ENDPOINT_ID_BATCH_SIZE)) {
+      let query = db.from(table).select('*').eq('tenant_id', tenantId).in('id', batch);
+      if (endpoint_.kind === 'custom_object') query = query.eq('custom_object_id', endpoint_.customObjectId).is('archived_at', null);
+      const { data, error } = await query;
+      throwDb(error);
+      for (const row of data || []) output.set(String(row.id), row);
+    }
+    return output;
+  }
+
+  async function reportFollow(rows, hop) {
+    if (!rows.length) return [];
+    const routed = hop.fromSide === 'source' ? 'source_record_id' : 'target_record_id';
+    const other = hop.fromSide === 'source' ? 'target_record_id' : 'source_record_id';
+    const ids = [...new Set(rows.map((row) => String(row.record.id)))];
+    const edges = [];
+    for (const batch of chunked(ids, ENDPOINT_ID_BATCH_SIZE)) {
+      const { data, error } = await db.from('custom_object_relationship').select('*')
+        .eq('tenant_id', tenantId).eq('relationship_definition_id', hop.definition.id)
+        .is('archived_at', null).in(routed, batch).order('id', { ascending: true });
+      throwDb(error);
+      edges.push(...(data || []));
+    }
+    const endpoints = await reportEndpointRows(hop.endpoint, edges.map((edge) => edge[other]));
+    const byRouted = new Map();
+    for (const edge of edges) {
+      const target = endpoints.get(String(edge[other]));
+      if (target) (byRouted.get(String(edge[routed])) || byRouted.set(String(edge[routed]), []).get(String(edge[routed]))).push({ target, edge });
+    }
+    return rows.flatMap((row) => (byRouted.get(String(row.record.id)) || [])
+      .map(({ target, edge }) => ({ record: target, root: row.root, edges: [...row.edges, edge] })));
+  }
+
+  // V2 projections must not inherit PostgREST's server row cap. V1 deliberately
+  // continues to use reportFollow unchanged for contract compatibility.
+  async function reportFollowV2(rows, hop, budget) {
+    if (!rows.length) return [];
+    const routed = hop.fromSide === 'source' ? 'source_record_id' : 'target_record_id';
+    const other = hop.fromSide === 'source' ? 'target_record_id' : 'source_record_id';
+    const ids = [...new Set(rows.map((row) => String(row.record.id)))];
+    const edges = [];
+    const rootsByRoutedId = new Map();
+    for (const row of rows) {
+      const routedId = String(row.record.id);
+      const rootId = String(row.root.id);
+      const roots = rootsByRoutedId.get(routedId)
+        || rootsByRoutedId.set(routedId, new Map()).get(routedId);
+      roots.set(rootId, (roots.get(rootId) || 0) + 1);
+    }
+    const expansionByRoot = new Map();
+    for (const batch of chunked(ids, ENDPOINT_ID_BATCH_SIZE)) {
+      let afterId = null;
+      for (;;) {
+        let query = db.from('custom_object_relationship').select('*')
+          .eq('tenant_id', tenantId).eq('relationship_definition_id', hop.definition.id)
+          .is('archived_at', null).in(routed, batch).order('id', { ascending: true });
+        if (afterId) query = query.gt('id', afterId);
+        const { data, error } = await query.range(0, 999);
+        throwDb(error);
+        const page = data || [];
+        for (const edge of page) {
+          const routedId = String(edge[routed]);
+          for (const [rootId, occurrences] of rootsByRoutedId.get(routedId) || []) {
+            budget.expanded += occurrences;
+            if (budget.expanded > V2_REPORT_MAX_PAGE_EXPANSION) {
+              throw new CustomObjectHttpError(
+                400,
+                'This report expands too many field values in one page. Use a distinct related-record count instead of joining all related values.',
+              );
+            }
+            const count = (expansionByRoot.get(rootId) || 0) + occurrences;
+            if (count > V2_REPORT_MAX_CELL_EXPANSION) {
+              throw new CustomObjectHttpError(
+                400,
+                `Version 2 report field expansion exceeds ${V2_REPORT_MAX_CELL_EXPANSION.toLocaleString('en-US')} values for one cell`,
+              );
+            }
+            expansionByRoot.set(rootId, count);
+          }
+        }
+        edges.push(...page);
+        if (page.length < 1000) break;
+        const nextId = String(page.at(-1)?.id || '');
+        if (!nextId || nextId === afterId) {
+          throw new CustomObjectHttpError(500, 'Version 2 report edge paging did not advance');
+        }
+        afterId = nextId;
+      }
+    }
+    const endpoints = await reportEndpointRows(hop.endpoint, edges.map((edge) => edge[other]));
+    const byRouted = new Map();
+    for (const edge of edges) {
+      const target = endpoints.get(String(edge[other]));
+      if (target) {
+        (byRouted.get(String(edge[routed]))
+          || byRouted.set(String(edge[routed]), []).get(String(edge[routed])))
+          .push({ target, edge });
+      }
+    }
+    const output = rows.flatMap((row) => (byRouted.get(String(row.record.id)) || [])
+      .map(({ target, edge }) => ({
+        record: target, root: row.root, edges: [...row.edges, edge],
+      })));
+    return output;
+  }
+
+  function reportValue(value) {
+    if (value === null || value === undefined) return '';
+    if (Array.isArray(value)) return value.map(reportValue).filter(Boolean).join('; ');
+    if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+    if (typeof value === 'object') return value.name || value.label || value.url || JSON.stringify(value);
+    return String(value);
+  }
+
+  function reportRpcPath(hops) {
+    return hops.map((hop) => ({
+      relationship_definition_id: hop.definition.id,
+      from_side: hop.fromSide,
+      endpoint_kind: hop.endpoint.kind,
+      endpoint_custom_object_id: hop.endpoint.customObjectId,
+    }));
+  }
+
+  async function executeReportV2(objectId, validated, requestedPage = null) {
+    const p = requestedPage ? pagination(requestedPage, 500) : pagination({}, 500);
+    const exportMode = Boolean(requestedPage && Object.hasOwn(requestedPage, 'exportCursor'));
+    const afterCursor = exportMode ? (requestedPage.exportCursor || null) : null;
+    const { data: summary, error } = await db.rpc('custom_object_report_summary_page', {
+      p_tenant_id: tenantId,
+      p_start_kind: validated.startEndpoint.kind,
+      p_start_custom_object_id: validated.startEndpoint.customObjectId,
+      p_grain_path: reportRpcPath(validated.grain.hops),
+      p_include_empty: validated.report.include_empty,
+      p_offset: exportMode ? 0 : p.from,
+      p_limit: p.pageSize,
+      p_after_cursor: afterCursor,
+      p_include_total: !exportMode || requestedPage.includeTotal === true,
+    });
+    throwReportV2RpcDb(error);
+    const summaryRows = Array.isArray(summary?.rows) ? summary.rows : [];
+    const endpoints = [validated.startEndpoint, ...validated.grain.hops.map((hop) => hop.endpoint)];
+    const ancestryMaps = await Promise.all(endpoints.map((endpoint_, index) =>
+      reportEndpointRows(endpoint_, summaryRows.map((row) => row.record_ids?.[index]))));
+    const sameHop = (left, right) =>
+      String(left.definition.id) === String(right.definition.id) && left.fromSide === right.fromSide;
+    const valueFromItem = (item, column) => {
+      if (!item?.record) return undefined;
+      if (column.relationshipField) {
+        return item.edges.at(-1)?.field_values?.[column.relationshipField.key];
+      }
+      if (column.fieldDefinition) {
+        return item.record.data?.[getCustomObjectFieldMetadata(column.fieldDefinition).key];
+      }
+      if (column.coreField === 'full_name') {
+        return [item.record.first_name, item.record.last_name].filter(Boolean).join(' ').trim();
+      }
+      return item.record[column.coreField];
+    };
+    const countValues = new Map();
+    for (const column of validated.columns.filter((item) => item.countDistinct)) {
+      const terminalIndex = validated.grain.hops.length;
+      const startRecordIds = [...new Set(summaryRows.map((row) => row.record_ids?.[terminalIndex])
+        .filter((recordId) =>
+          recordId && ancestryMaps[terminalIndex].has(String(recordId)))
+        .map(String))];
+      const { data: counts, error: countError } = await db.rpc(
+        'custom_object_report_distinct_counts',
+        {
+          p_tenant_id: tenantId,
+          p_start_kind: validated.grain.endpoint.kind,
+          p_start_custom_object_id: validated.grain.endpoint.customObjectId,
+          p_start_record_ids: startRecordIds,
+          p_path: reportRpcPath(column.path.hops),
+        },
+      );
+      throwReportV2RpcDb(countError);
+      if (!Array.isArray(counts)) {
+        throw new CustomObjectHttpError(500, 'Distinct count RPC returned a malformed result');
+      }
+      const requested = new Set(startRecordIds);
+      const values = new Map();
+      for (const item of counts) {
+        const recordId = String(item?.record_id || '');
+        const rawCount = item?.count;
+        const count = Number(rawCount);
+        const integerShaped = typeof rawCount === 'number'
+          || (typeof rawCount === 'string' && /^\d+$/.test(rawCount));
+        if (typeof item?.record_id !== 'string'
+          || !requested.has(recordId) || values.has(recordId)
+          || !item || !Object.hasOwn(item, 'count') || rawCount === null || rawCount === ''
+          || !integerShaped || !Number.isSafeInteger(count) || count < 0) {
+          throw new CustomObjectHttpError(500, 'Distinct count RPC returned a malformed result');
+        }
+        values.set(recordId, count);
+      }
+      if (values.size !== requested.size) {
+        throw new CustomObjectHttpError(500, 'Distinct count RPC returned an incomplete result');
+      }
+      countValues.set(column, values);
+    }
+    const fieldPlans = new Map();
+    const fieldTraversalGroups = new Map();
+    for (const column of validated.columns.filter((item) => !item.countDistinct)) {
+      let common = 0;
+      while (common < column.path.hops.length
+        && common < validated.grain.hops.length
+        && sameHop(column.path.hops[common], validated.grain.hops[common])) common += 1;
+      const remaining = column.path.hops.slice(common);
+      let groupKey = null;
+      if (remaining.length) {
+        groupKey = [
+          endpoints[common].kind,
+          endpoints[common].customObjectId || '',
+          remaining.map((hop) => `${hop.definition.id}:${hop.fromSide}`).join('/'),
+        ].join('|');
+        let group = fieldTraversalGroups.get(groupKey);
+        if (!group) {
+          group = { remaining, anchors: new Map() };
+          fieldTraversalGroups.set(groupKey, group);
+        }
+        for (const summaryRow of summaryRows) {
+          const anchorId = summaryRow.record_ids?.[common];
+          const anchor = ancestryMaps[common].get(String(anchorId || ''));
+          if (anchor) group.anchors.set(String(anchor.id), anchor);
+        }
+      }
+      fieldPlans.set(column, { common, remaining, groupKey });
+    }
+    const fieldTraversalResults = new Map();
+    const fieldExpansionBudget = { expanded: 0 };
+    for (const [groupKey, group] of fieldTraversalGroups) {
+      let traversed = [...group.anchors.values()].map((anchor) => ({
+        record: anchor, root: anchor, edges: [],
+      }));
+      for (const hop of group.remaining) traversed = await reportFollowV2(traversed, hop, fieldExpansionBudget);
+      const byAnchor = new Map();
+      for (const item of traversed) {
+        const anchorId = String(item.root.id);
+        (byAnchor.get(anchorId) || byAnchor.set(anchorId, []).get(anchorId)).push(item);
+      }
+      fieldTraversalResults.set(groupKey, byAnchor);
+    }
+    const data = [];
+    let renderedFieldValues = 0;
+    for (const summaryRow of summaryRows) {
+      const recordIds = Array.isArray(summaryRow.record_ids) ? summaryRow.record_ids : [];
+      const ancestry = endpoints.map((_, index) =>
+        ancestryMaps[index].get(String(recordIds[index] || '')) || null);
+      const row = { id: summaryRow.id, values: [] };
+      for (const column of validated.columns) {
+        if (column.countDistinct) {
+          const startRecordId = recordIds[validated.grain.hops.length] || null;
+          if (!startRecordId || !ancestry.at(-1)) {
+            row.values.push(0);
+          } else {
+            row.values.push(countValues.get(column).get(String(startRecordId)));
+          }
+          continue;
+        }
+        const { common, remaining, groupKey } = fieldPlans.get(column);
+        let items = [];
+        const anchor = ancestry[common];
+        if (anchor) {
+          if (!remaining.length) {
+            items = [{
+              record: anchor,
+              root: ancestry[0],
+              edges: (summaryRow.edges || []).slice(0, common),
+            }];
+          } else {
+            items = fieldTraversalResults.get(groupKey)?.get(String(anchor.id)) || [];
+          }
+        }
+        renderedFieldValues += items.length;
+        if (renderedFieldValues > V2_REPORT_MAX_PAGE_EXPANSION) {
+          throw new CustomObjectHttpError(
+            400,
+            'This report renders too many related field values in one page. Use a distinct related-record count instead of joining all related values.',
+          );
+        }
+        const uniqueValues = [...new Map(items.map((item) => valueFromItem(item, column))
+          .map((value) => [JSON.stringify(value), value])).values()];
+        const rendered = reportValue(uniqueValues);
+        row.values.push(items.length === 0 && column.empty_label !== undefined
+          ? column.empty_label
+          : rendered);
+      }
+      data.push(row);
+    }
+    const total = summary?.total == null ? null : (Number(summary.total) || 0);
+    return {
+      columns: validated.columns.map((column) => ({ label: column.label })),
+      data,
+      total: total ?? (exportMode ? null : data.length),
+      bounded: true,
+      has_more: Boolean(summary?.has_more),
+      next_cursor: summary?.last_cursor ?? afterCursor,
+    };
+  }
+
+  async function executeReport(objectId, definition, requestedPage = null) {
+    const validated = await validateReportDefinition(objectId, definition);
+    if (validated.version === 2) {
+      return executeReportV2(objectId, validated, requestedPage);
+    }
+    const p = requestedPage ? pagination(requestedPage, 500) : null;
+    const exportMode = Boolean(requestedPage && Object.hasOwn(requestedPage, 'exportCursor'));
+    const exportCursor = requestedPage?.exportCursor || null;
+    const finalGrainHop = validated.grain.hops.at(-1);
+    const occurrenceGrain = finalGrainHop
+      ? relationshipValueShape(finalGrainHop.definition.cardinality, finalGrainHop.fromSide) === 'many'
+      : false;
+    const roots = [];
+    const rootBatchSize = 1000;
+    let grains;
+    let exactTotal = null;
+    let pageHasMore = false;
+    let nextCursor = null;
+    // The common Department -> Member report is occurrence-grained. Page its
+    // relationship edges first so a 50-row preview never materializes all
+    // Department memberships. Edge id is the durable, deterministic cursor.
+    if (p && occurrenceGrain && validated.grain.hops.length === 1) {
+      const hop = validated.grain.hops[0];
+      const routed = hop.fromSide === 'source' ? 'source_record_id' : 'target_record_id';
+      const other = hop.fromSide === 'source' ? 'target_record_id' : 'source_record_id';
+      const { data: occurrencePage, error } = await db.rpc('custom_object_report_occurrence_page', {
+        p_tenant_id: tenantId,
+        p_custom_object_id: objectId,
+        p_relationship_definition_id: hop.definition.id,
+        p_from_side: hop.fromSide,
+        p_endpoint_kind: hop.endpoint.kind,
+        p_endpoint_custom_object_id: hop.endpoint.customObjectId,
+        p_after_edge_id: exportMode ? exportCursor : null,
+        p_include_total: !exportMode || requestedPage.includeTotal === true,
+        p_offset: exportMode ? 0 : p.from,
+        p_limit: p.pageSize,
+      });
+      throwReportOccurrenceRpcDb(error);
+      const edges = occurrencePage?.edges || [];
+      exactTotal = occurrencePage?.total == null ? null : (Number(occurrencePage.total) || 0);
+      pageHasMore = Boolean(occurrencePage?.has_more);
+      nextCursor = occurrencePage?.last_edge_id || exportCursor;
+      const rootRows = await reportEndpointRows(
+        { kind: 'custom_object', customObjectId: objectId },
+        (edges || []).map((edge) => edge[routed]),
+      );
+      const endpoints = await reportEndpointRows(hop.endpoint, (edges || []).map((edge) => edge[other]));
+      grains = (edges || []).flatMap((edge) => {
+        const root = rootRows.get(String(edge[routed]));
+        const record = endpoints.get(String(edge[other]));
+        return root && record ? [{ record, root, edges: [edge] }] : [];
+      });
+    } else {
+      for (let from = 0; ; from += rootBatchSize) {
+        const countRoots = p && !validated.grain.hops.length
+          && (!exportMode || requestedPage.includeTotal === true);
+        let query = db.from('custom_object_record').select('*', countRoots
+          ? { count: 'exact' } : {})
+          .eq('tenant_id', tenantId).eq('custom_object_id', objectId)
+          .is('archived_at', null).order('id', { ascending: true });
+        if (exportMode) {
+          if (exportCursor) query = query.gt('id', exportCursor);
+          const limit = validated.grain.hops.length ? 50 : p.pageSize;
+          query = query.range(0, limit);
+        }
+        else if (p && !validated.grain.hops.length) query = query.range(p.from, p.to);
+        else query = query.range(from, from + rootBatchSize - 1);
+        const { data, error, count } = await query;
+        throwDb(error);
+        if (exportMode) {
+          const limit = validated.grain.hops.length ? 50 : p.pageSize;
+          pageHasMore = (data || []).length > limit;
+          const selected = (data || []).slice(0, limit);
+          roots.push(...selected);
+          nextCursor = selected.at(-1)?.id || exportCursor;
+          if (countRoots) exactTotal = count || 0;
+          break;
+        }
+        roots.push(...(data || []));
+        if (p && !validated.grain.hops.length) {
+          exactTotal = count || 0;
+          break;
+        }
+        if ((data || []).length < rootBatchSize) break;
+      }
+      grains = roots.map((record) => ({ record, root: record, edges: [] }));
+      for (const hop of validated.grain.hops) grains = await reportFollow(grains, hop);
+    }
+    // Ordinary entity-grain reports retain their historic endpoint-ID identity.
+    // A to-many terminal grain retains the exact traversal occurrence instead,
+    // because the same endpoint may legitimately occur under several roots.
+    const grainGroups = new Map();
+    for (const grain of grains) {
+      const key = occurrenceGrain
+        ? [grain.root.id, ...grain.edges.map((edge) => edge.id), grain.record.id].map(String).join(':')
+        : String(grain.record.id);
+      const group = grainGroups.get(key) || {
+        id: key,
+        record: grain.record,
+        roots: new Map(),
+        traversals: [],
+      };
+      group.roots.set(String(grain.root.id), grain.root);
+      group.traversals.push(grain);
+      grainGroups.set(key, group);
+    }
+    const sameResolvedPath = (left, right) =>
+      left.length === right.length
+      && left.every((hop, index) =>
+        String(hop.definition.id) === String(right[index].definition.id)
+        && hop.fromSide === right[index].fromSide);
+    const traversalCache = new Map();
+    const traverseRoots = (roots_, hops) => {
+      const cacheKey = [
+        [...roots_.keys()].sort().join(','),
+        hops.map((hop) => `${hop.definition.id}:${hop.fromSide}`).join('/'),
+      ].join('|');
+      if (!traversalCache.has(cacheKey)) {
+        traversalCache.set(cacheKey, (async () => {
+          let cursor = [...roots_.values()].map((root) => ({ record: root, root, edges: [] }));
+          for (const hop of hops) cursor = await reportFollow(cursor, hop);
+          return cursor;
+        })());
+      }
+      return traversalCache.get(cacheKey);
+    };
+    const valuesFor = async (grain, column) => {
+      const isGrainPrefix = column.path.hops.length <= validated.grain.hops.length
+        && sameResolvedPath(column.path.hops, validated.grain.hops.slice(0, column.path.hops.length));
+      if (occurrenceGrain && isGrainPrefix) {
+        const item = grain.traversals[0];
+        const pathLength = column.path.hops.length;
+        const record = pathLength === 0
+          ? item.root
+          : (pathLength === validated.grain.hops.length
+            ? item.record
+            : (await reportEndpointRows(
+              validated.grain.hops[pathLength - 1].endpoint,
+              [item.edges[pathLength - 1][validated.grain.hops[pathLength - 1].fromSide === 'source'
+                ? 'target_record_id' : 'source_record_id']],
+            )).values().next().value);
+        if (!record) return [];
+        if (column.relationshipField) {
+          return [item.edges[pathLength - 1]?.field_values?.[column.relationshipField.key]];
+        }
+        if (column.fieldDefinition) {
+          return [record.data?.[getCustomObjectFieldMetadata(column.fieldDefinition).key]];
+        }
+        if (column.coreField === 'full_name') {
+          return [[record.first_name, record.last_name].filter(Boolean).join(' ').trim()];
+        }
+        return [record[column.coreField]];
+      }
+      let cursor = await traverseRoots(grain.roots, column.path.hops || []);
+      if (sameResolvedPath(column.path.hops, validated.grain.hops)) {
+        cursor = cursor.filter((item) => String(item.record.id) === grain.id);
+      }
+      const values = cursor.map((item) => {
+        if (column.relationshipField) {
+          return item.edges.at(-1)?.field_values?.[column.relationshipField.key];
+        }
+        if (column.fieldDefinition) {
+          return item.record.data?.[getCustomObjectFieldMetadata(column.fieldDefinition).key];
+        }
+        if (column.coreField === 'full_name') {
+          return [item.record.first_name, item.record.last_name].filter(Boolean).join(' ').trim();
+        }
+        return item.record[column.coreField];
+      });
+      return [...new Map(values.map((value) => [JSON.stringify(value), value])).values()];
+    };
+    const data = [];
+    const orderedGrains = [...grainGroups.values()];
+    if (exactTotal === null) orderedGrains.sort((left, right) => left.id.localeCompare(right.id));
+    for (const grain of orderedGrains) {
+      const row = { id: grain.id, values: [] };
+      for (const column of validated.columns) row.values.push(reportValue(await valuesFor(grain, column)));
+      data.push(row);
+    }
+    return {
+      columns: validated.columns.map((column) => ({ label: column.label })),
+      data,
+      total: exactTotal ?? (exportMode ? null : data.length),
+      bounded: exactTotal !== null || exportMode,
+      has_more: exportMode ? Boolean(pageHasMore) : undefined,
+      next_cursor: exportMode ? nextCursor : undefined,
+    };
+  }
+
+  async function previewReport(objectId, body = {}) {
+    const p = pagination(body, 500);
+    const result = await executeReport(objectId, body.definition ?? body, p);
+    const data = result.bounded
+      ? result.data.slice(0, p.pageSize)
+      : result.data.slice(p.from, p.to + 1);
+    return {
+      ...result, data, page: p.page, pageSize: p.pageSize,
+      has_more: p.to + 1 < result.total,
+      page_count: Math.ceil(result.total / p.pageSize),
+    };
+  }
+
+  async function exportReport(objectId, body = {}) {
+    await requireCapability(objectId, 'export_records');
+    const ownedJobQuery = (query) => {
+      query = query.eq('tenant_id', tenantId).eq('custom_object_id', objectId);
+      if (context.tenantUserId) return query.eq('requested_by_tenant_user_id', context.tenantUserId);
+      return query.eq('requested_by_member_id', context.memberId);
+    };
+    const action = body.action || 'start';
+    if (action === 'status') {
+      const { data, error } = await ownedJobQuery(
+        db.from('custom_object_report_export_job').select('*'),
+      ).eq('id', body.job_id).maybeSingle();
+      throwDb(error);
+      if (!data) throw new CustomObjectHttpError(404, 'Report export was not found');
+      return data;
+    }
+    if (action === 'chunk') {
+      const { data: job, error: jobError } = await ownedJobQuery(
+        db.from('custom_object_report_export_job').select('*'),
+      ).eq('id', body.job_id).maybeSingle();
+      throwDb(jobError);
+      if (!job || job.status !== 'complete') throw new CustomObjectHttpError(409, 'Report export is not complete');
+      await validateReportDefinition(objectId, job.definition);
+      const { data, error } = await db.from('custom_object_report_export_chunk').select('chunk_index,csv_text')
+        .eq('tenant_id', tenantId).eq('job_id', job.id)
+        .eq('chunk_index', Number.parseInt(body.chunk_index, 10)).maybeSingle();
+      throwDb(error);
+      if (!data) throw new CustomObjectHttpError(404, 'Report export chunk was not found');
+      return data;
+    }
+    if (action === 'process') {
+      const { data: job, error: jobError } = await ownedJobQuery(
+        db.from('custom_object_report_export_job').select('*'),
+      ).eq('id', body.job_id).maybeSingle();
+      throwDb(jobError);
+      if (!job) throw new CustomObjectHttpError(404, 'Report export was not found');
+      if (['complete', 'failed'].includes(job.status)) return job;
+      let claimToken = null;
+      try {
+        const page = Number(job.next_page) || 1;
+        claimToken = randomUUID();
+        const claimExpired = job.claim_token
+          && Date.now() - new Date(job.updated_at || 0).getTime() > 120_000;
+        if (job.claim_token && !claimExpired) return job;
+        let claimQuery = ownedJobQuery(
+          db.from('custom_object_report_export_job').update({
+            status: 'processing', claim_token: claimToken,
+            updated_at: now(),
+          }),
+        ).eq('id', job.id).eq('next_page', page);
+        claimQuery = job.claim_token
+          ? claimQuery.eq('claim_token', job.claim_token)
+          : claimQuery.is('claim_token', null);
+        const { data: claimed, error: claimError } = await claimQuery.select('*').maybeSingle();
+        throwDb(claimError);
+        if (!claimed) {
+          const { data: current, error } = await ownedJobQuery(
+            db.from('custom_object_report_export_job').select('*'),
+          ).eq('id', job.id).single();
+          throwDb(error);
+          return current;
+        }
+        const result = await executeReport(objectId, job.definition, {
+          page, pageSize: job.chunk_size, exportCursor: job.cursor_value,
+          includeTotal: page === 1,
+        });
+        const csv = (page === 1
+          ? CSV_BOM + result.columns.map((column) => escapeCsvCell(column.label)).join(',') + CSV_ROW_SEPARATOR
+          : '')
+          + result.data.map((row) => row.values.map(escapeCsvCell).join(',')).join(CSV_ROW_SEPARATOR)
+          + (result.data.length ? CSV_ROW_SEPARATOR : '');
+        const processed = (job.processed || 0) + result.data.length;
+        const total = result.total ?? job.total ?? 0;
+        const complete = !result.has_more;
+        const { data: updated, error } = await db.rpc('custom_object_report_export_commit', {
+          p_tenant_id: tenantId,
+          p_custom_object_id: objectId,
+          p_job_id: job.id,
+          p_claim_token: claimToken,
+          p_chunk_index: page - 1,
+          p_row_count: result.data.length,
+          p_csv_text: csv,
+          p_processed: processed,
+          p_total: total,
+          p_cursor_value: result.next_cursor,
+          p_complete: complete,
+          p_now: now(),
+        }).single();
+        throwDb(error);
+        if (!updated) throw new CustomObjectHttpError(409, 'Report export chunk claim expired');
+        return updated;
+      } catch (error) {
+        await db.from('custom_object_report_export_job').update({
+          status: 'failed', error_message: error.message || 'Report export failed', updated_at: now(),
+        }).eq('tenant_id', tenantId).eq('custom_object_id', objectId)
+          .eq('id', job.id).eq('claim_token', claimToken);
+        throw error;
+      }
+    }
+    if (action !== 'start') throw new CustomObjectHttpError(400, 'Unknown report export action');
+    const definition = body.definition ?? body;
+    const validated = await validateReportDefinition(objectId, definition);
+    const title = String(body.name || 'custom-object-report').trim()
+      .replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'custom-object-report';
+    const finalHop = validated.grain.hops.at(-1);
+    const occurrenceExport = finalHop
+      && validated.grain.hops.length === 1
+      && relationshipValueShape(finalHop.definition.cardinality, finalHop.fromSide) === 'many';
+    // Keep the pre-existing synchronous contract for unrelated complex report
+    // grains. The resumable path is deliberately limited to root rows and the
+    // Department-style one-hop occurrence grain this task hardens.
+    if (validated.version !== 2 && validated.grain.hops.length && !occurrenceExport) {
+      const result = await executeReport(objectId, definition);
+      return {
+        ...result,
+        filename: `${title}.csv`,
+        csv: CSV_BOM + [
+          result.columns.map((column) => escapeCsvCell(column.label)).join(','),
+          ...result.data.map((row) => row.values.map(escapeCsvCell).join(',')),
+        ].join(CSV_ROW_SEPARATOR) + CSV_ROW_SEPARATOR,
+        legacy_sync: true,
+      };
+    }
+    const { data, error } = await db.from('custom_object_report_export_job').insert({
+      tenant_id: tenantId, custom_object_id: objectId, definition,
+      filename: `${title}.csv`, status: 'queued', chunk_size: 500,
+      processed: 0, total: 0, next_page: 1, chunk_count: 0,
+      claim_token: null, cursor_value: null, error_message: null,
+      requested_by_member_id: context.memberId || null,
+      requested_by_tenant_user_id: context.tenantUserId || null,
+      created_at: now(), updated_at: now(),
+    }).select('*').single();
+    throwDb(error);
+    return data;
+  }
+
+  return {
+    listObjects, createObject, getObject, updateObject, listFields, createField,
+    updateField, listRecords, exportRecords, relationshipFilterOptions, createRecord, createRecordWithRelationships, writeTrustedPersistedRecord, normalizeTrustedPersistedRecordData, initialRelationshipCandidates, getRecord, updateRecord,
+    listRelationshipDefinitions, relationshipDefinitionGraph, createRelationshipDefinition,
+    updateRelationshipDefinition, entityPicker, listRelationships, createRelationship,
+    updateRelationship, archiveRelationship, listPermissions, upsertPermission, listFieldPermissions, upsertFieldPermission, listAudit,
+    listCoreRelationshipDefinitions, listCoreRelationships, coreEntityPicker,
+    getRelationshipPanelPreference, saveRelationshipPanelPreference,
+    createCoreRelationship, updateCoreRelationship, archiveCoreRelationship,
+    previewReport, exportReport, validateReportDefinition,
+  };
+}

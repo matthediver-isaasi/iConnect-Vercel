@@ -1,0 +1,325 @@
+# FormBuilder – Repeatable Rows with Row-Level Dependent Fields
+
+## Objective
+
+Enhance `/FormBuilder` so forms can collect **multiple rows of related data**, where the options available in one field are dynamically filtered by another field **within the same row**.
+
+This is particularly important where the data being selected has relationships, such as:
+
+* Organisation → Department
+* Organisation → Branch
+* Country → Region
+* Event → Session
+* Qualification → Course
+* Employer → Job Role
+
+The existing FormBuilder already supports conditional logic and dynamic filtering. The new requirement is to make this work correctly inside a **repeatable table/grid structure**.
+
+---
+
+## Example Use Case
+
+We may ask a member to provide details of the organisations they work for.
+
+The form could contain a repeatable section such as:
+
+| Organisation  | Department   | Job Title  |
+| ------------- | ------------ | ---------- |
+| Org A         | Department 1 | Manager    |
+| Org B         | Department 7 | Consultant |
+| + Add another |              |            |
+
+### Expected behaviour
+
+When the user selects:
+
+**Organisation = Org A**
+
+the **Department** dropdown on that row should only display departments related to **Org A**.
+
+For example:
+
+* Finance
+* Marketing
+* Operations
+
+If the member clicks **Add another** and creates a second row:
+
+**Organisation = Org B**
+
+the Department dropdown on the second row should independently display only departments related to **Org B**.
+
+For example:
+
+* Research
+* Clinical Services
+* Education
+
+Changing the organisation on Row 2 must have no effect on the department options available on Row 1.
+
+---
+
+# Core Requirement
+
+FormBuilder needs to support a new concept of a:
+
+## Repeatable Data Row / Repeatable Grid
+
+The form administrator should be able to define a set of fields that the respondent can repeat zero, one or multiple times.
+
+For example:
+
+**Employment History**
+
+Fields:
+
+1. Organisation
+2. Department
+3. Job Title
+4. Start Date
+5. End Date
+
+The member can then use:
+
+**+ Add another organisation**
+
+to create another complete row/set of those fields.
+
+---
+
+# Row-Level Dynamic Filtering
+
+Fields within a repeatable row must be able to reference the value of another field **in the same row**.
+
+For example:
+
+### Organisation field
+
+Data source:
+
+`Organisations`
+
+### Department field
+
+Data source:
+
+`Departments`
+
+Filter:
+
+`Departments.organisation_id = [Organisation selected in this row]`
+
+This is different from ordinary form-level conditional logic.
+
+The relationship must be scoped to the individual repeated row.
+
+Conceptually:
+
+`CurrentRow.Department.organisation_id = CurrentRow.Organisation.id`
+
+and **not**:
+
+`Department.organisation_id = some organisation selected elsewhere on the form`
+
+---
+
+# Example
+
+Assume the underlying data is:
+
+### Organisations
+
+| ID | Organisation |
+| -- | ------------ |
+| 1  | Org A        |
+| 2  | Org B        |
+
+### Departments
+
+| ID | Department | Organisation ID |
+| -- | ---------- | --------------- |
+| 10 | Finance    | 1               |
+| 11 | Marketing  | 1               |
+| 12 | Operations | 1               |
+| 20 | Research   | 2               |
+| 21 | Clinical   | 2               |
+| 22 | Education  | 2               |
+
+If the respondent creates:
+
+### Row 1
+
+Organisation:
+
+`Org A`
+
+Department dropdown must contain:
+
+* Finance
+* Marketing
+* Operations
+
+### Row 2
+
+Organisation:
+
+`Org B`
+
+Department dropdown must contain:
+
+* Research
+* Clinical
+* Education
+
+Each row maintains its own state and filtering.
+
+---
+
+# Changing a Parent Value
+
+If the user changes:
+
+`Org A → Org B`
+
+within an existing row, the system must immediately refresh the Department field for **that row only**.
+
+If the currently selected department is no longer valid for the new organisation, it should be cleared automatically.
+
+For example:
+
+Organisation:
+
+`Org A`
+
+Department:
+
+`Finance`
+
+User changes Organisation to:
+
+`Org B`
+
+The existing `Finance` selection must be cleared because Finance does not belong to Org B.
+
+The Department dropdown should then reload the valid Org B departments.
+
+---
+
+# FormBuilder Configuration
+
+Within the FormBuilder admin UI, we should be able to create a repeatable row/section and add normal FormBuilder fields to it.
+
+The existing field types should be reused wherever possible, including:
+
+* Text
+* Number
+* Date
+* Dropdown
+* Radio
+* Checkbox
+* Lookup/data field
+* Dynamic data field
+
+The important enhancement is that dynamic filters can reference:
+
+**Another field in the current repeatable row.**
+
+For example, when configuring the Department field:
+
+**Data source**
+
+`Departments`
+
+**Filter field**
+
+`organisation_id`
+
+**Filter value**
+
+`Current Row → Organisation → ID`
+
+The UI should make this understandable to administrators rather than requiring them to write expressions manually.
+
+---
+
+# Adding and Removing Rows
+
+The rendered form should support:
+
+`+ Add another`
+
+and a remove/delete control against each additional row.
+
+FormBuilder should allow the administrator to configure:
+
+* Minimum number of rows
+* Maximum number of rows
+* Whether the first row is mandatory
+* Add-row button label
+
+For example:
+
+`+ Add another employer`
+
+or:
+
+`+ Add another organisation`
+
+---
+
+# Data Storage
+
+Each repeated row must be stored as an independent structured record.
+
+For example:
+
+```json
+[
+  {
+    "organisation_id": 1,
+    "department_id": 10,
+    "job_title": "Manager"
+  },
+  {
+    "organisation_id": 2,
+    "department_id": 21,
+    "job_title": "Consultant"
+  }
+]
+```
+
+Do not flatten repeated values into unrelated arrays, as the relationship between fields within each row must be preserved.
+
+---
+
+# Validation
+
+Validation must operate at row level.
+
+For example, if Organisation and Department are mandatory:
+
+Row 1 cannot be submitted with:
+
+`Organisation = Org A`
+
+and:
+
+`Department = blank`
+
+However, an entirely unused optional row should not generate validation errors.
+
+---
+
+# Important Architectural Principle
+
+This should not be implemented specifically for **Organisation → Department**.
+
+That is simply the initial use case.
+
+The functionality should be generic so that any lookup/data field within a repeatable row can filter another field based on relationships within the data.
+
+The reusable feature we are trying to create is:
+
+> **Repeatable form rows containing dynamic lookup fields with dependencies scoped to the current row.**
+
+This allows FormBuilder to support much more sophisticated relational data collection without building bespoke forms for individual tenants.

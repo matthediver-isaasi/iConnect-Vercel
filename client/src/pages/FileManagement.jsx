@@ -9,15 +9,39 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Progress } from "@/components/ui/progress";
 import { Upload, FileText, Image, Video, File, Trash2, Search, X, Copy, ExternalLink, Folder, FolderOpen, FolderPlus, MoveHorizontal, ChevronRight, Home, GripVertical, Pencil, ChevronDown, ChevronLeft, Loader2 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { throwUploadHttpError, showUploadErrorToast, isPlanQuotaError } from "@/lib/planQuotaError";
+import StorageUsageBanner from "@/components/StorageUsageBanner";
+
+const DEFAULT_RESOURCE_MAX_MB = 25;
 
 export default function FileManagementPage() {
-  const { isAdmin, memberInfo, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, memberInfo, isAccessReady } = useMemberAccess();
+  const maxUploadMbQuery = useQuery({
+    queryKey: ["system-setting", "resource_max_upload_mb"],
+    queryFn: async () => {
+      try {
+        const list = await base44.entities.SystemSettings.filter({
+          setting_key: "resource_max_upload_mb",
+        });
+        const setting = Array.isArray(list) && list.length > 0 ? list[0] : null;
+        const num = setting ? Number(setting.setting_value) : NaN;
+        return Number.isFinite(num) && num > 0 ? num : DEFAULT_RESOURCE_MAX_MB;
+      } catch {
+        return DEFAULT_RESOURCE_MAX_MB;
+      }
+    },
+  });
+  const maxUploadMb = maxUploadMbQuery.data ?? DEFAULT_RESOURCE_MAX_MB;
+  const MAX_FILE_SIZE = maxUploadMb * 1024 * 1024;
   const [uploadingFile, setUploadingFile] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 });
   const [editingFile, setEditingFile] = useState(null);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -48,7 +72,7 @@ export default function FileManagementPage() {
 
   const { data: files = [], isLoading } = useQuery({
     queryKey: ['file-repository'],
-    queryFn: () => base44.entities.FileRepository.list('-created_date'),
+    queryFn: () => base44.entities.FileRepository.list(),
     staleTime: 0,
     refetchOnMount: true,
   });
@@ -186,7 +210,7 @@ export default function FileManagementPage() {
     mutationFn: (id) => base44.entities.FileRepository.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['file-repository'] });
-      toast.success('File deleted successfully');
+      toast.success('File deleted from the repository and vault');
     },
     onError: (error) => {
       toast.error('Failed to delete file: ' + error.message);
@@ -378,37 +402,146 @@ export default function FileManagementPage() {
     setDraggedFiles([]);
   };
 
-  const handleFileUpload = async (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  const uploadSingleFile = async (file) => {
+    // Step 1: Get signed upload URL from tenant-scoped storage API
+    const signedUrlResponse = await fetch('/api/storage/signed-upload-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        fileName: file.name,
+        fileSize: file.size,
+        mimeType: file.type,
+        type: 'upload',
+        isPrivate: false
+      })
+    });
 
-    setUploadingFile(true);
-    try {
-      const { file_url } = await base44.integrations.Core.UploadFile({ file });
+    if (!signedUrlResponse.ok) {
+      await throwUploadHttpError(signedUrlResponse, 'Failed to get upload URL');
+    }
 
-      let fileType = "other";
-      if (file.type.startsWith("image/")) fileType = "image";
-      else if (file.type.startsWith("video/")) fileType = "video";
-      else if (file.type.includes("pdf") || file.type.includes("document")) fileType = "document";
+    const { signedUrl, fileUrl, path, bucket } = await signedUrlResponse.json();
 
-      await base44.entities.FileRepository.create({
-        file_name: file.name,
-        file_url: file_url,
-        file_type: fileType,
-        mime_type: file.type,
-        file_size: file.size,
-        uploaded_by: memberInfo?.email || "unknown",
-        folder_id: selectedFolder
+    // Step 2: Upload file directly to Supabase with progress tracking
+    await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+          const percentComplete = Math.round((e.loaded / e.total) * 100);
+          setUploadProgress(percentComplete);
+        }
       });
 
-      queryClient.invalidateQueries({ queryKey: ['file-repository'] });
-      toast.success('File uploaded successfully');
+      xhr.addEventListener('load', () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve();
+        } else {
+          reject(new Error(`Upload failed with status ${xhr.status}`));
+        }
+      });
+
+      xhr.addEventListener('error', () => reject(new Error('Upload failed')));
+      xhr.addEventListener('abort', () => reject(new Error('Upload aborted')));
+
+      xhr.open('PUT', signedUrl);
+      xhr.setRequestHeader('Content-Type', file.type);
+      xhr.setRequestHeader('x-upsert', 'true');
+      xhr.send(file);
+    });
+
+    // Step 3: Create file repository record with tenant-scoped path
+    let fileType = "other";
+    if (file.type.startsWith("image/")) fileType = "image";
+    else if (file.type.startsWith("video/")) fileType = "video";
+    else if (file.type.includes("pdf") || file.type.includes("document")) fileType = "document";
+
+    await base44.entities.FileRepository.create({
+      file_name: file.name,
+      file_url: fileUrl,
+      file_type: fileType,
+      mime_type: file.type,
+      file_size: file.size,
+      uploaded_by: memberInfo?.email || "unknown",
+      folder_id: selectedFolder,
+      storage_path: path,
+      bucket: bucket
+    });
+  };
+
+  const handleFileUpload = async (event) => {
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0) return;
+
+    // Split out files exceeding the max size limit; they are skipped.
+    const oversized = files.filter((file) => file.size > MAX_FILE_SIZE);
+    const validFiles = files.filter((file) => file.size <= MAX_FILE_SIZE);
+
+    oversized.forEach((file) => {
+      toast.error(`"${file.name}" exceeds the maximum allowed size of ${maxUploadMb}MB (it is ${(file.size / (1024 * 1024)).toFixed(1)}MB). Skipped.`);
+    });
+
+    if (validFiles.length === 0) {
       event.target.value = '';
-    } catch (error) {
-      toast.error('Failed to upload file: ' + error.message);
-    } finally {
-      setUploadingFile(false);
+      return;
     }
+
+    setUploadingFile(true);
+    setUploadProgress(0);
+    setBatchProgress({ current: 0, total: validFiles.length });
+
+    const succeeded = [];
+    const failed = [];
+    let quotaHit = false;
+
+    for (let i = 0; i < validFiles.length; i++) {
+      const file = validFiles[i];
+      setBatchProgress({ current: i + 1, total: validFiles.length });
+      setUploadProgress(0);
+
+      try {
+        await uploadSingleFile(file);
+        succeeded.push(file.name);
+      } catch (error) {
+        failed.push({ name: file.name, error });
+        // A plan quota error means all subsequent uploads will also fail;
+        // stop the batch and surface the upgrade prompt.
+        if (isPlanQuotaError(error)) {
+          quotaHit = true;
+          break;
+        }
+      }
+    }
+
+    if (succeeded.length > 0) {
+      queryClient.invalidateQueries({ queryKey: ['file-repository'] });
+    }
+
+    if (quotaHit) {
+      // Surface the friendly upgrade prompt from the quota error.
+      const quotaError = failed.find((f) => isPlanQuotaError(f.error));
+      showUploadErrorToast(quotaError.error, 'Failed to upload file');
+      if (succeeded.length > 0) {
+        toast.success(`${succeeded.length} file${succeeded.length === 1 ? '' : 's'} uploaded before reaching your storage limit.`);
+      }
+    } else if (failed.length === 0) {
+      toast.success(
+        succeeded.length === 1
+          ? 'File uploaded successfully'
+          : `${succeeded.length} files uploaded successfully`
+      );
+    } else if (succeeded.length === 0) {
+      toast.error(`Failed to upload ${failed.length} file${failed.length === 1 ? '' : 's'}: ${failed.map((f) => f.name).join(', ')}`);
+    } else {
+      toast.success(`${succeeded.length} file${succeeded.length === 1 ? '' : 's'} uploaded successfully.`);
+      toast.error(`${failed.length} file${failed.length === 1 ? '' : 's'} failed: ${failed.map((f) => f.name).join(', ')}`);
+    }
+
+    setUploadingFile(false);
+    setUploadProgress(0);
+    setBatchProgress({ current: 0, total: 0 });
+    event.target.value = '';
   };
 
   const handleEdit = (file) => {
@@ -706,9 +839,9 @@ export default function FileManagementPage() {
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   };
 
-  if (!isAdmin) {
+  if (isFeatureExcluded('content.files')) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <Card className="border-red-200">
           <CardContent className="p-8 text-center">
             <p className="text-red-600">You need administrator privileges to access this page.</p>
@@ -719,7 +852,7 @@ export default function FileManagementPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-8">
           <div>
@@ -730,7 +863,7 @@ export default function FileManagementPage() {
               Upload and manage files • Drag files to folders
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
             <Button onClick={handleCreateFolder} variant="outline" className="border-blue-600 text-blue-600 hover:bg-blue-50">
               <FolderPlus className="w-4 h-4 mr-2" />
               {selectedFolder ? 'New Subfolder' : 'New Folder'}
@@ -739,19 +872,41 @@ export default function FileManagementPage() {
               type="file"
               id="file-upload"
               className="hidden"
+              multiple
               onChange={handleFileUpload}
               disabled={uploadingFile}
+              data-testid="input-file-upload"
             />
             <Button
               onClick={() => document.getElementById('file-upload')?.click()}
               disabled={uploadingFile}
               className="bg-blue-600 hover:bg-blue-700"
+              data-testid="button-upload-files"
             >
               <Upload className="w-4 h-4 mr-2" />
-              {uploadingFile ? 'Uploading...' : 'Upload File'}
+              {uploadingFile ? 'Uploading...' : `Upload Files (max ${maxUploadMb}MB each)`}
             </Button>
           </div>
         </div>
+
+        <div className="mb-6">
+          <StorageUsageBanner />
+        </div>
+
+        {/* Upload Progress Bar */}
+        {uploadingFile && (
+          <div className="mb-6" data-testid="upload-progress">
+            <div className="flex items-center gap-3 mb-2">
+              <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+              <span className="text-sm text-slate-600" data-testid="text-upload-progress">
+                {batchProgress.total > 1
+                  ? `Uploading ${batchProgress.current} of ${batchProgress.total}... ${uploadProgress}%`
+                  : `Uploading... ${uploadProgress}%`}
+              </span>
+            </div>
+            <Progress value={uploadProgress} className="h-2" />
+          </div>
+        )}
 
         {/* Bulk Move Mode Banner */}
         {bulkMoveMode && (
@@ -1082,9 +1237,13 @@ export default function FileManagementPage() {
                         <Button
                           variant="outline"
                           size="sm"
+                          aria-label={`Delete ${file.file_name}`}
+                          disabled={deleteMutation.isPending}
                           onClick={(e) => {
                             e.stopPropagation();
-                            deleteMutation.mutate(file.id);
+                            if (confirm(`Permanently delete "${file.file_name}" from the repository and vault? Links to this file will stop working, including links used on pages or in emails. Downloaded copies cannot be revoked.`)) {
+                              deleteMutation.mutate(file.id);
+                            }
                           }}
                           className="text-red-600 hover:text-red-700 hover:bg-red-50"
                         >

@@ -1,0 +1,39 @@
+[
+  {
+    "file": null,
+    "host": "db-lvmzliemqnieeoruhkik",
+    "metadata": [],
+    "parsed": [
+      {
+        "application_name": "postgrest",
+        "backend_type": "client backend",
+        "command_tag": "PARSE",
+        "connection_from": "::1:3285",
+        "context": null,
+        "database_name": "postgres",
+        "detail": null,
+        "error_severity": "ERROR",
+        "hint": null,
+        "internal_query": null,
+        "internal_query_pos": null,
+        "leader_pid": null,
+        "location": null,
+        "process_id": 7329,
+        "query": "WITH pgrst_source AS ( SELECT \"public\".\"member_preference_value\".\"field_id\", \"public\".\"member_preference_value\".\"value\", \"public\".\"member_preference_value\".\"tenant_id\", row_to_json(\"member_preference_value_preference_field_1\".*)::jsonb AS \"preference_field\" FROM \"public\".\"member_preference_value\" LEFT JOIN LATERAL ( SELECT \"preference_field_1\".\"id\", \"preference_field_1\".\"label\", \"preference_field_1\".\"name\" FROM \"public\".\"preference_field\" AS \"preference_field_1\" WHERE \"preference_field_1\".\"id\" = \"public\".\"member_preference_value\".\"field_id\"   LIMIT $1 OFFSET $2 ) AS \"member_preference_value_preference_field_1\" ON TRUE WHERE  \"public\".\"member_preference_value\".\"member_id\" = $3 AND  \"public\".\"member_preference_value\".\"tenant_id\" = $4   LIMIT $5 OFFSET $6 )  SELECT null::bigint AS total_result_set, pg_catalog.count(_postgrest_t) AS page_total, coalesce(json_agg(_postgrest_t), '[]') AS body, nullif(current_setting('response.headers', true), '') AS response_headers, nullif(current_setting('response.status', true), '') AS response_status, '' AS response_inserted FROM ( SELECT * FROM pgrst_source ) _postgrest_t",
+        "query_id": 0,
+        "query_pos": 122,
+        "session_id": "69e63e20.1ca1",
+        "session_line_num": 5,
+        "session_start_time": "2026-04-20 14:54:24 UTC",
+        "sql_state_code": "42703",
+        "timestamp": "2026-04-20 15:08:08.963 UTC",
+        "transaction_id": 0,
+        "user_name": "authenticator",
+        "virtual_transaction_id": "15/1774"
+      }
+    ],
+    "parsed_from": null,
+    "project": null,
+    "source_type": null
+  }
+]

@@ -1,0 +1,38 @@
+index-CweNThTa.js:1301 [publicClient] Detected tenant from subdomain: gsf
+index-CweNThTa.js:1386 GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.93.3) 2026-04-08T15:11:54.093Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+cC @ index-CweNThTa.js:1386
+index-CweNThTa.js:1690 [usePendingPurchaseOrders] memberInfo: null
+index-CweNThTa.js:1690 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CweNThTa.js:1694 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CweNThTa.js:1694 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CweNThTa.js:1690 [usePendingPurchaseOrders] memberInfo: Object
+index-CweNThTa.js:1690 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CweNThTa.js:1694 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CweNThTa.js:1694 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CweNThTa.js:1690 [usePendingPurchaseOrders] Query running, memberInfo.id: 49f0b578-2e2f-46f8-a151-2c4c08cc570c
+index-CweNThTa.js:1690 [usePendingPurchaseOrders] memberInfo: Object
+index-CweNThTa.js:1690 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CweNThTa.js:1694 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CweNThTa.js:1694 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CweNThTa.js:1690 [usePendingPurchaseOrders] memberInfo: Object
+index-CweNThTa.js:1690 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CweNThTa.js:1694 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CweNThTa.js:1694 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CweNThTa.js:1690 [usePendingPurchaseOrders] memberInfo: Object
+index-CweNThTa.js:1690 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CweNThTa.js:1694 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CweNThTa.js:1694 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-CweNThTa.js:40 ReferenceError: Cannot access 'Ae' before initialization
+    at jwe (index-CweNThTa.js:2761:201873)
+    at L7 (index-CweNThTa.js:38:17050)
+    at Cue (index-CweNThTa.js:40:44191)
+    at Nue (index-CweNThTa.js:40:39894)
+    at oMe (index-CweNThTa.js:40:39817)
+    at BA (index-CweNThTa.js:40:39666)
+    at D6 (index-CweNThTa.js:40:36022)
+    at rQ (index-CweNThTa.js:40:36827)
+    at ab (index-CweNThTa.js:38:3292)
+    at index-CweNThTa.js:40:34339
+N6 @ index-CweNThTa.js:40
+index-CweNThTa.js:1690 [usePendingPurchaseOrders] Fetched bookings count: 2
+index-CweNThTa.js:1690 [usePendingPurchaseOrders] Pending PO bookings: 0

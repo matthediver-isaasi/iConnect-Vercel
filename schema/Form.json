@@ -1,69 +1,556 @@
 {
-    "name": "Form",
-    "type": "object",
-    "properties": {
-      "name": {
-        "type": "string",
-        "description": "Form name"
-      },
-      "description": {
-        "type": "string",
-        "description": "Form description"
-      },
-      "slug": {
-        "type": "string",
-        "description": "URL-friendly identifier for the form"
-      },
-      "layout_type": {
-        "type": "string",
-        "enum": [
-          "standard",
-          "card_swipe"
-        ],
-        "default": "standard",
-        "description": "Form layout: standard (all fields at once) or card_swipe (one field per card)"
-      },
-      "fields": {
-        "type": "array",
-        "items": {
-          "type": "object"
-        },
-        "default": [],
-        "description": "Array of form field definitions"
-      },
-      "submit_button_text": {
-        "type": "string",
-        "default": "Submit",
-        "description": "Text for the submit button"
-      },
-      "success_message": {
-        "type": "string",
-        "default": "Thank you for your submission!",
-        "description": "Message shown after successful submission"
-      },
-      "redirect_url": {
-        "type": "string",
-        "description": "Optional URL to redirect to after submission"
-      },
-      "require_authentication": {
-        "type": "boolean",
-        "default": false,
-        "description": "Whether users must be logged in to submit"
-      },
-      "is_active": {
-        "type": "boolean",
-        "default": true,
-        "description": "Whether the form is currently active"
-      },
-      "submission_count": {
-        "type": "number",
-        "default": 0,
-        "description": "Number of submissions received"
-      }
+  "name": "Form",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Form name"
     },
-    "required": [
-      "name",
-      "slug",
-      "layout_type"
-    ]
+    "description": {
+      "type": "string",
+      "description": "Form description"
+    },
+    "slug": {
+      "type": "string",
+      "description": "URL-friendly identifier for the form"
+    },
+    "layout_type": {
+      "type": "string",
+      "enum": [
+        "standard",
+        "card_swipe"
+      ],
+      "default": "standard",
+      "description": "Form layout: standard (all fields at once) or card_swipe (one field per card)"
+    },
+    "form_width": {
+      "type": "string",
+      "enum": [
+        "narrow",
+        "medium",
+        "wide"
+      ],
+      "default": "narrow",
+      "description": "Maximum content width preset: narrow (48rem), medium (64rem), or wide (80rem)"
+    },
+    "fields": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      },
+      "default": [],
+      "description": "Array of form field definitions. Each field is an object keyed by an `id` with a `type` and `label`. Relationship dropdown fields may set `selection_mode` to `multiple`; missing or `single` retains the legacy scalar dropdown. Boolean fields additionally support `default_value` (boolean), `flag_on_checkin` (boolean \u2014 when true and the form is event-linked, a truthy answer surfaces a warning on the QR check-in screen, check-in dashboard, and registration report), `flag_label` (string \u2014 the warning text shown to check-in staff; falls back to the field label when blank) and `flag_color` (string \u2014 one of `default`/`red`/`orange`/`green`/`blue`/`purple`/`pink`/`slate`; colours the flag banner/badge so check-in staff can tell different requirements apart; defaults to the amber warning colour)."
+    },
+    "submit_button_text": {
+      "type": "string",
+      "default": "Submit",
+      "description": "Text for the submit button"
+    },
+    "success_message": {
+      "type": "string",
+      "default": "Thank you for your submission!",
+      "description": "Message shown after successful submission"
+    },
+    "redirect_url": {
+      "type": "string",
+      "description": "Optional URL to redirect to after submission"
+    },
+    "require_authentication": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether users must be logged in to submit"
+    },
+    "access_policy": {
+      "type": "object",
+      "description": "Optional versioned audience policy. Version 1 stores group_rules (each with a tenant member-group id and optional canonical role_names), tenant RBAC role ids, and an 'and'/'or' operator between the group and RBAC dimensions. Missing, null, or empty policies are unrestricted."
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether the form is currently active"
+    },
+    "deactivate_at": {
+      "type": "string",
+      "description": "Optional scheduled deactivation timestamp (UTC ISO string). When set and in the past, the public form stops being served even while is_active is true. Null/empty means no scheduled deactivation."
+    },
+    "deactivate_timezone": {
+      "type": "string",
+      "description": "IANA timezone (e.g. Europe/London) used to display and interpret deactivate_at in the FormBuilder picker."
+    },
+    "is_event_related": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether this form is related to an event. When true, related_event_id points at the linked event and submissions carry that event reference."
+    },
+    "allow_save_continue_later": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether the public form offers the 'Save & Continue Later' button (save progress and get a resume link). Defaults to true so existing forms keep current behaviour; set false to hide the button while normal submission still works. Treat a missing value as true."
+    },
+    "related_event_id": {
+      "type": "string",
+      "description": "The single event this form is related to (Event id). Only meaningful when is_event_related is true."
+    },
+    "submission_count": {
+      "type": "number",
+      "default": 0,
+      "description": "Number of submissions received"
+    },
+    "owners": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "description": "Array of member IDs who own this form. Owners get a scoped 'My Forms' tab on the FormSubmissions page showing only submissions for forms they own. Defaults to an empty list."
+    },
+    "is_application_form": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether this is an application form that requires uniqueness validation"
+    },
+    "is_job_posting": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether this form is a job-posting application form. When true it appears in the member-group vacancy form picker so a vacancy can collect applications through it. For member pre-fill to populate, set prefill_source to 'member'."
+    },
+    "application_level": {
+      "type": "string",
+      "enum": [
+        "member",
+        "organization"
+      ],
+      "description": "For application forms: whether to check uniqueness at member or organization level"
+    },
+    "uniqueness_checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "field_id": {
+            "type": "string",
+            "description": "The ID of the field to check for uniqueness"
+          },
+          "check_mode": {
+            "type": "string",
+            "enum": [
+              "full",
+              "domain_only"
+            ],
+            "default": "full",
+            "description": "For email fields: full = entire email, domain_only = just the domain part"
+          }
+        }
+      },
+      "default": [],
+      "description": "Array of field IDs that must be unique in existing submissions or database records"
+    },
+    "auto_create_entity": {
+      "type": "boolean",
+      "default": false,
+      "description": "For application forms: automatically create member/organization on submission (vs require admin approval)"
+    },
+    "field_mappings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "source_field_id": {
+            "type": "string",
+            "description": "ID of the form field to map from"
+          },
+          "ignore_if_hidden": {
+            "type": "boolean",
+            "default": false,
+            "description": "When true, skip this source-field mapping if persisted form rules hide the source field for the submission."
+          },
+          "target_type": {
+            "type": "string",
+            "enum": [
+              "core",
+              "custom",
+              "resource_category",
+              "crm_note"
+            ],
+            "description": "Whether mapping to a core field, custom preference field, an explicit member resource category, or CRM Notes. CRM Notes use target_field 'notes' and are valid only inside member and organisation pipelines."
+          },
+          "target_entity": {
+            "type": "string",
+            "enum": [
+              "member",
+              "organization"
+            ],
+            "description": "Target entity type. For entity_pipelines this is normalized to and must match the enclosing member or organization pipeline."
+          },
+          "target_field": {
+            "type": "string",
+            "description": "Name of core field or ID of custom field"
+          },
+          "transformation": {
+            "type": "string",
+            "enum": [
+              "none",
+              "trim",
+              "uppercase",
+              "lowercase",
+              "titlecase",
+              "extract_domain",
+              "extract_username",
+              "first_word",
+              "last_word",
+              "remove_spaces",
+              "numbers_only"
+            ],
+            "default": "none",
+            "description": "Transformation to apply to the value"
+          },
+          "fallback_group": {
+            "type": "object",
+            "properties": {
+              "version": { "type": "number", "enum": [1] },
+              "id": { "type": "string" }
+            },
+            "required": ["version", "id"],
+            "description": "Explicit opt-in ordered fallback group. Mappings sharing an id and destination resolve the first visible, non-empty source."
+          }
+        }
+      },
+      "default": [],
+      "description": "Array of field mappings for application forms"
+    },
+    "entity_pipelines": {
+      "type": "object",
+      "properties": {
+        "members": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "related_records": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/primaryPipelineRelatedRecord" }
+              }
+            }
+          }
+        },
+        "organisations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "related_records": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/primaryPipelineRelatedRecord" }
+              }
+            }
+          }
+        }
+      },
+      "description": "Legacy rich Member and Organisation pipelines. The primary pipeline may include related_records entries with stable id, relationship_definition_id, and source_field_id; each entry links the exact primary pipeline result to submitted record-reference selections after persistence. An absent not_listed_policy retains the legacy Related Records skip behaviour."
+    },
+    "structured_actions": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "enum": [1],
+          "description": "Structured Record Actions contract version"
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "label": { "type": "string" },
+              "source": {
+                "type": "object",
+                "properties": {
+                  "scope": {
+                    "type": "string",
+                    "enum": ["top_level", "repeatable_row"]
+                  },
+                  "repeatable_field_id": {
+                    "type": ["string", "null"]
+                  }
+                },
+                "required": ["scope"]
+              },
+              "target": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": ["member", "organization", "organization_group", "custom_object"]
+                  },
+                  "custom_object_id": {
+                    "type": ["string", "null"]
+                  }
+                },
+                "required": ["kind"]
+              },
+              "operation": {
+                "type": "string",
+                  "enum": ["create", "update_selected", "upsert", "link_relationship", "resolve_record_reference", "resolve_record_references"]
+              },
+               "reference_field_id": {
+                 "type": ["string", "null"],
+                 "description": "For resolve_record_reference, the exact compatible single-record picker in source scope; for resolve_record_references, the exact compatible multi-record picker."
+               },
+               "identity_mapping": {
+                 "type": ["object", "null"],
+                 "description": "Explicit mapping from the selected picker's Not-listed text to the target identity field.",
+                 "properties": {
+                   "id": { "type": "string" },
+                   "source_type": { "type": "string", "enum": ["not_listed_text"] },
+                   "source_field_id": { "type": "string" },
+                   "target_field_id": { "type": "string" },
+                   "target_type": { "type": "string", "enum": ["core", "custom"] }
+                 },
+                 "required": ["id", "source_type", "source_field_id", "target_field_id", "target_type"]
+               },
+               "companion_mappings": {
+                 "type": "array",
+                 "description": "Explicit same-scope companion values used only when the picker contains Not listed.",
+                 "items": {
+                   "type": "object",
+                   "properties": {
+                     "id": { "type": "string" },
+                     "source_field_id": { "type": "string" },
+                     "target_field_id": { "type": "string" },
+                     "target_type": { "type": "string", "enum": ["core", "custom"] }
+                   },
+                   "required": ["id", "source_field_id", "target_field_id", "target_type"]
+                 }
+               },
+               "not_listed_operation": {
+                 "type": "string",
+                 "enum": ["create", "upsert"],
+                 "description": "For resolve_record_reference, whether a Not-listed identity always creates a record or upserts a unique matching target."
+               },
+                "not_listed_policy": {
+                  "type": "string",
+                  "enum": ["include", "skip"],
+                  "description": "Whether a selected Not listed / Other value creates and links a record (include) or is intentionally skipped. Absent structured resolver policy remains include for backward compatibility."
+                },
+               "source_endpoint": {
+                 "type": "object",
+                 "description": "For link_relationship, the persisted relationship definition's canonical source endpoint and the submitted-field or earlier-action source of its record ID.",
+                 "properties": {
+                   "kind": { "type": "string", "enum": ["member", "organization", "organization_group", "custom_object"] },
+                   "custom_object_id": { "type": ["string", "null"] },
+                   "source": {
+                     "type": "object",
+                     "properties": {
+                       "type": { "type": "string", "enum": ["field", "action_output"] },
+                       "scope": { "type": ["string", "null"], "enum": ["form", "row", null] },
+                       "field_id": { "type": ["string", "null"] },
+                       "action_id": { "type": ["string", "null"] }
+                     },
+                     "required": ["type"]
+                   }
+                 },
+                 "required": ["kind", "source"]
+               },
+               "target_endpoint": {
+                 "type": "object",
+                 "description": "For link_relationship, the persisted relationship definition's canonical target endpoint and the submitted-field or earlier-action source of its record ID.",
+                 "properties": {
+                   "kind": { "type": "string", "enum": ["member", "organization", "organization_group", "custom_object"] },
+                   "custom_object_id": { "type": ["string", "null"] },
+                   "source": {
+                     "type": "object",
+                     "properties": {
+                       "type": { "type": "string", "enum": ["field", "action_output"] },
+                       "scope": { "type": ["string", "null"], "enum": ["form", "row", null] },
+                       "field_id": { "type": ["string", "null"] },
+                       "action_id": { "type": ["string", "null"] }
+                     },
+                     "required": ["type"]
+                   }
+                 },
+                 "required": ["kind", "source"]
+               },
+              "relationship_definition_id": {
+                "type": ["string", "null"]
+              },
+              "relationship_parent_field_id": {
+                "type": ["string", "null"],
+                "description": "For create/upsert relationship linking, the exact source-scope field containing the opposite endpoint record ID."
+              },
+               "organization_group_source": {
+                 "type": ["object", "null"],
+                 "description": "For Organisation record actions, the built-in parent Organisation Group source. This writes organization.organization_group_id and does not create a Data Studio relationship edge.",
+                 "properties": {
+                   "type": { "type": "string", "enum": ["field", "action_output"] },
+                   "scope": { "type": ["string", "null"], "enum": ["form", "row", null] },
+                   "field_id": { "type": ["string", "null"] },
+                   "action_id": { "type": ["string", "null"] }
+                 },
+                 "required": ["type"]
+               },
+              "selector_field_id": {
+                "type": ["string", "null"],
+                "description": "For update_selected, the exact relationship_dropdown form field ID in the selected source scope. Its saved relationship_definition_id must equal relationship_definition_id."
+              },
+              "uniqueness_field": {
+                "type": ["string", "null"]
+              },
+              "mappings": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "string" },
+                    "source_field_id": { "type": "string" },
+                    "target_field_id": { "type": "string" },
+                    "target_type": {
+                      "type": "string",
+                      "enum": ["core", "custom"]
+                    },
+                    "fallback_group": {
+                      "type": "object",
+                      "properties": {
+                        "version": { "type": "number", "enum": [1] },
+                        "id": { "type": "string" }
+                      },
+                      "required": ["version", "id"]
+                    }
+                  },
+                  "required": ["id", "source_field_id", "target_field_id", "target_type"]
+                }
+              }
+            },
+            "required": ["id", "source", "operation"],
+             "allOf": [{
+              "if": {
+                "properties": { "operation": { "const": "link_relationship" } },
+                "required": ["operation"]
+              },
+              "then": {
+                "required": ["relationship_definition_id", "source_endpoint", "target_endpoint"]
+               }
+             }, {
+               "if": {
+                 "properties": { "operation": { "enum": ["create", "update_selected", "upsert"] } },
+                 "required": ["operation"]
+               },
+               "then": {
+                 "required": ["target", "mappings"]
+               }
+             }, {
+               "if": {
+                  "properties": { "operation": { "enum": ["resolve_record_reference", "resolve_record_references"] } },
+                 "required": ["operation"]
+               },
+                "then": { "required": ["target", "reference_field_id"] }
+             }, {
+               "if": {
+                 "properties": { "operation": { "enum": ["resolve_record_reference", "resolve_record_references"] } },
+                 "required": ["operation"]
+               },
+               "then": {
+                 "if": {
+                   "properties": { "not_listed_policy": { "const": "skip" } },
+                   "required": ["not_listed_policy"]
+                 },
+                 "then": { "required": ["target", "reference_field_id"] },
+                 "else": {
+                   "required": ["target", "reference_field_id", "identity_mapping", "companion_mappings", "not_listed_operation"]
+                 }
+               }
+            }]
+          }
+        }
+      },
+      "required": ["version", "actions"],
+      "default": {
+        "version": 1,
+        "actions": []
+      },
+      "description": "Versioned Structured Record Actions. Each action runs against top-level answers or each row of one repeatable field and creates, updates, upserts, resolves one or several selected records, or links canonical endpoints. resolve_record_references fans out a compatible multi-picker with stable per-item retry identities; its canonical output collection can feed one side of link_relationship. Legacy entity_pipelines remain separate."
+    },
+    "form_type": {
+      "type": "string",
+      "enum": [
+        "standard",
+        "survey"
+      ],
+      "default": "standard",
+      "description": "Form behaviour type. 'survey' enables Score fields, survey settings, versioning and server-side scoring; 'standard' forms are unchanged."
+    },
+    "survey_settings": {
+      "type": "object",
+      "description": "Survey-only settings: status (draft/published/archived, separate from is_active), intro_text, thank_you_message, response_identity (identified/anonymous/anonymous_dedupe), one_submission_per_respondent, show_progress, show_question_numbers, score_display (weighted/unweighted), reporting_scale, anonymity_threshold (default 3), current_version, parent_form_id."
+    },
+    "survey_audit_log": {
+      "type": "array",
+      "description": "Append-only audit entries for survey lifecycle actions: {at, actor, action (create/edit/publish/version/archive), detail}."
+    }
+  },
+  "required": [
+    "name",
+    "slug",
+    "layout_type"
+  ],
+  "$defs": {
+    "primaryPipelineRelatedRecord": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "relationship_definition_id": { "type": ["string", "null"] },
+        "source_field_id": { "type": ["string", "null"] },
+        "not_listed_policy": {
+          "type": "string",
+          "enum": ["include", "skip"],
+          "description": "Whether a selected Not listed / Other value creates and links a target record or is intentionally skipped. Absent policy preserves legacy Related Records skip behaviour."
+        },
+        "not_listed_operation": {
+          "type": ["string", "null"],
+          "enum": ["create", "upsert", null],
+          "description": "For include policy, whether the entered identity always creates or reuses an existing target."
+        },
+        "uniqueness_field": {
+          "type": ["string", "null"],
+          "description": "For include/upsert, the identity target field used to resolve an existing record."
+        },
+        "identity_mapping": {
+          "type": ["object", "null"],
+          "properties": {
+            "id": { "type": "string" },
+            "source_type": { "type": "string", "enum": ["not_listed_text"] },
+            "source_field_id": { "type": "string" },
+            "target_field_id": { "type": "string" },
+            "target_type": { "type": "string", "enum": ["core", "custom"] }
+          },
+          "required": ["id", "source_type", "source_field_id", "target_field_id", "target_type"]
+        },
+        "companion_mappings": {
+          "type": "array",
+          "description": "Same-submission scalar mappings used only while including an entered Not listed / Other record.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "source_type": { "type": "string" },
+              "source_field_id": { "type": "string" },
+              "static_value": { "type": "string" },
+              "target_field_id": { "type": "string" },
+              "target_type": { "type": "string", "enum": ["core", "custom"] }
+            },
+            "required": ["id", "target_field_id", "target_type"]
+          }
+        }
+      },
+      "allOf": [{
+        "if": {
+          "properties": { "not_listed_policy": { "const": "include" } },
+          "required": ["not_listed_policy"]
+        },
+        "then": {
+          "required": ["identity_mapping", "companion_mappings", "not_listed_operation"]
+        }
+      }]
+    }
   }
+}

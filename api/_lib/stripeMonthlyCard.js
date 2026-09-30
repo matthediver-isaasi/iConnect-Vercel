@@ -1,0 +1,1852 @@
+import { monthlyCommitmentFields, monthlyInstalmentCount, monthlySnapshotCommitment, monthlyActivationSchedule } from './rollingMonthlyRenewal.js';
+// Task #3620 — Monthly membership payments by card via Stripe Subscriptions.
+//
+// Mirrors the GoCardless monthly DD plan model (api/_lib/gocardlessDirectDebit.js):
+//
+// Pure decision logic (exported for node --test):
+//   - resolveCardMonthlyOffer(simResult)   tier config -> monthly-card offer or null
+//   - buildCardAgreementSnapshot(...)      immutable terms snapshot at consent
+//   - graceDaysForCardAgreement(...)       snapshot grace days (metadata.card)
+//   - decideCardActivation(...)            activation rule -> activate?
+//   - cardPlanCompletionDecision(...)      instalment bookkeeping for one paid invoice
+//
+// Impure orchestration (deps-injectable { db, stripe } like the GC processor):
+//   - processStripeCardPlanEvent(...)      one Stripe subscription/invoice event
+//   - settleCardPlanCompletion(...)        plan done -> history row paid + workflow (once)
+//
+// Rules (identical to DD):
+//   - The agreement snapshot in membership_billing_agreements.metadata.card is
+//     written ONCE at consent and never recomputed. Later tier-config edits
+//     never change an in-flight agreement.
+//   - GC columns stay strictly GC; Stripe identifiers live in stripe_* columns
+//     and rows carry provider='stripe'.
+//   - Every supabase write's { error } is inspected.
+
+import { supabase } from './database.js';
+import { applyStatusTransition, STATUS } from './gocardlessState.js';
+import { randomUUID } from 'node:crypto';
+import {
+  toMinorUnits,
+  ACTIVATION_RULES,
+  MONTHLY_POST_GRACE_COLLECTION_POLICIES,
+  membershipHistoryTableForAgreement,
+} from './gocardlessDirectDebit.js';
+import {
+  computeGraceExpiry,
+  recoveryPlanUpdate,
+  clearAgreementArrearsFlag,
+  restoreArrearsRoleAssignments,
+} from './gocardlessArrears.js';
+import {
+  accrueFailedMonthlyPeriod,
+  failMonthlyCollectionIntent,
+  settleMonthlyArrears,
+  postSettledArrearsPeriods,
+  completeMonthlyCollectionIntent,
+} from './monthlyArrearsCollection.js';
+import { sendDdLifecycleEmail } from './gocardlessDdEmails.js';
+import { fireWorkflowForPaidRow } from './membershipPaymentReconciliation.js';
+import { isPerInstalmentAgreement, postStripeInstalmentInvoice } from './membershipInstalmentInvoicing.js';
+import { finalizeFormMonthlyCardCheckout } from './formMonthlyCardFinalize.js';
+import {
+  captureCheckoutBillingAddress,
+  hasStripeBillingAddressSnapshot,
+  stripeBillingAddressSnapshotFromMetadata,
+} from './stripeInvoiceAddress.js';
+import {
+  patchFormSubmissionPaymentMeta,
+  captureFormStripeBillingAddressOnce,
+} from './formStripeAddressMappingProcessing.js';
+
+export const CARD_PLAN_KIND = 'monthly_card';
+
+/** Finite Stripe Schedule duration derived only from immutable consent terms. */
+export function stripeScheduleDurationForCardSnapshot(snapshot) {
+  const instalmentCount = Number(snapshot?.instalment_count);
+  if (!Number.isInteger(instalmentCount) || instalmentCount < 1) {
+    throw new Error('card snapshot has invalid finite-plan terms');
+  }
+  return { interval: 'month', interval_count: instalmentCount };
+}
+
+function addUtcMonthsClamped(epochSeconds, months) {
+  const start = new Date(Number(epochSeconds) * 1000);
+  if (Number.isNaN(start.getTime())) throw new Error('Stripe subscription has no valid billing anchor');
+  const day = start.getUTCDate();
+  const result = new Date(start.getTime());
+  result.setUTCDate(1);
+  result.setUTCMonth(result.getUTCMonth() + months);
+  const lastDay = new Date(Date.UTC(
+    result.getUTCFullYear(),
+    result.getUTCMonth() + 1,
+    0,
+    result.getUTCHours(),
+    result.getUTCMinutes(),
+    result.getUTCSeconds(),
+  )).getUTCDate();
+  result.setUTCDate(Math.min(day, lastDay));
+  return Math.floor(result.getTime() / 1000);
+}
+
+function isFinitePlanBillingBoundary({ billingAnchor, candidate, instalmentCount }) {
+  for (let offset = 0; offset < instalmentCount; offset += 1) {
+    if (addUtcMonthsClamped(billingAnchor, offset) === candidate) return true;
+  }
+  return false;
+}
+
+/**
+ * Given a membership simulation result, decide whether a monthly card
+ * (Stripe subscription) option is available and what its terms are.
+ * Enabled independently of DD via membership_tier_config.card_monthly_enabled,
+ * but the monthly amount / instalment count / activation & grace terms are
+ * shared with the DD configuration (dd_monthly_amount etc.).
+ * Returns null when not offered (config disabled, no monthly amount, org-scoped).
+ */
+export function resolveCardMonthlyOffer(simResult) {
+  if (!simResult?.success) return null;
+  const config = simResult.config;
+  if (!config?.card_monthly_enabled) return null;
+
+  let monthlyAmount = null;
+  if ((config.pricing_model || 'tiered') === 'flat') {
+    monthlyAmount = config.dd_monthly_amount != null ? Number(config.dd_monthly_amount) : null;
+  } else {
+    const band = simResult.matchedBand;
+    monthlyAmount = band?.dd_monthly_amount != null ? Number(band.dd_monthly_amount) : null;
+  }
+  if (!Number.isFinite(monthlyAmount) || monthlyAmount <= 0) return null;
+
+  const instalmentCount = monthlyInstalmentCount(config);
+  const monthlyAmountMinor = toMinorUnits(monthlyAmount);
+  if (!monthlyAmountMinor) return null;
+
+  return {
+    monthlyAmount: parseFloat(monthlyAmount.toFixed(2)),
+    monthlyAmountMinor,
+    instalmentCount,
+    autoRenew: config.dd_auto_renew !== false,
+    planTotal: parseFloat(((monthlyAmountMinor * instalmentCount) / 100).toFixed(2)),
+    currency: simResult.currency || config.currency || 'GBP',
+    activationRule: ACTIVATION_RULES.includes(config.dd_activation_rule)
+      ? config.dd_activation_rule : 'first_payment',
+    graceDays: Number.isInteger(config.dd_grace_days) ? config.dd_grace_days : 7,
+    termsVersion: config.dd_terms_version || 'v1',
+    // Task #3633: shared with DD — 'annual' (default) or 'per_instalment'.
+    invoicingMode: config.dd_invoicing_mode === 'per_instalment' ? 'per_instalment' : 'annual',
+    monthlyPostGraceCollectionPolicy: MONTHLY_POST_GRACE_COLLECTION_POLICIES
+      .includes(config.monthly_post_grace_collection_policy)
+      ? config.monthly_post_grace_collection_policy : 'stop_collecting',
+  };
+}
+
+function toDateOnly(value) {
+  if (!value) return null;
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
+
+/**
+ * Immutable terms snapshot stored on the billing agreement at consent
+ * (membership_billing_agreements.metadata.card). Everything the webhook
+ * path later needs lives here.
+ */
+export function buildCardAgreementSnapshot({ offer, simResult, acceptedAt = new Date().toISOString() }) {
+  if (!offer) throw new Error('offer is required');
+  return {
+    kind: CARD_PLAN_KIND,
+    start_mode: simResult?.config?.start_mode || 'fixed_date',
+    commitment: monthlyCommitmentFields({ offer, simResult, paymentMethod: 'card_monthly' }),
+    auto_renew: offer.autoRenew,
+    monthly_amount: offer.monthlyAmount,
+    monthly_amount_minor: offer.monthlyAmountMinor,
+    instalment_count: offer.instalmentCount,
+    plan_total: offer.planTotal,
+    currency: offer.currency,
+    activation_rule: offer.activationRule,
+    grace_days: offer.graceDays,
+    terms_version: offer.termsVersion,
+    invoicing_mode: offer.invoicingMode === 'per_instalment' ? 'per_instalment' : 'annual',
+    monthly_post_grace_collection_policy: offer.monthlyPostGraceCollectionPolicy,
+    accepted_at: acceptedAt,
+    membership_year: simResult?.membershipYear?.label || null,
+    membership_year_start: simResult?.membershipYear?.start
+      ? toDateOnly(simResult.membershipYear.start).toISOString().slice(0, 10) : null,
+    config_id: simResult?.config?.id || null,
+    band_id: simResult?.matchedBand?.id || null,
+    tier_label: simResult?.tierLabel || null,
+    field_value: simResult?.fieldValue ?? null,
+    annual_cost: simResult?.annualCost ?? null,
+    final_cost: simResult?.finalCost ?? null,
+    vat_rate_percent: simResult?.vatRatePercent ?? null,
+    vat_amount: simResult?.vatAmount ?? 0,
+    total_with_vat: simResult?.totalWithVat ?? offer.planTotal,
+  };
+}
+
+export function isCardAgreement(agreement) {
+  return agreement?.provider === 'stripe' || agreement?.metadata?.card?.kind === CARD_PLAN_KIND;
+}
+
+/** Snapshot grace days — NEVER live config. Mirrors graceDaysForAgreement. */
+export function graceDaysForCardAgreement(agreement) {
+  const raw = agreement?.metadata?.card?.grace_days;
+  const n = Number(raw);
+  if (Number.isFinite(n) && n >= 0) return Math.min(Math.floor(n), 90);
+  return 7;
+}
+
+/**
+ * Activation semantics for card plans. There is no mandate; the closest
+ * analogue to 'mandate' is successful checkout completion (card captured).
+ *   - 'mandate':        activate at checkout completion (or first payment)
+ *   - 'first_payment':  activate when the first invoice is paid
+ *   - 'manual':         never auto-activate
+ */
+export function decideCardActivation({ activationRule, trigger }) {
+  if (activationRule === 'manual') return false;
+  if (activationRule === 'mandate') return trigger === 'checkout_complete' || trigger === 'first_payment_confirmed';
+  return trigger === 'first_payment_confirmed';
+}
+
+/**
+ * Pure instalment bookkeeping for one paid invoice.
+ * Returns { duplicate } or { duplicate: false, instalmentsPaid, complete, paidInvoiceIds }.
+ */
+/**
+ * True when a plan has counted all its instalments but has NOT been settled
+ * yet (no completed_at / EXPIRED status). This is the resumable window: the
+ * instalment counter committed but settlement (history paid + workflow +
+ * subscription cancel) failed afterwards, so a webhook retry or the reconcile
+ * cron must re-run settlement instead of treating the invoice as a duplicate.
+ */
+export function cardPlanNeedsSettlement(plan) {
+  const total = Number(plan?.instalments_total) || 0;
+  const paid = Number(plan?.instalments_paid) || 0;
+  if (!(total > 0 && paid >= total)) return false;
+  if (plan.completed_at) return false;
+  if (plan.status === STATUS.EXPIRED) return false;
+  return true;
+}
+
+export function cardPlanCompletionDecision({ plan, invoiceId, periodsSettled = 0 }) {
+  const paidIds = Array.isArray(plan?.metadata?.paid_invoice_ids) ? plan.metadata.paid_invoice_ids : [];
+  if (invoiceId && paidIds.includes(invoiceId)) return { duplicate: true };
+  const total = Number(plan?.instalments_total) || 0;
+  const instalmentsPaid = (Number(plan?.instalments_paid) || 0) + 1 + Math.max(0, Number(periodsSettled) || 0);
+  return {
+    duplicate: false,
+    instalmentsPaid,
+    complete: total > 0 && instalmentsPaid >= total,
+    paidInvoiceIds: invoiceId ? [...paidIds, invoiceId] : paidIds,
+  };
+}
+
+export function stripeInvoiceFailedDuePeriod(invoice) {
+  const lines = invoice?.lines?.data || [];
+  const starts = lines
+    // Our one-off arrears invoice item is not a recurring instalment period.
+    .filter((line) => !line?.metadata?.catch_up_intent_key)
+    .map((line) => Number(line?.period?.start))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  if (lines.length) return starts.length ? new Date(Math.min(...starts) * 1000).toISOString().slice(0, 10) : null;
+  // Invoice-level period_start is only meaningful for a known recurring
+  // subscription invoice when expanded line data was unavailable.
+  const recurring = ['subscription_cycle', 'subscription_create', 'subscription_update']
+    .includes(invoice?.billing_reason) || !!stripeInvoiceSubscriptionId(invoice);
+  const epoch = recurring ? Number(invoice?.period_start) : NaN;
+  return Number.isFinite(epoch) && epoch > 0
+    ? new Date(epoch * 1000).toISOString().slice(0, 10) : null;
+}
+
+export function validateStripeCatchUpInvoiceEconomics(invoice, intent) {
+  const arrears = Number(intent?.arrears_amount_minor);
+  const planned = Number(intent?.planned_amount_minor ?? intent?.amount_minor);
+  if (!Number.isInteger(arrears) || !Number.isInteger(planned) || planned < arrears) {
+    throw new Error('catch-up intent has invalid planned economics');
+  }
+  const lines = invoice?.lines?.data;
+  if (!Array.isArray(lines) || !invoice?.lines || invoice.lines.has_more) {
+    throw new Error('Stripe catch-up invoice lines are not fully expanded');
+  }
+  const catchUp = lines.filter((line) =>
+    line.metadata?.catch_up_intent_key === intent.intent_key
+    || line.invoice_item === intent.provider_reference || line.id === intent.provider_reference);
+  const recurring = lines.filter((line) => !catchUp.includes(line));
+  const sum = (items) => items.reduce((total, line) => total + (Number(line.amount) || 0), 0);
+  if (sum(catchUp) !== arrears) throw new Error('Stripe catch-up line amount mismatch');
+  if (sum(recurring) !== planned - arrears) throw new Error('Stripe recurring line amount mismatch');
+  if (Number(invoice.amount_paid) !== planned || Number(invoice.amount_remaining) !== 0) {
+    throw new Error('Stripe invoice is not fully cash-paid at planned amount');
+  }
+  if ((invoice.discounts?.length || 0) || (invoice.total_discount_amounts?.length || 0)
+    || (invoice.total_tax_amounts?.length || 0) || Number(invoice.tax || 0) !== 0
+    || Number(invoice.starting_balance || 0) !== 0 || Number(invoice.ending_balance || 0) !== 0
+    || Number(invoice.pre_payment_credit_notes_amount || 0) !== 0
+    || Number(invoice.post_payment_credit_notes_amount || 0) !== 0) {
+    throw new Error('Stripe catch-up invoice contains unvalidated credits, discounts, balance, or tax');
+  }
+  return { arrearsAmountMinor: arrears, recurringAmountMinor: planned - arrears };
+}
+
+const COMPLETION_WORKFLOW_LEASE_MS = 5 * 60 * 1000;
+
+async function claimCompletionWorkflow({ db, plan, agreement, historyTable }) {
+  const existing = plan.metadata?.workflow_pending || null;
+  const claimedAtMs = existing?.claimed_at ? new Date(existing.claimed_at).getTime() : 0;
+  if (existing?.status === 'processing'
+      && Number.isFinite(claimedAtMs)
+      && Date.now() - claimedAtMs < COMPLETION_WORKFLOW_LEASE_MS) {
+    return { claimed: false, pending: true };
+  }
+
+  const ownerToken = randomUUID();
+  const marker = {
+    status: 'processing',
+    owner_token: ownerToken,
+    claimed_at: new Date().toISOString(),
+    table: historyTable,
+    agreement_id: agreement.id,
+  };
+  let query = db
+    .from('membership_payment_plans')
+    .update({
+      metadata: { ...(plan.metadata || {}), workflow_pending: marker },
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', plan.id);
+  if (!existing) {
+    query = query.filter('metadata->workflow_pending', 'is', null);
+  } else if (existing.claimed_at) {
+    query = query.filter(
+      'metadata->workflow_pending->>claimed_at',
+      'eq',
+      existing.claimed_at,
+    );
+  } else {
+    // Adopt the marker written by releases before owner-token leases existed.
+    query = query.filter(
+      'metadata->workflow_pending->>agreement_id',
+      'eq',
+      existing.agreement_id || agreement.id,
+    );
+  }
+  const { data, error } = await query.select('*').maybeSingle();
+  if (error) throw new Error(`persist workflow marker failed: ${error.message}`);
+  if (!data) return { claimed: false, pending: true };
+  return {
+    claimed: true,
+    ownerToken,
+    reclaimed: !!existing,
+    plan: data,
+  };
+}
+
+async function reserveCompletionWorkflowDelivery({
+  db,
+  plan,
+  ownerToken,
+  historyTable,
+  historyRowId,
+}) {
+  const deliveryKey = `membership-paid:${historyTable}:${historyRowId}`;
+  const priorDelivery = plan.metadata?.workflow_delivery || null;
+  if (priorDelivery && priorDelivery.key !== deliveryKey) {
+    throw new Error(`workflow delivery key mismatch for payment plan ${plan.id}`);
+  }
+
+  // Renew ownership immediately before reserving the side effect. A worker
+  // whose lease was reclaimed while it was settling history fails this CAS and
+  // can never call triggerWorkflows.
+  const renewedMarker = {
+    ...(plan.metadata?.workflow_pending || {}),
+    claimed_at: new Date().toISOString(),
+  };
+  const { data: renewed, error: renewErr } = await db
+    .from('membership_payment_plans')
+    .update({
+      metadata: { ...(plan.metadata || {}), workflow_pending: renewedMarker },
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', plan.id)
+    .filter('metadata->workflow_pending->>owner_token', 'eq', ownerToken)
+    .select('*')
+    .maybeSingle();
+  if (renewErr) throw new Error(`renew workflow settlement lease failed: ${renewErr.message}`);
+  if (!renewed) return { owned: false, shouldDispatch: false, plan: null };
+  const renewedDelivery = renewed.metadata?.workflow_delivery || priorDelivery;
+  if (renewedDelivery?.key === deliveryKey) {
+    return {
+      owned: true,
+      shouldDispatch: renewedDelivery.status !== 'completed',
+      deliveryKey,
+      plan: renewed,
+    };
+  }
+
+  // Durable pending marker. The workflow engine accepts the same delivery key
+  // and owns retry/deduplication; this plan marker is only completed after that
+  // engine confirms dispatch.
+  const delivery = {
+    key: deliveryKey,
+    status: 'pending',
+    owner_token: ownerToken,
+    reserved_at: new Date().toISOString(),
+  };
+  const { data: reserved, error: reserveErr } = await db
+    .from('membership_payment_plans')
+    .update({
+      metadata: { ...(renewed.metadata || {}), workflow_delivery: delivery },
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', plan.id)
+    .filter('metadata->workflow_pending->>owner_token', 'eq', ownerToken)
+    .filter('metadata->workflow_delivery', 'is', null)
+    .select('*')
+    .maybeSingle();
+  if (reserveErr) throw new Error(`reserve workflow delivery failed: ${reserveErr.message}`);
+  if (!reserved) {
+    const { data: latest, error: latestErr } = await db
+      .from('membership_payment_plans')
+      .select('*')
+      .eq('id', plan.id)
+      .maybeSingle();
+    if (latestErr) throw new Error(`reload workflow delivery failed: ${latestErr.message}`);
+    if (latest?.metadata?.workflow_delivery?.key === deliveryKey) {
+      return {
+        owned: true,
+        shouldDispatch: latest.metadata.workflow_delivery.status !== 'completed',
+        deliveryKey,
+        plan: latest,
+      };
+    }
+    return { owned: false, shouldDispatch: false, plan: latest || null };
+  }
+  return {
+    owned: true,
+    shouldDispatch: true,
+    deliveryKey,
+    plan: reserved,
+  };
+}
+
+async function completeCompletionWorkflowDelivery({
+  db,
+  plan,
+  ownerToken,
+  deliveryKey,
+}) {
+  const completed = {
+    ...(plan.metadata?.workflow_delivery || {}),
+    key: deliveryKey,
+    status: 'completed',
+    completed_at: new Date().toISOString(),
+  };
+  const { data, error } = await db
+    .from('membership_payment_plans')
+    .update({
+      metadata: { ...(plan.metadata || {}), workflow_delivery: completed },
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', plan.id)
+    .filter('metadata->workflow_pending->>owner_token', 'eq', ownerToken)
+    .filter('metadata->workflow_delivery->>key', 'eq', deliveryKey)
+    .select('*')
+    .maybeSingle();
+  if (error) throw new Error(`complete workflow delivery failed: ${error.message}`);
+  if (!data) throw new Error('complete workflow delivery failed: settlement ownership was lost');
+  return data;
+}
+
+// ---------------------------------------------------------------------------
+// Impure orchestration
+// ---------------------------------------------------------------------------
+
+function defaultDeps(deps) {
+  return { db: deps.db || supabase, getStripe: deps.getStripe || null };
+}
+
+async function findCardAgreementById(db, agreementId, expectedTenantId = null) {
+  let query = db
+    .from('membership_billing_agreements')
+    .select('*')
+    .eq('id', agreementId);
+  if (expectedTenantId) query = query.eq('tenant_id', expectedTenantId);
+  const { data, error } = await query.maybeSingle();
+  if (error) throw new Error(`load agreement failed: ${error.message}`);
+  return data || null;
+}
+
+async function findCardAgreementByCheckoutSession(db, sessionId, expectedTenantId = null) {
+  let query = db
+    .from('membership_billing_agreements')
+    .select('*')
+    .eq('stripe_checkout_session_id', sessionId);
+  if (expectedTenantId) query = query.eq('tenant_id', expectedTenantId);
+  const { data, error } = await query.maybeSingle();
+  if (error) throw new Error(`load agreement by checkout session failed: ${error.message}`);
+  return data || null;
+}
+
+async function findCardPlanBySubscription(db, subscriptionId, expectedTenantId = null) {
+  let query = db
+    .from('membership_payment_plans')
+    .select('*')
+    .eq('stripe_subscription_id', subscriptionId);
+  if (expectedTenantId) query = query.eq('tenant_id', expectedTenantId);
+  const { data, error } = await query.maybeSingle();
+  if (error) throw new Error(`load plan by stripe subscription failed: ${error.message}`);
+  return data || null;
+}
+
+/**
+ * Establish a finite, non-prorating Stripe Schedule after Checkout creates
+ * the Subscription. The phase lasts exactly the immutable number of monthly
+ * instalments, then end_behavior=cancel prevents invoice N+1. Replays verify
+ * the schedule, and any earlier direct or scheduled boundary is preserved.
+ */
+export async function ensureStripeCardCancellationBoundary({
+  agreement,
+  session,
+  stripe,
+} = {}) {
+  const snapshot = agreement?.metadata?.card;
+  const subscriptionId = typeof session?.subscription === 'string'
+    ? session.subscription : session?.subscription?.id;
+  if (!snapshot || snapshot.kind !== CARD_PLAN_KIND) {
+    throw new Error('agreement has no card snapshot');
+  }
+  if (!subscriptionId) throw new Error('checkout session has no subscription');
+  if (!stripe?.subscriptions?.retrieve
+      || !stripe?.subscriptionSchedules?.create
+      || !stripe?.subscriptionSchedules?.retrieve
+      || !stripe?.subscriptionSchedules?.update) {
+    throw new Error('Stripe client is required to establish finite-plan boundary');
+  }
+  const duration = stripeScheduleDurationForCardSnapshot(snapshot);
+  const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+  const subscriptionMetadata = subscription?.metadata || {};
+  const exactAgreementId = subscriptionMetadata.agreement_id === String(agreement.id);
+  const exactAgreementKey = agreement?.idempotency_key
+    && subscriptionMetadata.agreement_key === agreement.idempotency_key;
+  const legacyMemberIdentity = agreement?.member_id
+    && subscriptionMetadata.tenant_id === String(agreement.tenant_id)
+    && subscriptionMetadata.member_id === String(agreement.member_id)
+    && subscriptionMetadata.membership_year === String(snapshot.membership_year || '');
+  if (subscriptionMetadata.kind !== CARD_PLAN_KIND
+      || (!exactAgreementId && !exactAgreementKey && !legacyMemberIdentity)) {
+    throw new Error('Stripe subscription does not belong to this card agreement');
+  }
+  const billingAnchor = Number(
+    subscription?.billing_cycle_anchor
+    || subscription?.start_date
+    || subscription?.current_period_start,
+  );
+  const commitment = monthlySnapshotCommitment(snapshot);
+  const savedBoundary = commitment
+    ? Math.floor(new Date(`${commitment.membership_renewal_date}T00:00:00.000Z`).getTime() / 1000)
+    : null;
+  const agreedEnd = savedBoundary
+    ? Math.min(savedBoundary, addUtcMonthsClamped(billingAnchor, duration.interval_count))
+    : addUtcMonthsClamped(billingAnchor, duration.interval_count);
+  const directCancelAt = Number(subscription?.cancel_at)
+    || (subscription?.cancel_at_period_end ? Number(subscription.current_period_end) : 0)
+    || Number(subscription?.ended_at) || null;
+  if (subscription?.status === 'canceled') {
+    return {
+      applied: false,
+      cancelAt: directCancelAt,
+      detail: 'subscription already canceled',
+    };
+  }
+  if (directCancelAt && directCancelAt <= agreedEnd) {
+    return {
+      applied: false,
+      cancelAt: directCancelAt,
+      detail: directCancelAt === agreedEnd
+        ? 'finite-plan boundary already established'
+        : 'earlier finite-plan boundary preserved',
+    };
+  }
+  if (directCancelAt) {
+    throw new Error('Stripe subscription has a later direct cancellation that cannot be safely replaced');
+  }
+
+  const items = (subscription?.items?.data || []).map((item) => ({
+    price: typeof item.price === 'string' ? item.price : item.price?.id,
+    quantity: item.quantity ?? 1,
+  }));
+  if (!items.length || items.some((item) => !item.price)) {
+    throw new Error('Stripe subscription has no schedulable recurring price');
+  }
+  const scheduleCreateOptions = {
+    idempotencyKey: `monthly-card-schedule-create:${agreement.id}`,
+  };
+  let schedule;
+  const scheduleRef = subscription?.schedule;
+  if (scheduleRef) {
+    const scheduleId = typeof scheduleRef === 'string' ? scheduleRef : scheduleRef.id;
+    schedule = await stripe.subscriptionSchedules.retrieve(scheduleId);
+  } else {
+    schedule = await stripe.subscriptionSchedules.create(
+      { from_subscription: subscriptionId },
+      scheduleCreateOptions,
+    );
+  }
+  if (!schedule?.id) throw new Error('Stripe did not return a Subscription Schedule');
+  const scheduledSubscription = typeof schedule.subscription === 'string'
+    ? schedule.subscription : schedule.subscription?.id;
+  if (scheduledSubscription && scheduledSubscription !== subscriptionId) {
+    throw new Error('Stripe Subscription Schedule belongs to another subscription');
+  }
+  const owner = schedule.metadata?.agreement_id;
+  if (owner && owner !== String(agreement.id)) {
+    throw new Error('Stripe subscription is controlled by a different schedule');
+  }
+  if (!owner && scheduleRef) {
+    const recoveryPhase = schedule.phases?.[0];
+    const recoveryItems = (recoveryPhase?.items || []).map((item) => ({
+      price: typeof item.price === 'string' ? item.price : item.price?.id,
+      quantity: item.quantity ?? 1,
+    }));
+    const isInterruptedCreate = schedule.end_behavior === 'release'
+      && (schedule.phases?.length || 0) === 1
+      && isFinitePlanBillingBoundary({
+        billingAnchor,
+        candidate: Number(recoveryPhase?.start_date),
+        instalmentCount: duration.interval_count,
+      })
+      && recoveryItems.length === items.length
+      && recoveryItems.every((item, index) => (
+        item.price === items[index].price && item.quantity === items[index].quantity
+      ));
+    if (!isInterruptedCreate) {
+      throw new Error('Stripe subscription is controlled by an unrecognized schedule');
+    }
+  }
+
+  const phase = schedule.phases?.find((candidate) => (
+    Number(candidate.start_date) === Number(schedule.current_phase?.start_date)
+  )) || schedule.phases?.[0];
+  const phaseStart = Number(
+    phase?.start_date
+    || schedule.current_phase?.start_date
+    || billingAnchor,
+  );
+  if (phaseStart >= agreedEnd) {
+    throw new Error('Stripe finite-plan deadline has already passed');
+  }
+  const desiredEnd = agreedEnd;
+  const finalPhaseEnd = Math.max(
+    ...(schedule.phases || []).map((candidate) => Number(candidate.end_date) || 0),
+  ) || null;
+  if (schedule.end_behavior === 'cancel' && finalPhaseEnd && finalPhaseEnd <= desiredEnd) {
+    return {
+      applied: false,
+      cancelAt: finalPhaseEnd,
+      scheduleId: schedule.id,
+      detail: finalPhaseEnd === desiredEnd
+        ? 'finite-plan schedule already established'
+        : 'earlier finite-plan schedule preserved',
+    };
+  }
+  const updated = await stripe.subscriptionSchedules.update(
+    schedule.id,
+    {
+      end_behavior: 'cancel',
+      metadata: {
+        kind: CARD_PLAN_KIND,
+        agreement_id: String(agreement.id),
+        instalment_count: String(duration.interval_count),
+      },
+      phases: [{
+        start_date: phaseStart,
+        end_date: desiredEnd,
+        items,
+        proration_behavior: 'none',
+      }],
+      proration_behavior: 'none',
+    },
+    {
+      idempotencyKey: `monthly-card-schedule-boundary:${agreement.id}:${duration.interval_count}`,
+    },
+  );
+  const updatedFinalEnd = Math.max(
+    ...(updated?.phases || []).map((candidate) => Number(candidate.end_date) || 0),
+  );
+  if (updated?.end_behavior !== 'cancel'
+      || updated?.metadata?.agreement_id !== String(agreement.id)
+      || updatedFinalEnd !== desiredEnd) {
+    throw new Error('Stripe did not confirm the agreed finite-plan boundary');
+  }
+  return {
+    applied: true,
+    cancelAt: updatedFinalEnd,
+    scheduleId: updated.id,
+    detail: 'finite-plan boundary established',
+  };
+}
+
+/**
+ * Apply the snapshot's activation rule to the linked membership-history row.
+ * Card twin of activateMembershipForAgreement (which requires metadata.dd).
+ */
+export async function activateMembershipForCardAgreement(agreement, { trigger, db: dbArg, now = new Date() } = {}) {
+  const db = dbArg || supabase;
+  const snapshot = agreement?.metadata?.card;
+  const table = membershipHistoryTableForAgreement(agreement);
+  if (!snapshot || !table) return { updated: false, detail: 'no card snapshot or member' };
+
+  const { data: row, error } = await db
+    .from(table)
+    .select('id, status')
+    .eq('billing_agreement_id', agreement.id)
+    .maybeSingle();
+  if (error) throw new Error(`load membership history for agreement failed: ${error.message}`);
+  if (!row) return { updated: false, detail: 'no membership history row linked to agreement' };
+  if (row.status === 'active') return { updated: false, detail: 'membership already active' };
+
+  const activate = decideCardActivation({ activationRule: snapshot.activation_rule, trigger });
+  const schedule = monthlyActivationSchedule(snapshot, activate, now);
+  const nextStatus = schedule.status;
+  if (!nextStatus || nextStatus === row.status) {
+    return { updated: false, detail: `no status change for trigger=${trigger} rule=${snapshot.activation_rule}` };
+  }
+  const { error: upErr } = await db
+    .from(table)
+    .update(schedule)
+    .eq('id', row.id)
+    .eq('status', row.status);
+  if (upErr) throw new Error(`update membership history failed: ${upErr.message}`);
+  return { updated: true, activated: nextStatus === 'active', detail: `membership history -> ${nextStatus} (trigger=${trigger})` };
+}
+
+/** First confirmed instalment -> payment_status 'partial' (same as DD). */
+export async function recordCardPaymentProgress(agreement, { db: dbArg } = {}) {
+  const db = dbArg || supabase;
+  const table = membershipHistoryTableForAgreement(agreement);
+  if (!table) return { updated: false };
+  const { data: row } = await db
+    .from(table)
+    .select('id, payment_status')
+    .eq('billing_agreement_id', agreement.id)
+    .maybeSingle();
+  if (!row || row.payment_status === 'paid' || row.payment_status === 'partial') {
+    return { updated: false };
+  }
+  const { error } = await db
+    .from(table)
+    .update({ payment_status: 'partial' })
+    .eq('id', row.id);
+  if (error) throw new Error(`update payment_status failed: ${error.message}`);
+  return { updated: true };
+}
+
+async function progressCardPlanAfterPaidInvoice({
+  plan,
+  agreement,
+  instalmentsPaid,
+  eventId,
+  db,
+}) {
+  const recoveredFromArrears = plan.status === STATUS.PAYMENT_GRACE_PERIOD
+    || plan.status === STATUS.PAYMENT_OVERDUE
+    || !!plan.arrears_policy_applied
+    || !!agreement?.metadata?.dd?.arrears_state
+    || !!agreement?.metadata?.card?.arrears_state;
+  if (recoveredFromArrears) {
+    // Restore before clearing plan arrears state so a transient recovery error
+    // remains retryable and cannot strand an audit action indefinitely.
+    await restoreArrearsRoleAssignments({ plan, agreement, db });
+  }
+  // The first invoice may also be the final invoice (a supported one-instalment
+  // plan). Always run first-payment progression before completion settlement,
+  // and make it safe to replay if the counter committed but a later step failed.
+  await applyStatusTransition({
+    entityType: 'payment_plan',
+    entityId: plan.id,
+    toStatus: STATUS.ACTIVE,
+    reason: `card invoice paid (instalment ${instalmentsPaid})`,
+    source: 'webhook',
+    eventId,
+    extraUpdate: recoveryPlanUpdate(),
+  }, { db });
+  if (agreement.status !== STATUS.ACTIVE) {
+    await applyStatusTransition({
+      entityType: 'billing_agreement',
+      entityId: agreement.id,
+      toStatus: STATUS.ACTIVE,
+      reason: 'card first payment confirmed',
+      source: 'webhook',
+      eventId,
+    }, { db });
+  }
+  const activation = await activateMembershipForCardAgreement(
+    agreement,
+    { trigger: 'first_payment_confirmed', db },
+  );
+  await recordCardPaymentProgress(agreement, { db });
+  if (agreement?.metadata?.dd?.arrears_state) {
+    await clearAgreementArrearsFlag(agreement, { db });
+  }
+  if (recoveredFromArrears) {
+    await sendDdLifecycleEmail('payment_recovered', agreement, { db });
+  }
+  return activation;
+}
+
+/**
+ * All instalments collected — durable, resumable settlement.
+ *
+ * Ordering matters: the plan is only moved to its TERMINAL state
+ * (expired + completed_at) AFTER every obligation is durably complete:
+ *   1. history row settled as paid (guarded flip; DB errors THROW so the
+ *      caller retries — the plan stays "fully counted but unsettled" and
+ *      cardPlanNeedsSettlement keeps routing retries here),
+ *   2. membership-paid workflow fired (a metadata.workflow_pending marker is
+ *      persisted BEFORE the paid flip so a crash between flip and workflow is
+ *      recoverable; workflow errors THROW with the marker still set),
+ *   3. Stripe subscription confirmed concluded (cancelled / already gone).
+ *      If cancellation cannot be confirmed we return WITHOUT the terminal
+ *      transition, so retries/reconciliation keep attempting it. New
+ *      subscriptions also carry a Stripe-side cancel_at boundary, so even a
+ *      persistent cancel failure cannot charge past the agreed instalments.
+ */
+export async function settleCardPlanCompletion({ plan, agreement, stripe = null, baseUrl = '', eventId = null, db: dbArg } = {}) {
+  const db = dbArg || supabase;
+  const historyTable = membershipHistoryTableForAgreement(agreement);
+  let workflowFired = false;
+  // Never mark a fixed plan complete merely because its regular instalment
+  // counter is exhausted: later/open catch-up ledger debt remains payable.
+  try {
+    const { count, error } = await db.from('membership_monthly_arrears_period')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', plan.tenant_id).eq('plan_id', plan.id).is('settled_at', null);
+    if (!error && (count || 0) > 0) {
+      return { transition: { applied: false, skippedReason: 'unresolved-monthly-arrears' }, workflowFired: false, concluded: false };
+    }
+  } catch (err) {
+    if (err?.code !== '42P01') throw err;
+  }
+
+  if (historyTable) {
+    const workflowClaim = await claimCompletionWorkflow({
+      db,
+      plan,
+      agreement,
+      historyTable,
+    });
+    if (!workflowClaim.claimed) {
+      // Another handler owns workflow delivery. It must clear its token before
+      // any caller can cancel/terminalize the plan, otherwise the obligation
+      // could be lost while the owner is still dispatching it.
+      return {
+        transition: { applied: false, skippedReason: 'workflow-settlement-in-progress' },
+        workflowFired: false,
+        concluded: false,
+      };
+    }
+
+    // Guarded settle: only the write that actually flips unpaid->paid owns
+    // the workflow (exactly-once, mirrors the reconciliation recorder).
+    const { data: settled, error: payErr } = await db
+      .from(historyTable)
+      .update({ payment_status: 'paid', paid_at: new Date().toISOString() })
+      .eq('billing_agreement_id', agreement.id)
+      .neq('payment_status', 'paid')
+      .select('*');
+    if (payErr) throw new Error(`mark membership paid failed: ${payErr.message}`);
+
+    let rowForWorkflow = settled?.length ? settled[0] : null;
+    if (!rowForWorkflow) {
+      const { data: row, error: rowErr } = await db
+        .from(historyTable)
+        .select('*')
+        .eq('billing_agreement_id', agreement.id)
+        .maybeSingle();
+      if (rowErr) throw new Error(`reload settled history row failed: ${rowErr.message}`);
+      if (!row) {
+        // A charged, completed plan MUST have a linked history row settled as
+        // paid. Its absence is a retryable failure — keep the marker, never
+        // terminalize on top of it.
+        throw new Error(`membership history row missing for agreement ${agreement.id} — settlement retryable`);
+      }
+      if (workflowClaim.reclaimed) {
+        // We flipped it on a previous attempt but the workflow never confirmed.
+        rowForWorkflow = row;
+      }
+      // Otherwise the row was settled by another path (e.g. the reconcile
+      // recorder), which owns the workflow — nothing owed here.
+    }
+
+    if (rowForWorkflow) {
+      const delivery = await reserveCompletionWorkflowDelivery({
+        db,
+        plan: workflowClaim.plan || plan,
+        ownerToken: workflowClaim.ownerToken,
+        historyTable,
+        historyRowId: rowForWorkflow.id,
+      });
+      if (!delivery.owned) {
+        return {
+          transition: { applied: false, skippedReason: 'workflow-settlement-ownership-lost' },
+          workflowFired: false,
+          concluded: false,
+        };
+      }
+      workflowClaim.plan = delivery.plan || workflowClaim.plan;
+      if (delivery.shouldDispatch) {
+        try {
+          await fireWorkflowForPaidRow({
+            table: historyTable,
+            row: rowForWorkflow,
+            snapshot: { payment_status: 'unpaid' },
+            baseUrl,
+            source: 'stripe_monthly_card_completion',
+            deliveryKey: delivery.deliveryKey,
+          }, { db });
+        } catch (err) {
+          const { error: attentionErr } = await db
+            .from('membership_payment_plans')
+            .update({
+              needs_attention: true,
+              attention_reason: `Membership-paid workflow delivery requires review before retry: ${err.message}`,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', plan.id);
+          if (attentionErr) {
+            console.error('[StripeCard] Failed to flag ambiguous workflow delivery:', attentionErr.message);
+          }
+          throw err;
+        }
+        workflowFired = true;
+        workflowClaim.plan = await completeCompletionWorkflowDelivery({
+          db,
+          plan: workflowClaim.plan,
+          ownerToken: workflowClaim.ownerToken,
+          deliveryKey: delivery.deliveryKey,
+        });
+      }
+    }
+
+    const { data: clearedOwner, error: clrErr } = await db
+      .from('membership_payment_plans')
+      .update({
+        metadata: { ...(workflowClaim.plan?.metadata || plan.metadata || {}), workflow_pending: null },
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', plan.id)
+      .filter('metadata->workflow_pending->>owner_token', 'eq', workflowClaim.ownerToken)
+      .select('id')
+      .maybeSingle();
+    if (clrErr) throw new Error(`clear workflow marker failed: ${clrErr.message}`);
+    if (!clearedOwner) throw new Error('clear workflow marker failed: settlement ownership was lost');
+  }
+
+  // Conclude the Stripe subscription; only a CONFIRMED conclusion unlocks the
+  // terminal transition. `stripe` may be a single client (webhook — the key
+  // already matches the event's livemode) or an ARRAY of clients (reconcile —
+  // mode-flip tolerance: "missing" only counts once it is missing in EVERY
+  // mode, so an alternate-mode subscription is never terminalized unseen).
+  const isMissing = (err) => err?.code === 'resource_missing' || err?.statusCode === 404;
+  const clientList = Array.isArray(stripe) ? stripe.filter(Boolean) : (stripe ? [stripe] : []);
+  let concluded = !plan.stripe_subscription_id;
+  if (!concluded && clientList.length > 0) {
+    let missingEverywhere = true;
+    for (const client of clientList) {
+      if (concluded) break;
+      try {
+        await client.subscriptions.cancel(plan.stripe_subscription_id, {
+          cancellation_details: { comment: 'Membership instalment plan complete' },
+        });
+        concluded = true;
+        missingEverywhere = false;
+      } catch (err) {
+        if (isMissing(err)) continue; // not in this mode — try the next client
+        missingEverywhere = false;
+        try {
+          const sub = await client.subscriptions.retrieve(plan.stripe_subscription_id);
+          if (sub?.status === 'canceled') concluded = true;
+        } catch (e2) {
+          if (isMissing(e2)) continue;
+        }
+        if (!concluded) {
+          console.warn('[StripeCard] subscription cancel after completion failed (will retry):', err.message);
+        }
+      }
+    }
+    if (!concluded && missingEverywhere) concluded = true; // gone in every mode
+  }
+  if (!concluded) {
+    // Not terminal yet: cardPlanNeedsSettlement stays true, so webhook
+    // retries and the reconcile cron keep resuming from here.
+    return {
+      transition: { applied: false, skippedReason: 'subscription-not-concluded' },
+      workflowFired,
+      concluded: false,
+    };
+  }
+
+  const transition = await applyStatusTransition({
+    entityType: 'payment_plan',
+    entityId: plan.id,
+    toStatus: STATUS.EXPIRED,
+    reason: 'card plan completed (all instalments paid)',
+    source: 'webhook',
+    eventId,
+    extraUpdate: {
+      completed_at: new Date().toISOString(),
+      needs_attention: false,
+      attention_reason: null,
+    },
+  }, { db });
+
+  return { transition, workflowFired, concluded: true };
+}
+
+/** Payment failure -> grace/overdue using SNAPSHOT grace days (DD parity). */
+export async function handleCardPaymentFailure({ plan, agreement, eventId = null, action = 'failed', db: dbArg } = {}) {
+  const db = dbArg || supabase;
+  const now = new Date();
+  const retryCount = (plan.retry_count || 0) + 1;
+  const graceDays = graceDaysForCardAgreement(agreement);
+
+  let graceExpiresAt = plan.grace_expires_at ? new Date(plan.grace_expires_at) : null;
+  if (!graceExpiresAt || Number.isNaN(graceExpiresAt.getTime())) {
+    graceExpiresAt = computeGraceExpiry(now, graceDays, plan.grace_extended_days || 0);
+  }
+  const overdue = graceExpiresAt.getTime() <= now.getTime() || plan.status === STATUS.PAYMENT_OVERDUE;
+  const toStatus = overdue ? STATUS.PAYMENT_OVERDUE : STATUS.PAYMENT_GRACE_PERIOD;
+
+  const result = await applyStatusTransition({
+    entityType: 'payment_plan',
+    entityId: plan.id,
+    toStatus,
+    reason: `card payment ${action} (failure #${retryCount}, grace ${graceDays}d from snapshot)`,
+    source: 'webhook',
+    eventId,
+    extraUpdate: { retry_count: retryCount, grace_expires_at: graceExpiresAt.toISOString() },
+  }, { db });
+
+  if (!result.applied) {
+    const { error } = await db
+      .from('membership_payment_plans')
+      .update({ retry_count: retryCount, grace_expires_at: graceExpiresAt.toISOString(), updated_at: now.toISOString() })
+      .eq('id', plan.id);
+    if (error) console.error('[StripeCard] failure bookkeeping update failed:', error.message);
+  }
+  if (plan.interval_unit === 'monthly') {
+    if (!plan.failed_due_period || !plan.failed_provider_reference) {
+      throw new Error('authoritative failed due period/reference required for immediate Stripe arrears accrual');
+    }
+    await accrueFailedMonthlyPeriod({
+      tenantId: plan.tenant_id,
+      plan,
+      duePeriod: plan.failed_due_period,
+      paymentReference: plan.failed_provider_reference,
+      db,
+    });
+  }
+  return { toStatus, result, graceExpiresAt: graceExpiresAt.toISOString(), retryCount };
+}
+
+/**
+ * Ensure the local plan row exists for a completed checkout session and the
+ * agreement carries the Stripe identifiers. Idempotent (unique index on
+ * stripe_subscription_id + idempotency_key re-entry).
+ */
+export async function ensureCardPlanForCheckout({ agreement, session, db: dbArg } = {}) {
+  const db = dbArg || supabase;
+  const snapshot = agreement?.metadata?.card;
+  if (!snapshot || snapshot.kind !== CARD_PLAN_KIND) {
+    return { created: false, plan: null, detail: 'agreement has no card snapshot' };
+  }
+  const subscriptionId = typeof session.subscription === 'string' ? session.subscription : session.subscription?.id;
+  const customerId = typeof session.customer === 'string' ? session.customer : session.customer?.id;
+  if (!subscriptionId) return { created: false, plan: null, detail: 'checkout session has no subscription' };
+
+  // Attach Stripe ids onto the agreement (idempotent overwrite-with-same).
+  const { error: agreeUpErr } = await db
+    .from('membership_billing_agreements')
+    .update({
+      stripe_subscription_id: subscriptionId,
+      stripe_customer_id: customerId || agreement.stripe_customer_id || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', agreement.id)
+    .eq('tenant_id', agreement.tenant_id);
+  if (agreeUpErr) throw new Error(`attach stripe ids to agreement failed: ${agreeUpErr.message}`);
+
+  const existing = await findCardPlanBySubscription(db, subscriptionId, agreement.tenant_id);
+  if (existing) return { created: false, plan: existing, detail: 'plan already exists' };
+
+  const idempotencyKey = `card-sub:${agreement.id}:${snapshot.membership_year || 'year'}`;
+  const insertRow = {
+    tenant_id: agreement.tenant_id,
+    billing_agreement_id: agreement.id,
+    member_id: agreement.member_id || null,
+    organization_id: agreement.organization_id || null,
+    provider: 'stripe',
+    stripe_subscription_id: subscriptionId,
+    stripe_customer_id: customerId || null,
+    amount_minor: snapshot.monthly_amount_minor,
+    currency: snapshot.currency || 'GBP',
+    interval_unit: 'monthly',
+    status: STATUS.FIRST_PAYMENT_PENDING,
+    membership_year: snapshot.membership_year,
+    instalments_total: snapshot.instalment_count,
+    instalments_paid: 0,
+    idempotency_key: idempotencyKey,
+    environment: agreement.environment || 'live',
+    metadata: { source: 'stripe_monthly_card', agreement_id: agreement.id, paid_invoice_ids: [] },
+  };
+  const { data: inserted, error: insErr } = await db
+    .from('membership_payment_plans')
+    .insert(insertRow)
+    .select()
+    .single();
+  if (insErr) {
+    if (insErr.code === '23505') {
+      const raced = await findCardPlanBySubscription(db, subscriptionId, agreement.tenant_id);
+      if (raced) return { created: false, plan: raced, detail: 'plan created concurrently' };
+      const { data: byKey } = await db
+        .from('membership_payment_plans')
+        .select('*')
+        .eq('idempotency_key', idempotencyKey)
+        .eq('tenant_id', agreement.tenant_id)
+        .maybeSingle();
+      if (byKey) return { created: false, plan: byKey, detail: 'plan created concurrently (idempotency key)' };
+    }
+    throw new Error(`insert card payment plan failed: ${insErr.message}`);
+  }
+  return { created: true, plan: inserted, detail: `plan created for subscription ${subscriptionId}` };
+}
+
+/**
+ * A form Checkout may resolve to an existing member only after Stripe has
+ * collected the first instalment. If that member already has this membership
+ * year (or another open plan), cancel the subscription and refund the first
+ * invoice instead of creating a duplicate local plan. Stripe idempotency makes
+ * this safe across webhook, browser-confirm, and cron retries.
+ */
+export async function compensateFormMonthlyCardConflict({
+  agreement,
+  session,
+  detail,
+  db: dbArg,
+  stripe,
+} = {}) {
+  const db = dbArg || supabase;
+  if (!agreement?.id || !stripe) throw new Error('agreement and stripe client are required');
+  const formSubmissionId = agreement.metadata?.form_submission_id
+    || session?.metadata?.form_submission_id
+    || null;
+  const subscriptionId = typeof session?.subscription === 'string'
+    ? session.subscription
+    : session?.subscription?.id;
+  if (!subscriptionId) throw new Error('conflicting checkout has no subscription');
+  const conflictMetadata = {
+    ...(agreement.metadata || {}),
+    form_conflict_resolution: {
+      ...(agreement.metadata?.form_conflict_resolution || {}),
+      status: 'pending',
+      detail: detail || agreement.metadata?.form_conflict_resolution?.detail || null,
+      subscription_id: subscriptionId,
+      last_attempt_at: new Date().toISOString(),
+    },
+  };
+
+  try {
+    const { error: pendingErr } = await db
+      .from('membership_billing_agreements')
+      .update({ metadata: conflictMetadata, updated_at: new Date().toISOString() })
+      .eq('id', agreement.id);
+    if (pendingErr) {
+      throw new Error(`persist conflict compensation state failed: ${pendingErr.message}`);
+    }
+
+    let subscription = await stripe.subscriptions.retrieve(subscriptionId);
+    const invoiceRef = session?.invoice || subscription?.latest_invoice || null;
+    if (subscription?.status !== 'canceled') {
+      subscription = await stripe.subscriptions.cancel(subscriptionId, { prorate: false });
+    }
+
+    const invoiceId = typeof invoiceRef === 'string' ? invoiceRef : invoiceRef?.id;
+    let invoice = typeof invoiceRef === 'object' && invoiceRef ? invoiceRef : null;
+    if (invoiceId && (!invoice || invoice.amount_paid == null)) {
+      invoice = await stripe.invoices.retrieve(invoiceId);
+    }
+    const amountPaid = Number(invoice?.amount_paid || 0);
+    let refundId = null;
+    if (amountPaid > 0) {
+      const paymentIntentId = typeof invoice?.payment_intent === 'string'
+        ? invoice.payment_intent
+        : invoice?.payment_intent?.id;
+      if (!paymentIntentId) {
+        throw new Error(`paid invoice ${invoiceId || '(unknown)'} has no refundable payment intent`);
+      }
+      const refund = await stripe.refunds.create({
+        payment_intent: paymentIntentId,
+        reason: 'requested_by_customer',
+        metadata: {
+          kind: 'form_monthly_card_membership_conflict',
+          agreement_id: agreement.id,
+          form_submission_id: formSubmissionId || '',
+        },
+      }, { idempotencyKey: `form-card-conflict-refund:${agreement.id}` });
+      refundId = refund?.id || null;
+    } else if (!invoiceId && session?.payment_status === 'paid') {
+      throw new Error('paid conflicting checkout has no invoice to refund');
+    }
+
+    if (formSubmissionId) {
+      const conflictState = {
+        status: 'conflict_refunded',
+        resolved_at: new Date().toISOString(),
+        refund_id: refundId,
+      };
+      await patchFormSubmissionPaymentMeta({
+        db,
+        tenantId: agreement.tenant_id,
+        submissionId: formSubmissionId,
+        patch: { monthly_card_state: conflictState },
+      });
+      const { error: formUpdateErr } = await db
+        .from('form_submission')
+        .update({
+          payment_status: 'failed',
+          processing_notes: `${detail || 'Membership for this year is already recorded'}. The duplicate Stripe subscription was cancelled${refundId ? ' and its payment refunded' : ' before a payment was taken'}.`,
+        })
+        .eq('id', formSubmissionId);
+      if (formUpdateErr) throw new Error(`save conflicting form submission failed: ${formUpdateErr.message}`);
+    }
+
+    const { error: agreementUpdateErr } = await db
+      .from('membership_billing_agreements')
+      .update({
+        status: STATUS.PAYMENT_PLAN_CANCELLED,
+        stripe_subscription_id: subscriptionId,
+        needs_attention: false,
+        attention_reason: null,
+        metadata: {
+          ...conflictMetadata,
+          form_conflict_resolution: {
+            ...conflictMetadata.form_conflict_resolution,
+            status: 'resolved',
+            resolved_at: new Date().toISOString(),
+            refund_id: refundId,
+            detail: detail || null,
+          },
+        },
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', agreement.id);
+    if (agreementUpdateErr) throw new Error(`save conflict resolution failed: ${agreementUpdateErr.message}`);
+
+    return {
+      handled: true,
+      conflict: true,
+      refunded: !!refundId,
+      refundId,
+      detail: refundId
+        ? 'Existing membership detected; duplicate subscription cancelled and first payment refunded'
+        : 'Existing membership detected; duplicate subscription cancelled before payment',
+    };
+  } catch (err) {
+    try {
+      await db
+        .from('membership_billing_agreements')
+        .update({
+          needs_attention: true,
+          attention_reason: `Membership conflict cleanup pending: ${err.message}`,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', agreement.id);
+    } catch {}
+    throw err;
+  }
+}
+
+/**
+ * Does this invoice belong to one of OUR monthly-card subscriptions?
+ * Checks the metadata Stripe echoes on the invoice payload first, then (if
+ * inconclusive) retrieves the subscription. Used to keep out-of-order
+ * invoice events (invoice.paid delivered before checkout.session.completed)
+ * pending/retryable instead of terminally skipped.
+ */
+export async function invoiceBelongsToCardPlan(
+  object,
+  subscriptionId,
+  { getStripe, expectedTenantId = null } = {},
+) {
+  const payloadKind = object?.subscription_details?.metadata?.kind
+    || object?.parent?.subscription_details?.metadata?.kind
+    || object?.lines?.data?.[0]?.metadata?.kind
+    || null;
+  if (payloadKind && !expectedTenantId) return payloadKind === CARD_PLAN_KIND;
+  if (typeof getStripe !== 'function') return false;
+  try {
+    const stripe = await getStripe();
+    if (!stripe) return false;
+    const sub = await stripe.subscriptions.retrieve(subscriptionId);
+    return sub?.metadata?.kind === CARD_PLAN_KIND
+      && (!expectedTenantId || String(sub?.metadata?.tenant_id) === String(expectedTenantId));
+  } catch {
+    return false;
+  }
+}
+
+/** Stripe moved Invoice.subscription to parent.subscription_details.subscription
+ * in newer API versions. Accept both shapes without rewriting provider data. */
+export function stripeInvoiceSubscriptionId(invoice) {
+  const value = invoice?.parent?.subscription_details?.subscription
+    ?? invoice?.subscription_details?.subscription
+    ?? invoice?.subscription
+    ?? null;
+  return typeof value === 'string' ? value : value?.id || null;
+}
+
+function validateCardInvoiceIdentityAndEconomics({ invoice, plan, agreement, hasCatchUpItem }) {
+  const metadata = invoice?.parent?.subscription_details?.metadata
+    || invoice?.subscription_details?.metadata
+    || {};
+  const expectedCurrency = String(plan?.currency || agreement?.metadata?.card?.currency || '').toLowerCase();
+  const actualCurrency = String(invoice?.currency || '').toLowerCase();
+  if (expectedCurrency && actualCurrency && actualCurrency !== expectedCurrency) {
+    throw new Error(`Stripe invoice currency mismatch (expected ${expectedCurrency}, got ${actualCurrency})`);
+  }
+  if (metadata.kind && metadata.kind !== CARD_PLAN_KIND) {
+    throw new Error('Stripe invoice subscription kind mismatch');
+  }
+  if (metadata.tenant_id && String(metadata.tenant_id) !== String(plan.tenant_id)) {
+    throw new Error('Stripe invoice tenant identity mismatch');
+  }
+  if (metadata.agreement_id && String(metadata.agreement_id) !== String(agreement.id)) {
+    throw new Error('Stripe invoice agreement identity mismatch');
+  }
+  // Zero-value subscription invoices are acknowledged below without any
+  // instalment/accounting work. Validate their identity, not an instalment
+  // amount that they intentionally do not collect.
+  if (!hasCatchUpItem && Number(invoice?.amount_paid) === 0
+      && Number(invoice?.amount_due) === 0) return;
+  // Catch-up invoices have separately validated immutable combined economics.
+  // An ordinary instalment must cash-settle exactly the snapshotted plan amount.
+  const expectedAmount = Number(plan?.amount_minor);
+  if (!hasCatchUpItem && Number.isInteger(expectedAmount) && expectedAmount > 0
+      && Number(invoice?.amount_paid) !== expectedAmount) {
+    throw new Error(`Stripe invoice amount mismatch (expected ${expectedAmount}, got ${invoice?.amount_paid})`);
+  }
+}
+
+/**
+ * Process one Stripe event for the monthly-card membership plans.
+ * Returns { handled: boolean, detail: string }. Throws on hard failures
+ * (caller keeps the durable event row pending for retry).
+ *
+ * deps: { db, getStripe: async () => Stripe|null, baseUrl }
+ */
+export async function processStripeCardPlanEvent(event, deps = {}) {
+  const { db, getStripe } = defaultDeps(deps);
+  const expectedTenantId = deps.expectedTenantId || null;
+  const baseUrl = deps.baseUrl || '';
+  const type = event.type;
+  const object = event.data?.object || {};
+
+  if (type === 'checkout.session.completed') {
+    if (object.mode !== 'subscription' || object.metadata?.kind !== CARD_PLAN_KIND) {
+      return { handled: false, detail: 'not a membership monthly-card checkout session' };
+    }
+    let agreement = await findCardAgreementByCheckoutSession(db, object.id, expectedTenantId);
+    if (!agreement && object.metadata?.agreement_id) {
+      agreement = await findCardAgreementById(db, object.metadata.agreement_id, expectedTenantId);
+    }
+    if (!agreement) return { handled: false, detail: `no agreement for checkout session ${object.id}` };
+    // Task #3680: if this checkout was initiated from a form submission
+    // (agreement.metadata.form_submission_id is set), finalize the form
+    // BEFORE creating the payment plan. This marks the submission as
+    // setup_complete, runs entity pipelines (creates the member record),
+    // attaches member_id to the agreement, and creates the membership history
+    // row with monthly_card / unpaid semantics. If the member cannot be
+    // resolved yet the event is left retryable so Stripe redelivers.
+    const isFormCheckout = !!(
+      agreement.metadata?.form_submission_id
+      || object.metadata?.form_submission_id
+    );
+    if (isFormCheckout) {
+      const conflictResolution = agreement.metadata?.form_conflict_resolution;
+      if (conflictResolution?.status === 'pending') {
+        const stripe = await getStripe();
+        return compensateFormMonthlyCardConflict({
+          agreement,
+          session: object,
+          detail: conflictResolution.detail,
+          db,
+          stripe,
+        });
+      }
+      if (conflictResolution?.status === 'resolved') {
+        return {
+          handled: true,
+          conflict: true,
+          refunded: !!conflictResolution.refund_id,
+          detail: 'Existing membership conflict was already reversed',
+        };
+      }
+    }
+
+    // A completed Checkout may be replayed after the address snapshot was
+    // persisted but before the rest of local finalisation finished. Reuse a
+    // validated immutable snapshot on every replay. In particular, a present
+    // but malformed canonical value must fail closed rather than falling back
+    // to the mutable Checkout object or a legacy value.
+    let billingAddress = null;
+    if (hasStripeBillingAddressSnapshot(agreement.metadata)) {
+      billingAddress = stripeBillingAddressSnapshotFromMetadata(agreement.metadata);
+    }
+
+    // Checkout does not support subscription_data.cancel_at on the configured
+    // Stripe API version. Establish or verify the immutable finite-plan
+    // boundary directly on the created Subscription before any local state is
+    // considered initialized. Throws remain visible/retryable to webhook,
+    // redirect, and reconciliation callers.
+    const stripe = await getStripe();
+    const boundary = await ensureStripeCardCancellationBoundary({
+      agreement,
+      session: object,
+      stripe,
+    });
+
+    if (!billingAddress) {
+      billingAddress = await captureCheckoutBillingAddress({ stripe, session: object });
+      const nextMetadata = {
+        ...(agreement.metadata || {}),
+        // Keep the consent/accounting card snapshot immutable. The
+        // authoritative Stripe address is fulfilment data, not an accounting
+        // term, and is therefore stored in its own namespace.
+        stripe_billing_address: billingAddress,
+      };
+      const { error: addressSaveErr } = await db
+        .from('membership_billing_agreements')
+        .update({ metadata: nextMetadata, updated_at: new Date().toISOString() })
+        .eq('id', agreement.id);
+      if (addressSaveErr) {
+        throw new Error(`persist Stripe billing address snapshot failed: ${addressSaveErr.message}`);
+      }
+      agreement = { ...agreement, metadata: nextMetadata };
+    }
+    // Repair the submission independently on every replay. A prior attempt
+    // may have saved the immutable agreement snapshot and then crashed before
+    // copying it to form_submission.
+    const formSubmissionId = agreement.metadata?.form_submission_id
+      || object.metadata?.form_submission_id;
+    if (formSubmissionId && billingAddress) {
+      await captureFormStripeBillingAddressOnce({
+        db,
+        tenantId: agreement.tenant_id,
+        submissionId: formSubmissionId,
+        address: billingAddress,
+      });
+    }
+
+    if (isFormCheckout) {
+      const formResult = await finalizeFormMonthlyCardCheckout({
+        db,
+        agreement,
+        session: object,
+        baseUrl,
+      });
+      if (formResult.conflict) {
+        const stripe = await getStripe();
+        return compensateFormMonthlyCardConflict({
+          agreement,
+          session: object,
+          detail: formResult.detail,
+          db,
+          stripe,
+        });
+      }
+      if (!formResult.handled) {
+        // Never create a detached plan for a form-backed checkout. Even a
+        // terminal-looking form mismatch needs durable operator attention,
+        // rather than losing the paid subscription's member/history link.
+        return {
+          handled: false,
+          blocked: formResult.blocked === true || formResult.retryable === false,
+          retryable: formResult.retryable !== false,
+          code: formResult.code,
+          detail: `form checkout not yet finalizable: ${formResult.detail}`,
+        };
+      }
+      // Re-load the agreement in case member_id was just attached.
+      const refreshed = await findCardAgreementById(db, agreement.id, expectedTenantId);
+      if (refreshed) agreement = refreshed;
+    }
+
+    const ensured = await ensureCardPlanForCheckout({ agreement, session: object, db });
+    await applyStatusTransition({
+      entityType: 'billing_agreement',
+      entityId: agreement.id,
+      toStatus: STATUS.FIRST_PAYMENT_PENDING,
+      reason: 'card checkout completed',
+      source: 'webhook',
+      eventId: event.id,
+    }, { db });
+    const fresh = await findCardAgreementById(db, agreement.id, expectedTenantId);
+    const activation = await activateMembershipForCardAgreement(fresh || agreement, { trigger: 'checkout_complete', db });
+    // invoice.paid is not ordered after checkout.session.completed. If it
+    // arrived first, its durable event may already have been attempted. Repair
+    // that ordering window immediately from Stripe's authoritative latest
+    // invoice instead of leaving a paid plan first_payment_pending until cron.
+    let initialInvoiceRef = object.invoice || object.subscription?.latest_invoice || null;
+    if (!initialInvoiceRef) {
+      const subscriptionId = typeof object.subscription === 'string'
+        ? object.subscription : object.subscription?.id;
+      if (subscriptionId) {
+        const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+        initialInvoiceRef = subscription?.latest_invoice || null;
+      }
+    }
+    let initialInvoice = typeof initialInvoiceRef === 'object' ? initialInvoiceRef : null;
+    const initialInvoiceId = typeof initialInvoiceRef === 'string'
+      ? initialInvoiceRef : initialInvoiceRef?.id;
+    if (initialInvoiceId && (!initialInvoice || initialInvoice.amount_paid == null || !initialInvoice.status)) {
+      initialInvoice = await stripe.invoices.retrieve(initialInvoiceId);
+    }
+    let invoiceDetail = '';
+    if (initialInvoice?.id && (initialInvoice.status === 'paid' || initialInvoice.paid === true)) {
+      const replay = await processStripeCardPlanEvent({
+        id: `${event.id}:initial-invoice:${initialInvoice.id}`,
+        type: 'invoice.paid',
+        data: { object: initialInvoice },
+      }, deps);
+      if (!replay.handled || replay.retryable || replay.blocked) {
+        return {
+          ...replay,
+          handled: false,
+          detail: `paid initial invoice could not be applied: ${replay.detail}`,
+        };
+      }
+      invoiceDetail = `; initial invoice: ${replay.detail}`;
+    }
+    return {
+      handled: true,
+      detail: `checkout completed: ${boundary.detail}; ${ensured.detail}; activation: ${activation.detail}${invoiceDetail}`,
+    };
+  }
+
+  if (type === 'invoice.paid' || type === 'invoice.payment_succeeded') {
+    const subscriptionId = stripeInvoiceSubscriptionId(object);
+    if (!subscriptionId) return { handled: false, detail: 'invoice has no subscription' };
+    let plan = await findCardPlanBySubscription(db, subscriptionId, expectedTenantId);
+    if (!plan) {
+      // Stripe does not order invoice.paid after checkout.session.completed.
+      // If this invoice belongs to OUR subscription kind but the local plan
+      // hasn't been created yet, flag it retryable so the webhook keeps the
+      // event pending (Stripe redelivers) instead of terminally skipping it.
+      const ours = await invoiceBelongsToCardPlan(object, subscriptionId, {
+        getStripe,
+        expectedTenantId,
+      });
+      return {
+        handled: false,
+        retryable: ours,
+        detail: `no local card plan for subscription ${subscriptionId}${ours ? ' (ours — awaiting checkout event)' : ''}`,
+      };
+    }
+    if (plan.provider !== 'stripe') return { handled: false, detail: 'plan is not a stripe plan' };
+    const agreement = plan.billing_agreement_id
+      ? await findCardAgreementById(db, plan.billing_agreement_id, expectedTenantId) : null;
+    if (!agreement) return { handled: false, detail: 'plan has no billing agreement' };
+    const invoiceLines = object.lines?.data || [];
+    const intentKeys = [...new Set(invoiceLines.map((line) => line.metadata?.catch_up_intent_key).filter(Boolean))].sort();
+    const itemIds = [...new Set(invoiceLines.flatMap((line) => [line.id, line.invoice_item]).filter(Boolean))].sort();
+    let catchUpIntent = null;
+    if (intentKeys.length || itemIds.length) {
+      const clauses = [];
+      if (intentKeys.length) clauses.push(`intent_key.in.(${intentKeys.join(',')})`);
+      if (itemIds.length) clauses.push(`provider_reference.in.(${itemIds.join(',')})`);
+      const { data: intents, error: intentError } = await db.from('membership_monthly_collection_intent')
+        .select('*').eq('tenant_id', plan.tenant_id).eq('plan_id', plan.id)
+        .or(clauses.join(',')).order('created_at');
+      if (intentError) throw new Error(`load immutable Stripe catch-up intent failed: ${intentError.message}`);
+      if ((intents || []).length > 1) throw new Error('multiple catch-up intents on one Stripe invoice are not supported');
+      catchUpIntent = intents?.[0] || null;
+      if (catchUpIntent) validateStripeCatchUpInvoiceEconomics(object, catchUpIntent);
+      // Split-window recovery: invoice item was created but the worker lost
+      // its atomic provider-reference write. The trusted Stripe invoice line
+      // supplies the immutable key/item; bind only the exact creating intent.
+      if (catchUpIntent?.status === 'creating') {
+        const providerItem = invoiceLines.find((line) =>
+          line.metadata?.catch_up_intent_key === catchUpIntent.intent_key
+          || line.invoice_item === catchUpIntent.provider_reference)?.invoice_item
+          || invoiceLines.find((line) => line.metadata?.catch_up_intent_key === catchUpIntent.intent_key)?.invoice_item;
+        const lineAmount = invoiceLines.filter((line) =>
+          line.metadata?.catch_up_intent_key === catchUpIntent.intent_key).reduce((sum, line) => sum + (Number(line.amount) || 0), 0);
+        if (!providerItem || lineAmount !== Number(catchUpIntent.arrears_amount_minor)) {
+          throw new Error('Stripe catch-up recovery item/amount mismatch');
+        }
+        const { data: recovered, error: recoverError } = await db.rpc('recover_membership_monthly_collection_provider_ref', {
+          p_tenant_id: plan.tenant_id, p_plan_id: plan.id, p_intent_key: catchUpIntent.intent_key,
+          p_provider_reference: providerItem, p_provider_charge_date: null,
+        });
+        if (recoverError) throw new Error(`recover Stripe catch-up provider reference failed: ${recoverError.message}`);
+        catchUpIntent = Array.isArray(recovered) ? recovered[0] : recovered;
+      }
+    }
+    const hasCatchUpItem = !!catchUpIntent && invoiceLines.some((line) =>
+      line.id === catchUpIntent.provider_reference || line.invoice_item === catchUpIntent.provider_reference
+      || line.metadata?.catch_up_intent_key === catchUpIntent.intent_key);
+    validateCardInvoiceIdentityAndEconomics({
+      invoice: object,
+      plan,
+      agreement,
+      hasCatchUpItem,
+    });
+
+    // Zero-amount invoices (proration artefacts) don't advance instalments.
+    if (Number(object.amount_paid) === 0 && Number(object.amount_due) === 0) {
+      return { handled: true, detail: 'zero-amount invoice ignored' };
+    }
+
+    // Task #3633: per-instalment invoicing mode — mint one small paid
+    // accounting invoice for THIS Stripe invoice. Runs BEFORE the duplicate
+    // check so webhook redelivery / reconcile replays retry a failed posting;
+    // the helper is idempotent (unique key + invoice-linkage guard) so an
+    // already-posted instalment is never minted twice. Best-effort: the
+    // posting records its own posted/failed status and never blocks the
+    // instalment bookkeeping below.
+    if (isPerInstalmentAgreement(agreement)) {
+      try {
+        const postFn = deps.postInstalmentInvoice || postStripeInstalmentInvoice;
+        await postFn({
+          agreement,
+          plan,
+          stripeInvoiceId: object.id,
+          // The signed Stripe invoice corroborates the event; the posting
+          // helper re-reads the invoice and its PaymentIntent through this
+          // tenant-scoped client before it writes to accounting.
+          stripeInvoice: object,
+          // The ordinary current instalment keeps its existing invoice; the
+          // arrears lines are fanned out separately below.
+          amountMinor: hasCatchUpItem ? plan.amount_minor
+            : (Number.isInteger(object.amount_paid) ? object.amount_paid : null),
+          currency: (object.currency || '').toUpperCase() || null,
+        }, { db, getProvider: deps.getProvider, getStripe });
+      } catch (err) {
+        console.error('[StripeCard] per-instalment invoice posting threw:', err.message);
+      }
+    }
+
+    // Idempotent instalment advance: CAS on instalments_paid + invoice-id dedupe.
+    // A subscription invoice also contains its ordinary monthly line. Only
+    // the durable catch-up item may settle ledger debt; never allocate the
+    // whole invoice (which could consume a later missed period).
+    const arrearsAmount = hasCatchUpItem ? (Number(catchUpIntent.arrears_amount_minor) || 0) : 0;
+    const arrearsSettlement = arrearsAmount ? await settleMonthlyArrears({
+      tenantId: plan.tenant_id, planId: plan.id, amountMinor: arrearsAmount,
+      settlementReference: object.id, periodIds: catchUpIntent.period_ids || null, db,
+    }) : { settled_count: 0, settled_amount_minor: 0 };
+    if (arrearsAmount) {
+      await postSettledArrearsPeriods({
+        tenantId: plan.tenant_id, planId: plan.id, providerReference: object.id,
+        agreement, db,
+        postPeriod: ({ amountMinor, externalReference }) =>
+          (deps.postInstalmentInvoice || postStripeInstalmentInvoice)({
+            agreement, plan, stripeInvoiceId: externalReference,
+            stripePaymentEvidenceInvoiceId: object.id, stripeInvoice: object, amountMinor,
+            currency: (object.currency || '').toUpperCase() || null,
+          }, { db, getProvider: deps.getProvider, getStripe }),
+      });
+      await completeMonthlyCollectionIntent({ plan, intent: catchUpIntent, providerReference: catchUpIntent.provider_reference, db });
+    }
+    const periodsSettled = Number(arrearsSettlement?.settled_count) || 0;
+    let decision = cardPlanCompletionDecision({ plan, invoiceId: object.id, periodsSettled });
+    if (decision.duplicate) {
+      // The counter is committed before activation/progress. Re-run those
+      // idempotent obligations for every non-terminal counted invoice, not
+      // only the final one: a split after an early instalment must not strand
+      // the agreement/history in first_payment_pending. Per-instalment posting
+      // was likewise retried above before this dedupe branch.
+      if (!plan.completed_at && plan.status !== STATUS.EXPIRED) {
+        const activation = await progressCardPlanAfterPaidInvoice({
+          plan, agreement, instalmentsPaid: plan.instalments_paid, eventId: event.id, db,
+        });
+        if (!cardPlanNeedsSettlement(plan)) {
+          return {
+            handled: true,
+            detail: `invoice ${object.id} already counted; payment obligations resumed; activation: ${activation.detail}`,
+          };
+        }
+        const stripe = getStripe ? await getStripe() : null;
+        const settled = await settleCardPlanCompletion({ plan, agreement, stripe, baseUrl, eventId: event.id, db });
+        return { handled: true, detail: `invoice ${object.id} already counted; settlement resumed (workflow=${settled.workflowFired})` };
+      }
+      return { handled: true, detail: `invoice ${object.id} already counted` };
+    }
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const { data: updated, error: casErr } = await db
+        .from('membership_payment_plans')
+        .update({
+          instalments_paid: decision.instalmentsPaid,
+          last_payment_id: object.id,
+          last_payment_status: 'paid',
+          last_payment_at: new Date().toISOString(),
+          metadata: { ...(plan.metadata || {}), paid_invoice_ids: decision.paidInvoiceIds },
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', plan.id)
+        .eq('instalments_paid', plan.instalments_paid ?? 0)
+        .select();
+      if (casErr) throw new Error(`advance instalments failed: ${casErr.message}`);
+      if (updated?.length) { plan = updated[0]; break; }
+      // Lost the race — refetch and re-decide (may now be a duplicate).
+      plan = await findCardPlanBySubscription(db, subscriptionId, expectedTenantId);
+      if (!plan) return { handled: false, detail: 'plan disappeared during instalment advance' };
+      // A concurrent winner may have allocated the ledger periods already;
+      // invoice-id dedupe then guarantees no second instalment advancement.
+      decision = cardPlanCompletionDecision({ plan, invoiceId: object.id });
+      if (decision.duplicate) {
+        if (!plan.completed_at && plan.status !== STATUS.EXPIRED) {
+          const activation = await progressCardPlanAfterPaidInvoice({
+            plan, agreement, instalmentsPaid: plan.instalments_paid, eventId: event.id, db,
+          });
+          if (!cardPlanNeedsSettlement(plan)) {
+            return {
+              handled: true,
+              detail: `invoice ${object.id} already counted (race); payment obligations resumed; activation: ${activation.detail}`,
+            };
+          }
+          const stripe = getStripe ? await getStripe() : null;
+          const settled = await settleCardPlanCompletion({ plan, agreement, stripe, baseUrl, eventId: event.id, db });
+          return { handled: true, detail: `invoice ${object.id} already counted (race); settlement resumed (workflow=${settled.workflowFired})` };
+        }
+        return { handled: true, detail: `invoice ${object.id} already counted (race)` };
+      }
+      if (attempt === 1) throw new Error('instalment advance CAS failed twice');
+    }
+
+    if (decision.complete) {
+      await progressCardPlanAfterPaidInvoice({
+        plan,
+        agreement,
+        instalmentsPaid: decision.instalmentsPaid,
+        eventId: event.id,
+        db,
+      });
+      const stripe = getStripe ? await getStripe() : null;
+      const settled = await settleCardPlanCompletion({ plan, agreement, stripe, baseUrl, eventId: event.id, db });
+      return { handled: true, detail: `instalment ${decision.instalmentsPaid}/${plan.instalments_total} paid; plan complete (workflow=${settled.workflowFired})` };
+    }
+
+    const activation = await progressCardPlanAfterPaidInvoice({
+      plan,
+      agreement,
+      instalmentsPaid: decision.instalmentsPaid,
+      eventId: event.id,
+      db,
+    });
+    return { handled: true, detail: `instalment ${decision.instalmentsPaid}/${plan.instalments_total} paid; activation: ${activation.detail}` };
+  }
+
+  if (type === 'invoice.voided' || type === 'invoice.marked_uncollectible') {
+    const subscriptionId = stripeInvoiceSubscriptionId(object);
+    if (!subscriptionId) return { handled: false, detail: 'terminal invoice has no subscription' };
+    const plan = await findCardPlanBySubscription(db, subscriptionId, expectedTenantId);
+    if (!plan) return { handled: false, detail: 'terminal invoice has no local plan' };
+    const refs = [...new Set((object.lines?.data || []).flatMap((line) => [
+      line.metadata?.catch_up_intent_key, line.id, line.invoice_item,
+    ]).filter(Boolean))];
+    if (refs.length) {
+      const { data: intents, error } = await db.from('membership_monthly_collection_intent').select('*')
+        .eq('tenant_id', plan.tenant_id).eq('plan_id', plan.id)
+        .or(`intent_key.in.(${refs.join(',')}),provider_reference.in.(${refs.join(',')})`);
+      if (error) throw new Error(`load terminal Stripe catch-up intent failed: ${error.message}`);
+      if ((intents || []).length > 1) throw new Error('multiple terminal catch-up intents on one Stripe invoice');
+      if (intents?.[0]) {
+        await failMonthlyCollectionIntent({
+          plan, intent: intents[0], providerReference: intents[0].provider_reference,
+          providerOutcome: type, errorMessage: `Stripe invoice terminal outcome: ${type}`, db,
+        });
+      }
+    }
+    return { handled: true, detail: `Stripe terminal invoice ${type} processed` };
+  }
+
+  if (type === 'invoice.payment_failed') {
+    const subscriptionId = stripeInvoiceSubscriptionId(object);
+    if (!subscriptionId) return { handled: false, detail: 'invoice has no subscription' };
+    const plan = await findCardPlanBySubscription(db, subscriptionId, expectedTenantId);
+    if (!plan) {
+      const ours = await invoiceBelongsToCardPlan(object, subscriptionId, {
+        getStripe,
+        expectedTenantId,
+      });
+      return {
+        handled: false,
+        retryable: ours,
+        detail: `no local card plan for subscription ${subscriptionId}${ours ? ' (ours — awaiting checkout event)' : ''}`,
+      };
+    }
+    const agreement = plan.billing_agreement_id
+      ? await findCardAgreementById(db, plan.billing_agreement_id, expectedTenantId) : null;
+    const failedLines = object.lines?.data || [];
+    const failedKeys = [...new Set(failedLines.map((line) => line.metadata?.catch_up_intent_key).filter(Boolean))];
+    const failedRefs = [...new Set(failedLines.flatMap((line) => [line.id, line.invoice_item]).filter(Boolean))];
+    let matchedFailedCatchUp = false;
+    if (failedKeys.length || failedRefs.length) {
+      const clauses = [];
+      if (failedKeys.length) clauses.push(`intent_key.in.(${failedKeys.join(',')})`);
+      if (failedRefs.length) clauses.push(`provider_reference.in.(${failedRefs.join(',')})`);
+      const { data: failedIntents, error: failedIntentError } = await db.from('membership_monthly_collection_intent')
+        .select('*').eq('tenant_id', plan.tenant_id).eq('plan_id', plan.id).or(clauses.join(','));
+      if (failedIntentError) throw new Error(`load failed Stripe catch-up intent failed: ${failedIntentError.message}`);
+      if ((failedIntents || []).length > 1) throw new Error('multiple failed catch-up intents on one Stripe invoice');
+      if (failedIntents?.[0]) {
+        matchedFailedCatchUp = true;
+      }
+    }
+    // invoice.payment_failed is non-terminal in Stripe: retain the immutable
+    // catch-up item/intent for a later invoice.paid. Process only the normal
+    // recurring subscription line's failure and never create a replacement.
+    const duePeriod = stripeInvoiceFailedDuePeriod(object);
+    if (!duePeriod && matchedFailedCatchUp) {
+      return { handled: true, detail: 'Stripe catch-up-only invoice payment failure retained pending' };
+    }
+    if (!duePeriod) throw new Error('Stripe recurring failure has no authoritative billing period');
+    const { error: periodError } = await db.from('membership_payment_plans').update({
+      failed_due_period: duePeriod, failed_provider_reference: object.id, updated_at: new Date().toISOString(),
+    }).eq('id', plan.id).eq('tenant_id', plan.tenant_id);
+    if (periodError) throw new Error(`persist Stripe failed due period failed: ${periodError.message}`);
+    plan.failed_due_period = duePeriod;
+    plan.failed_provider_reference = object.id;
+    const failure = await handleCardPaymentFailure({ plan, agreement, eventId: event.id, action: 'failed', db });
+    if (failure.result.applied && agreement?.metadata?.card?.kind === CARD_PLAN_KIND) {
+      await sendDdLifecycleEmail(
+        failure.toStatus === STATUS.PAYMENT_OVERDUE ? 'payment_overdue' : 'card_payment_failed',
+        agreement,
+        { db },
+      );
+    }
+    return { handled: true, detail: `card payment failed -> ${failure.toStatus} (grace expires ${failure.graceExpiresAt})` };
+  }
+
+  if (type === 'customer.subscription.deleted') {
+    const plan = await findCardPlanBySubscription(db, object.id, expectedTenantId);
+    if (!plan) return { handled: false, detail: `no local card plan for subscription ${object.id}` };
+    if (plan.completed_at || plan.status === STATUS.EXPIRED) {
+      return { handled: true, detail: 'subscription concluded after plan completion — no-op' };
+    }
+    const result = await applyStatusTransition({
+      entityType: 'payment_plan',
+      entityId: plan.id,
+      toStatus: STATUS.PAYMENT_PLAN_CANCELLED,
+      reason: 'stripe subscription deleted before completion',
+      source: 'webhook',
+      eventId: event.id,
+    }, { db });
+    return { handled: true, detail: `subscription deleted: ${JSON.stringify(result)}` };
+  }
+
+  return { handled: false, detail: `unhandled event type ${type}` };
+}

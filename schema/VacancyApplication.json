@@ -1,0 +1,29 @@
+{
+  "name": "VacancyApplication",
+  "type": "object",
+  "properties": {
+    "vacancy_id": {
+      "type": "string",
+      "description": "Reference to the Vacancy this application is for"
+    },
+    "member_id": {
+      "type": "string",
+      "description": "Reference to the Member who expressed interest (forced to the current member server-side)"
+    },
+    "message": {
+      "type": "string",
+      "description": "Optional short message from the applying member"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending"
+      ],
+      "default": "pending",
+      "description": "Status of the application"
+    }
+  },
+  "required": [
+    "vacancy_id"
+  ]
+}

@@ -1,0 +1,2 @@
+ALTER TABLE member ADD COLUMN IF NOT EXISTS tags text[] DEFAULT '{}';
+ALTER TABLE organization ADD COLUMN IF NOT EXISTS tags text[] DEFAULT '{}';

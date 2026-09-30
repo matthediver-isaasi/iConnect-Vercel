@@ -1,0 +1,124 @@
+That worked. The next step is to prepare the existing members of the **British Nuclear Medicine Society** tenant so that their current membership records are correctly configured for future renewals.
+
+This is a critical migration task, so **do not make any changes initially**. We must run the entire process in **dry-run mode first**, produce a reconciliation report, and review the proposed changes before anything is written to the database.
+
+For each current BNMS member, use the following existing member custom fields as the starting point:
+
+* `ym_date_membership_expires` — the member's current membership expiry/renewal date.
+* `member_class` — the member's current membership category/class.
+
+### 1. Determine the correct membership structure
+
+For each member, use `member_class` to identify the appropriate membership structure/pricing configuration within iConnect.
+
+The dry run should show:
+
+* Member ID.
+* Member name.
+* Existing `member_class` value.
+* Proposed iConnect membership structure.
+* Existing `ym_date_membership_expires`.
+* Proposed membership start date, where this can be established.
+* Proposed membership expiry/renewal date.
+
+Any member whose `member_class` cannot be mapped confidently to an existing membership structure must be flagged for manual review rather than guessed.
+
+### 2. Identify the current membership payment method
+
+We also need to determine how the member paid for their current membership.
+
+The expected payment methods are:
+
+* **Upfront/card payment**
+* **GoCardless**
+
+Where possible, inspect the existing iConnect, Stripe/card, GoCardless and Xero data to determine which method was used.
+
+For GoCardless members, identify any existing customer, mandate, subscription or payment references that can safely be associated with the new/current membership record.
+
+For card/upfront members, identify evidence of the payment and, where possible, the corresponding invoice.
+
+Do not create new payments or trigger any collections as part of this process.
+
+### 3. Attempt to link the current Xero membership invoice
+
+Ideally, the current membership record should be linked to the Xero invoice covering the member's existing membership period.
+
+This may not always be possible, so use a cautious matching process based on available data such as:
+
+* Member/customer identity.
+* Email address.
+* Xero contact.
+* Invoice date.
+* Invoice amount.
+* Membership class.
+* Membership period or description.
+* Existing references held in iConnect.
+
+Only propose an automatic invoice link where the match is sufficiently strong.
+
+If there are:
+
+* Multiple possible invoices,
+* No suitable invoice,
+* Conflicting information, or
+* Insufficient confidence,
+
+flag the member for manual review instead.
+
+### 4. Build the proposed current membership record
+
+The dry run should show exactly what membership record would be created or updated for each member, including:
+
+* Membership structure.
+* Membership class/category.
+* Membership start date.
+* Membership expiry/renewal date.
+* Billing period.
+* Payment method.
+* Payment status.
+* GoCardless references, where applicable.
+* Xero invoice reference, where confidently identified.
+* Any other fields required by the existing iConnect renewal logic.
+
+The resulting membership must be configured in exactly the same way as a membership created normally through iConnect, so that the existing renewal workflows can operate against it without requiring special migration logic later.
+
+### 5. Dry-run reconciliation report
+
+Before making any changes, produce a report grouped into:
+
+**Ready to migrate**
+Members where the membership structure, renewal date and payment method can all be determined confidently.
+
+**Needs invoice review**
+Membership details are clear, but the Xero invoice cannot be confidently identified.
+
+**Needs payment-method review**
+Membership details are clear, but we cannot confidently determine whether payment was upfront/card or GoCardless.
+
+**Needs membership mapping review**
+The `member_class` cannot be confidently mapped to an iConnect membership structure.
+
+**Other conflicts**
+Any contradictory, incomplete or unexpected data.
+
+For every record, include a clear explanation of how the proposed values were determined.
+
+### 6. No writes during the dry run
+
+The first implementation must be completely read-only.
+
+Do not:
+
+* Create membership records.
+* Update existing membership records.
+* Change member custom fields.
+* Update Xero.
+* Update GoCardless.
+* Create payments.
+* Trigger collections.
+* Trigger membership renewal emails or workflows.
+
+Once we have reviewed and approved the dry-run results, we can add a separate controlled migration step to apply the proposed membership records.
+
+The key objective is that, once migrated, these members behave exactly like normally-created iConnect memberships and enter the standard renewal process when `ym_date_membership_expires` is reached.

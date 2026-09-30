@@ -1,0 +1,124 @@
+index-IVtXL80Y.js:1582 [publicClient] Detected tenant from subdomain: bnms
+index-IVtXL80Y.js:1667 GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.93.3) 2026-07-10T09:57:11.007Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+BP @ index-IVtXL80Y.js:1667
+yct @ index-IVtXL80Y.js:1668
+_initSupabaseAuthClient @ index-IVtXL80Y.js:1668
+jct @ index-IVtXL80Y.js:1668
+S4e @ index-IVtXL80Y.js:1668
+(anonymous) @ index-IVtXL80Y.js:2802
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] memberInfo: null
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-IVtXL80Y.js:1986 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-IVtXL80Y.js:1986 [Layout] currentPageName: InstalledFonts currentPortalPageId: null
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] memberInfo: {id: 'f42f03b5-5ed7-441b-aac5-972038427e59', email: 'sharon@onlinem.co.uk'}
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-IVtXL80Y.js:1986 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-IVtXL80Y.js:1986 [Layout] currentPageName: InstalledFonts currentPortalPageId: null
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] Query running, memberInfo.id: f42f03b5-5ed7-441b-aac5-972038427e59
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] memberInfo: {id: 'f42f03b5-5ed7-441b-aac5-972038427e59', email: 'sharon@onlinem.co.uk'}
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-IVtXL80Y.js:1986 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-IVtXL80Y.js:1986 [Layout] currentPageName: InstalledFonts currentPortalPageId: null
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] memberInfo: {id: 'f42f03b5-5ed7-441b-aac5-972038427e59', email: 'sharon@onlinem.co.uk'}
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-IVtXL80Y.js:1986 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-IVtXL80Y.js:1986 [Layout] currentPageName: InstalledFonts currentPortalPageId: null
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] memberInfo: {id: 'f42f03b5-5ed7-441b-aac5-972038427e59', email: 'sharon@onlinem.co.uk'}
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-IVtXL80Y.js:1986 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-IVtXL80Y.js:1986 [Layout] currentPageName: InstalledFonts currentPortalPageId: null
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] memberInfo: {id: 'f42f03b5-5ed7-441b-aac5-972038427e59', email: 'sharon@onlinem.co.uk'}
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-IVtXL80Y.js:1986 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-IVtXL80Y.js:1986 [Layout] currentPageName: InstalledFonts currentPortalPageId: null
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] memberInfo: {id: 'f42f03b5-5ed7-441b-aac5-972038427e59', email: 'sharon@onlinem.co.uk'}
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-IVtXL80Y.js:1986 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-IVtXL80Y.js:1986 [Layout] currentPageName: InstalledFonts currentPortalPageId: null
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] memberInfo: {id: 'f42f03b5-5ed7-441b-aac5-972038427e59', email: 'sharon@onlinem.co.uk'}
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-IVtXL80Y.js:1986 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-IVtXL80Y.js:1986 [Layout] currentPageName: InstalledFonts currentPortalPageId: null
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] memberInfo: {id: 'f42f03b5-5ed7-441b-aac5-972038427e59', email: 'sharon@onlinem.co.uk'}
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-IVtXL80Y.js:1986 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-IVtXL80Y.js:1986 [Layout] currentPageName: InstalledFonts currentPortalPageId: null
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] memberInfo: {id: 'f42f03b5-5ed7-441b-aac5-972038427e59', email: 'sharon@onlinem.co.uk'}
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-IVtXL80Y.js:1986 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-IVtXL80Y.js:1986 [Layout] currentPageName: InstalledFonts currentPortalPageId: null
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] Fetched bookings count: 0
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] Pending PO bookings: 0
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] memberInfo: {id: 'f42f03b5-5ed7-441b-aac5-972038427e59', email: 'sharon@onlinem.co.uk'}
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-IVtXL80Y.js:1986 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-IVtXL80Y.js:1986 [Layout] currentPageName: InstalledFonts currentPortalPageId: null
+index-IVtXL80Y.js:1986 [Layout] Server session found: sharon@onlinem.co.uk
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] memberInfo: {id: 'f42f03b5-5ed7-441b-aac5-972038427e59', email: 'sharon@onlinem.co.uk'}
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-IVtXL80Y.js:1986 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-IVtXL80Y.js:1986 [Layout] currentPageName: InstalledFonts currentPortalPageId: null
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] memberInfo: {id: 'f42f03b5-5ed7-441b-aac5-972038427e59', email: 'sharon@onlinem.co.uk'}
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-IVtXL80Y.js:1986 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-IVtXL80Y.js:1986 [Layout] currentPageName: InstalledFonts currentPortalPageId: null
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] memberInfo: {id: 'f42f03b5-5ed7-441b-aac5-972038427e59', email: 'sharon@onlinem.co.uk'}
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-IVtXL80Y.js:1986 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-IVtXL80Y.js:1986 [Layout] currentPageName: InstalledFonts currentPortalPageId: null
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] memberInfo: {id: 'f42f03b5-5ed7-441b-aac5-972038427e59', email: 'sharon@onlinem.co.uk'}
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-IVtXL80Y.js:1986 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-IVtXL80Y.js:1986 [Layout] currentPageName: InstalledFonts currentPortalPageId: null
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] memberInfo: {id: 'f42f03b5-5ed7-441b-aac5-972038427e59', email: 'sharon@onlinem.co.uk'}
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-IVtXL80Y.js:1986 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-IVtXL80Y.js:1986 [Layout] currentPageName: InstalledFonts currentPortalPageId: null
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] memberInfo: {id: 'f42f03b5-5ed7-441b-aac5-972038427e59', email: 'sharon@onlinem.co.uk'}
+index-IVtXL80Y.js:1975 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-IVtXL80Y.js:1986 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-IVtXL80Y.js:1986 [Layout] currentPageName: InstalledFonts currentPortalPageId: null
+index-IVtXL80Y.js:41 Error: A <Select.Item /> must have a value prop that is not an empty string. This is because the Select value can be set to an empty string to clear the selection and show the placeholder.
+    at index-IVtXL80Y.js:1709:60547
+    at Xee (index-IVtXL80Y.js:39:17091)
+    at pce (index-IVtXL80Y.js:41:1582)
+    at R2e (index-IVtXL80Y.js:41:46302)
+    at O2e (index-IVtXL80Y.js:41:40005)
+    at IJe (index-IVtXL80Y.js:41:39928)
+    at YD (index-IVtXL80Y.js:41:39776)
+    at iY (index-IVtXL80Y.js:41:36109)
+    at Sce (index-IVtXL80Y.js:41:36916)
+    at Hj (index-IVtXL80Y.js:39:3302)
+GG @ index-IVtXL80Y.js:41
+n.callback @ index-IVtXL80Y.js:41
+ice @ index-IVtXL80Y.js:39
+_ce @ index-IVtXL80Y.js:41
+E2e @ index-IVtXL80Y.js:41
+MJe @ index-IVtXL80Y.js:41
+$Je @ index-IVtXL80Y.js:41
+H_ @ index-IVtXL80Y.js:41
+Sce @ index-IVtXL80Y.js:41
+Hj @ index-IVtXL80Y.js:39
+(anonymous) @ index-IVtXL80Y.js:41
+index-IVtXL80Y.js:1709 Uncaught Error: A <Select.Item /> must have a value prop that is not an empty string. This is because the Select value can be set to an empty string to clear the selection and show the placeholder.
+    at index-IVtXL80Y.js:1709:60547
+    at Xee (index-IVtXL80Y.js:39:17091)
+    at pce (index-IVtXL80Y.js:41:1582)
+    at R2e (index-IVtXL80Y.js:41:46302)
+    at O2e (index-IVtXL80Y.js:41:40005)
+    at IJe (index-IVtXL80Y.js:41:39928)
+    at YD (index-IVtXL80Y.js:41:39776)
+    at iY (index-IVtXL80Y.js:41:36109)
+    at Sce (index-IVtXL80Y.js:41:36916)
+    at Hj (index-IVtXL80Y.js:39:3302)
+(anonymous) @ index-IVtXL80Y.js:1709
+Xee @ index-IVtXL80Y.js:39
+pce @ index-IVtXL80Y.js:41
+R2e @ index-IVtXL80Y.js:41
+O2e @ index-IVtXL80Y.js:41
+IJe @ index-IVtXL80Y.js:41
+YD @ index-IVtXL80Y.js:41
+iY @ index-IVtXL80Y.js:41
+Sce @ index-IVtXL80Y.js:41
+Hj @ index-IVtXL80Y.js:39
+(anonymous) @ index-IVtXL80Y.js:41

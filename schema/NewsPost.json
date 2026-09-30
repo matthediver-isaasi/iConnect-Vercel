@@ -61,6 +61,11 @@
         "format": "date-time",
         "description": "When the news was/will be published"
       },
+      "ticker_expiry_date": {
+        "type": "string",
+        "format": "date-time",
+        "description": "Optional: after this date/time the article is no longer eligible for the news ticker (article stays published elsewhere)"
+      },
       "seo_title": {
         "type": "string",
         "description": "Custom SEO title"

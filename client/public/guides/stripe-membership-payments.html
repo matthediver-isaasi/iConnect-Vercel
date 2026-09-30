@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stripe Membership Payments — Tenant Administrator Guide</title>
+  <style>
+    :root {
+      --ink: #172033;
+      --muted: #58657a;
+      --line: #d8deea;
+      --soft: #f4f7fb;
+      --brand: #3157a4;
+      --brand-soft: #eaf0fc;
+      --good: #176b49;
+      --good-soft: #eaf7f1;
+      --warn: #8a4b08;
+      --warn-soft: #fff5df;
+      --danger: #9b2c2c;
+      --danger-soft: #fff0f0;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: #eef2f8;
+      font: 16px/1.58 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main {
+      width: min(1040px, calc(100% - 32px));
+      margin: 32px auto;
+      padding: 54px 64px;
+      background: #fff;
+      box-shadow: 0 8px 30px rgba(32, 48, 78, .10);
+    }
+    h1, h2, h3 { line-height: 1.2; color: #15213a; }
+    h1 { margin: 0 0 10px; font-size: 2.35rem; letter-spacing: -.03em; }
+    h2 {
+      margin: 2.6rem 0 1rem;
+      padding-bottom: .45rem;
+      border-bottom: 2px solid var(--brand-soft);
+      font-size: 1.55rem;
+    }
+    h3 { margin: 1.7rem 0 .6rem; font-size: 1.1rem; }
+    p { margin: .65rem 0; }
+    a { color: #244e9a; }
+    ul, ol { padding-left: 1.4rem; }
+    li { margin: .35rem 0; }
+    code {
+      padding: .08rem .3rem;
+      border-radius: 4px;
+      background: #eef1f6;
+      font: .88em ui-monospace, SFMono-Regular, Consolas, monospace;
+      overflow-wrap: anywhere;
+    }
+    .eyebrow {
+      color: var(--brand);
+      font-size: .78rem;
+      font-weight: 750;
+      letter-spacing: .09em;
+      text-transform: uppercase;
+    }
+    .subtitle { max-width: 760px; color: var(--muted); font-size: 1.13rem; }
+    .meta { margin-top: 20px; color: var(--muted); font-size: .88rem; }
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin: 28px 0;
+    }
+    .summary div { padding: 15px; border: 1px solid var(--line); border-radius: 8px; }
+    .summary strong { display: block; margin-bottom: 3px; color: var(--brand); }
+    nav {
+      margin: 26px 0;
+      padding: 18px 22px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--soft);
+    }
+    nav strong { display: block; margin-bottom: 6px; }
+    nav ol { columns: 2; margin: 0; }
+    .callout {
+      margin: 18px 0;
+      padding: 15px 18px;
+      border-left: 5px solid var(--brand);
+      border-radius: 4px;
+      background: var(--brand-soft);
+    }
+    .callout.warning { border-color: #d17a15; background: var(--warn-soft); }
+    .callout.danger { border-color: var(--danger); background: var(--danger-soft); }
+    .callout.good { border-color: var(--good); background: var(--good-soft); }
+    .callout strong:first-child { display: block; margin-bottom: 3px; }
+    .steps { counter-reset: step; padding: 0; list-style: none; }
+    .steps > li {
+      position: relative;
+      margin: 14px 0;
+      padding: 2px 0 10px 48px;
+      min-height: 38px;
+    }
+    .steps > li::before {
+      counter-increment: step;
+      content: counter(step);
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      color: #fff;
+      background: var(--brand);
+      text-align: center;
+      font-weight: 700;
+      line-height: 32px;
+    }
+    table { width: 100%; margin: 15px 0 24px; border-collapse: collapse; font-size: .92rem; }
+    th, td { padding: 10px 11px; border: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { background: var(--soft); color: #263653; }
+    tbody tr:nth-child(even) { background: #fafbfd; }
+    .checklist { padding-left: 0; list-style: none; }
+    .checklist li { position: relative; padding-left: 1.7rem; }
+    .checklist li::before { content: "□"; position: absolute; left: 0; color: var(--brand); font-weight: 700; }
+    .small { color: var(--muted); font-size: .88rem; }
+    .page-break { break-before: page; }
+    footer { margin-top: 42px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: .82rem; }
+    @media (max-width: 760px) {
+      main { width: 100%; margin: 0; padding: 30px 20px; box-shadow: none; }
+      .summary { grid-template-columns: 1fr; }
+      nav ol { columns: 1; }
+      table { display: block; overflow-x: auto; }
+    }
+    @media print {
+      @page { size: A4; margin: 16mm; }
+      body { background: #fff; font-size: 10.5pt; }
+      main { width: auto; margin: 0; padding: 0; box-shadow: none; }
+      h1 { font-size: 25pt; }
+      h2 { margin-top: 20pt; font-size: 16pt; break-after: avoid; }
+      h3 { break-after: avoid; }
+      p, li { orphans: 3; widows: 3; }
+      table, .callout, .summary div { break-inside: avoid; }
+      nav { break-inside: avoid; }
+      a { color: inherit; text-decoration: none; }
+      a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 8pt; color: #596273; overflow-wrap: anywhere; }
+      .no-print { display: none; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow">Tenant administrator guide</div>
+    <h1>Stripe membership payments</h1>
+    <p class="subtitle">How to offer annual card payments and fixed monthly card instalments, connect Stripe notifications, and deal safely with success, failure and cancellation.</p>
+    <p class="meta"><strong>Applies to:</strong> tenant administrators &nbsp;·&nbsp; <strong>Updated:</strong> 10 September 2026 &nbsp;·&nbsp; <strong>Print:</strong> use your browser’s Print command</p>
+  </header>
+
+  <div class="summary">
+    <div><strong>Configure</strong>Connect the correct Stripe account and add separate test and live notification destinations.</div>
+    <div><strong>Offer</strong>Enable one-off or monthly card choices only where your membership tier supports them.</div>
+    <div><strong>Monitor</strong>Treat Stripe delivery, membership completion and accounting posting as separate results.</div>
+  </div>
+
+  <nav aria-label="Contents">
+    <strong>Contents</strong>
+    <ol>
+      <li><a href="#before">Before you begin</a></li>
+      <li><a href="#webhook">Set up Stripe notifications</a></li>
+      <li><a href="#membership">Configure the membership offer</a></li>
+      <li><a href="#journey">What the member experiences</a></li>
+      <li><a href="#outcomes">Notification outcome reference</a></li>
+      <li><a href="#failure">Failures, grace and arrears</a></li>
+      <li><a href="#cancellation">Completion and cancellation</a></li>
+      <li><a href="#recovery">Delays and safe recovery</a></li>
+      <li><a href="#checklists">Administrator checklists</a></li>
+      <li><a href="#sources">Official Stripe sources</a></li>
+    </ol>
+  </nav>
+
+  <section id="before">
+    <h2>1. Before you begin</h2>
+    <p>Stripe processes the card transaction. The membership service uses Stripe notifications to update the member’s plan, payment progress and access. If accounting is connected, it also creates or updates the appropriate accounting invoice.</p>
+    <p>You will need administrator access to this service and suitable access to <strong>your organisation’s own Stripe account</strong>. Confirm which Stripe account is being used before copying any keys or creating notification destinations.</p>
+
+    <div class="callout warning">
+      <strong>Important: Stripe test mode does not make Xero a test system.</strong>
+      If your tenant is connected to a real Xero organisation, a Stripe test payment can still cause a real invoice or payment entry there. Use a safe accounting connection and agreed test procedure, or disconnect accounting while testing if that is appropriate for your organisation.
+    </div>
+    <div class="callout">
+      <strong>No status badge proves the whole journey.</strong>
+      “Stripe configured”, “notification delivered” and “payment succeeded” are different from “membership processing completed” and “accounting invoice posted”. Check each outcome separately.
+    </div>
+  </section>
+
+  <section id="webhook">
+    <h2>2. Set up Stripe membership notifications</h2>
+    <p>Stripe calls these notifications <strong>webhooks</strong>. They are the safety net when a payer closes the browser, loses connection, or returns late from card authentication. Monthly plans also depend on them for later instalments and failures.</p>
+
+    <h3>A. Prepare the integration</h3>
+    <ol class="steps">
+      <li>Open <strong>Admin → Integrations → Stripe</strong>. Enter the live Stripe keys and, if you will test, the test keys. Set the <strong>Membership</strong> payment mode deliberately.</li>
+      <li>Save the Stripe credentials and enable Stripe. Do not assume a general connection check has tested membership notifications.</li>
+      <li>Find the <strong>Membership payment notifications</strong> section. Copy the displayed server webhook URL; it is specific to your tenant. Do not remove or alter its tenant information.</li>
+    </ol>
+
+    <h3>B. Create the test destination in Stripe</h3>
+    <ol class="steps">
+      <li>In your own Stripe Dashboard, switch to the test/sandbox environment and create a webhook destination for <strong>your account</strong>.</li>
+      <li>Paste the copied URL. Choose a <strong>snapshot event</strong> destination (not a thin-event destination).</li>
+      <li>Select exactly the eight events in the reference table below. Saving only some of them leaves gaps, particularly for monthly plans and arrears recovery.</li>
+      <li>Reveal and copy the destination’s signing secret, which normally begins <code>whsec_</code>. Back in Admin → Integrations, paste it into the <strong>Test endpoint signing secret</strong> field and choose <strong>Save signing secrets</strong>.</li>
+    </ol>
+
+    <h3>C. Create the live destination separately</h3>
+    <ol class="steps">
+      <li>Switch Stripe to live mode and create another account webhook destination, using the same displayed tenant URL and the same eight snapshot events.</li>
+      <li>Copy the signing secret generated for this <em>live</em> destination into <strong>Live endpoint signing secret</strong>, then choose <strong>Save signing secrets</strong>.</li>
+      <li>Never copy the test secret into the live field or vice versa. Every Stripe destination has its own signing secret, even when the URL is identical.</li>
+    </ol>
+
+    <div class="callout danger">
+      <strong>Keep signing secrets private.</strong>
+      Do not email them, place them in notes, or paste them into the URL. Replace the saved value if the destination is recreated or its secret is rolled in Stripe.
+    </div>
+
+    <h3>D. Use “Check configuration” correctly</h3>
+    <p>After saving, use <strong>Check configuration</strong> for the relevant mode. This <strong>read-only check</strong> asks Stripe whether it has an enabled destination with the exact displayed URL and all eight required events selected (or all events enabled). It also checks that this service has a signing secret saved for that mode. It does not take payment, change the Stripe destination, send a sample event, or prove that:</p>
+    <ul>
+      <li>the URL in Stripe is reachable from Stripe;</li>
+      <li>the saved signing secret belongs to that particular destination;</li>
+      <li>Stripe can successfully deliver an event; or</li>
+      <li>membership and accounting follow-up will complete.</li>
+    </ul>
+    <p>Use Stripe’s destination delivery history after an authorised test, then check the resulting member plan and accounting outcome in this service.</p>
+
+    <div class="callout good">
+      <strong>When will Stripe send notifications?</strong>
+      Once the destination is enabled in the correct Stripe account and mode, subscribed events occur, and the endpoint is reachable, Stripe sends those event notifications. No live destination or end-to-end payment is asserted to be active merely because this guide exists or because configuration was saved.
+    </div>
+  </section>
+
+  <section id="membership" class="page-break">
+    <h2>3. Configure the membership offer</h2>
+    <p>Open the membership tier settings. Stripe may be offered as a <strong>one-off annual card payment</strong> and, for supported individual-member tiers, as <strong>monthly card instalments</strong>. Monthly card is not offered for organisation-scoped memberships. The available choices also depend on usable Stripe membership credentials and a valid positive price.</p>
+
+    <h3>Monthly amount and number of instalments</h3>
+    <p>Enable <strong>Monthly card payments</strong>, then set the monthly amount and number of instalments (up to 12). In tiered pricing, the applicable pricing band supplies the monthly amount. Review the displayed total carefully: the monthly amount multiplied by the number of instalments may differ from the annual price.</p>
+    <p>Monthly card and Direct Debit share the monthly-plan settings. A change can therefore affect both choices for <em>new</em> agreements.</p>
+
+    <h3>Activation policy</h3>
+    <table>
+      <thead><tr><th>Policy</th><th>Meaning for a monthly card membership</th><th>Administrator consideration</th></tr></thead>
+      <tbody>
+        <tr><td><strong>On setup</strong><br><span class="small">(shown in some settings as “When mandate becomes active”)</span></td><td>Membership may activate after successful Stripe Checkout setup. This does not, by itself, prove that an instalment was successfully collected.</td><td>Use only if access should begin on completed setup rather than confirmed funds.</td></tr>
+        <tr><td><strong>On first successful payment</strong></td><td>Membership waits until the first paid Stripe invoice is confirmed.</td><td>This is the normal default where access depends on a successful first collection.</td></tr>
+        <tr><td><strong>Manual approval</strong></td><td>The system does not automatically activate membership from setup or payment.</td><td>An administrator must review and approve it in the monthly-payment administration area.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout">
+      <strong>Terms are fixed when the member agrees.</strong>
+      The amount, instalment count, activation policy, grace period, invoicing choice and post-grace collection choice are saved with that agreement. Editing the tier later affects new sign-ups, not the signed terms of an existing plan.
+    </div>
+
+    <h3 id="monthly-invoicing">Monthly invoicing: the two modes</h3>
+    <p>The membership structure’s <strong>Monthly invoicing</strong> setting controls the invoices in your connected accounting system, such as Xero or QuickBooks. It does not change how much Stripe collects, the number of instalments, or when membership activates. It applies to both monthly card and Direct Debit plans.</p>
+    <table>
+      <thead><tr><th>Setting shown in the membership structure</th><th>What accounting shows</th><th>Example: 12 monthly payments of £10</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Single annual invoice (payments applied monthly)</strong><br><span class="small">Default mode</span></td><td>One annual accounting invoice covers the membership. Each successful monthly collection is recorded as a part-payment against that invoice. The webhook does <strong>not</strong> raise a new invoice for each payment.</td><td>Assuming the annual invoice total is £120, the first £10 payment leaves £110 outstanding. The same invoice receives the remaining payments.</td></tr>
+        <tr><td><strong>Invoice per instalment (one paid invoice per collection)</strong></td><td>Each confirmed collection triggers a separate accounting invoice for that instalment, with the payment recorded against it. <strong>No annual accounting invoice is raised</strong> for this plan.</td><td>Each successful £10 collection produces one £10 invoice and its payment entry. After all 12 collections, there are 12 paid invoices—not a £120 annual invoice as well.</td></tr>
+      </tbody>
+    </table>
+    <p class="small">The examples assume no additional charges or tax adjustments. The agreed amounts and applicable tax settings determine the actual invoice totals; do not assume the annual price always equals the monthly amount multiplied by the instalment count.</p>
+    <h3>Does a successful Stripe webhook raise the instalment invoice?</h3>
+    <p><strong>Yes, when the agreement uses invoice-per-instalment mode and accounting is configured.</strong> The system verifies the successful subscription-invoice payment notification, matches it to the membership plan, and attempts to create the accounting invoice and record the payment. This includes the first confirmed collection and subsequent monthly collections. It does not depend on the member returning to the form or keeping the page open.</p>
+    <p>For monthly card plans, the relevant notifications are <code>invoice.paid</code> and <code>invoice.payment_succeeded</code>. Stripe may send both, or deliver a notification again: the system identifies the same collection so a repeat does not create another instalment invoice or charge. A Stripe subscription invoice is the payment evidence; the invoice described by this setting is the separate record in your accounting system.</p>
+    <ul>
+      <li><strong>Setup alone:</strong> completing Checkout is not enough to raise a paid instalment invoice. The collection must be confirmed.</li>
+      <li><strong>A failed collection:</strong> does not produce a paid instalment invoice. If a later retry succeeds, that confirmed collection is processed.</li>
+      <li><strong>Membership access:</strong> follows the separate activation policy. A paid instalment is not a declaration that the entire membership year is paid; all agreed instalments and unresolved arrears must be settled.</li>
+    </ul>
+    <div class="callout warning">
+      <strong>Payment success does not guarantee accounting success.</strong>
+      A Stripe collection can succeed while the accounting connection, invoice creation or payment recording fails. The payment remains valid and membership processing can continue. The accounting item remains available for recovery; if an invoice already exists, the retry reuses it rather than creating another. Check the accounting outcome and use the accounting recovery process—do not ask the member to pay again.
+    </div>
+    <p><strong>Existing plans keep their agreed mode.</strong> The invoicing choice is saved when the member agrees to the plan. Changing the membership structure affects new plans only; it does not convert an existing annual-invoice plan into an invoice-per-instalment plan, or vice versa.</p>
+  </section>
+
+  <section id="journey">
+    <h2>4. What the member experiences</h2>
+    <ol>
+      <li>The member starts from an eligible membership form or membership-fee link and sees the payment choices supported for that tier and membership type.</li>
+      <li>For monthly card, the service creates a fixed agreement and sends the member to Stripe Checkout. At this point the application or fee link may remain <strong>pending</strong>.</li>
+      <li>Completing Stripe Checkout confirms payment setup and creates the subscription. For a form, member creation/linking and application processing must also finish before setup is fully finalised.</li>
+      <li>The local plan begins in a first-payment-pending stage. Activation then follows the policy saved in the agreement.</li>
+      <li>A confirmed paid first invoice advances the plan, changes overall payment progress to <strong>part-paid</strong>, and may activate membership. It does <em>not</em> mean the annual plan is fully settled.</li>
+      <li>Each further paid invoice advances the count once. Only collection of all agreed instalments and any unresolved arrears marks the membership payment fully paid and naturally concludes the fixed plan.</li>
+    </ol>
+    <div class="callout warning">
+      <strong>Checkout completed is not the same as money received.</strong>
+      A checkout can complete while its first invoice is still awaiting payment or requires cardholder action. The service does not subscribe to <code>invoice.created</code> or separate action-required events for this membership endpoint; administrators should not promise processing based on those unsupported events.
+    </div>
+  </section>
+
+  <section id="outcomes" class="page-break">
+    <h2>5. Notification outcome reference</h2>
+    <p>The final column is included only as a Stripe setup reference. Administrators do not need to interpret Stripe event names during normal operation.</p>
+    <table>
+      <thead>
+        <tr><th>Business outcome</th><th>What the service does</th><th>Administrator response</th><th>Optional Stripe setup reference</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>One-off membership card payment succeeds</td><td>Records the membership payment once, completes the paid outcome, and attempts to apply it to the accounting invoice where one is linked.</td><td>Check the member and accounting result. If charged but incomplete, do not request another payment.</td><td><code>payment_intent.succeeded</code></td></tr>
+        <tr><td>Monthly card setup completes</td><td>Finalises the form or fee-link setup, links the member, creates the fixed plan and applies the saved setup activation policy.</td><td>If it remains pending, allow recovery time and review rather than creating a second plan.</td><td><code>checkout.session.completed</code></td></tr>
+        <tr><td>A subscription invoice is paid</td><td>Counts the instalment once. In invoice-per-instalment mode, attempts to create one accounting invoice for the collection and record its payment. In annual mode, applies the payment to the existing annual invoice. Activates on first payment if applicable; completes the plan only when all amounts are settled.</td><td>Check accounting separately from Stripe payment success. Distinguish “first instalment paid” from “whole plan paid”. See <a href="#monthly-invoicing">the two invoicing modes</a>.</td><td><code>invoice.paid</code></td></tr>
+        <tr><td>Stripe reports successful invoice payment</td><td>Handles the same paid-invoice lifecycle safely; repeat or overlapping notifications should not count the instalment twice.</td><td>No duplicate action is needed.</td><td><code>invoice.payment_succeeded</code></td></tr>
+        <tr><td>A monthly collection fails</td><td>Records the failed period, starts or continues the saved grace-period process, and may send configured failure communications.</td><td>Check plan status and follow your arrears policy. Do not promise a particular retry date.</td><td><code>invoice.payment_failed</code></td></tr>
+        <tr><td>Stripe voids an invoice</td><td>For a matched arrears catch-up invoice, records that the collection attempt ended without payment so it is not left looking like an open successful attempt.</td><td>The invoice is not paid and no refund is created. Review the outstanding arrears and decide the next authorised recovery action.</td><td><code>invoice.voided</code></td></tr>
+        <tr><td>Stripe marks an invoice uncollectible</td><td>For a matched arrears catch-up invoice, records the terminal unsuccessful outcome against that attempt.</td><td>This is not payment and does not refund earlier collections. Review the balance, access policy and whether administrator action is required.</td><td><code>invoice.marked_uncollectible</code></td></tr>
+        <tr><td>A Stripe subscription ends</td><td>If all instalments were already settled, treats this as natural conclusion. Otherwise records an early-cancelled payment plan.</td><td>Review early cancellation, access, balance and any member communication.</td><td><code>customer.subscription.deleted</code></td></tr>
+      </tbody>
+    </table>
+    <p>Stripe events reflect the <strong>actual Stripe payment lifecycle</strong>. Stripe does not send a new event for every internal attempt by this service to finish member linking, post an invoice, send a workflow, or reconcile an already-known payment.</p>
+  </section>
+
+  <section id="failure">
+    <h2>6. Collection failures, grace and arrears</h2>
+    <p>When Stripe reports a failed recurring invoice, the plan moves into its saved grace period (or overdue if that deadline has passed). The grace period comes from the agreement accepted by the member, not today’s tier setting.</p>
+
+    <h3>Access action after grace</h3>
+    <p>The tier offers these configured actions for unresolved monthly payments:</p>
+    <ul>
+      <li><strong>Keep access active</strong> — no access restriction.</li>
+      <li><strong>Keep active and flag for review</strong> — administrators are asked to intervene.</li>
+      <li><strong>Restrict via role</strong> — moves the member to the selected limited-access role.</li>
+      <li><strong>Suspend portal access</strong> — prevents portal entry until recovery or administrator action.</li>
+      <li><strong>Flag cancellation at paid-period end</strong> — flags an administrator action; it does not immediately cancel the Stripe plan.</li>
+    </ul>
+
+    <h3>Collection action after grace</h3>
+    <ul>
+      <li><strong>Stop future collections; resolve manually</strong> leaves the unpaid balance visible for administrator recovery.</li>
+      <li><strong>Continue and catch up</strong> can add missed monthly amounts to a later eligible Stripe invoice. This is separate from the access action.</li>
+    </ul>
+    <div class="callout warning">
+      <strong>Stripe controls its own automatic invoice retries.</strong>
+      Retry timing and whether Stripe tries again depend on the subscription and settings in your Stripe account. This service must not be described as guaranteeing blanket retries or a fixed retry schedule. A failed first invoice can leave a subscription incomplete.
+    </div>
+    <p>When payment later succeeds, the plan can leave arrears status, restore access changes made by the configured policy, count the settled amounts, and continue. Always confirm the displayed outcome before telling the member that access or accounting has recovered.</p>
+  </section>
+
+  <section id="cancellation">
+    <h2>7. Natural completion and early cancellation</h2>
+    <h3>Natural completion</h3>
+    <p>After all agreed instalments and arrears have been paid, the service marks the overall membership payment paid and concludes the Stripe subscription so it does not continue beyond the fixed plan. Conclusion is retried if it cannot be confirmed immediately.</p>
+
+    <h3>Early cancellation</h3>
+    <p>If Stripe reports that a subscription ended before the fixed plan was settled, the local payment plan is marked cancelled. Cancellation does not itself mean the member owes nothing, that access is automatically removed, or that accounting has been corrected.</p>
+    <div class="callout danger">
+      <strong>Cancellation does not automatically promise a refund.</strong>
+      Do not tell a member that prior instalments will be returned. Review the signed terms, payments already collected, outstanding balance, membership access and accounting entries. Use the approved administrator support/refund process where a refund or correction is due.
+    </div>
+    <p>If a monthly plan already exists, the member is prevented from simply paying the same membership year again as a one-off annual payment. Resolve or cancel the existing plan with administrator assistance first.</p>
+  </section>
+
+  <section id="recovery">
+    <h2>8. Delays, duplicates and safe recovery</h2>
+    <p>Notification systems are not instantaneous queues. Stripe may deliver the same event more than once, may deliver related events out of order, and retries unsuccessful live deliveries for up to three days with exponential backoff (sandbox retries are shorter). The service identifies repeats and scheduled reconciliation provides an additional recovery route.</p>
+    <ul>
+      <li><strong>Browser closed after payment:</strong> the Stripe notification or scheduled reconciliation can still complete processing. The browser return page is not the only proof.</li>
+      <li><strong>Notification arrives before member/plan setup:</strong> it is retained for retry; later processing can match it when setup exists.</li>
+      <li><strong>Duplicate paid notifications:</strong> the same Stripe payment or invoice should be counted once.</li>
+      <li><strong>Out-of-order setup and invoice notifications:</strong> the service rechecks Stripe and scheduled reconciliation can repair the sequence.</li>
+      <li><strong>Processing failure after receipt:</strong> recoverable matching or processing failures normally remain pending and return an unsuccessful delivery response so Stripe can retry. Scheduled reconciliation remains a backstop after provider retries end.</li>
+      <li><strong>Accepted event with unfinished follow-up:</strong> some non-fatal follow-up work, such as an accounting post that has been separately flagged for retry, can remain incomplete even though Stripe shows the event as successfully delivered.</li>
+    </ul>
+    <div class="callout">
+      <strong>Delivery success is not business completion.</strong>
+      A successful webhook delivery means the endpoint accepted the notification. It does not prove the membership was activated, the plan advanced, an email was sent, or an accounting invoice/payment was posted. Conversely, a temporary failed delivery does not prove the card payment failed.
+    </div>
+
+    <h3>What to tell a member</h3>
+    <ul>
+      <li>If Stripe shows a successful charge but this service is still pending: <strong>“Your payment has been received and is being reconciled. Please do not pay again.”</strong></li>
+      <li>If Stripe shows an invoice payment failure: ask the member to follow the Stripe/payment-method instructions or contact an administrator. Do not ask for a second one-off payment while the monthly plan remains open.</li>
+      <li>If you cannot establish whether money moved, escalate with the approximate time and Stripe customer/payment reference available to your authorised team. Do not collect card details by email.</li>
+    </ul>
+  </section>
+
+  <section id="checklists" class="page-break">
+    <h2>9. Administrator checklists</h2>
+    <h3>Go-live checklist</h3>
+    <ul class="checklist">
+      <li>Correct organisation’s Stripe account confirmed.</li>
+      <li>Live and test keys saved in the correct fields; Membership mode deliberately selected.</li>
+      <li>Separate test and live account destinations created using the tenant URL.</li>
+      <li>Both destinations use snapshot events and all eight listed events.</li>
+      <li>Each destination’s own signing secret saved in the matching test/live field.</li>
+      <li>“Check configuration” reviewed without treating it as a delivery test.</li>
+      <li>Tier price, monthly total, instalment count, activation, grace and arrears choices approved.</li>
+      <li>Annual versus per-instalment accounting choice approved.</li>
+      <li>Xero/other accounting connection and test-data risk reviewed.</li>
+      <li>An authorised end-to-end test plan agreed, including member, Stripe and accounting checks.</li>
+    </ul>
+
+    <h3>When a payer reports a problem</h3>
+    <ol>
+      <li>Ask whether Stripe displayed success, failure or an unfinished authentication step. Never request full card details.</li>
+      <li>Check the payment in the correct Stripe mode and account.</li>
+      <li>Check the member’s membership year, plan stage, instalments paid, arrears and any attention flag.</li>
+      <li>Check accounting separately. A missing accounting post does not make a successful Stripe charge unpaid.</li>
+      <li>Review Stripe destination deliveries for the relevant event and time. Remember that “delivered” is not “all follow-up completed”.</li>
+      <li>Allow scheduled reconciliation where appropriate or use your approved administrator recovery route.</li>
+      <li>If the charge succeeded, explicitly warn the payer not to pay again while the issue is reviewed.</li>
+    </ol>
+  </section>
+
+  <section id="sources">
+    <h2>10. Official Stripe sources</h2>
+    <p>Stripe changes its Dashboard wording periodically. Use the current official documentation alongside this guide:</p>
+    <ul>
+      <li><a href="https://docs.stripe.com/webhooks">Stripe webhooks</a> — destination setup, event delivery, retries, duplicates, ordering and signatures.</li>
+      <li><a href="https://docs.stripe.com/billing/subscriptions/webhooks">Stripe subscription webhooks</a> — subscription invoice success and failure lifecycle.</li>
+      <li><a href="https://docs.stripe.com/webhooks/signature">Resolve webhook signature verification errors</a> — endpoint secrets and signature troubleshooting.</li>
+      <li><a href="https://docs.stripe.com/billing/revenue-recovery/smart-retries">Stripe Smart Retries</a> — Stripe-managed failed-payment retry behaviour.</li>
+    </ul>
+  </section>
+
+  <footer>
+    This guide explains administrator-facing behaviour and safe operating practice. It does not confirm that any tenant’s live webhook is enabled, that its signing secret matches, or that a live payment has been tested end to end.
+  </footer>
+</main>
+</body>
+</html>

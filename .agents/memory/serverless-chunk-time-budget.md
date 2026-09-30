@@ -1,0 +1,51 @@
+---
+name: Serverless chunk loops need a time budget, not just a record cap
+description: Why browser-driven chunked backfills must bound each invocation by wall-clock, with an exact per-record resume cursor.
+---
+
+**Rule:** A resumable chunk endpoint on Vercel must stop on a wall-clock budget (~45s under a 60s maxDuration), not only on a record count. Cost per chunk is driven by *matched* records (each match = several sequential awaits), so a fixed `page_size` can still 504 when many records match.
+
+**Why:** The workflow manual-backfill 504'd in execute mode on a tenant where ~all records matched — dry-run (no actions) was fine, so record-count chunking looked correct until execute ran.
+
+**How to apply:**
+- Budget check runs BETWEEN records (never mid-record); track processed-count within the current DB page so `nextOffset` points at the exact first unprocessed record, not the next page boundary.
+- Keep the budget an opt-in option so cron/other callers are untouched.
+- Client loop: a fixed max-chunk count is wrong once chunks are time-budgeted (a chunk may process very few records) — cap the loop by total wall-clock + a stalled-progress guard (nextOffset not advancing with 0 evaluated) instead.
+- Client should retry a chunk on 502/503/504/network with backoff; on final failure tell the admin re-running is safe (executed records are logged; once-per-record workflows skip them).
+- Verified pattern: monkey-patch the shared `supabase` object from `database.js` in an ad-hoc harness to unit-test `runScheduledWorkflow` offset arithmetic without a real DB (Node 20 has no `mock.module`).
+
+**Rule:** Budget prerequisite retries and downstream completion separately, and expose partial progress instead of equating a returned invocation with successful work.
+
+**Why:** Repeated manual payment sweeps spent their single prerequisite slot on old failed address mappings while newer paid submissions were skipped. Heartbeat-only failures were omitted from the JSON response, so callers saw successful invocations with no explanation for zero finalizations.
+
+**How to apply:** Claim prerequisites sequentially within a bounded allowance, reserve enough time to start the downstream finalizer, and finish each owned lease. Return safe stage-level failure and waiting counts; never weaken immutable payment evidence or mapping checks just to clear a queue.
+
+The downstream reserve must include its claim, form lookup and URL resolution overhead—not merely the finalizer's minimum stage-start threshold.
+
+**Why:** Payment address recovery succeeded, but later completion receipts still reached the processor with less than its minimum start budget. Multiple queue claims looked like progress even though member creation never started.
+
+**How to apply:** Judge progress by completed durable stages, not claim counts. A single-submission manual recovery can isolate an urgent receipt, but it does not prove that the global worker schedules later receipts fairly.
+
+Queue registration can defeat a later `SKIP LOCKED` claim if it first attempts `INSERT ... ON CONFLICT` against every existing queue entry.
+
+**Why:** A concurrent-worker regression blocked during registration on an entry locked by another transaction, before it reached the non-blocking claim query.
+
+**How to apply:** Exclude already-registered entries before insertion while retaining conflict handling for genuinely concurrent new entries. Exercise claims with two connections and a short statement timeout; a single-connection test will miss this failure.
+
+An unstarted stage deferred by its minimum-time reserve is pending work, not a worker failure—even when the overall deadline has not expired.
+
+**Why:** A successful paid-application processing stage consumed most of a slice, leaving insufficient reserve for membership and email. The next invocation completed normally, but the first misleadingly reported failures because it tested only deadline expiry. An address-to-completion handoff produced a similar false failure.
+
+**How to apply:** Track explicit budget deferrals separately from attempted-stage errors. Keep partial progress visible without marking the heartbeat unhealthy for a deferral alone; real failures and ambiguous effects must remain failures even when a later stage is deferred.
+
+**Rule:** A between-row deadline is not a bound on a provider request already in progress.
+
+**Why:** Renewal timeout investigation found a payment SDK's default request timeout exceeded the entire serverless invocation limit, with retries extending it further. A promise race would return while side effects continued.
+
+**How to apply:** Validate transport timeout and retry defaults when claiming a hard runtime bound. Abort and await read-only requests; financial writes need provider idempotency and explicit ambiguous-outcome recovery before adding cancellation.
+
+**Rule:** A paid form's caller deadline is not the entity processor's outcome. Future attempts may observe a pre-recorded, exact operation identity for a bounded period; only its durable success permits downstream finalisation without replaying the entity request.
+
+**Why:** The caller timed out just before the processor recorded success, leaving a paid member without a membership. Increasing the transport timeout alone does not close that race.
+
+**How to apply:** Persist observation identity before dispatch and preserve it across owner-fenced completion retries. While the operation is running, wait without re-sending it; stop on identity loss, explicit ambiguity, or expiry. Leave historical attention receipts closed even if their operations later report success. Keep known partial-action followups distinct from transport retries.

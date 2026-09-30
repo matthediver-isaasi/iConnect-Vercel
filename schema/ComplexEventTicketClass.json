@@ -1,0 +1,127 @@
+{
+  "name": "ComplexEventTicketClass",
+  "type": "object",
+  "properties": {
+    "complex_event_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Reference to the complex event this ticket class belongs to"
+    },
+    "name": {
+      "type": "string",
+      "description": "Ticket class name (e.g. 'Full Access', 'Single Track')"
+    },
+    "price": {
+      "type": "number",
+      "description": "Ticket price"
+    },
+    "is_free": {
+      "type": "boolean",
+      "description": "Whether this ticket is free"
+    },
+    "early_bird_enabled": {
+      "type": "boolean",
+      "description": "Whether early bird pricing is enabled"
+    },
+    "early_bird_price": {
+      "type": "number",
+      "description": "Early bird price (lower than standard price)"
+    },
+    "early_bird_deadline": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Deadline after which early bird pricing no longer applies"
+    },
+    "is_group_ticket": {
+      "type": "boolean",
+      "description": "Whether this is a group ticket"
+    },
+    "group_size": {
+      "type": "integer",
+      "description": "Maximum number of participants in the group"
+    },
+    "group_cutoff_date": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Deadline for modifying the group roster"
+    },
+    "vat_rate_key": {
+      "type": "string",
+      "description": "Xero TaxType identifier for VAT calculation"
+    },
+    "vat_rate_label": {
+      "type": "string",
+      "description": "Display name of the VAT rate"
+    },
+    "vat_rate_percentage": {
+      "type": "number",
+      "description": "VAT percentage value"
+    },
+    "visibility_mode": {
+      "type": "string",
+      "enum": ["members_only", "members_and_public", "public_only"],
+      "description": "Who can see this ticket class"
+    },
+    "role_ids": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Role UUIDs that can purchase this ticket. Empty array means all roles."
+    },
+    "role_match_only": {
+      "type": "boolean",
+      "description": "When true and roles or member groups are set, ticket is hidden from users who match neither"
+    },
+    "member_group_ids": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "Member group UUIDs that can purchase this ticket. Empty array means no group restriction. Combined with role_ids using OR logic."
+    },
+    "offer_type": {
+      "type": "string",
+      "enum": ["none", "bogo", "bulk_discount"],
+      "description": "Type of special offer applied to this ticket"
+    },
+    "bogo_logic_type": {
+      "type": "string",
+      "enum": ["buy_x_get_y_free", "enter_total_pay_less"]
+    },
+    "bogo_buy_quantity": {
+      "type": "integer"
+    },
+    "bogo_get_free_quantity": {
+      "type": "integer"
+    },
+    "bulk_discount_threshold": {
+      "type": "integer"
+    },
+    "bulk_discount_percentage": {
+      "type": "number"
+    },
+    "available_count": {
+      "type": "integer",
+      "description": "Number of tickets available. Null when unlimited."
+    },
+    "is_unlimited_tickets": {
+      "type": "boolean",
+      "description": "Whether this ticket has unlimited capacity"
+    },
+    "linked_track_ids": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Array of complex_event_track UUIDs this ticket grants access to"
+    },
+    "all_tracks": {
+      "type": "boolean",
+      "description": "When true, grants access to all tracks regardless of linked_track_ids"
+    },
+    "display_order": {
+      "type": "integer",
+      "description": "Display order for sorting ticket classes"
+    }
+  },
+  "required": [
+    "complex_event_id",
+    "name"
+  ]
+}

@@ -1,0 +1,33 @@
+2026-09-18 18:53:18.315 [info] [formPaymentReconciliation] completion_timing {
+  submissionId: '3b149280-0c16-46b7-8513-a099475ca3dc',
+  tenantId: 'ff2df806-b321-4254-b651-3af11fccf1db',
+  stage: 'stripe_address_capture',
+  durationMs: 973,
+  outcome: 'ok'
+}
+2026-09-18 18:53:28.049 [error] [formEntityPipelines] Pipeline processing failed for paid submission 3b149280-0c16-46b7-8513-a099475ca3dc 403 {"error":"Creating or updating custom object records requires administrator access","code":"STRUCTURED_ACTION_FORBIDDEN"}
+2026-09-18 18:53:28.311 [info] [formPaymentFinalize] completion_timing {
+  submissionId: '3b149280-0c16-46b7-8513-a099475ca3dc',
+  tenantId: 'ff2df806-b321-4254-b651-3af11fccf1db',
+  stage: 'entity_pipelines',
+  durationMs: 9280,
+  outcome: 'incomplete'
+}
+2026-09-18 18:53:29.804 [error] [formPaymentReconciliation] Row 485cf2b7-f370-494b-a774-a909bd988527 failed: GoCardless GET /billing_requests/BRQ01M231DXM6ERVNE5H11CP6HT32 failed (404): Resource not found
+2026-09-18 18:53:30.157 [error] [formPaymentReconciliation] Row 06053de6-fb35-4d05-b9f0-8a95110474d9 failed: GoCardless GET /billing_requests/BRQ01M234REK4W9SYZ9Y5H45GRA2Z failed (404): Resource not found
+2026-09-18 18:53:31.363 [error] [formPaymentReconciliation] Row ea3755f5-88be-4003-8cb0-91c2fae13a3f failed: GoCardless GET /billing_requests/BRQ01M23EBE4GG10TRKRVG18HWMZD failed (404): Resource not found
+2026-09-18 18:53:32.178 [error] [formPaymentReconciliation] Row be648e54-f08c-4195-bbdb-e50e49581af3 failed: GoCardless GET /billing_requests/BRQ01M23YJMFET071GDRDB58HWXC4 failed (404): Resource not found
+2026-09-18 18:53:30.506 [error] [formPaymentReconciliation] Row bf0f89d7-32c4-453f-ada4-4dbe99487d73 failed: GoCardless GET /billing_requests/BRQ01M238EMK1Y7EQTFDA76AQHW27 failed (404): Resource not found
+2026-09-18 18:53:31.007 [error] [formPaymentReconciliation] Row 19a5fd5e-e11a-4ca8-96cf-97df19e76d8c failed: GoCardless GET /billing_requests/BRQ01M238S99CWD0X4EKWF1R0CC3K failed (404): Resource not found
+2026-09-18 18:53:32.653 [error] [formPaymentReconciliation] Row 62454a3d-2a2d-4551-a0fe-e55c111ca1c6 failed: GoCardless GET /billing_requests/BRQ01M23YKZQW86MFV43C3Q6NC51S failed (404): Resource not found
+2026-09-18 18:53:33.325 [warn] [formMembershipFinalize] Entity not yet resolved for submission a4eac608-5fc2-4bc2-8ca1-88988f6def47 (attempt 1698); will retry
+2026-09-18 18:53:34.183 [error] [formMembershipFinalize] Stripe invoice settlement failed for submission 56339556-4b7d-4624-bd66-8ebb1bd5ec75: Error: Linked membership entity does not match the form submission
+    at settleFormStripeInvoice (file:///var/task/api/_lib/formStripeInvoiceSettlement.js:179:11)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async runSideEffects (file:///var/task/api/_lib/formMembershipFinalize.js:452:28)
+    at async finalizeFormMembership (file:///var/task/api/_lib/formMembershipFinalize.js:576:14)
+    at async reconcileFormPayments (file:///var/task/api/_lib/formPaymentReconciliation.js:807:19)
+    at async handler (file:///var/task/api/cron/reconcile-form-payments.js:89:11)
+    at async r (/opt/rust/nodejs.js:2:16523)
+    at async Server.<anonymous> (/opt/rust/nodejs.js:2:12474)
+    at async Server.<anonymous> (/opt/rust/nodejs.js:17:14735)

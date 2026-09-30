@@ -1,0 +1,829 @@
+# Critical Fix: AI Composition Schema, Rendering and Validation
+
+## Current failure
+
+The AI Composition generator produced unusable HTML in which:
+
+* Every visible element is absolutely positioned at `left: 0; top: 0`.
+* The section has `min-height: 0`.
+* The intended flex container is empty.
+* Content elements are rendered outside the container.
+* Numeric CSS values such as `font-size: 24` and `border-radius: 8` have no units.
+* The background has no width or height.
+* The call to action is rendered as `<span role="presentation">`.
+* No requested imagery, illustrations, cards or graphic composition were produced.
+* Desktop, tablet and mobile repeat the same invalid layout.
+* The outer Canvas block uses `overflow: hidden`, clipping the zero-height composition.
+
+This is a composition-pipeline failure, not a prompt-quality problem.
+
+Do not attempt to solve it by rewriting the user prompt.
+
+---
+
+# 1. Preserve and compare all composition stages
+
+For every AI generation, retain an admin-visible diagnostic representation of:
+
+1. Raw structured response returned by OpenAI
+2. Schema-validated response
+3. Normalised composition document
+4. Rendered element tree
+5. Generated scoped CSS
+6. Final rendered screenshot
+7. Validation results
+
+Determine whether the missing hierarchy and geometry originated in:
+
+* The OpenAI structured response
+* Schema validation
+* Composition normalisation
+* Database serialisation
+* Renderer transformation
+* CSS generation
+
+Add a side-by-side debug view.
+
+Do not expose these diagnostics to ordinary site visitors.
+
+---
+
+# 2. Fix parent-child hierarchy
+
+Every internal element must have an explicit parent relationship.
+
+Use one consistent structure, for example:
+
+```json
+{
+  "id": "container_intro",
+  "type": "container",
+  "children": [
+    "heading_intro",
+    "paragraph_intro",
+    "button_intro"
+  ]
+}
+```
+
+or:
+
+```json
+{
+  "id": "heading_intro",
+  "type": "heading",
+  "parentId": "container_intro"
+}
+```
+
+Do not support ambiguous mixtures unless they are normalised before rendering.
+
+Validate that:
+
+* Every non-root element has a valid parent.
+* Parent IDs exist.
+* Circular relationships are rejected.
+* An element appears under only one parent.
+* Container children render inside the container DOM node.
+* Child order is preserved.
+* Nested groups and sections render recursively.
+* Orphaned elements cause validation failure.
+
+The renderer must produce:
+
+```html
+<div class="aic-e-container_intro">
+  <h2>...</h2>
+  <p>...</p>
+  <a>...</a>
+</div>
+```
+
+not:
+
+```html
+<div class="aic-e-container_intro"></div>
+<h2>...</h2>
+<p>...</p>
+```
+
+---
+
+# 3. Separate flow layout from absolute layout
+
+Every container must explicitly declare a layout mode:
+
+* `flow`
+* `flex`
+* `grid`
+* `absolute`
+
+## Flow, flex and grid containers
+
+Children must remain in document flow by default.
+
+Do not emit:
+
+```css
+position: absolute;
+left: 0;
+top: 0;
+```
+
+for children of flow, flex or grid containers.
+
+Example:
+
+```json
+{
+  "layout": {
+    "mode": "flex",
+    "direction": "column",
+    "gap": 16,
+    "align": "start"
+  }
+}
+```
+
+should render with normal flex children.
+
+## Absolute containers
+
+Absolute positioning may be used only when every visible child has valid breakpoint-specific geometry:
+
+* `x`
+* `y`
+* `width`
+* `height` or content-height behaviour
+* Layer order where needed
+
+Example:
+
+```json
+{
+  "layout": {
+    "mode": "absolute",
+    "height": 640
+  },
+  "geometry": {
+    "desktop": {
+      "x": 84,
+      "y": 120,
+      "width": 420,
+      "minHeight": 90
+    }
+  }
+}
+```
+
+Do not default missing absolute coordinates to zero.
+
+Missing required absolute geometry must cause schema or validation failure.
+
+---
+
+# 4. Remove dangerous zero defaults
+
+Do not normalise absent layout values to:
+
+```json
+{
+  "x": 0,
+  "y": 0,
+  "minHeight": 0
+}
+```
+
+Use `null` or omit the property.
+
+A missing value and an intentional zero are not equivalent.
+
+For example:
+
+* `x: 0` may be intentional.
+* Missing `x` means the layout is incomplete.
+* `minHeight: 0` may be valid in normal flow.
+* An absolute section containing visible children cannot safely use zero height.
+
+Reject incomplete absolute layouts instead of silently converting missing data to zero.
+
+---
+
+# 5. Fix length-unit serialisation
+
+Create a central CSS value serialiser.
+
+Numeric values for dimensional properties must receive appropriate units.
+
+Properties requiring `px` by default include:
+
+* `font-size`
+* `line-height` where stored as an absolute measurement
+* `border-radius`
+* `border-width`
+* `width`
+* `height`
+* `min-width`
+* `min-height`
+* `max-width`
+* `max-height`
+* `top`
+* `right`
+* `bottom`
+* `left`
+* `gap`
+* `padding`
+* `margin`
+* `letter-spacing`
+* `outline-width`
+* `stroke-width` where appropriate
+
+Example:
+
+```typescript
+const LENGTH_PROPERTIES = new Set([
+  "font-size",
+  "border-radius",
+  "width",
+  "height",
+  "min-height",
+  "top",
+  "left",
+  "gap"
+]);
+
+function serializeCssValue(
+  property: string,
+  value: unknown
+): string | null {
+  if (value === null || value === undefined) return null;
+
+  if (
+    typeof value === "number" &&
+    LENGTH_PROPERTIES.has(property)
+  ) {
+    return `${value}px`;
+  }
+
+  return String(value);
+}
+```
+
+Support explicit alternative units only through a validated representation:
+
+```json
+{
+  "value": 100,
+  "unit": "%"
+}
+```
+
+Never output invalid declarations such as:
+
+```css
+font-size: 24;
+border-radius: 8;
+```
+
+Add unit tests for every supported style property.
+
+---
+
+# 6. Define section sizing rules
+
+A section must use one of:
+
+## Content-flow height
+
+The section’s height is determined by normal-flow children.
+
+## Explicit absolute-canvas height
+
+The section has a positive height for each breakpoint.
+
+## Calculated absolute height
+
+The renderer calculates the lower boundary of all positioned children plus section padding.
+
+For an absolute section:
+
+```typescript
+calculatedHeight =
+  max(child.y + child.height) +
+  sectionPaddingBottom;
+```
+
+Use the explicit height where supplied and valid.
+
+Reject any section where:
+
+* It contains visible absolute children, and
+* Its resolved height is zero or missing.
+
+The Canvas parent should use the resolved composition height so later blocks reflow correctly.
+
+---
+
+# 7. Fix backgrounds
+
+Background elements must use a defined layout strategy.
+
+For a section background, prefer styling the section or container itself.
+
+Where a separate background layer is necessary, render:
+
+```css
+position: absolute;
+inset: 0;
+```
+
+or provide complete geometry.
+
+Do not emit a background layer with only:
+
+```css
+left: 0;
+top: 0;
+```
+
+Background layers must also be:
+
+* `aria-hidden="true"`
+* Non-interactive
+* Behind content
+* Excluded from semantic reading order
+
+---
+
+# 8. Render semantic interactive elements
+
+A call to action must be a real semantic element.
+
+Use:
+
+```html
+<a href="...">Learn more</a>
+```
+
+for navigation, or:
+
+```html
+<button type="button">...</button>
+```
+
+for an application action.
+
+Never render a CTA as:
+
+```html
+<span role="presentation">
+```
+
+The structured element must contain an approved action:
+
+```json
+{
+  "type": "button",
+  "label": "What happens at an appointment?",
+  "action": {
+    "type": "internal_page",
+    "pageId": "..."
+  }
+}
+```
+
+Where the destination has not yet been resolved, render a disabled editor-state placeholder and prevent approval until it is resolved.
+
+---
+
+# 9. Strengthen the generation schema
+
+The Structured Output schema must require meaningful layout information.
+
+## Section requirements
+
+Require:
+
+* `id`
+* `type`
+* `layoutMode`
+* Breakpoint layouts
+* Children
+* Semantic order
+* Background treatment
+* Positive height strategy
+
+## Element requirements
+
+Require:
+
+* `id`
+* `type`
+* `parentId`
+* Content or asset reference
+* Layout behaviour
+* Breakpoint visibility
+* Semantic role
+
+## Absolute element requirements
+
+Conditionally require:
+
+* Desktop geometry
+* Tablet geometry or explicit inheritance rule
+* Mobile geometry or explicit reflow rule
+
+## Container requirements
+
+Require:
+
+* Layout mode
+* Child IDs
+* Padding
+* Gap where relevant
+* Width behaviour
+* Alignment
+
+Do not allow the model to return style fragments without a complete structural relationship.
+
+---
+
+# 10. Require a creative-plan contract
+
+Before generating the composition document, the planning stage must explicitly state:
+
+* Number of sections or visual groups
+* Intended composition
+* Required visual assets
+* Required component families
+* Visual focal point
+* Desktop structure
+* Mobile transformation
+* How the reference design language will be applied
+
+For this test, a valid plan should not be satisfied by:
+
+* One heading
+* Three paragraphs
+* One button
+
+Where the prompt requests illustration, cards or visual storytelling, require at least one corresponding visual or structural element.
+
+Example plan validation:
+
+```json
+{
+  "visualRequirements": {
+    "requiresIllustration": true,
+    "requiresCardRecipe": true,
+    "requiresResponsiveRecomposition": true
+  }
+}
+```
+
+The final composition must be checked against those requirements.
+
+---
+
+# 11. Add prompt-fulfilment validation
+
+Record explicit requirements derived from the user brief.
+
+For the current brief, these include:
+
+* Original visual composition
+* Reference design-family resemblance
+* Illustration or infographic concept
+* More than a basic text stack
+* Clear onward action
+* Distinct responsive layouts
+* Real accessible text
+* No unsupported medical claims
+
+Validate whether the generated document contains:
+
+* At least one visual asset or intentional infographic structure
+* At least one reference-informed component recipe
+* A real CTA action
+* A non-trivial desktop composition
+* A mobile transformation
+* An adequate section height
+
+Fail generation where mandatory requirements are missing.
+
+Do not accept a structurally valid but semantically incomplete result.
+
+---
+
+# 12. Add deterministic layout validation
+
+After rendering, inspect computed DOM geometry.
+
+For every visible element collect:
+
+* Bounding rectangle
+* Computed display
+* Computed position
+* Visibility
+* Opacity
+* Overflow clipping
+* Parent rectangle
+* Z-index
+
+Reject or warn when:
+
+## Zero-size elements
+
+* Width is zero
+* Height is zero
+* Area is effectively zero
+
+## Severe overlap
+
+Calculate pairwise overlap between visible semantic elements.
+
+Reject when multiple text elements overlap by more than a small threshold unless the composition explicitly marks the overlap as intentional.
+
+The current output should be rejected because all text elements share the same origin.
+
+## Off-canvas elements
+
+Reject important elements mostly outside the section bounds.
+
+## Clipped elements
+
+Reject important elements clipped by section or Canvas overflow.
+
+## Empty containers
+
+Warn or reject layout containers that:
+
+* Have expected children, but
+* Render no child DOM nodes.
+
+## Blank composition
+
+Reject a composition whose visible area is effectively blank.
+
+## Unreasonable density
+
+Warn where too many text elements occupy the same small region.
+
+---
+
+# 13. Add CSS validation
+
+Parse the generated scoped stylesheet before accepting it.
+
+Reject:
+
+* Invalid property values
+* Missing units
+* Unsafe properties
+* Unscoped selectors
+* External URLs
+* `position: absolute` without complete geometry
+* Negative dimensions
+* Unsupported CSS functions
+* NaN or infinite values
+
+Use a CSS parser rather than relying only on string checks.
+
+Record invalid declarations in generation diagnostics.
+
+---
+
+# 14. Require rendered screenshot validation
+
+After deterministic validation succeeds:
+
+1. Render desktop preview.
+2. Render tablet preview.
+3. Render mobile preview.
+4. Store the screenshots.
+5. Run visual-quality review.
+
+The review should detect:
+
+* All content stacked in one position
+* Blank or near-blank compositions
+* Broken hierarchy
+* Missing visual concept
+* Unbalanced empty space
+* Reference style not evident
+* Mobile duplication rather than re-composition
+
+Do not allow the user to insert the composition until the render has passed basic quality gates.
+
+The current result should have failed before being shown.
+
+---
+
+# 15. Verify screenshot and Design DNA consumption
+
+The debug record must confirm:
+
+* Reference screenshots included in final generation request
+* Number of screenshots
+* Screenshot labels
+* Design DNA included
+* Full Design DNA schema version
+* Reference influence level
+* Recommended component recipes supplied to the model
+* Component recipes actually selected in the output
+* Visual patterns requested
+* Visual patterns represented in final document
+
+Do not treat “screenshots included” as sufficient proof that the model used them.
+
+Record a structured reference-application plan such as:
+
+```json
+{
+  "referencePatternsApplied": [
+    {
+      "pattern": "info_card",
+      "targetElementIds": [
+        "card_diagnostic",
+        "card_treatment"
+      ]
+    }
+  ]
+}
+```
+
+---
+
+# 16. Confirm the Design DNA is accurate
+
+The reported reference DNA includes:
+
+* Arial
+* 8px card radius
+* Generic blue CTA button
+* Basic cards
+
+Visually compare these measured values against the reference page.
+
+If the live reference clearly uses different typography, corners, illustration treatment or button styling, fix the reference extraction before continuing.
+
+Check whether:
+
+* Web fonts had loaded.
+* Computed styles were read from the correct page root.
+* The page was captured after hydration.
+* The analyser accidentally inspected fallback or skeleton content.
+* The selected crops show the distinctive page sections.
+* The target route redirected.
+* A cookie or error layer obscured the intended content.
+
+Do not let inaccurate Design DNA become authoritative.
+
+---
+
+# 17. Add a Composition Inspector
+
+Add an admin-only inspector showing:
+
+## Generation inputs
+
+* User brief
+* Target-page context
+* Reference screenshots
+* Design DNA
+* Brand profile
+* Creativity setting
+* Output schema version
+
+## Model output
+
+* Creative plan
+* Raw structured composition
+* Normalised composition
+* Protected values
+* Asset-generation requests
+
+## Renderer output
+
+* DOM hierarchy
+* Scoped CSS
+* Resolved breakpoint geometry
+* Calculated section height
+* CTA destinations
+
+## Validation
+
+* Schema errors
+* CSS errors
+* Layout errors
+* Prompt-fulfilment errors
+* Accessibility errors
+* Visual-review result
+
+This is required to diagnose whether future failures originate in the model or in the renderer.
+
+---
+
+# 18. Regression tests for the current failure
+
+Add automated tests reproducing the supplied broken composition.
+
+The validator must reject it because:
+
+* Section height resolves to zero.
+* All text elements overlap.
+* The flex container is empty.
+* Children are orphaned.
+* Several CSS lengths lack units.
+* The background has zero area.
+* CTA is not interactive.
+* Required visual asset is absent.
+* Tablet and mobile layouts are not meaningfully distinct.
+
+Add a renderer test confirming that a valid nested flex composition produces:
+
+```html
+<section>
+  <div class="container">
+    <h2>...</h2>
+    <p>...</p>
+    <a>...</a>
+  </div>
+</section>
+```
+
+and not sibling orphan elements.
+
+---
+
+# 19. Minimum acceptance example
+
+Before re-enabling general testing, prove that the renderer can correctly output a basic valid composition containing:
+
+* One section with positive auto-height
+* Two-column desktop layout
+* One-column mobile layout
+* Nested content container
+* Heading
+* Paragraph
+* Illustration placeholder or media asset
+* Two visually distinct information cards
+* Real CTA link
+* Valid scoped CSS
+* No overlaps
+* No clipping
+* Correct units
+
+This example can be hand-authored JSON.
+
+First prove:
+
+```text
+valid composition JSON
+→ correct DOM
+→ correct CSS
+→ valid screenshots
+```
+
+Only then retest model generation.
+
+---
+
+# 20. Acceptance criteria
+
+The fix is complete when:
+
+* Hierarchy from structured composition is preserved in the DOM.
+* Flex and grid children are not absolutely positioned.
+* Absolute elements require complete geometry.
+* Missing geometry is not defaulted to zero.
+* Numeric CSS lengths receive units.
+* Sections resolve to positive heights.
+* Canvas blocks reflow around AI Compositions.
+* Backgrounds occupy their intended area.
+* CTAs render as accessible links or buttons.
+* Prompt-required visual elements are present.
+* Desktop, tablet and mobile differ meaningfully.
+* Broken compositions are rejected before insertion.
+* The supplied failure fixture cannot pass validation.
+* The Composition Inspector shows the full generation pipeline.
+* A hand-authored valid composition renders correctly.
+* A newly model-generated composition passes deterministic and visual validation.
+
+---
+
+# Critical instruction
+
+Do not continue refining the natural-language user brief until the renderer and validators pass the minimum acceptance example.
+
+The immediate repair sequence is:
+
+1. Validate the structured document hierarchy.
+2. Fix normalisation.
+3. Fix renderer nesting.
+4. Fix CSS-unit serialisation.
+5. Fix section sizing.
+6. Fix semantic actions.
+7. Add deterministic layout rejection.
+8. Confirm hand-authored valid output.
+9. Retest AI generation.

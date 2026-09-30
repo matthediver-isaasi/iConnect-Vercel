@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
+import { apiRequest } from "@/lib/queryClient";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,26 +9,96 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { evaluateTermLimit } from "@/lib/memberGroupTermSnapshot";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Users, Plus, Pencil, Trash2, UserPlus, X, Copy, ListPlus, CheckSquare, Calendar } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Users, Plus, Pencil, Trash2, UserPlus, X, Copy, ListPlus, CheckSquare, Calendar, Loader2, Crown, Tag, Mail, Send, RotateCw, CheckCircle2, XCircle, Clock, AlertTriangle, ChevronDown, Award, Zap, RefreshCw, Eye } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useMemberGroupSettings } from "@/hooks/useMemberGroupSettings";
+import { buildTermSnapshot } from "@/lib/memberGroupTermSnapshot";
+import { roleNameKey, canonicalizeRoleName, collectTenantRoleNames, isEmptyRoleHtml, isEmptyRoleTermDef } from "@/lib/memberGroupRoleNames";
+import { resolveHideOnGroupPage } from "@/lib/memberGroupDirectory";
+import { buildAssignmentEditForm, buildAssignmentEditPayload, getAssignmentEditError } from "@/lib/memberGroupAssignmentEdit";
 import { createPageUrl } from "@/utils";
+import EventImageUpload from "@/components/events/EventImageUpload";
+import AllMembersDialog from "@/components/member-groups/AllMembersDialog";
+import { visibleGroupAssignments } from "@/lib/memberGroupAssignmentVisibility";
+import SimpleRichTextEditor from "@/components/SimpleRichTextEditor";
+import { sanitizeRichText } from "@/components/canvas/blocks/sanitize";
+import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
+import {
+  operatorsForDataType,
+  isNullaryOperator,
+  isMultiValueOperator,
+  normalizeConditionValue,
+  buildFieldOptions,
+  blankFilterGroup,
+  blankCondition,
+  validateAutoConfig,
+} from '@/lib/automaticMembership';
+import {
+  reconcileAutomaticMembershipFully,
+  uniqueGroupPersonCount,
+} from '@/lib/memberGroupAutomaticSync';
+
+function isDuplicateClassificationError(error) {
+  const msg = (error?.message || error?.error || '').toLowerCase();
+  return (
+    msg.includes('uq_member_group_classification_tenant_name') ||
+    msg.includes('duplicate key') ||
+    msg.includes('already exists') ||
+    error?.code === '23505'
+  );
+}
+
+function isDuplicateGroupNameError(error) {
+  const msg = (error?.message || error?.error || '').toLowerCase();
+  return (
+    msg.includes('uq_member_group_tenant_name') ||
+    msg.includes('duplicate key') ||
+    msg.includes('already exists') ||
+    error?.code === '23505'
+  );
+}
 
 export default function MemberGroupManagementPage() {
-  const { isAdmin, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { featureName, allowGroupTermsOverride, defaultTermsOfReference } = useMemberGroupSettings();
   const [accessChecked, setAccessChecked] = useState(false);
   const [showGroupDialog, setShowGroupDialog] = useState(false);
   const [showAssignDialog, setShowAssignDialog] = useState(false);
+  const [editingAssignment, setEditingAssignment] = useState(null);
+  const [assignmentEditForm, setAssignmentEditForm] = useState(null);
+  const [assignmentEditError, setAssignmentEditError] = useState('');
+  const [showInviteDialog, setShowInviteDialog] = useState(false);
+  const [inviteGroup, setInviteGroup] = useState(null);
+  const [inviteForm, setInviteForm] = useState({ member_id: '', role: '' });
+  const [inviteMemberSearch, setInviteMemberSearch] = useState('');
+  // Advisory max-terms warning before sending a role invite (Task #1630).
+  const [inviteTermWarning, setInviteTermWarning] = useState(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showBulkDialog, setShowBulkDialog] = useState(false);
   const [editingGroup, setEditingGroup] = useState(null);
   const [selectedGroup, setSelectedGroup] = useState(null);
   const [groupToDelete, setGroupToDelete] = useState(null);
   const [newRole, setNewRole] = useState('');
+  const [roleSuggestionsOpen, setRoleSuggestionsOpen] = useState(false);
+  const [selectedRoleForTerms, setSelectedRoleForTerms] = useState('');
   const [bulkText, setBulkText] = useState('');
   const [showBulkRoles, setShowBulkRoles] = useState(false);
   const [bulkRolesText, setBulkRolesText] = useState('');
@@ -39,51 +110,98 @@ export default function MemberGroupManagementPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(12);
   const [sortBy, setSortBy] = useState('name-asc');
+  const [classificationFilter, setClassificationFilter] = useState('all');
+  const [groupByClassification, setGroupByClassification] = useState(false);
+  const [showClassificationDialog, setShowClassificationDialog] = useState(false);
+  const [editingClassification, setEditingClassification] = useState(null);
+  const [classificationName, setClassificationName] = useState('');
+  const [classificationToDelete, setClassificationToDelete] = useState(null);
+  const [membersModalGroupId, setMembersModalGroupId] = useState(null);
+  const [showExpiredMembersByGroup, setShowExpiredMembersByGroup] = useState({});
+  const [torOpen, setTorOpen] = useState(false);
+  // Pending save awaiting confirmation of role→badge changes that affect
+  // current role holders (Task #3302): { payload, changes: [...] } or null.
+  const [badgeConfirm, setBadgeConfirm] = useState(null);
   const [groupForm, setGroupForm] = useState({
     name: '',
     description: '',
     roles: [],
-    is_active: true
+    leadership_roles: [],
+    is_active: true,
+    header_image_url: '',
+    allow_self_join: false,
+    hide_on_group_page: false,
+    default_self_join_role: '',
+    projects_enabled: false,
+    projects_enabled_roles: [],
+    events_enabled: false,
+    complex_events_enabled: false,
+    group_admins_can_edit_content: false,
+    forum_enabled: false,
+    forum_enabled_roles: [],
+    classification_id: '',
+    linkedin_url: '',
+    terms_of_reference: '',
+    role_terms_of_reference: {},
+    role_terms_url: {},
+    role_term_definitions: {},
+    role_badge_ids: {},
+    resource_subcategories: [],
+    approval_email_template_id: '',
+    decline_email_template_id: '',
+    self_join_closed: false,
+    self_join_closed_label: '',
+    allow_members_to_leave: true,
+    automatic_membership_enabled: false,
+    automatic_membership_role: '',
+    automatic_membership_filter_groups: [],
   });
+  const [groupSubcategorySearch, setGroupSubcategorySearch] = useState('');
   const [assignForm, setAssignForm] = useState({
     member_id: '',
     guest_id: '',
     group_role: '',
-    expires_at: null
+    expires_at: null,
+    is_group_admin: false,
+    term_start_date: '',
+    term_end_date: '',
+    term_number: ''
   });
   const [memberSearchQuery, setMemberSearchQuery] = useState('');
-  const [assignMode, setAssignMode] = useState(''); // 'guest' or 'organization'
+  const [debouncedMemberSearch, setDebouncedMemberSearch] = useState('');
+  const [assignMode, setAssignMode] = useState(''); // 'guest', 'organization' or 'member'
   const [selectedOrganizationId, setSelectedOrganizationId] = useState('');
+  const [automaticSyncByGroup, setAutomaticSyncByGroup] = useState({});
 
   const queryClient = useQueryClient();
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin) {
+      if (isFeatureExcluded('membership.member-groups')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: groups = [], isLoading: loadingGroups } = useQuery({
     queryKey: ['member-groups'],
-    queryFn: () => base44.entities.MemberGroup.list('-updated_date'),
+    queryFn: () => base44.entities.MemberGroup.list(),
     staleTime: 0,
     refetchOnMount: true,
   });
 
   const { data: members = [], isLoading: loadingMembers } = useQuery({
     queryKey: ['members-list'],
-    queryFn: () => base44.entities.Member.list('first_name'),
+    queryFn: () => base44.entities.Member.listAll(),
     staleTime: 0,
     refetchOnMount: true,
   });
 
   const { data: assignments = [], isLoading: loadingAssignments } = useQuery({
     queryKey: ['member-group-assignments'],
-    queryFn: () => base44.entities.MemberGroupAssignment.list(),
+    queryFn: () => base44.entities.MemberGroupAssignment.listAll(),
     staleTime: 0,
     refetchOnMount: true,
   });
@@ -95,11 +213,128 @@ export default function MemberGroupManagementPage() {
     refetchOnMount: true,
   });
 
+  // Set of member IDs that back a provisioned guest — used for de-duplication
+  // and to identify guest assignments made via member_id (new flow).
+  const guestMemberIds = React.useMemo(
+    () => new Set(guests.filter((g) => g.member_id).map((g) => g.member_id)),
+    [guests]
+  );
+
+  // Role names used across ALL of the tenant's member groups, deduplicated
+  // case-insensitively. Drives the add-role autocomplete + spelling match.
+  const tenantRoleNames = React.useMemo(() => collectTenantRoleNames(groups), [groups]);
+
+  // Forward-search suggestions while typing a new role name.
+  const roleSuggestions = React.useMemo(() => {
+    const q = roleNameKey(newRole);
+    if (!q) return [];
+    return tenantRoleNames
+      .filter((name) => roleNameKey(name).startsWith(q))
+      .slice(0, 8);
+  }, [newRole, tenantRoleNames]);
+
+  const { data: classifications = [], isLoading: loadingClassifications } = useQuery({
+    queryKey: ['member-group-classifications'],
+    queryFn: () => base44.entities.MemberGroupClassification.list(),
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
+  // Resource categories drive the per-group subcategory link selector
+  // (Task #1701). Only fetched while the create/edit group dialog is open.
+  const { data: resourceCategories = [] } = useQuery({
+    queryKey: ['resource-categories-for-group-link'],
+    queryFn: () => base44.entities.ResourceCategory.list(),
+    enabled: showGroupDialog,
+    staleTime: 0,
+  });
+
+  // Active badges from the Badges module power the optional per-role badge
+  // picker (Task #3297). Only fetched while the create/edit dialog is open.
+  const { data: libraryBadges = [] } = useQuery({
+    queryKey: ['badges-for-group-roles'],
+    queryFn: () => base44.entities.Badge.list(),
+    enabled: showGroupDialog,
+    staleTime: 0,
+  });
+  const activeLibraryBadges = React.useMemo(
+    () => libraryBadges.filter((b) => b.is_active !== false),
+    [libraryBadges]
+  );
+  const badgeById = React.useMemo(
+    () => new Map(libraryBadges.map((b) => [b.id, b])),
+    [libraryBadges]
+  );
+
+  // Automatic membership field metadata.
+  // Use a stable query key: for create dialogs (no group id) use the sentinel
+  // '__new__' so the query fires once and is cached across open/close cycles.
+  const autoMembershipGroupId = editingGroup?.id || null;
+  const { data: autoFieldsMeta = null } = useQuery({
+    queryKey: ['auto-membership-fields', autoMembershipGroupId ?? '__new__'],
+    queryFn: () => {
+      const url = autoMembershipGroupId
+        ? `/api/member-groups/automatic-membership?group_id=${autoMembershipGroupId}`
+        : '/api/member-groups/automatic-membership';
+      return fetch(url, { credentials: 'include' }).then((r) => r.ok ? r.json() : null);
+    },
+    enabled: showGroupDialog,
+    staleTime: 30 * 1000,
+  });
+  const autoFieldOptions = React.useMemo(
+    () => buildFieldOptions(autoFieldsMeta?.fields),
+    [autoFieldsMeta]
+  );
+  // Preview state: { matchCount, validationErrors } or { error } or null
+  const [autoPreviewResult, setAutoPreviewResult] = useState(null);
+  const [autoPreviewLoading, setAutoPreviewLoading] = useState(false);
+
+  const runAutoPreview = async () => {
+    setAutoPreviewLoading(true);
+    setAutoPreviewResult(null);
+    try {
+      const resp = await fetch('/api/member-groups/automatic-membership', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'preview',
+          groupId: editingGroup?.id || undefined,
+          config: {
+            enabled: groupForm.automatic_membership_enabled,
+            role: groupForm.automatic_membership_role,
+            filterGroups: groupForm.automatic_membership_filter_groups,
+            roles: groupForm.roles || [],
+          },
+        }),
+      });
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({}));
+        setAutoPreviewResult({ error: errData?.error || `Server error ${resp.status}` });
+        return;
+      }
+      const data = await resp.json();
+      setAutoPreviewResult(data);
+    } catch (e) {
+      setAutoPreviewResult({ error: e.message });
+    } finally {
+      setAutoPreviewLoading(false);
+    }
+  };
+
+  // Email templates power the group-level approval/decline decision pickers
+  // (Task #1700). Both are optional.
+  const { data: emailTemplates = [] } = useQuery({
+    queryKey: ['email-templates-for-group-decisions'],
+    queryFn: () => base44.entities.EmailTemplate.list(),
+    staleTime: 5 * 60 * 1000,
+  });
+
   // Organizations for the assign dialog
   const { data: organizations = [], isLoading: organizationsLoading } = useQuery({
     queryKey: ['organizations-for-assignment'],
     queryFn: async () => {
-      const orgs = await base44.entities.Organization.list('name');
+      const orgs = await listOrganizationsForAdmin('name');
       return orgs;
     },
     enabled: showAssignDialog
@@ -125,38 +360,139 @@ export default function MemberGroupManagementPage() {
     enabled: showAssignDialog && assignMode === 'organization' && !!selectedOrganizationId
   });
 
+  // Debounce the member search input for the direct "Search Members" mode.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedMemberSearch(memberSearchQuery), 300);
+    return () => clearTimeout(t);
+  }, [memberSearchQuery]);
+
+  // Direct typeahead search across all members in the tenant, regardless of
+  // organisation (Task #1678). Uses /api/members/search (admin-gated).
+  const { data: memberSearchResults = [], isLoading: memberSearchLoading } = useQuery({
+    queryKey: ['member-search-for-group-assignment', debouncedMemberSearch],
+    queryFn: async () => {
+      const resp = await fetch(
+        `/api/members/search?q=${encodeURIComponent(debouncedMemberSearch.trim())}&limit=20`,
+        { credentials: 'include' }
+      );
+      if (!resp.ok) return [];
+      return resp.json();
+    },
+    enabled: showAssignDialog && assignMode === 'member' && debouncedMemberSearch.trim().length >= 2
+  });
+
+  // Trigger reconcile after save when automatic membership is enabled.
+  // Awaits the response so the group list refreshes with updated sync status.
+  // Does not block the save-success flow — shows advisory toast if sync fails.
+  const triggerAutoReconcile = async (groupId, { notifySuccess = false } = {}) => {
+    try {
+      const result = await reconcileAutomaticMembershipFully({ groupId });
+      setEditingGroup((prev) => prev?.id === groupId ? {
+        ...prev,
+        automatic_membership_sync_status: result.syncStatus || 'idle',
+        automatic_membership_sync_error: null,
+        automatic_membership_match_count: result.matchCount ?? prev.automatic_membership_match_count,
+      } : prev);
+      if (notifySuccess) toast.success(`Automatic membership synced: ${result.matchCount ?? 0} matched`);
+      queryClient.invalidateQueries({ queryKey: ['member-groups'] });
+      queryClient.invalidateQueries({ queryKey: ['member-group-assignments'] });
+      return true;
+    } catch (e) {
+      toast.warning('Automatic membership sync failed: ' + e.message);
+      return false;
+    }
+  };
+
+  const syncAutomaticGroupFromCard = async (group) => {
+    if (!group?.id || automaticSyncByGroup[group.id]?.status === 'running') return;
+    setAutomaticSyncByGroup((current) => ({
+      ...current,
+      [group.id]: {
+        status: 'running',
+        batches: 0,
+        matchCount: group.automatic_membership_match_count,
+      },
+    }));
+    try {
+      const result = await reconcileAutomaticMembershipFully({
+        groupId: group.id,
+        onProgress: (progress) => setAutomaticSyncByGroup((current) => ({
+          ...current,
+          [group.id]: { status: 'running', ...progress },
+        })),
+      });
+      setAutomaticSyncByGroup((current) => ({
+        ...current,
+        [group.id]: {
+          status: 'complete',
+          lastSyncedAt: new Date().toISOString(),
+          ...result,
+        },
+      }));
+      toast.success(`${group.name} synced: ${result.matchCount ?? 0} matched`);
+    } catch (error) {
+      setAutomaticSyncByGroup((current) => ({
+        ...current,
+        [group.id]: { status: 'error', error: error.message },
+      }));
+      toast.error(`${group.name} sync failed: ${error.message}`);
+    } finally {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['member-groups'] }),
+        queryClient.invalidateQueries({ queryKey: ['member-group-assignments'] }),
+      ]);
+    }
+  };
+
   const createGroupMutation = useMutation({
     mutationFn: (data) => base44.entities.MemberGroup.create(data),
-    onSuccess: () => {
+    onSuccess: (created, data) => {
       queryClient.invalidateQueries({ queryKey: ['member-groups'] });
       setShowGroupDialog(false);
+      const wasEnabled = !!data?.automatic_membership_enabled;
       resetGroupForm();
       toast.success('Group created successfully');
+      if (wasEnabled && created?.id) {
+        // Non-blocking: save already succeeded; reconcile in background.
+        triggerAutoReconcile(created.id);
+      }
     },
     onError: (error) => {
+      if (isDuplicateGroupNameError(error)) {
+        toast.error('A group with this name already exists');
+        return;
+      }
       toast.error('Failed to create group: ' + error.message);
     }
   });
 
   const updateGroupMutation = useMutation({
     mutationFn: ({ id, data }) => base44.entities.MemberGroup.update(id, data),
-    onSuccess: () => {
+    onSuccess: (_result, { id, data }) => {
       queryClient.invalidateQueries({ queryKey: ['member-groups'] });
       setShowGroupDialog(false);
+      const wasEnabled = !!data?.automatic_membership_enabled;
       resetGroupForm();
       toast.success('Group updated successfully');
+      if (wasEnabled && id) {
+        // Non-blocking: save already succeeded; reconcile in background.
+        triggerAutoReconcile(id);
+      }
     },
     onError: (error) => {
+      if (isDuplicateGroupNameError(error)) {
+        toast.error('A group with this name already exists');
+        return;
+      }
       toast.error('Failed to update group: ' + error.message);
     }
   });
 
   const deleteGroupMutation = useMutation({
     mutationFn: async (groupId) => {
-      const groupAssignments = assignments.filter(a => a.group_id === groupId);
-      for (const assignment of groupAssignments) {
-        await base44.entities.MemberGroupAssignment.delete(assignment.id);
-      }
+      // The server cascades the group's assignments (member_group_assignment)
+      // before deleting the group, so we no longer loop-delete them here — doing
+      // so would trip the last-group-admin guard on the group's only admin.
       await base44.entities.MemberGroup.delete(groupId);
     },
     onSuccess: () => {
@@ -176,7 +512,7 @@ export default function MemberGroupManagementPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['member-group-assignments'] });
       setShowAssignDialog(false);
-      setAssignForm({ member_id: '', guest_id: '', group_role: '', expires_at: null });
+      setAssignForm({ member_id: '', guest_id: '', group_role: '', expires_at: null, is_group_admin: false, term_start_date: '', term_end_date: '', term_number: '' });
       setAssignMode('');
       setSelectedOrganizationId('');
       setMemberSearchQuery('');
@@ -198,19 +534,274 @@ export default function MemberGroupManagementPage() {
     }
   });
 
+  const updateAssignmentAdminMutation = useMutation({
+    mutationFn: ({ id, is_group_admin }) =>
+      base44.entities.MemberGroupAssignment.update(id, { is_group_admin }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['member-group-assignments'] });
+      toast.success(variables.is_group_admin ? 'Marked as group admin' : 'Removed group admin');
+    },
+    onError: (error) => {
+      toast.error('Failed to update group admin: ' + error.message);
+    }
+  });
+
+  const updateAssignmentMutation = useMutation({
+    mutationFn: ({ id, data }) => base44.entities.MemberGroupAssignment.update(id, data),
+    onSuccess: async (updatedAssignment) => {
+      queryClient.setQueryData(['member-group-assignments'], (current = []) =>
+        current.map((assignment) =>
+          assignment.id === updatedAssignment.id ? { ...assignment, ...updatedAssignment } : assignment
+        )
+      );
+      await queryClient.invalidateQueries({ queryKey: ['member-group-assignments'] });
+      setEditingAssignment(null);
+      setAssignmentEditForm(null);
+      setAssignmentEditError('');
+      toast.success('Assignment details updated');
+    },
+    onError: (error) => {
+      setAssignmentEditError(getAssignmentEditError(error));
+    },
+  });
+
+  const { data: inviteData, isLoading: loadingInvites } = useQuery({
+    queryKey: ['member-group-invites', inviteGroup?.id],
+    queryFn: () => apiRequest('GET', `/api/member-group-invites?groupId=${inviteGroup.id}`),
+    enabled: showInviteDialog && !!inviteGroup?.id
+  });
+  const invitations = inviteData?.invitations || [];
+
+  const createInviteMutation = useMutation({
+    mutationFn: (data) => apiRequest('POST', '/api/member-group-invites', { action: 'create', ...data }),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['member-group-invites', inviteGroup?.id] });
+      setInviteForm({ member_id: '', role: '' });
+      setInviteMemberSearch('');
+      if (result?.emailSent === false) {
+        toast.warning('Invitation created, but the email could not be sent: ' + (result.emailError || 'unknown error'));
+      } else {
+        toast.success('Invitation sent');
+      }
+    },
+    onError: (error) => {
+      toast.error('Failed to send invitation: ' + error.message);
+    }
+  });
+
+  const resendInviteMutation = useMutation({
+    mutationFn: (invitationId) => apiRequest('POST', '/api/member-group-invites', { action: 'resend', invitationId }),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['member-group-invites', inviteGroup?.id] });
+      if (result?.emailSent === false) {
+        toast.warning('Invitation re-issued, but the email could not be sent: ' + (result.emailError || 'unknown error'));
+      } else {
+        toast.success('Invitation resent');
+      }
+    },
+    onError: (error) => {
+      toast.error('Failed to resend invitation: ' + error.message);
+    }
+  });
+
+  const reinviteMutation = useMutation({
+    mutationFn: (inv) => apiRequest('POST', '/api/member-group-invites', {
+      action: 'create',
+      groupId: inv.group_id,
+      memberId: inv.member_id,
+      role: inv.group_role,
+    }),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ['member-group-invites', inviteGroup?.id] });
+      if (result?.emailSent === false) {
+        toast.warning('Invitation created, but the email could not be sent: ' + (result.emailError || 'unknown error'));
+      } else {
+        toast.success('Invitation sent');
+      }
+    },
+    onError: (error) => {
+      toast.error('Failed to send invitation: ' + error.message);
+    }
+  });
+
+  const cancelInviteMutation = useMutation({
+    mutationFn: (invitationId) => apiRequest('POST', '/api/member-group-invites', { action: 'cancel', invitationId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['member-group-invites', inviteGroup?.id] });
+      toast.success('Invitation cancelled');
+    },
+    onError: (error) => {
+      toast.error('Failed to cancel invitation: ' + error.message);
+    }
+  });
+
+  const createClassificationMutation = useMutation({
+    mutationFn: (data) => base44.entities.MemberGroupClassification.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['member-group-classifications'] });
+      setEditingClassification(null);
+      setClassificationName('');
+      toast.success('Classification created');
+    },
+    onError: (error) => {
+      if (isDuplicateClassificationError(error)) {
+        toast.error('A classification with this name already exists');
+        return;
+      }
+      toast.error('Failed to create classification: ' + error.message);
+    }
+  });
+
+  const updateClassificationMutation = useMutation({
+    mutationFn: ({ id, data }) => base44.entities.MemberGroupClassification.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['member-group-classifications'] });
+      setEditingClassification(null);
+      setClassificationName('');
+      toast.success('Classification updated');
+    },
+    onError: (error) => {
+      if (isDuplicateClassificationError(error)) {
+        toast.error('A classification with this name already exists');
+        return;
+      }
+      toast.error('Failed to update classification: ' + error.message);
+    }
+  });
+
+  const deleteClassificationMutation = useMutation({
+    mutationFn: async (classificationId) => {
+      // Unassign any groups still using this classification so they fall back to "no classification".
+      const affected = groups.filter(g => g.classification_id === classificationId);
+      for (const group of affected) {
+        await base44.entities.MemberGroup.update(group.id, { classification_id: null });
+      }
+      await base44.entities.MemberGroupClassification.delete(classificationId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['member-group-classifications'] });
+      queryClient.invalidateQueries({ queryKey: ['member-groups'] });
+      setClassificationToDelete(null);
+      toast.success('Classification deleted');
+    },
+    onError: (error) => {
+      toast.error('Failed to delete classification: ' + error.message);
+    }
+  });
+
+  const handleSaveClassification = () => {
+    const name = classificationName.trim();
+    if (!name) {
+      toast.error('Classification name is required');
+      return;
+    }
+    const normalized = name.toLowerCase();
+    const duplicate = classifications.some((c) =>
+      (c.name || '').trim().toLowerCase() === normalized &&
+      (!editingClassification || c.id !== editingClassification.id)
+    );
+    if (duplicate) {
+      toast.error('A classification with this name already exists');
+      return;
+    }
+    if (editingClassification) {
+      updateClassificationMutation.mutate({ id: editingClassification.id, data: { name } });
+    } else {
+      createClassificationMutation.mutate({ name, is_active: true });
+    }
+  };
+
+  const getClassificationName = (classificationId) => {
+    const c = classifications.find(c => c.id === classificationId);
+    return c ? c.name : null;
+  };
+
   const resetGroupForm = () => {
-    setGroupForm({ name: '', description: '', roles: [], is_active: true });
+    setGroupForm({
+      name: '',
+      description: '',
+      who_is_it_for: '',
+      about_the_group: '',
+      roles: [],
+      leadership_roles: [],
+      is_active: true,
+      header_image_url: '',
+      allow_self_join: false,
+      hide_on_group_page: false,
+      default_self_join_role: '',
+      projects_enabled: false,
+      projects_enabled_roles: [],
+      events_enabled: false,
+      complex_events_enabled: false,
+      group_admins_can_edit_content: false,
+      forum_enabled: false,
+      forum_enabled_roles: [],
+      classification_id: '',
+      linkedin_url: '',
+      terms_of_reference: allowGroupTermsOverride ? (defaultTermsOfReference || '') : '',
+      role_terms_of_reference: {},
+      role_terms_url: {},
+      role_term_definitions: {},
+      role_badge_ids: {},
+      resource_subcategories: [],
+      approval_email_template_id: '',
+      decline_email_template_id: '',
+      self_join_closed: false,
+      self_join_closed_label: '',
+      allow_members_to_leave: true,
+      automatic_membership_enabled: false,
+      automatic_membership_role: '',
+      automatic_membership_filter_groups: [],
+    });
+    setGroupSubcategorySearch('');
+    setTorOpen(false);
     setEditingGroup(null);
+    setAutoPreviewResult(null);
+    setAutoPreviewLoading(false);
   };
 
   const handleEditGroup = (group) => {
+    setTorOpen(false);
     setEditingGroup(group);
     setGroupForm({
       name: group.name,
       description: group.description || '',
+      who_is_it_for: group.who_is_it_for || '',
+      about_the_group: group.about_the_group || '',
       roles: group.roles || [],
-      is_active: group.is_active
+      leadership_roles: Array.isArray(group.leadership_roles) ? group.leadership_roles : [],
+      is_active: group.is_active,
+      header_image_url: group.header_image_url || '',
+      allow_self_join: !!group.allow_self_join,
+      hide_on_group_page: resolveHideOnGroupPage(group),
+      default_self_join_role: group.default_self_join_role || '',
+      projects_enabled: !!group.projects_enabled,
+      projects_enabled_roles: Array.isArray(group.projects_enabled_roles) ? group.projects_enabled_roles : [],
+      events_enabled: !!group.events_enabled,
+      complex_events_enabled: (group.complex_events_enabled === undefined || group.complex_events_enabled === null) ? !!group.events_enabled : !!group.complex_events_enabled,
+      group_admins_can_edit_content: !!group.group_admins_can_edit_content,
+      forum_enabled: !!group.forum_enabled,
+      forum_enabled_roles: Array.isArray(group.forum_enabled_roles) ? group.forum_enabled_roles : [],
+      classification_id: group.classification_id || '',
+      linkedin_url: group.linkedin_url || '',
+      terms_of_reference: group.terms_of_reference || (allowGroupTermsOverride ? (defaultTermsOfReference || '') : ''),
+      role_terms_of_reference: (group.role_terms_of_reference && typeof group.role_terms_of_reference === 'object') ? { ...group.role_terms_of_reference } : {},
+      role_terms_url: (group.role_terms_url && typeof group.role_terms_url === 'object') ? { ...group.role_terms_url } : {},
+      role_term_definitions: (group.role_term_definitions && typeof group.role_term_definitions === 'object') ? { ...group.role_term_definitions } : {},
+      role_badge_ids: (group.role_badge_ids && typeof group.role_badge_ids === 'object') ? { ...group.role_badge_ids } : {},
+      resource_subcategories: Array.isArray(group.resource_subcategories) ? [...group.resource_subcategories] : [],
+      approval_email_template_id: group.approval_email_template_id || '',
+      decline_email_template_id: group.decline_email_template_id || '',
+      self_join_closed: !!group.self_join_closed,
+      self_join_closed_label: group.self_join_closed_label || '',
+      allow_members_to_leave: group.allow_members_to_leave !== false,
+      automatic_membership_enabled: !!group.automatic_membership_enabled,
+      automatic_membership_role: group.automatic_membership_role || '',
+      automatic_membership_filter_groups: Array.isArray(group.automatic_membership_filter_groups)
+        ? JSON.parse(JSON.stringify(group.automatic_membership_filter_groups))
+        : [],
     });
+    setGroupSubcategorySearch('');
     setShowGroupDialog(true);
   };
 
@@ -219,9 +810,43 @@ export default function MemberGroupManagementPage() {
     setGroupForm({
       name: `${group.name} (Copy)`,
       description: group.description || '',
+      who_is_it_for: group.who_is_it_for || '',
+      about_the_group: group.about_the_group || '',
       roles: [...(group.roles || [])],
-      is_active: group.is_active
+      leadership_roles: Array.isArray(group.leadership_roles) ? [...group.leadership_roles] : [],
+      is_active: group.is_active,
+      header_image_url: group.header_image_url || '',
+      allow_self_join: !!group.allow_self_join,
+      hide_on_group_page: resolveHideOnGroupPage(group),
+      default_self_join_role: group.default_self_join_role || '',
+      projects_enabled: !!group.projects_enabled,
+      projects_enabled_roles: Array.isArray(group.projects_enabled_roles) ? [...group.projects_enabled_roles] : [],
+      events_enabled: !!group.events_enabled,
+      complex_events_enabled: (group.complex_events_enabled === undefined || group.complex_events_enabled === null) ? !!group.events_enabled : !!group.complex_events_enabled,
+      group_admins_can_edit_content: !!group.group_admins_can_edit_content,
+      forum_enabled: !!group.forum_enabled,
+      forum_enabled_roles: Array.isArray(group.forum_enabled_roles) ? [...group.forum_enabled_roles] : [],
+      classification_id: group.classification_id || '',
+      linkedin_url: group.linkedin_url || '',
+      terms_of_reference: group.terms_of_reference || (allowGroupTermsOverride ? (defaultTermsOfReference || '') : ''),
+      role_terms_of_reference: (group.role_terms_of_reference && typeof group.role_terms_of_reference === 'object') ? { ...group.role_terms_of_reference } : {},
+      role_terms_url: (group.role_terms_url && typeof group.role_terms_url === 'object') ? { ...group.role_terms_url } : {},
+      role_term_definitions: (group.role_term_definitions && typeof group.role_term_definitions === 'object') ? { ...group.role_term_definitions } : {},
+      role_badge_ids: (group.role_badge_ids && typeof group.role_badge_ids === 'object') ? { ...group.role_badge_ids } : {},
+      resource_subcategories: Array.isArray(group.resource_subcategories) ? [...group.resource_subcategories] : [],
+      approval_email_template_id: group.approval_email_template_id || '',
+      decline_email_template_id: group.decline_email_template_id || '',
+      self_join_closed: false,
+      self_join_closed_label: '',
+      // Duplicate copies rule config but starts sync fresh (no enabled auto-membership)
+      allow_members_to_leave: group.allow_members_to_leave !== false,
+      automatic_membership_enabled: false,
+      automatic_membership_role: group.automatic_membership_role || '',
+      automatic_membership_filter_groups: Array.isArray(group.automatic_membership_filter_groups)
+        ? JSON.parse(JSON.stringify(group.automatic_membership_filter_groups))
+        : [],
     });
+    setGroupSubcategorySearch('');
     setShowGroupDialog(true);
   };
 
@@ -231,20 +856,50 @@ export default function MemberGroupManagementPage() {
       return;
     }
 
-    const lines = bulkText.split('\n').filter(line => line.trim());
-    const groupsToCreate = lines.map(line => ({
-      name: line.trim(),
-      description: '',
-      roles: [],
-      is_active: true
-    }));
+    const lines = bulkText.split('\n').map(line => line.trim()).filter(Boolean);
+
+    const existingNames = new Set(
+      groups.map((g) => (g.name || '').trim().toLowerCase())
+    );
+    const seenInInput = new Set();
+    const groupsToCreate = [];
+    let skipped = 0;
+
+    for (const name of lines) {
+      const normalized = name.toLowerCase();
+      if (existingNames.has(normalized) || seenInInput.has(normalized)) {
+        skipped += 1;
+        continue;
+      }
+      seenInInput.add(normalized);
+      groupsToCreate.push({
+        name,
+        description: '',
+        roles: [],
+        is_active: true
+      });
+    }
+
+    if (groupsToCreate.length === 0) {
+      toast.error(
+        skipped > 0
+          ? 'All group names already exist'
+          : 'Please enter group names'
+      );
+      return;
+    }
 
     Promise.all(groupsToCreate.map(g => base44.entities.MemberGroup.create(g)))
       .then(() => {
         queryClient.invalidateQueries({ queryKey: ['member-groups'] });
         setShowBulkDialog(false);
         setBulkText('');
-        toast.success(`Created ${groupsToCreate.length} groups successfully`);
+        const created = groupsToCreate.length;
+        toast.success(
+          skipped > 0
+            ? `Created ${created} group${created === 1 ? '' : 's'}, skipped ${skipped} duplicate${skipped === 1 ? '' : 's'}`
+            : `Created ${created} group${created === 1 ? '' : 's'} successfully`
+        );
       })
       .catch(error => {
         toast.error('Failed to create groups: ' + error.message);
@@ -257,22 +912,316 @@ export default function MemberGroupManagementPage() {
       return;
     }
 
+    const normalizedName = groupForm.name.trim().toLowerCase();
+    const duplicateName = groups.some((g) =>
+      (g.name || '').trim().toLowerCase() === normalizedName &&
+      (!editingGroup || g.id !== editingGroup.id)
+    );
+    if (duplicateName) {
+      toast.error('A group with this name already exists');
+      return;
+    }
+
+    if (groupForm.allow_self_join) {
+      if (!groupForm.default_self_join_role) {
+        toast.error('Default self-join role is required when self-join is enabled');
+        return;
+      }
+      if (!(groupForm.roles || []).includes(groupForm.default_self_join_role)) {
+        toast.error('Default self-join role must be one of the group roles');
+        return;
+      }
+    }
+
+    // Validate automatic membership config.
+    const autoErrors = validateAutoConfig({
+      enabled: groupForm.automatic_membership_enabled,
+      role: groupForm.automatic_membership_role,
+      filterGroups: groupForm.automatic_membership_filter_groups,
+      availableRoles: groupForm.roles || [],
+    });
+    if (autoErrors.length > 0) {
+      toast.error(autoErrors[0]);
+      return;
+    }
+
+    // Normalise the optional LinkedIn URL: trim, treat blank as null, and
+    // validate it parses as a URL when present.
+    const trimmedLinkedin = (groupForm.linkedin_url || '').trim();
+    if (trimmedLinkedin) {
+      let validUrl = false;
+      try {
+        const parsed = new URL(trimmedLinkedin);
+        validUrl = parsed.protocol === 'http:' || parsed.protocol === 'https:';
+      } catch {
+        validUrl = false;
+      }
+      if (!validUrl) {
+        toast.error('Please enter a valid LinkedIn URL (including https://)');
+        return;
+      }
+    }
+
+    // Normalise the optional terms of reference (rich text / HTML): trim and
+    // treat visually-empty content (e.g. "<p></p>") as null so an empty editor
+    // doesn't count as having terms.
+    const rawTerms = (groupForm.terms_of_reference || '').trim();
+    const termsHasText = rawTerms
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;|\u00A0/g, ' ')
+      .trim().length > 0;
+    const trimmedTerms = termsHasText ? rawTerms : '';
+
+    // Normalise the description/purpose (rich text / HTML): trim, treat visually-empty
+    // content as empty, and sanitise the markup before it is saved. Legacy
+    // plain-text values pass through sanitisation unchanged.
+    const rawDescription = (groupForm.description || '').trim();
+    const descriptionHasText = rawDescription
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;|\u00A0/g, ' ')
+      .trim().length > 0;
+    const sanitizedDescription = descriptionHasText ? sanitizeRichText(rawDescription) : '';
+
+    // Normalise the optional "Who the group is for" rich text field.
+    const rawWhoIsItFor = (groupForm.who_is_it_for || '').trim();
+    const whoIsItForHasText = rawWhoIsItFor
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;|\u00A0/g, ' ')
+      .trim().length > 0;
+    const sanitizedWhoIsItFor = whoIsItForHasText ? sanitizeRichText(rawWhoIsItFor) : null;
+
+    // Normalise the optional "About the group" rich text field.
+    const rawAboutTheGroup = (groupForm.about_the_group || '').trim();
+    const aboutTheGroupHasText = rawAboutTheGroup
+      .replace(/<[^>]*>/g, '')
+      .replace(/&nbsp;|\u00A0/g, ' ')
+      .trim().length > 0;
+    const sanitizedAboutTheGroup = aboutTheGroupHasText ? sanitizeRichText(rawAboutTheGroup) : null;
+
+    // Merge any case-only duplicate roles still lingering in the list (legacy
+    // data pre-dating standardisation): first spelling wins per lowercase key.
+    const dedupedRoles = [];
+    {
+      const seenRoleKeys = new Set();
+      for (const r of groupForm.roles || []) {
+        const key = roleNameKey(r);
+        if (!key || seenRoleKeys.has(key)) continue;
+        seenRoleKeys.add(key);
+        dedupedRoles.push(r);
+      }
+    }
+    // Map a role-ish string onto the surviving spelling (case-insensitive), so
+    // role-keyed metadata and role arrays never detach from the final name.
+    const roleByKey = new Map(dedupedRoles.map((r) => [roleNameKey(r), r]));
+    const toSurvivingRole = (r) => roleByKey.get(roleNameKey(r)) || null;
+
+    // Prune leadership_roles / projects_enabled_roles to only roles still on the group.
+    const validRoles = new Set(dedupedRoles);
+    const remapRoleArray = (arr) => {
+      const out = [];
+      const seen = new Set();
+      for (const r of arr || []) {
+        const surviving = toSurvivingRole(r);
+        if (!surviving || seen.has(surviving)) continue;
+        seen.add(surviving);
+        out.push(surviving);
+      }
+      return out;
+    };
+    const prunedLeadership = remapRoleArray(groupForm.leadership_roles);
+    const prunedProjects = remapRoleArray(groupForm.projects_enabled_roles);
+    const prunedForum = remapRoleArray(groupForm.forum_enabled_roles);
+
+    // Prune + normalise per-role terms of reference: keep only roles still on the
+    // group, and drop entries whose rich-text content is visually empty.
+    const rawRoleTerms = (groupForm.role_terms_of_reference && typeof groupForm.role_terms_of_reference === 'object')
+      ? groupForm.role_terms_of_reference
+      : {};
+    const prunedRoleTerms = {};
+    for (const [roleName, html] of Object.entries(rawRoleTerms)) {
+      const surviving = toSurvivingRole(roleName);
+      if (!surviving) continue;
+      // Empty entries are never stored, so non-empty always survives a
+      // case-only merge; among non-empty entries, the surviving spelling's
+      // own entry wins deterministically.
+      if (prunedRoleTerms[surviving] !== undefined && roleName !== surviving) continue;
+      const raw = (html || '').trim();
+      if (!isEmptyRoleHtml(raw)) prunedRoleTerms[surviving] = raw;
+    }
+
+    // Prune per-role terms-of-reference URLs (Task #1655): keep only roles still
+    // on the group, and drop blank entries.
+    const rawRoleTermsUrl = (groupForm.role_terms_url && typeof groupForm.role_terms_url === 'object')
+      ? groupForm.role_terms_url
+      : {};
+    const prunedRoleTermsUrl = {};
+    for (const [roleName, url] of Object.entries(rawRoleTermsUrl)) {
+      const surviving = toSurvivingRole(roleName);
+      if (!surviving) continue;
+      if (prunedRoleTermsUrl[surviving] !== undefined && roleName !== surviving) continue;
+      const trimmed = (url || '').toString().trim();
+      if (trimmed) prunedRoleTermsUrl[surviving] = trimmed;
+    }
+
+    // Prune + normalise per-role term definitions (Task #1626): keep only roles
+    // still on the group, coerce numeric fields, and drop entries that carry
+    // neither a term length nor a max-terms value.
+    const rawRoleTermDefs = (groupForm.role_term_definitions && typeof groupForm.role_term_definitions === 'object')
+      ? groupForm.role_term_definitions
+      : {};
+    const prunedRoleTermDefs = {};
+    for (const [roleName, def] of Object.entries(rawRoleTermDefs)) {
+      const surviving = toSurvivingRole(roleName);
+      if (!surviving) continue;
+      if (prunedRoleTermDefs[surviving] !== undefined && roleName !== surviving) continue;
+      if (isEmptyRoleTermDef(def)) continue;
+      const value = Number(def.term_value);
+      const maxTerms = Number(def.max_terms);
+      const hasValue = Number.isFinite(value) && value > 0;
+      const hasMax = Number.isFinite(maxTerms) && maxTerms > 0;
+      prunedRoleTermDefs[surviving] = {
+        term_value: hasValue ? Math.floor(value) : null,
+        term_unit: hasValue ? (def.term_unit === 'months' ? 'months' : 'years') : null,
+        max_terms: hasMax ? Math.floor(maxTerms) : null,
+      };
+    }
+
+    // Prune per-role badge links (Task #3297): keep only roles still on the
+    // group (rename via case-variant merge keeps the badge attached), drop
+    // blank entries.
+    const rawRoleBadgeIds = (groupForm.role_badge_ids && typeof groupForm.role_badge_ids === 'object')
+      ? groupForm.role_badge_ids
+      : {};
+    const prunedRoleBadgeIds = {};
+    for (const [roleName, badgeId] of Object.entries(rawRoleBadgeIds)) {
+      const surviving = toSurvivingRole(roleName);
+      if (!surviving) continue;
+      if (prunedRoleBadgeIds[surviving] !== undefined && roleName !== surviving) continue;
+      const trimmed = (badgeId || '').toString().trim();
+      if (trimmed) prunedRoleBadgeIds[surviving] = trimmed;
+    }
+
+    const payload = {
+      ...groupForm,
+      roles: dedupedRoles,
+      description: sanitizedDescription,
+      who_is_it_for: sanitizedWhoIsItFor,
+      about_the_group: sanitizedAboutTheGroup,
+      default_self_join_role: groupForm.allow_self_join
+        ? (toSurvivingRole(groupForm.default_self_join_role) || groupForm.default_self_join_role)
+        : null,
+      leadership_roles: prunedLeadership,
+      projects_enabled: !!groupForm.projects_enabled,
+      projects_enabled_roles: groupForm.projects_enabled ? prunedProjects : [],
+      events_enabled: !!groupForm.events_enabled,
+      complex_events_enabled: !!groupForm.complex_events_enabled,
+      group_admins_can_edit_content: !!groupForm.group_admins_can_edit_content,
+      forum_enabled: !!groupForm.forum_enabled,
+      forum_enabled_roles: groupForm.forum_enabled ? prunedForum : [],
+      classification_id: groupForm.classification_id || null,
+      linkedin_url: trimmedLinkedin || null,
+      terms_of_reference: trimmedTerms || null,
+      role_terms_of_reference: prunedRoleTerms,
+      role_terms_url: prunedRoleTermsUrl,
+      role_term_definitions: prunedRoleTermDefs,
+      role_badge_ids: prunedRoleBadgeIds,
+      resource_subcategories: Array.isArray(groupForm.resource_subcategories)
+        ? Array.from(new Set(groupForm.resource_subcategories.filter((s) => typeof s === 'string' && s.trim())))
+        : [],
+      approval_email_template_id: groupForm.approval_email_template_id || null,
+      decline_email_template_id: groupForm.decline_email_template_id || null,
+      allow_members_to_leave: groupForm.allow_members_to_leave !== false,
+      automatic_membership_enabled: !!groupForm.automatic_membership_enabled,
+      automatic_membership_role: groupForm.automatic_membership_enabled
+        ? (groupForm.automatic_membership_role || null)
+        : null,
+      automatic_membership_filter_groups: groupForm.automatic_membership_enabled
+        ? (groupForm.automatic_membership_filter_groups || [])
+        : [],
+    };
+
+    // Diff the role→badge map against the loaded group (Task #3302). Badge
+    // display on member profiles is fully DERIVED from current assignments +
+    // this map (no member_badge rows are written), so any add/change/removal
+    // takes effect for current holders the moment the group is saved. When a
+    // changed role has current holders, pause and ask the admin to confirm.
+    const badgeChanges = [];
     if (editingGroup) {
-      updateGroupMutation.mutate({ id: editingGroup.id, data: groupForm });
+      const prevRaw = (editingGroup.role_badge_ids && typeof editingGroup.role_badge_ids === 'object')
+        ? editingGroup.role_badge_ids
+        : {};
+      const prevByKey = new Map();
+      for (const [roleName, badgeId] of Object.entries(prevRaw)) {
+        const k = roleNameKey(roleName);
+        const trimmed = (badgeId || '').toString().trim();
+        if (k && trimmed && !prevByKey.has(k)) prevByKey.set(k, { role: roleName, badgeId: trimmed });
+      }
+      const nextByKey = new Map(
+        Object.entries(prunedRoleBadgeIds).map(([r, id]) => [roleNameKey(r), { role: r, badgeId: id }])
+      );
+      const badgeName = (id) => badgeById.get(id)?.name || 'linked';
+      for (const k of new Set([...prevByKey.keys(), ...nextByKey.keys()])) {
+        const prev = prevByKey.get(k);
+        const next = nextByKey.get(k);
+        if (prev && next && prev.badgeId === next.badgeId) continue;
+        // Count current holders of this role (case-insensitive role match,
+        // mirroring how profiles resolve derived badges).
+        const holders = assignments.filter(
+          (a) => a.group_id === editingGroup.id && roleNameKey(a.group_role) === k
+        ).length;
+        if (holders === 0) continue;
+        const role = (next || prev).role;
+        if (prev && next) {
+          badgeChanges.push({ role, holders, kind: 'changed', from: badgeName(prev.badgeId), to: badgeName(next.badgeId) });
+        } else if (next) {
+          badgeChanges.push({ role, holders, kind: 'added', to: badgeName(next.badgeId) });
+        } else {
+          badgeChanges.push({ role, holders, kind: 'removed', from: badgeName(prev.badgeId) });
+        }
+      }
+    }
+
+    if (badgeChanges.length > 0) {
+      setBadgeConfirm({ payload, changes: badgeChanges });
+      return;
+    }
+
+    submitGroupPayload(payload);
+  };
+
+  const submitGroupPayload = (payload) => {
+    if (editingGroup) {
+      updateGroupMutation.mutate({ id: editingGroup.id, data: payload });
     } else {
-      createGroupMutation.mutate(groupForm);
+      createGroupMutation.mutate(payload);
     }
   };
 
-  const handleAddRole = () => {
-    if (!newRole.trim()) return;
-    if (groupForm.roles.includes(newRole.trim())) {
-      toast.error('Role already exists');
+  // Resolve the spelling a typed role should be saved as: an existing role in
+  // this group blocks (case-insensitive duplicate); a tenant-wide match reuses
+  // that spelling; a genuinely new name is Title Cased.
+  const resolveNewRoleName = (raw) => {
+    const key = roleNameKey(raw);
+    if (!key) return { error: null, name: '' };
+    if ((groupForm.roles || []).some((r) => roleNameKey(r) === key)) {
+      return { error: 'Role already exists', name: '' };
+    }
+    return { error: null, name: canonicalizeRoleName(raw, tenantRoleNames) };
+  };
+
+  const addRoleByName = (raw) => {
+    const { error, name } = resolveNewRoleName(raw);
+    if (error) {
+      toast.error(error);
       return;
     }
-    setGroupForm({ ...groupForm, roles: [...groupForm.roles, newRole.trim()] });
+    if (!name) return;
+    setGroupForm({ ...groupForm, roles: [...groupForm.roles, name] });
     setNewRole('');
+    setRoleSuggestionsOpen(false);
   };
+
+  const handleAddRole = () => addRoleByName(newRole);
 
   const handleBulkAddRoles = () => {
     if (!bulkRolesText.trim()) {
@@ -281,12 +1230,19 @@ export default function MemberGroupManagementPage() {
     }
 
     const lines = bulkRolesText.split('\n').filter(line => line.trim());
-    const newRoles = lines.map(line => line.trim());
     const existingRoles = groupForm.roles || [];
-    
-    // Filter out duplicates
-    const uniqueNewRoles = newRoles.filter(role => !existingRoles.includes(role));
-    
+
+    // Case-insensitive dedupe against existing roles AND within the batch,
+    // matching tenant-wide spellings / Title Casing new names.
+    const seen = new Set(existingRoles.map((r) => roleNameKey(r)));
+    const uniqueNewRoles = [];
+    for (const line of lines) {
+      const key = roleNameKey(line);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      uniqueNewRoles.push(canonicalizeRoleName(line, tenantRoleNames));
+    }
+
     if (uniqueNewRoles.length === 0) {
       toast.error('All roles already exist');
       return;
@@ -299,7 +1255,52 @@ export default function MemberGroupManagementPage() {
   };
 
   const handleRemoveRole = (role) => {
-    setGroupForm({ ...groupForm, roles: groupForm.roles.filter(r => r !== role) });
+    const nextRoleTerms = { ...(groupForm.role_terms_of_reference || {}) };
+    delete nextRoleTerms[role];
+    const nextRoleTermsUrl = { ...(groupForm.role_terms_url || {}) };
+    delete nextRoleTermsUrl[role];
+    const nextRoleBadgeIds = { ...(groupForm.role_badge_ids || {}) };
+    delete nextRoleBadgeIds[role];
+    // If the removed role was the automatic membership role, clear it and
+    // disable automation rather than retain an invalid role.
+    const autoRoleCleared = groupForm.automatic_membership_role === role;
+    setGroupForm({
+      ...groupForm,
+      roles: groupForm.roles.filter(r => r !== role),
+      leadership_roles: (groupForm.leadership_roles || []).filter(r => r !== role),
+      projects_enabled_roles: (groupForm.projects_enabled_roles || []).filter(r => r !== role),
+      forum_enabled_roles: (groupForm.forum_enabled_roles || []).filter(r => r !== role),
+      default_self_join_role: groupForm.default_self_join_role === role ? '' : groupForm.default_self_join_role,
+      role_terms_of_reference: nextRoleTerms,
+      role_terms_url: nextRoleTermsUrl,
+      role_badge_ids: nextRoleBadgeIds,
+      automatic_membership_role: autoRoleCleared ? '' : groupForm.automatic_membership_role,
+      automatic_membership_enabled: autoRoleCleared ? false : groupForm.automatic_membership_enabled,
+    });
+  };
+
+  const toggleLeadershipRole = (role) => {
+    const current = new Set(groupForm.leadership_roles || []);
+    if (current.has(role)) current.delete(role); else current.add(role);
+    setGroupForm({ ...groupForm, leadership_roles: Array.from(current) });
+  };
+
+  const toggleProjectsRole = (role) => {
+    const current = new Set(groupForm.projects_enabled_roles || []);
+    if (current.has(role)) current.delete(role); else current.add(role);
+    setGroupForm({ ...groupForm, projects_enabled_roles: Array.from(current) });
+  };
+
+  const toggleForumRole = (role) => {
+    const current = new Set(groupForm.forum_enabled_roles || []);
+    if (current.has(role)) current.delete(role); else current.add(role);
+    setGroupForm({ ...groupForm, forum_enabled_roles: Array.from(current) });
+  };
+
+  const toggleResourceSubcategory = (sub) => {
+    const current = new Set(groupForm.resource_subcategories || []);
+    if (current.has(sub)) current.delete(sub); else current.add(sub);
+    setGroupForm({ ...groupForm, resource_subcategories: Array.from(current) });
   };
 
   const handleAssignMember = () => {
@@ -321,9 +1322,44 @@ export default function MemberGroupManagementPage() {
       return;
     }
 
+    const role = assignForm.group_role;
+    // Snapshot the role's current term onto the assignment so later role edits
+    // don't retroactively change this member's recorded term, matching the
+    // award/invite-accept flows (Task #1626/#1628). No prior assignment here
+    // (already-assigned people are rejected above), so term_number resets to 1.
+    // The role's term-length/unit/max-terms come from the role definition; the
+    // admin can override the per-member start/end dates and term number below.
+    const roleTermDefs =
+      selectedGroup.role_term_definitions && typeof selectedGroup.role_term_definitions === 'object'
+        ? selectedGroup.role_term_definitions
+        : {};
+    const termSnapshot = buildTermSnapshot(roleTermDefs[role], { role });
+
+    // Apply the admin's explicit term overrides, validating like EditTermDialog.
+    const startDate = assignForm.term_start_date || '';
+    const endDate = assignForm.term_end_date || '';
+    if (startDate && endDate && endDate < startDate) {
+      toast.error("The term end date can't be before the start date.");
+      return;
+    }
+    let nextTermNumber = null;
+    if (assignForm.term_number !== '' && assignForm.term_number != null) {
+      const n = Math.floor(Number(assignForm.term_number));
+      if (!Number.isFinite(n) || n < 1) {
+        toast.error('Term number must be a whole number of 1 or more.');
+        return;
+      }
+      nextTermNumber = n;
+    }
+
     const data = {
-      group_role: assignForm.group_role,
-      group_id: selectedGroup.id
+      group_role: role,
+      group_id: selectedGroup.id,
+      is_group_admin: assignForm.is_group_admin === true,
+      ...termSnapshot,
+      term_start_date: startDate || null,
+      term_end_date: endDate || null,
+      term_number: nextTermNumber
     };
 
     if (assignForm.member_id) {
@@ -339,8 +1375,89 @@ export default function MemberGroupManagementPage() {
     assignMemberMutation.mutate(data);
   };
 
+  const openAssignmentEdit = (assignment) => {
+    setEditingAssignment(assignment);
+    setAssignmentEditForm(buildAssignmentEditForm(assignment));
+    setAssignmentEditError('');
+  };
+
+  const handleUpdateAssignment = () => {
+    const result = buildAssignmentEditPayload(assignmentEditForm);
+    if (result.error) {
+      setAssignmentEditError(result.error);
+      return;
+    }
+    setAssignmentEditError('');
+    updateAssignmentMutation.mutate({ id: editingAssignment.id, data: result.payload });
+  };
+
+  const openInviteDialog = (group) => {
+    setInviteGroup(group);
+    setInviteForm({ member_id: '', role: '' });
+    setInviteMemberSearch('');
+    setShowInviteDialog(true);
+  };
+
+  // Would inviting this member into the selected role push their next term past
+  // the role's max_terms? Renewals into the SAME role can exceed; a different /
+  // new role resets to term 1 and never warns. Returns the warning or null.
+  const evaluateInviteTermLimit = () => {
+    if (!inviteGroup || !inviteForm.member_id || !inviteForm.role) return null;
+    const role = inviteForm.role;
+    const defs = inviteGroup.role_term_definitions;
+    const termDef = defs && typeof defs === 'object' ? defs[role] : null;
+    const existing = assignments.find(
+      (a) => a.group_id === inviteGroup.id && a.member_id === inviteForm.member_id
+    ) || null;
+    const warning = evaluateTermLimit(termDef, { existingAssignment: existing, role });
+    if (!warning) return null;
+    return { ...warning, memberName: getMemberName(inviteForm.member_id), role };
+  };
+
+  const submitInvite = () => {
+    setInviteTermWarning(null);
+    createInviteMutation.mutate({
+      groupId: inviteGroup.id,
+      memberId: inviteForm.member_id,
+      role: inviteForm.role
+    });
+  };
+
+  const handleSendInvite = () => {
+    if (!inviteForm.member_id || !inviteForm.role) {
+      toast.error('Please select a member and a role');
+      return;
+    }
+    const warning = evaluateInviteTermLimit();
+    if (warning) {
+      setInviteTermWarning(warning);
+      return;
+    }
+    submitInvite();
+  };
+
   const getGroupAssignments = (groupId) => {
     return assignments.filter(a => a.group_id === groupId);
+  };
+
+  const getGroupPersonCount = (groupId) => uniqueGroupPersonCount(getGroupAssignments(groupId));
+
+  const getAssignmentJoinTime = (assignment) => {
+    const raw = assignment.created_date || assignment.created_at || null;
+    if (!raw) return 0;
+    const t = new Date(raw).getTime();
+    return Number.isNaN(t) ? 0 : t;
+  };
+
+  const assignmentVisibilityNow = Date.now();
+  const getVisibleGroupAssignments = (groupId) => {
+    return visibleGroupAssignments(
+      getGroupAssignments(groupId),
+      showExpiredMembersByGroup[groupId] !== false,
+      assignmentVisibilityNow,
+    )
+      .slice()
+      .sort((a, b) => getAssignmentJoinTime(b) - getAssignmentJoinTime(a));
   };
 
   const getMemberName = (memberId) => {
@@ -363,7 +1480,11 @@ export default function MemberGroupManagementPage() {
   };
 
   const isAssignmentGuest = (assignment) => {
-    return !!assignment.guest_id;
+    // Legacy: explicit guest_id set on the row
+    if (assignment.guest_id) return true;
+    // New flow: guest assigned via their provisioned member_id
+    if (assignment.member_id && guestMemberIds.has(assignment.member_id)) return true;
+    return false;
   };
 
   // Filter and sort groups
@@ -371,8 +1492,13 @@ export default function MemberGroupManagementPage() {
     let filtered = groups.filter(group => {
       const matchesSearch = searchQuery === '' || 
         group.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (group.description && group.description.toLowerCase().includes(searchQuery.toLowerCase()));
-      return matchesSearch;
+        (group.description && group.description.replace(/<[^>]*>/g, ' ').toLowerCase().includes(searchQuery.toLowerCase()));
+      const matchesClassification =
+        classificationFilter === 'all' ||
+        (classificationFilter === '__none__'
+          ? !group.classification_id
+          : group.classification_id === classificationFilter);
+      return matchesSearch && matchesClassification;
     });
 
     // Sort groups
@@ -383,13 +1509,13 @@ export default function MemberGroupManagementPage() {
         case 'name-desc':
           return b.name.localeCompare(a.name);
         case 'members-asc': {
-          const aCount = getGroupAssignments(a.id).length;
-          const bCount = getGroupAssignments(b.id).length;
+          const aCount = getGroupPersonCount(a.id);
+          const bCount = getGroupPersonCount(b.id);
           return aCount - bCount;
         }
         case 'members-desc': {
-          const aCount = getGroupAssignments(a.id).length;
-          const bCount = getGroupAssignments(b.id).length;
+          const aCount = getGroupPersonCount(a.id);
+          const bCount = getGroupPersonCount(b.id);
           return bCount - aCount;
         }
         default:
@@ -398,7 +1524,7 @@ export default function MemberGroupManagementPage() {
     });
 
     return filtered;
-  }, [groups, searchQuery, sortBy, assignments]);
+  }, [groups, searchQuery, sortBy, assignments, classificationFilter]);
 
   // Pagination
   const totalPages = Math.ceil(filteredAndSortedGroups.length / itemsPerPage);
@@ -407,10 +1533,10 @@ export default function MemberGroupManagementPage() {
     currentPage * itemsPerPage
   );
 
-  // Reset to page 1 when search/sort changes
+  // Reset to page 1 when search/sort/filter changes
   React.useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, sortBy]);
+  }, [searchQuery, sortBy, classificationFilter]);
 
   const handleSelectGroup = (groupId) => {
     setSelectedGroups(prev => 
@@ -436,13 +1562,14 @@ export default function MemberGroupManagementPage() {
         if (!group) continue;
 
         let newRoles = [...(group.roles || [])];
-        
+        const roleKey = roleNameKey(role);
+
         if (action === 'add') {
-          if (!newRoles.includes(role)) {
+          if (!newRoles.some(r => roleNameKey(r) === roleKey)) {
             newRoles.push(role);
           }
         } else if (action === 'remove') {
-          newRoles = newRoles.filter(r => r !== role);
+          newRoles = newRoles.filter(r => roleNameKey(r) !== roleKey);
         }
 
         updates.push(
@@ -476,16 +1603,323 @@ export default function MemberGroupManagementPage() {
     bulkUpdateGroupsMutation.mutate({
       groupIds: selectedGroups,
       action: bulkEditAction,
-      role: bulkEditRole.trim()
+      // Reuse an existing tenant-wide spelling (case-insensitive) or Title
+      // Case a genuinely new role name.
+      role: canonicalizeRoleName(bulkEditRole, tenantRoleNames)
     });
   };
 
-  if (!accessChecked) {
+  const renderAssignmentRow = (assignment, { compact = false } = {}) => (
+    <div key={assignment.id} className="flex flex-wrap items-center justify-between gap-2 text-xs bg-slate-50 p-2 rounded">
+      <div className={compact ? "min-w-0 max-w-full" : undefined}>
+        <div className={`font-medium text-slate-900 flex items-center gap-1${compact ? ' flex-wrap break-words [overflow-wrap:anywhere]' : ''}`}>
+          {getAssigneeName(assignment)}
+          {isAssignmentGuest(assignment) && (
+            <Badge className="bg-purple-100 text-purple-700 text-[10px] px-1">Guest</Badge>
+          )}
+          {assignment.is_group_admin === true && (
+            <Badge
+              className="bg-emerald-100 text-emerald-700 text-[10px] px-1"
+              data-testid={`badge-group-admin-${assignment.id}`}
+            >
+              Admin
+            </Badge>
+          )}
+        </div>
+        <div className={`text-slate-500${compact ? ' break-words [overflow-wrap:anywhere]' : ''}`}>{assignment.group_role}</div>
+        {assignment.expires_at && (
+          <div className="text-slate-400 flex items-center gap-1">
+            <Calendar className="w-3 h-3" />
+            Expires: {Number.isFinite(new Date(assignment.expires_at).getTime())
+              ? format(new Date(assignment.expires_at), 'dd MMM yyyy')
+              : 'Invalid expiry date'}
+          </div>
+        )}
+      </div>
+      <div className="flex items-center gap-2">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => openAssignmentEdit(assignment)}
+          className="h-7 px-2"
+          data-testid={`button-edit-assignment-${assignment.id}`}
+        >
+          <Pencil className="mr-1 h-3 w-3" />
+          Edit
+        </Button>
+        <div className="flex items-center gap-1" title="Group Admin">
+          <span className="text-slate-500">Admin</span>
+          <Switch
+            aria-label={compact ? `Group admin for ${getAssigneeName(assignment)} (${assignment.group_role || 'Member'})` : undefined}
+            data-testid={`switch-group-admin-${assignment.id}`}
+            checked={assignment.is_group_admin === true}
+            disabled={updateAssignmentAdminMutation.isPending}
+            onCheckedChange={(checked) =>
+              updateAssignmentAdminMutation.mutate({ id: assignment.id, is_group_admin: checked })
+            }
+          />
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => removeAssignmentMutation.mutate(assignment.id)}
+          aria-label={compact ? `Remove ${getAssigneeName(assignment)} (${assignment.group_role || 'Member'})` : undefined}
+          className="h-6 w-6 p-0 text-red-600 hover:text-red-700"
+        >
+          <X className="w-3 h-3" />
+        </Button>
+      </div>
+    </div>
+  );
+
+  const renderGroupCard = (group) => {
+    const groupAssignments = getVisibleGroupAssignments(group.id);
+    const groupPersonCount = uniqueGroupPersonCount(groupAssignments);
+    const previewAssignments = groupAssignments.slice(0, 5);
+    const isSelected = selectedGroups.includes(group.id);
+    const automaticSync = automaticSyncByGroup[group.id];
+    const automaticSyncRunning = automaticSync?.status === 'running';
+    const automaticSyncError = automaticSync
+      ? (automaticSync.status === 'error' ? automaticSync.error : null)
+      : group.automatic_membership_sync_error;
+    const automaticMatchCount = automaticSync?.matchCount
+      ?? group.automatic_membership_match_count;
+    const automaticLastSyncedAt = automaticSync?.lastSyncedAt
+      ?? group.automatic_membership_last_synced_at;
+    const automaticStatus = automaticSync?.status === 'complete'
+      ? 'idle'
+      : automaticSync?.status || group.automatic_membership_sync_status;
+    const automaticStatusLabel = automaticStatus === 'idle'
+      ? 'Synced'
+      : automaticStatus === 'running'
+        ? 'Syncing'
+        : automaticStatus === 'queued'
+          ? 'Queued'
+          : automaticStatus === 'error'
+            ? 'Error'
+            : null;
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-8 flex items-center justify-center">
+      <Card
+        key={group.id}
+        className={`hover:shadow-lg transition-shadow ${isSelected ? 'ring-2 ring-blue-500' : ''}`}
+      >
+        <CardHeader>
+          <div className="flex items-center gap-2 mb-2">
+            <input
+              type="checkbox"
+              checked={isSelected}
+              onChange={() => handleSelectGroup(group.id)}
+              className="w-4 h-4 cursor-pointer"
+            />
+            <div className="flex items-start justify-between flex-1">
+              <CardTitle className="text-lg">{group.name}</CardTitle>
+              {!group.is_active && (
+                <Badge className="bg-slate-200 text-slate-700">Inactive</Badge>
+              )}
+            </div>
+          </div>
+          {group.classification_id && getClassificationName(group.classification_id) && (
+            <Badge
+              className="bg-indigo-100 text-indigo-700 w-fit"
+              data-testid={`badge-classification-${group.id}`}
+            >
+              <Tag className="w-3 h-3 mr-1" />
+              {getClassificationName(group.classification_id)}
+            </Badge>
+          )}
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <span className="text-sm font-medium text-slate-700">Roles:</span>
+            <div className="flex flex-wrap gap-1 mt-1">
+              {group.roles?.length > 0 ? (
+                group.roles.map((role, idx) => {
+                  const isLeader = Array.isArray(group.leadership_roles) && group.leadership_roles.includes(role);
+                  return (
+                    <Badge
+                      key={idx}
+                      className={`text-xs ${isLeader ? "bg-amber-100 text-amber-800" : "bg-blue-100 text-blue-700"}`}
+                      title={isLeader ? "Leadership role" : undefined}
+                    >
+                      {isLeader && <Crown className="w-3 h-3 mr-1 fill-current" />}
+                      {role}
+                    </Badge>
+                  );
+                })
+              ) : (
+                <span className="text-xs text-slate-500">No roles defined</span>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <span className="text-sm font-medium text-slate-700">
+              Members: {groupPersonCount}
+            </span>
+          </div>
+
+          {group.automatic_membership_enabled && (
+            <div
+              className="rounded-md border border-blue-100 bg-blue-50 p-3 text-xs"
+              data-testid={`automatic-sync-card-${group.id}`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-slate-600">
+                  <span className="font-medium text-slate-800">Automatic assignment</span>
+                  {automaticStatusLabel && <span> · {automaticStatusLabel}</span>}
+                  {automaticMatchCount != null && <span> · {automaticMatchCount} matched</span>}
+                  {automaticSyncRunning && automaticSync?.batches > 0 && (
+                    <span>
+                      {' '}· {automaticSync.batches} batch{automaticSync.batches === 1 ? '' : 'es'} processed
+                    </span>
+                  )}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 bg-white"
+                  disabled={automaticSyncRunning}
+                  onClick={() => syncAutomaticGroupFromCard(group)}
+                  data-testid={`button-sync-automatic-members-${group.id}`}
+                >
+                  {automaticSyncRunning
+                    ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                    : <RefreshCw className="mr-1 h-3.5 w-3.5" />}
+                  {automaticSyncRunning ? 'Syncing…' : automaticSyncError ? 'Retry sync' : 'Sync members'}
+                </Button>
+              </div>
+              {automaticSyncError && (
+                <p className="mt-2 text-red-600" data-testid={`automatic-sync-error-${group.id}`}>
+                  {automaticSyncError}
+                </p>
+              )}
+              {automaticLastSyncedAt && (
+                <p className="mt-1 text-slate-500">
+                  Last synced: {new Date(automaticLastSyncedAt).toLocaleString()}
+                </p>
+              )}
+            </div>
+          )}
+
+          <div className="flex gap-2 pt-2 border-t border-slate-200">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setSelectedGroup(group);
+                setShowAssignDialog(true);
+              }}
+              className="flex-1"
+            >
+              <UserPlus className="w-3 h-3 mr-1" />
+              Assign
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => openInviteDialog(group)}
+              className="flex-1"
+              data-testid={`button-invite-${group.id}`}
+            >
+              <Mail className="w-3 h-3 mr-1" />
+              Invite
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleDuplicateGroup(group)}
+              title="Duplicate"
+            >
+              <Copy className="w-3 h-3" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleEditGroup(group)}
+            >
+              <Pencil className="w-3 h-3" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setGroupToDelete(group);
+                setShowDeleteDialog(true);
+              }}
+              className="text-red-600 hover:text-red-700"
+            >
+              <Trash2 className="w-3 h-3" />
+            </Button>
+          </div>
+
+          <div className="flex items-center gap-2 pt-2">
+            <Switch
+              id={`show-expired-members-${group.id}`}
+              data-testid={`switch-show-expired-members-${group.id}`}
+              checked={showExpiredMembersByGroup[group.id] !== false}
+              onCheckedChange={(checked) => setShowExpiredMembersByGroup((current) => ({
+                ...current, [group.id]: checked,
+              }))}
+            />
+            <Label htmlFor={`show-expired-members-${group.id}`}>Show expired members</Label>
+          </div>
+          {groupAssignments.length === 0 && (
+            <p className="pt-2 text-sm text-slate-500">
+              {getGroupAssignments(group.id).length > 0
+                ? 'All assignments are expired. Turn on Show expired members to view them.'
+                : 'No members in this group.'}
+            </p>
+          )}
+          {groupAssignments.length > 0 && (
+          <div className="pt-2 border-t border-slate-200">
+          <div className="space-y-1">
+            {previewAssignments.map((assignment) => renderAssignmentRow(assignment))}
+          </div>
+          {groupAssignments.length > 5 && (
+            <Button
+              variant="link"
+              size="sm"
+              onClick={() => setMembersModalGroupId(group.id)}
+              className="px-0 mt-1 h-auto"
+              data-testid={`button-view-all-members-${group.id}`}
+            >
+              View all ({groupPersonCount})
+            </Button>
+          )}
+          </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  };
+
+  // Sections for "group by classification" view (operates on the full filtered set, not paginated).
+  const classificationSections = React.useMemo(() => {
+    const byId = new Map();
+    classifications.forEach((c) => byId.set(c.id, { id: c.id, name: c.name, groups: [] }));
+    const noneSection = { id: '__none__', name: 'No classification', groups: [] };
+    filteredAndSortedGroups.forEach((g) => {
+      const section = g.classification_id && byId.has(g.classification_id)
+        ? byId.get(g.classification_id)
+        : noneSection;
+      section.groups.push(g);
+    });
+    const ordered = [...byId.values()].filter((s) => s.groups.length > 0);
+    ordered.sort((a, b) => a.name.localeCompare(b.name));
+    if (noneSection.groups.length > 0) ordered.push(noneSection);
+    return ordered;
+  }, [classifications, filteredAndSortedGroups]);
+
+  const isLoading = !accessChecked || loadingGroups || loadingMembers || loadingAssignments || loadingGuests || loadingClassifications;
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen p-8 flex items-center justify-center">
         <Card className="max-w-md">
           <CardContent className="p-12 text-center">
-            <p className="text-slate-600">Loading...</p>
+            <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-4" />
+            <p className="text-slate-600">Loading member groups...</p>
           </CardContent>
         </Card>
       </div>
@@ -493,20 +1927,28 @@ export default function MemberGroupManagementPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">Member Groups</h1>
+              <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">{featureName}</h1>
               <p className="text-slate-600">Create and manage member groups with roles</p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
+              <Button
+                onClick={() => { setEditingClassification(null); setClassificationName(''); setShowClassificationDialog(true); }}
+                variant="outline"
+                data-testid="button-manage-classifications"
+              >
+                <Tag className="w-4 h-4 mr-2" />
+                Classifications
+              </Button>
               <Button onClick={() => setShowBulkDialog(true)} variant="outline">
                 <ListPlus className="w-4 h-4 mr-2" />
                 Bulk Create
               </Button>
-              <Button onClick={() => setShowGroupDialog(true)} className="bg-blue-600 hover:bg-blue-700">
+              <Button onClick={() => { resetGroupForm(); setShowGroupDialog(true); }} className="bg-blue-600 hover:bg-blue-700">
                 <Plus className="w-4 h-4 mr-2" />
                 New Group
               </Button>
@@ -559,7 +2001,21 @@ export default function MemberGroupManagementPage() {
                         className="w-full"
                       />
                     </div>
-                    <div className="w-full md:w-64">
+                    <div className="w-full md:w-56">
+                      <Select value={classificationFilter} onValueChange={setClassificationFilter}>
+                        <SelectTrigger data-testid="select-classification-filter">
+                          <SelectValue placeholder="All classifications" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All classifications</SelectItem>
+                          <SelectItem value="__none__">No classification</SelectItem>
+                          {classifications.map((c) => (
+                            <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="w-full md:w-56">
                       <Select value={sortBy} onValueChange={setSortBy}>
                         <SelectTrigger>
                           <SelectValue />
@@ -573,11 +2029,21 @@ export default function MemberGroupManagementPage() {
                       </Select>
                     </div>
                   </div>
-                  {filteredAndSortedGroups.length > 0 && (
-                    <p className="text-sm text-slate-600 mt-3">
-                      Showing {filteredAndSortedGroups.length} of {groups.length} group{groups.length !== 1 ? 's' : ''}
-                    </p>
-                  )}
+                  <div className="flex items-center justify-between flex-wrap gap-2 mt-3">
+                    {filteredAndSortedGroups.length > 0 ? (
+                      <p className="text-sm text-slate-600">
+                        Showing {filteredAndSortedGroups.length} of {groups.length} group{groups.length !== 1 ? 's' : ''}
+                      </p>
+                    ) : <span />}
+                    <label className="inline-flex items-center gap-2 text-sm text-slate-700 cursor-pointer" data-testid="label-group-by-classification">
+                      <Switch
+                        checked={groupByClassification}
+                        onCheckedChange={setGroupByClassification}
+                        data-testid="switch-group-by-classification"
+                      />
+                      Group by classification
+                    </label>
+                  </div>
                 </CardContent>
               </Card>
             </>
@@ -601,7 +2067,7 @@ export default function MemberGroupManagementPage() {
               <Users className="w-16 h-16 text-slate-300 mx-auto mb-4" />
               <h3 className="text-xl font-semibold text-slate-900 mb-2">No Groups Yet</h3>
               <p className="text-slate-600 mb-6">Create your first member group to get started</p>
-              <Button onClick={() => setShowGroupDialog(true)} className="bg-blue-600 hover:bg-blue-700">
+              <Button onClick={() => { resetGroupForm(); setShowGroupDialog(true); }} className="bg-blue-600 hover:bg-blue-700">
                 <Plus className="w-4 h-4 mr-2" />
                 Create First Group
               </Button>
@@ -618,184 +2084,73 @@ export default function MemberGroupManagementPage() {
               </Button>
             </CardContent>
           </Card>
+        ) : groupByClassification ? (
+          <div className="space-y-8">
+            {classificationSections.map((section) => (
+              <div key={section.id} data-testid={`section-classification-${section.id}`}>
+                <div className="flex items-center gap-2 mb-4">
+                  <Tag className="w-4 h-4 text-indigo-600" />
+                  <h2 className="text-xl font-semibold text-slate-900">{section.name}</h2>
+                  <Badge className="bg-slate-200 text-slate-700">{section.groups.length}</Badge>
+                </div>
+                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {section.groups.map((group) => renderGroupCard(group))}
+                </div>
+              </div>
+            ))}
+          </div>
         ) : (
           <>
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {paginatedGroups.map((group) => {
-              const groupAssignments = getGroupAssignments(group.id);
-              const isSelected = selectedGroups.includes(group.id);
-              return (
-                <Card 
-                  key={group.id} 
-                  className={`hover:shadow-lg transition-shadow ${isSelected ? 'ring-2 ring-blue-500' : ''}`}
-                >
-                  <CardHeader>
-                    <div className="flex items-center gap-2 mb-2">
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => handleSelectGroup(group.id)}
-                        className="w-4 h-4 cursor-pointer"
-                      />
-                      <div className="flex items-start justify-between flex-1">
-                        <CardTitle className="text-lg">{group.name}</CardTitle>
-                        {!group.is_active && (
-                          <Badge className="bg-slate-200 text-slate-700">Inactive</Badge>
-                        )}
-                      </div>
-                    </div>
-                    {group.description && (
-                      <p className="text-sm text-slate-600">{group.description}</p>
-                    )}
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div>
-                      <span className="text-sm font-medium text-slate-700">Roles:</span>
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {group.roles?.length > 0 ? (
-                          group.roles.map((role, idx) => (
-                            <Badge key={idx} className="bg-blue-100 text-blue-700 text-xs">
-                              {role}
-                            </Badge>
-                          ))
-                        ) : (
-                          <span className="text-xs text-slate-500">No roles defined</span>
-                        )}
-                      </div>
-                    </div>
-
-                    <div>
-                      <span className="text-sm font-medium text-slate-700">
-                        Members: {groupAssignments.length}
-                      </span>
-                    </div>
-
-                    <div className="flex gap-2 pt-2 border-t border-slate-200">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setSelectedGroup(group);
-                          setShowAssignDialog(true);
-                        }}
-                        className="flex-1"
-                      >
-                        <UserPlus className="w-3 h-3 mr-1" />
-                        Assign
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleDuplicateGroup(group)}
-                        title="Duplicate"
-                      >
-                        <Copy className="w-3 h-3" />
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleEditGroup(group)}
-                      >
-                        <Pencil className="w-3 h-3" />
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setGroupToDelete(group);
-                          setShowDeleteDialog(true);
-                        }}
-                        className="text-red-600 hover:text-red-700"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </Button>
-                    </div>
-
-                    {groupAssignments.length > 0 && (
-                    <div className="pt-2 border-t border-slate-200">
-                    <div className="space-y-1 max-h-32 overflow-y-auto">
-                      {groupAssignments.map((assignment) => (
-                        <div key={assignment.id} className="flex items-center justify-between text-xs bg-slate-50 p-2 rounded">
-                          <div>
-                            <div className="font-medium text-slate-900 flex items-center gap-1">
-                              {getAssigneeName(assignment)}
-                              {isAssignmentGuest(assignment) && (
-                                <Badge className="bg-purple-100 text-purple-700 text-[10px] px-1">Guest</Badge>
-                              )}
-                            </div>
-                            <div className="text-slate-500">{assignment.group_role}</div>
-                            {assignment.expires_at && (
-                              <div className="text-slate-400 flex items-center gap-1">
-                                <Calendar className="w-3 h-3" />
-                                Expires: {format(new Date(assignment.expires_at), 'dd MMM yyyy')}
-                              </div>
-                            )}
-                          </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => removeAssignmentMutation.mutate(assignment.id)}
-                            className="h-6 w-6 p-0 text-red-600 hover:text-red-700"
-                          >
-                            <X className="w-3 h-3" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                    </div>
-                    )}
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="mt-8 flex justify-center">
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                  disabled={currentPage === 1}
-                >
-                  Previous
-                </Button>
-                <div className="flex items-center gap-1">
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
-                    <Button
-                      key={page}
-                      variant={currentPage === page ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setCurrentPage(page)}
-                      className={currentPage === page ? "bg-blue-600 hover:bg-blue-700" : ""}
-                    >
-                      {page}
-                    </Button>
-                  ))}
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                  disabled={currentPage === totalPages}
-                >
-                  Next
-                </Button>
-              </div>
+              {paginatedGroups.map((group) => renderGroupCard(group))}
             </div>
-          )}
-        </>
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="mt-8 flex justify-center">
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                  >
+                    Previous
+                  </Button>
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                      <Button
+                        key={page}
+                        variant={currentPage === page ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setCurrentPage(page)}
+                        className={currentPage === page ? "bg-blue-600 hover:bg-blue-700" : ""}
+                      >
+                        {page}
+                      </Button>
+                    ))}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
         )}
 
         {/* Create/Edit Group Dialog */}
-        <Dialog open={showGroupDialog} onOpenChange={setShowGroupDialog}>
-          <DialogContent className="max-w-lg">
+        <Dialog open={showGroupDialog} onOpenChange={(open) => { setShowGroupDialog(open); if (!open) { setTorOpen(false); } }}>
+          <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col">
             <DialogHeader>
               <DialogTitle>{editingGroup ? 'Edit Group' : 'Create New Group'}</DialogTitle>
             </DialogHeader>
-            <div className="space-y-4">
+            <div className="space-y-4 flex-1 min-h-0 overflow-y-auto py-2">
               <div>
                 <Label htmlFor="name">Group Name *</Label>
                 <Input
@@ -807,14 +2162,149 @@ export default function MemberGroupManagementPage() {
               </div>
 
               <div>
-                <Label htmlFor="description">Description</Label>
-                <Textarea
-                  id="description"
-                  value={groupForm.description}
-                  onChange={(e) => setGroupForm({ ...groupForm, description: e.target.value })}
-                  placeholder="Description of this group..."
-                  rows={3}
+                <Label htmlFor="description">Purpose</Label>
+                <SimpleRichTextEditor
+                  content={groupForm.description}
+                  onChange={(html) => setGroupForm({ ...groupForm, description: html })}
+                  placeholder="What is the purpose of this group?"
+                  data-testid="input-group-description"
                 />
+              </div>
+
+              <div>
+                <Label htmlFor="who_is_it_for">Who the group is for</Label>
+                <SimpleRichTextEditor
+                  content={groupForm.who_is_it_for}
+                  onChange={(html) => setGroupForm({ ...groupForm, who_is_it_for: html })}
+                  placeholder="Who is this group aimed at? (optional)"
+                  data-testid="input-group-who-is-it-for"
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="about_the_group">About the group</Label>
+                <SimpleRichTextEditor
+                  content={groupForm.about_the_group}
+                  onChange={(html) => setGroupForm({ ...groupForm, about_the_group: html })}
+                  placeholder="Tell members more about this group... (optional)"
+                  data-testid="input-group-about"
+                />
+              </div>
+
+              <Collapsible open={torOpen} onOpenChange={setTorOpen}>
+                <CollapsibleTrigger asChild>
+                  <button
+                    type="button"
+                    aria-expanded={torOpen}
+                    className="flex w-full items-center justify-between rounded-md py-1 text-sm font-medium hover-elevate"
+                    data-testid="button-toggle-terms-of-reference"
+                  >
+                    <span>Terms of reference</span>
+                    <ChevronDown
+                      className="h-4 w-4 text-muted-foreground transition-transform duration-200"
+                      style={{ transform: torOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}
+                    />
+                  </button>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="pt-2">
+                    {allowGroupTermsOverride ? (
+                      <>
+                        <SimpleRichTextEditor
+                          content={groupForm.terms_of_reference}
+                          onChange={(html) => setGroupForm({ ...groupForm, terms_of_reference: html })}
+                          placeholder="Terms of reference members must agree to before joining..."
+                          className="min-h-[260px] [&_.tiptap]:min-h-[220px]"
+                          data-testid="input-group-terms-of-reference"
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">Optional. When set, members must read and agree to this before they can join from the group's detail page.</p>
+                      </>
+                    ) : (
+                      <>
+                        <div
+                          className="min-h-[120px] rounded-md border border-input bg-muted/50 p-3 text-sm text-muted-foreground prose prose-sm max-w-none cursor-not-allowed"
+                          data-testid="input-group-terms-of-reference-readonly"
+                          dangerouslySetInnerHTML={{ __html: defaultTermsOfReference || '<p class="text-muted-foreground italic">No default terms of reference set.</p>' }}
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Terms of reference are controlled centrally in Member Group Settings. Individual groups cannot override them.
+                        </p>
+                      </>
+                    )}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+
+              <div>
+                <Label htmlFor="linkedin_url">LinkedIn URL</Label>
+                <Input
+                  id="linkedin_url"
+                  type="url"
+                  value={groupForm.linkedin_url}
+                  onChange={(e) => setGroupForm({ ...groupForm, linkedin_url: e.target.value })}
+                  placeholder="https://www.linkedin.com/company/..."
+                  data-testid="input-group-linkedin-url"
+                />
+                <p className="text-xs text-slate-500 mt-1">Optional. Shown as a link on the group's detail page.</p>
+              </div>
+
+              <div>
+                <Label htmlFor="classification">Classification</Label>
+                <Select
+                  value={groupForm.classification_id || '__none__'}
+                  onValueChange={(val) => setGroupForm({ ...groupForm, classification_id: val === '__none__' ? '' : val })}
+                >
+                  <SelectTrigger id="classification" data-testid="select-group-classification">
+                    <SelectValue placeholder="No classification" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No classification</SelectItem>
+                    {classifications.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-slate-500 mt-1">An organisational label only — used to group and filter member groups.</p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="approval_email_template">Approval email template</Label>
+                  <Select
+                    value={groupForm.approval_email_template_id || '__none__'}
+                    onValueChange={(val) => setGroupForm({ ...groupForm, approval_email_template_id: val === '__none__' ? '' : val })}
+                  >
+                    <SelectTrigger id="approval_email_template" data-testid="select-approval-email-template">
+                      <SelectValue placeholder="No template" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">No template</SelectItem>
+                      {emailTemplates.map((t) => (
+                        <SelectItem key={t.id} value={t.id}>{t.name || t.subject || 'Untitled template'}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-slate-500 mt-1">Pre-fills the email sent when a vacancy applicant is approved.</p>
+                </div>
+
+                <div>
+                  <Label htmlFor="decline_email_template">Decline email template</Label>
+                  <Select
+                    value={groupForm.decline_email_template_id || '__none__'}
+                    onValueChange={(val) => setGroupForm({ ...groupForm, decline_email_template_id: val === '__none__' ? '' : val })}
+                  >
+                    <SelectTrigger id="decline_email_template" data-testid="select-decline-email-template">
+                      <SelectValue placeholder="No template" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">No template</SelectItem>
+                      {emailTemplates.map((t) => (
+                        <SelectItem key={t.id} value={t.id}>{t.name || t.subject || 'Untitled template'}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-slate-500 mt-1">Pre-fills the email sent when a vacancy applicant is declined.</p>
+                </div>
               </div>
 
               <div>
@@ -855,31 +2345,359 @@ export default function MemberGroupManagementPage() {
                   </div>
                 ) : (
                   <div className="flex gap-2 mb-2">
-                    <Input
-                      value={newRole}
-                      onChange={(e) => setNewRole(e.target.value)}
-                      onKeyPress={(e) => e.key === 'Enter' && handleAddRole()}
-                      placeholder="e.g., Chair, Vice Chair, Member"
-                    />
+                    <div className="relative flex-1">
+                      <Input
+                        value={newRole}
+                        onChange={(e) => { setNewRole(e.target.value); setRoleSuggestionsOpen(true); }}
+                        onFocus={() => setRoleSuggestionsOpen(true)}
+                        onBlur={() => setTimeout(() => setRoleSuggestionsOpen(false), 150)}
+                        onKeyPress={(e) => e.key === 'Enter' && handleAddRole()}
+                        placeholder="e.g., Chair, Vice Chair, Member"
+                        data-testid="input-new-role"
+                      />
+                      {roleSuggestionsOpen && roleSuggestions.length > 0 && (
+                        <div
+                          className="absolute left-0 right-0 top-full mt-1 z-50 rounded-md border border-slate-200 bg-white shadow-md max-h-48 overflow-y-auto"
+                          data-testid="list-role-suggestions"
+                        >
+                          <p className="px-3 pt-2 pb-1 text-[11px] uppercase tracking-wide text-slate-400">
+                            Roles used in your groups
+                          </p>
+                          {roleSuggestions.map((name) => (
+                            <button
+                              key={name}
+                              type="button"
+                              className="block w-full text-left px-3 py-1.5 text-sm text-slate-700 hover-elevate active-elevate-2"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => addRoleByName(name)}
+                              data-testid={`suggestion-role-${name}`}
+                            >
+                              {name}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                     <Button onClick={handleAddRole} type="button">
                       <Plus className="w-4 h-4" />
                     </Button>
                   </div>
                 )}
 
-                <div className="flex flex-wrap gap-2">
-                  {groupForm.roles.map((role, idx) => (
-                    <Badge key={idx} className="bg-blue-100 text-blue-700">
-                      {role}
-                      <button
-                        onClick={() => handleRemoveRole(role)}
-                        className="ml-2 hover:text-red-600"
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {groupForm.roles.map((role, idx) => {
+                    const isLeader = (groupForm.leadership_roles || []).includes(role);
+                    // Role cards (Task #3304): each role shows its linked
+                    // badge, terms-of-reference link, and term-of-office
+                    // summary at a glance, with visible add/replace/remove
+                    // badge controls. Writes the same role_badge_ids /
+                    // role_terms_url / role_term_definitions form state as
+                    // the per-role settings panel below.
+                    const linkedBadgeId = (groupForm.role_badge_ids || {})[role] || '';
+                    const linkedBadge = linkedBadgeId ? badgeById.get(linkedBadgeId) : null;
+                    const pickerBadges = activeLibraryBadges.some((b) => b.id === linkedBadgeId) || !linkedBadge
+                      ? activeLibraryBadges
+                      : [linkedBadge, ...activeLibraryBadges];
+                    const termsUrl = ((groupForm.role_terms_url || {})[role] || '').toString().trim();
+                    const termDef = (groupForm.role_term_definitions || {})[role] || null;
+                    const termValue = Number(termDef?.term_value);
+                    const maxTerms = Number(termDef?.max_terms);
+                    const hasTermValue = Number.isFinite(termValue) && termValue > 0;
+                    const hasMaxTerms = Number.isFinite(maxTerms) && maxTerms > 0;
+                    const termSummaryParts = [];
+                    if (hasTermValue) {
+                      const unit = termDef?.term_unit === 'months' ? 'month' : 'year';
+                      termSummaryParts.push(`${Math.floor(termValue)} ${unit}${Math.floor(termValue) === 1 ? '' : 's'}`);
+                    }
+                    if (hasMaxTerms) {
+                      termSummaryParts.push(`max ${Math.floor(maxTerms)} term${Math.floor(maxTerms) === 1 ? '' : 's'}`);
+                    }
+                    const termSummary = termSummaryParts.join(', ');
+                    return (
+                      <div
+                        key={idx}
+                        className="rounded-lg border border-slate-200 p-3 space-y-2.5 bg-white"
+                        data-testid={`card-role-${role}`}
                       >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </Badge>
-                  ))}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <p className="text-sm font-medium truncate" data-testid={`text-role-name-${role}`}>{role}</p>
+                            {isLeader && (
+                              <Badge className="bg-amber-100 text-amber-800 shrink-0" data-testid={`badge-leadership-${role}`}>
+                                <Crown className="w-3 h-3 fill-current mr-1" />
+                                Leadership
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => toggleLeadershipRole(role)}
+                              className={`p-1 rounded ${isLeader ? "text-amber-700" : "text-slate-400 hover:text-amber-700"}`}
+                              title={isLeader ? "Remove from Leadership" : "Mark as Leadership"}
+                              data-testid={`button-toggle-leadership-${role}`}
+                            >
+                              <Crown className={`w-4 h-4 ${isLeader ? "fill-current" : ""}`} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveRole(role)}
+                              className="p-1 rounded text-slate-400 hover:text-red-600"
+                              title="Remove role"
+                              data-testid={`button-remove-role-${role}`}
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          {linkedBadge ? (
+                            <div className="flex items-center gap-2" data-testid={`preview-role-badge-card-${role}`}>
+                              {linkedBadge.image_url ? (
+                                <img src={linkedBadge.image_url} alt={`${linkedBadge.name} badge`} className="w-8 h-8 object-contain rounded-sm" />
+                              ) : (
+                                <Award className="w-6 h-6 text-emerald-600" />
+                              )}
+                              <div className="min-w-0">
+                                <p className="text-xs font-medium truncate">{linkedBadge.name}</p>
+                                {linkedBadge.is_active === false && (
+                                  <p className="text-[11px] text-amber-600">Inactive — won't display on profiles.</p>
+                                )}
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-slate-400 flex items-center gap-1.5" data-testid={`text-no-badge-${role}`}>
+                              <Award className="w-4 h-4" />
+                              No badge
+                            </p>
+                          )}
+                          <div className="flex items-center gap-1.5">
+                            <Select
+                              // Remount when the linked badge changes: a Radix Select
+                              // whose `value` flips to undefined goes uncontrolled and
+                              // keeps displaying the previously selected badge.
+                              key={`role-badge-select-${role}-${linkedBadgeId || 'none'}`}
+                              value={linkedBadgeId || undefined}
+                              onValueChange={(v) => setGroupForm((prev) => ({
+                                ...prev,
+                                role_badge_ids: {
+                                  ...(prev.role_badge_ids || {}),
+                                  [role]: v,
+                                },
+                              }))}
+                            >
+                              <SelectTrigger className="flex-1 h-8 text-xs" data-testid={`select-role-badge-card-${role}`}>
+                                <SelectValue placeholder={activeLibraryBadges.length === 0
+                                  ? 'No active badges available'
+                                  : (linkedBadge ? 'Replace badge…' : 'Add a badge…')} />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {pickerBadges.map((badge) => (
+                                  <SelectItem key={badge.id} value={badge.id} data-testid={`option-role-badge-card-${badge.id}`}>
+                                    <span className="flex items-center gap-2">
+                                      {badge.image_url && (
+                                        <img src={badge.image_url} alt="" className="w-5 h-5 object-contain rounded-sm" />
+                                      )}
+                                      <span>{badge.name}{badge.is_active === false ? ' (inactive)' : ''}</span>
+                                    </span>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            {linkedBadgeId && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                title="Remove badge link"
+                                onClick={() => setGroupForm((prev) => {
+                                  const next = { ...(prev.role_badge_ids || {}) };
+                                  delete next[role];
+                                  return { ...prev, role_badge_ids: next };
+                                })}
+                                data-testid={`button-clear-role-badge-card-${role}`}
+                              >
+                                <X className="w-4 h-4" />
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="space-y-1 text-xs">
+                          {termsUrl ? (
+                            <a
+                              href={termsUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="block text-blue-600 hover:underline truncate"
+                              title={termsUrl}
+                              data-testid={`link-role-terms-${role}`}
+                            >
+                              Terms of reference ↗
+                            </a>
+                          ) : (
+                            <p className="text-slate-400" data-testid={`text-no-terms-${role}`}>No terms of reference link</p>
+                          )}
+                          {termSummary ? (
+                            <p className="text-slate-600" data-testid={`text-term-summary-${role}`}>Term of office: {termSummary}</p>
+                          ) : (
+                            <p className="text-slate-400" data-testid={`text-no-term-def-${role}`}>No term of office set</p>
+                          )}
+                        </div>
+
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="w-full h-7 text-xs"
+                          onClick={() => setSelectedRoleForTerms(role)}
+                          data-testid={`button-edit-role-settings-${role}`}
+                        >
+                          <Pencil className="w-3 h-3 mr-1" />
+                          Edit terms & term of office
+                        </Button>
+                      </div>
+                    );
+                  })}
                 </div>
+                {(groupForm.leadership_roles || []).length > 0 && (
+                  <p className="text-xs text-slate-500 mt-2 flex items-center gap-1">
+                    <Crown className="w-3 h-3 fill-current text-amber-600" />
+                    Leadership roles appear in the group's Leadership section.
+                  </p>
+                )}
+
+                {(groupForm.roles || []).length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    <Label htmlFor="role_terms_select">Per-role settings</Label>
+                    <p className="text-xs text-slate-500">
+                      Optional. Set a role's term of office and terms of reference link. The role invite email and invite page link to the terms URL; roles without a link simply show no terms of reference. Badges are managed directly on each role card above.
+                    </p>
+                    <Select
+                      value={selectedRoleForTerms || ''}
+                      onValueChange={(value) => setSelectedRoleForTerms(value)}
+                    >
+                      <SelectTrigger id="role_terms_select" data-testid="select-role-for-terms">
+                        <SelectValue placeholder="Select a role to edit its settings…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(groupForm.roles || []).map((role) => {
+                          const hasTerms = !!((groupForm.role_terms_url || {})[role] || '').toString().trim();
+                          const hasBadge = !!((groupForm.role_badge_ids || {})[role] || '').toString().trim();
+                          return (
+                            <SelectItem key={role} value={role}>
+                              {role}{hasTerms ? ' • has terms link' : ''}{hasBadge ? ' • has badge' : ''}
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
+                    {selectedRoleForTerms && (groupForm.roles || []).includes(selectedRoleForTerms) && (
+                      <div className="space-y-3">
+                        <div className="rounded-md border border-slate-200 p-3 space-y-3">
+                          <p className="text-xs text-slate-500">
+                            Term of office for the <strong>{selectedRoleForTerms}</strong> role. This is shown on any vacancy posted for the role and recorded against members when they're awarded or accept an invite.
+                          </p>
+                          <div className="flex flex-wrap gap-3">
+                            <div className="flex flex-col gap-1.5">
+                              <Label htmlFor="role-term-value">Term length</Label>
+                              <div className="flex flex-wrap gap-2">
+                                <Input
+                                  id="role-term-value"
+                                  type="number"
+                                  min="0"
+                                  value={(groupForm.role_term_definitions || {})[selectedRoleForTerms]?.term_value ?? ''}
+                                  onChange={(e) => setGroupForm((prev) => ({
+                                    ...prev,
+                                    role_term_definitions: {
+                                      ...(prev.role_term_definitions || {}),
+                                      [selectedRoleForTerms]: {
+                                        ...((prev.role_term_definitions || {})[selectedRoleForTerms] || {}),
+                                        term_value: e.target.value,
+                                      },
+                                    },
+                                  }))}
+                                  placeholder="e.g. 3"
+                                  className="w-24"
+                                  data-testid="input-role-term-value"
+                                />
+                                <Select
+                                  value={(groupForm.role_term_definitions || {})[selectedRoleForTerms]?.term_unit || 'years'}
+                                  onValueChange={(v) => setGroupForm((prev) => ({
+                                    ...prev,
+                                    role_term_definitions: {
+                                      ...(prev.role_term_definitions || {}),
+                                      [selectedRoleForTerms]: {
+                                        ...((prev.role_term_definitions || {})[selectedRoleForTerms] || {}),
+                                        term_unit: v,
+                                      },
+                                    },
+                                  }))}
+                                >
+                                  <SelectTrigger className="w-[140px]" data-testid="select-role-term-unit">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="months">months</SelectItem>
+                                    <SelectItem value="years">years</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+                            <div className="flex flex-col gap-1.5">
+                              <Label htmlFor="role-max-terms">Maximum terms</Label>
+                              <Input
+                                id="role-max-terms"
+                                type="number"
+                                min="0"
+                                value={(groupForm.role_term_definitions || {})[selectedRoleForTerms]?.max_terms ?? ''}
+                                onChange={(e) => setGroupForm((prev) => ({
+                                  ...prev,
+                                  role_term_definitions: {
+                                    ...(prev.role_term_definitions || {}),
+                                    [selectedRoleForTerms]: {
+                                      ...((prev.role_term_definitions || {})[selectedRoleForTerms] || {}),
+                                      max_terms: e.target.value,
+                                    },
+                                  },
+                                }))}
+                                placeholder="e.g. 2"
+                                className="w-24"
+                                data-testid="input-role-max-terms"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label htmlFor="role-terms-url">Terms of reference link</Label>
+                          <Input
+                            id="role-terms-url"
+                            type="url"
+                            inputMode="url"
+                            value={(groupForm.role_terms_url || {})[selectedRoleForTerms] || ''}
+                            onChange={(e) => setGroupForm((prev) => ({
+                              ...prev,
+                              role_terms_url: {
+                                ...(prev.role_terms_url || {}),
+                                [selectedRoleForTerms]: e.target.value
+                              }
+                            }))}
+                            placeholder="https://example.org/terms-of-reference"
+                            data-testid="input-role-terms-url"
+                          />
+                          <p className="text-xs text-slate-500">
+                            The invitee for the <strong>{selectedRoleForTerms}</strong> role is shown a link to this page. Leave blank for no terms of reference.
+                          </p>
+                        </div>
+                        <p className="text-xs text-slate-500">
+                          The badge for the <strong>{selectedRoleForTerms}</strong> role is managed directly on its role card above.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center gap-2">
@@ -891,6 +2709,793 @@ export default function MemberGroupManagementPage() {
                   className="w-4 h-4"
                 />
                 <Label htmlFor="is_active" className="cursor-pointer">Active</Label>
+              </div>
+
+              <div className="pt-2 border-t border-slate-200">
+                <EventImageUpload
+                  value={groupForm.header_image_url}
+                  onChange={(url) => setGroupForm({ ...groupForm, header_image_url: url })}
+                  label="Header Image"
+                  helpText={`Optional: Shown on the ${featureName} page when self-join is enabled`}
+                />
+              </div>
+
+              <div className="pt-2 border-t border-slate-200 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex flex-col gap-1">
+                    <Label htmlFor="allow_self_join" className="cursor-pointer">Allow members to self-join</Label>
+                    <span className="text-xs text-slate-500">Members can join this group themselves when it is visible on the {featureName} page</span>
+                  </div>
+                  <Switch
+                    id="allow_self_join"
+                    checked={groupForm.allow_self_join}
+                    onCheckedChange={(checked) => setGroupForm({
+                      ...groupForm,
+                      allow_self_join: checked,
+                      default_self_join_role: checked ? groupForm.default_self_join_role : ''
+                    })}
+                    data-testid="switch-allow-self-join"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex flex-col gap-1">
+                    <Label htmlFor="hide_on_group_page" className="cursor-pointer">Hide on group page</Label>
+                    <span className="text-xs text-slate-500">Keep this group off the {featureName} page without changing who can join it</span>
+                  </div>
+                  <Switch
+                    id="hide_on_group_page"
+                    checked={!!groupForm.hide_on_group_page}
+                    onCheckedChange={(checked) => setGroupForm({ ...groupForm, hide_on_group_page: checked })}
+                    data-testid="switch-hide-on-group-page"
+                  />
+                </div>
+
+                {groupForm.allow_self_join && (
+                  <div>
+                    <Label htmlFor="default_self_join_role">Default Self-Join Role *</Label>
+                    {(groupForm.roles || []).length === 0 ? (
+                      <p className="text-xs text-red-600 mt-1">Add at least one role above before enabling self-join.</p>
+                    ) : (
+                      <Select
+                        value={groupForm.default_self_join_role}
+                        onValueChange={(val) => setGroupForm({ ...groupForm, default_self_join_role: val })}
+                      >
+                        <SelectTrigger id="default_self_join_role" data-testid="select-default-self-join-role">
+                          <SelectValue placeholder="Select a default role..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {groupForm.roles.map((role) => (
+                            <SelectItem key={role} value={role}>{role}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+                )}
+
+                {groupForm.allow_self_join && (
+                  <div className="pt-2 border-t border-slate-100 space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex flex-col gap-1">
+                        <Label htmlFor="self_join_closed" className="cursor-pointer">Close registrations</Label>
+                        <span className="text-xs text-slate-500">Group stays visible but new members cannot self-join</span>
+                      </div>
+                      <Switch
+                        id="self_join_closed"
+                        checked={!!groupForm.self_join_closed}
+                        onCheckedChange={(checked) => setGroupForm({ ...groupForm, self_join_closed: checked })}
+                        data-testid="switch-self-join-closed"
+                      />
+                    </div>
+                    {groupForm.self_join_closed && (
+                      <div className="flex flex-col gap-1.5">
+                        <Label htmlFor="self_join_closed_label">Closed button label</Label>
+                        <Input
+                          id="self_join_closed_label"
+                          value={groupForm.self_join_closed_label}
+                          onChange={(e) => setGroupForm({ ...groupForm, self_join_closed_label: e.target.value })}
+                          placeholder="Registrations closed"
+                          maxLength={80}
+                          data-testid="input-self-join-closed-label"
+                        />
+                        <span className="text-xs text-slate-500">Text shown on the group card and detail page. Defaults to "Registrations closed" if left blank.</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-2 border-t border-slate-200 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex flex-col gap-1">
+                    <Label>Enable project board for this group</Label>
+                    <span className="text-xs text-slate-500">
+                      Creates a default Kanban board when enabled. Qualifying members will see a "Group Projects" page where they can open boards for the group.
+                    </span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={!!groupForm.projects_enabled}
+                    onChange={(e) => setGroupForm({ ...groupForm, projects_enabled: e.target.checked })}
+                    className="w-4 h-4"
+                    data-testid="checkbox-projects-enabled"
+                  />
+                </div>
+
+                {groupForm.projects_enabled && (
+                  <>
+                    <div className="flex flex-col gap-1">
+                      <Label>Roles allowed to access project board</Label>
+                      <span className="text-xs text-slate-500">
+                        Members assigned one of these roles will see the "Group Projects" page and be added to every board belonging to this group.
+                      </span>
+                    </div>
+                    {(groupForm.roles || []).length === 0 ? (
+                      <p className="text-xs text-slate-500">Add at least one role above to choose who can access project boards.</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {groupForm.roles.map((role) => {
+                          const checked = (groupForm.projects_enabled_roles || []).includes(role);
+                          return (
+                            <label
+                              key={role}
+                              className="inline-flex items-center gap-2 rounded-md border border-slate-200 px-2 py-1 text-sm cursor-pointer hover-elevate"
+                              data-testid={`label-projects-role-${role}`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggleProjectsRole(role)}
+                                className="w-4 h-4"
+                                data-testid={`checkbox-projects-role-${role}`}
+                              />
+                              <span>{role}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <div className="pt-2 border-t border-slate-200 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex flex-col gap-1">
+                    <Label>Allow simple events</Label>
+                    <span className="text-xs text-slate-500">
+                      Group Admins of this group can create and manage real single events scoped to this group (free tickets only, manual online links). Group members see these events on the Events page; the organiser can also choose to make a group event public.
+                    </span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={!!groupForm.events_enabled}
+                    onChange={(e) => setGroupForm({ ...groupForm, events_enabled: e.target.checked })}
+                    className="w-4 h-4"
+                    data-testid="checkbox-events-enabled"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex flex-col gap-1">
+                    <Label>Allow multi-session events</Label>
+                    <span className="text-xs text-slate-500">
+                      Group Admins of this group can create and manage real multi-session (complex) events scoped to this group, with tracks and sessions (free tickets only, manual online links).
+                    </span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={!!groupForm.complex_events_enabled}
+                    onChange={(e) => setGroupForm({ ...groupForm, complex_events_enabled: e.target.checked })}
+                    className="w-4 h-4"
+                    data-testid="checkbox-complex-events-enabled"
+                  />
+                </div>
+
+                {(groupForm.events_enabled || groupForm.complex_events_enabled) && (
+                  <p className="text-xs text-slate-500" data-testid="text-events-admin-note">
+                    Event management is available to members flagged as Group Admin in the Members list above.
+                  </p>
+                )}
+
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex flex-col gap-1">
+                    <Label>Allow group admins to edit header image and description texts</Label>
+                    <span className="text-xs text-slate-500">
+                      Group Admins of this group can change the header image and the Purpose, "Who the group is for" and "About the group" texts from the group page. The group name always stays admin-only.
+                    </span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={!!groupForm.group_admins_can_edit_content}
+                    onChange={(e) => setGroupForm({ ...groupForm, group_admins_can_edit_content: e.target.checked })}
+                    className="w-4 h-4"
+                    data-testid="checkbox-group-admins-edit-content"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-slate-200 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex flex-col gap-1">
+                    <Label>Enable group forum</Label>
+                    <span className="text-xs text-slate-500">
+                      Creates a private discussion forum for this group. Members of the group will see it in the Forum alongside any tenant-wide categories. Disabling hides the forum without deleting existing threads or posts.
+                    </span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={!!groupForm.forum_enabled}
+                    onChange={(e) => setGroupForm({ ...groupForm, forum_enabled: e.target.checked })}
+                    className="w-4 h-4"
+                    data-testid="checkbox-forum-enabled"
+                  />
+                </div>
+
+                {groupForm.forum_enabled && (
+                  <>
+                    <div className="flex flex-col gap-1">
+                      <Label>Roles allowed to access the forum</Label>
+                      <span className="text-xs text-slate-500">
+                        Leave all unchecked to give every active group member access. Select specific roles to limit who can see and post in the group forum.
+                      </span>
+                    </div>
+                    {(groupForm.roles || []).length === 0 ? (
+                      <p className="text-xs text-slate-500">Add at least one role above to restrict forum access by role. Otherwise all group members get access.</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {groupForm.roles.map((role) => {
+                          const checked = (groupForm.forum_enabled_roles || []).includes(role);
+                          return (
+                            <label
+                              key={role}
+                              className="inline-flex items-center gap-2 rounded-md border border-slate-200 px-2 py-1 text-sm cursor-pointer hover-elevate"
+                              data-testid={`label-forum-role-${role}`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggleForumRole(role)}
+                                className="w-4 h-4"
+                                data-testid={`checkbox-forum-role-${role}`}
+                              />
+                              <span>{role}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <div className="pt-2 border-t border-slate-200 space-y-3">
+                <div className="flex flex-col gap-1">
+                  <Label>Linked resource subcategories</Label>
+                  <span className="text-xs text-slate-500">
+                    Select resource subcategories to link to this group. The group's Resources section shows tenant resources tagged with any of these. Resources created within the group are tagged with these subcategories and become visible tenant-wide on the Resources page under the matching filter.
+                  </span>
+                </div>
+
+                {(() => {
+                  const subQuery = groupSubcategorySearch.trim().toLowerCase();
+                  const catsWithSubs = (resourceCategories || []).filter(
+                    (cat) => Array.isArray(cat.subcategories) && cat.subcategories.length > 0
+                  );
+                  if (catsWithSubs.length === 0) {
+                    return (
+                      <p className="text-xs text-slate-500" data-testid="text-no-resource-subcategories">
+                        No resource subcategories are defined yet. Add them under Resource Management first.
+                      </p>
+                    );
+                  }
+                  const filtered = catsWithSubs
+                    .map((cat) => ({
+                      ...cat,
+                      _matchingSubs: subQuery
+                        ? cat.subcategories.filter(
+                            (sub) =>
+                              sub.toLowerCase().includes(subQuery) ||
+                              (cat.name || '').toLowerCase().includes(subQuery)
+                          )
+                        : cat.subcategories,
+                    }))
+                    .filter((cat) => cat._matchingSubs.length > 0);
+                  return (
+                    <>
+                      <div className="relative">
+                        <Input
+                          placeholder="Search subcategories..."
+                          value={groupSubcategorySearch}
+                          onChange={(e) => setGroupSubcategorySearch(e.target.value)}
+                          className="pr-9"
+                          data-testid="input-search-resource-subcategories"
+                        />
+                        {groupSubcategorySearch && (
+                          <button
+                            type="button"
+                            onClick={() => setGroupSubcategorySearch('')}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                            data-testid="button-clear-subcategory-search"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                      <div className="max-h-56 overflow-y-auto border border-slate-200 rounded-md p-3 space-y-3">
+                        {filtered.length === 0 ? (
+                          <p className="text-sm text-slate-500 text-center py-4">No matching subcategories found</p>
+                        ) : (
+                          filtered.map((cat) => (
+                            <div key={cat.id} className="space-y-1">
+                              <p className="text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                                {cat.name}
+                              </p>
+                              <div className="flex flex-wrap gap-2 pl-1">
+                                {cat._matchingSubs.map((sub) => {
+                                  const checked = (groupForm.resource_subcategories || []).includes(sub);
+                                  return (
+                                    <label
+                                      key={`${cat.id}-${sub}`}
+                                      className="inline-flex items-center gap-2 rounded-md border border-slate-200 px-2 py-1 text-sm cursor-pointer hover-elevate"
+                                      data-testid={`label-resource-subcategory-${sub}`}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        onChange={() => toggleResourceSubcategory(sub)}
+                                        className="w-4 h-4"
+                                        data-testid={`checkbox-resource-subcategory-${sub}`}
+                                      />
+                                      <span>{sub}</span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                      {(groupForm.resource_subcategories || []).length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          <span className="text-xs font-medium text-slate-600 w-full">
+                            Linked: {groupForm.resource_subcategories.length}
+                          </span>
+                          {groupForm.resource_subcategories.map((sub) => (
+                            <Badge key={sub} variant="secondary" data-testid={`badge-linked-subcategory-${sub}`}>
+                              {sub}
+                              <button
+                                type="button"
+                                onClick={() => toggleResourceSubcategory(sub)}
+                                className="ml-1 hover:text-slate-900"
+                                data-testid={`button-remove-subcategory-${sub}`}
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+
+              {/* Allow members to leave */}
+              <div className="pt-2 border-t border-slate-200 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex flex-col gap-1">
+                    <Label htmlFor="allow_members_to_leave" className="cursor-pointer">Allow members to leave</Label>
+                    <span className="text-xs text-slate-500">
+                      When off, members cannot leave this group themselves. Use this for mandatory or automatically-managed groups.
+                    </span>
+                  </div>
+                  <Switch
+                    id="allow_members_to_leave"
+                    checked={groupForm.allow_members_to_leave !== false}
+                    onCheckedChange={(checked) => setGroupForm({ ...groupForm, allow_members_to_leave: checked })}
+                    data-testid="switch-allow-members-to-leave"
+                  />
+                </div>
+              </div>
+
+              {/* Automatic membership */}
+              <div className="pt-2 border-t border-slate-200 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex flex-col gap-1">
+                    <Label htmlFor="automatic_membership_enabled" className="cursor-pointer">Automatic membership</Label>
+                    <span className="text-xs text-slate-500">
+                      Automatically add or remove members based on field-matching rules. Runs after saving and on a scheduled basis.
+                    </span>
+                  </div>
+                  <Switch
+                    id="automatic_membership_enabled"
+                    checked={!!groupForm.automatic_membership_enabled}
+                    onCheckedChange={(checked) => {
+                      setGroupForm({ ...groupForm, automatic_membership_enabled: checked });
+                      setAutoPreviewResult(null);
+                    }}
+                    data-testid="switch-automatic-membership-enabled"
+                  />
+                </div>
+
+                {groupForm.automatic_membership_enabled && (
+                  <div className="space-y-4 rounded-md border border-slate-200 bg-slate-50 p-3">
+                    {/* Role picker */}
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="auto_membership_role">Assigned role *</Label>
+                      <span className="text-xs text-slate-500">Members matched by these rules will be assigned this role.</span>
+                      {(groupForm.roles || []).length === 0 ? (
+                        <p className="text-xs text-amber-600" data-testid="text-auto-no-roles">Add at least one role above to configure automatic membership.</p>
+                      ) : (
+                        <Select
+                          value={groupForm.automatic_membership_role}
+                          onValueChange={(v) => {
+                            setGroupForm({ ...groupForm, automatic_membership_role: v });
+                            setAutoPreviewResult(null);
+                          }}
+                        >
+                          <SelectTrigger id="auto_membership_role" className="bg-white" data-testid="select-auto-membership-role">
+                            <SelectValue placeholder="Select a role..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(groupForm.roles || []).map((r) => (
+                              <SelectItem key={r} value={r}>{r}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </div>
+
+                    {/* Filter groups (AND/OR editor) */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label>Membership filter rules</Label>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={() => {
+                            setGroupForm((prev) => ({
+                              ...prev,
+                              automatic_membership_filter_groups: [
+                                ...(prev.automatic_membership_filter_groups || []),
+                                blankFilterGroup(),
+                              ],
+                            }));
+                            setAutoPreviewResult(null);
+                          }}
+                          data-testid="button-add-filter-group"
+                        >
+                          <Plus className="w-3 h-3 mr-1" />
+                          Add OR group
+                        </Button>
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        A member must match <strong>all</strong> conditions in a group (AND), and at least <strong>one</strong> group (OR).
+                      </p>
+
+                      {(groupForm.automatic_membership_filter_groups || []).length === 0 && (
+                        <p className="text-xs text-slate-400 italic" data-testid="text-no-filter-groups">No filter groups yet. Add one above.</p>
+                      )}
+
+                      {(groupForm.automatic_membership_filter_groups || []).map((fg, gi) => (
+                        <div key={gi} className="rounded border border-slate-200 bg-white p-2 space-y-2" data-testid={`filter-group-${gi}`}>
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
+                              {gi === 0 ? 'Group 1' : `OR — Group ${gi + 1}`}
+                            </span>
+                            <div className="flex gap-1">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 text-xs px-1.5"
+                                onClick={() => {
+                                  setGroupForm((prev) => {
+                                    const fgs = [...(prev.automatic_membership_filter_groups || [])];
+                                    fgs[gi] = {
+                                      ...fgs[gi],
+                                      conditions: [...(fgs[gi].conditions || []), blankCondition()],
+                                    };
+                                    return { ...prev, automatic_membership_filter_groups: fgs };
+                                  });
+                                  setAutoPreviewResult(null);
+                                }}
+                                data-testid={`button-add-condition-${gi}`}
+                              >
+                                <Plus className="w-3 h-3 mr-0.5" />
+                                AND
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 px-1.5 text-red-500 hover:text-red-700"
+                                onClick={() => {
+                                  setGroupForm((prev) => {
+                                    const fgs = (prev.automatic_membership_filter_groups || []).filter((_, i) => i !== gi);
+                                    return { ...prev, automatic_membership_filter_groups: fgs };
+                                  });
+                                  setAutoPreviewResult(null);
+                                }}
+                                data-testid={`button-remove-filter-group-${gi}`}
+                              >
+                                <X className="w-3 h-3" />
+                              </Button>
+                            </div>
+                          </div>
+
+                          {(fg.conditions || []).map((cond, ci) => {
+                            const ops = operatorsForDataType(cond.data_type);
+                            const nullary = isNullaryOperator(cond.operator);
+                            const fieldDef = autoFieldOptions.find(
+                              (f) => f.field_key === cond.field_key && f.entity_scope === cond.entity_scope && f.field_type === cond.field_type
+                            );
+                            const isSelectType = cond.data_type === 'select' || cond.data_type === 'multi_select';
+                            const fieldOptions = fieldDef?.options || [];
+                            const updateCond = (patch) => {
+                              setGroupForm((prev) => {
+                                const fgs = [...(prev.automatic_membership_filter_groups || [])];
+                                const conds = [...(fgs[gi].conditions || [])];
+                                conds[ci] = { ...conds[ci], ...patch };
+                                fgs[gi] = { ...fgs[gi], conditions: conds };
+                                return { ...prev, automatic_membership_filter_groups: fgs };
+                              });
+                              setAutoPreviewResult(null);
+                            };
+                            return (
+                              <div key={ci} className="flex flex-wrap items-center gap-1.5" data-testid={`condition-${gi}-${ci}`}>
+                                {/* Field selector */}
+                                <Select
+                                  value={cond.field_key ? `${cond.entity_scope}:${cond.field_type}:${cond.field_key}` : ''}
+                                  onValueChange={(v) => {
+                                    if (!v) return;
+                                    const [es, ft, fk] = v.split(':');
+                                    const def = autoFieldOptions.find(
+                                      (f) => f.entity_scope === es && f.field_type === ft && f.field_key === fk
+                                    );
+                                    updateCond({
+                                      entity_scope: es,
+                                      field_type: ft,
+                                      field_key: fk,
+                                      data_type: def?.data_type || 'text',
+                                      operator: operatorsForDataType(def?.data_type || 'text')[0]?.value || 'contains',
+                                      value: '',
+                                    });
+                                  }}
+                                >
+                                  <SelectTrigger className="h-7 text-xs w-44 bg-white" data-testid={`select-field-${gi}-${ci}`}>
+                                    <SelectValue placeholder="Select field…" />
+                                  </SelectTrigger>
+                                  <SelectContent className="max-h-64">
+                                    {autoFieldOptions.length === 0 && (
+                                      <SelectItem value="_loading" disabled>Loading fields…</SelectItem>
+                                    )}
+                                    {autoFieldOptions.map((f) => (
+                                      <SelectItem
+                                        key={`${f.entity_scope}:${f.field_type}:${f.field_key}`}
+                                        value={`${f.entity_scope}:${f.field_type}:${f.field_key}`}
+                                        className="text-xs"
+                                      >
+                                        {f._label}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+
+                                {/* Operator */}
+                                <Select
+                                  value={cond.operator}
+                                  onValueChange={(v) => updateCond({ operator: v, value: (v === 'is_one_of' || v === 'is_not_one_of') ? [] : '' })}
+                                >
+                                  <SelectTrigger className="h-7 text-xs w-36 bg-white" data-testid={`select-operator-${gi}-${ci}`}>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {ops.map((op) => (
+                                      <SelectItem key={op.value} value={op.value} className="text-xs">
+                                        {op.label}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+
+                                {/* Value — hidden for nullary ops (is_empty, is_not_empty,
+                                    is_true, is_false). is_one_of/is_not_one_of use
+                                    toggle-badge multi-select when field options are known;
+                                    everything else uses a single text/number/date/select. */}
+                                {!nullary && (() => {
+                                  const isMulti = isMultiValueOperator(cond.operator);
+                                  const currentArr = Array.isArray(cond.value)
+                                    ? cond.value
+                                    : (cond.value ? [cond.value] : []);
+                                  if (isMulti && isSelectType && fieldOptions.length > 0) {
+                                    return (
+                                      <div className="flex flex-wrap gap-1" data-testid={`multivalue-${gi}-${ci}`}>
+                                        {fieldOptions.map((opt) => {
+                                          const optVal = opt.value ?? opt;
+                                          const optLabel = opt.label ?? opt;
+                                          const active = currentArr.includes(optVal);
+                                          return (
+                                            <button
+                                              key={optVal}
+                                              type="button"
+                                              onClick={() => {
+                                                const next = active
+                                                  ? currentArr.filter((v) => v !== optVal)
+                                                  : [...currentArr, optVal];
+                                                updateCond({ value: next });
+                                              }}
+                                              className={`h-6 px-2 rounded text-[11px] border transition-colors ${
+                                                active
+                                                  ? 'bg-blue-600 text-white border-blue-600'
+                                                  : 'bg-white text-slate-600 border-slate-300 hover:border-blue-400'
+                                              }`}
+                                              data-testid={`toggle-opt-${gi}-${ci}-${optVal}`}
+                                            >
+                                              {optLabel}
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
+                                    );
+                                  }
+                                  if (isSelectType && fieldOptions.length > 0) {
+                                    const selectVal = Array.isArray(cond.value)
+                                      ? (cond.value[0] ?? '')
+                                      : (cond.value ?? '');
+                                    return (
+                                      <Select
+                                        value={selectVal}
+                                        onValueChange={(v) => updateCond({ value: v })}
+                                      >
+                                        <SelectTrigger className="h-7 text-xs w-32 bg-white" data-testid={`select-value-${gi}-${ci}`}>
+                                          <SelectValue placeholder="Value" />
+                                        </SelectTrigger>
+                                        <SelectContent className="max-h-48">
+                                          {fieldOptions.map((opt) => (
+                                            <SelectItem key={opt.value ?? opt} value={opt.value ?? opt} className="text-xs">
+                                              {opt.label ?? opt}
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    );
+                                  }
+                                  if (cond.data_type === 'date') {
+                                    return (
+                                      <Input
+                                        type="date"
+                                        value={cond.value || ''}
+                                        onChange={(e) => updateCond({ value: e.target.value })}
+                                        className="h-7 text-xs w-36 bg-white"
+                                        data-testid={`input-value-${gi}-${ci}`}
+                                      />
+                                    );
+                                  }
+                                  return (
+                                    <Input
+                                      type={cond.data_type === 'number' ? 'number' : 'text'}
+                                      value={Array.isArray(cond.value) ? cond.value.join(', ') : (cond.value || '')}
+                                      onChange={(e) => updateCond({ value: e.target.value })}
+                                      placeholder="Value"
+                                      className="h-7 text-xs w-32 bg-white"
+                                      data-testid={`input-value-${gi}-${ci}`}
+                                    />
+                                  );
+                                })()}
+
+                                {/* Remove condition */}
+                                {(fg.conditions || []).length > 1 && (
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 px-1 text-red-400 hover:text-red-600"
+                                    onClick={() => {
+                                      setGroupForm((prev) => {
+                                        const fgs = [...(prev.automatic_membership_filter_groups || [])];
+                                        const conds = (fgs[gi].conditions || []).filter((_, i) => i !== ci);
+                                        fgs[gi] = { ...fgs[gi], conditions: conds };
+                                        return { ...prev, automatic_membership_filter_groups: fgs };
+                                      });
+                                      setAutoPreviewResult(null);
+                                    }}
+                                    data-testid={`button-remove-condition-${gi}-${ci}`}
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </Button>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Preview */}
+                    <div className="flex items-center gap-2 pt-1">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={runAutoPreview}
+                        disabled={autoPreviewLoading}
+                        data-testid="button-preview-auto-membership"
+                      >
+                        {autoPreviewLoading ? (
+                          <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                        ) : (
+                          <Eye className="w-3 h-3 mr-1" />
+                        )}
+                        Preview match count
+                      </Button>
+                      {autoPreviewResult && !autoPreviewResult.error && (
+                        <span className="text-xs text-slate-600" data-testid="text-auto-preview-result">
+                          {autoPreviewResult.matchCount != null ? (
+                            <><strong>{autoPreviewResult.matchCount}</strong> member{autoPreviewResult.matchCount === 1 ? '' : 's'} would match</>
+                          ) : null}
+                          {autoPreviewResult.validationErrors?.length > 0 && (
+                            <span className="text-amber-600 ml-2">
+                              {autoPreviewResult.validationErrors[0]}
+                            </span>
+                          )}
+                        </span>
+                      )}
+                      {autoPreviewResult?.error && (
+                        <span className="text-xs text-red-500" data-testid="text-auto-preview-error">
+                          Preview failed: {autoPreviewResult.error}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Sync status — only shown in edit mode (group already exists) */}
+                    {editingGroup && (() => {
+                      const syncStatus = editingGroup.automatic_membership_sync_status;
+                      const lastSynced = editingGroup.automatic_membership_last_synced_at;
+                      const matchCount = editingGroup.automatic_membership_match_count;
+                      const syncError = editingGroup.automatic_membership_sync_error;
+                      // Canonical statuses: idle | queued | running | error
+                      // Only render when a status is present.
+                      if (!syncStatus) return null;
+                      const isIdle = syncStatus === 'idle';
+                      const isQueued = syncStatus === 'queued';
+                      const isRunning = syncStatus === 'running';
+                      const isError = syncStatus === 'error';
+                      const statusLabel = isIdle ? 'Synced' : isQueued ? 'Queued' : isRunning ? 'Running…' : 'Error';
+                      return (
+                        <div className="rounded bg-white border border-slate-200 p-2 text-xs space-y-0.5" data-testid="text-auto-sync-status">
+                          <div className="flex items-center gap-1.5 font-medium text-slate-700">
+                            {isIdle && <CheckCircle2 className="w-3.5 h-3.5 text-green-600" />}
+                            {isQueued && <Clock className="w-3.5 h-3.5 text-amber-500" />}
+                            {isRunning && <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500" />}
+                            {isError && <XCircle className="w-3.5 h-3.5 text-red-500" />}
+                            {statusLabel}
+                            {matchCount != null && <span className="text-slate-500 font-normal">· {matchCount} matched</span>}
+                          </div>
+                          {lastSynced && <div className="text-slate-400">Last synced: {new Date(lastSynced).toLocaleString()}</div>}
+                          {syncError && <div className="text-red-500">{syncError}</div>}
+                          {isError && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="mt-1 h-7 text-xs"
+                              onClick={() => triggerAutoReconcile(editingGroup.id, { notifySuccess: true })}
+                              data-testid="button-retry-auto-membership"
+                            >
+                              Retry sync
+                            </Button>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
               </div>
             </div>
             <DialogFooter>
@@ -908,14 +3513,60 @@ export default function MemberGroupManagementPage() {
           </DialogContent>
         </Dialog>
 
+        {/* Confirm role→badge changes that affect current holders (Task #3302).
+            Badge display is fully derived, so saving applies instantly to all
+            current holders — this prompt makes that explicit. Cancel returns
+            to the still-open group dialog without saving. */}
+        <AlertDialog open={!!badgeConfirm} onOpenChange={(open) => { if (!open) setBadgeConfirm(null); }}>
+          <AlertDialogContent data-testid="dialog-confirm-role-badge-changes">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Confirm badge changes</AlertDialogTitle>
+              <AlertDialogDescription asChild>
+                <div className="space-y-2 text-sm text-slate-600">
+                  <p>These badge changes take effect on member profiles immediately when you save:</p>
+                  <ul className="list-disc pl-5 space-y-1">
+                    {(badgeConfirm?.changes || []).map((c) => (
+                      <li key={c.role} data-testid={`text-badge-change-${c.role}`}>
+                        {c.kind === 'added' && (
+                          <>{c.holders} member{c.holders === 1 ? '' : 's'} holding the <strong>{c.role}</strong> role will immediately see the <strong>{c.to}</strong> badge on their profile.</>
+                        )}
+                        {c.kind === 'changed' && (
+                          <>{c.holders} member{c.holders === 1 ? '' : 's'} holding the <strong>{c.role}</strong> role will immediately see the <strong>{c.to}</strong> badge instead of <strong>{c.from}</strong>.</>
+                        )}
+                        {c.kind === 'removed' && (
+                          <>{c.holders} member{c.holders === 1 ? '' : 's'} holding the <strong>{c.role}</strong> role will immediately lose the <strong>{c.from}</strong> badge from their profile.</>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel data-testid="button-cancel-badge-changes">Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                data-testid="button-confirm-badge-changes"
+                onClick={() => {
+                  const pending = badgeConfirm?.payload;
+                  setBadgeConfirm(null);
+                  if (pending) submitGroupPayload(pending);
+                }}
+              >
+                Save changes
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
         {/* Assign Member Dialog */}
         <Dialog open={showAssignDialog} onOpenChange={(open) => {
           setShowAssignDialog(open);
           if (!open) {
             setMemberSearchQuery('');
+            setDebouncedMemberSearch('');
             setAssignMode('');
             setSelectedOrganizationId('');
-            setAssignForm({ member_id: '', guest_id: '', group_role: '', expires_at: null });
+            setAssignForm({ member_id: '', guest_id: '', group_role: '', expires_at: null, is_group_admin: false, term_start_date: '', term_end_date: '', term_number: '' });
           }
         }}>
           <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
@@ -945,12 +3596,29 @@ export default function MemberGroupManagementPage() {
                     variant={assignMode === 'organization' ? 'default' : 'outline'}
                     onClick={() => {
                       setAssignMode('organization');
+                      setSelectedOrganizationId('');
                       setAssignForm({ ...assignForm, member_id: '', guest_id: '' });
                       setMemberSearchQuery('');
+                      setDebouncedMemberSearch('');
                     }}
                     className={assignMode === 'organization' ? 'bg-blue-600 hover:bg-blue-700' : ''}
                   >
                     Members by Organisation
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={assignMode === 'member' ? 'default' : 'outline'}
+                    onClick={() => {
+                      setAssignMode('member');
+                      setSelectedOrganizationId('');
+                      setAssignForm({ ...assignForm, member_id: '', guest_id: '' });
+                      setMemberSearchQuery('');
+                      setDebouncedMemberSearch('');
+                    }}
+                    className={assignMode === 'member' ? 'bg-blue-600 hover:bg-blue-700' : ''}
+                    data-testid="button-assign-mode-member"
+                  >
+                    Search Members
                   </Button>
                 </div>
               </div>
@@ -1007,25 +3675,36 @@ export default function MemberGroupManagementPage() {
                               guest.organisation?.toLowerCase().includes(searchLower)
                             );
                           })
-                          .map((guest) => (
-                            <button
-                              key={`guest-${guest.id}`}
-                              type="button"
-                              onClick={() => setAssignForm({ ...assignForm, guest_id: guest.id, member_id: '' })}
-                              className={`w-full text-left px-3 py-2 hover:bg-slate-50 transition-colors border-b border-slate-100 last:border-b-0 ${
-                                assignForm.guest_id === guest.id ? 'bg-purple-50 border-l-4 border-l-purple-600' : ''
-                              }`}
-                            >
-                              <div className="font-medium text-slate-900 flex items-center gap-2">
-                                {guest.first_name} {guest.last_name}
-                                <Badge className="bg-purple-100 text-purple-700 text-[10px]">Guest</Badge>
-                              </div>
-                              <div className="text-xs text-slate-500">{guest.email}</div>
-                              {guest.organisation && (
-                                <div className="text-xs text-slate-400">{guest.organisation}</div>
-                              )}
-                            </button>
-                          ))}
+                          .map((guest) => {
+                            // New flow: provisioned guests use member_id on the assignment.
+                            // Legacy (no member_id) fall back to guest_id.
+                            const isSelected = guest.member_id
+                              ? assignForm.member_id === guest.member_id
+                              : assignForm.guest_id === guest.id;
+                            return (
+                              <button
+                                key={`guest-${guest.id}`}
+                                type="button"
+                                onClick={() =>
+                                  guest.member_id
+                                    ? setAssignForm({ ...assignForm, member_id: guest.member_id, guest_id: '' })
+                                    : setAssignForm({ ...assignForm, guest_id: guest.id, member_id: '' })
+                                }
+                                className={`w-full text-left px-3 py-2 hover:bg-slate-50 transition-colors border-b border-slate-100 last:border-b-0 ${
+                                  isSelected ? 'bg-purple-50 border-l-4 border-l-purple-600' : ''
+                                }`}
+                              >
+                                <div className="font-medium text-slate-900 flex items-center gap-2">
+                                  {guest.first_name} {guest.last_name}
+                                  <Badge className="bg-purple-100 text-purple-700 text-[10px]">Guest</Badge>
+                                </div>
+                                <div className="text-xs text-slate-500">{guest.email}</div>
+                                {guest.organisation && (
+                                  <div className="text-xs text-slate-400">{guest.organisation}</div>
+                                )}
+                              </button>
+                            );
+                          })}
                         {guests.filter(guest => {
                           if (guest.is_active === false) return false;
                           const searchLower = memberSearchQuery.toLowerCase();
@@ -1052,6 +3731,8 @@ export default function MemberGroupManagementPage() {
                           <>
                             {filteredMembers
                               .filter(member => {
+                                // Exclude provisioned guest members from the regular member list
+                                if (guestMemberIds.has(member.id)) return false;
                                 const searchLower = memberSearchQuery.toLowerCase();
                                 return (
                                   member.first_name?.toLowerCase().includes(searchLower) ||
@@ -1075,6 +3756,7 @@ export default function MemberGroupManagementPage() {
                                 </button>
                               ))}
                             {filteredMembers.filter(member => {
+                              if (guestMemberIds.has(member.id)) return false;
                               const searchLower = memberSearchQuery.toLowerCase();
                               return (
                                 member.first_name?.toLowerCase().includes(searchLower) ||
@@ -1094,13 +3776,72 @@ export default function MemberGroupManagementPage() {
                 </div>
               )}
 
+              {/* Step 2 (member mode): direct typeahead search across all members */}
+              {assignMode === 'member' && (
+                <div className="space-y-2 flex-1 overflow-hidden flex flex-col">
+                  <Label>Step 2: Search Members *</Label>
+                  <Input
+                    value={memberSearchQuery}
+                    onChange={(e) => setMemberSearchQuery(e.target.value)}
+                    placeholder="Search by name or email..."
+                    className="mb-2"
+                    data-testid="input-member-search"
+                  />
+                  <div className="border border-slate-200 rounded-md flex-1 overflow-y-auto min-h-[150px] max-h-[200px]">
+                    {debouncedMemberSearch.trim().length < 2 ? (
+                      <div className="px-3 py-4 text-center text-sm text-slate-500">
+                        Type at least 2 characters to search.
+                      </div>
+                    ) : memberSearchLoading ? (
+                      <div className="px-3 py-4 text-center text-sm text-slate-500">
+                        Searching members...
+                      </div>
+                    ) : memberSearchResults.filter((m) => !guestMemberIds.has(m.id)).length === 0 ? (
+                      <div className="px-3 py-4 text-center text-sm text-slate-500">
+                        No members found
+                      </div>
+                    ) : (
+                      memberSearchResults.filter((m) => !guestMemberIds.has(m.id)).map((member) => (
+                        <button
+                          key={`member-search-${member.id}`}
+                          type="button"
+                          onClick={() => setAssignForm({ ...assignForm, member_id: member.id, guest_id: '' })}
+                          className={`w-full text-left px-3 py-2 hover:bg-slate-50 transition-colors border-b border-slate-100 last:border-b-0 ${
+                            assignForm.member_id === member.id ? 'bg-blue-50 border-l-4 border-l-blue-600' : ''
+                          }`}
+                          data-testid={`button-select-member-${member.id}`}
+                        >
+                          <div className="font-medium text-slate-900">
+                            {member.first_name} {member.last_name}
+                          </div>
+                          <div className="text-xs text-slate-500">{member.email}</div>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Role selection */}
               {(assignForm.member_id || assignForm.guest_id) && (
                 <div className="space-y-2">
-                  <Label>{assignMode === 'guest' ? 'Step 3' : 'Step 4'}: Select Role *</Label>
+                  <Label>{assignMode === 'organization' ? 'Step 4' : 'Step 3'}: Select Role *</Label>
                   <Select
                     value={assignForm.group_role}
-                    onValueChange={(value) => setAssignForm({ ...assignForm, group_role: value })}
+                    onValueChange={(value) => {
+                      const roleTermDefs =
+                        selectedGroup?.role_term_definitions && typeof selectedGroup.role_term_definitions === 'object'
+                          ? selectedGroup.role_term_definitions
+                          : {};
+                      const snap = buildTermSnapshot(roleTermDefs[value], { role: value });
+                      setAssignForm({
+                        ...assignForm,
+                        group_role: value,
+                        term_start_date: snap.term_start_date || '',
+                        term_end_date: snap.term_end_date || '',
+                        term_number: snap.term_number != null ? String(snap.term_number) : ''
+                      });
+                    }}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Choose a role..." />
@@ -1153,6 +3894,72 @@ export default function MemberGroupManagementPage() {
                   </Popover>
                 </div>
               )}
+
+              {/* Term */}
+              {(assignForm.member_id || assignForm.guest_id) && assignForm.group_role && (
+                <div className="space-y-3 rounded-md border border-slate-200 p-3">
+                  <div>
+                    <Label>Term (Optional)</Label>
+                    <p className="text-xs text-slate-500">
+                      Pre-filled from the role's configured term. Adjust if this member's term differs.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="assign-term-start">Term start date</Label>
+                      <Input
+                        id="assign-term-start"
+                        type="date"
+                        value={assignForm.term_start_date || ''}
+                        onChange={(e) => setAssignForm({ ...assignForm, term_start_date: e.target.value })}
+                        data-testid="input-assign-term-start-date"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <Label htmlFor="assign-term-end">Term end date</Label>
+                      <Input
+                        id="assign-term-end"
+                        type="date"
+                        value={assignForm.term_end_date || ''}
+                        onChange={(e) => setAssignForm({ ...assignForm, term_end_date: e.target.value })}
+                        data-testid="input-assign-term-end-date"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="assign-term-number">Term number</Label>
+                    <Input
+                      id="assign-term-number"
+                      type="number"
+                      min="1"
+                      step="1"
+                      className="w-28"
+                      value={assignForm.term_number || ''}
+                      onChange={(e) => setAssignForm({ ...assignForm, term_number: e.target.value })}
+                      placeholder="e.g. 1"
+                      data-testid="input-assign-term-number"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Group Admin toggle */}
+              {(assignForm.member_id || assignForm.guest_id) && (
+                <div className="flex items-center justify-between gap-2 rounded-md border border-slate-200 p-3">
+                  <div>
+                    <Label htmlFor="assign-group-admin">Group Admin</Label>
+                    <p className="text-xs text-slate-500">
+                      Designate this person as an admin for this group.
+                    </p>
+                  </div>
+                  <Switch
+                    id="assign-group-admin"
+                    data-testid="switch-group-admin"
+                    checked={assignForm.is_group_admin === true}
+                    onCheckedChange={(checked) => setAssignForm({ ...assignForm, is_group_admin: checked })}
+                  />
+                </div>
+              )}
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setShowAssignDialog(false)}>
@@ -1168,6 +3975,333 @@ export default function MemberGroupManagementPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Edit Assignment Dialog */}
+        <Dialog
+          open={!!editingAssignment}
+          onOpenChange={(open) => {
+            if (!open && !updateAssignmentMutation.isPending) {
+              setEditingAssignment(null);
+              setAssignmentEditForm(null);
+              setAssignmentEditError('');
+            }
+          }}
+        >
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Edit assignment</DialogTitle>
+            </DialogHeader>
+            {editingAssignment && assignmentEditForm && (
+              <div className="space-y-4 py-2">
+                <div className="rounded-md bg-slate-50 p-3">
+                  <div className="font-medium text-slate-900">{getAssigneeName(editingAssignment)}</div>
+                  <div className="text-xs text-slate-500">
+                    {isAssignmentGuest(editingAssignment) ? 'Guest' : 'Member'} · Assignment details
+                  </div>
+                </div>
+                {assignmentEditError && (
+                  <div
+                    role="alert"
+                    className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+                    data-testid="assignment-edit-error"
+                  >
+                    {assignmentEditError}
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <Label>Role *</Label>
+                  <Select
+                    value={assignmentEditForm.group_role}
+                    onValueChange={(group_role) => setAssignmentEditForm({ ...assignmentEditForm, group_role })}
+                  >
+                    <SelectTrigger data-testid="select-edit-assignment-role">
+                      <SelectValue placeholder="Choose a role..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(groups.find((group) => group.id === editingAssignment.group_id)?.roles || []).map((role) => (
+                        <SelectItem key={role} value={role}>{role}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-assignment-expiry">Expiry date (optional)</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="edit-assignment-expiry"
+                      type="date"
+                      value={assignmentEditForm.expires_at}
+                      onChange={(event) => setAssignmentEditForm({ ...assignmentEditForm, expires_at: event.target.value })}
+                      data-testid="input-edit-assignment-expiry"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setAssignmentEditForm({ ...assignmentEditForm, expires_at: '' })}
+                      disabled={!assignmentEditForm.expires_at}
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                </div>
+                <div className="rounded-md border border-slate-200 p-3 space-y-3">
+                  <div>
+                    <Label>Recorded term details (optional)</Label>
+                    <p className="text-xs text-slate-500">These values belong to this assignment and do not change the role definition.</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="edit-assignment-term-start">Term start date</Label>
+                      <Input id="edit-assignment-term-start" type="date" value={assignmentEditForm.term_start_date}
+                        onChange={(event) => setAssignmentEditForm({ ...assignmentEditForm, term_start_date: event.target.value })} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="edit-assignment-term-end">Term end date</Label>
+                      <Input id="edit-assignment-term-end" type="date" value={assignmentEditForm.term_end_date}
+                        onChange={(event) => setAssignmentEditForm({ ...assignmentEditForm, term_end_date: event.target.value })} />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="edit-assignment-term-number">Term number</Label>
+                    <Input id="edit-assignment-term-number" className="w-28" type="number" min="1" step="1"
+                      value={assignmentEditForm.term_number}
+                      onChange={(event) => setAssignmentEditForm({ ...assignmentEditForm, term_number: event.target.value })} />
+                  </div>
+                </div>
+                <div className="flex items-center justify-between rounded-md border border-slate-200 p-3">
+                  <div>
+                    <Label htmlFor="edit-assignment-admin">Group Admin</Label>
+                    <p className="text-xs text-slate-500">Allow this person to administer the group.</p>
+                  </div>
+                  <Switch id="edit-assignment-admin" checked={assignmentEditForm.is_group_admin}
+                    onCheckedChange={(is_group_admin) => setAssignmentEditForm({ ...assignmentEditForm, is_group_admin })} />
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setEditingAssignment(null)} disabled={updateAssignmentMutation.isPending}>
+                Cancel
+              </Button>
+              <Button onClick={handleUpdateAssignment}
+                disabled={updateAssignmentMutation.isPending || !assignmentEditForm?.group_role}
+                data-testid="button-save-assignment">
+                {updateAssignmentMutation.isPending ? 'Saving…' : 'Save changes'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Role Invitation Dialog */}
+        <Dialog open={showInviteDialog} onOpenChange={(open) => {
+          setShowInviteDialog(open);
+          if (!open) {
+            setInviteGroup(null);
+            setInviteForm({ member_id: '', role: '' });
+            setInviteMemberSearch('');
+          }
+        }}>
+          <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Invite to a role{inviteGroup ? ` — ${inviteGroup.name}` : ''}</DialogTitle>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              {(!inviteGroup?.roles || inviteGroup.roles.length === 0) ? (
+                <p className="text-sm text-slate-500">
+                  This group has no roles yet. Add roles to the group before inviting members into them.
+                </p>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <Label>Role</Label>
+                    <Select
+                      value={inviteForm.role || ''}
+                      onValueChange={(value) => setInviteForm({ ...inviteForm, role: value })}
+                    >
+                      <SelectTrigger data-testid="select-invite-role">
+                        <SelectValue placeholder="Select a role…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(inviteGroup.roles || []).map((role) => (
+                          <SelectItem key={role} value={role}>{role}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Member</Label>
+                    <Input
+                      value={inviteMemberSearch}
+                      onChange={(e) => setInviteMemberSearch(e.target.value)}
+                      placeholder="Search members by name or email…"
+                      data-testid="input-invite-member-search"
+                    />
+                    <div className="border border-slate-200 rounded-md max-h-48 overflow-y-auto">
+                      {(() => {
+                        const q = inviteMemberSearch.trim().toLowerCase();
+                        const filtered = (members || [])
+                          .filter((m) => m.email)
+                          .filter((m) => {
+                            if (!q) return true;
+                            const hay = `${m.first_name || ''} ${m.last_name || ''} ${m.email || ''}`.toLowerCase();
+                            return hay.includes(q);
+                          })
+                          .slice(0, 50);
+                        if (filtered.length === 0) {
+                          return <div className="p-3 text-sm text-slate-500">No members found.</div>;
+                        }
+                        return filtered.map((m) => (
+                          <button
+                            type="button"
+                            key={m.id}
+                            onClick={() => setInviteForm({ ...inviteForm, member_id: m.id })}
+                            className={`w-full text-left px-3 py-2 text-sm hover-elevate ${inviteForm.member_id === m.id ? 'bg-blue-50 border-l-4 border-l-blue-600' : ''}`}
+                            data-testid={`option-invite-member-${m.id}`}
+                          >
+                            <div className="font-medium text-slate-900">{`${m.first_name || ''} ${m.last_name || ''}`.trim() || 'Unnamed member'}</div>
+                            <div className="text-xs text-slate-500">{m.email}</div>
+                          </button>
+                        ));
+                      })()}
+                    </div>
+                    {inviteForm.member_id && (
+                      <p className="text-xs text-slate-500">
+                        Selected: {getMemberName(inviteForm.member_id)}
+                      </p>
+                    )}
+                  </div>
+
+                  <Button
+                    onClick={handleSendInvite}
+                    disabled={createInviteMutation.isPending || !inviteForm.member_id || !inviteForm.role}
+                    className="w-full"
+                    data-testid="button-send-invite"
+                  >
+                    {createInviteMutation.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Send className="w-4 h-4 mr-1" />}
+                    Send invitation
+                  </Button>
+                </>
+              )}
+
+              <div className="pt-4 border-t border-slate-200">
+                <h4 className="text-sm font-medium text-slate-700 mb-2">Invitations</h4>
+                {loadingInvites ? (
+                  <div className="flex items-center gap-2 text-sm text-slate-500 py-4">
+                    <Loader2 className="w-4 h-4 animate-spin" /> Loading…
+                  </div>
+                ) : invitations.length === 0 ? (
+                  <p className="text-sm text-slate-500 py-2">No invitations yet.</p>
+                ) : (
+                  <div className="space-y-2 max-h-56 overflow-y-auto">
+                    {invitations.map((inv) => (
+                      <div key={inv.id} className="flex items-center justify-between gap-2 text-sm bg-slate-50 p-2 rounded" data-testid={`row-invite-${inv.id}`}>
+                        <div className="min-w-0">
+                          <div className="font-medium text-slate-900 truncate">{inv.member_name || inv.member_email || 'Member'}</div>
+                          <div className="text-xs text-slate-500 truncate">{inv.group_role}</div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Badge
+                            className={
+                              inv.status === 'accepted' ? 'bg-green-100 text-green-700' :
+                              inv.status === 'declined' ? 'bg-red-100 text-red-700' :
+                              inv.status === 'pending' ? 'bg-blue-100 text-blue-700' :
+                              'bg-slate-200 text-slate-600'
+                            }
+                            data-testid={`badge-invite-status-${inv.id}`}
+                          >
+                            {inv.status === 'accepted' && <CheckCircle2 className="w-3 h-3 mr-1" />}
+                            {inv.status === 'declined' && <XCircle className="w-3 h-3 mr-1" />}
+                            {inv.status === 'pending' && <Clock className="w-3 h-3 mr-1" />}
+                            {inv.status}
+                          </Badge>
+                          {(inv.status === 'pending' || inv.status === 'expired') && (
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => resendInviteMutation.mutate(inv.id)}
+                              disabled={resendInviteMutation.isPending}
+                              title="Resend"
+                              data-testid={`button-resend-invite-${inv.id}`}
+                            >
+                              <RotateCw className="w-3 h-3" />
+                            </Button>
+                          )}
+                          {(inv.status === 'declined' || inv.status === 'cancelled') && (
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => reinviteMutation.mutate(inv)}
+                              disabled={reinviteMutation.isPending}
+                              title="Invite again"
+                              data-testid={`button-reinvite-${inv.id}`}
+                            >
+                              <RotateCw className="w-3 h-3" />
+                            </Button>
+                          )}
+                          {inv.status === 'pending' && (
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => cancelInviteMutation.mutate(inv.id)}
+                              disabled={cancelInviteMutation.isPending}
+                              title="Cancel"
+                              className="text-red-600 hover:text-red-700"
+                              data-testid={`button-cancel-invite-${inv.id}`}
+                            >
+                              <X className="w-3 h-3" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <AlertDialog
+          open={!!inviteTermWarning}
+          onOpenChange={(open) => {
+            if (!open && !createInviteMutation.isPending) setInviteTermWarning(null);
+          }}
+        >
+          <AlertDialogContent data-testid="dialog-invite-term-limit-warning">
+            <AlertDialogHeader>
+              <AlertDialogTitle className="flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-warning" />
+                Maximum terms exceeded
+              </AlertDialogTitle>
+              <AlertDialogDescription data-testid="text-invite-term-limit-warning">
+                Inviting {inviteTermWarning?.memberName} would be their term{' '}
+                {inviteTermWarning?.nextTermNumber} as {inviteTermWarning?.role}, which
+                exceeds the maximum of {inviteTermWarning?.maxTerms}{' '}
+                {inviteTermWarning?.maxTerms === 1 ? 'term' : 'terms'} set for this role.
+                You can still proceed, but please confirm this is intended.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel
+                disabled={createInviteMutation.isPending}
+                data-testid="button-cancel-invite-term-limit"
+              >
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={(e) => {
+                  e.preventDefault();
+                  submitInvite();
+                }}
+                disabled={createInviteMutation.isPending}
+                data-testid="button-confirm-invite-term-limit"
+              >
+                Send anyway
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         {/* Bulk Create Dialog */}
         <Dialog open={showBulkDialog} onOpenChange={setShowBulkDialog}>
@@ -1296,6 +4430,153 @@ export default function MemberGroupManagementPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Manage Classifications Dialog */}
+        <Dialog
+          open={showClassificationDialog}
+          onOpenChange={(open) => {
+            setShowClassificationDialog(open);
+            if (!open) {
+              setEditingClassification(null);
+              setClassificationName('');
+            }
+          }}
+        >
+          <DialogContent className="max-w-lg max-h-[90vh] flex flex-col">
+            <DialogHeader>
+              <DialogTitle>Manage Classifications</DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-slate-600">
+              Classifications are organisational labels for member groups. They don't change permissions or behaviour — they just help you group and filter your groups.
+            </p>
+            <div className="flex items-end gap-2">
+              <div className="flex-1">
+                <Label htmlFor="classification-name">
+                  {editingClassification ? 'Rename classification' : 'New classification'}
+                </Label>
+                <Input
+                  id="classification-name"
+                  value={classificationName}
+                  onChange={(e) => setClassificationName(e.target.value)}
+                  placeholder="e.g., Committees"
+                  data-testid="input-classification-name"
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSaveClassification(); } }}
+                />
+              </div>
+              <Button
+                onClick={handleSaveClassification}
+                disabled={createClassificationMutation.isPending || updateClassificationMutation.isPending}
+                className="bg-blue-600 hover:bg-blue-700"
+                data-testid="button-save-classification"
+              >
+                {editingClassification ? 'Save' : 'Add'}
+              </Button>
+              {editingClassification && (
+                <Button
+                  variant="outline"
+                  onClick={() => { setEditingClassification(null); setClassificationName(''); }}
+                >
+                  Cancel
+                </Button>
+              )}
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto space-y-2 mt-2">
+              {classifications.length === 0 ? (
+                <p className="text-sm text-slate-500 text-center py-6">No classifications yet. Add one above.</p>
+              ) : (
+                classifications.map((c) => {
+                  const inUse = groups.filter(g => g.classification_id === c.id).length;
+                  return (
+                    <div
+                      key={c.id}
+                      className="flex items-center justify-between gap-2 p-2 rounded-md bg-slate-50"
+                      data-testid={`row-classification-${c.id}`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Tag className="w-4 h-4 text-indigo-600 shrink-0" />
+                        <span className="font-medium text-slate-900 truncate">{c.name}</span>
+                        <span className="text-xs text-slate-500 shrink-0">
+                          {inUse} group{inUse !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => { setEditingClassification(c); setClassificationName(c.name); }}
+                          data-testid={`button-edit-classification-${c.id}`}
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setClassificationToDelete(c)}
+                          className="text-red-600 hover:text-red-700"
+                          data-testid={`button-delete-classification-${c.id}`}
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowClassificationDialog(false)}>
+                Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Delete Classification Confirmation */}
+        <Dialog open={!!classificationToDelete} onOpenChange={(open) => { if (!open) setClassificationToDelete(null); }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Delete Classification</DialogTitle>
+            </DialogHeader>
+            {classificationToDelete && (() => {
+              const inUse = groups.filter(g => g.classification_id === classificationToDelete.id).length;
+              return (
+                <p className="text-slate-600">
+                  Are you sure you want to delete <strong>{classificationToDelete.name}</strong>?
+                  {inUse > 0 && (
+                    <> {inUse} group{inUse !== 1 ? 's' : ''} currently using it will be set to "no classification".</>
+                  )} This action cannot be undone.
+                </p>
+              );
+            })()}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setClassificationToDelete(null)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={() => deleteClassificationMutation.mutate(classificationToDelete.id)}
+                disabled={deleteClassificationMutation.isPending}
+                className="bg-red-600 hover:bg-red-700"
+                data-testid="button-confirm-delete-classification"
+              >
+                Delete Classification
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* All Members Dialog */}
+        {membersModalGroupId && (
+          <AllMembersDialog
+            key={membersModalGroupId}
+            group={groups.find(g => g.id === membersModalGroupId) || { name: '' }}
+            assignments={getVisibleGroupAssignments(membersModalGroupId)}
+            hasHiddenExpiredAssignments={showExpiredMembersByGroup[membersModalGroupId] === false
+              && getGroupAssignments(membersModalGroupId).length > 0}
+            getAssigneeName={getAssigneeName}
+            renderAssignmentRow={renderAssignmentRow}
+            onClose={() => setMembersModalGroupId(null)}
+          />
+        )}
       </div>
     </div>
   );

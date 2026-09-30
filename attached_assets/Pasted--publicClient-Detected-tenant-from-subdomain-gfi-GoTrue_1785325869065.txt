@@ -1,0 +1,156 @@
+ [publicClient] Detected tenant from subdomain: gfi
+ GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.93.3) 2026-07-29T11:35:14.960Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+ [usePendingPurchaseOrders] memberInfo: null
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+ [Layout] hasPendingPOs: false count: 0 isLoading: false
+ [Layout] currentPageName: WorkflowManagement currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: WorkflowManagement currentPortalPageId: null
+ [usePendingPurchaseOrders] Query running, memberInfo.id: 9ac39222-22b8-457e-a5df-dfca45a99eb6
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: WorkflowManagement currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: WorkflowManagement currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: WorkflowManagement currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: WorkflowManagement currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: WorkflowManagement currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: WorkflowManagement currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: WorkflowManagement currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: WorkflowManagement currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: WorkflowManagement currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] hasPendingPOs: false count: 0 isLoading: true
+ [Layout] currentPageName: WorkflowManagement currentPortalPageId: null
+ [usePendingPurchaseOrders] memberInfo: Object
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-D8u9Ycgh.js:2021 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-D8u9Ycgh.js:2021 [Layout] currentPageName: WorkflowManagement currentPortalPageId: null
+index-D8u9Ycgh.js:2021 [Layout] Server session found: sharon@onlinem.co.uk
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-D8u9Ycgh.js:2021 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-D8u9Ycgh.js:2021 [Layout] currentPageName: WorkflowManagement currentPortalPageId: null
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-D8u9Ycgh.js:2021 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-D8u9Ycgh.js:2021 [Layout] currentPageName: WorkflowManagement currentPortalPageId: null
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] Fetched bookings count: 13
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] Pending PO bookings: 2
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] currentPageName: WorkflowManagement currentPortalPageId: null
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] currentPageName: WorkflowManagement currentPortalPageId: null
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] currentPageName: WorkflowManagement currentPortalPageId: null
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] currentPageName: WorkflowManagement currentPortalPageId: null
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] currentPageName: FormManagement currentPortalPageId: null
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] currentPageName: FormManagement currentPortalPageId: null
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] currentPageName: FormManagement currentPortalPageId: null
+index-D8u9Ycgh.js:2021 [Layout] Server session found: sharon@onlinem.co.uk
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] currentPageName: FormManagement currentPortalPageId: null
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] currentPageName: FormManagement currentPortalPageId: null
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-D8u9Ycgh.js:2021 [Layout] Server session found: sharon@onlinem.co.uk
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] currentPageName: EmailTemplateManagement currentPortalPageId: null
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] currentPageName: EmailTemplateManagement currentPortalPageId: null
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] currentPageName: EmailTemplateManagement currentPortalPageId: null
+index-D8u9Ycgh.js:2021 [Layout] Server session found: sharon@onlinem.co.uk
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] currentPageName: EmailTemplateManagement currentPortalPageId: null
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] memberInfo: Object
+index-D8u9Ycgh.js:2010 [usePendingPurchaseOrders] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] hasPendingPOs: true count: 2 isLoading: false
+index-D8u9Ycgh.js:2021 [Layout] currentPageName: EmailTemplateManagement currentPortalPageId: null
+index-D8u9Ycgh.js:1661 Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+(anonymous) @ index-D8u9Ycgh.js:1661
+index-D8u9Ycgh.js:1661 Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}.
+(anonymous) @ index-D8u9Ycgh.js:1661
+undo-BDJblKX2.js:1 Failed to load module script: Expected a JavaScript-or-Wasm module script but the server responded with a MIME type of "text/html". Strict MIME type checking is enforced for module scripts per HTML spec.
+EmailBuilder-XIcfD0u-.js:1 Failed to load module script: Expected a JavaScript-or-Wasm module script but the server responded with a MIME type of "text/html". Strict MIME type checking is enforced for module scripts per HTML spec.
+index-D8u9Ycgh.js:41 TypeError: Failed to fetch dynamically imported module: https://gfi.dev.iconn.app/assets/EmailBuilder-XIcfD0u-.js
+LQ @ index-D8u9Ycgh.js:41
+index-D8u9Ycgh.js:41 Uncaught TypeError: Failed to fetch dynamically imported module: https://gfi.dev.iconn.app/assets/EmailBuilder-XIcfD0u-.js
+panel-right-open-CS9KlKz9.js:1 Failed to load module script: Expected a JavaScript-or-Wasm module script but the server responded with a MIME type of "text/html". Strict MIME type checking is enforced for module scripts per HTML spec.
+RichTextEditor-tumJ-Q1y.js:1 Failed to load module script: Expected a JavaScript-or-Wasm module script but the server responded with a MIME type of "text/html". Strict MIME type checking is enforced for module scripts per HTML spec.

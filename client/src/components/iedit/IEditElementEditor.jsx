@@ -6,8 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { X, Save, Upload, Loader2, Trash2 } from "lucide-react";
+import { X, Save, Upload, Loader2, Trash2, Eye, Monitor, Smartphone } from "lucide-react";
 import { toast } from "sonner";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
 import { IEditWallOfFameElementEditor } from "./elements/IEditWallOfFameElement";
 import { IEditTextOverlayImageElementEditor } from "./elements/IEditTextOverlayImageElement";
 import { IEditTableElementEditor } from "./elements/IEditTableElement";
@@ -17,13 +18,48 @@ import { IEditResourcesShowcaseElementEditor } from "./elements/IEditResourcesSh
 import { IEditButtonBlockElementEditor } from "./elements/IEditButtonBlockElement";
 import { IEditPageHeaderHeroElementEditor } from "./elements/IEditPageHeaderHeroElement";
 import { IEditHeroElementEditor } from "./elements/IEditHeroElement";
+import IEditHeroElement from "./elements/IEditHeroElement";
+import { IEditOrganisationDirectoryElementEditor } from "./elements/IEditOrganisationDirectoryElement";
+import { IEditTextBlockElementEditor } from "./elements/IEditTextBlockElement";
+import { IEditFeaturedJobElementEditor } from "./elements/IEditFeaturedJobElement";
+import { IEditImagePanelElementEditor } from "./elements/IEditImagePanelElement";
+import { IEditAccordionElementEditor } from "./elements/IEditAccordionElement";
+import { IEditTwoColumnElementEditor } from "./elements/IEditTwoColumnElement";
+import { IEditQuoteElementEditor } from "./elements/IEditQuoteElement";
+import { IEditFiftyFiftyElementEditor } from "./elements/IEditFiftyFiftyElement";
+import { IEditFormElementEditor } from "./elements/IEditFormElement";
+import { IEditCardDeckElementEditor } from "./elements/IEditCardDeckElement";
+import { IEditLogoGridElementEditor } from "./elements/IEditLogoGridElement";
+import { IEditEventSpotlightElementEditor } from "./elements/IEditEventSpotlightElement";
+import { IEditCtaButtonElementEditor } from "./elements/IEditCtaButtonElement";
+import { IEditImageElementEditor } from "./elements/IEditImageElement";
+import { IEditImageHeroElementEditor } from "./elements/IEditImageHeroElement";
+import { IEditVideoElementEditor } from "./elements/IEditVideoElement";
+import { IEditTimelineElementEditor } from "./elements/IEditTimelineElement";
+import { IEditHeroCarouselElementEditor } from "./elements/IEditHeroCarouselElement";
+import { IEditGalleryElementEditor } from "./elements/IEditGalleryElement";
 
-export default function IEditElementEditor({ element, onClose, onSave }) {
+export default function IEditElementEditor({ element, onClose, onSave, onSaveOnly, isInlineMode = false, onChange }) {
   const [editedContent, setEditedContent] = useState(element.content || {});
   const [editedVariant, setEditedVariant] = useState(element.style_variant || 'default');
   const [editedSettings, setEditedSettings] = useState(element.settings || {});
   const [uploadingFiles, setUploadingFiles] = useState({});
+  const [savingOnly, setSavingOnly] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [previewMode, setPreviewMode] = useState('desktop');
+  
+  const supportsLivePreview = element.element_type === 'hero';
+  const isWideEditor = element.element_type === 'timeline';
+  
+  const notifyChange = (content, variant, settings) => {
+    if (isInlineMode && onChange) {
+      onChange({
+        content: content,
+        style_variant: variant,
+        settings: settings
+      });
+    }
+  };
 
   // Sync state when element prop changes (e.g., when reopening editor)
   useEffect(() => {
@@ -36,7 +72,7 @@ export default function IEditElementEditor({ element, onClose, onSave }) {
   const { data: template } = useQuery({
     queryKey: ['iedit-template', element.element_type],
     queryFn: async () => {
-      const templates = await base44.entities.IEditElementTemplate.list();
+      const templates = await base44.entities.IEditElementTemplate.list() || [];
       return templates.find(t => t.element_type === element.element_type);
     }
   });
@@ -49,12 +85,36 @@ export default function IEditElementEditor({ element, onClose, onSave }) {
     });
   };
 
+  const handleSaveOnly = async () => {
+    if (!onSaveOnly) return;
+    setSavingOnly(true);
+    try {
+      await onSaveOnly({
+        content: editedContent,
+        style_variant: editedVariant,
+        settings: editedSettings
+      });
+    } finally {
+      setSavingOnly(false);
+    }
+  };
+
   const updateContent = (key, value) => {
-    setEditedContent({ ...editedContent, [key]: value });
+    const newContent = { ...editedContent, [key]: value };
+    setEditedContent(newContent);
+    notifyChange(newContent, editedVariant, editedSettings);
   };
 
   const updateSetting = (key, value) => {
-    setEditedSettings({ ...editedSettings, [key]: value });
+    const newSettings = { ...editedSettings, [key]: value };
+    setEditedSettings(newSettings);
+    notifyChange(editedContent, editedVariant, newSettings);
+  };
+  
+  const handleContentChangeFromEditor = (updatedElement) => {
+    const newContent = updatedElement.content || {};
+    setEditedContent(newContent);
+    notifyChange(newContent, editedVariant, editedSettings);
   };
 
   // Handle file upload for image fields
@@ -81,7 +141,7 @@ export default function IEditElementEditor({ element, onClose, onSave }) {
       updateContent(key, response.file_url);
       toast.success('Image uploaded successfully');
     } catch (error) {
-      toast.error('Failed to upload image: ' + error.message);
+      showUploadErrorToast(error, 'Failed to upload image');
     } finally {
       setUploadingFiles({ ...uploadingFiles, [key]: false });
     }
@@ -122,14 +182,65 @@ export default function IEditElementEditor({ element, onClose, onSave }) {
   // Check if this is a Hero element (custom editor)
   const isHero = element.element_type === 'hero';
 
+  // Check if this is an Organisation Directory element (custom editor)
+  const isOrganisationDirectory = element.element_type === 'organisation_directory';
+
+  // Check if this is a Text Block element (custom editor with rich text)
+  const isTextBlock = element.element_type === 'text_block';
+
+  // Check if this is a Featured Job element (custom editor)
+  const isFeaturedJob = element.element_type === 'featured_job';
+
+  // Check if this is an Image Panel element (custom editor)
+  const isImagePanel = element.element_type === 'image_panel';
+
+  // Check if this is an Accordion element (custom editor)
+  const isAccordion = element.element_type === 'accordion';
+
+  // Check if this is a Two Column element (custom editor)
+  const isTwoColumn = element.element_type === 'two_column';
+
+  // Check if this is a Quote element (custom editor)
+  const isQuote = element.element_type === 'quote';
+
+  // Check if this is a Fifty Fifty element (custom editor)
+  const isFiftyFifty = element.element_type === 'fifty_fifty';
+
   // Check if this is a Form element (needs form selector)
   const isFormElement = element.element_type === 'form';
+
+  // Check if this is a Card Deck element (custom editor)
+  const isCardDeck = element.element_type === 'card_deck';
+
+  // Check if this is a Logo Grid element (custom editor)
+  const isLogoGrid = element.element_type === 'logo_grid';
+
+  // Check if this is an Event Spotlight element (custom editor)
+  const isEventSpotlight = element.element_type === 'event_spotlight';
+
+  // Check if this is a CTA Button element (custom editor)
+  const isCtaButton = element.element_type === 'cta_button';
+
+  // Check if this is an Image element (custom editor)
+  const isImage = element.element_type === 'image';
+
+  // Check if this is a Video element (custom editor)
+  const isVideo = element.element_type === 'video';
+
+  // Check if this is a Timeline element (custom editor)
+  const isTimeline = element.element_type === 'timeline';
+
+  // Check if this is a Hero Carousel element (custom editor)
+  const isHeroCarousel = element.element_type === 'hero_carousel';
+
+  // Check if this is a Gallery element (custom editor)
+  const isGallery = element.element_type === 'gallery';
 
   // Fetch available forms for form element
   const { data: forms = [] } = useQuery({
     queryKey: ['forms-list'],
     queryFn: async () => {
-      const allForms = await base44.entities.Form.list();
+      const allForms = await base44.entities.Form.list() || [];
       return allForms.filter(f => f.is_active);
     },
     enabled: isFormElement
@@ -337,32 +448,254 @@ export default function IEditElementEditor({ element, onClose, onSave }) {
     );
   };
 
-  return (
-    <div className={`fixed inset-y-0 right-0 bg-white border-l border-slate-200 shadow-xl z-50 flex flex-col transition-all ${
-      isExpanded ? 'w-[calc(100%-4rem)]' : 'w-96'
-    }`}>
-      {/* Header */}
-      <div className="p-6 border-b border-slate-200">
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="text-lg font-bold text-slate-900">Edit Element</h2>
+  const renderLivePreview = () => {
+    if (!supportsLivePreview) return null;
+    
+    const previewWidth = previewMode === 'mobile' ? '375px' : '100%';
+    
+    return (
+      <div className="flex-1 bg-slate-100 overflow-auto flex flex-col">
+        <div className="sticky top-0 z-10 bg-slate-200 p-3 border-b border-slate-300 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={() => setIsExpanded(!isExpanded)}
-              title={isExpanded ? "Collapse" : "Expand"}
+            <Eye className="w-4 h-4 text-slate-600" />
+            <span className="text-sm font-medium text-slate-700">Live Preview</span>
+          </div>
+          <div className="flex items-center gap-1 bg-white rounded-md p-1">
+            <button
+              onClick={() => setPreviewMode('desktop')}
+              className={`p-1.5 rounded ${previewMode === 'desktop' ? 'bg-blue-100 text-blue-600' : 'text-slate-500 hover:bg-slate-100'}`}
+              title="Desktop view"
+              data-testid="button-preview-desktop"
             >
-              {isExpanded ? '←' : '→'}
-            </Button>
-            <Button variant="ghost" size="sm" onClick={onClose}>
-              <X className="w-4 h-4" />
-            </Button>
+              <Monitor className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setPreviewMode('mobile')}
+              className={`p-1.5 rounded ${previewMode === 'mobile' ? 'bg-blue-100 text-blue-600' : 'text-slate-500 hover:bg-slate-100'}`}
+              title="Mobile view"
+              data-testid="button-preview-mobile"
+            >
+              <Smartphone className="w-4 h-4" />
+            </button>
           </div>
         </div>
-        <p className="text-sm text-slate-600 capitalize">
-          {element.element_type.replace(/_/g, ' ')}
-        </p>
+        <div className="flex-1 p-4 overflow-auto flex justify-center">
+          <div 
+            className="bg-white shadow-lg rounded-lg overflow-hidden transition-all"
+            style={{ 
+              width: previewWidth,
+              maxWidth: '100%'
+            }}
+          >
+            {element.element_type === 'hero' && (
+              <IEditHeroElement 
+                content={editedContent} 
+                variant={editedVariant}
+                settings={editedSettings}
+              />
+            )}
+          </div>
+        </div>
       </div>
+    );
+  };
+
+  const editorPanelWidth = supportsLivePreview 
+    ? (isExpanded ? 'w-[500px]' : 'w-96') 
+    : (isExpanded ? 'w-[calc(100%-4rem)]' : 'w-96');
+
+  if (isInlineMode) {
+    return (
+      <div className="flex flex-col h-full">
+        <div className="flex-1 overflow-y-auto p-4 space-y-6">
+          {template?.available_variants && template.available_variants.length > 1 && (
+            <div>
+              <Label htmlFor="variant">Style Variant</Label>
+              <Select value={editedVariant} onValueChange={(value) => {
+                setEditedVariant(value);
+                notifyChange(editedContent, value, editedSettings);
+              }}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {template.available_variants.map((variant) => (
+                    <SelectItem key={variant} value={variant}>
+                      {variant}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          <div>
+            <h3 className="font-semibold text-slate-900 mb-4">Content</h3>
+            {isWallOfFame ? (
+              <IEditWallOfFameElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isTextOverlayImage ? (
+              <IEditTextOverlayImageElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isTable ? (
+              <IEditTableElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isBannerCarousel ? (
+              <IEditBannerCarouselElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isShowcase ? (
+              <IEditShowcaseElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isResourcesShowcase ? (
+              <IEditResourcesShowcaseElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isButtonBlock ? (
+              <IEditButtonBlockElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isPageHeaderHero ? (
+              <IEditPageHeaderHeroElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isHero ? (
+              <IEditHeroElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isOrganisationDirectory ? (
+              <IEditOrganisationDirectoryElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isFeaturedJob ? (
+              <IEditFeaturedJobElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isImagePanel ? (
+              <IEditImagePanelElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isAccordion ? (
+              <IEditAccordionElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isTwoColumn ? (
+              <IEditTwoColumnElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isQuote ? (
+              <IEditQuoteElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isFiftyFifty ? (
+              <IEditFiftyFiftyElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isFormElement ? (
+              <IEditFormElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isCardDeck ? (
+              <IEditCardDeckElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isLogoGrid ? (
+              <IEditLogoGridElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isEventSpotlight ? (
+              <IEditEventSpotlightElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isCtaButton ? (
+              <IEditCtaButtonElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isImage ? (
+              <IEditImageElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isImageHero ? (
+              <IEditImageHeroElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isTextBlock ? (
+              <IEditTextBlockElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isVideo ? (
+              <IEditVideoElementEditor 
+                element={{ ...element, content: editedContent }} 
+                editedContent={editedContent}
+                setEditedContent={setEditedContent}
+                editedSettings={editedSettings}
+                setEditedSettings={setEditedSettings}
+                updateContent={updateContent}
+                updateSetting={updateSetting}
+              />
+            ) : isTimeline ? (
+              <IEditTimelineElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isHeroCarousel ? (
+              <IEditHeroCarouselElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : isGallery ? (
+              <IEditGalleryElementEditor element={{ ...element, content: editedContent }} onChange={handleContentChangeFromEditor} />
+            ) : (
+              renderContentFields()
+            )}
+          </div>
+
+          <div>
+            <h3 className="font-semibold text-slate-900 mb-4">Settings</h3>
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="fullWidth"
+                  checked={editedSettings.fullWidth || false}
+                  onChange={(e) => updateSetting('fullWidth', e.target.checked)}
+                  className="w-4 h-4"
+                />
+                <Label htmlFor="fullWidth" className="cursor-pointer">
+                  Full Width
+                </Label>
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <Label htmlFor="paddingTop">Padding Top (px)</Label>
+                  <Input
+                    id="paddingTop"
+                    type="number"
+                    value={editedSettings.paddingTop ?? 32}
+                    onChange={(e) => updateSetting('paddingTop', parseInt(e.target.value) || 0)}
+                    min="0"
+                    max="200"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="paddingBottom">Padding Bottom (px)</Label>
+                  <Input
+                    id="paddingBottom"
+                    type="number"
+                    value={editedSettings.paddingBottom ?? 32}
+                    onChange={(e) => updateSetting('paddingBottom', parseInt(e.target.value) || 0)}
+                    min="0"
+                    max="200"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`fixed inset-y-0 right-0 bg-white border-l border-slate-200 shadow-xl z-50 flex transition-all ${
+      supportsLivePreview ? 'w-[calc(100%-4rem)]' : isWideEditor ? 'w-[calc(100%-4rem)]' : (isExpanded ? 'w-[calc(100%-4rem)]' : 'w-96')
+    }`}>
+      {supportsLivePreview && renderLivePreview()}
+      
+      <div className={`flex flex-col ${supportsLivePreview ? editorPanelWidth : 'flex-1'} border-l border-slate-200 bg-white`}>
+        {/* Header */}
+        <div className="p-6 border-b border-slate-200">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-lg font-bold text-slate-900">Edit Element</h2>
+            <div className="flex items-center gap-2">
+              {supportsLivePreview && (
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => setIsExpanded(!isExpanded)}
+                  title={isExpanded ? "Narrow editor" : "Widen editor"}
+                >
+                  {isExpanded ? '←' : '→'}
+                </Button>
+              )}
+              {!supportsLivePreview && (
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => setIsExpanded(!isExpanded)}
+                  title={isExpanded ? "Collapse" : "Expand"}
+                >
+                  {isExpanded ? '←' : '→'}
+                </Button>
+              )}
+              <Button variant="ghost" size="sm" onClick={onClose} data-testid="button-close-editor">
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <p className="text-sm text-slate-600 capitalize">
+              {element.element_type.replace(/_/g, ' ')}
+            </p>
+            {supportsLivePreview && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs">
+                <Eye className="w-3 h-3" />
+                Live Preview
+              </span>
+            )}
+          </div>
+        </div>
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-6 space-y-6">
@@ -370,7 +703,10 @@ export default function IEditElementEditor({ element, onClose, onSave }) {
         {template?.available_variants && template.available_variants.length > 1 && (
           <div>
             <Label htmlFor="variant">Style Variant</Label>
-            <Select value={editedVariant} onValueChange={setEditedVariant}>
+            <Select value={editedVariant} onValueChange={(value) => {
+              setEditedVariant(value);
+              notifyChange(editedContent, value, editedSettings);
+            }}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -391,47 +727,137 @@ export default function IEditElementEditor({ element, onClose, onSave }) {
           {isWallOfFame ? (
             <IEditWallOfFameElementEditor 
               element={{ ...element, content: editedContent }}
-              onChange={(updatedElement) => setEditedContent(updatedElement.content || {})}
+              onChange={handleContentChangeFromEditor}
             />
           ) : isTextOverlayImage ? (
             <IEditTextOverlayImageElementEditor 
               element={{ ...element, content: editedContent }}
-              onChange={(updatedElement) => setEditedContent(updatedElement.content || {})}
+              onChange={handleContentChangeFromEditor}
             />
           ) : isTable ? (
             <IEditTableElementEditor 
               element={{ ...element, content: editedContent }}
-              onChange={(updatedElement) => setEditedContent(updatedElement.content || {})}
+              onChange={handleContentChangeFromEditor}
             />
           ) : isBannerCarousel ? (
             <IEditBannerCarouselElementEditor 
               element={{ ...element, content: editedContent }}
-              onChange={(updatedElement) => setEditedContent(updatedElement.content || {})}
+              onChange={handleContentChangeFromEditor}
             />
           ) : isShowcase ? (
             <IEditShowcaseElementEditor 
               element={{ ...element, content: editedContent }}
-              onChange={(updatedElement) => setEditedContent(updatedElement.content || {})}
+              onChange={handleContentChangeFromEditor}
             />
           ) : isResourcesShowcase ? (
             <IEditResourcesShowcaseElementEditor 
               element={{ ...element, content: editedContent }}
-              onChange={(updatedElement) => setEditedContent(updatedElement.content || {})}
+              onChange={handleContentChangeFromEditor}
             />
           ) : isButtonBlock ? (
             <IEditButtonBlockElementEditor 
               element={{ ...element, content: editedContent }}
-              onChange={(updatedElement) => setEditedContent(updatedElement.content || {})}
+              onChange={handleContentChangeFromEditor}
             />
           ) : isPageHeaderHero ? (
             <IEditPageHeaderHeroElementEditor 
               element={{ ...element, content: editedContent }}
-              onChange={(updatedElement) => setEditedContent(updatedElement.content || {})}
+              onChange={handleContentChangeFromEditor}
             />
           ) : isHero ? (
             <IEditHeroElementEditor 
               element={{ ...element, content: editedContent }}
-              onChange={(updatedElement) => setEditedContent(updatedElement.content || {})}
+              onChange={handleContentChangeFromEditor}
+            />
+          ) : isOrganisationDirectory ? (
+            <IEditOrganisationDirectoryElementEditor 
+              element={{ ...element, content: editedContent }}
+              onChange={handleContentChangeFromEditor}
+            />
+          ) : isFeaturedJob ? (
+            <IEditFeaturedJobElementEditor 
+              element={{ ...element, content: editedContent }}
+              onChange={handleContentChangeFromEditor}
+            />
+          ) : isImagePanel ? (
+            <IEditImagePanelElementEditor 
+              element={{ ...element, content: editedContent }}
+              onChange={handleContentChangeFromEditor}
+            />
+          ) : isAccordion ? (
+            <IEditAccordionElementEditor 
+              element={{ ...element, content: editedContent }}
+              onChange={handleContentChangeFromEditor}
+            />
+          ) : isTwoColumn ? (
+            <IEditTwoColumnElementEditor 
+              element={{ ...element, content: editedContent }}
+              onChange={handleContentChangeFromEditor}
+            />
+          ) : isQuote ? (
+            <IEditQuoteElementEditor 
+              element={{ ...element, content: editedContent }}
+              onChange={handleContentChangeFromEditor}
+            />
+          ) : isFiftyFifty ? (
+            <IEditFiftyFiftyElementEditor 
+              element={{ ...element, content: editedContent }}
+              onChange={handleContentChangeFromEditor}
+            />
+          ) : isFormElement ? (
+            <IEditFormElementEditor 
+              element={{ ...element, content: editedContent }}
+              onChange={handleContentChangeFromEditor}
+            />
+          ) : isCardDeck ? (
+            <IEditCardDeckElementEditor 
+              element={{ ...element, content: editedContent }}
+              onChange={handleContentChangeFromEditor}
+            />
+          ) : isLogoGrid ? (
+            <IEditLogoGridElementEditor 
+              element={{ ...element, content: editedContent }}
+              onChange={handleContentChangeFromEditor}
+            />
+          ) : isEventSpotlight ? (
+            <IEditEventSpotlightElementEditor 
+              element={{ ...element, content: editedContent }}
+              onChange={handleContentChangeFromEditor}
+            />
+          ) : isCtaButton ? (
+            <IEditCtaButtonElementEditor 
+              element={{ ...element, content: editedContent }}
+              onChange={handleContentChangeFromEditor}
+            />
+          ) : isImage ? (
+            <IEditImageElementEditor 
+              element={{ ...element, content: editedContent }}
+              onChange={handleContentChangeFromEditor}
+            />
+          ) : isImageHero ? (
+            <IEditImageHeroElementEditor 
+              element={{ ...element, content: editedContent }}
+              onChange={handleContentChangeFromEditor}
+            />
+          ) : isTextBlock ? (
+            <IEditTextBlockElementEditor 
+              element={{ ...element, content: editedContent }}
+              onChange={handleContentChangeFromEditor}
+            />
+          ) : isTimeline ? (
+            <IEditTimelineElementEditor 
+              element={{ ...element, content: editedContent }}
+              onChange={handleContentChangeFromEditor}
+            />
+          ) : isHeroCarousel ? (
+            <IEditHeroCarouselElementEditor 
+              element={{ ...element, content: editedContent }}
+              onChange={handleContentChangeFromEditor}
+            />
+          ) : isGallery ? (
+            <IEditGalleryElementEditor 
+              element={{ ...element, content: editedContent }}
+              onChange={handleContentChangeFromEditor}
             />
           ) : (
             renderContentFields()
@@ -491,22 +917,36 @@ export default function IEditElementEditor({ element, onClose, onSave }) {
         </div>
       </div>
 
-      {/* Footer */}
-      <div className="p-6 border-t border-slate-200">
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={onClose} className="flex-1">
-            Cancel
-          </Button>
-          <Button 
-            onClick={handleSave} 
-            className="flex-1 bg-blue-600 hover:bg-blue-700"
-            disabled={Object.values(uploadingFiles).some(v => v)}
-          >
-            <Save className="w-4 h-4 mr-2" />
-            Save
-          </Button>
+      {/* Footer - hide in inline mode since parent handles save/cancel */}
+      {!isInlineMode && (
+        <div className="p-6 border-t border-slate-200">
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onClose} data-testid="button-cancel-edit">
+              Cancel
+            </Button>
+            <Button 
+              variant="outline"
+              onClick={onSaveOnly ? handleSaveOnly : handleSave} 
+              className="flex-1"
+              disabled={Object.values(uploadingFiles).some(v => v) || savingOnly}
+              data-testid="button-save-only-element"
+            >
+              <Save className="w-4 h-4 mr-2" />
+              {savingOnly ? 'Saving...' : 'Save'}
+            </Button>
+            <Button 
+              onClick={handleSave} 
+              className="flex-1 bg-blue-600 hover:bg-blue-700"
+              disabled={Object.values(uploadingFiles).some(v => v)}
+              data-testid="button-save-element"
+            >
+              <Save className="w-4 h-4 mr-2" />
+              Save & Close
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
+    </div>
     </div>
   );
 }

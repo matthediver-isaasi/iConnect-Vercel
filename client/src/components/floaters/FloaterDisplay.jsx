@@ -1,28 +1,126 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import FormRenderer from "../forms/FormRenderer";
 import { Button } from "@/components/ui/button";
 import { Loader2, ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
+import { supabase } from "@/api/supabaseClient";
+import { publicClient, getTenantSlugFromLocation } from "@/api/publicClient";
+import { resolveDisplayedFloaters } from "@/lib/floaterSiteTargets";
+import { useIsMobile } from "@/hooks/use-mobile";
+import {
+  pruneFormNotListedText,
+  setFormNotListedText,
+} from "../../../../shared/formNotListedChoice.js";
 
-export default function FloaterDisplay({ location = "portal", memberInfo, organizationInfo }) {
+export default function FloaterDisplay({
+  location = "portal",
+  memberInfo,
+  organizationInfo,
+  activeMicrositeId = null,
+  publicSiteContextReady = true,
+  authResolved = false,
+  sessionValidated = false,
+}) {
+  const isMobile = useIsMobile();
+  // Get tenant_id for filtering - from memberInfo if authenticated, otherwise resolve from tenant slug or host
+  const [tenantId, setTenantId] = useState(memberInfo?.tenant_id || null);
+  
+  // Resolve tenant_id from slug if not available from memberInfo (for public pages)
+  useEffect(() => {
+    if (memberInfo?.tenant_id) {
+      setTenantId(memberInfo.tenant_id);
+      return;
+    }
+    
+    // Try to get tenant_id from localStorage
+    const storedMember = localStorage.getItem('agcas_member');
+    if (storedMember) {
+      try {
+        const parsed = JSON.parse(storedMember);
+        if (parsed?.tenant_id) {
+          setTenantId(parsed.tenant_id);
+          return;
+        }
+      } catch (e) {
+        // Ignore parse errors
+      }
+    }
+    
+    // For public pages, resolve tenant from slug (subdomains) or host (custom domains)
+    const tenantSlug = getTenantSlugFromLocation();
+    if (tenantSlug) {
+      // Standard subdomain case - lookup by slug
+      supabase
+        .from('tenant')
+        .select('id')
+        .eq('slug', tenantSlug)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (data?.id) {
+            setTenantId(data.id);
+          }
+        });
+    } else {
+      // Custom domain case - use publicClient which resolves via Host header
+      publicClient.getTenantBranding()
+        .then((data) => {
+          if (data?.success && data?.branding?.id) {
+            setTenantId(data.branding.id);
+          }
+        })
+        .catch((err) => {
+          console.warn('[FloaterDisplay] Failed to resolve tenant from host:', err);
+        });
+    }
+  }, [memberInfo?.tenant_id]);
   const queryClient = useQueryClient();
   const [selectedForm, setSelectedForm] = useState(null);
   const [formValues, setFormValues] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
   const [submissionSuccess, setSubmissionSuccess] = useState(false);
+  
+  // Track viewport dimensions for responsive floater positioning
+  const [viewportDimensions, setViewportDimensions] = useState({
+    width: typeof window !== 'undefined' ? window.innerWidth : 1024,
+    height: typeof window !== 'undefined' ? window.innerHeight : 768,
+  });
+  
+  // Update viewport dimensions on resize
+  useEffect(() => {
+    const handleResize = () => {
+      setViewportDimensions({
+        width: window.innerWidth,
+        height: window.innerHeight,
+      });
+    };
+    
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Fetch default consent message from public endpoint (works without auth)
+  const { data: defaultConsentMessage } = useQuery({
+    queryKey: ['formDefaultConsentMessage'],
+    queryFn: async () => {
+      const data = await publicClient.getFormConsentMessage();
+      return data.message || '';
+    },
+    staleTime: 5 * 60 * 1000 // Cache for 5 minutes
+  });
 
   // Fetch full member record to get job_title (was base44.entities.Member.list)
   const { data: memberRecord } = useQuery({
-    queryKey: ["member-record", memberInfo?.email],
-    enabled: !!memberInfo?.email,
+    queryKey: ["member-record", memberInfo?.email, tenantId],
+    enabled: !!memberInfo?.email && !!tenantId,
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("Member") // or "members"
+        .from("member")
         .select("*")
         .eq("email", memberInfo.email)
+        .eq("tenant_id", tenantId)
         .maybeSingle();
 
       if (error) {
@@ -35,12 +133,19 @@ export default function FloaterDisplay({ location = "portal", memberInfo, organi
   });
 
   // Fetch floaters (was base44.entities.Floater.list)
+  // SECURITY: Filter by tenant_id to ensure proper tenant isolation
   const { data: floaters = [] } = useQuery({
-    queryKey: ["floaters", location],
+    queryKey: ["floaters", location, tenantId],
     queryFn: async () => {
+      if (!tenantId) {
+        console.warn("[FloaterDisplay] No tenant_id available, skipping floater fetch");
+        return [];
+      }
+      
       const { data, error } = await supabase
-        .from("Floater") // or "floaters"
+        .from("floater")
         .select("*")
+        .eq("tenant_id", tenantId)
         .eq("is_active", true)
         .or(
           `display_location.eq.${location},display_location.eq.both`
@@ -54,15 +159,32 @@ export default function FloaterDisplay({ location = "portal", memberInfo, organi
 
       return data || [];
     },
+    enabled: !!tenantId, // Only fetch when tenant_id is available
   });
 
+  // Site targets apply only to the public web presence. Portal visibility
+  // remains controlled solely by display_location, as it was before targeting.
+  const visibleFloaters = useMemo(() => resolveDisplayedFloaters({
+    floaters,
+    location,
+    activeMicrositeId,
+    publicSiteContextReady,
+    isMobile,
+    authResolved,
+    sessionValidated,
+  }), [floaters, location, activeMicrositeId, publicSiteContextReady, isMobile, authResolved, sessionValidated]);
+
   // Fetch forms (was base44.entities.Form.list)
+  // SECURITY: Filter by tenant_id for proper tenant isolation
   const { data: forms = [] } = useQuery({
-    queryKey: ["forms"],
+    queryKey: ["forms", tenantId],
     queryFn: async () => {
+      if (!tenantId) return [];
+      
       const { data, error } = await supabase
-        .from("Form") // or "forms"
-        .select("*");
+        .from("form")
+        .select("*")
+        .eq("tenant_id", tenantId);
 
       if (error) {
         console.error("Error loading forms:", error);
@@ -71,13 +193,14 @@ export default function FloaterDisplay({ location = "portal", memberInfo, organi
 
       return data || [];
     },
+    enabled: !!tenantId,
   });
 
   // Increment Floater click count (was base44.entities.Floater.update)
   const incrementClickMutation = useMutation({
     mutationFn: async ({ floaterId, currentCount }) => {
       const { error } = await supabase
-        .from("Floater")
+        .from("floater")
         .update({ click_count: (currentCount || 0) + 1 })
         .eq("id", floaterId);
 
@@ -91,27 +214,16 @@ export default function FloaterDisplay({ location = "portal", memberInfo, organi
     },
   });
 
-  // Submit form (was base44.entities.FormSubmission.create)
+  // Submit through the same tenant-scoped public submission contract used by
+  // embedded forms. Direct table inserts bypass its server-side validation,
+  // including relationship dropdown validation.
   const submitFormMutation = useMutation({
     mutationFn: async ({ formId, formName, data }) => {
-      const submissionData = {
+      return publicClient.submitForm({
         form_id: formId,
         form_name: formName,
         submission_data: data,
-        submitted_by_email: memberInfo?.email,
-        submitted_by_name: memberInfo
-          ? `${memberInfo.first_name} ${memberInfo.last_name}`
-          : undefined,
-      };
-
-      const { error } = await supabase
-        .from("FormSubmission") // or "form_submissions"
-        .insert([submissionData]);
-
-      if (error) {
-        console.error("Error creating form submission:", error);
-        throw error;
-      }
+      });
     },
     onSuccess: () => {
       setSubmissionSuccess(true);
@@ -188,6 +300,31 @@ export default function FloaterDisplay({ location = "portal", memberInfo, organi
     }
   };
 
+  // Initialize boolean fields with their default values when form is selected
+  // This ensures untouched boolean fields are included in the submission
+  useEffect(() => {
+    if (!selectedForm?.fields) return;
+    
+    const booleanDefaults = {};
+    for (const field of selectedForm.fields) {
+      if (field.type === 'boolean') {
+        booleanDefaults[field.id] = field.default_value === true ? true : false;
+      }
+    }
+    
+    if (Object.keys(booleanDefaults).length > 0) {
+      setFormValues(prev => {
+        const merged = { ...prev };
+        for (const [fieldId, defaultVal] of Object.entries(booleanDefaults)) {
+          if (merged[fieldId] === undefined) {
+            merged[fieldId] = defaultVal;
+          }
+        }
+        return merged;
+      });
+    }
+  }, [selectedForm?.fields]);
+
   const handleFormSubmit = async (e) => {
     e.preventDefault();
 
@@ -206,7 +343,7 @@ export default function FloaterDisplay({ location = "portal", memberInfo, organi
       await submitFormMutation.mutateAsync({
         formId: selectedForm.id,
         formName: selectedForm.name,
-        data: formValues,
+        data: pruneFormNotListedText(selectedForm.fields, formValues),
       });
     } finally {
       setIsSubmitting(false);
@@ -241,38 +378,64 @@ export default function FloaterDisplay({ location = "portal", memberInfo, organi
   };
 
   const getPositionStyles = (floater) => {
+    // Parse all numeric values, ensuring they're valid numbers with fallbacks
+    const parseNum = (val, fallback) => {
+      const num = parseFloat(val);
+      return Number.isFinite(num) ? num : fallback;
+    };
+    
+    const floaterWidth = parseNum(floater.width, 80);
+    const floaterHeight = parseNum(floater.height, 80);
+    const offsetX = parseNum(floater.offset_x, 20);
+    const offsetY = parseNum(floater.offset_y, 20);
+    
+    // Use a minimum safe offset to prevent floater from going off screen
+    const minSafeOffset = 8;
+    
+    // Use tracked viewport dimensions (updates on resize)
+    const viewportWidth = viewportDimensions.width;
+    const viewportHeight = viewportDimensions.height;
+    
+    // Calculate maximum allowed offsets to keep floater fully visible
+    // For right/left: offset + floaterWidth + minSafeOffset <= viewportWidth
+    // So maxOffset = viewportWidth - floaterWidth - minSafeOffset
+    const maxOffsetX = Math.max(minSafeOffset, viewportWidth - floaterWidth - minSafeOffset);
+    const maxOffsetY = Math.max(minSafeOffset, viewportHeight - floaterHeight - minSafeOffset);
+    
+    // Clamp offsets using JavaScript Math functions
+    const clampedOffsetX = Math.max(minSafeOffset, Math.min(offsetX, maxOffsetX));
+    const clampedOffsetY = Math.max(minSafeOffset, Math.min(offsetY, maxOffsetY));
+    
     const styles = {
       position: "fixed",
       zIndex: 1000,
       cursor: "pointer",
-      width: `${floater.width || 80}px`,
-      height: `${floater.height || 80}px`,
+      width: `${floaterWidth}px`,
+      height: `${floaterHeight}px`,
       transition: "transform 0.2s ease",
     };
 
-    const offsetX = floater.offset_x || 20;
-    const offsetY = floater.offset_y || 20;
-
+    // Apply clamped positions based on floater corner
     switch (floater.position) {
       case "bottom-right":
-        styles.bottom = `${offsetY}px`;
-        styles.right = `${offsetX}px`;
+        styles.bottom = `${clampedOffsetY}px`;
+        styles.right = `${clampedOffsetX}px`;
         break;
       case "bottom-left":
-        styles.bottom = `${offsetY}px`;
-        styles.left = `${offsetX}px`;
+        styles.bottom = `${clampedOffsetY}px`;
+        styles.left = `${clampedOffsetX}px`;
         break;
       case "top-right":
-        styles.top = `${offsetY}px`;
-        styles.right = `${offsetX}px`;
+        styles.top = `${clampedOffsetY}px`;
+        styles.right = `${clampedOffsetX}px`;
         break;
       case "top-left":
-        styles.top = `${offsetY}px`;
-        styles.left = `${offsetX}px`;
+        styles.top = `${clampedOffsetY}px`;
+        styles.left = `${clampedOffsetX}px`;
         break;
       default:
-        styles.bottom = `${offsetY}px`;
-        styles.right = `${offsetX}px`;
+        styles.bottom = `${clampedOffsetY}px`;
+        styles.right = `${clampedOffsetX}px`;
     }
 
     return styles;
@@ -295,11 +458,11 @@ export default function FloaterDisplay({ location = "portal", memberInfo, organi
   // Use memberRecord (full data) if available, otherwise fallback to memberInfo
   const memberData = memberRecord || memberInfo;
 
-  if (floaters.length === 0) return null;
+  if (visibleFloaters.length === 0) return null;
 
   return (
     <>
-      {floaters.map((floater) => (
+      {!selectedForm && visibleFloaters.map((floater) => (
         <div
           key={floater.id}
           style={getPositionStyles(floater)}
@@ -376,13 +539,19 @@ export default function FloaterDisplay({ location = "portal", memberInfo, organi
                       field={selectedForm.fields[currentStep]}
                       value={formValues[selectedForm.fields[currentStep].id]}
                       onChange={(value) =>
-                        setFormValues((prev) => ({
+                        setFormValues((prev) => pruneFormNotListedText(selectedForm.fields, {
                           ...prev,
                           [selectedForm.fields[currentStep].id]: value,
                         }))
                       }
+                      onFormNotListedTextChange={(text) => setFormValues(prev => (
+                        setFormNotListedText(prev, selectedForm.fields[currentStep].id, text)
+                      ))}
                       memberInfo={memberData}
                       organizationInfo={organizationInfo}
+                      formSlug={selectedForm.slug}
+                      allFormValues={formValues}
+                      allFields={selectedForm.fields}
                     />
                   </div>
 
@@ -418,6 +587,11 @@ export default function FloaterDisplay({ location = "portal", memberInfo, organi
                       </Button>
                     )}
                   </div>
+                  {currentStep === selectedForm.fields.length - 1 && defaultConsentMessage && (
+                    <p className="text-xs text-slate-500 text-center mt-2" data-testid="text-consent-message">
+                      {defaultConsentMessage}
+                    </p>
+                  )}
                 </div>
               ) : (
                 <form onSubmit={handleFormSubmit} className="space-y-6">
@@ -437,10 +611,19 @@ export default function FloaterDisplay({ location = "portal", memberInfo, organi
                         field={field}
                         value={formValues[field.id]}
                         onChange={(value) =>
-                          setFormValues((prev) => ({ ...prev, [field.id]: value }))
+                          setFormValues((prev) => pruneFormNotListedText(selectedForm.fields, {
+                            ...prev,
+                            [field.id]: value,
+                          }))
                         }
+                        onFormNotListedTextChange={(text) => setFormValues(prev => (
+                          setFormNotListedText(prev, field.id, text)
+                        ))}
                         memberInfo={memberData}
                         organizationInfo={organizationInfo}
+                        formSlug={selectedForm.slug}
+                        allFormValues={formValues}
+                        allFields={selectedForm.fields}
                       />
                     ))}
                   </div>
@@ -469,6 +652,11 @@ export default function FloaterDisplay({ location = "portal", memberInfo, organi
                       )}
                     </Button>
                   </div>
+                  {defaultConsentMessage && (
+                    <p className="text-xs text-slate-500 text-center mt-2" data-testid="text-consent-message">
+                      {defaultConsentMessage}
+                    </p>
+                  )}
                 </form>
               )}
             </>

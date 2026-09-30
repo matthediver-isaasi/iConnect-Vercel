@@ -1,0 +1,29 @@
+2026-02-04 15:28:08.604 [info] [TenantResolver] resolveTenantFromRequest called
+2026-02-04 15:28:08.604 [info] [TenantResolver] Params - tenant: undefined domain: undefined
+2026-02-04 15:28:08.604 [info] [TenantResolver] Falling back to host-based resolution, hostname: gfi.dev.iconn.app
+2026-02-04 15:28:08.604 [info] [TenantResolver] resolveTenantFromHost called with: gfi.dev.iconn.app
+2026-02-04 15:28:08.604 [info] [TenantResolver] Cache hit for: gfi.dev.iconn.app
+2026-02-04 15:28:08.604 [info] [TenantContext] About to call getSessionTenantUser
+2026-02-04 15:28:08.604 [info] [Session] getSession: Looking up session: edef47d6
+2026-02-04 15:28:08.749 [info] [Session] getSession: Session found, userType: member
+2026-02-04 15:28:08.749 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"edef47d6","userType":"member","memberId":"9ac39222-22b8-457e-a5df-dfca45a99eb6","identityId":"dc156a30-ae8d-4aee-b965-b54fe4b17105","tenantId":"fd82da65-aab7-4a5c-85b8-b2febeb2003d"}
+2026-02-04 15:28:08.749 [info] [Session] Found member session with identityId, attempting promotion
+2026-02-04 15:28:09.029 [info] [Session] No tenant_user record found for identity promotion
+2026-02-04 15:28:09.029 [info] [Session] Member session promotion failed
+2026-02-04 15:28:09.029 [info] [TenantContext] getSessionTenantUser returned: null
+2026-02-04 15:28:09.029 [info] [TenantContext] Checking for member session...
+2026-02-04 15:28:09.029 [info] [Session] getSession: Looking up session: edef47d6
+2026-02-04 15:28:09.182 [info] [Session] getSession: Session found, userType: member
+2026-02-04 15:28:09.182 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"edef47d6","userType":"member","memberId":"9ac39222-22b8-457e-a5df-dfca45a99eb6"}
+2026-02-04 15:28:09.337 [info] [TenantContext] Member found: {
+  memberId: '9ac39222-22b8-457e-a5df-dfca45a99eb6',
+  organizationId: 'ccbbbd4d-12e8-4e9e-b49e-cd29979623ae'
+}
+2026-02-04 15:28:09.337 [info] [TenantContext] Tenant from member.organization: fd82da65-aab7-4a5c-85b8-b2febeb2003d
+2026-02-04 15:28:09.337 [info] POST to guest_writer: {"full_name":"test","email":"test@test.com","organization":"test","job_title":"test","biography":"test","profile_photo_url":"","is_active":true}
+2026-02-04 15:28:09.476 [error] Error inserting into guest_writer: {
+  code: 'PGRST204',
+  details: null,
+  hint: null,
+  message: "Could not find the 'organization_id' column of 'guest_writer' in the schema cache"
+}

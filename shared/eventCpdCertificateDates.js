@@ -1,0 +1,1 @@
+export { certificateDatePlaceholderValues as certificateActivityDateValues } from './eventCpdCertificatePolicy.js';

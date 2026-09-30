@@ -1,59 +1,123 @@
 {
-    "name": "FormSubmission",
-    "type": "object",
-    "properties": {
-      "form_id": {
-        "type": "string",
-        "description": "Reference to Form entity"
-      },
-      "form_name": {
-        "type": "string",
-        "description": "Cached form name for reference"
-      },
-      "submitted_by_email": {
-        "type": "string",
-        "format": "email",
-        "description": "Email of the submitter (if authenticated)"
-      },
-      "submitted_by_name": {
-        "type": "string",
-        "description": "Name of the submitter (if authenticated)"
-      },
-      "submission_data": {
-        "type": "object",
-        "additionalProperties": true,
-        "description": "The submitted form data as key-value pairs"
-      },
-      "ip_address": {
-        "type": "string",
-        "description": "IP address of submitter"
-      },
-      "user_agent": {
-        "type": "string",
-        "description": "Browser user agent"
-      },
-      "status": {
-        "type": "string",
-        "enum": [
-          "new",
-          "junk",
-          "actioned"
-        ],
-        "default": "new",
-        "description": "Status of the submission"
-      },
-      "status_updated_by": {
-        "type": "string",
-        "description": "Email of the user who last updated the status"
-      },
-      "status_updated_at": {
-        "type": "string",
-        "format": "date-time",
-        "description": "When the status was last updated"
-      }
+  "name": "FormSubmission",
+  "type": "object",
+  "properties": {
+    "form_id": {
+      "type": "string",
+      "description": "Reference to Form entity"
     },
-    "required": [
-      "form_id",
-      "submission_data"
-    ]
-  }
+    "form_name": {
+      "type": "string",
+      "description": "Cached form name for reference"
+    },
+    "event_id": {
+      "type": "string",
+      "description": "The event this submission relates to, copied from the form's related_event_id at submission time (for event-linked forms) or stamped server-side from a survey event assignment. Null for forms not linked to an event."
+    },
+    "complex_event_id": {
+      "type": "string",
+      "description": "The complex (multi-session) event this survey response relates to, stamped server-side from the resolved survey event assignment. Null for non-assignment submissions and simple-event assignments."
+    },
+    "survey_assignment_id": {
+      "type": "string",
+      "description": "The event survey assignment this response arrived through (server-resolved from the assignment token). Null for direct/non-survey submissions."
+    },
+    "submitted_by_email": {
+      "type": "string",
+      "format": "email",
+      "description": "Email of the submitter (if authenticated)"
+    },
+    "submitted_by_name": {
+      "type": "string",
+      "description": "Name of the submitter (if authenticated)"
+    },
+    "submission_data": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "The submitted form data as key-value pairs"
+    },
+    "ip_address": {
+      "type": "string",
+      "description": "IP address of submitter"
+    },
+    "user_agent": {
+      "type": "string",
+      "description": "Browser user agent"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "new",
+        "junk",
+        "actioned"
+      ],
+      "default": "new",
+      "description": "Status of the submission"
+    },
+    "status_updated_by": {
+      "type": "string",
+      "description": "Email of the user who last updated the status"
+    },
+    "payment_status": {
+      "type": "string",
+      "enum": ["pending", "paid", "failed"],
+      "description": "Task #3483 generic form Payment field lifecycle. 'pending' rows were created before the provider payment started and are excluded from normal admin listings and all post-submission side effects; 'paid' rows completed payment (finalisation runs exactly once); 'failed' rows had their payment cancelled/failed. Null for submissions without payment."
+    },
+    "payment_provider": {
+      "type": "string",
+      "enum": ["stripe", "gocardless"],
+      "description": "Which provider took (or was asked to take) the payment."
+    },
+    "payment_amount": {
+      "type": "number",
+      "description": "Amount in major units, ALWAYS derived server-side from the payment field's price-source answer — never client-supplied."
+    },
+    "payment_currency": {
+      "type": "string",
+      "description": "ISO currency code for payment_amount (e.g. GBP)."
+    },
+    "payment_reference": {
+      "type": "string",
+      "description": "Provider-side reference: Stripe PaymentIntent id or GoCardless billing request id."
+    },
+    "payment_meta": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Payment bookkeeping: price_field_id, gc_flow_id, prefill/role context captured at create, and the finalized/finalized_at exactly-once stamp for post-payment side effects."
+    },
+    "payment_paid_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the payment was verified as complete."
+    },
+    "status_updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the status was last updated"
+    },
+    "survey_version_id": {
+      "type": "string",
+      "description": "Published survey version this submission was scored against (surveys only)."
+    },
+    "survey_score_weighted": {
+      "type": "number",
+      "description": "Cached weighted overall score (0..1), computed server-side."
+    },
+    "survey_score_unweighted": {
+      "type": "number",
+      "description": "Cached unweighted overall score (0..1), computed server-side."
+    },
+    "is_anonymous": {
+      "type": "boolean",
+      "description": "True when the survey suppressed respondent identity."
+    },
+    "survey_respondent_key": {
+      "type": "string",
+      "description": "One-way hash used for duplicate prevention on anonymous surveys; never reversible to identity."
+    }
+  },
+  "required": [
+    "form_id",
+    "submission_data"
+  ]
+}

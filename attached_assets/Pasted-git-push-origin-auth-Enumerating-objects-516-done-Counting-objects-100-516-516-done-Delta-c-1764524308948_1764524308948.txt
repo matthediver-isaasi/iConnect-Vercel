@@ -1,0 +1,42 @@
+git push origin auth
+Enumerating objects: 516, done.
+Counting objects: 100% (516/516), done.
+Delta compression using up to 8 threads
+Compressing objects: 100% (478/478), done.
+Writing objects: 100% (484/484), 113.54 KiB | 4.73 MiB/s, done.
+Total 484 (delta 422), reused 0 (delta 0), pack-reused 0 (from 0)
+remote: Resolving deltas: 100% (422/422), completed with 27 local objects.
+remote: error: GH013: Repository rule violations found for refs/heads/auth.
+remote: 
+remote: - GITHUB PUSH PROTECTION
+remote:   —————————————————————————————————————————
+remote:     Resolve the following violations before pushing again
+remote: 
+remote:     - Push cannot contain secrets
+remote: 
+remote:     
+remote:      (?) Learn how to resolve a blocked push
+remote:      https://docs.github.com/code-security/secret-scanning/working-with-secret-scanning-and-push-protection/working-with-push-protection-from-the-command-line#resolving-a-blocked-push
+remote:     
+remote:     
+remote:       —— Stripe API Key ————————————————————————————————————
+remote:        locations:
+remote:          - commit: cff16e81a0c73e048619597f5e3faf60bf0277ea
+remote:            path: .replit:74
+remote:          - commit: 19f315c159be737438aa6795d7ce9074b5755751
+remote:            path: .replit:74
+remote:          - commit: 995c3ae1c67938cd6b28ca0fee5c45cf67c712fb
+remote:            path: .replit:74
+remote:          - commit: 24691f48c53522bf99d2524ee284a3d30adbc4eb
+remote:            path: .replit:74
+remote:          - commit: d82e4a4891a195659762a74077925cd794263dfc
+remote:            path: .replit:74
+remote:     
+remote:        (?) To push, remove secret from commit(s) or follow this URL to allow the secret.
+remote:        https://github.com/matthediver-isaasi/iConnect-Vercel/security/secret-scanning/unblock-secret/36CwufCUj38e6JykIrpZAA3IgV5
+remote:     
+remote: 
+remote: 
+To https://github.com/matthediver-isaasi/iConnect-Vercel
+ ! [remote rejected] auth -> auth (push declined due to repository rule violations)
+error: failed to push some refs to 'https://github.com/matthediver-isaasi/iConnect-Vercel'

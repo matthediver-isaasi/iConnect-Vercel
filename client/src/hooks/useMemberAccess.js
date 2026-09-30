@@ -1,94 +1,107 @@
-import { useState, useCallback, useEffect } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useContext } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { base44 } from '../api/base44Client';
+import { isResourceExcluded } from '../lib/roleVisibility';
+import LayoutContext from '../contexts/LayoutContext';
+import { useSessionMemberRole } from './useSessionMemberRole';
+import { stripTrustedMemberProjections } from '../lib/memberSessionRole';
 
 export function useMemberAccess() {
   const queryClient = useQueryClient();
   
-  const [memberInfo, setMemberInfo] = useState(() => {
-    const stored = sessionStorage.getItem('agcas_member');
-    return stored ? JSON.parse(stored) : null;
-  });
+  // SECURITY: Use memberInfo from LayoutContext instead of localStorage
+  // This ensures memberInfo is always in sync with the session validation state
+  // When Layout.jsx clears localStorage on 401, it also clears the context memberInfo
+  const { 
+    sessionValidated,
+    authResolved,
+    memberInfo, 
+    organizationInfo,
+    setMemberInfo,
+    setOrganizationInfo,
+    retrySessionRole,
+  } = useContext(LayoutContext);
+  const { memberRole, roleStatus, roleError, retryRole } = useSessionMemberRole();
 
-  const [organizationInfo, setOrganizationInfo] = useState(() => {
-    const stored = sessionStorage.getItem('agcas_organization');
-    return stored ? JSON.parse(stored) : null;
-  });
-
-  useEffect(() => {
-    const handleStorageChange = () => {
-      const storedMember = sessionStorage.getItem('agcas_member');
-      const storedOrg = sessionStorage.getItem('agcas_organization');
-      setMemberInfo(storedMember ? JSON.parse(storedMember) : null);
-      setOrganizationInfo(storedOrg ? JSON.parse(storedOrg) : null);
-    };
-
-    window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
-  }, []);
-
-  const { data: memberRole, isLoading: isRoleLoading } = useQuery({
-    queryKey: ['memberRole', memberInfo?.role_id],
-    enabled: !!(memberInfo && memberInfo.role_id),
-    queryFn: async () => {
-      if (!memberInfo || !memberInfo.role_id) return null;
-      try {
-        const data = await base44.entities.Role.get(memberInfo.role_id);
-        return data || null;
-      } catch (error) {
-        console.error('Error loading memberRole:', error);
-        return null;
-      }
-    },
-  });
-
-  const isAdmin = memberRole?.is_admin === true;
+  // SECURITY: Only fetch role when auth is resolved and session is validated by server
+  // This prevents 401 errors when localStorage has stale member data
+  // Derive admin status from whether admin features are accessible (not excluded)
+  // This replaces the deprecated is_admin flag - now all access is controlled via Role Management exclusions
+  const isAdmin = memberRole ? !isResourceExcluded(memberRole.excluded_features, 'admin.role-management') : false;
 
   const isFeatureExcluded = useCallback((featureId) => {
+    // Confirmed guests retain public-page behaviour. A member whose role has
+    // not resolved, however, must never receive optimistic protected access.
     if (!memberInfo || !featureId) return false;
+    if (roleStatus !== 'ready') return true;
     const roleExclusions = memberRole?.excluded_features || [];
     const memberExclusions = memberInfo.member_excluded_features || [];
-    return roleExclusions.includes(featureId) || memberExclusions.includes(featureId);
-  }, [memberInfo, memberRole]);
+    const allExclusions = [...roleExclusions, ...memberExclusions];
+    return isResourceExcluded(allExclusions, featureId);
+  }, [memberInfo, memberRole, roleStatus]);
 
   const reloadMemberInfo = useCallback(async () => {
-    if (!memberInfo?.id) return;
+    // Only reload if session is validated and memberInfo exists
+    if (!sessionValidated || !memberInfo?.id) return;
     try {
       const updatedMember = await base44.entities.Member.get(memberInfo.id);
       if (updatedMember) {
-        sessionStorage.setItem('agcas_member', JSON.stringify(updatedMember));
-        setMemberInfo(updatedMember);
-        if (updatedMember.role_id !== memberInfo.role_id) {
+        const persistableMember = stripTrustedMemberProjections(updatedMember);
+        localStorage.setItem('agcas_member', JSON.stringify(persistableMember));
+        setMemberInfo(persistableMember);
+        const identityChanged = updatedMember.role_id !== memberInfo.role_id
+          || updatedMember.tenant_id !== memberInfo.tenant_id
+          || updatedMember.id !== memberInfo.id;
+        if (identityChanged) {
           queryClient.invalidateQueries({ queryKey: ['memberRole'] });
+          retrySessionRole();
         }
       }
     } catch (error) {
       console.error('Error reloading member info:', error);
     }
-  }, [memberInfo?.id, memberInfo?.role_id, queryClient]);
+  }, [
+    sessionValidated,
+    memberInfo?.id,
+    memberInfo?.tenant_id,
+    memberInfo?.role_id,
+    queryClient,
+    setMemberInfo,
+    retrySessionRole,
+  ]);
 
   const refreshOrganizationInfo = useCallback(async () => {
-    if (!organizationInfo?.id) return;
+    // Only refresh if session is validated and organizationInfo exists
+    if (!sessionValidated || !organizationInfo?.id) return;
     try {
       const updatedOrg = await base44.entities.Organization.get(organizationInfo.id);
       if (updatedOrg) {
-        sessionStorage.setItem('agcas_organization', JSON.stringify(updatedOrg));
+        localStorage.setItem('agcas_organization', JSON.stringify(updatedOrg));
         setOrganizationInfo(updatedOrg);
       }
     } catch (error) {
       console.error('Error refreshing organization info:', error);
     }
-  }, [organizationInfo?.id]);
+  }, [sessionValidated, organizationInfo?.id, setOrganizationInfo]);
 
-  const isAccessReady = memberInfo !== null && (!memberInfo.role_id || memberRole !== undefined);
+  // "Ready" means the access decision is terminal, not necessarily allowed.
+  // This lets consumers leave their loading UI on missing/error while
+  // isFeatureExcluded continues to fail closed.
+  const isAccessReady = authResolved
+    && (!memberInfo || !sessionValidated || roleStatus !== 'loading');
 
   return {
     memberInfo,
     organizationInfo,
     memberRole,
+    authResolved,
+    sessionValidated,
     isAdmin,
     isFeatureExcluded,
-    isRoleLoading,
+    isRoleLoading: roleStatus === 'loading',
+    roleStatus,
+    roleError,
+    retryRole,
     isAccessReady,
     reloadMemberInfo,
     refreshOrganizationInfo,

@@ -1,0 +1,1019 @@
+index-D9S03Cdh.js:1016 [publicClient] Detected tenant from subdomain: bnms
+index-D9S03Cdh.js:1101 GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.84.0) 2026-01-17T10:07:25.339Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+Tg @ index-D9S03Cdh.js:1101
+Yle @ index-D9S03Cdh.js:1102
+_initSupabaseAuthClient @ index-D9S03Cdh.js:1102
+Jle @ index-D9S03Cdh.js:1102
+rE @ index-D9S03Cdh.js:1102
+(anonymous) @ index-D9S03Cdh.js:2084
+(anonymous) @ index-D9S03Cdh.js:1
+(anonymous) @ index-D9S03Cdh.js:2524
+index-D9S03Cdh.js:1101 GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:2 (2.84.0) 2026-01-17T10:07:25.343Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+Tg @ index-D9S03Cdh.js:1101
+Yle @ index-D9S03Cdh.js:1102
+_initSupabaseAuthClient @ index-D9S03Cdh.js:1102
+Jle @ index-D9S03Cdh.js:1102
+rE @ index-D9S03Cdh.js:1102
+(anonymous) @ index-D9S03Cdh.js:2470
+(anonymous) @ index-D9S03Cdh.js:1
+(anonymous) @ index-D9S03Cdh.js:2524
+index-D9S03Cdh.js:1405 [usePendingPurchaseOrders] memberInfo: null
+index-D9S03Cdh.js:1405 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-D9S03Cdh.js:1405 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-D9S03Cdh.js:1405 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-D9S03Cdh.js:1405 [usePendingPurchaseOrders] memberInfo: null
+index-D9S03Cdh.js:1405 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-D9S03Cdh.js:1405 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-D9S03Cdh.js:1405 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-D9S03Cdh.js:1405 [usePendingPurchaseOrders] memberInfo: null
+index-D9S03Cdh.js:1405 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-D9S03Cdh.js:1405 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-D9S03Cdh.js:1405 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-D9S03Cdh.js:1016  GET https://bnms.iconn.app/api/entities/SystemSettings?filter=%7B%22setting_key%22%3A%22page_visibility_settings%22%7D 401 (Unauthorized)
+_apiRequest @ index-D9S03Cdh.js:1016
+list @ index-D9S03Cdh.js:1016
+queryFn @ index-D9S03Cdh.js:1405
+i @ index-D9S03Cdh.js:1016
+v @ index-D9S03Cdh.js:1016
+start @ index-D9S03Cdh.js:1016
+fetch @ index-D9S03Cdh.js:1016
+wf @ index-D9S03Cdh.js:1016
+onSubscribe @ index-D9S03Cdh.js:1016
+subscribe @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+qR @ index-D9S03Cdh.js:38
+Aj @ index-D9S03Cdh.js:40
+Bh @ index-D9S03Cdh.js:40
+(anonymous) @ index-D9S03Cdh.js:40
+N @ index-D9S03Cdh.js:25
+w @ index-D9S03Cdh.js:25
+index-D9S03Cdh.js:1405 Error loading page visibility settings: Error: API Error (401): Authentication required
+    at qee._apiRequest (index-D9S03Cdh.js:1016:50455)
+    at async Dee.list (index-D9S03Cdh.js:1016:41048)
+    at async queryFn (index-D9S03Cdh.js:1405:53313)
+queryFn @ index-D9S03Cdh.js:1405
+await in queryFn
+i @ index-D9S03Cdh.js:1016
+v @ index-D9S03Cdh.js:1016
+start @ index-D9S03Cdh.js:1016
+fetch @ index-D9S03Cdh.js:1016
+wf @ index-D9S03Cdh.js:1016
+onSubscribe @ index-D9S03Cdh.js:1016
+subscribe @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+qR @ index-D9S03Cdh.js:38
+Aj @ index-D9S03Cdh.js:40
+Bh @ index-D9S03Cdh.js:40
+(anonymous) @ index-D9S03Cdh.js:40
+N @ index-D9S03Cdh.js:25
+w @ index-D9S03Cdh.js:25
+index-D9S03Cdh.js:1405 [usePendingPurchaseOrders] memberInfo: null
+index-D9S03Cdh.js:1405 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-D9S03Cdh.js:1405 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-D9S03Cdh.js:1405 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-D9S03Cdh.js:2116 [ArticleView] Component initialized
+index-D9S03Cdh.js:2116 [ArticleView] Route params - authorHandle: mat-henderson articleSlug: test-blog-bnms
+index-D9S03Cdh.js:2116 [ArticleView] window.location.pathname: /blogs/mat-henderson/test-blog-bnms
+index-D9S03Cdh.js:2116 [ArticleView] isAuthenticated: false
+index-D9S03Cdh.js:2116 [ArticleView] Resolved - authorHandle: mat-henderson slug: test-blog-bnms
+index-D9S03Cdh.js:2116 [ArticleView] isPreviewMode: false
+index-D9S03Cdh.js:2116 [ArticleView] Query state - orgLoading: false orgError: false authorOrganization: undefined
+index-D9S03Cdh.js:1102 [useNavigationRealtime] Setting up realtime subscription for navigation_item table
+index-D9S03Cdh.js:2116 [ArticleView] Fetching article for authorHandle: mat-henderson slug: test-blog-bnms isAuthenticated: false
+index-D9S03Cdh.js:2116 [ArticleView] Using public API for article fetch
+index-D9S03Cdh.js:2116 [ArticleView] Component initialized
+index-D9S03Cdh.js:2116 [ArticleView] Route params - authorHandle: mat-henderson articleSlug: test-blog-bnms
+index-D9S03Cdh.js:2116 [ArticleView] window.location.pathname: /blogs/mat-henderson/test-blog-bnms
+index-D9S03Cdh.js:2116 [ArticleView] isAuthenticated: false
+index-D9S03Cdh.js:2116 [ArticleView] Resolved - authorHandle: mat-henderson slug: test-blog-bnms
+index-D9S03Cdh.js:2116 [ArticleView] isPreviewMode: false
+index-D9S03Cdh.js:2116 [ArticleView] Query state - orgLoading: false orgError: false authorOrganization: undefined
+index-D9S03Cdh.js:1405 [Layout] Server returned null for /api/auth/me - member deleted or disabled
+index-D9S03Cdh.js:1102 [useNavigationRealtime] Subscription status: SUBSCRIBED
+index-D9S03Cdh.js:1016  GET https://bnms.iconn.app/api/entities/PortalMenu?sort=%7B%22display_order%22%3A%22asc%22%7D 401 (Unauthorized)
+_apiRequest @ index-D9S03Cdh.js:1016
+list @ index-D9S03Cdh.js:1016
+queryFn @ index-D9S03Cdh.js:1405
+i @ index-D9S03Cdh.js:1016
+v @ index-D9S03Cdh.js:1016
+start @ index-D9S03Cdh.js:1016
+fetch @ index-D9S03Cdh.js:1016
+wf @ index-D9S03Cdh.js:1016
+onSubscribe @ index-D9S03Cdh.js:1016
+subscribe @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+qR @ index-D9S03Cdh.js:38
+Aj @ index-D9S03Cdh.js:40
+Bh @ index-D9S03Cdh.js:40
+(anonymous) @ index-D9S03Cdh.js:40
+N @ index-D9S03Cdh.js:25
+w @ index-D9S03Cdh.js:25
+index-D9S03Cdh.js:1016  GET https://bnms.iconn.app/api/entities/SystemSettings?filter=%7B%22setting_key%22%3A%22global_border_radius%22%7D 401 (Unauthorized)
+_apiRequest @ index-D9S03Cdh.js:1016
+list @ index-D9S03Cdh.js:1016
+queryFn @ index-D9S03Cdh.js:1405
+i @ index-D9S03Cdh.js:1016
+v @ index-D9S03Cdh.js:1016
+start @ index-D9S03Cdh.js:1016
+fetch @ index-D9S03Cdh.js:1016
+wf @ index-D9S03Cdh.js:1016
+onSubscribe @ index-D9S03Cdh.js:1016
+subscribe @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+qR @ index-D9S03Cdh.js:38
+Aj @ index-D9S03Cdh.js:40
+Bh @ index-D9S03Cdh.js:40
+(anonymous) @ index-D9S03Cdh.js:40
+N @ index-D9S03Cdh.js:25
+w @ index-D9S03Cdh.js:25
+index-D9S03Cdh.js:1405 Error loading PortalMenu: Error: API Error (401): Authentication required
+    at qee._apiRequest (index-D9S03Cdh.js:1016:50455)
+    at async Dee.list (index-D9S03Cdh.js:1016:41048)
+    at async queryFn (index-D9S03Cdh.js:1405:53040)
+queryFn @ index-D9S03Cdh.js:1405
+await in queryFn
+i @ index-D9S03Cdh.js:1016
+v @ index-D9S03Cdh.js:1016
+start @ index-D9S03Cdh.js:1016
+fetch @ index-D9S03Cdh.js:1016
+wf @ index-D9S03Cdh.js:1016
+onSubscribe @ index-D9S03Cdh.js:1016
+subscribe @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+qR @ index-D9S03Cdh.js:38
+Aj @ index-D9S03Cdh.js:40
+Bh @ index-D9S03Cdh.js:40
+(anonymous) @ index-D9S03Cdh.js:40
+N @ index-D9S03Cdh.js:25
+w @ index-D9S03Cdh.js:25
+index-D9S03Cdh.js:1405 Error loading SystemSettings: Error: API Error (401): Authentication required
+    at qee._apiRequest (index-D9S03Cdh.js:1016:50455)
+    at async Dee.list (index-D9S03Cdh.js:1016:41048)
+    at async queryFn (index-D9S03Cdh.js:1405:51085)
+queryFn @ index-D9S03Cdh.js:1405
+await in queryFn
+i @ index-D9S03Cdh.js:1016
+v @ index-D9S03Cdh.js:1016
+start @ index-D9S03Cdh.js:1016
+fetch @ index-D9S03Cdh.js:1016
+wf @ index-D9S03Cdh.js:1016
+onSubscribe @ index-D9S03Cdh.js:1016
+subscribe @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+qR @ index-D9S03Cdh.js:38
+Aj @ index-D9S03Cdh.js:40
+Bh @ index-D9S03Cdh.js:40
+(anonymous) @ index-D9S03Cdh.js:40
+N @ index-D9S03Cdh.js:25
+w @ index-D9S03Cdh.js:25
+index-D9S03Cdh.js:1405 [usePendingPurchaseOrders] memberInfo: null
+index-D9S03Cdh.js:1405 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-D9S03Cdh.js:1405 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-D9S03Cdh.js:1405 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-D9S03Cdh.js:1016  GET https://bnms.iconn.app/api/entities/SystemSettings 401 (Unauthorized)
+_apiRequest @ index-D9S03Cdh.js:1016
+list @ index-D9S03Cdh.js:1016
+queryFn @ index-D9S03Cdh.js:1016
+i @ index-D9S03Cdh.js:1016
+v @ index-D9S03Cdh.js:1016
+start @ index-D9S03Cdh.js:1016
+fetch @ index-D9S03Cdh.js:1016
+wf @ index-D9S03Cdh.js:1016
+onSubscribe @ index-D9S03Cdh.js:1016
+subscribe @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+qR @ index-D9S03Cdh.js:38
+Aj @ index-D9S03Cdh.js:40
+Bh @ index-D9S03Cdh.js:40
+(anonymous) @ index-D9S03Cdh.js:40
+N @ index-D9S03Cdh.js:25
+w @ index-D9S03Cdh.js:25
+index-D9S03Cdh.js:1016 Error loading article display name: Error: API Error (401): Authentication required
+    at qee._apiRequest (index-D9S03Cdh.js:1016:50455)
+    at async Dee.list (index-D9S03Cdh.js:1016:41048)
+    at async queryFn (index-D9S03Cdh.js:1016:51873)
+queryFn @ index-D9S03Cdh.js:1016
+await in queryFn
+i @ index-D9S03Cdh.js:1016
+v @ index-D9S03Cdh.js:1016
+start @ index-D9S03Cdh.js:1016
+fetch @ index-D9S03Cdh.js:1016
+wf @ index-D9S03Cdh.js:1016
+onSubscribe @ index-D9S03Cdh.js:1016
+subscribe @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+qR @ index-D9S03Cdh.js:38
+Aj @ index-D9S03Cdh.js:40
+Bh @ index-D9S03Cdh.js:40
+(anonymous) @ index-D9S03Cdh.js:40
+N @ index-D9S03Cdh.js:25
+w @ index-D9S03Cdh.js:25
+index-D9S03Cdh.js:1405 [usePendingPurchaseOrders] memberInfo: null
+index-D9S03Cdh.js:1405 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-D9S03Cdh.js:1405 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-D9S03Cdh.js:1405 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-D9S03Cdh.js:2116 [ArticleView] Component initialized
+index-D9S03Cdh.js:2116 [ArticleView] Route params - authorHandle: mat-henderson articleSlug: test-blog-bnms
+index-D9S03Cdh.js:2116 [ArticleView] window.location.pathname: /blogs/mat-henderson/test-blog-bnms
+index-D9S03Cdh.js:2116 [ArticleView] isAuthenticated: false
+index-D9S03Cdh.js:2116 [ArticleView] Resolved - authorHandle: mat-henderson slug: test-blog-bnms
+index-D9S03Cdh.js:2116 [ArticleView] isPreviewMode: false
+index-D9S03Cdh.js:2116 [ArticleView] Query state - orgLoading: false orgError: false authorOrganization: undefined
+index-D9S03Cdh.js:2116 [ArticleView] Component initialized
+index-D9S03Cdh.js:2116 [ArticleView] Route params - authorHandle: mat-henderson articleSlug: test-blog-bnms
+index-D9S03Cdh.js:2116 [ArticleView] window.location.pathname: /blogs/mat-henderson/test-blog-bnms
+index-D9S03Cdh.js:2116 [ArticleView] isAuthenticated: false
+index-D9S03Cdh.js:2116 [ArticleView] Resolved - authorHandle: mat-henderson slug: test-blog-bnms
+index-D9S03Cdh.js:2116 [ArticleView] isPreviewMode: false
+index-D9S03Cdh.js:2116 [ArticleView] Query state - orgLoading: false orgError: false authorOrganization: undefined
+index-D9S03Cdh.js:2116 [ArticleView] Public API result: {article: {…}, author: null, guestWriter: null}
+index-D9S03Cdh.js:2116 [ArticleView] Component initialized
+index-D9S03Cdh.js:2116 [ArticleView] Route params - authorHandle: mat-henderson articleSlug: test-blog-bnms
+index-D9S03Cdh.js:2116 [ArticleView] window.location.pathname: /blogs/mat-henderson/test-blog-bnms
+index-D9S03Cdh.js:2116 [ArticleView] isAuthenticated: false
+index-D9S03Cdh.js:2116 [ArticleView] Resolved - authorHandle: mat-henderson slug: test-blog-bnms
+index-D9S03Cdh.js:2116 [ArticleView] isPreviewMode: false
+index-D9S03Cdh.js:2116 [ArticleView] Query state - orgLoading: false orgError: false authorOrganization: undefined
+index-D9S03Cdh.js:2116 [useArticleReactionRealtime] No articleId provided, skipping subscription
+index-D9S03Cdh.js:2110 [useArticleCommentRealtime] No articleId provided, skipping subscription
+index-D9S03Cdh.js:2110 [useCommentReactionRealtime] No articleId provided, skipping subscription
+index-D9S03Cdh.js:1371 [PublicLayout] Fetching banners for page: _DynamicPage portalPageId: null isCustomSlug: false urlSlug: Articles
+index-D9S03Cdh.js:1371 [PublicLayout] All banners found: 14
+index-D9S03Cdh.js:1371 [PublicLayout] pageToPortalPageMap keys: (26) ['Events', 'PublicEvents', 'Bookings', 'MyTickets', 'BuyProgramTickets', 'MemberDirectory', 'OrganisationDirectory', 'Resources', 'PublicResources', 'Articles', 'PublicArticles', 'Team', 'Balances', 'History', 'Profile', 'MyOrganisation', 'JobBoard', 'PublicJobBoard', 'News', 'PublicNews', 'NewsView', 'MyJobPostings', 'Preferences', 'about-me', 'Support', 'Dashboard']
+index-D9S03Cdh.js:1371 [PublicLayout] Matched banners: 0
+index-D9S03Cdh.js:2116 [ArticleView] Component initialized
+index-D9S03Cdh.js:2116 [ArticleView] Route params - authorHandle: mat-henderson articleSlug: test-blog-bnms
+index-D9S03Cdh.js:2116 [ArticleView] window.location.pathname: /blogs/mat-henderson/test-blog-bnms
+index-D9S03Cdh.js:2116 [ArticleView] isAuthenticated: false
+index-D9S03Cdh.js:2116 [ArticleView] Resolved - authorHandle: mat-henderson slug: test-blog-bnms
+index-D9S03Cdh.js:2116 [ArticleView] isPreviewMode: false
+index-D9S03Cdh.js:2116 [ArticleView] Query state - orgLoading: false orgError: false authorOrganization: undefined
+test-blog-bnms:1 Launched external handler for 'mailto:?subject=Test%20Blog%20BNMS&body=I%20thought%20you%20might%20find%20this%20article%20interesting%3A%0A%0ATest%20Blog%20BNMS%0A%0Atest%20blog%20by%20mat%0A%0Ahttps%3A%2F%2Fbnms.iconn.app%2Fblogs%2Fmat-henderson%2Ftest-blog-bnms'.
+index-D9S03Cdh.js:1405 [usePendingPurchaseOrders] memberInfo: null
+index-D9S03Cdh.js:1405 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-D9S03Cdh.js:1405 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-D9S03Cdh.js:1405 [Layout] currentPageName: News currentPortalPageId: portal_news
+index-D9S03Cdh.js:1102 [useNavigationRealtime] Cleaning up realtime subscription
+index-D9S03Cdh.js:1102 [useNavigationRealtime] Subscription status: CLOSED
+index-D9S03Cdh.js:1016  GET https://bnms.iconn.app/api/entities/SystemSettings 401 (Unauthorized)
+_apiRequest @ index-D9S03Cdh.js:1016
+list @ index-D9S03Cdh.js:1016
+queryFn @ index-D9S03Cdh.js:1405
+i @ index-D9S03Cdh.js:1016
+v @ index-D9S03Cdh.js:1016
+start @ index-D9S03Cdh.js:1016
+fetch @ index-D9S03Cdh.js:1016
+wf @ index-D9S03Cdh.js:1016
+onSubscribe @ index-D9S03Cdh.js:1016
+subscribe @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+qR @ index-D9S03Cdh.js:38
+Aj @ index-D9S03Cdh.js:40
+Bh @ index-D9S03Cdh.js:40
+U5 @ index-D9S03Cdh.js:40
+bu @ index-D9S03Cdh.js:38
+WQ @ index-D9S03Cdh.js:40
+Lu @ index-D9S03Cdh.js:40
+y$ @ index-D9S03Cdh.js:40
+N @ index-D9S03Cdh.js:25
+w @ index-D9S03Cdh.js:25
+index-D9S03Cdh.js:1405 Error loading news ticker settings: Error: API Error (401): Authentication required
+    at qee._apiRequest (index-D9S03Cdh.js:1016:50455)
+    at async Dee.list (index-D9S03Cdh.js:1016:41048)
+    at async queryFn (index-D9S03Cdh.js:1405:1111)
+queryFn @ index-D9S03Cdh.js:1405
+await in queryFn
+i @ index-D9S03Cdh.js:1016
+v @ index-D9S03Cdh.js:1016
+start @ index-D9S03Cdh.js:1016
+fetch @ index-D9S03Cdh.js:1016
+wf @ index-D9S03Cdh.js:1016
+onSubscribe @ index-D9S03Cdh.js:1016
+subscribe @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+qR @ index-D9S03Cdh.js:38
+Aj @ index-D9S03Cdh.js:40
+Bh @ index-D9S03Cdh.js:40
+U5 @ index-D9S03Cdh.js:40
+bu @ index-D9S03Cdh.js:38
+WQ @ index-D9S03Cdh.js:40
+Lu @ index-D9S03Cdh.js:40
+y$ @ index-D9S03Cdh.js:40
+N @ index-D9S03Cdh.js:25
+w @ index-D9S03Cdh.js:25
+index-D9S03Cdh.js:1016  GET https://bnms.iconn.app/api/entities/ResourceCategory 401 (Unauthorized)
+_apiRequest @ index-D9S03Cdh.js:1016
+list @ index-D9S03Cdh.js:1016
+queryFn @ index-D9S03Cdh.js:2443
+i @ index-D9S03Cdh.js:1016
+v @ index-D9S03Cdh.js:1016
+start @ index-D9S03Cdh.js:1016
+fetch @ index-D9S03Cdh.js:1016
+wf @ index-D9S03Cdh.js:1016
+onSubscribe @ index-D9S03Cdh.js:1016
+subscribe @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+qR @ index-D9S03Cdh.js:38
+Aj @ index-D9S03Cdh.js:40
+Bh @ index-D9S03Cdh.js:40
+U5 @ index-D9S03Cdh.js:40
+bu @ index-D9S03Cdh.js:38
+WQ @ index-D9S03Cdh.js:40
+Lu @ index-D9S03Cdh.js:40
+y$ @ index-D9S03Cdh.js:40
+N @ index-D9S03Cdh.js:25
+w @ index-D9S03Cdh.js:25
+index-D9S03Cdh.js:1016  GET https://bnms.iconn.app/api/entities/PageBanner?filter=%7B%22is_active%22%3Atrue%7D&sort=%7B%22display_order%22%3A%22asc%22%7D 401 (Unauthorized)
+_apiRequest @ index-D9S03Cdh.js:1016
+list @ index-D9S03Cdh.js:1016
+queryFn @ index-D9S03Cdh.js:1405
+i @ index-D9S03Cdh.js:1016
+v @ index-D9S03Cdh.js:1016
+start @ index-D9S03Cdh.js:1016
+fetch @ index-D9S03Cdh.js:1016
+wf @ index-D9S03Cdh.js:1016
+setOptions @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+Aj @ index-D9S03Cdh.js:40
+Bh @ index-D9S03Cdh.js:40
+U5 @ index-D9S03Cdh.js:40
+bu @ index-D9S03Cdh.js:38
+WQ @ index-D9S03Cdh.js:40
+Lu @ index-D9S03Cdh.js:40
+y$ @ index-D9S03Cdh.js:40
+N @ index-D9S03Cdh.js:25
+w @ index-D9S03Cdh.js:25
+index-D9S03Cdh.js:1405 Error loading portal banners: Error: API Error (401): Authentication required
+    at qee._apiRequest (index-D9S03Cdh.js:1016:50455)
+    at async Dee.list (index-D9S03Cdh.js:1016:41048)
+    at async queryFn (index-D9S03Cdh.js:1405:54789)
+queryFn @ index-D9S03Cdh.js:1405
+await in queryFn
+i @ index-D9S03Cdh.js:1016
+v @ index-D9S03Cdh.js:1016
+start @ index-D9S03Cdh.js:1016
+fetch @ index-D9S03Cdh.js:1016
+wf @ index-D9S03Cdh.js:1016
+setOptions @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+Aj @ index-D9S03Cdh.js:40
+Bh @ index-D9S03Cdh.js:40
+U5 @ index-D9S03Cdh.js:40
+bu @ index-D9S03Cdh.js:38
+WQ @ index-D9S03Cdh.js:40
+Lu @ index-D9S03Cdh.js:40
+y$ @ index-D9S03Cdh.js:40
+N @ index-D9S03Cdh.js:25
+w @ index-D9S03Cdh.js:25
+index-D9S03Cdh.js:1405 [usePendingPurchaseOrders] memberInfo: null
+index-D9S03Cdh.js:1405 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-D9S03Cdh.js:1405 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-D9S03Cdh.js:1405 [Layout] currentPageName: News currentPortalPageId: portal_news
+index-D9S03Cdh.js:1405 [Layout] Server returned null for /api/auth/me - member deleted or disabled
+index-D9S03Cdh.js:1405  GET https://bnms.iconn.app/api/admin/form-submissions/stats 401 (Unauthorized)
+queryFn @ index-D9S03Cdh.js:1405
+i @ index-D9S03Cdh.js:1016
+v @ index-D9S03Cdh.js:1016
+start @ index-D9S03Cdh.js:1016
+fetch @ index-D9S03Cdh.js:1016
+wf @ index-D9S03Cdh.js:1016
+onSubscribe @ index-D9S03Cdh.js:1016
+subscribe @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+qR @ index-D9S03Cdh.js:38
+Aj @ index-D9S03Cdh.js:40
+Bh @ index-D9S03Cdh.js:40
+U5 @ index-D9S03Cdh.js:40
+bu @ index-D9S03Cdh.js:38
+WQ @ index-D9S03Cdh.js:40
+Lu @ index-D9S03Cdh.js:40
+y$ @ index-D9S03Cdh.js:40
+N @ index-D9S03Cdh.js:25
+w @ index-D9S03Cdh.js:25
+index-D9S03Cdh.js:1016  GET https://bnms.iconn.app/api/entities/SystemSettings 401 (Unauthorized)
+_apiRequest @ index-D9S03Cdh.js:1016
+list @ index-D9S03Cdh.js:1016
+queryFn @ index-D9S03Cdh.js:2443
+i @ index-D9S03Cdh.js:1016
+v @ index-D9S03Cdh.js:1016
+start @ index-D9S03Cdh.js:1016
+fetch @ index-D9S03Cdh.js:1016
+wf @ index-D9S03Cdh.js:1016
+onSubscribe @ index-D9S03Cdh.js:1016
+subscribe @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+qR @ index-D9S03Cdh.js:38
+Aj @ index-D9S03Cdh.js:40
+Bh @ index-D9S03Cdh.js:40
+U5 @ index-D9S03Cdh.js:40
+bu @ index-D9S03Cdh.js:38
+WQ @ index-D9S03Cdh.js:40
+Lu @ index-D9S03Cdh.js:40
+y$ @ index-D9S03Cdh.js:40
+N @ index-D9S03Cdh.js:25
+w @ index-D9S03Cdh.js:25
+index-D9S03Cdh.js:1016  GET https://bnms.iconn.app/api/entities/ResourceCategory 401 (Unauthorized)
+_apiRequest @ index-D9S03Cdh.js:1016
+list @ index-D9S03Cdh.js:1016
+queryFn @ index-D9S03Cdh.js:2443
+i @ index-D9S03Cdh.js:1016
+v @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.then
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.catch
+v @ index-D9S03Cdh.js:1016
+start @ index-D9S03Cdh.js:1016
+fetch @ index-D9S03Cdh.js:1016
+wf @ index-D9S03Cdh.js:1016
+onSubscribe @ index-D9S03Cdh.js:1016
+subscribe @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+qR @ index-D9S03Cdh.js:38
+Aj @ index-D9S03Cdh.js:40
+Bh @ index-D9S03Cdh.js:40
+U5 @ index-D9S03Cdh.js:40
+bu @ index-D9S03Cdh.js:38
+WQ @ index-D9S03Cdh.js:40
+Lu @ index-D9S03Cdh.js:40
+y$ @ index-D9S03Cdh.js:40
+N @ index-D9S03Cdh.js:25
+w @ index-D9S03Cdh.js:25
+index-D9S03Cdh.js:1016  GET https://bnms.iconn.app/api/entities/SystemSettings 401 (Unauthorized)
+_apiRequest @ index-D9S03Cdh.js:1016
+list @ index-D9S03Cdh.js:1016
+queryFn @ index-D9S03Cdh.js:2443
+i @ index-D9S03Cdh.js:1016
+v @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.then
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.catch
+v @ index-D9S03Cdh.js:1016
+start @ index-D9S03Cdh.js:1016
+fetch @ index-D9S03Cdh.js:1016
+wf @ index-D9S03Cdh.js:1016
+onSubscribe @ index-D9S03Cdh.js:1016
+subscribe @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+qR @ index-D9S03Cdh.js:38
+Aj @ index-D9S03Cdh.js:40
+Bh @ index-D9S03Cdh.js:40
+U5 @ index-D9S03Cdh.js:40
+bu @ index-D9S03Cdh.js:38
+WQ @ index-D9S03Cdh.js:40
+Lu @ index-D9S03Cdh.js:40
+y$ @ index-D9S03Cdh.js:40
+N @ index-D9S03Cdh.js:25
+w @ index-D9S03Cdh.js:25
+index-D9S03Cdh.js:1016  GET https://bnms.iconn.app/api/entities/ResourceCategory 401 (Unauthorized)
+_apiRequest @ index-D9S03Cdh.js:1016
+list @ index-D9S03Cdh.js:1016
+queryFn @ index-D9S03Cdh.js:2443
+i @ index-D9S03Cdh.js:1016
+v @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.then
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.catch
+v @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.then
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.catch
+v @ index-D9S03Cdh.js:1016
+start @ index-D9S03Cdh.js:1016
+fetch @ index-D9S03Cdh.js:1016
+wf @ index-D9S03Cdh.js:1016
+onSubscribe @ index-D9S03Cdh.js:1016
+subscribe @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+qR @ index-D9S03Cdh.js:38
+Aj @ index-D9S03Cdh.js:40
+Bh @ index-D9S03Cdh.js:40
+U5 @ index-D9S03Cdh.js:40
+bu @ index-D9S03Cdh.js:38
+WQ @ index-D9S03Cdh.js:40
+Lu @ index-D9S03Cdh.js:40
+y$ @ index-D9S03Cdh.js:40
+N @ index-D9S03Cdh.js:25
+w @ index-D9S03Cdh.js:25
+index-D9S03Cdh.js:1016  GET https://bnms.iconn.app/api/entities/SystemSettings 401 (Unauthorized)
+_apiRequest @ index-D9S03Cdh.js:1016
+list @ index-D9S03Cdh.js:1016
+queryFn @ index-D9S03Cdh.js:2443
+i @ index-D9S03Cdh.js:1016
+v @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.then
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.catch
+v @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.then
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.catch
+v @ index-D9S03Cdh.js:1016
+start @ index-D9S03Cdh.js:1016
+fetch @ index-D9S03Cdh.js:1016
+wf @ index-D9S03Cdh.js:1016
+onSubscribe @ index-D9S03Cdh.js:1016
+subscribe @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+qR @ index-D9S03Cdh.js:38
+Aj @ index-D9S03Cdh.js:40
+Bh @ index-D9S03Cdh.js:40
+U5 @ index-D9S03Cdh.js:40
+bu @ index-D9S03Cdh.js:38
+WQ @ index-D9S03Cdh.js:40
+Lu @ index-D9S03Cdh.js:40
+y$ @ index-D9S03Cdh.js:40
+N @ index-D9S03Cdh.js:25
+w @ index-D9S03Cdh.js:25
+index-D9S03Cdh.js:1016  GET https://bnms.iconn.app/api/entities/SystemSettings 401 (Unauthorized)
+_apiRequest @ index-D9S03Cdh.js:1016
+list @ index-D9S03Cdh.js:1016
+queryFn @ index-D9S03Cdh.js:2443
+i @ index-D9S03Cdh.js:1016
+v @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.then
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.catch
+v @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.then
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.catch
+v @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.then
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.catch
+v @ index-D9S03Cdh.js:1016
+start @ index-D9S03Cdh.js:1016
+fetch @ index-D9S03Cdh.js:1016
+wf @ index-D9S03Cdh.js:1016
+onSubscribe @ index-D9S03Cdh.js:1016
+subscribe @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+qR @ index-D9S03Cdh.js:38
+Aj @ index-D9S03Cdh.js:40
+Bh @ index-D9S03Cdh.js:40
+U5 @ index-D9S03Cdh.js:40
+bu @ index-D9S03Cdh.js:38
+WQ @ index-D9S03Cdh.js:40
+Lu @ index-D9S03Cdh.js:40
+y$ @ index-D9S03Cdh.js:40
+N @ index-D9S03Cdh.js:25
+w @ index-D9S03Cdh.js:25
+index-D9S03Cdh.js:1016  GET https://bnms.iconn.app/api/entities/ResourceCategory 401 (Unauthorized)
+_apiRequest @ index-D9S03Cdh.js:1016
+list @ index-D9S03Cdh.js:1016
+queryFn @ index-D9S03Cdh.js:2443
+i @ index-D9S03Cdh.js:1016
+v @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.then
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.catch
+v @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.then
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.catch
+v @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.then
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.catch
+v @ index-D9S03Cdh.js:1016
+start @ index-D9S03Cdh.js:1016
+fetch @ index-D9S03Cdh.js:1016
+wf @ index-D9S03Cdh.js:1016
+onSubscribe @ index-D9S03Cdh.js:1016
+subscribe @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+qR @ index-D9S03Cdh.js:38
+Aj @ index-D9S03Cdh.js:40
+Bh @ index-D9S03Cdh.js:40
+U5 @ index-D9S03Cdh.js:40
+bu @ index-D9S03Cdh.js:38
+WQ @ index-D9S03Cdh.js:40
+Lu @ index-D9S03Cdh.js:40
+y$ @ index-D9S03Cdh.js:40
+N @ index-D9S03Cdh.js:25
+w @ index-D9S03Cdh.js:25
+index-D9S03Cdh.js:1405 [usePendingPurchaseOrders] memberInfo: null
+index-D9S03Cdh.js:1405 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-D9S03Cdh.js:1405 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-D9S03Cdh.js:1405 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-D9S03Cdh.js:2116 [ArticleView] Component initialized
+index-D9S03Cdh.js:2116 [ArticleView] Route params - authorHandle: mat-henderson articleSlug: test-blog-bnms
+index-D9S03Cdh.js:2116 [ArticleView] window.location.pathname: /blogs/mat-henderson/test-blog-bnms
+index-D9S03Cdh.js:2116 [ArticleView] isAuthenticated: false
+index-D9S03Cdh.js:2116 [ArticleView] Resolved - authorHandle: mat-henderson slug: test-blog-bnms
+index-D9S03Cdh.js:2116 [ArticleView] isPreviewMode: false
+index-D9S03Cdh.js:2116 [ArticleView] Query state - orgLoading: false orgError: false authorOrganization: undefined
+index-D9S03Cdh.js:1102 [useNavigationRealtime] Setting up realtime subscription for navigation_item table
+index-D9S03Cdh.js:2116 [useArticleReactionRealtime] No articleId provided, skipping subscription
+index-D9S03Cdh.js:2110 [useArticleCommentRealtime] No articleId provided, skipping subscription
+index-D9S03Cdh.js:2110 [useCommentReactionRealtime] No articleId provided, skipping subscription
+index-D9S03Cdh.js:2116 [ArticleView] Fetching article for authorHandle: mat-henderson slug: test-blog-bnms isAuthenticated: false
+index-D9S03Cdh.js:2116 [ArticleView] Using public API for article fetch
+index-D9S03Cdh.js:2116 [ArticleView] Component initialized
+index-D9S03Cdh.js:2116 [ArticleView] Route params - authorHandle: mat-henderson articleSlug: test-blog-bnms
+index-D9S03Cdh.js:2116 [ArticleView] window.location.pathname: /blogs/mat-henderson/test-blog-bnms
+index-D9S03Cdh.js:2116 [ArticleView] isAuthenticated: false
+index-D9S03Cdh.js:2116 [ArticleView] Resolved - authorHandle: mat-henderson slug: test-blog-bnms
+index-D9S03Cdh.js:2116 [ArticleView] isPreviewMode: false
+index-D9S03Cdh.js:2116 [ArticleView] Query state - orgLoading: false orgError: false authorOrganization: undefined
+index-D9S03Cdh.js:1405 [Layout] Server returned null for /api/auth/me - member deleted or disabled
+index-D9S03Cdh.js:1102 [useNavigationRealtime] Subscription status: SUBSCRIBED
+ [PublicLayout] Fetching banners for page: _DynamicPage portalPageId: null isCustomSlug: false urlSlug: Articles
+ [PublicLayout] All banners found: 14
+ [PublicLayout] pageToPortalPageMap keys: (26) ['Events', 'PublicEvents', 'Bookings', 'MyTickets', 'BuyProgramTickets', 'MemberDirectory', 'OrganisationDirectory', 'Resources', 'PublicResources', 'Articles', 'PublicArticles', 'Team', 'Balances', 'History', 'Profile', 'MyOrganisation', 'JobBoard', 'PublicJobBoard', 'News', 'PublicNews', 'NewsView', 'MyJobPostings', 'Preferences', 'about-me', 'Support', 'Dashboard']
+ [PublicLayout] Matched banners: 0
+ [ArticleView] Public API result: {article: {…}, author: null, guestWriter: null}
+ [usePendingPurchaseOrders] memberInfo: null
+ [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+ [Layout] hasPendingPOs: false count: 0 isLoading: false
+ [Layout] currentPageName: News currentPortalPageId: portal_news
+ [useNavigationRealtime] Cleaning up realtime subscription
+ [useNavigationRealtime] Subscription status: CLOSED
+  GET https://bnms.iconn.app/api/entities/PageBanner?filter=%7B%22is_active%22%3Atrue%7D&sort=%7B%22display_order%22%3A%22asc%22%7D 401 (Unauthorized)
+_apiRequest @ index-D9S03Cdh.js:1016
+list @ index-D9S03Cdh.js:1016
+queryFn @ index-D9S03Cdh.js:1405
+i @ index-D9S03Cdh.js:1016
+v @ index-D9S03Cdh.js:1016
+start @ index-D9S03Cdh.js:1016
+fetch @ index-D9S03Cdh.js:1016
+wf @ index-D9S03Cdh.js:1016
+setOptions @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+Aj @ index-D9S03Cdh.js:40
+Bh @ index-D9S03Cdh.js:40
+U5 @ index-D9S03Cdh.js:40
+bu @ index-D9S03Cdh.js:38
+WQ @ index-D9S03Cdh.js:40
+Lu @ index-D9S03Cdh.js:40
+y$ @ index-D9S03Cdh.js:40
+N @ index-D9S03Cdh.js:25
+w @ index-D9S03Cdh.js:25
+ Error loading portal banners: 
+queryFn @ index-D9S03Cdh.js:1405
+await in queryFn
+i @ index-D9S03Cdh.js:1016
+v @ index-D9S03Cdh.js:1016
+start @ index-D9S03Cdh.js:1016
+fetch @ index-D9S03Cdh.js:1016
+wf @ index-D9S03Cdh.js:1016
+setOptions @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+Aj @ index-D9S03Cdh.js:40
+Bh @ index-D9S03Cdh.js:40
+U5 @ index-D9S03Cdh.js:40
+bu @ index-D9S03Cdh.js:38
+WQ @ index-D9S03Cdh.js:40
+Lu @ index-D9S03Cdh.js:40
+y$ @ index-D9S03Cdh.js:40
+N @ index-D9S03Cdh.js:25
+w @ index-D9S03Cdh.js:25
+  GET https://bnms.iconn.app/api/admin/form-submissions/stats 401 (Unauthorized)
+queryFn @ index-D9S03Cdh.js:1405
+i @ index-D9S03Cdh.js:1016
+v @ index-D9S03Cdh.js:1016
+start @ index-D9S03Cdh.js:1016
+fetch @ index-D9S03Cdh.js:1016
+wf @ index-D9S03Cdh.js:1016
+onSubscribe @ index-D9S03Cdh.js:1016
+subscribe @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+qR @ index-D9S03Cdh.js:38
+Aj @ index-D9S03Cdh.js:40
+Bh @ index-D9S03Cdh.js:40
+U5 @ index-D9S03Cdh.js:40
+bu @ index-D9S03Cdh.js:38
+WQ @ index-D9S03Cdh.js:40
+Lu @ index-D9S03Cdh.js:40
+y$ @ index-D9S03Cdh.js:40
+N @ index-D9S03Cdh.js:25
+w @ index-D9S03Cdh.js:25
+  GET https://bnms.iconn.app/api/entities/SystemSettings 401 (Unauthorized)
+_apiRequest @ index-D9S03Cdh.js:1016
+list @ index-D9S03Cdh.js:1016
+queryFn @ index-D9S03Cdh.js:1405
+i @ index-D9S03Cdh.js:1016
+v @ index-D9S03Cdh.js:1016
+start @ index-D9S03Cdh.js:1016
+fetch @ index-D9S03Cdh.js:1016
+wf @ index-D9S03Cdh.js:1016
+onSubscribe @ index-D9S03Cdh.js:1016
+subscribe @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+qR @ index-D9S03Cdh.js:38
+Aj @ index-D9S03Cdh.js:40
+Bh @ index-D9S03Cdh.js:40
+U5 @ index-D9S03Cdh.js:40
+bu @ index-D9S03Cdh.js:38
+WQ @ index-D9S03Cdh.js:40
+Lu @ index-D9S03Cdh.js:40
+y$ @ index-D9S03Cdh.js:40
+N @ index-D9S03Cdh.js:25
+w @ index-D9S03Cdh.js:25
+ [Layout] Server returned null for /api/auth/me - member deleted or disabled
+ Error loading news ticker settings: 
+queryFn @ index-D9S03Cdh.js:1405
+await in queryFn
+i @ index-D9S03Cdh.js:1016
+v @ index-D9S03Cdh.js:1016
+start @ index-D9S03Cdh.js:1016
+fetch @ index-D9S03Cdh.js:1016
+wf @ index-D9S03Cdh.js:1016
+onSubscribe @ index-D9S03Cdh.js:1016
+subscribe @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+qR @ index-D9S03Cdh.js:38
+Aj @ index-D9S03Cdh.js:40
+Bh @ index-D9S03Cdh.js:40
+U5 @ index-D9S03Cdh.js:40
+bu @ index-D9S03Cdh.js:38
+WQ @ index-D9S03Cdh.js:40
+Lu @ index-D9S03Cdh.js:40
+y$ @ index-D9S03Cdh.js:40
+N @ index-D9S03Cdh.js:25
+w @ index-D9S03Cdh.js:25
+  GET https://bnms.iconn.app/api/entities/ResourceCategory 401 (Unauthorized)
+_apiRequest @ index-D9S03Cdh.js:1016
+list @ index-D9S03Cdh.js:1016
+queryFn @ index-D9S03Cdh.js:2443
+i @ index-D9S03Cdh.js:1016
+v @ index-D9S03Cdh.js:1016
+start @ index-D9S03Cdh.js:1016
+fetch @ index-D9S03Cdh.js:1016
+wf @ index-D9S03Cdh.js:1016
+onSubscribe @ index-D9S03Cdh.js:1016
+subscribe @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+qR @ index-D9S03Cdh.js:38
+Aj @ index-D9S03Cdh.js:40
+Bh @ index-D9S03Cdh.js:40
+U5 @ index-D9S03Cdh.js:40
+bu @ index-D9S03Cdh.js:38
+WQ @ index-D9S03Cdh.js:40
+Lu @ index-D9S03Cdh.js:40
+y$ @ index-D9S03Cdh.js:40
+N @ index-D9S03Cdh.js:25
+w @ index-D9S03Cdh.js:25
+  GET https://bnms.iconn.app/api/entities/SystemSettings 401 (Unauthorized)
+_apiRequest @ index-D9S03Cdh.js:1016
+list @ index-D9S03Cdh.js:1016
+queryFn @ index-D9S03Cdh.js:2443
+i @ index-D9S03Cdh.js:1016
+v @ index-D9S03Cdh.js:1016
+start @ index-D9S03Cdh.js:1016
+fetch @ index-D9S03Cdh.js:1016
+wf @ index-D9S03Cdh.js:1016
+onSubscribe @ index-D9S03Cdh.js:1016
+subscribe @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+qR @ index-D9S03Cdh.js:38
+Aj @ index-D9S03Cdh.js:40
+Bh @ index-D9S03Cdh.js:40
+U5 @ index-D9S03Cdh.js:40
+bu @ index-D9S03Cdh.js:38
+WQ @ index-D9S03Cdh.js:40
+Lu @ index-D9S03Cdh.js:40
+y$ @ index-D9S03Cdh.js:40
+N @ index-D9S03Cdh.js:25
+w @ index-D9S03Cdh.js:25
+  GET https://bnms.iconn.app/api/entities/ResourceCategory 401 (Unauthorized)
+_apiRequest @ index-D9S03Cdh.js:1016
+list @ index-D9S03Cdh.js:1016
+queryFn @ index-D9S03Cdh.js:2443
+i @ index-D9S03Cdh.js:1016
+v @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.then
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.catch
+v @ index-D9S03Cdh.js:1016
+start @ index-D9S03Cdh.js:1016
+fetch @ index-D9S03Cdh.js:1016
+wf @ index-D9S03Cdh.js:1016
+onSubscribe @ index-D9S03Cdh.js:1016
+subscribe @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+qR @ index-D9S03Cdh.js:38
+Aj @ index-D9S03Cdh.js:40
+Bh @ index-D9S03Cdh.js:40
+U5 @ index-D9S03Cdh.js:40
+bu @ index-D9S03Cdh.js:38
+WQ @ index-D9S03Cdh.js:40
+Lu @ index-D9S03Cdh.js:40
+y$ @ index-D9S03Cdh.js:40
+N @ index-D9S03Cdh.js:25
+w @ index-D9S03Cdh.js:25
+  GET https://bnms.iconn.app/api/entities/SystemSettings 401 (Unauthorized)
+_apiRequest @ index-D9S03Cdh.js:1016
+list @ index-D9S03Cdh.js:1016
+queryFn @ index-D9S03Cdh.js:2443
+i @ index-D9S03Cdh.js:1016
+v @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.then
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.catch
+v @ index-D9S03Cdh.js:1016
+start @ index-D9S03Cdh.js:1016
+fetch @ index-D9S03Cdh.js:1016
+wf @ index-D9S03Cdh.js:1016
+onSubscribe @ index-D9S03Cdh.js:1016
+subscribe @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+qR @ index-D9S03Cdh.js:38
+Aj @ index-D9S03Cdh.js:40
+Bh @ index-D9S03Cdh.js:40
+U5 @ index-D9S03Cdh.js:40
+bu @ index-D9S03Cdh.js:38
+WQ @ index-D9S03Cdh.js:40
+Lu @ index-D9S03Cdh.js:40
+y$ @ index-D9S03Cdh.js:40
+N @ index-D9S03Cdh.js:25
+w @ index-D9S03Cdh.js:25
+  GET https://bnms.iconn.app/api/entities/ResourceCategory 401 (Unauthorized)
+_apiRequest @ index-D9S03Cdh.js:1016
+list @ index-D9S03Cdh.js:1016
+queryFn @ index-D9S03Cdh.js:2443
+i @ index-D9S03Cdh.js:1016
+v @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.then
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.catch
+v @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.then
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.catch
+v @ index-D9S03Cdh.js:1016
+start @ index-D9S03Cdh.js:1016
+fetch @ index-D9S03Cdh.js:1016
+wf @ index-D9S03Cdh.js:1016
+onSubscribe @ index-D9S03Cdh.js:1016
+subscribe @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+qR @ index-D9S03Cdh.js:38
+Aj @ index-D9S03Cdh.js:40
+Bh @ index-D9S03Cdh.js:40
+U5 @ index-D9S03Cdh.js:40
+bu @ index-D9S03Cdh.js:38
+WQ @ index-D9S03Cdh.js:40
+Lu @ index-D9S03Cdh.js:40
+y$ @ index-D9S03Cdh.js:40
+N @ index-D9S03Cdh.js:25
+w @ index-D9S03Cdh.js:25
+  GET https://bnms.iconn.app/api/entities/SystemSettings 401 (Unauthorized)
+_apiRequest @ index-D9S03Cdh.js:1016
+list @ index-D9S03Cdh.js:1016
+queryFn @ index-D9S03Cdh.js:2443
+i @ index-D9S03Cdh.js:1016
+v @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.then
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.catch
+v @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.then
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.catch
+v @ index-D9S03Cdh.js:1016
+start @ index-D9S03Cdh.js:1016
+fetch @ index-D9S03Cdh.js:1016
+wf @ index-D9S03Cdh.js:1016
+onSubscribe @ index-D9S03Cdh.js:1016
+subscribe @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+qR @ index-D9S03Cdh.js:38
+Aj @ index-D9S03Cdh.js:40
+Bh @ index-D9S03Cdh.js:40
+U5 @ index-D9S03Cdh.js:40
+bu @ index-D9S03Cdh.js:38
+WQ @ index-D9S03Cdh.js:40
+Lu @ index-D9S03Cdh.js:40
+y$ @ index-D9S03Cdh.js:40
+N @ index-D9S03Cdh.js:25
+w @ index-D9S03Cdh.js:25
+  GET https://bnms.iconn.app/api/entities/ResourceCategory 401 (Unauthorized)
+_apiRequest @ index-D9S03Cdh.js:1016
+list @ index-D9S03Cdh.js:1016
+queryFn @ index-D9S03Cdh.js:2443
+i @ index-D9S03Cdh.js:1016
+v @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.then
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.catch
+v @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.then
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.catch
+v @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.then
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.catch
+v @ index-D9S03Cdh.js:1016
+start @ index-D9S03Cdh.js:1016
+fetch @ index-D9S03Cdh.js:1016
+wf @ index-D9S03Cdh.js:1016
+onSubscribe @ index-D9S03Cdh.js:1016
+subscribe @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+qR @ index-D9S03Cdh.js:38
+Aj @ index-D9S03Cdh.js:40
+Bh @ index-D9S03Cdh.js:40
+U5 @ index-D9S03Cdh.js:40
+bu @ index-D9S03Cdh.js:38
+WQ @ index-D9S03Cdh.js:40
+Lu @ index-D9S03Cdh.js:40
+y$ @ index-D9S03Cdh.js:40
+N @ index-D9S03Cdh.js:25
+w @ index-D9S03Cdh.js:25
+  GET https://bnms.iconn.app/api/entities/SystemSettings 401 (Unauthorized)
+_apiRequest @ index-D9S03Cdh.js:1016
+list @ index-D9S03Cdh.js:1016
+queryFn @ index-D9S03Cdh.js:2443
+i @ index-D9S03Cdh.js:1016
+v @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.then
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.catch
+v @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.then
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.catch
+v @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.then
+(anonymous) @ index-D9S03Cdh.js:1016
+Promise.catch
+v @ index-D9S03Cdh.js:1016
+start @ index-D9S03Cdh.js:1016
+fetch @ index-D9S03Cdh.js:1016
+wf @ index-D9S03Cdh.js:1016
+onSubscribe @ index-D9S03Cdh.js:1016
+subscribe @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+qR @ index-D9S03Cdh.js:38
+Aj @ index-D9S03Cdh.js:40
+Bh @ index-D9S03Cdh.js:40
+U5 @ index-D9S03Cdh.js:40
+bu @ index-D9S03Cdh.js:38
+WQ @ index-D9S03Cdh.js:40
+Lu @ index-D9S03Cdh.js:40
+y$ @ index-D9S03Cdh.js:40
+N @ index-D9S03Cdh.js:25
+w @ index-D9S03Cdh.js:25
+  GET https://bnms.iconn.app/api/admin/form-submissions/stats 401 (Unauthorized)
+queryFn @ index-D9S03Cdh.js:1405
+i @ index-D9S03Cdh.js:1016
+v @ index-D9S03Cdh.js:1016
+start @ index-D9S03Cdh.js:1016
+fetch @ index-D9S03Cdh.js:1016
+wf @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+setInterval
+mC @ index-D9S03Cdh.js:1016
+hC @ index-D9S03Cdh.js:1016
+onQueryUpdate @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+batch @ index-D9S03Cdh.js:1016
+yc @ index-D9S03Cdh.js:1016
+setData @ index-D9S03Cdh.js:1016
+onSuccess @ index-D9S03Cdh.js:1016
+u @ index-D9S03Cdh.js:1016
+Promise.then
+v @ index-D9S03Cdh.js:1016
+start @ index-D9S03Cdh.js:1016
+fetch @ index-D9S03Cdh.js:1016
+wf @ index-D9S03Cdh.js:1016
+onSubscribe @ index-D9S03Cdh.js:1016
+subscribe @ index-D9S03Cdh.js:1016
+(anonymous) @ index-D9S03Cdh.js:1016
+qR @ index-D9S03Cdh.js:38
+Aj @ index-D9S03Cdh.js:40
+Bh @ index-D9S03Cdh.js:40
+U5 @ index-D9S03Cdh.js:40
+bu @ index-D9S03Cdh.js:38
+WQ @ index-D9S03Cdh.js:40
+Lu @ index-D9S03Cdh.js:40
+y$ @ index-D9S03Cdh.js:40
+N @ index-D9S03Cdh.js:25
+w @ index-D9S03Cdh.js:25

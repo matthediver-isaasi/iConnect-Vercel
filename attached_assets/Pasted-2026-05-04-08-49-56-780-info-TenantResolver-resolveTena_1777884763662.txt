@@ -1,0 +1,31 @@
+2026-05-04 08:49:56.780 [info] [TenantResolver] resolveTenantFromRequest called
+2026-05-04 08:49:56.781 [info] [TenantResolver] Params - tenant: undefined domain: undefined
+2026-05-04 08:49:56.781 [info] [TenantResolver] Falling back to host-based resolution, hostname: gfi.dev.iconn.app
+2026-05-04 08:49:56.782 [info] [TenantResolver] resolveTenantFromHost called with: gfi.dev.iconn.app
+2026-05-04 08:49:56.782 [info] [TenantResolver] Parsed host: gfi.dev.iconn.app
+2026-05-04 08:49:56.782 [info] [TenantResolver] Preview environment detected, environment: dev
+2026-05-04 08:49:56.782 [info] [TenantResolver] Subdomain detected, slug: gfi
+2026-05-04 08:49:56.782 [info] [TenantResolver] Looking up by slug: gfi
+2026-05-04 08:49:56.798 [error] (node:4) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+2026-05-04 08:49:56.989 [info] [TenantResolver] Found tenant by slug: gfi
+2026-05-04 08:49:56.989 [info] [TenantContext] About to call getSessionTenantUser
+2026-05-04 08:49:56.991 [info] [Session] getSession: Looking up session: 110c0234
+2026-05-04 08:49:57.121 [info] [Session] getSession: Session found, userType: member
+2026-05-04 08:49:57.121 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"110c0234","userType":"member","memberId":"9ac39222-22b8-457e-a5df-dfca45a99eb6","identityId":"dc156a30-ae8d-4aee-b965-b54fe4b17105","tenantId":"fd82da65-aab7-4a5c-85b8-b2febeb2003d"}
+2026-05-04 08:49:57.121 [info] [Session] Found member session with identityId, attempting promotion
+2026-05-04 08:49:57.361 [info] [Session] No tenant_user record found for identity promotion
+2026-05-04 08:49:57.361 [info] [Session] Member session promotion failed
+2026-05-04 08:49:57.361 [info] [TenantContext] getSessionTenantUser returned: null
+2026-05-04 08:49:57.362 [info] [TenantContext] Checking for member session...
+2026-05-04 08:49:57.362 [info] [Session] getSession: Looking up session: 110c0234
+2026-05-04 08:49:57.495 [info] [Session] getSession: Session found, userType: member
+2026-05-04 08:49:57.495 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"110c0234","userType":"member","memberId":"9ac39222-22b8-457e-a5df-dfca45a99eb6"}
+2026-05-04 08:49:57.640 [info] [TenantContext] Member found: {
+  memberId: '9ac39222-22b8-457e-a5df-dfca45a99eb6',
+  organizationId: 'ccbbbd4d-12e8-4e9e-b49e-cd29979623ae'
+}
+2026-05-04 08:49:57.640 [info] [TenantContext] Tenant from member: fd82da65-aab7-4a5c-85b8-b2febeb2003d
+2026-05-04 08:49:59.728 [info] [Sync Mailgun Events] Starting sync for campaign 99ffb6d9-3bee-4d67-be53-696ab8dba5c9, 4820 message IDs, 4820 emails, domain: mail.graduatefutures.org, 209 existing events pre-loaded
+2026-05-04 08:50:19.600 [info] [Sync Mailgun Events] Fetch phase done: 9645 events collected, 9645 applied in-memory, 209 skipped. Starting flush...
+2026-05-04 08:50:56.771 [error] Vercel Runtime Timeout Error: Task timed out after 60 seconds

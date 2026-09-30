@@ -1,0 +1,689 @@
+
+<!--*** BEGIN \global_inc\sp_header.asp ***-->
+<!--*** BEGIN \global_inc\site_templates\HTML_5\YM-FX-02-A\sp_header.asp ***-->
+<!--*** BEGIN \global_inc\site_templates\HTML_5\sp_header_init.asp ***-->
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+	    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		
+		<!-- Important: include as high up as possible, but after sensitive tags such as X-UA-Compatible -->
+        <title>BNMS Mentee application form - British Nuclear Medicine Society</title>
+<script src="https://cmp.osano.com/16BetWTVxvf7jEBbA/45c8d57e-88ec-430c-bcb0-b0513e770d61/osano.js"></script>
+<link REL="SHORTCUT ICON" href="/resource/resmgr/website_images/favicon.ico">
+<!-- Global site tag (gtag.js) - Google Analytics -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=UA-1927910-1"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'UA-1927910-1');
+</script>
+
+
+		<link rel="stylesheet" href="https://cdn.ymaws.com/global/css/3.4.1/bootstrap.min.css"/>
+		<link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/jquery.smartmenus/1.0.0/addons/bootstrap/jquery.smartmenus.bootstrap.css" />
+        <link rel="stylesheet" type="text/css" href="https://cdn.ymaws.com/bnms.site-ym.com/css/20221025/sp/combined_v179.css">
+        <link rel="stylesheet" type="text/css" href="https://ajax.googleapis.com/ajax/libs/yui/2.9.0/build/container/assets/skins/sam/container.css">
+		<link rel="stylesheet" type="text/css" href="/global_graphics/skins/MemberCustomPageMenu/yuimenu.css">
+		<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.4.0/css/font-awesome.min.css">
+		<!--[if IE]><link rel="stylesheet" type="text/css" href="/global_inc/site_templates/YM-FX-02-A/ie.css"><![endif]-->
+		
+		<!--@@DG_PRINT_BASE_URL@@
+			IMPORTANT! DO NOT MOVE OR MODIFY -->
+
+		<script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/yui/2.9.0/build/yahoo-dom-event/yahoo-dom-event.js"></script>
+		<script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/yui/2.9.0/build/dragdrop/dragdrop-min.js"></script>
+		<script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/yui/2.9.0/build/container/container-min.js"></script>
+		<script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/yui/2.9.0/build/menu/menu-min.js"></script>
+		<script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/yui/2.9.0/build/json/json-min.js"></script>
+		<script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.3/jquery.min.js"></script>
+        <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery-migrate/1.4.1/jquery-migrate.min.js"></script>
+		<script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/jqueryui/1.13.2/jquery-ui.min.js"></script>
+		<!--[if lt IE 9]>
+			<script src="https://oss.maxcdn.com/html5shiv/3.7.2/html5shiv.min.js"></script>
+			<script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
+		<![endif]-->
+        <script type="text/javascript" src="https://cdn.ymaws.com/global/js/20260504/frontend/combined.js"></script>
+
+		<script type="text/javascript" src="https://cdn.ymaws.com/global/js/3.4.1/bootstrap.min.js"></script>
+		<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery.smartmenus/1.0.0/jquery.smartmenus.min.js"></script>
+		<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/jquery.smartmenus/1.0.0/addons/bootstrap/jquery.smartmenus.bootstrap.min.js"></script>
+		<script type="text/javascript" src="/global_inc/site_templates/js/AddTableLabels.js"></script>
+		
+	
+		<script type="text/javascript">
+			addEventHandler_OnLoad(function(){CheckMultipartForms(true)});
+		
+			var m_pulse = new Pulse('04/07/2026 07:27:38');
+			m_pulse.Start();
+		</script>
+	
+		
+			<script type="text/javascript">
+				YAHOO.util.Event.onDOMReady(getChats);
+				addEventHandler_OnUnload(function() { if (m_ChatTID) clearTimeout(m_ChatTID) });
+			</script>
+		
+			<script type="text/javascript">
+				YAHOO.util.Event.onDOMReady(CreateProgressBarMarkup)
+				addEventHandler_OnUnload(function() { if (ProgressID) clearTimeout(ProgressID) });
+			</script>
+		
+	</head>
+
+<!--*** END \global_inc\site_templates\HTML_5\sp_header_init.asp ***-->
+
+
+<body id="PageBody" onunload="try{if(m_blnDoBodyUnload) Body_OnUnload();}catch(e){}">
+
+	<div class="toolbar-out">
+		<div class="container">
+			<div id="itoolbar_bg">
+				<div id="itoolbar" class="col-md-9 col-sm-9 text-right">
+					<a href="/page/JoinBNMS">Join BNMS</a> | <a id="PrintPage" href="#" onclick="return false;" title="Print view will be available once the page has finished loading."><img src="/global_graphics/icons/print_bw.gif" border="0" height="16" width="16" style="margin:5px 5px 0 0;valign:bottom;" />Print Page</a><script type='text/javascript'>function PrintPageClickHandler(){this.handleEvent = createPrintPagePopup }PrintPage_OnClick = new PrintPageClickHandler(); addEventHandler_OnLoad(function(){ var element = document.getElementById("PrintPage"); if(element) { element.onclick = PrintPage_OnClick.handleEvent; element.title = "Print Page";} });</script> | <a href='/general/?type=CONTACT'>Contact Us</a> | <a href='/members/manage_profile.asp'>Manage Profile</a> | <a href='/Logout.aspx'>Sign Out</a>
+				</div>
+				<div id="isearch" class="col-md-3 col-sm-3">
+					<form id="QuickSearchForm" name="QuickSearchForm" action="/search/all.asp">
+ <div class="input-group">
+  <input id="QuickSearchForm_bst" class="form-control" type="text" name="bst" maxlength="50" placeholder="Enter search criteria..." />
+  <span class="input-group-btn">
+   <button class="btn btn-default" type="button" onclick="return QuickSearchForm_DoSubmit();"><i class="fa fa-search"></i></button>
+  </span>
+ </div>
+</form>
+<script type="text/javascript">
+function QuickSearchForm_DoSubmit()
+{
+		var QuickSearchForm = document.QuickSearchForm;
+     if(QuickSearchForm)
+     {
+			ClearDefaultValue(QuickSearchForm.bst);
+         QuickSearchForm.submit();
+     }
+		return false;
+}
+</script>
+				</div>
+			</div>
+		</div>
+	</div>
+	<div class="header-out"> 
+		<div class="container">
+			<div id="header">
+				<link href="https://fonts.googleapis.com/css?family=Roboto:400,400i,500,700" rel="stylesheet">
+<link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.1.0/css/all.css" integrity="sha384-lKuwvrZot6UHsBSfcMvOkWwlCMgc0TaWr+30HWe3a4ltaBwTZhyTEggF5tJv8tbt" crossorigin="anonymous">
+
+
+<a href="/" id="logo" target="_parent" style="color:#000;"><img src="/graphics/bnms-logo.png"/></a>
+
+<div class="header-social">
+  <a href="https://twitter.com/BNMSnews" target="_blank"><i class="fab fa-twitter"></i></a>
+  <a href="http://www.linkedin.com/groups/British-Nuclear-Medicine-Society-4658735?trk=my_groups-b-grp-v" target="_blank"><i class="fab fa-linkedin-in"></i></a>
+	<a href="https://www.youtube.com/channel/UCRm_qvKB-6alhKjWQZpHtOQ" target="_blank"><i class="fab fa-youtube"></i></a>
+</div>
+
+			</div>
+		</div>
+	</div>
+	<div class="mainmenu-out">
+		<div class="container">
+			<div id="mainmenu">
+				<div class="navbar-header" role="navigation"><button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target=".navbar-ex1-collapse"><span class="sr-only">Toggle navigation</span><span class="mobile-menu pull-left">MENU</span><div class="mobile-icon pull-left mleft-10"><span class="icon-bar"></span><span class="icon-bar"></span><span class="icon-bar"></span></div></button></div><div class="collapse navbar-collapse navbar-ex1-collapse"><ul class="nav navbar-nav navbar-left"><li><a href="/page/BNMSVision2" >About BNMS <span class="caret"></span></a><ul class="dropdown-menu"><li><a href="/page/BNMS-History-" >HIstory of BNMS</a></li><li><a href="/page/BNMSPeople" >BNMS People <span class="caret"></span></a><ul class="dropdown-menu"><li><a href="/page/BNMSCelebrationannoucements" >Celebrating BNMS people</a></li><li><a href="/page/BNMS-Organisation" >Organisation</a></li><li><a href="/page/ProfessionalGroups" >Professional Groups <span class="caret"></span></a><ul class="dropdown-menu"><li><a href="/page/ProfessionalStandardsCommittee" >Professional Standards Committee</a></li><li><a href="/page/Scientific-Education-Committe" >Scientific Education Committee</a></li><li><a href="/page/RadiopharmaceuticalSciencesGroup" >Radiopharmaceutical Sciences Group</a></li><li><a href="/page/RadiographersTechnologistsNursesCommittee" >Radiographers, Technologists &amp; Nurses Committee</a></li><li><a href="/page/ClinicalScientistsGroup" >Clinical Scientists Group</a></li><li><a href="/page/BNMSMedicalTraineeCommittee" >BNMS Medical Training Committee</a></li><li><a href="/page/BNMSResearchChampionsNetwork" >Research Champions Network</a></li><li><a href="/page/NewBNMSCommitteeMembers" >New BNMS Committee Members</a></li></ul></li><li><a href="/page/BNMSRepresentatives" >BNMS Representatives</a></li><li><a href="/page/RegionalLeadsoftheBNMS" >Regional Leads of the BNMS</a></li><li><a href="/page/HonoraryMembersoftheBNMS" >Honorary Members of the BNMS</a></li><li><a href="/page/BNMSStaff" >BNMS Staff</a></li><li><a href="/page/PastPresidentsoftheBNMS" >Past Presidents of the BNMS</a></li><li><a href="/page/Obituaries" >Obituaries</a></li></ul></li><li><a href="/page/BNMSPolicies" >BNMS Policies</a></li><li><a href="/page/BNMSAchievementslastyear" >BNMS Achievements</a></li><li><a href="#" >Governance <span class="caret"></span></a><ul class="dropdown-menu"><li><a href="/page/OfficialDocumentsoftheBNMS" >Official Documents of the BNMS</a></li><li><a href="/page/DeclarationofInterestRegisterforTrusteesCommitteemembersandpresenters" >Interest Register for Trustees</a></li><li><a href="/page/DeclarationofInterestRegisterforInvitedSpeakers" >Interest Register for Invited Speakers</a></li><li><a href="/page/BNMSAnnualGeneralMeetings" >BNMS Annual General Meetings</a></li></ul></li><li><a href="/page/Awards-Prizes" >Awards &amp; Prizes <span class="caret"></span></a><ul class="dropdown-menu"><li><a href="/page/Citations" >Citations</a></li><li><a href="/page/InnovativeTeam" >Innovative Team of the Year Award</a></li><li><a href="/page/MedicalTraineeEssayCompetition" >Medical Trainee Essay Competition</a></li><li><a href="/page/AwardsPrizes" >Prizes for abstracts</a></li></ul></li><li><a href="/page/Donate" >Donate/Support Us</a></li><li><a href="/page/WhatisNuclearMedicineImagingandTherapies" >About Nuclear Medicine <span class="caret"></span></a><ul class="dropdown-menu"><li><a href="/page/HistoryOf-NuclearMedicine" >History of Nuclear Medicine</a></li></ul></li><li><a href="/page/FrequentlyAskedQuestions" >FAQs</a></li></ul></li><li><a href="/page/MembershipHomePage" >Membership <span class="caret"></span></a><ul class="dropdown-menu"><li><a href="/page/nuclear-medicine-communications-journal" target="_blank">Access NMC here (Members only)</a></li><li><a href="/page/JoinBNMS" >Join BNMS</a></li><li><a href="/page/MembershipBenefits" >Membership Benefits <span class="caret"></span></a><ul class="dropdown-menu"><li><a href="/page/BNMSMentorshipProgramme" >BNMS Mentorship Programme</a></li><li><a href="/page/GrantsFellowships" >Grants &amp; Fellowships</a></li></ul></li><li><a href="/page/GetInvolved" >Get Involved <span class="caret"></span></a><ul class="dropdown-menu"><li><a href="/page/Donate" >Donate/Support us</a></li><li><a href="/page/Volunteer" >Volunteer Opportunities <span class="caret"></span></a><ul class="dropdown-menu"><li><a href="/page/Everyone-can-Engage-with-the-BNMS" >Engage with the BNMS</a></li></ul></li><li><a href="/page/ABPIcodeofpractice" >Industry - API Code of Practice</a></li></ul></li><li><a href="/page/YourBNMS" >Your BNMS <span class="caret"></span></a><ul class="dropdown-menu"><li><a href="/page/claim-tax-relief-on-your-membership-subscription-with-the-bnms" >Tax relief on your membership</a></li><li><a href="/page/Communicationwithourmembers" >Communications with our members</a></li><li><a href="/page/BNMSlatestEditorial" >BNMS latest Editorial</a></li><li><a href="/members/group_select_engagement.asp?type=24460" >Groups</a></li><li><a href="/members/dashboard.aspx" >Members Area</a></li><li><a href="/search/" >Member Search</a></li><li><a href="/search/custom.asp?id=5428" >Departmental Directory Search</a></li></ul></li><li><a href="/page/HonoraryMembership" >BNMS Honorary Membership</a></li></ul></li><li><a href="#" >Events <span class="caret"></span></a><ul class="dropdown-menu"><li><a href="https://bnms.dev.iconn.app/events/bnms-mrt-consortium-lutetium-177-study-day" >Lutetium 177 Study Day</a></li><li><a href="https://bnms.dev.iconn.app/Events?category=0ca2d56b-a620-4545-a3ae-29ae81397018%3A%3AWebinar" target="_blank">BNMS MRT Webinar Series</a></li><li><a href="/page/BNMSAutumnMeeting2026" >BNMS Autumn Meeting 2026</a></li><li><a href="#" >Past Meetings <span class="caret"></span></a><ul class="dropdown-menu"><li><a href="/page/PastMeetingsProgrammes" >Past Meetings Programmes</a></li><li><a href="/page/PastMeetingPresentations" >Past Meeting Presentations</a></li><li><a href="/page/PosterPresentations" >Past Meeting Poster Presentations</a></li><li><a href="/gallery/" >Events Photo Gallery</a></li></ul></li><li><a href="#" >On Demand Meetings <span class="caret"></span></a><ul class="dropdown-menu"><li><a href="/page/BNMSMultidisciplinaryReportingWebinarseries" >BNMS MDR Webinar Series - On Demand</a></li><li><a href="/page/PastBNMSPresidentsWebinarSeries" >Past BNMS Presidents Webinar series - YouTube</a></li><li><a href="/page/CardiacMPSCourse2026OnDemand" >Cardiac MPS Course 2026 On Demand</a></li><li><a href="/page/BNMSResearchwebinarseries" >BNMS Research webinar series - videos available</a></li><li><a href="/page/ParathyroidImagingStudyDay2025ondemand" >Parathyroid Imaging Study Day  - On Demand</a></li><li><a href="/page/WomensHealthWebinarPart3Cardiovasculardiseasesondemand" >Women’s Health Webinar Part 3 - On Demand</a></li></ul></li><li><a href="/page/FutureBNMSAutumnMeetings" >Future BNMS Autumn Meetings</a></li><li><a href="/events/event_list.asp" >Events Calendar</a></li><li><a href="/page/Courseendorsement" >Course endorsement</a></li><li><a href="/page/Listyourevent" >List your event</a></li><li><a href="/page/Meeting-Endorsement-Support" >Meeting Endorsement &amp; Support</a></li></ul></li><li><a href="/news/" >News <span class="caret"></span></a><ul class="dropdown-menu"><li><a href="/news/Default.asp?id=14173" >Latest News</a></li><li><a href="/news/Default.asp?id=14323" >Newsletters - Wavelength</a></li><li><a href="/news/Default.asp?id=14174" >Press Office</a></li><li><a href="/page/IndustryNews" >Industry News</a></li><li><a href="/blogpost/2101556/President-s-blog" >President&#39;s Blog</a></li></ul></li><li><a href="/page/Resources" >Resources <span class="caret"></span></a><ul class="dropdown-menu"><li><a href="/page/NuclearMedicineVacancies" >Nuclear Medicine Vacancies</a></li><li><a href="/page/Careers" >Careers <span class="caret"></span></a><ul class="dropdown-menu"><li><a href="/page/WhatdoesaNuclearMedicinePhysiciando" >Nuclear Medicine Physician</a></li><li><a href="/page/Thinkingofacareerasanuclearmedicinetechnologist" >Nuclear Medicine Technologist</a></li><li><a href="https://cdn.ymaws.com/www.bnms.org.uk/resource/resmgr/careers/role_of_the_nuclear_medicine.pdf" >Nuclear Medicine Nurse</a></li><li><a href="/page/WhatdoesaNuclearMedicinePhysicistdo" >Nuclear Medicine Physicist</a></li><li><a href="/page/WhatdoesaNuclearCardiologistdo" >Nuclear Medicine Cardiologist</a></li><li><a href="/page/WhatdoesaRadiopharmacistdo" >Radiopharmaceutical Scientist</a></li><li><a href="/page/WhatdoestheRadionuclideRadiologistdo" >Radionuclide Radiologist</a></li><li><a href="https://www.youtube.com/watch?v=Pv1r_L4mV_Y&t=5s" >Clinical Scientist</a></li></ul></li><li><a href="/page/Standards" >Standards <span class="caret"></span></a><ul class="dropdown-menu"><li><a href="/page/ProfessionalStandards" >Professional Standards</a></li><li><a href="/page/Revalidation" >Revalidation</a></li><li><a href="/page/RadiopharmaceuticalDefectsReporting" >Radiopharmaceutical Defects Reporting</a></li><li><a href="/page/AdverseEventReportingInformation" >Adverse Event Reporting Inform</a></li><li><a href="/page/AuditandAccreditation" >Audit and Accreditation <span class="caret"></span></a><ul class="dropdown-menu"><li><a href="/page/DepartmentAccreditation" >Department Accreditation</a></li><li><a href="/page/BNMSDaTSCANAudit" >BNMS DaTSCAN Audit</a></li><li><a href="/page/OrganisationalAudit" >BNMS Organisational Audit</a></li></ul></li></ul></li><li><a href="https://www.youtube.com/channel/UCRm_qvKB-6alhKjWQZpHtOQ" target="_blank">BNMS YouTube Channel</a></li><li><a href="/page/ClinicalAuditResources" >Clinical Audit Resources</a></li><li><a href="/page/Guidelines" >Guidelines <span class="caret"></span></a><ul class="dropdown-menu"><li><a href="/page/BNMSGenericGuidelinesNEW" >BNMS Generic Guidelines</a></li><li><a href="/page/BNMSClinicalGuidelines" >BNMS Clinical Guidelines</a></li><li><a href="/page/UKRGGuidelines" >UKRG Guidelines</a></li><li><a href="/page/PET-CTGuidelines" >PET-CT Guidelines</a></li><li><a href="/page/OtherGuidelines" >Other Guidelines <span class="caret"></span></a><ul class="dropdown-menu"><li><a href="/page/NICEandTheBNMSNEW" >NICE and The BNMS</a></li><li><a href="/page/EANMGuidelines" >EANM Guidelines</a></li><li><a href="/page/DoHPublication" >DoH Publication</a></li></ul></li><li><a href="/page/ArchivedGuidelines" >Archived Guidelines</a></li></ul></li><li><a href="/page/TrainingEducation" >Training &amp; Education <span class="caret"></span></a><ul class="dropdown-menu"><li><a href="https://www.thefederation.uk/sites/default/files/Nuclear%20Medicine%202021%20curriculum%20FINAL_0.pdf" >NM Physician Curriculum</a></li><li><a href="/page/ClinicalRadiologyCurriculum" >Clinical Radiology Curriculum</a></li><li><a href="/page/Courses" >Courses</a></li><li><a href="/page/Schools-and-Students" >Schools and Students</a></li></ul></li><li><a href="/page/RegulatoryBodies" >Regulatory Bodies</a></li><li><a href="/page/ResourceGallery" >Resource Gallery</a></li><li><a href="/page/ResourceLibrary" >Resource Library <span class="caret"></span></a><ul class="dropdown-menu"><li><a href="/page/InnovativeProjects" >Innovative Projects</a></li></ul></li><li><a href="/page/PatientsCarers" >Patients and Carers <span class="caret"></span></a><ul class="dropdown-menu"><li><a href="/page/WhatisNM" >What is Nuclear Medicine?</a></li><li><a href="/page/NMTEST" >Going for a Nuclear Medicine Test</a></li><li><a href="/page/GeneralNuclearMedicineScanInformation" >Nuclear Medicine Scan Information</a></li><li><a href="/page/WhathappensinNM" >Nuclear Medicine Department</a></li><li><a href="/page/PatientInformationLeaflets" >Patient Information Leaflets</a></li><li><a href="/resource/resmgr/patient_information_leaflets/v2_patient_experience_feedba.pdf" target="_blank">Patient Experience Survey</a></li><li><a href="/page/results" >Follow up on patient results</a></li><li><a href="/page/NuclearMedicineGlossary" >Nuclear Medicine Glossary</a></li><li><a href="/page/PatientsUsefullinks" >Patients Useful links</a></li><li><a href="/page/Informationforparentsandchildren" >Paediatric Info Parents &amp; Children</a></li></ul></li><li><a href="/page/BNMSDepartmentalSurvey" >BNMS Departmental Survey <span class="caret"></span></a><ul class="dropdown-menu"><li><a href="/page/BNMSUKNMDepartmentDirectory" >BNMS NM Department Directory</a></li></ul></li><li><a href="/search/custom.asp?id=5428" >Departmental Directory Search</a></li><li><a href="/page/SurveysConsultations" >Surveys &amp; Consultations</a></li><li><a href="/page/ExternalResources" >External Resources</a></li></ul></li><li><a href="/page/RadionuclideSupply" >Radionuclide Supply</a></li><li><a href="/page/UKRG" >UKRG</a></li><li><a href="/page/MRT_Consortium" >MRT Consortium</a></li></ul></div>
+			</div>
+		</div>
+	</div>
+	<div id="sp-main" class="container">
+		<div class="row">
+			<div id="left" class="col-sm-8">
+				<div id="sp-content">
+                    <div id="sp-controlcenter" class="controlcenter">
+					    <!--@@DG_PRINT_PAGE_BEGIN@@
+						    IMPORTANT! DO NOT MOVE OR MODIFY -->
+
+					    <!--*** BEGIN \global_inc\site_templates\sp_header_term.asp ***-->
+
+<!--*** END \global_inc\site_templates\sp_header_term.asp ***-->
+
+<!--*** END \global_inc\site_templates\HTML_5\YM-FX-02-A\sp_header.asp ***-->
+
+<!--*** END \global_inc\sp_header.asp ***-->
+
+  <script type="text/javascript">var blnUseEngagement = true; </script>
+  
+<script type="text/javascript" src="/global_inc/js/favorite.js"></script>
+
+
+<style type="text/css">
+	#tat_table {
+		z-index:99;
+	}
+	#FavoriteEditorTitle {
+		margin: 0;
+	}
+</style>
+<div class="yui-skin-sam">
+<div id="FavoriteOptsPanel" style="visibility:hidden;">
+	<div id="FavoriteOptsPanelBody" class="bd">
+		<div id="FormErrors" style="display:none">
+			<div class="infobox">
+				<ul id="FormErrorList" class="redalert"></ul>
+			</div><br>
+		</div>
+			<form id="FavoriteEditor" name="FavoriteEditor" onsubmit="return FavoriteEditor_Submit(this)" style="display:none; margin: 0 10px 0 10px;">
+			<input type="hidden" id="FavoriteID" name="FavoriteID" value="">
+			<input type="hidden" id="strFavoriteTypeID_FK" name="strFavoriteTypeID_FK" value="">
+			<input type="hidden" id="strFavoriteParameters" name="strFavoriteParameters" value="">
+			<input type="hidden" name="strCommand" value="">
+			<input type="hidden" id="blnFavoriteReload" value="">
+			<table border="0" cellspacing="12" cellpadding="0">
+				<tr>
+					<td align="center">
+            
+              <img src="/global_graphics/icons/bookmark_saved.png" border="0" width="32" height="32">
+            
+              </td>
+					<td><h2 id="FavoriteEditorTitle">
+            
+              Edit This Bookmark
+            
+              </h2></td>
+				</tr>
+				<tr>
+					<td>Name:</td>
+					<td><input type="text" id="strTitle" name="strTitle" value="" size="40" maxlength="100" />
+					<INPUT TYPE="hidden" NAME="ERR_strTitle" VALUE="strTitle|Name|20|1||100">
+					</td>
+				</tr>
+				<tr>
+					<td>Category:</td>
+					<td>
+						<input type="text" id="strCategory" name="strCategory" value="" size="40" autocomplete="off" maxlength="100" />
+						<INPUT TYPE="hidden" NAME="ERR_strCategory" VALUE="strCategory|Category|20|0||100">
+					</td>
+				</tr>
+				<tr>
+					<td>Share:</td>
+					<td>
+						<input id="blnIsPrivate0" type="radio" value="0" name="blnIsPrivate"/><label for="blnIsPrivate0">Yes</label>
+						<input id="blnIsPrivate1" type="radio" value="1" name="blnIsPrivate"/><label for="blnIsPrivate1">No, Keep Private</label>
+						<INPUT TYPE="hidden" NAME="ERR_blnIsPrivate" VALUE="blnIsPrivate|Share -- Yes/No, Keep Private|20|1||0">
+					</td>
+				</tr>
+				<tr>
+					<td colspan="2" align="center" style="padding-top:10px;">
+						<input type="submit" id="FavoriteEditor_btnSubmit" value="Submit" class="formbutton"
+							onclick="return FavoriteEditor_btnSubmit_OnClick(this);">
+						<input type="button" value="Cancel" class="formbutton" 
+							onclick="YAHOO.container.FavoriteOpts.hide();">
+						<input type="submit" id="FavoriteEditor_btnDelete" value="Delete" class="formbutton" style="display:none;"
+							onclick="return FavoriteEditor_btnDelete_OnClick(this);">
+					</td>
+				</tr>
+			</table>
+			<input type="hidden" name="__ASPVIEWSTATE" value="c5ca47e58ec6ced1e95f5c611396daa49dbcc35bb6bdd34a27cee1aa19ec5a54f091771534ce2077af8af01603808e1e12a0f36f2200d778a4e6dc518178d54e0ee302f6a44c145da5bf3e57c634719f7482bdaafe87eb4fb2bb81e6bb5e2729fbd48c561fc0c7d5d0960daac6154fc9364e5010c1d6f41b1af80da6c9c073a9daaf54402e">
+			</form>
+	</div>
+</div></div>
+
+
+
+<script type="text/javascript" src="/global_inc/js/hit_highlighter.js"></script>
+<script type="text/javascript">
+
+    function Window_OnLoad() {
+		highlightDtSearchTerms('CustomPageBody');
+		highlightDtSearchTerms('ResourceCollection');
+	}
+
+	addEventHandler_OnLoad(Window_OnLoad);
+</script>
+
+<style type="text/css">
+
+#sp-main #right { display:none; }
+#sp-main #left { float:none; width:auto; }
+
+.ScoreControl
+{
+	display:block;
+	float:left;
+}
+</style>
+
+<table id="SpSubHead" border="0" cellpadding="0" cellspacing="0">
+<tr>
+	<td id="SpTitleBar">
+
+
+<script type="text/javascript">
+	favorite = new Favorite();
+	favorite.Parameters = 'page=BNMSMenteeapplicationform'
+	favorite.Title = 'BNMS Mentee application form'
+	favorite.Type = 'custompage'
+</script>
+
+<div id="FavoriteControl" class="FavoriteControl">
+    <a id="FavoriteOptsLink" href="#" onclick="return ShowFavoriteOpts(favorite, false);">
+        
+            <img id="FavoriteOptsLinkImg" src="/global_graphics/icons/bookmark_unsaved.png" alt="Add This as a Bookmark"
+            title="Add This as a Bookmark" border="0" width="16" height="16">
+        
+    </a>
+</div>
+BNMS Mentee application form
+	</td>
+</tr>
+
+
+</table>
+
+<table id="SpContent" border="0" cellpadding="0" cellspacing="0">
+<tr>
+	<td id="SpContent_Container">
+
+		<script type="text/javascript" src="/global_inc/js/ContentScores.js"></script>
+	
+	<div id="CustomPageBody"></div>
+
+	<script type="text/javascript" src="/global_inc/js/custom_form_cs.js"></script>
+
+    
+            <script type="text/javascript" language="javascript" src="https://www.google.com/recaptcha/api.js" async defer></script>
+            <script>
+                var gicInvisibleReCaptchaToken = null
+                var gicInvisibleReCaptchaSender = null
+                function OnInvisibleReCaptchaSubmit(token) {
+                    gicInvisibleReCaptchaToken = token;
+                    if (gicInvisibleReCaptchaSender != null) gicInvisibleReCaptchaSender.click();
+                }
+                function OnInvisibleReCaptchaClientClick(sender) {
+                    if (gicInvisibleReCaptchaToken == null && false)
+                    {
+                        gicInvisibleReCaptchaSender = sender;
+                        grecaptcha.execute();
+                        return false;
+                    }
+                    else
+                    {
+                        gicInvisibleReCaptchaToken = null;
+                        gicInvisibleReCaptchaSender = null;
+                        return SubmitCustomForm('True');
+                    }
+                }
+                function onCaptchaClientClick(sender) {
+                    return OnInvisibleReCaptchaClientClick(sender);
+                }
+            </script>
+        
+	
+	<a name="CustomForm_2932208"></a>
+	
+	
+	
+	<p></p>
+	
+	<form action="/custom_form.asp?id=B7B4968B-0347-4E2D-9F9F-972B0D0324EB" method="post" id="CustomFormForm" name="CustomFormForm"
+		enctype="multipart/form-data" onsubmit="DoUploadProgress(this);">
+        <input type="hidden" name="UploadID" value="19"><div id="CFormErrors" style="margin: 0px;"></div><table class="CustomFormTable" border="0" cellspacing="0" style="width: 100%;"><tr><th width="25%"><label id="Label_Custom_Title" style="display:block; overflow:hidden; width:114px" class="cform_tooltip">Title&nbsp;<b class="redalert">*</b></label></th><td colspan="3"><select id="CFORM_2932208_Custom_Title" name="Custom_Title" size="1" style="width:448px"><option value=""></option><option value="Mr">Mr</option><option value="Mrs">Mrs</option><option value="Miss">Miss</option><option value="Ms">Ms</option><option value="Dr">Dr</option><option value="Prof">Prof</option><option value="Mx">Mx</option><option value="No title preferred">No title preferred</option></select></td><INPUT TYPE="hidden" NAME="ERR_Custom_Title" VALUE="Custom_Title|Title|20|1||0"></tr><tr><th width="25%"><label id="Label_strFirstName" style="display:block; overflow:hidden; width:114px" class="cform_tooltip">First Name&nbsp;<b class="redalert">*</b></label></th><td colspan="3"><input type="text" id="CFORM_2932208_strFirstName" name="strFirstName" value="Mat" maxlength="50" style="width:448px"></td><INPUT TYPE="hidden" NAME="ERR_strFirstName" VALUE="strFirstName|First Name|20|1||50"></tr><tr><th width="25%"><label id="Label_strLastName" style="display:block; overflow:hidden; width:114px" class="cform_tooltip">Last Name&nbsp;<b class="redalert">*</b></label></th><td colspan="3"><input type="text" id="CFORM_2932208_strLastName" name="strLastName" value="Henderson" maxlength="50" style="width:448px"></td><INPUT TYPE="hidden" NAME="ERR_strLastName" VALUE="strLastName|Last Name|20|1||50"></tr><tr><th width="25%"><label id="Label_strEmail" style="display:block; overflow:hidden; width:114px" class="cform_tooltip">Email Address&nbsp;<b class="redalert">*</b></label></th><td colspan="3"><input type="text" id="CFORM_2932208_strEmail" name="strEmail" value="mat@isaasi.co.uk" maxlength="100" style="width:448px"></td><INPUT TYPE="hidden" NAME="ERR_strEmail" VALUE="strEmail|Email Address|20|1||100"></tr><tr><th width="25%"><label id="Label_Custom_JobTitle" style="display:block; overflow:hidden; width:114px" class="cform_tooltip">Job Title&nbsp;<b class="redalert">*</b></label></th><td colspan="3"><input type="text" id="CFORM_2932208_Custom_JobTitle" name="Custom_JobTitle" value="" style="width:448px"></td><INPUT TYPE="hidden" NAME="ERR_Custom_JobTitle" VALUE="Custom_JobTitle|Job Title|20|1||0"></tr><tr><th width="25%"><label id="Label_Custom_Mainresponsibilitiesofyourjob" style="display:block; overflow:hidden; width:114px" class="cform_tooltip">Main responsibilities of your job&nbsp;<b class="redalert">*</b></label></th><td colspan="3"><textarea id="CFORM_2932208_Custom_Mainresponsibilitiesofyourjob" name="Custom_Mainresponsibilitiesofyourjob" style="height:108px; width:448px"></textarea></td><INPUT TYPE="hidden" NAME="ERR_Custom_Mainresponsibilitiesofyourjob" VALUE="Custom_Mainresponsibilitiesofyourjob|Main responsibilities of your job|20|1||0"></tr><tr><th colspan="4"><label id="Label_Custom_OrganisationDepartmentandContactAddress" style="display:block; overflow:hidden; width:114px" class="cform_tooltip">ORGANISATION/DEPARTMENT AND CONTACT ADDRESS:</label></th></tr><tr><td colspan="4"><div id="CFORM_2932208_Custom_OrganisationDepartmentandContactAddress" name="Custom_OrganisationDepartmentandContactAddress"></div></td><INPUT TYPE="hidden" NAME="ERR_Custom_OrganisationDepartmentandContactAddress" VALUE="Custom_OrganisationDepartmentandContactAddress|ORGANISATION/DEPARTMENT AND CONTACT ADDRESS:|20|0||0"></tr><tr><th width="25%"><label id="Label_Custom_Department" style="display:block; overflow:hidden; width:114px" class="cform_tooltip">Department&nbsp;<b class="redalert">*</b></label></th><td colspan="3"><input type="text" id="CFORM_2932208_Custom_Department" name="Custom_Department" value="" style="width:448px"></td><INPUT TYPE="hidden" NAME="ERR_Custom_Department" VALUE="Custom_Department|Department|20|1||0"></tr><tr><th width="25%"><label id="Label_Custom_Trust" style="display:block; overflow:hidden; width:114px" class="cform_tooltip">Trust&nbsp;<b class="redalert">*</b></label></th><td colspan="3"><input type="text" id="CFORM_2932208_Custom_Trust" name="Custom_Trust" value="" style="width:448px"></td><INPUT TYPE="hidden" NAME="ERR_Custom_Trust" VALUE="Custom_Trust|Trust|20|1||0"></tr><tr><th width="25%"><label id="Label_strAddress1" style="display:block; overflow:hidden; width:114px" class="cform_tooltip">Address Line 1&nbsp;<b class="redalert">*</b></label></th><td colspan="3"><input type="text" id="CFORM_2932208_strAddress1" name="strAddress1" value="" maxlength="50" style="width:448px"></td><INPUT TYPE="hidden" NAME="ERR_strAddress1" VALUE="strAddress1|Address Line 1|20|1||50"></tr><tr><th width="25%"><label id="Label_strAddress2" style="display:block; overflow:hidden; width:114px" class="cform_tooltip">Address Line 2&nbsp;<b class="redalert">*</b></label></th><td colspan="3"><input type="text" id="CFORM_2932208_strAddress2" name="strAddress2" value="" maxlength="50" style="width:448px"></td><INPUT TYPE="hidden" NAME="ERR_strAddress2" VALUE="strAddress2|Address Line 2|20|1||50"></tr><tr><th width="25%"><label id="Label_strCity" style="display:block; overflow:hidden; width:114px" class="cform_tooltip">Town/City&nbsp;<b class="redalert">*</b></label></th><td colspan="3"><input type="text" id="CFORM_2932208_strCity" name="strCity" value="" maxlength="50" style="width:448px"></td><INPUT TYPE="hidden" NAME="ERR_strCity" VALUE="strCity|Town/City|20|1||50"></tr><tr><th width="25%"><label id="Label_Custom_County" style="display:block; overflow:hidden; width:114px" class="cform_tooltip">County&nbsp;<b class="redalert">*</b></label></th><td colspan="3"><input type="text" id="CFORM_2932208_Custom_County" name="Custom_County" value="" style="width:448px"></td><INPUT TYPE="hidden" NAME="ERR_Custom_County" VALUE="Custom_County|County|20|1||0"></tr><tr><th width="25%"><label id="Label_strPostalCode" style="display:block; overflow:hidden; width:114px" class="cform_tooltip">Postal Code&nbsp;<b class="redalert">*</b></label></th><td colspan="3"><input type="text" id="CFORM_2932208_strPostalCode" name="strPostalCode" value="" maxlength="15" style="width:448px"></td><INPUT TYPE="hidden" NAME="ERR_strPostalCode" VALUE="strPostalCode|Postal Code|20|1||15"></tr><tr><th width="25%"><label id="Label_strPhone" style="display:block; overflow:hidden; width:114px" class="cform_tooltip">Telephone number&nbsp;<b class="redalert">*</b></label></th><td colspan="3"><input type="text" id="CFORM_2932208_strPhone" name="strPhone" value="" maxlength="50" style="width:448px"></td><INPUT TYPE="hidden" NAME="ERR_strPhone" VALUE="strPhone|Telephone number|20|1||50"></tr><tr><th colspan="4"><label id="Label_Custom_Sharingyourdetails" style="display:block;" class="cform_tooltip">SHARING YOUR DETAILS</label></th></tr><tr><td colspan="4"><div id="CFORM_2932208_Custom_Sharingyourdetails" name="Custom_Sharingyourdetails">Please indicate that you are happy for your details to be shared with our mentors</div></td><INPUT TYPE="hidden" NAME="ERR_Custom_Sharingyourdetails" VALUE="Custom_Sharingyourdetails|SHARING YOUR DETAILS|20|0||0"></tr><tr><th width="25%"><label id="Label_Custom_Imhappy" style="display:block; overflow:hidden; width:114px" class="cform_tooltip">I'm happy&nbsp;<b class="redalert">*</b></label></th><td colspan="3"><input type="radio" id="CFORM_2932208_Custom_Imhappy_0" name="Custom_Imhappy" value="Yes I’m happy for my application details  to be shared with BNMS mentors"><label for="CFORM_2932208_Custom_Imhappy_0">Yes I’m happy for my application details  to be shared with BNMS mentors</label><br></td><INPUT TYPE="hidden" NAME="ERR_Custom_Imhappy" VALUE="Custom_Imhappy|I'm happy|20|1||0"></tr><tr><th colspan="4"><label id="Label_Custom_PreviousMentoringRelationships" style="display:block; overflow:hidden; width:114px" class="cform_tooltip">PREVIOUS MENTORING RELATIONSHIPS</label></th></tr><tr><td colspan="4"><div id="CFORM_2932208_Custom_PreviousMentoringRelationships" name="Custom_PreviousMentoringRelationships"></div></td><INPUT TYPE="hidden" NAME="ERR_Custom_PreviousMentoringRelationships" VALUE="Custom_PreviousMentoringRelationships|PREVIOUS MENTORING RELATIONSHIPS|20|0||0"></tr><tr><th width="25%"><label id="Label_Custom_Otherdetails" style="display:block; overflow:hidden; width:114px" class="cform_tooltip">Please provide a summary of any mentoring that you have received in the past:</label></th><td colspan="3"><textarea id="CFORM_2932208_Custom_Otherdetails" name="Custom_Otherdetails" style="height:126px; width:448px"></textarea></td><INPUT TYPE="hidden" NAME="ERR_Custom_Otherdetails" VALUE="Custom_Otherdetails|Please provide a summary of any mentoring that you have received in the past:|20|0||0"></tr><tr><th colspan="4"><label id="Label_Custom_YourProfileAboutYou" style="display:block;" class="cform_tooltip">YOUR PROFILE - ABOUT YOU</label></th></tr><tr><td colspan="4"><div id="CFORM_2932208_Custom_YourProfileAboutYou" name="Custom_YourProfileAboutYou">This information will be passed onto potential mentors and is your opportunity to outline your interests, aspirations, outlook and any challenges that you are facing. This will be used to match you with any requirements specified by the mentor and for evaluation purposes.   </div></td><INPUT TYPE="hidden" NAME="ERR_Custom_YourProfileAboutYou" VALUE="Custom_YourProfileAboutYou|YOUR PROFILE - ABOUT YOU|20|0||0"></tr><tr><th width="25%"><label id="Label_Custom_Aboutyou" style="display:block; overflow:hidden; width:114px" class="cform_tooltip">About you&nbsp;<b class="redalert">*</b></label></th><td colspan="3"><textarea id="CFORM_2932208_Custom_Aboutyou" name="Custom_Aboutyou" style="height:360px; width:448px"></textarea></td><INPUT TYPE="hidden" NAME="ERR_Custom_Aboutyou" VALUE="Custom_Aboutyou|About you|20|1||0"></tr><tr><th colspan="4"><label id="Label_Custom_BackgroundandExperience" style="display:block;" class="cform_tooltip">YOUR PROFILE - BACKGROUND AND EXPERIENCE</label></th></tr><tr><td colspan="4"><div id="CFORM_2932208_Custom_BackgroundandExperience" name="Custom_BackgroundandExperience">This concerns your professional background and any specialist experience </div></td><INPUT TYPE="hidden" NAME="ERR_Custom_BackgroundandExperience" VALUE="Custom_BackgroundandExperience|YOUR PROFILE - BACKGROUND AND EXPERIENCE|20|0||0"></tr><tr><th width="25%"><label id="Label_Custom_Pleasetickallthatapplyandspecifywhereappropriate" style="display:block; overflow:hidden; width:114px" class="cform_tooltip">Please tick all that apply and specify where appropriate&nbsp;<b class="redalert">*</b></label></th><td colspan="3"><input type="checkbox" id="CFORM_2932208_Custom_Pleasetickallthatapplyandspecifywhereappropriate_0" name="Custom_Pleasetickallthatapplyandspecifywhereappropriate" value="General management"><label for="CFORM_2932208_Custom_Pleasetickallthatapplyandspecifywhereappropriate_0">General management</label><br><input type="checkbox" id="CFORM_2932208_Custom_Pleasetickallthatapplyandspecifywhereappropriate_1" name="Custom_Pleasetickallthatapplyandspecifywhereappropriate" value="Administrative &amp; Clerical"><label for="CFORM_2932208_Custom_Pleasetickallthatapplyandspecifywhereappropriate_1">Administrative &amp; Clerical</label><br><input type="checkbox" id="CFORM_2932208_Custom_Pleasetickallthatapplyandspecifywhereappropriate_2" name="Custom_Pleasetickallthatapplyandspecifywhereappropriate" value="Technical"><label for="CFORM_2932208_Custom_Pleasetickallthatapplyandspecifywhereappropriate_2">Technical</label><br><input type="checkbox" id="CFORM_2932208_Custom_Pleasetickallthatapplyandspecifywhereappropriate_3" name="Custom_Pleasetickallthatapplyandspecifywhereappropriate" value="Clinical"><label for="CFORM_2932208_Custom_Pleasetickallthatapplyandspecifywhereappropriate_3">Clinical</label><br><input type="checkbox" id="CFORM_2932208_Custom_Pleasetickallthatapplyandspecifywhereappropriate_4" name="Custom_Pleasetickallthatapplyandspecifywhereappropriate" value="Finance/Information"><label for="CFORM_2932208_Custom_Pleasetickallthatapplyandspecifywhereappropriate_4">Finance/Information</label><br><input type="checkbox" id="CFORM_2932208_Custom_Pleasetickallthatapplyandspecifywhereappropriate_5" name="Custom_Pleasetickallthatapplyandspecifywhereappropriate" value="Human Resources"><label for="CFORM_2932208_Custom_Pleasetickallthatapplyandspecifywhereappropriate_5">Human Resources</label><br><input type="checkbox" id="CFORM_2932208_Custom_Pleasetickallthatapplyandspecifywhereappropriate_6" name="Custom_Pleasetickallthatapplyandspecifywhereappropriate" value="Public Health/Health Promotion"><label for="CFORM_2932208_Custom_Pleasetickallthatapplyandspecifywhereappropriate_6">Public Health/Health Promotion</label><br><input type="checkbox" id="CFORM_2932208_Custom_Pleasetickallthatapplyandspecifywhereappropriate_7" name="Custom_Pleasetickallthatapplyandspecifywhereappropriate" value="Ex general management trainee"><label for="CFORM_2932208_Custom_Pleasetickallthatapplyandspecifywhereappropriate_7">Ex general management trainee</label><br><input type="checkbox" id="CFORM_2932208_Custom_Pleasetickallthatapplyandspecifywhereappropriate_8" name="Custom_Pleasetickallthatapplyandspecifywhereappropriate" value="Ex financial management trainee"><label for="CFORM_2932208_Custom_Pleasetickallthatapplyandspecifywhereappropriate_8">Ex financial management trainee</label><br><input type="checkbox" id="CFORM_2932208_Custom_Pleasetickallthatapplyandspecifywhereappropriate_9" name="Custom_Pleasetickallthatapplyandspecifywhereappropriate" value="Education"><label for="CFORM_2932208_Custom_Pleasetickallthatapplyandspecifywhereappropriate_9">Education</label><br><input type="checkbox" id="CFORM_2932208_Custom_Pleasetickallthatapplyandspecifywhereappropriate_10" name="Custom_Pleasetickallthatapplyandspecifywhereappropriate" value="Local government"><label for="CFORM_2932208_Custom_Pleasetickallthatapplyandspecifywhereappropriate_10">Local government</label><br><input type="checkbox" id="CFORM_2932208_Custom_Pleasetickallthatapplyandspecifywhereappropriate_11" name="Custom_Pleasetickallthatapplyandspecifywhereappropriate" value="Private sector"><label for="CFORM_2932208_Custom_Pleasetickallthatapplyandspecifywhereappropriate_11">Private sector</label><br><input type="checkbox" id="CFORM_2932208_Custom_Pleasetickallthatapplyandspecifywhereappropriate_12" name="Custom_Pleasetickallthatapplyandspecifywhereappropriate" value="Other"><label for="CFORM_2932208_Custom_Pleasetickallthatapplyandspecifywhereappropriate_12">Other</label><br></td><INPUT TYPE="hidden" NAME="ERR_Custom_Pleasetickallthatapplyandspecifywhereappropriate" VALUE="Custom_Pleasetickallthatapplyandspecifywhereappropriate|Please tick all that apply and specify where appropriate|20|1||0"></tr><tr><th width="25%"><label id="Label_Custom_IfyourresponsetotheabovewasOtherpleaseprovidedetails" style="display:block; overflow:hidden; width:114px" class="cform_tooltip">If your response to the above was Other, please provide details</label></th><td colspan="3"><textarea id="CFORM_2932208_Custom_IfyourresponsetotheabovewasOtherpleaseprovidedetails" name="Custom_IfyourresponsetotheabovewasOtherpleaseprovidedetails" style="height:54px; width:448px"></textarea></td><INPUT TYPE="hidden" NAME="ERR_Custom_IfyourresponsetotheabovewasOtherpleaseprovidedetails" VALUE="Custom_IfyourresponsetotheabovewasOtherpleaseprovidedetails|If your response to the above was Other, please provide details|20|0||0"></tr><tr><th colspan="4"><label id="Label_Custom_YourProfileLevel" style="display:block;" class="cform_tooltip">YOUR PROFILE - LEVEL</label></th></tr><tr><td colspan="4"><div id="CFORM_2932208_Custom_YourProfileLevel" name="Custom_YourProfileLevel">Please select your level in your organisation </div></td><INPUT TYPE="hidden" NAME="ERR_Custom_YourProfileLevel" VALUE="Custom_YourProfileLevel|YOUR PROFILE - LEVEL|20|0||0"></tr><tr><th width="25%"><label id="Label_Custom_Pleasetickyourlevelinyourorganisation"  style="text-decoration:underline;display:block; overflow:hidden; width:114px" class="cform_tooltip">Please select your level in your organisation&nbsp;<b class="redalert">*</b><span>this only needs to be approximate</span></label></th><td colspan="3"><select id="CFORM_2932208_Custom_Pleasetickyourlevelinyourorganisation" name="Custom_Pleasetickyourlevelinyourorganisation" size="1" style="width:448px"><option value=""></option><option value="Administrative">Administrative</option><option value="Chief Executive">Chief Executive</option><option value="Clinical Director">Clinical Director</option><option value="Clinical Specialist">Clinical Specialist</option><option value="Director/Board">Director/Board</option><option value="Finance Specialist">Finance Specialist</option><option value="First Line Manager">First Line Manager</option><option value="HR specialist / training &amp; development">HR specialist / training &amp; development</option><option value="Information Specialist">Information Specialist</option><option value="Middle manager">Middle manager</option><option value="Degree level e.g. Masters/PhD">Degree level e.g. Masters/PhD</option><option value="Senior Manager">Senior Manager</option><option value="Other">Other</option></select></td><INPUT TYPE="hidden" NAME="ERR_Custom_Pleasetickyourlevelinyourorganisation" VALUE="Custom_Pleasetickyourlevelinyourorganisation|Please select your level in your organisation|20|1||0"></tr><tr><th width="25%"><label id="Label_Custom_IfyourresponsetoyouraboveselectionwasOtherpleasedetail" style="display:block; overflow:hidden; width:114px" class="cform_tooltip">If your response to your above selection was Other, please detail</label></th><td colspan="3"><textarea id="CFORM_2932208_Custom_IfyourresponsetoyouraboveselectionwasOtherpleasedetail" name="Custom_IfyourresponsetoyouraboveselectionwasOtherpleasedetail" style="height:54px; width:448px"></textarea></td><INPUT TYPE="hidden" NAME="ERR_Custom_IfyourresponsetoyouraboveselectionwasOtherpleasedetail" VALUE="Custom_IfyourresponsetoyouraboveselectionwasOtherpleasedetail|If your response to your above selection was Other, please detail|20|0||0"></tr><tr><th width="25%"><label id="Label_Custom_YourProfileGender" style="display:block; overflow:hidden; width:114px" class="cform_tooltip">Your Profile - Gender&nbsp;<b class="redalert">*</b></label></th><td colspan="3"><select id="CFORM_2932208_Custom_YourProfileGender" name="Custom_YourProfileGender" size="1" style="width:448px"><option value=""></option><option value="Male">Male</option><option value="Female">Female</option><option value="Other/Prefer not to say">Other/Prefer not to say</option></select></td><INPUT TYPE="hidden" NAME="ERR_Custom_YourProfileGender" VALUE="Custom_YourProfileGender|Your Profile - Gender|20|1||0"></tr><tr><th width="25%"><label id="Label_Custom_YourProfilepronouns" style="display:block; overflow:hidden; width:114px" class="cform_tooltip">Your Profile - pronouns&nbsp;<b class="redalert">*</b></label></th><td colspan="3"><select id="CFORM_2932208_Custom_YourProfilepronouns" name="Custom_YourProfilepronouns" size="1" style="width:448px"><option value=""></option><option value="he/him">he/him</option><option value="she/her">she/her</option><option value="they/them">they/them</option><option value="he/they, she/they">he/they, she/they</option></select></td><INPUT TYPE="hidden" NAME="ERR_Custom_YourProfilepronouns" VALUE="Custom_YourProfilepronouns|Your Profile - pronouns|20|1||0"></tr><tr><th colspan="4"><label id="Label_Custom_YourProfileOrganisation" style="display:block;" class="cform_tooltip">YOUR PROFILE - ORGANISATION</label></th></tr><tr><td colspan="4"><div id="CFORM_2932208_Custom_YourProfileOrganisation" name="Custom_YourProfileOrganisation">Type of Organisation</div></td><INPUT TYPE="hidden" NAME="ERR_Custom_YourProfileOrganisation" VALUE="Custom_YourProfileOrganisation|YOUR PROFILE - ORGANISATION|20|0||0"></tr><tr><th width="25%"><label id="Label_Custom_Whatisthetypeofyourorganisation" style="display:block; overflow:hidden; width:114px" class="cform_tooltip">What is the type of your organisation?&nbsp;<b class="redalert">*</b></label></th><td colspan="3"><select id="CFORM_2932208_Custom_Whatisthetypeofyourorganisation" name="Custom_Whatisthetypeofyourorganisation" size="1" style="width:448px"><option value=""></option><option value="NHS Trust (acute)">NHS Trust (acute)</option><option value="NHS Trust (community)">NHS Trust (community)</option><option value="NHS Trust (ambulance)">NHS Trust (ambulance)</option><option value="Primary Care Trust">Primary Care Trust</option><option value="Voluntary Organisation">Voluntary Organisation</option><option value="Strategic Health Authority">Strategic Health Authority</option><option value="Social Services">Social Services</option><option value="Local Authority">Local Authority</option><option value="Educational organisation">Educational organisation</option><option value="Department of Health">Department of Health</option><option value="Private sector healthcare">Private sector healthcare</option><option value="Other">Other</option></select></td><INPUT TYPE="hidden" NAME="ERR_Custom_Whatisthetypeofyourorganisation" VALUE="Custom_Whatisthetypeofyourorganisation|What is the type of your organisation?|20|1||0"></tr><tr><th width="25%"><label id="Label_Custom_Ifyouranswertotheabovequestionwasotherpleasedetail" style="display:block; overflow:hidden; width:114px" class="cform_tooltip">If your answer to the above question was other, please detail</label></th><td colspan="3"><textarea id="CFORM_2932208_Custom_Ifyouranswertotheabovequestionwasotherpleasedetail" name="Custom_Ifyouranswertotheabovequestionwasotherpleasedetail" style="height:54px; width:448px"></textarea></td><INPUT TYPE="hidden" NAME="ERR_Custom_Ifyouranswertotheabovequestionwasotherpleasedetail" VALUE="Custom_Ifyouranswertotheabovequestionwasotherpleasedetail|If your answer to the above question was other, please detail|20|0||0"></tr><tr><th colspan="4"><label id="Label_Custom_Yourmentor" style="display:block;" class="cform_tooltip">YOUR MENTOR</label></th></tr><tr><td colspan="4"><div id="CFORM_2932208_Custom_Yourmentor" name="Custom_Yourmentor">Mentor criteria</div></td><INPUT TYPE="hidden" NAME="ERR_Custom_Yourmentor" VALUE="Custom_Yourmentor|YOUR MENTOR|20|0||0"></tr><tr><th width="25%"><label id="Label_Custom_Arethereanyspecificcharacteristicsyouarelookingforinamentorbackgroundexperienceetc" style="display:block; overflow:hidden; width:114px" class="cform_tooltip">Are there any specific characteristics you are looking for in a mentor (background, experience etc)?</label></th><td colspan="3"><textarea id="CFORM_2932208_Custom_Arethereanyspecificcharacteristicsyouarelookingforinamentorbackgroundexperienceetc" name="Custom_Arethereanyspecificcharacteristicsyouarelookingforinamentorbackgroundexperienceetc" style="height:180px; width:448px"></textarea></td><INPUT TYPE="hidden" NAME="ERR_Custom_Arethereanyspecificcharacteristicsyouarelookingforinamentorbackgroundexperienceetc" VALUE="Custom_Arethereanyspecificcharacteristicsyouarelookingforinamentorbackgroundexperienceetc|Are there any specific characteristics you are looking for in a mentor (background, experience etc)?|20|0||0"></tr><tr><th colspan="4"><label id="Label_Custom_Meetingpreferences" style="display:block; overflow:hidden; width:114px" class="cform_tooltip">MEETING PREFERENCES</label></th></tr><tr><td colspan="4"><div id="CFORM_2932208_Custom_Meetingpreferences" name="Custom_Meetingpreferences"></div></td><INPUT TYPE="hidden" NAME="ERR_Custom_Meetingpreferences" VALUE="Custom_Meetingpreferences|MEETING PREFERENCES|20|0||0"></tr><tr><th width="25%"><label id="Label_Custom_Preferredmeetingformat" style="display:block; overflow:hidden; width:114px" class="cform_tooltip">Preferred meeting format&nbsp;<b class="redalert">*</b></label></th><td colspan="3"><select id="CFORM_2932208_Custom_Preferredmeetingformat" name="Custom_Preferredmeetingformat" size="1" style="width:448px"><option value=""></option><option value="In person">In person</option><option value="Virtual">Virtual</option><option value="Flexible / Either">Flexible / Either</option></select></td><INPUT TYPE="hidden" NAME="ERR_Custom_Preferredmeetingformat" VALUE="Custom_Preferredmeetingformat|Preferred meeting format|20|1||0"></tr><tr><th width="25%"><label id="Label_Custom_Preferredmeetingfrequency" style="display:block; overflow:hidden; width:114px" class="cform_tooltip">Preferred meeting frequency&nbsp;<b class="redalert">*</b></label></th><td colspan="3"><select id="CFORM_2932208_Custom_Preferredmeetingfrequency" name="Custom_Preferredmeetingfrequency" size="1" style="width:448px"><option value=""></option><option value="Monthly">Monthly</option><option value="Every 6–8 weeks">Every 6–8 weeks</option><option value="Quarterly">Quarterly</option></select></td><INPUT TYPE="hidden" NAME="ERR_Custom_Preferredmeetingfrequency" VALUE="Custom_Preferredmeetingfrequency|Preferred meeting frequency|20|1||0"></tr><tr><th colspan="4"><label id="Label_Custom_Locationofworkbase" style="display:block;" class="cform_tooltip">Location of work base</label></th></tr><tr><td colspan="4"><div id="CFORM_2932208_Custom_Locationofworkbase" name="Custom_Locationofworkbase">In the current environment where there are varying restrictions in place, we would encourage meetings to be held virtually. If however, there is a desire from both parties to meet face to face (adhering to any restrictions that maybe in place) please provide details of a likely/preferred meeting place for you could engage in a mentoring session</div></td><INPUT TYPE="hidden" NAME="ERR_Custom_Locationofworkbase" VALUE="Custom_Locationofworkbase|Location of work base|20|0||0"></tr><tr><th colspan="4"><label id="Label_Custom_Bysubmittingthisform" style="display:block;" class="cform_tooltip">By submitting this form</label></th></tr><tr><td colspan="4"><div id="CFORM_2932208_Custom_Bysubmittingthisform" name="Custom_Bysubmittingthisform">I confirm that the information I have provided in this application is accurate.<br/>If you have any questions about this form or aspects of the mentorship programme please contact us:<br/>angelicaspina@bnms.org.uk<br/></div></td><INPUT TYPE="hidden" NAME="ERR_Custom_Bysubmittingthisform" VALUE="Custom_Bysubmittingthisform|By submitting this form|20|0||0"></tr></table><script>  $(document).ready(function() {      $("#CFormCaptchaSubmit").show();  });</script>
+		<p></p>
+		<div id="CFormCaptchaSubmit" style="display: none;">
+
+		<input type="submit" name="btnSubmit" value="Submit" class="formbutton"  onclick="return onCaptchaClientClick(this);">
+		</div>
+		<input type="hidden" name="__ASPVIEWSTATE" value="0578a64be49e9c23fc8af20810665e8e248e830c969ee35014a5dc845f3e0739a5ab71bd7467031bed82258da6326b75c3a7914261d577e8ebaaa37a39f662eb3e482854f3c5ebd32e509b64e0bf31e4b8afa4b8b9c68fbf43ee6761daaecb66c5bb9331aa793a5d01548a30697b6a14379515d96fd88b4ff87d6a22399e9a913779f6444eac7e3dd7c7912c9419aad89c1858452902574d748549461cad3458ebaedda234b7f217ab855ea58fad58fbfd4c8deef96b846eef5c351ed10ef3b63d060bd4b19a91228b48e9d9d2133624e604b4c9da73a68e3ae242c949b283df1377cc53bde936bc3d04e25ad6acd1f922912537aade0550f12f39d5">
+	</form>
+	
+	<div class="yui-skin-sam">
+	<div id="CformMoreInfo" style="visibility:hidden">
+		<div id="CformMoreInfoBody" class="bd"></div>
+	</div></div>
+
+	<div id="ResourceCollection">
+		
+	
+	<script type="text/javascript">
+	function LaunchThis(sender, strURL)
+	{
+		window.open (strURL);	
+		return false;
+	}
+	
+	function NewCollection(Collection)
+	{
+		window.location = "/members/resource_collection_item_edit.asp?id=" + Collection + "&groupID=";
+		return false;
+	}
+	
+	function ModifyThis(Collection, ItemID)
+	{
+		window.location = "/members/resource_collection_item_edit.asp?id=" + Collection + "&groupID=&itemID=" + ItemID;
+		return false;
+	}
+	</script>
+
+	</div></td>
+</tr>
+</table><!--END SpContent-->
+
+<script>
+   <!--CBX Script-->
+             const initCBX = async () => {
+                if (!self.CBX || !self.CBX.init) {
+                    console.error('NOT FOUND: CBX SCRIPT');
+                    return;
+                }
+    
+                const pageSettings = {
+
+                     cbx_product_id: '67c851affddf1ba37172ec3a',
+                     cbx_client_id: '',
+                     user_hint: '82619633',
+
+                     cbx_brand_product_code: 'ym',
+                     cbx_portal_context: 'ym-cms',
+
+                     auth_entity_type: 'CUSTOMER',
+                     auth_strategy: 'REDIRECT',
+                     auth_triggers: [ 'PORTALS' ],
+
+                     DEBUG: true,
+                  };
+    
+                   await self.CBX.init(pageSettings);
+                
+             };
+</script>
+ 
+<link rel="stylesheet" runat="server" media="screen" href="https://assets.xcbx.io/themes/ym-theme-v2/theme.css" />
+<script src="https://portal-coil.xcbx.io/auth/v1/core.js" type="module" defer="defer" onload="initCBX()"></script>
+<!--*** BEGIN \global_inc\sp_footer.asp ***-->
+
+<div id="PageBase_RaiseAlert" class="yui-skin-sam"></div>
+
+<!--*** BEGIN \global_inc\site_templates\HTML_5\YM-FX-02-A\sp_footer.asp ***-->
+<!--*** BEGIN \global_inc\site_templates\sp_footer_init.asp ***-->
+
+<div class="yui-skin-sam">
+<div id="ContextualHelp" style="visibility:hidden">
+	<div id="ContextualHelpHead" class="hd"></div>
+	<div id="ContextualHelpBody" class="bd"></div>
+</div>
+<div id="SpNavBarSub" style="visibility:hidden">
+	<div id="SpNavBarSubBody" class="bd"></div>
+</div></div>
+<!--*** END \global_inc\site_templates\sp_footer_init.asp ***-->
+
+						<!--@@DG_PRINT_PAGE_END@@
+							IMPORTANT! DO NOT MOVE OR MODIFY -->
+
+			    </div><!-- Close sp-controlcenter div -->
+			</div><!-- Close sp-content div -->
+		</div><!-- Close left div -->
+
+		<div id="right" class="col-sm-4 ptop-15">
+			<div class="content"><!--YMPSTITLE=TgBBAA==/YMPSTITLE--></div>
+			
+				<div class="zone mbottom-15" id="login">
+					<div class="irailhead">My Profile</div>
+					<div class="irailcontent"><a href='https://www.bnms.org.uk/members/dashboard.aspx'>My Feed</a><br /><a href='https://www.bnms.org.uk/members/'>Profile Home</a><br /><a href='https://www.bnms.org.uk/members/manage_profile.asp'>Manage Profile</a><br /><a href='/members/my_groups.asp'>Groups</a><br><a href='/members/my_networks.aspx'>Networks</a><br><a href='/members/resource_collection_list.asp?uid=82619633'>Files & Links</a><br><a href='/members/favorites.asp?uid=82619633'>Bookmarks</a><br><a href='/messaging/'>Messages</a> <br /><a href='/members/connections.asp'>Connections</a> <br /><a href='https://www.bnms.org.uk/members/membership.asp'>Membership Info</a><br><a href='/members/send.asp'>Refer a Friend</a><br></div>
+				</div>
+			
+				<div class="zone mbottom-15" id="news">
+					<div class="irailhead">
+						Latest News
+						<a class="pull-right" href="/news/">more</a>
+					</div>
+					<div class="irailcontent"><p id='NewsPnl_730238'><span class="LatestNewsItemDate">  30/06/2026</span><a href="/news/730238/Wavelength---June-2026.htm">Wavelength - June 2026</a></p><p id='NewsPnl_730237'><span class="LatestNewsItemDate">  30/06/2026</span><a href="/news/730237/-BNMS-Committee-update-from-Scientific--Education-Committee-SEC.htm"> BNMS Committee update from Scientific & Education Committee (SEC)</a></p></div>
+				</div>
+			
+				<div class="zone mbottom-15" id="calendar">
+					<div class="irailhead">
+						Calendar
+						<a class="pull-right" href="/events/event_list.asp">more</a>
+					</div>
+					<div class="irailcontent"><div id="tt-container" class="yui-skin-sam"></div><div class='UpcomingEvents UpcomingEvents_1'><p id="EventPnl2064027">14/07/2026<br clear=all><a href='/events/EventDetails.aspx?id=2064027'>BNMS MRT Webinar Series - Setting up an MRT dosimetry Service</a></p></div><div class='UpcomingEvents UpcomingEvents_2'><p id="EventPnl2058708">20/07/2026 &raquo; 21/07/2026<br clear=all><a href='/events/EventDetails.aspx?id=2058708'>Stress Leaders Workshop</a></p></div></div>
+				</div>
+			
+				<div class="zone mbottom-15" id="featured">
+					<div class="irailhead">Featured Members</div>
+					<div class="irailcontent"><div class='FeaturedMemberTile'><a href='/members/?id=65048594'>Patrick Gomez</a><img src='/photos/alumni/20260303_100624_17789.jpeg' align='left' alt='' border=0 height=50>BNMS YouTube Channel #BNMS2026 https://www.bnms.org.uk/news/721432/NEW-Feature-Member.htm</div><div class='FeaturedMemberTile'><a href='/members/?id=56480576'>Arum Parthipun</a><img src='/photos/alumni/thumb_7ccc4af6-b4fd-450d-affb-43d11b6e3246.jpeg' align='left' alt='' border=0 height=50>RCR NM Travelling Professor https://www.bnms.org.uk/news/728160/BNMS-Feature-Member.htm</div><p></p></div>
+				</div>
+			
+				<div class="zone mbottom-15" id="surveys">
+					<div class="irailhead">Online Surveys</div>
+					<div class="irailcontent"><table border='0' cellpadding='0' cellspacing='0'></table></div>
+				</div>
+			
+			<div class="content"><!--YMPSTITLE=TgBBAA==/YMPSTITLE--></div>
+		</div>
+
+	</div> <!-- Close row div -->
+	<div class="clear"></div>
+</div> <!-- Close sp-main div -->
+<div class="bottomcontentarea-out">
+	<div class="container">
+		<div id="bottomcontentarea" class="mbottom-15"><!--YMPSTITLE=TgBBAA==/YMPSTITLE--></div>
+	</div>
+</div>
+<div id="foot"><!-- footer --></div>
+<div id="FooterContentArea">
+	<div class="container">
+		<!--YMPSTITLE=TgBBAA==/YMPSTITLE--><!-- Footer Starts -->
+<div class="footer">
+    <div class="row">
+        <!-- Column 1 -->
+        <div class="col-sm-5 footer-col" id="footer-col1">
+            <h5><span style="color: #ffffff;">Contact Us</span></h5>
+            <p><span style="color: #ffffff;"><strong>The British Nuclear Medicine Society</strong> <br /><span style="font-size: small; font-family: Arial, Helvetica, sans-serif;">PO Box 8599<br />Derby<br />DE1 9PT                </span>
+
+                </span>
+            </p>
+            <p style="color:white;"><span style="color: #ffffff;">Telephone:<br />0738 529 7906<br />
+            0115 671 5705<br />0115 671 5704<br />General Enquiries 0115 671 5703</span></p>
+            &nbsp; </div><span style="color: #ffffff;">
+        <!-- Column 2 -->
+        
+        </span>
+        <div class="col-sm-4 footer-col" id="footer-col2">
+            <h5><span style="color: #ffffff;">Site Links</span></h5>
+            <ul>
+                <li><a href="/">Home</a><br />
+                </li>
+                <li><a href="/resource/resmgr/bnms_about_us/bnms_privacy_policy_08.02.20.pdf" target="_blank">Privacy Policy</a></li>
+                <li><a href="/page/ExternalSupplierPrivacyPolicies" target="_blank">External Supplier Privacy Policies</a></li>
+                <li><a href="https://cdn.ymaws.com/bnms.site-ym.com/resource/collection/512BD9D0-04AC-423F-93CD-F81A0B566B95/BNMSportal_users_guide.pdf">BNMS Members Portal User Guide</a></li>
+                <li>
+                    <ul style="list-style: none; padding-left: 0px; margin-bottom: 0px;">
+                        <li style="margin-bottom: 5px;">X Icon by <a href="https://www.iconpacks.net/?utm_source=link-attribution&amp;utm_content=20847" target="_blank">Iconpacks</a></li>
+                    </ul>
+                </li>
+            </ul>
+        </div>
+        <!-- Column 3 -->
+        <div class="col-sm-3 footer-col" id="footer-col3">
+            <h5>Connect</h5>
+            <div class="footer-social">
+                <a href="https://twitter.com/BNMSnews" target="_blank"><svg xmlns="http://www.w3.org/2000/svg" shape-rendering="geometricPrecision" text-rendering="geometricPrecision" image-rendering="optimizeQuality" fill-rule="evenodd" clip-rule="evenodd" viewbox="0 0 512 462.799" style="fill: #fff; height: 15px; width: auto;"><path fill-rule="nonzero" d="M403.229 0h78.506L310.219 196.04 512 462.799H354.002L230.261 301.007 88.669 462.799h-78.56l183.455-209.683L0 0h161.999l111.856 147.88L403.229 0zm-27.556 415.805h43.505L138.363 44.527h-46.68l283.99 371.278z"></path></svg></a>
+                <a href="https://www.linkedin.com/groups/British-Nuclear-Medicine-Society-4658735?trk=my_groups-b-grp-v" target="_blank"><i class="fab fa-linkedin-in"></i></a>
+                <a href="https://www.youtube.com/channel/UCRm_qvKB-6alhKjWQZpHtOQ" target="_blank"><i class="fab fa-youtube"></i></a>
+            </div>
+        </div>
+    </div>
+</div>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+<p style="text-align: left;"><span style="font-size: 12px;"><span style="color: #ffffff;">© 2013 BNMS unless otherwise stated.<br />
+The BNMS is a registered as a company in England and Wales with number 08082786.&nbsp; The BNMS is a charity governed by the rules of the Charity Commission for England and Wales - Registered Number 1150234.&nbsp; Registered Office: The Royal College of Physicians, 11 St. Andrew's Place, Regent's Park, London NW1 4LE.<br />
+The British Nuclear Medicine Society is not able to give specific clinical advice to members of the public. If you are concerned about your scan or therapy please seek the opinion of a nuclear medicine clinician where you were seen or the clinician who referred you to the department or your GP.<br />
+Enquiries related to issues such as internships and work experience opportunities, should be directed to the relevant professional body e.g., for radiologists, this will be the Royal College of Radiologists.</span></span>
+</p>
+<!-- Main menu Twitter icon -->
+<style>
+    .fa-twitter{
+        display: none;
+    }
+    #ctl00_PageContent_pnlMain .hideablepaymentfield:nth-child(14) td:first-of-type b{
+        display: none !important;
+    }
+    #ctl00_PageContent_pnlMain .hideablepaymentfield:nth-child(14) td:first-of-type:before{
+        content: "PO & SBS payables code";
+        display: inline;
+        font-weight: bold;
+    }
+    .navbar-nav li:nth-last-child(-n+2) a{
+        color: #2eb82e;
+    }
+</style>
+<script>
+    $(document).ready(function() {
+        if('#DuesForm'){
+            $('#DuesForm').each(function() {
+                // Replace text within the element
+                let content = $(this).html();
+                let updatedContent = content.replace(/PO Number/g, "PO & SBS payables code");
+                $(this).html(updatedContent);
+            });
+        }
+        // if('#ctl00_PageContent_pnlMain .hideablepaymentfield'){
+        //     $('.hideablepaymentfield').each(function() {
+        //         // Replace text within the element
+        //         let content = $(this).html();
+        //         let updatedContent = content.replace(/PO:/g, "PO & SBS payables code");
+        //         $(this).html(updatedContent);
+        //     });
+        // }
+    });
+    
+    $(function() {
+        $('.header-social .fa-twitter').replaceWith('<svg xmlns="http://www.w3.org/2000/svg" shape-rendering="geometricPrecision" text-rendering="geometricPrecision" image-rendering="optimizeQuality" fill-rule="evenodd" clip-rule="evenodd" viewBox="0 0 512 462.799" style="fill: #fff; height: 1.3rem; width: auto;margin-top: px;"><path fill-rule="nonzero" d="M403.229 0h78.506L310.219 196.04 512 462.799H354.002L230.261 301.007 88.669 462.799h-78.56l183.455-209.683L0 0h161.999l111.856 147.88L403.229 0zm-27.556 415.805h43.505L138.363 44.527h-46.68l283.99 371.278z"></path></svg>');
+      
+        });
+</script>
+	</div>
+</div>
+<div id="icopyright">
+	<div id="copyright-inner" class="container">
+		Membership Management Software Powered by <a href='http://www.yourmembership.com/'>YourMembership</a> &nbsp;::&nbsp; <a href='/ams/legal-privacy.htm'>Legal</a><!-- Copyright (c) 1998-2026 YourMembership.com Inc. All Rights Reserved. Copyright: Certain elements of this website are: Copyright (c) 1998-2026, YourMembership.com, Incorporated. YourMembership.com, Incorporated provides a limited license to use its Copyrights to the entity from whose web page you are viewing. Certain elements of this website may also be copyrighted by that entity; please see its Terms of Use or contact the organization for more information. General information about copyright laws can be found at: http://www.copyright.gov/. For more specific information, please consult an attorney. -->
+	</div>
+</div>
+<!-- HTML_5/YM-FX-02-A Footer -->
+
+<!-- BEGIN Yadmin Custom Script (placed here at the bottom of the <body> so that it does not interfere with any potential customer scripts within the <body>) -->
+<script src="https://cmp.osano.com/16BetWTVxvf7jEBbA/45c8d57e-88ec-430c-bcb0-b0513e770d61/osano.js"></script>
+<script>function nativeSelector() {
+    var elements = document.querySelectorAll("body, body *");
+    var results = [];
+    var child;
+    for(var i = 0; i < elements.length; i++) {
+        child = elements[i].childNodes[0];
+        if(elements[i].hasChildNodes() && child.nodeType == 3) {
+            results.push(child);
+        }
+    }
+    return results;
+}
+ 
+var textnodes = nativeSelector(),
+    _nv;
+for (var i = 0, len = textnodes.length; i<len; i++){
+    _nv = textnodes[i].nodeValue;
+    textnodes[i].nodeValue = _nv.replace(/Organization/g,'Organisation');
+}
+</script>
+<script>function nativeSelector() {
+    var elements = document.querySelectorAll("body, body *");
+    var results = [];
+    var child;
+    for(var i = 0; i < elements.length; i++) {
+        child = elements[i].childNodes[0];
+        if(elements[i].hasChildNodes() && child.nodeType == 3) {
+            results.push(child);
+        }
+    }
+    return results;
+}
+ 
+var textnodes = nativeSelector(),
+    _nv;
+for (var i = 0, len = textnodes.length; i<len; i++){
+    _nv = textnodes[i].nodeValue;
+    textnodes[i].nodeValue = _nv.replace(/Finalize/g,'Finalise');
+}
+</script>
+<script>function nativeSelector() {
+    var elements = document.querySelectorAll("body, body *");
+    var results = [];
+    var child;
+    for(var i = 0; i < elements.length; i++) {
+        child = elements[i].childNodes[0];
+        if(elements[i].hasChildNodes() && child.nodeType == 3) {
+            results.push(child);
+        }
+    }
+    return results;
+}
+ 
+var textnodes = nativeSelector(),
+    _nv;
+for (var i = 0, len = textnodes.length; i<len; i++){
+    _nv = textnodes[i].nodeValue;
+    textnodes[i].nodeValue = _nv.replace(/Bill Me/g,'Invoice me');
+}
+</script>
+<script>function nativeSelector() {
+    var elements = document.querySelectorAll("body, body *");
+    var results = [];
+    var child;
+    for(var i = 0; i < elements.length; i++) {
+        child = elements[i].childNodes[0];
+        if(elements[i].hasChildNodes() && child.nodeType == 3) {
+            results.push(child);
+        }
+    }
+    return results;
+}
+ 
+var textnodes = nativeSelector(),
+    _nv;
+for (var i = 0, len = textnodes.length; i<len; i++){
+    _nv = textnodes[i].nodeValue;
+    textnodes[i].nodeValue = _nv.replace(/Customize/g,'Customise');
+}
+</script>
+
+<script>function nativeSelector() {
+    var elements = document.querySelectorAll("body, body *");
+    var results = [];
+    var child;
+    for(var i = 0; i < elements.length; i++) {
+        child = elements[i].childNodes[0];
+        if(elements[i].hasChildNodes() && child.nodeType == 3) {
+            results.push(child);
+        }
+    }
+    return results;
+}
+ 
+var textnodes = nativeSelector(),
+    _nv;
+for (var i = 0, len = textnodes.length; i<len; i++){
+    _nv = textnodes[i].nodeValue;
+    textnodes[i].nodeValue = _nv.replace(/finalized/g,'finalised');
+}
+</script>
+<!-- END Yadmin Custom Script -->
+</body>
+<!--*** BEGIN \global_inc\site_templates\sp_footer_term.asp ***-->
+
+
+</html>
+<!--END_OF_FILE-->
+<!--*** END \global_inc\site_templates\sp_footer_term.asp ***-->
+
+<!--*** END \global_inc\site_templates\HTML_5\YM-FX-02-A\sp_footer.asp ***-->
+
+<!--*** END \global_inc\sp_footer.asp ***-->

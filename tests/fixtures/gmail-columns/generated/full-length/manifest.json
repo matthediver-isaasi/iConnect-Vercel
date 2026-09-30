@@ -1,0 +1,69 @@
+{
+  "sourceCommitted": false,
+  "sourceDecodedHtmlBytes": 165877,
+  "imageCidMapping": {
+    "fixture-image@example.invalid": "../assets/fixture-image.png"
+  },
+  "sanitizedImageElements": 36,
+  "detectedMultiColumnSections": 11,
+  "expectedBoundedMultiColumnElements": 30,
+  "expectedBoundedElementsByWidthClass": {
+    "mj-column-per-33": 24,
+    "mj-column-per-40": 1,
+    "mj-column-per-50": 4,
+    "mj-column-per-60": 1
+  },
+  "assertions": [
+    "no scripts, data-* metadata, IDs, meta content, or on* event attributes",
+    "no remote resource attributes or remote CSS URLs",
+    "no non-fixture email addresses",
+    "no common tracking parameters or transport headers",
+    "no non-structural source class identifiers",
+    "generic visible-text replacement preserves whitespace and per-node length",
+    "table and Outlook conditional counts equal source",
+    "all structurally detected multi-column elements receive hybrid bounds",
+    "Outlook conditional comments are unchanged by hybrid correction",
+    "responsive CSS and CID references present"
+  ],
+  "limitations": [
+    "Visible text is generically replaced at the same non-whitespace length; serialization and resource replacement still change decoded byte size.",
+    "These artifacts do not emulate Gmail or Word-based Outlook.",
+    "Size and structure evidence cannot prove the cause of clipping or column stacking."
+  ],
+  "original": {
+    "bytes": 165877,
+    "tables": 303,
+    "outlookConditionals": 185,
+    "mediaQueries": 3,
+    "columnClasses": 79,
+    "columnElements": 69,
+    "cidReferences": 0,
+    "hybridColumns": 0
+  },
+  "baseline": {
+    "bytes": 147611,
+    "tables": 303,
+    "outlookConditionals": 185,
+    "mediaQueries": 3,
+    "columnClasses": 79,
+    "columnElements": 69,
+    "cidReferences": 36,
+    "hybridColumns": 0
+  },
+  "candidate": {
+    "bytes": 148852,
+    "tables": 303,
+    "outlookConditionals": 185,
+    "mediaQueries": 4,
+    "columnClasses": 79,
+    "columnElements": 69,
+    "cidReferences": 36,
+    "hybridColumns": 30
+  },
+  "artifacts": {
+    "received-full-length.before.html": 147611,
+    "received-full-length.before.eml": 148882,
+    "received-full-length.after.html": 148852,
+    "received-full-length.after.eml": 150124
+  }
+}

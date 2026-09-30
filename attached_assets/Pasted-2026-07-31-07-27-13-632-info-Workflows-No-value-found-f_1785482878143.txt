@@ -1,0 +1,61 @@
+2026-07-31 07:27:13.632 [info] [Workflows] No value found for field 4a53827a-d7f0-4e81-b0db-5671f537550a
+2026-07-31 07:27:13.632 [info] [replacePlaceholders] entityType="member", entityData keys: id, email, first_name, last_name, handle, job_title, biography, profile_photo_url, organization_id, role_id, role_effective_from, last_activity, login_enabled, member_excluded_features, page_tours_seen, show_in_directory, zoho_organization_id, created_on, mobile, landline, engagement_opening_balances, status, google_id, tenant_id, identity_id, communications_opted_out_all, tags, zoho_crm_id, zoho_crm_module, profile_image_url, is_guest, guest_expires_at, updated_at, is_sample, linkedin_url, recipient_name
+2026-07-31 07:27:13.632 [info] [Workflows] Before replacePlaceholders - entityType: "member", entityData keys: id, email, first_name, last_name, handle, job_title, biography, profile_photo_url, organization_id, role_id, role_effective_from, last_activity, login_enabled, member_excluded_features, page_tours_seen, show_in_directory, zoho_organization_id, created_on, mobile, landline, engagement_opening_balances, status, google_id, tenant_id, identity_id, communications_opted_out_all, tags, zoho_crm_id, zoho_crm_module, profile_image_url, is_guest, guest_expires_at, updated_at, is_sample, linkedin_url, recipient_name
+2026-07-31 07:27:13.632 [info] [Workflows] entityData sample: {"first_name":"Sharon","last_name":"Test","email":"isaasitesting3@outlook.com"}
+2026-07-31 07:27:13.632 [info] [Workflows] Subject before: "Next step: Complete your Graduate Futures freelance partner application"
+2026-07-31 07:27:13.632 [info] [replacePlaceholders] entityType="member", entityData keys: id, email, first_name, last_name, handle, job_title, biography, profile_photo_url, organization_id, role_id, role_effective_from, last_activity, login_enabled, member_excluded_features, page_tours_seen, show_in_directory, zoho_organization_id, created_on, mobile, landline, engagement_opening_balances, status, google_id, tenant_id, identity_id, communications_opted_out_all, tags, zoho_crm_id, zoho_crm_module, profile_image_url, is_guest, guest_expires_at, updated_at, is_sample, linkedin_url, recipient_name
+2026-07-31 07:27:13.633 [info] [replacePlaceholders] entityType="member", entityData keys: id, email, first_name, last_name, handle, job_title, biography, profile_photo_url, organization_id, role_id, role_effective_from, last_activity, login_enabled, member_excluded_features, page_tours_seen, show_in_directory, zoho_organization_id, created_on, mobile, landline, engagement_opening_balances, status, google_id, tenant_id, identity_id, communications_opted_out_all, tags, zoho_crm_id, zoho_crm_module, profile_image_url, is_guest, guest_expires_at, updated_at, is_sample, linkedin_url, recipient_name
+2026-07-31 07:27:13.633 [info] [replacePlaceholders] [[]] match="[[member.id]]", path="member.id", parts=["member","id"], parts[0]="member", entityType="member"
+2026-07-31 07:27:13.633 [info] [replacePlaceholders] [[]] prefix match: fieldName="id", value="c4e1a01e-6049-4999-9663-a9176a91fb81"
+2026-07-31 07:27:13.633 [info] [Workflows] Subject after: "Next step: Complete your Graduate Futures freelance partner application"
+2026-07-31 07:27:13.633 [info] [Workflows] Body after (first 500 chars): "<p>Dear <span style="color: rgb(10, 10, 10);">Sharon</span>,</p><p>We are delighted that you’d like to partner with us and contribute to the Graduate Futures community.</p><p>The next step is to complete our full freelance partner application form, which will provide us with the detailed information we need to progress your application. Please use the link below to get started:</p><p><a href="https://graduatefutures.org/FormView?slug=freelancer-membership&amp;member_id=c4e1a01e-6049-4999-9663-a9"
+2026-07-31 07:27:13.633 [info] [Workflows] baseUrl: "https://gfi.dev.iconn.app", entityType: "member", entityId: "c4e1a01e-6049-4999-9663-a9176a91fb81"
+2026-07-31 07:27:13.633 [info] [Workflows] Body contains set_password_url: false
+2026-07-31 07:27:13.637 [info] [processSpecialPlaceholders] Called with entityType="member", entityId="c4e1a01e-6049-4999-9663-a9176a91fb81", baseUrl="https://gfi.dev.iconn.app"
+2026-07-31 07:27:13.637 [info] [processSpecialPlaceholders] Placeholder detected: false, urlEncoded: false
+2026-07-31 07:27:13.637 [info] [processSpecialPlaceholders] No set_password_url placeholder found in content
+2026-07-31 07:27:13.637 [info] [processSpecialPlaceholders] Content snippet (first 500 chars): Next step: Complete your Graduate Futures freelance partner application
+2026-07-31 07:27:13.637 [info] [processSpecialPlaceholders] Called with entityType="member", entityId="c4e1a01e-6049-4999-9663-a9176a91fb81", baseUrl="https://gfi.dev.iconn.app"
+2026-07-31 07:27:13.637 [info] [processSpecialPlaceholders] Placeholder detected: false, urlEncoded: false
+2026-07-31 07:27:13.637 [info] [processSpecialPlaceholders] No set_password_url placeholder found in content
+2026-07-31 07:27:13.637 [info] [processSpecialPlaceholders] Content snippet (first 500 chars): <p>Dear <span style="color: rgb(10, 10, 10);">Sharon</span>,</p><p>We are delighted that you’d like to partner with us and contribute to the Graduate Futures community.</p><p>The next step is to complete our full freelance partner application form, which will provide us with the detailed information we need to progress your application. Please use the link below to get started:</p><p><a href="https://graduatefutures.org/FormView?slug=freelancer-membership&amp;member_id=c4e1a01e-6049-4999-9663-a9
+2026-07-31 07:27:13.637 [info] [Workflows] Sending email - to: "{{4a53827a-d7f0-4e81-b0db-5671f537550a}}", subject: "Next step: Complete your Graduate Futures freelance partner application", body length: 1228
+2026-07-31 07:27:13.748 [info] [Email Service] tenantId provided: fd82da65-aab7-4a5c-85b8-b2febeb2003d
+2026-07-31 07:27:13.861 [info] [Email Service] Using tenant domain: mail.graduatefutures.org (tenantId: fd82da65-aab7-4a5c-85b8-b2febeb2003d)
+2026-07-31 07:27:13.966 [info] [Email Service] Email footer loaded for tenant: fd82da65-aab7-4a5c-85b8-b2febeb2003d
+2026-07-31 07:27:14.078 [info] [Email Service] Email footer appended for tenant: fd82da65-aab7-4a5c-85b8-b2febeb2003d
+2026-07-31 07:27:14.078 [info] [Email Service] Sending email to: {{4a53827a-d7f0-4e81-b0db-5671f537550a}}, domain: mail.graduatefutures.org
+2026-07-31 07:27:14.078 [info] [Email Service] Subject: Next step: Complete your Graduate Futures freelance partner application
+2026-07-31 07:27:14.368 [error] [Email Service] Failed to send email: status=400 domain=mail.graduatefutures.org message="Bad Request"
+2026-07-31 07:27:14.368 [info] [Workflows] Email result: {"success":false,"error":"400: Bad Request","status":400,"domain":"mail.graduatefutures.org"}
+2026-07-31 07:27:14.511 [info] [Workflows] Logged execution for Freelancer status set to Verified
+2026-07-31 07:27:12.501 [info] [Session] getSession: Looking up session: e45048e8 (cookie)
+2026-07-31 07:27:12.806 [info] [Session] getSession: Session found, userType: member
+2026-07-31 07:27:12.806 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"e45048e8","userType":"member","memberId":"9ac39222-22b8-457e-a5df-dfca45a99eb6"}
+2026-07-31 07:27:13.144 [info] [Workflows] executeConfirmedWorkflow called: workflowId=98d42f35-486e-4605-8a52-12151d5e574b, entityType=member, entityId=c4e1a01e-6049-4999-9663-a9176a91fb81
+2026-07-31 07:27:13.267 [info] [Workflows] Executing confirmed workflow: Freelancer status set to Verified
+2026-07-31 07:27:13.378 [info] [Workflows] send_email action config: {
+  "cc": "",
+  "to": "{{4a53827a-d7f0-4e81-b0db-5671f537550a}}",
+  "bcc": "",
+  "body": "",
+  "mode": "template",
+  "cc_mode": "manual",
+  "subject": "",
+  "to_mode": "field",
+  "bcc_mode": "manual",
+  "to_role_id": "",
+  "template_id": "b90869c1-3ad0-4e78-81ec-6bffd3820994",
+  "to_role_ids": [],
+  "template_name": "Freelance long form",
+  "field_mappings": {
+    "member.first_name": "member_core:first_name"
+  }
+}
+2026-07-31 07:27:13.378 [info] [Workflows] Using template mode, fetching template: b90869c1-3ad0-4e78-81ec-6bffd3820994
+2026-07-31 07:27:13.512 [info] [Workflows] Template fetch result: found
+2026-07-31 07:27:13.512 [info] [Workflows] Template loaded - subject: "Next step: Complete your Graduate Futures freelance partner application", body length: 1220
+2026-07-31 07:27:13.512 [info] [Workflows] Applying field mappings: {"member.first_name":"member_core:first_name"}
+2026-07-31 07:27:13.512 [info] [Workflows] Mapping "member.first_name" -> member_core:first_name = "Sharon" [preserveEmpty=false]
+2026-07-31 07:27:13.513 [info] [Workflows] Mapping "member.first_name" -> member_core:first_name = "Sharon" [preserveEmpty=false]
+2026-07-31 07:27:13.513 [info] [Workflows] Resolving field ID 4a53827a-d7f0-4e81-b0db-5671f537550a for member:c4e1a01e-6049-4999-9663-a9176a91fb81

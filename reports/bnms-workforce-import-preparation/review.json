@@ -1,0 +1,224 @@
+{
+  "status": "PREPARED_FOR_REVIEW_NOT_AUTHORIZED",
+  "approvals": {
+    "duplicates": "preserve_all",
+    "mapping": "report-exact-canonical",
+    "blankVacancy": "No",
+    "vacantWte": "omit",
+    "liveImportAuthorized": false
+  },
+  "observation": {
+    "observedAt": "2026-09-17T11:09:51.693Z",
+    "project": "lvmzliemqnieeoruhkik",
+    "fingerprint": "c6aa744668bf54ac6b7aa7f6c173fd203e8547fcb62d9a6d0d67babb1c727b66",
+    "completePasses": 2,
+    "stableAcrossPasses": true,
+    "databaseWrites": 0,
+    "firstPassPagination": [
+      {
+        "label": "tenant",
+        "table": "tenant",
+        "count": 1,
+        "rowsRead": 1,
+        "requests": 1,
+        "pageSize": 500,
+        "complete": true
+      },
+      {
+        "label": "custom_object_definition",
+        "table": "custom_object_definition",
+        "count": 8,
+        "rowsRead": 8,
+        "requests": 1,
+        "pageSize": 500,
+        "complete": true
+      },
+      {
+        "label": "custom_object_relationship_definition",
+        "table": "custom_object_relationship_definition",
+        "count": 12,
+        "rowsRead": 12,
+        "requests": 1,
+        "pageSize": 500,
+        "complete": true
+      },
+      {
+        "label": "custom_object_record",
+        "table": "custom_object_record",
+        "count": 337,
+        "rowsRead": 337,
+        "requests": 1,
+        "pageSize": 500,
+        "complete": true
+      },
+      {
+        "label": "preference_field",
+        "table": "preference_field",
+        "count": 15,
+        "rowsRead": 15,
+        "requests": 1,
+        "pageSize": 500,
+        "complete": true
+      },
+      {
+        "label": "custom_object_relationship",
+        "table": "custom_object_relationship",
+        "count": 4414,
+        "rowsRead": 4414,
+        "requests": 9,
+        "pageSize": 500,
+        "complete": true
+      },
+      {
+        "label": "Department UUIDs 1-50",
+        "table": "custom_object_record",
+        "count": 50,
+        "rowsRead": 50,
+        "requests": 1,
+        "pageSize": 500,
+        "complete": true
+      },
+      {
+        "label": "Department UUIDs 51-100",
+        "table": "custom_object_record",
+        "count": 50,
+        "rowsRead": 50,
+        "requests": 1,
+        "pageSize": 500,
+        "complete": true
+      },
+      {
+        "label": "Department UUIDs 101-136",
+        "table": "custom_object_record",
+        "count": 36,
+        "rowsRead": 36,
+        "requests": 1,
+        "pageSize": 500,
+        "complete": true
+      },
+      {
+        "label": "Workforce incident edges 1-11",
+        "table": "custom_object_relationship",
+        "count": 11,
+        "rowsRead": 11,
+        "requests": 1,
+        "pageSize": 500,
+        "complete": true
+      }
+    ],
+    "secondPassPagination": [
+      {
+        "label": "tenant",
+        "table": "tenant",
+        "count": 1,
+        "rowsRead": 1,
+        "requests": 1,
+        "pageSize": 500,
+        "complete": true
+      },
+      {
+        "label": "custom_object_definition",
+        "table": "custom_object_definition",
+        "count": 8,
+        "rowsRead": 8,
+        "requests": 1,
+        "pageSize": 500,
+        "complete": true
+      },
+      {
+        "label": "custom_object_relationship_definition",
+        "table": "custom_object_relationship_definition",
+        "count": 12,
+        "rowsRead": 12,
+        "requests": 1,
+        "pageSize": 500,
+        "complete": true
+      },
+      {
+        "label": "custom_object_record",
+        "table": "custom_object_record",
+        "count": 337,
+        "rowsRead": 337,
+        "requests": 1,
+        "pageSize": 500,
+        "complete": true
+      },
+      {
+        "label": "preference_field",
+        "table": "preference_field",
+        "count": 15,
+        "rowsRead": 15,
+        "requests": 1,
+        "pageSize": 500,
+        "complete": true
+      },
+      {
+        "label": "custom_object_relationship",
+        "table": "custom_object_relationship",
+        "count": 4414,
+        "rowsRead": 4414,
+        "requests": 9,
+        "pageSize": 500,
+        "complete": true
+      },
+      {
+        "label": "Department UUIDs 1-50",
+        "table": "custom_object_record",
+        "count": 50,
+        "rowsRead": 50,
+        "requests": 1,
+        "pageSize": 500,
+        "complete": true
+      },
+      {
+        "label": "Department UUIDs 51-100",
+        "table": "custom_object_record",
+        "count": 50,
+        "rowsRead": 50,
+        "requests": 1,
+        "pageSize": 500,
+        "complete": true
+      },
+      {
+        "label": "Department UUIDs 101-136",
+        "table": "custom_object_record",
+        "count": 36,
+        "rowsRead": 36,
+        "requests": 1,
+        "pageSize": 500,
+        "complete": true
+      },
+      {
+        "label": "Workforce incident edges 1-11",
+        "table": "custom_object_relationship",
+        "count": 11,
+        "rowsRead": 11,
+        "requests": 1,
+        "pageSize": 500,
+        "complete": true
+      }
+    ]
+  },
+  "manifestSha256": "6e54427842120f6e0eb840edc193ce654986ab4e0314e4e193ec6977ea989e23",
+  "installSqlSha256": "5eaea2ac264c91aa8d1fc0de2c20029ae0a6fc1ff553961e90099c02723a9f4f",
+  "invokeSqlSha256": "5833e197207580bc3166fc78cf136bd1fbc36305a42dad34709016400adc89d6",
+  "summary": {
+    "surveys": 136,
+    "occurrences": 1242,
+    "edges": 1378,
+    "occupiedWte": 1708.14,
+    "No": 1141,
+    "Yes": 101,
+    "duplicateGroups": 84,
+    "occurrencesInDuplicateGroups": 216,
+    "repeats": 132,
+    "priorSurveysPreserved": 3,
+    "priorRowsPreserved": 8,
+    "priorEdgesPreserved": 11
+  },
+  "verification": {
+    "offlineOnly": true,
+    "sqlExecuted": false,
+    "databaseWrites": 0
+  }
+}

@@ -1,0 +1,141 @@
+index-tp7A6dcp.js:1066 GoTrueClient@sb-zkvgzcruhniduuswbfyh-auth-token:1 (2.84.0) 2026-01-03T20:40:49.359Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+mg @ index-tp7A6dcp.js:1066
+Kie @ index-tp7A6dcp.js:1067
+_initSupabaseAuthClient @ index-tp7A6dcp.js:1067
+Gie @ index-tp7A6dcp.js:1067
+T4 @ index-tp7A6dcp.js:1067
+(anonymous) @ index-tp7A6dcp.js:2074
+(anonymous) @ index-tp7A6dcp.js:1
+(anonymous) @ index-tp7A6dcp.js:2503
+index-tp7A6dcp.js:1066 GoTrueClient@sb-zkvgzcruhniduuswbfyh-auth-token:2 (2.84.0) 2026-01-03T20:40:49.361Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+mg @ index-tp7A6dcp.js:1066
+Kie @ index-tp7A6dcp.js:1067
+_initSupabaseAuthClient @ index-tp7A6dcp.js:1067
+Gie @ index-tp7A6dcp.js:1067
+T4 @ index-tp7A6dcp.js:1067
+(anonymous) @ index-tp7A6dcp.js:2452
+(anonymous) @ index-tp7A6dcp.js:1
+(anonymous) @ index-tp7A6dcp.js:2503
+index-tp7A6dcp.js:1370 [usePendingPurchaseOrders] memberInfo: null
+index-tp7A6dcp.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-tp7A6dcp.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-tp7A6dcp.js:1370 [Layout] currentPageName: FormView currentPortalPageId: null
+index-tp7A6dcp.js:1370 [usePendingPurchaseOrders] memberInfo: null
+index-tp7A6dcp.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-tp7A6dcp.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-tp7A6dcp.js:1370 [Layout] currentPageName: FormView currentPortalPageId: null
+index-tp7A6dcp.js:1370 [usePendingPurchaseOrders] memberInfo: null
+index-tp7A6dcp.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-tp7A6dcp.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-tp7A6dcp.js:1370 [Layout] currentPageName: FormView currentPortalPageId: null
+index-tp7A6dcp.js:1370 [usePendingPurchaseOrders] memberInfo: null
+index-tp7A6dcp.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-tp7A6dcp.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-tp7A6dcp.js:1370 [Layout] currentPageName: FormView currentPortalPageId: null
+index-tp7A6dcp.js:2408 [FormView] entity_pipelines.members: undefined
+index-tp7A6dcp.js:2408 [FormView] First member object (full): none
+index-tp7A6dcp.js:2408 [FormView] primaryMember: undefined
+index-tp7A6dcp.js:2408 [FormView] Extracted primaryMemberRoleId: null
+index-tp7A6dcp.js:2408 [FormView] Capacity check state: {primaryMemberRoleId: null, isCheckingCapacity: false, roleCapacity: undefined, formSlug: 'university-application', formLoaded: false, …}
+index-tp7A6dcp.js:2408 [FormView Init] Initial hidden fields from starts_hidden: []
+index-tp7A6dcp.js:2408 [FormView Init] All fields with starts_hidden property: undefined
+index-tp7A6dcp.js:1067 [useNavigationRealtime] Setting up realtime subscription for navigation_item table
+index-tp7A6dcp.js:2408 [FormView] Capacity check state: {primaryMemberRoleId: null, isCheckingCapacity: false, roleCapacity: undefined, formSlug: 'university-application', formLoaded: false, …}
+index-tp7A6dcp.js:1370 [usePendingPurchaseOrders] memberInfo: null
+index-tp7A6dcp.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-tp7A6dcp.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-tp7A6dcp.js:1370 [Layout] currentPageName: FormView currentPortalPageId: null
+index-tp7A6dcp.js:1370 [usePendingPurchaseOrders] memberInfo: null
+index-tp7A6dcp.js:1370 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-tp7A6dcp.js:1370 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-tp7A6dcp.js:1370 [Layout] currentPageName: FormView currentPortalPageId: null
+index-tp7A6dcp.js:1067 [useNavigationRealtime] Subscription status: SUBSCRIBED
+index-tp7A6dcp.js:1370 [Layout] Server returned null for /api/auth/me - member deleted or disabled
+index-tp7A6dcp.js:2408 [FormView] Capacity check state: {primaryMemberRoleId: null, isCheckingCapacity: false, roleCapacity: undefined, formSlug: 'university-application', formLoaded: false, …}
+index-tp7A6dcp.js:1336 [PublicLayout] Fetching banners for page: FormView portalPageId: null isCustomSlug: true urlSlug: blogs
+index-tp7A6dcp.js:1336 [PublicLayout] All banners found: 14
+index-tp7A6dcp.js:1336 [PublicLayout] pageToPortalPageMap keys: (26) ['Events', 'PublicEvents', 'Bookings', 'MyTickets', 'BuyProgramTickets', 'MemberDirectory', 'OrganisationDirectory', 'Resources', 'PublicResources', 'Articles', 'PublicArticles', 'Team', 'Balances', 'History', 'Profile', 'MyOrganisation', 'JobBoard', 'PublicJobBoard', 'News', 'PublicNews', 'NewsView', 'MyJobPostings', 'Preferences', 'about-me', 'Support', 'Dashboard']
+index-tp7A6dcp.js:1336 [PublicLayout] Matched banners: 0
+index-tp7A6dcp.js:2408 [FormView] entity_pipelines.members: [{…}]
+index-tp7A6dcp.js:2408 [FormView] First member object (full): {
+  "id": "member_1767009836905",
+  "label": "HoS",
+  "role_id": "561682bb-57f2-4a61-89aa-c3c201692923",
+  "mappings": [
+    {
+      "id": "mapping_1767009847672",
+      "source_type": "field",
+      "target_type": "core",
+      "static_value": "",
+      "target_field": "first_name",
+      "target_entity": "member",
+      "transformation": "none",
+      "source_field_id": "field_1765654276539"
+    },
+    {
+      "id": "mapping_1767009860205",
+      "source_type": "field",
+      "target_type": "core",
+      "static_value": "",
+      "target_field": "last_name",
+      "target_entity": "member",
+      "transformation": "none",
+      "source_field_id": "field_1765654323522"
+    },
+    {
+      "id": "mapping_1767009868089",
+      "source_type": "field",
+      "target_type": "core",
+      "static_value": "",
+      "target_field": "job_title",
+      "target_entity": "member",
+      "transformation": "none",
+      "source_field_id": "field_1765919899063"
+    },
+    {
+      "id": "mapping_1767009878888",
+      "source_type": "field",
+      "target_type": "core",
+      "static_value": "",
+      "target_field": "email",
+      "target_entity": "member",
+      "transformation": "none",
+      "source_field_id": "field_1765654363656"
+    }
+  ],
+  "isPrimary": true,
+  "login_enabled": false,
+  "uniqueness_key": "email"
+}
+index-tp7A6dcp.js:2408 [FormView] primaryMember: {id: 'member_1767009836905', label: 'HoS', role_id: '561682bb-57f2-4a61-89aa-c3c201692923', mappings: Array(4), isPrimary: true, …}
+index-tp7A6dcp.js:2408 [FormView] Extracted primaryMemberRoleId: 561682bb-57f2-4a61-89aa-c3c201692923
+index-tp7A6dcp.js:2408 [FormView] Capacity check state: {primaryMemberRoleId: '561682bb-57f2-4a61-89aa-c3c201692923', isCheckingCapacity: true, roleCapacity: undefined, formSlug: 'university-application', formLoaded: true, …}
+index-tp7A6dcp.js:2408 [FormView Init] Field "Main switchboard number" (field_1765611537713) has starts_hidden=true, adding to initial hidden
+index-tp7A6dcp.js:2408 [FormView Init] Field "Domains" (field_1765614961476) has starts_hidden=true, adding to initial hidden
+index-tp7A6dcp.js:2408 [FormView Init] Field "Number of students" (field_1765611561892) has starts_hidden=true, adding to initial hidden
+index-tp7A6dcp.js:2408 [FormView Init] Field "Applicant email" (field_1765649548352) has starts_hidden=true, adding to initial hidden
+index-tp7A6dcp.js:2408 [FormView Init] Field "Applicant first name" (field_1765658533266) has starts_hidden=true, adding to initial hidden
+index-tp7A6dcp.js:2408 [FormView Init] Field "Applicant last name" (field_1765658547882) has starts_hidden=true, adding to initial hidden
+index-tp7A6dcp.js:2408 [FormView Init] Field "Applicant job title" (field_1765919958148) has starts_hidden=true, adding to initial hidden
+index-tp7A6dcp.js:2408 [FormView Init] Initial hidden fields from starts_hidden: (7) ['field_1765611537713', 'field_1765614961476', 'field_1765611561892', 'field_1765649548352', 'field_1765658533266', 'field_1765658547882', 'field_1765919958148']
+index-tp7A6dcp.js:2408 [FormView Init] All fields with starts_hidden property: (20) [{…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}, {…}]
+index-tp7A6dcp.js:2408 [FormView Visibility] Evaluating visibility rules, fieldVisibility: {field_1765640512787: {…}, field_1765644419110: {…}, field_1765654021220: {…}, field_1765919856880: {…}, field_1765654276539: {…}, …}
+index-tp7A6dcp.js:2408 [FormView Visibility] Final hidden set: (7) ['field_1765611537713', 'field_1765614961476', 'field_1765611561892', 'field_1765649548352', 'field_1765658533266', 'field_1765658547882', 'field_1765919958148']
+index-tp7A6dcp.js:2408 [FormView] BLOCKING: Still loading capacity check
+index-tp7A6dcp.js:2408 [FormView] Fetching capacity for role: 561682bb-57f2-4a61-89aa-c3c201692923
+index-tp7A6dcp.js:2408 [FormView Init] Hidden field "Main switchboard number" (field_1765611537713) initialized with empty string (no default_value)
+index-tp7A6dcp.js:2408 [FormView Init] Hidden field "Domains" (field_1765614961476) initialized with empty string (no default_value)
+index-tp7A6dcp.js:2408 [FormView Init] Hidden field "Number of students" (field_1765611561892) initialized with empty string (no default_value)
+index-tp7A6dcp.js:2408 [FormView Init] Hidden field "Applicant email" (field_1765649548352) initialized with empty string (no default_value)
+index-tp7A6dcp.js:2408 [FormView Init] Hidden field "Applicant first name" (field_1765658533266) initialized with empty string (no default_value)
+index-tp7A6dcp.js:2408 [FormView Init] Hidden field "Applicant last name" (field_1765658547882) initialized with empty string (no default_value)
+index-tp7A6dcp.js:2408 [FormView Init] Hidden field "Applicant job title" (field_1765919958148) initialized with empty string (no default_value)
+index-tp7A6dcp.js:2408 [FormView] Capacity check state: {primaryMemberRoleId: '561682bb-57f2-4a61-89aa-c3c201692923', isCheckingCapacity: true, roleCapacity: undefined, formSlug: 'university-application', formLoaded: true, …}
+index-tp7A6dcp.js:2408 [FormView Visibility] Evaluating visibility rules, fieldVisibility: {field_1765640512787: {…}, field_1765644419110: {…}, field_1765654021220: {…}, field_1765919856880: {…}, field_1765654276539: {…}, …}
+index-tp7A6dcp.js:2408 [FormView Visibility] Final hidden set: (7) ['field_1765611537713', 'field_1765614961476', 'field_1765611561892', 'field_1765649548352', 'field_1765658533266', 'field_1765658547882', 'field_1765919958148']
+index-tp7A6dcp.js:2408 [FormView] BLOCKING: Still loading capacity check
+index-tp7A6dcp.js:2408 [FormView] Capacity API response status: 200
+index-tp7A6dcp.js:2408 [FormView] Capacity API response data: {hasCapacity: false, currentCount: 158, maxMembers: 1, roleName: 'Head of Service'}
+index-tp7A6dcp.js:2408 [FormView] Capacity check state: {primaryMemberRoleId: '561682bb-57f2-4a61-89aa-c3c201692923', isCheckingCapacity: false, roleCapacity: {…}, formSlug: 'university-application', formLoaded: true, …}
+index-tp7A6dcp.js:2408 [FormView] Capacity block decision: {primaryMemberRoleId: '561682bb-57f2-4a61-89aa-c3c201692923', roleCapacity: {…}, hasCapacity: false, shouldBlockForCapacity: true}
+index-tp7A6dcp.js:2408 [FormView] BLOCKING: Role is at capacity

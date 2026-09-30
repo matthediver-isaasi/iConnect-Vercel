@@ -1,0 +1,80 @@
+For memberships that start immediately and do not operate on a fixed annual renewal cycle, we still need to calculate and store a **Membership Renewal Date**.
+
+The renewal date should be calculated from the membership start date using the **Billing Period** defined on the Pricing tab of the membership structure that was selected when the membership began.
+
+There are three main payment scenarios:
+
+### 1. Membership paid in full
+
+Where the member pays the entire billing period upfront, calculate the Membership Renewal Date using:
+
+**Membership Start Date + Billing Period**
+
+For example, if the membership starts on 15 September 2026 and the Billing Period is 12 months, the renewal date should be 15 September 2027.
+
+This renewal date is required so that iConnect can trigger the appropriate membership renewal flows before the current billing period expires.
+
+### 2. Membership paid monthly via Stripe
+
+Where the membership is paid by recurring monthly Stripe payments, the member is still joining for the defined **Billing Period**.
+
+The Membership Renewal Date should therefore also be calculated as:
+
+**Membership Start Date + Billing Period**
+
+The Stripe subscription/payment schedule should correspond to that billing period.
+
+At the end of the member's current billing period, the membership must enter the normal renewal process rather than simply treating the existing payment arrangement as an indefinite membership.
+
+The renewal should then use the membership structure and pricing that are valid at the point the new billing period begins.
+
+### 3. Membership paid monthly via GoCardless
+
+GoCardless collections can potentially continue indefinitely, so iConnect must control the membership billing period independently of the GoCardless mandate or recurring collection mechanism.
+
+Again, calculate:
+
+**Membership Start Date + Billing Period**
+
+The critical rule is that the pricing agreed at the start of the member's current billing period must remain fixed for that entire billing period.
+
+Membership structures can have an **Effective From** date, meaning a new membership structure or new pricing may become valid while an existing member is part-way through their current billing period.
+
+This must **not** change the member's existing GoCardless collections during that billing period.
+
+For example:
+
+* Member starts: 15 September 2026
+* Billing Period: 12 months
+* Monthly fee agreed at start: £20
+* Renewal date: 15 September 2027
+* A new membership structure becomes effective: 1 January 2027
+* New monthly fee: £25
+
+The member must continue to be charged **£20 per month until 14 September 2027**.
+
+At renewal on 15 September 2027, iConnect should determine which membership structure is effective on that date. If the £25 structure is then the valid structure, the member's renewed billing period should use the new £25 rate.
+
+### Core rule
+
+A member's current billing period must effectively be treated as a pricing commitment.
+
+Changes to membership structures or pricing during that billing period must not retrospectively change:
+
+* the agreed membership price;
+* monthly Stripe payments;
+* monthly GoCardless collections; or
+* the current billing period end/renewal date.
+
+Only when the member reaches their **Membership Renewal Date** should iConnect evaluate the membership structures available at that time and determine the pricing and conditions for the member's next billing period.
+
+In practical terms, iConnect therefore needs to retain enough information against the member's active membership to know:
+
+* Membership Start Date
+* Membership Renewal Date
+* Billing Period used at commencement/last renewal
+* Membership structure/pricing version used for the current billing period
+* Agreed price for the current billing period
+* Payment frequency/method
+
+The member should remain attached to that pricing commitment until the renewal process creates the next billing period.

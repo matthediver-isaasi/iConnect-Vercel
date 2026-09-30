@@ -1,0 +1,212 @@
+Forum Capability — Role-Managed Multi-Context System
+Overview
+
+The forum system is a modular discussion engine that operates in two contexts:
+
+Open General Forums
+
+Member Group Forums
+
+All access control and moderation capabilities are governed exclusively through the existing Role Management system. The forum module must not introduce hardcoded roles like “admin” or “moderator.” Instead, it exposes permission hooks that can be assigned to roles.
+
+The forum is an extension of the platform’s authorization framework, not a standalone permission system.
+
+1. Forum Context Types
+A. Open General Forums
+
+Global discussion spaces accessible according to role permissions.
+
+Characteristics
+
+Platform-level categories and threads
+
+Visibility and interaction controlled by roles
+
+May support public read access depending on role configuration
+
+B. Member Group Forums
+
+Forums attached to individual Member Groups.
+
+Characteristics
+
+Scoped to a specific group entity
+
+Inherit or map permissions from group roles
+
+Can be configured per group for visibility and participation
+
+Each group forum is treated as a contextual instance of the core forum engine.
+
+2. Role-Based Permission Framework
+
+The forum system exposes a granular permission model that integrates directly with Role Management.
+
+Core Permission Types
+
+Roles may be granted permissions such as:
+
+Content Creation
+
+Create threads
+
+Reply to threads
+
+Edit own posts
+
+Edit any posts
+
+Delete posts
+
+Upload media
+
+Forum Management
+
+Create/edit categories
+
+Pin or feature threads
+
+Lock/unlock threads
+
+Move threads
+
+Archive content
+
+Moderation
+
+Remove or hide posts
+
+Manage reports
+
+Suspend or restrict users within a forum context
+
+Visibility
+
+View forum
+
+View restricted threads
+
+Access private group forums
+
+Permissions should be assignable at multiple scopes:
+
+Global forum scope
+
+Group forum scope
+
+Category or subforum scope (optional advanced feature)
+
+3. Permission Inheritance in Member Groups
+
+Group forums should support flexible permission inheritance.
+
+Possible models include:
+
+Direct mapping: Group roles automatically map to forum permissions
+
+Override layer: Group admins configure forum-specific permissions
+
+Hybrid model: Default inheritance with optional overrides
+
+The system should allow group owners to customize their forum governance within constraints defined by Role Management.
+
+4. Moderation Workflow
+
+Moderation actions are permission-driven.
+
+Key behaviors
+
+Any role with moderation permissions can act within its scope
+
+Actions are logged with role attribution
+
+Reports flow to users with appropriate moderation permissions
+
+Escalation paths are configurable through roles
+
+Moderation is contextual:
+
+Actions in group forums apply only within that group
+
+Global forum moderation applies platform-wide
+
+5. Unified Forum Engine
+
+All forums share the same underlying system.
+
+Shared features
+
+Thread and post management
+
+Search and indexing
+
+Notifications
+
+Reputation systems
+
+Media handling
+
+Each forum instance is tagged with its context:
+
+Global
+
+Group-linked
+
+This tagging informs permission checks and visibility rules.
+
+6. User Experience Expectations
+
+Users should experience a seamless forum ecosystem.
+
+Navigation
+
+Clear distinction between global and group forums
+
+Context indicators showing where discussions belong
+
+Easy transitions between group spaces and general forums
+
+Discovery
+
+Search respects role-based visibility
+
+Feeds aggregate accessible discussions
+
+Users see only forums they are permitted to access
+
+7. Lifecycle Management
+Creation
+
+Global forums are created by roles with forum management permissions
+
+Group forums are enabled by group-level permissions
+
+Customization
+
+Authorized roles can:
+
+Structure categories
+
+Define posting rules
+
+Configure visibility
+
+Archiving
+
+Forums or categories can be archived while preserving read access per permissions.
+
+8. System Behavior Requirements
+
+The forum system must:
+
+Integrate tightly with Role Management APIs
+
+Perform efficient permission checks at scale
+
+Maintain context isolation between groups
+
+Support extensibility for future modules
+
+Preserve audit trails for moderation
+
+No functionality should bypass the central role system.

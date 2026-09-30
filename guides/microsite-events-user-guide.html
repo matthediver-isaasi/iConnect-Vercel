@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<title>iConnect — Event Microsite User Guide</title>
+<style>
+@page{size:A4;margin:15mm 15mm 17mm}@page:first{margin:0}
+*{box-sizing:border-box}html{font-family:Arial,Helvetica,sans-serif;color:#172033;font-size:10pt;line-height:1.42}
+body{margin:0}.page{break-after:page;min-height:260mm;position:relative}.page:last-child{break-after:auto}
+.cover{height:297mm;padding:25mm 22mm;background:linear-gradient(145deg,#102a43 0%,#174f6f 58%,#1f7a8c 100%);color:#fff;display:flex;flex-direction:column;justify-content:space-between}
+.cover .kicker{font-weight:700;letter-spacing:2px}.cover h1{font-size:36pt;line-height:1.04;margin:0;max-width:150mm;color:#fff;border:0;padding:0}.cover .sub{font-size:17pt;line-height:1.3;max-width:140mm;color:#e7f5f7}.cover .meta{border-top:1px solid #9bc7ce;padding-top:8mm;display:flex;justify-content:space-between}
+h1{font-size:24pt;color:#102a43;margin:0 0 8mm;border-bottom:2px solid #1f7a8c;padding-bottom:3mm}
+h2{font-size:15pt;color:#174f6f;margin:7mm 0 3mm}h3{font-size:11.5pt;color:#174f6f;margin:5mm 0 2mm}
+p{margin:0 0 3.2mm}ul,ol{margin:2mm 0 4mm;padding-left:6mm}li{margin-bottom:1.2mm}
+a{color:#0b5f70;text-decoration:none}code,.url{font-family:Consolas,monospace;background:#edf6f7;padding:1px 4px;border-radius:3px}
+table{width:100%;border-collapse:collapse;margin:3mm 0 5mm;font-size:9pt}th{background:#174f6f;color:white;text-align:left}th,td{border:1px solid #b9cbd1;padding:2.4mm;vertical-align:top}tr:nth-child(even) td{background:#f5f9fa}
+.lead{font-size:12.5pt;color:#334e68}.callout{border-left:4px solid #1f7a8c;background:#edf6f7;padding:3mm 4mm;margin:4mm 0}.warning{border-color:#c05621;background:#fff7ed}.tip{border-color:#2f855a;background:#f0fff4}
+.diagram{border:1px solid #b9cbd1;border-radius:5px;background:#f8fbfc;padding:4mm;margin:4mm 0;break-inside:avoid}
+.ui{border:1px solid #9fb6c0;border-radius:7px;background:#fff;box-shadow:0 2px 8px #17365d22;overflow:hidden;margin:4mm 0;break-inside:avoid}
+.ui-head{background:#f0f5f7;padding:3mm 4mm;font-weight:bold;color:#102a43;display:flex;justify-content:space-between}.ui-body{padding:4mm}.tabs{display:flex;gap:2mm;border-bottom:1px solid #ccd9de;margin-bottom:3mm}.tab{padding:2mm 3mm}.tab.on{border-bottom:3px solid #1f7a8c;font-weight:bold}
+.field{border:1px solid #bccbd1;border-radius:4px;padding:2.2mm 3mm;margin:1.5mm 0;background:#fff}.btn{display:inline-block;background:#174f6f;color:#fff;border-radius:4px;padding:2mm 3.5mm;font-weight:bold}.btn.alt{background:#fff;color:#174f6f;border:1px solid #174f6f}
+.row{display:flex;gap:3mm;align-items:center}.row>*{flex:1}.badge{display:inline-block;border-radius:10px;padding:1mm 2mm;background:#d9eef1;color:#174f6f;font-size:8pt;font-weight:bold}
+.num{display:inline-flex;width:6mm;height:6mm;border-radius:50%;background:#c05621;color:#fff;align-items:center;justify-content:center;font-weight:bold;margin-right:2mm}
+.toc{font-size:12pt;columns:2;column-gap:14mm}.toc li{margin-bottom:4mm;break-inside:avoid}
+.check{display:grid;grid-template-columns:1fr 1fr;gap:2mm 6mm}.check div:before{content:"☐";margin-right:2mm;color:#174f6f;font-size:12pt}
+.small{font-size:8.5pt;color:#526777}.footer{position:absolute;bottom:0;left:0;right:0;border-top:1px solid #cad6db;padding-top:2mm;display:flex;justify-content:space-between;color:#526777;font-size:8pt}
+.swatches{display:flex;height:10mm;border-radius:4px;overflow:hidden}.swatches i{flex:1}.cols{display:grid;grid-template-columns:1fr 1fr;gap:6mm}.tight p{margin-bottom:2mm}
+@media print{.page{min-height:260mm}a{color:inherit}}
+</style>
+</head>
+<body>
+<section class="cover page">
+ <div class="kicker">iCONNECT PLATFORM</div>
+ <div><h1>Event Microsite<br>User Guide</h1><p class="sub">Plan, build, launch and retire a focused website for an in-person event — without developer knowledge.</p></div>
+ <div class="meta"><span>Northstar Summit example</span><span>Version 1.0 · 9 September 2026</span></div>
+</section>
+
+<section class="page">
+<h1>Contents</h1>
+<p class="lead">A practical event lifecycle, from first URL decision to safe post-event retirement.</p>
+<ol class="toc">
+<li><a href="#what">What an event microsite does</a></li><li><a href="#plan">Plan before you build</a></li>
+<li><a href="#create">Create the microsite</a></li><li><a href="#pages">Create, assign and publish pages</a></li>
+<li><a href="#home">Choose the home page</a></li><li><a href="#nav">Build the navigation</a></li>
+<li><a href="#brand">Brand the microsite</a></li><li><a href="#type">Set microsite typography</a></li>
+<li><a href="#launch">Preview, test and launch</a></li><li><a href="#operate">Promote and operate the event</a></li>
+<li><a href="#retire">Retire the microsite safely</a></li><li><a href="#help">Troubleshooting and checklists</a></li>
+</ol>
+<div class="callout"><b>Example used throughout:</b> Northstar Summit, an in-person conference with overview, agenda, speaker, venue, sponsor and FAQ pages.</div>
+<div class="footer"><span>Event Microsite User Guide</span><span>2</span></div>
+</section>
+
+<section class="page" id="what">
+<h1>1. What an event microsite does</h1>
+<p class="lead">A microsite groups public pages under one URL prefix and gives them their own navigation, header, footer and optional branding.</p>
+<div class="diagram">
+ <b>Example URL pattern</b>
+ <p><span class="url">/northstar-2026</span> → selected home page</p>
+ <p><span class="url">/northstar-2026/agenda</span> → agenda page</p>
+ <p><span class="url">/northstar-2026/venue</span> → venue and travel page</p>
+</div>
+<h2>Microsite versus event management</h2>
+<table><tr><th>Use the microsite for</th><th>Use event management for</th></tr>
+<tr><td>Overview and promotional content</td><td>Event record, dates and operational status</td></tr>
+<tr><td>Agenda presentation and speaker stories</td><td>Sessions, tracks and speaker assignments</td></tr>
+<tr><td>Venue, travel, sponsors and FAQs</td><td>Tickets, prices, eligibility and capacity</td></tr>
+<tr><td>Clear links to registration</td><td>Registration, payment and attendee records</td></tr>
+<tr><td>Event-specific navigation and branding</td><td>Confirmations, check-in and attendance</td></tr></table>
+<div class="callout warning"><b>Important:</b> the microsite does not create or manage the event. Build the operational event and registration journey in the event area, then link to it from the microsite.</div>
+<div class="footer"><span>Understanding microsites</span><span>3</span></div>
+</section>
+
+<section class="page" id="plan">
+<h1>2. Plan before you build</h1>
+<h2>Recommended page structure</h2>
+<table><tr><th>Page</th><th>Purpose</th><th>Call to action</th></tr>
+<tr><td><b>Overview</b></td><td>Promise, date, place and reasons to attend</td><td>Register now</td></tr>
+<tr><td><b>Agenda</b></td><td>Day-by-day programme or summary</td><td>View tickets</td></tr>
+<tr><td><b>Speakers</b></td><td>Biographies and session highlights</td><td>See the agenda</td></tr>
+<tr><td><b>Venue & travel</b></td><td>Address, map, transport, hotels, accessibility</td><td>Plan your journey</td></tr>
+<tr><td><b>Sponsors</b></td><td>Sponsor levels, approved logos and links</td><td>Become a sponsor</td></tr>
+<tr><td><b>FAQs</b></td><td>Registration, access, food, dress and contact</td><td>Contact the team</td></tr></table>
+<h2>Prerequisites</h2>
+<ul><li>Permission to use <b>Microsites</b> and the page editor.</li><li>Final event name and a short, durable URL prefix.</li><li>Approved logos, colours, social image and sponsor assets.</li><li>The correct event registration URL.</li><li>A colleague who can test while signed out on desktop and mobile.</li></ul>
+<div class="callout warning"><b>Choose the URL once.</b> A prefix uses lowercase letters, numbers and hyphens and must be one segment. Changing it later changes every microsite page address.</div>
+<div class="footer"><span>Planning</span><span>4</span></div>
+</section>
+
+<section class="page" id="create">
+<h1>3. Create the microsite</h1>
+<ol><li>Open <b>Microsites</b> and select <b>New microsite</b>.</li><li>Enter the internal name and URL prefix.</li><li>Add an optional description and logo URL.</li><li>Choose the initial <b>Active</b> state.</li><li>Select <b>Save</b>.</li></ol>
+<div class="ui">
+ <div class="ui-head"><span>New microsite</span><span>×</span></div>
+ <div class="ui-body">
+  <label><span class="num">1</span><b>Name</b></label><div class="field">Northstar Summit 2026</div>
+  <label><span class="num">2</span><b>URL prefix</b></label><div class="field">northstar-2026</div>
+  <p class="small">Lowercase letters, numbers and hyphens. Cannot be a reserved route or an existing page slug.</p>
+  <label><b>Description (optional)</b></label><div class="field">Visitor information for our annual in-person summit.</div>
+  <label><b>Logo URL (optional)</b></label><div class="field">https://…</div>
+  <p><span class="num">3</span><b>Active</b> &nbsp; <span class="badge">ON</span></p>
+  <p style="text-align:right"><span class="btn alt">Cancel</span> &nbsp; <span class="num">4</span><span class="btn">Save</span></p>
+ </div>
+</div>
+<div class="callout"><b>Two gates:</b> the microsite must be active and each page must be published for ordinary visitors to see it. If already-published pages will be assigned, keep the microsite inactive until launch.</div>
+<div class="footer"><span>Create the microsite</span><span>5</span></div>
+</section>
+
+<section class="page" id="pages">
+<h1>4. Create, assign and publish pages</h1>
+<h2>Assign an existing page</h2>
+<ol><li>Select the microsite and open <b>Pages</b>.</li><li>Search under <b>Assign an existing page</b>.</li><li>Select <b>Assign</b>.</li><li>Confirm its prefixed URL under <b>Pages in this microsite</b>.</li><li>Publish in the page editor when ready.</li></ol>
+<div class="ui">
+ <div class="ui-head"><span>Northstar Summit 2026</span><span>Edit &nbsp; Delete</span></div>
+ <div class="ui-body"><div class="tabs"><span class="tab on">Pages</span><span class="tab">Navigation</span><span class="tab">Header &amp; Footer</span></div>
+ <h3>Pages in this microsite</h3>
+ <div class="field row"><span><span class="num">1</span><b>Event overview</b><br><span class="small">/northstar-2026/overview</span></span><span class="badge">Home</span><span class="btn alt">Remove</span></div>
+ <div class="field row"><span><b>Agenda</b><br><span class="small">/northstar-2026/agenda</span></span><span class="badge">draft</span><span class="btn alt">Remove</span></div>
+ <h3>Assign an existing page</h3><div class="field">Search pages by title or slug…</div>
+ <div class="field row"><span><span class="num">2</span><b>Venue &amp; travel</b><br><span class="small">/venue</span></span><span class="btn">Assign</span></div>
+ </div>
+</div>
+<div class="callout warning"><b>Address changes immediately:</b> assignment moves <span class="url">/agenda</span> to <span class="url">/northstar-2026/agenda</span>. The bare address no longer serves that page. Update old links and QR codes.</div>
+<div class="footer"><span>Pages and publishing</span><span>6</span></div>
+</section>
+
+<section class="page" id="home">
+<h1>5. Choose the home page</h1>
+<p class="lead">The home page opens at the short base URL and is where the microsite header logo links.</p>
+<ol><li>Assign the intended overview page.</li><li>Select <b>Edit</b> beside the microsite name.</li><li>Choose it from <b>Home page</b>.</li><li>Select <b>Save</b>.</li><li>Test both the base address and full overview address.</li></ol>
+<div class="ui"><div class="ui-head"><span>Edit microsite</span><span>×</span></div><div class="ui-body">
+<label><b>Home page</b></label><div class="field"><span class="num">1</span>Event overview &nbsp;⌄</div>
+<p class="small">Served at the microsite’s base URL (/northstar-2026) and where the microsite logo links. Choose from assigned pages.</p>
+<p style="text-align:right"><span class="btn"><span class="num">2</span>Save</span></p>
+</div></div>
+<div class="diagram"><b>Test these routes</b><p><span class="url">/northstar-2026</span> → Event overview</p><p><span class="url">/northstar-2026/overview</span> → Event overview</p></div>
+<div class="callout">Only assigned pages appear in the Home page list. Without a home page, do not promote the base prefix as the visitor landing address.</div>
+<div class="footer"><span>Home page</span><span>7</span></div>
+</section>
+
+<section class="page" id="nav">
+<h1>6. Build the navigation</h1>
+<p>Microsite items replace normal tenant navigation on microsite pages.</p>
+<div class="ui"><div class="ui-head"><span>Northstar Summit 2026</span><span class="btn">+ Add item</span></div><div class="ui-body">
+<div class="tabs"><span class="tab">Pages</span><span class="tab on">Navigation</span><span class="tab">Header &amp; Footer</span></div>
+<p><span class="num">1</span>Internal paths include the prefix, for example <span class="url">/northstar-2026/agenda</span>.</p>
+<h3>Header Elements</h3><div class="row"><div class="field"><b>Search</b><br><span class="small">Search box and results</span></div><div class="field"><b>Social Icons</b></div><div class="field"><b>Account</b></div></div>
+<h3>Main navigation</h3>
+<div class="field"><span class="num">2</span><b>Overview</b> &nbsp; /northstar-2026/overview &nbsp; ↑ ↓ ✎</div>
+<div class="field"><b>Programme</b> &nbsp; <span class="badge">2 sub-items</span> &nbsp; ↑ ↓ ✎</div>
+<div class="field" style="margin-left:12mm"><b>Agenda</b> &nbsp; /northstar-2026/agenda</div>
+</div></div>
+<ul><li>Choose Main navigation, Top bar or Footer; footer remains flat.</li><li>Dropdown menus support up to three levels.</li><li>Search, Social and Account may each be added once.</li><li>Search can include the whole site or only this microsite.</li></ul>
+<div class="callout warning">Navigation visibility and page publication are independent. A hidden item does not unpublish a page, and a published page is not added to navigation automatically.</div>
+<div class="footer"><span>Navigation</span><span>8</span></div>
+</section>
+
+<section class="page" id="brand">
+<h1>7. Brand the microsite</h1>
+<p class="lead">Override only the event-specific sections. Everything left off inherits tenant branding automatically.</p>
+<div class="ui"><div class="ui-head"><span>Header &amp; Footer</span><span>Northstar Summit</span></div><div class="ui-body">
+<div class="field row"><span><span class="num">1</span><b>Colors</b><br><span class="small">Primary and secondary brand colors</span></span><span class="badge">Override ON</span></div>
+<div class="swatches"><i style="background:#174f6f"></i><i style="background:#1f7a8c"></i><i style="background:#f4b942"></i></div>
+<div class="field row"><span><b>Header Logo</b><br><span class="small">Image, size and shrink on scroll</span></span><span class="badge">Override ON</span></div>
+<div class="field row"><span><b>Header Gradient Colors</b></span><span class="small">Override off — inheriting tenant</span></div>
+<div class="field row"><span><b>Link Previews (SEO &amp; Social Sharing)</b></span><span class="badge">Override ON</span></div>
+<p style="text-align:right"><span class="num">2</span><span class="btn">Save branding</span></p>
+</div></div>
+<div class="cols tight"><div><h3>Header controls</h3><p>Colours, general logo, header logo and sizing, gradient, top-nav font and colours, login/member buttons, lower nav bar.</p></div><div><h3>Sharing and footer</h3><p>1200×630 social image, tagline, description, social icon colours, and footer source/configuration.</p></div></div>
+<div class="callout tip"><b>Safe fallback:</b> switching Override off returns that section to tenant branding. Use this instead of copying every tenant setting.</div>
+<div class="footer"><span>Branding</span><span>9</span></div>
+</section>
+
+<section class="page">
+<h1>7. Brand the microsite <span class="small">(continued)</span></h1>
+<h2>Footer choices</h2>
+<table><tr><th>Footer source</th><th>Behaviour</th><th>Use when</th></tr>
+<tr><td><b>Inherit main-site footer</b></td><td>Uses the main site’s effective footer, including its reusable Canvas footer.</td><td>Legal and contact content should stay identical.</td></tr>
+<tr><td><b>Configured microsite footer</b></td><td>Uses the event footer when Footer Configuration override is enabled.</td><td>The event needs its own columns, colours or contact details.</td></tr>
+<tr><td><b>Reusable Canvas footer</b></td><td>Renders the selected reusable footer; later footer-editor changes flow through.</td><td>A designed event footer already exists.</td></tr></table>
+<h2>Accessible event branding</h2>
+<ul><li>Keep text readable against every header and footer background.</li><li>Check the logo at mobile width and at the scrolled size if shrink-on-scroll is enabled.</li><li>Use a 1200×630 share image with event name, date and location.</li><li>Do not place essential information only inside an image.</li><li>Check Login and Member Area states if the Account element is included.</li></ul>
+<div class="callout warning">When reusable Canvas footer is selected, choose a footer before saving. When configured microsite footer is selected, turn on the Footer Configuration override.</div>
+<div class="footer"><span>Branding and footer</span><span>10</span></div>
+</section>
+
+<section class="page" id="type">
+<h1>8. Set microsite typography</h1>
+<ol><li>Open the installed fonts / typography area.</li><li>Select the event microsite in the <b>scope</b> selector, not Main site.</li><li>Create or edit H1–H4 and paragraph styles.</li><li>Choose font, size, weight, line height, letter spacing, transform, colour and spacing.</li><li>Add tablet/mobile values where needed.</li><li>Set a default for the style type, keep it active, save and preview.</li></ol>
+<div class="ui"><div class="ui-head"><span>Typography Styles</span><span>+ Create Style</span></div><div class="ui-body">
+<label><span class="num">1</span><b>Site scope</b></label><div class="field">Northstar Summit 2026 &nbsp;⌄</div>
+<div class="row"><div><label><b>Style Type</b></label><div class="field">H1 — Main Heading</div></div><div><label><b>Font Family</b></label><div class="field">Poppins</div></div></div>
+<div class="row"><div class="field">Desktop 48 px</div><div class="field">Tablet 40 px</div><div class="field">Mobile 32 px</div></div>
+<p><span class="badge">Set as default for this type</span> &nbsp; <span class="badge">Active</span></p>
+</div></div>
+<div class="callout">If the microsite has no default for a style type, it falls back to the corresponding main-site default. Installing a font makes it available; a scoped typography style applies it to page content.</div>
+<div class="footer"><span>Typography</span><span>11</span></div>
+</section>
+
+<section class="page" id="launch">
+<h1>9. Preview, test and launch</h1>
+<h2>Launch order</h2>
+<ol><li>Finish and save all content.</li><li>Assign every page and verify its new URL.</li><li>Choose the home page.</li><li>Build navigation with prefixed paths.</li><li>Apply branding and microsite typography.</li><li>Publish the pages.</li><li>Switch the microsite Active on.</li><li>Test while signed out, on desktop and mobile.</li><li>Only then distribute links and QR codes.</li></ol>
+<div class="callout"><b>Preview is not publication.</b> <b>Preview as visitor</b> lets an authorised editor inspect a draft. Ordinary visitors still need an active microsite and a published page.</div>
+<h2>Launch checklist</h2>
+<div class="check">
+<div>Base URL opens the intended home page.</div><div>Every promoted page is assigned and published.</div>
+<div>No old bare-slug URL is used.</div><div>Header, dropdown and footer links work.</div>
+<div>Registration buttons open the right event.</div><div>Search scope behaves as intended.</div>
+<div>Logo links to the home page.</div><div>Mobile text and controls are readable.</div>
+<div>Social sharing text and image are suitable.</div><div>Venue and accessibility details are correct.</div>
+<div>Signed-out visitors can use public pages.</div><div>No confidential draft content is visible.</div>
+</div>
+<div class="footer"><span>Preview and launch</span><span>12</span></div>
+</section>
+
+<section class="page" id="operate">
+<h1>10. Promote and operate the event</h1>
+<h2>Promotion</h2>
+<p>Use the base URL in general promotion and deep links for agenda, venue or FAQs when useful. Generate QR codes only after the prefix and slugs are final.</p>
+<h2>Day-of use</h2>
+<ul><li>Keep urgent agenda and venue updates short and prominent.</li><li>Put high-priority updates near the top of the overview.</li><li>Re-test registration links if ticket availability changes.</li><li>After editing, save and confirm the public page.</li><li>Use event management—not the microsite—for bookings, attendee records, check-in and attendance.</li></ul>
+<div class="diagram"><b>Content update workflow</b><p>Open page editor → make change → Save → Preview as visitor → confirm public page → notify attendees if needed</p></div>
+<div class="callout">Search and navigation help visitors find published content. They never override the page’s publication state or the microsite’s Active state.</div>
+<h2>Useful handover record</h2>
+<p>Record the prefix, base URL, home page, page owners, event registration URL, retirement date, and person responsible for post-event content.</p>
+<div class="footer"><span>Promotion and operation</span><span>13</span></div>
+</section>
+
+<section class="page" id="retire">
+<h1>11. Retire the microsite safely</h1>
+<p class="lead">Do not delete immediately after the event. Old emails, bookmarks and QR codes may still be in use.</p>
+<h2>Recommended retirement</h2>
+<ol><li>Replace the overview with a post-event message and useful next steps.</li><li>Remove or update registration calls to action.</li><li>Keep recap, sponsor and venue information only as long as required.</li><li>Unpublish pages that should no longer be public.</li><li>At the end of the archive period, switch <b>Active</b> off.</li><li>Check campaigns, QR codes and external links before deletion.</li></ol>
+<h2>Inactive versus delete</h2>
+<table><tr><th>Action</th><th>Result</th><th>Recommendation</th></tr>
+<tr><td><b>Inactive</b></td><td>The microsite stops resolving publicly; its structure remains available to administrators.</td><td>Preferred for normal post-event retirement.</td></tr>
+<tr><td><b>Delete</b></td><td>Navigation is deleted and pages return to the default site at their bare slugs.</td><td>Use only after reviewing every page and inbound link.</td></tr></table>
+<div class="callout warning"><b>Deletion cannot be undone from this screen.</b> Still-published pages may become available at new bare addresses. Unpublish or review every assigned page first.</div>
+<div class="footer"><span>Safe retirement</span><span>14</span></div>
+</section>
+
+<section class="page" id="help">
+<h1>12. Troubleshooting</h1>
+<h3>A page shows “not found”</h3><p>Confirm the microsite is active, the page is assigned and published, and the address uses <span class="url">/{prefix}/{slug}</span>.</p>
+<h3>The base URL does not show the overview</h3><p>Edit the microsite, select an assigned page under <b>Home page</b>, save and retest.</p>
+<h3>A page disappeared from the main site</h3><p>This is expected after assignment. Its address moved from <span class="url">/{slug}</span> to <span class="url">/{prefix}/{slug}</span>.</p>
+<h3>Branding looks like the main site</h3><p>Enable Override for the required card, set the values and select <b>Save branding</b>. Non-overridden sections intentionally inherit.</p>
+<h3>A navigation link opens the wrong place</h3><p>Use the complete prefixed path, confirm the current page slug and ensure the item is active.</p>
+<h3>Search includes unwanted main-site results</h3><p>Edit the Search header element and restrict it to this microsite. The Search element must be present in navigation.</p>
+<h2>Five facts to remember</h2>
+<ol><li>Active microsite + published page = public availability.</li><li>Assignment changes the page address.</li><li>Home page selection enables the short base URL.</li><li>Microsite navigation replaces tenant navigation.</li><li>Inactive is usually safer than delete after an event.</li></ol>
+<div class="footer"><span>Troubleshooting</span><span>15</span></div>
+</section>
+</body></html>

@@ -1,0 +1,1237 @@
+{
+  "slug": "share-your-experience",
+  "pageId": "13d90483-2817-4078-8bf4-a30261e21810",
+  "tenantId": "ff2df806-b321-4254-b651-3af11fccf1db",
+  "capturedAt": "2026-07-04T11:16:02.898Z",
+  "canvas_design": {
+    "root": {
+      "groups": [],
+      "guides": {
+        "vertical": [],
+        "horizontal": []
+      },
+      "sections": [
+        {
+          "id": "root-section",
+          "children": [
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 600,
+                  "w": 1200,
+                  "x": 0,
+                  "y": 0,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqskjjjt-vgek1c",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Events hero",
+              "type": "hero",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-primary, #0f172a)",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 200,
+                "borderRadius": 0,
+                "paddingRight": 200,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "ctas": [
+                  {
+                    "href": "#",
+                    "label": "Download the questionnaire",
+                    "variant": "tenant:primary-no-icon",
+                    "labelTypographyStyleId": "5adf6d13-1d12-4613-ac55-b4bb1345c168"
+                  }
+                ],
+                "bgType": "image",
+                "bgColor": "var(--cb-color-primary, #0f172a)",
+                "darkWash": 0.4,
+                "headline": "Share your experience",
+                "alignment": "left",
+                "fullBleed": true,
+                "textColor": "var(--cb-color-on-primary, #ffffff)",
+                "bgImageUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1783072727975-denjb47-clinical_scientist.jpg",
+                "bgVideoUrl": "",
+                "subheadline": "Help us improve nuclear medicine services by sharing your experience as a patient or carer.",
+                "headingLevel": 1,
+                "overlayAngle": 0,
+                "overlayStops": [
+                  {
+                    "color": "#4169e1",
+                    "opacity": 1,
+                    "position": 19
+                  },
+                  {
+                    "color": "#000000",
+                    "opacity": 0,
+                    "position": 98
+                  }
+                ],
+                "overlayStyle": "gradient",
+                "overlayToColor": "",
+                "overlayDirection": "to-right",
+                "overlayFromColor": "#0055ff",
+                "overlayToOpacity": 0,
+                "overlayFromOpacity": 1,
+                "headlineTypographyStyleId": "7c9e9a3f-4c60-4ee9-a8ec-4bd83325f7e5",
+                "subheadlineTypographyStyleId": "8e020a66-1192-4266-a566-6d02f6d78a37"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 296,
+                  "w": 900,
+                  "x": 150,
+                  "y": 880,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqskl8rn-d7dajv",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: left;\"><span style=\"font-size: 20px;\">The British Nuclear Medicine Society (BNMS) is committed to improving the experience of patients and carers receiving nuclear medicine services.</span></p><p style=\"text-align: left;\"><span style=\"font-size: 20px;\">By sharing your experience, you can help departments across the UK better understand what matters most to patients, identify opportunities for improvement and support the development of future patient information and educational resources.</span></p><p style=\"text-align: left;\"><span style=\"font-size: 20px;\">Whether your experience was recent or several years ago, your feedback is valuable.</span></p><p style=\"text-align: left;\"></p>",
+                "colorRole": "default",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 950,
+                  "x": 125,
+                  "y": 784,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqskl8rn-eii577",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: center;\">Your experience matters</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 968,
+                  "x": 0,
+                  "y": 1416,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqsknpvx-6e2060",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p>How to Claim</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 1050,
+                  "w": 1200,
+                  "x": 0,
+                  "y": 1200,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtocu5g-rowy7x",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Section",
+              "type": "section",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "#F4F7FF",
+                "paddingTop": 24,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 24,
+                "borderRadius": 4,
+                "paddingRight": 24,
+                "paddingBottom": 24
+              },
+              "locked": false,
+              "content": {
+                "bgType": "color",
+                "maxWidth": 0,
+                "fullBleed": true,
+                "bgImageUrl": "",
+                "overlayType": "solid",
+                "overlayAngle": 180,
+                "overlayColor": "#000000",
+                "overlayOpacity": 0.4,
+                "overlayToColor": "#000000",
+                "overlayBlendMode": "normal",
+                "overlayEdgeColor": "#000000",
+                "overlayFromColor": "#000000",
+                "overlayToOpacity": 0,
+                "overlayCenterColor": "#000000",
+                "overlayEdgeOpacity": 0.6,
+                "overlayFromOpacity": 0.6,
+                "overlayCenterOpacity": 0
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 424,
+                  "w": 552,
+                  "x": 0,
+                  "y": 1368,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtocu5g-qr93ig",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 20px;\">Your feedback may help BNMS to:</span></p><ul><li><p><span style=\"font-size: 20px;\">Improve patient information and educational resources.</span></p></li><li><p><span style=\"font-size: 20px;\">Better prepare patients for nuclear medicine scans and treatments.</span></p></li><li><p><span style=\"font-size: 20px;\">Support Nuclear Medicine departments in improving patient care.</span></p></li><li><p><span style=\"font-size: 20px;\">Develop future patient videos and information materials.</span></p></li><li><p><span style=\"font-size: 20px;\">Understand what patients value most during their care.</span></p></li></ul><p></p>",
+                "colorRole": "default",
+                "headingAs": "",
+                "bulletIcon": "fa-solid fa-arrow-right",
+                "bulletIconSize": 15,
+                "bulletIconColor": "#fa8300",
+                "bulletIconPadTop": 5,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "c6f2ef1a-0e3e-4823-9ccb-290876da2f98",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 456,
+                  "w": 560,
+                  "x": 640,
+                  "y": 1368,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtocu5g-4xz5f0",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 20px;\">The Patient Experience Questionnaire includes questions about:</span></p><ul><li><p><span style=\"font-size: 20px;\">Your diagnosis, scan or treatment.</span></p></li><li><p><span style=\"font-size: 20px;\">Any concerns you had before your appointment.</span></p></li><li><p><span style=\"font-size: 20px;\">The information you received from healthcare professionals.</span></p></li><li><p><span style=\"font-size: 20px;\">Your experience during your visit.</span></p></li><li><p><span style=\"font-size: 20px;\">Whether your expectations were met.</span></p></li><li><p><span style=\"font-size: 20px;\">Advice you would give to future patients.</span></p></li></ul><p><span style=\"font-size: 20px;\">You can answer as many or as few questions as you wish.</span></p><p></p>",
+                "colorRole": "default",
+                "headingAs": "",
+                "bulletIcon": "fa-solid fa-arrow-right",
+                "bulletIconSize": 15,
+                "bulletIconColor": "#fa8300",
+                "bulletIconPadTop": 5,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "c6f2ef1a-0e3e-4823-9ccb-290876da2f98",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 56,
+                  "w": 480,
+                  "x": 0,
+                  "y": 1276,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtocu5g-ha3i0k",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 28px;\">How your feedback helps</span></p>",
+                "colorRole": "default",
+                "headingAs": "3",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5adf6d13-1d12-4613-ac55-b4bb1345c168",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 56,
+                  "w": 480,
+                  "x": 640,
+                  "y": 1276,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtocu5g-t9sdey",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 28px;\">What you'll be asked</span></p>",
+                "colorRole": "default",
+                "headingAs": "3",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5adf6d13-1d12-4613-ac55-b4bb1345c168",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 136,
+                  "w": 144,
+                  "x": 528,
+                  "y": 648,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtpcuim-fxt83i",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 50,
+                "fullBleed": false,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-ear-listen",
+                "iconColor": "#fa8300",
+                "objectFit": "cover",
+                "heightMode": "auto",
+                "heightValue": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 64,
+                  "w": 48,
+                  "x": 0,
+                  "y": 1216,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtpkzwy-rs66wg",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 30,
+                "fullBleed": false,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-user-pen",
+                "iconColor": "#fa8300",
+                "objectFit": "cover",
+                "heightMode": "auto",
+                "heightValue": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 24,
+                  "w": 560,
+                  "x": 0,
+                  "y": 1308,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtpy4bh-8aqqye",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Divider",
+              "type": "divider",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "color": "#fa8300",
+                "lineStyle": "solid",
+                "thickness": 1
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 24,
+                  "w": 560,
+                  "x": 640,
+                  "y": 1308,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtpywzr-ne4zp3",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Divider",
+              "type": "divider",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "color": "#fa8300",
+                "lineStyle": "solid",
+                "thickness": 1
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 64,
+                  "w": 48,
+                  "x": 640,
+                  "y": 1216,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqtq3twa-iyijkd",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 30,
+                "fullBleed": false,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-circle-question",
+                "iconColor": "#fa8300",
+                "objectFit": "cover",
+                "heightMode": "auto",
+                "heightValue": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 264,
+                  "w": 552,
+                  "x": 0,
+                  "y": 1960,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqv7u6g1-290z5b",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 20px;\">Any information you choose to share will be treated confidentially.</span></p><p><span style=\"font-size: 20px;\">If you are invited to discuss your experience further or contribute to future patient education resources, this will only take place with your agreement.</span></p><ul><li><p><span style=\"font-size: 20px;\">Participation is entirely voluntary.</span></p></li></ul><p></p>",
+                "colorRole": "default",
+                "headingAs": "",
+                "bulletIcon": "fa-solid fa-arrow-right",
+                "bulletIconSize": 15,
+                "bulletIconColor": "#fa8300",
+                "bulletIconPadTop": 5,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "c6f2ef1a-0e3e-4823-9ccb-290876da2f98",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 56,
+                  "w": 480,
+                  "x": 0,
+                  "y": 1868,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqv7u6g1-3wy13s",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p><span style=\"font-size: 28px;\">Your Privacy</span></p>",
+                "colorRole": "default",
+                "headingAs": "3",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5adf6d13-1d12-4613-ac55-b4bb1345c168",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 64,
+                  "w": 48,
+                  "x": 0,
+                  "y": 1808,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqv7u6g1-nbgxpp",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 30,
+                "fullBleed": false,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-user-pen",
+                "iconColor": "#fa8300",
+                "objectFit": "cover",
+                "heightMode": "auto",
+                "heightValue": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 24,
+                  "w": 560,
+                  "x": 0,
+                  "y": 1900,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqv7u6g1-uwtbwa",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Divider",
+              "type": "divider",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "color": "#fa8300",
+                "lineStyle": "solid",
+                "thickness": 1
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 184,
+                  "w": 904,
+                  "x": 148,
+                  "y": 2504,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqv7vzv3-ifj1bf",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: left;\"><span style=\"font-size: 20px;\">BNMS is also developing additional patient education resources, including videos featuring real patient experiences.</span></p><p style=\"text-align: left;\"><span style=\"font-size: 20px;\">If you are interested in sharing your experience as part of a future patient education project, details are included within the Patient Experience Questionnaire.</span></p><p style=\"text-align: left;\"></p>",
+                "colorRole": "default",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 80,
+                  "w": 950,
+                  "x": 125,
+                  "y": 2408,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqv7vzv3-36rlr0",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Text",
+              "type": "text",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "html": "<p style=\"text-align: center;\">Supporting future patients</p>",
+                "colorRole": "default",
+                "headingAs": "2",
+                "bulletIcon": "",
+                "bulletIconSize": null,
+                "bulletIconColor": "",
+                "bulletIconPadTop": null,
+                "characterSpacing": null,
+                "bulletIconPadLeft": null,
+                "typographyStyleId": "5758a939-15f7-471e-9473-f702e791ee40",
+                "bulletIconPadRight": null,
+                "bulletIconPadBottom": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 136,
+                  "w": 144,
+                  "x": 528,
+                  "y": 2272,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqv7vzv3-7iu0if",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Image",
+              "type": "image",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "transparent",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 0,
+                "borderRadius": 4,
+                "paddingRight": 0,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "alt": "",
+                "src": "",
+                "href": "",
+                "iconSize": 50,
+                "fullBleed": false,
+                "iconAlign": "center",
+                "iconClass": "fa-solid fa-hands-holding-circle",
+                "iconColor": "#fa8300",
+                "objectFit": "cover",
+                "heightMode": "auto",
+                "heightValue": null
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            },
+            {
+              "bp": {
+                "mobile": {},
+                "tablet": {},
+                "desktop": {
+                  "h": 450,
+                  "w": 1200,
+                  "x": 0,
+                  "y": 2720,
+                  "hidden": false
+                }
+              },
+              "id": "block-mqv7zdg7-0hy3n5",
+              "a11y": {
+                "role": "",
+                "altText": "",
+                "tabIndex": null,
+                "ariaLabel": "",
+                "ariaHidden": false
+              },
+              "name": "Events hero",
+              "type": "hero",
+              "style": {
+                "zIndex": 1,
+                "opacity": 1,
+                "background": "var(--cb-color-primary, #0f172a)",
+                "paddingTop": 0,
+                "borderColor": "#cbd5e1",
+                "borderStyle": "solid",
+                "borderWidth": 0,
+                "paddingLeft": 100,
+                "borderRadius": 0,
+                "paddingRight": 100,
+                "paddingBottom": 0
+              },
+              "locked": false,
+              "content": {
+                "ctas": [
+                  {
+                    "href": "#",
+                    "label": "Download the questionnaire",
+                    "variant": "tenant:primary-no-icon",
+                    "labelTypographyStyleId": "5adf6d13-1d12-4613-ac55-b4bb1345c168"
+                  }
+                ],
+                "bgType": "image",
+                "bgColor": "var(--cb-color-primary, #0f172a)",
+                "darkWash": 0.4,
+                "headline": "Download the patient experience questionnaire",
+                "alignment": "left",
+                "fullBleed": true,
+                "textColor": "var(--cb-color-on-primary, #ffffff)",
+                "bgImageUrl": "https://vault.iconn.app/storage/v1/object/public/public-assets/ff2df806-b321-4254-b651-3af11fccf1db/uploads/1783072909232-4hr416d-Professionals_talking.jpg",
+                "bgVideoUrl": "",
+                "subheadline": "Thank you for helping BNMS improve nuclear medicine services and support future patients through shared experiences.",
+                "headingLevel": 1,
+                "overlayAngle": 0,
+                "overlayStops": [
+                  {
+                    "color": "#4169e1",
+                    "opacity": 1,
+                    "position": 19
+                  },
+                  {
+                    "color": "#000000",
+                    "opacity": 0,
+                    "position": 98
+                  }
+                ],
+                "overlayStyle": "gradient",
+                "overlayToColor": "",
+                "overlayDirection": "to-right",
+                "overlayFromColor": "#0055ff",
+                "overlayToOpacity": 0,
+                "overlayFromOpacity": 1,
+                "headlineTypographyStyleId": "7c9e9a3f-4c60-4ee9-a8ec-4bd83325f7e5",
+                "subheadlineTypographyStyleId": "8e020a66-1192-4266-a566-6d02f6d78a37"
+              },
+              "groupId": null,
+              "anchorId": "",
+              "fullWidth": false
+            }
+          ]
+        }
+      ],
+      "background": null
+    },
+    "version": 1
+  }
+}

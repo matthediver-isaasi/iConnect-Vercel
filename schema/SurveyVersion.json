@@ -1,0 +1,16 @@
+{
+  "name": "SurveyVersion",
+  "type": "object",
+  "description": "Immutable snapshot of a survey form taken when the survey is published. Submissions are validated and scored against these snapshots, never the live form config, so historical results stay accurate.",
+  "properties": {
+    "tenant_id": { "type": "string", "description": "Tenant that owns the survey" },
+    "form_id": { "type": "string", "description": "Form this version belongs to" },
+    "version_number": { "type": "number", "description": "1-based version number, unique per form" },
+    "fields": { "type": "array", "description": "Snapshot of the form's fields array at publish time" },
+    "pages": { "type": "array", "description": "Snapshot of the form's pages array at publish time" },
+    "visibility_rules": { "type": "array", "description": "Snapshot of the form's conditional-logic rules at publish time" },
+    "survey_settings": { "type": "object", "description": "Snapshot of the form's survey_settings at publish time" },
+    "published_by": { "type": "string", "description": "Email of the admin who published this version" }
+  },
+  "required": ["tenant_id", "form_id", "version_number", "fields"]
+}

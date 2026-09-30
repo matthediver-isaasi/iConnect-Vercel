@@ -1,0 +1,61 @@
+index-CYIQiL6r.js:1136 [publicClient] Detected tenant from subdomain: gfi
+index-CYIQiL6r.js:1525 [usePendingPurchaseOrders] memberInfo: null
+index-CYIQiL6r.js:1525 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CYIQiL6r.js:1525 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CYIQiL6r.js:1525 [Layout] currentPageName: MemberDetail currentPortalPageId: null
+index-CYIQiL6r.js:1525 [usePendingPurchaseOrders] memberInfo: {id: '9ac39222-22b8-457e-a5df-dfca45a99eb6', email: 'sharon@onlinem.co.uk'}
+index-CYIQiL6r.js:1525 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CYIQiL6r.js:1525 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CYIQiL6r.js:1525 [Layout] currentPageName: MemberDetail currentPortalPageId: null
+index-CYIQiL6r.js:1525 [usePendingPurchaseOrders] Query running, memberInfo.id: 9ac39222-22b8-457e-a5df-dfca45a99eb6
+index-CYIQiL6r.js:1525 [usePendingPurchaseOrders] memberInfo: {id: '9ac39222-22b8-457e-a5df-dfca45a99eb6', email: 'sharon@onlinem.co.uk'}
+index-CYIQiL6r.js:1525 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CYIQiL6r.js:1525 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CYIQiL6r.js:1525 [Layout] currentPageName: MemberDetail currentPortalPageId: null
+index-CYIQiL6r.js:1525 [usePendingPurchaseOrders] memberInfo: {id: '9ac39222-22b8-457e-a5df-dfca45a99eb6', email: 'sharon@onlinem.co.uk'}
+index-CYIQiL6r.js:1525 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CYIQiL6r.js:1525 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CYIQiL6r.js:1525 [Layout] currentPageName: MemberDetail currentPortalPageId: null
+index-CYIQiL6r.js:1525 [usePendingPurchaseOrders] memberInfo: {id: '9ac39222-22b8-457e-a5df-dfca45a99eb6', email: 'sharon@onlinem.co.uk'}
+index-CYIQiL6r.js:1525 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CYIQiL6r.js:1525 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CYIQiL6r.js:1525 [Layout] currentPageName: MemberDetail currentPortalPageId: null
+index-CYIQiL6r.js:1525 [usePendingPurchaseOrders] memberInfo: {id: '9ac39222-22b8-457e-a5df-dfca45a99eb6', email: 'sharon@onlinem.co.uk'}
+index-CYIQiL6r.js:1525 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CYIQiL6r.js:1525 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CYIQiL6r.js:1525 [Layout] currentPageName: MemberDetail currentPortalPageId: null
+index-CYIQiL6r.js:1525 [usePendingPurchaseOrders] memberInfo: {id: '9ac39222-22b8-457e-a5df-dfca45a99eb6', email: 'sharon@onlinem.co.uk'}
+index-CYIQiL6r.js:1525 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CYIQiL6r.js:1525 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CYIQiL6r.js:1525 [Layout] currentPageName: MemberDetail currentPortalPageId: null
+index-CYIQiL6r.js:1525 [usePendingPurchaseOrders] memberInfo: {id: '9ac39222-22b8-457e-a5df-dfca45a99eb6', email: 'sharon@onlinem.co.uk'}
+index-CYIQiL6r.js:1525 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CYIQiL6r.js:1525 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CYIQiL6r.js:1525 [Layout] currentPageName: MemberDetail currentPortalPageId: null
+index-CYIQiL6r.js:1525 [usePendingPurchaseOrders] memberInfo: {id: '9ac39222-22b8-457e-a5df-dfca45a99eb6', email: 'sharon@onlinem.co.uk'}
+index-CYIQiL6r.js:1525 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CYIQiL6r.js:1525 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CYIQiL6r.js:1525 [Layout] currentPageName: MemberDetail currentPortalPageId: null
+index-CYIQiL6r.js:1525 [usePendingPurchaseOrders] memberInfo: {id: '9ac39222-22b8-457e-a5df-dfca45a99eb6', email: 'sharon@onlinem.co.uk'}
+index-CYIQiL6r.js:1525 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-CYIQiL6r.js:1525 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-CYIQiL6r.js:1525 [Layout] currentPageName: MemberDetail currentPortalPageId: null
+index-CYIQiL6r.js:1525 [usePendingPurchaseOrders] Fetched bookings count: 1
+index-CYIQiL6r.js:1525 [usePendingPurchaseOrders] Pending PO bookings: 0
+index-CYIQiL6r.js:1525 [usePendingPurchaseOrders] memberInfo: {id: '9ac39222-22b8-457e-a5df-dfca45a99eb6', email: 'sharon@onlinem.co.uk'}
+index-CYIQiL6r.js:1525 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CYIQiL6r.js:1525 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CYIQiL6r.js:1525 [Layout] currentPageName: MemberDetail currentPortalPageId: null
+index-CYIQiL6r.js:1525 [Layout] Server session found: sharon@onlinem.co.uk
+index-CYIQiL6r.js:1525 [usePendingPurchaseOrders] memberInfo: {id: '9ac39222-22b8-457e-a5df-dfca45a99eb6', email: 'sharon@onlinem.co.uk'}
+index-CYIQiL6r.js:1525 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CYIQiL6r.js:1525 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CYIQiL6r.js:1525 [Layout] currentPageName: MemberDetail currentPortalPageId: null
+index-CYIQiL6r.js:1525 [usePendingPurchaseOrders] memberInfo: {id: '9ac39222-22b8-457e-a5df-dfca45a99eb6', email: 'sharon@onlinem.co.uk'}
+index-CYIQiL6r.js:1525 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CYIQiL6r.js:1525 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CYIQiL6r.js:1525 [Layout] currentPageName: MemberDetail currentPortalPageId: null
+index-CYIQiL6r.js:1525 [usePendingPurchaseOrders] memberInfo: {id: '9ac39222-22b8-457e-a5df-dfca45a99eb6', email: 'sharon@onlinem.co.uk'}
+index-CYIQiL6r.js:1525 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-CYIQiL6r.js:1525 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-CYIQiL6r.js:1525 [Layout] currentPageName: MemberDetail currentPortalPageId: null

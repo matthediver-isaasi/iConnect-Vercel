@@ -5,31 +5,146 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Save, Plus, X, Settings } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Save, Plus, X, Settings, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { adminFetch } from "@/lib/adminFetch";
+import ReactQuill from 'react-quill';
+
+const defaultTermsContent = `<h3>1. Introduction</h3>
+<p>These Terms apply to all job advertisements placed on the Graduate Futures website ("Job Board").</p>
+<p>By submitting a vacancy, you agree to these Terms and the Privacy Policy.</p>
+
+<h3>2. Eligibility and Content</h3>
+<ul>
+<li>Graduate Futures will only publish job vacancies directly relevant to the higher education careers and employability sector.</li>
+<li>Graduate Futures reserves the right to edit or decline any advert that does not meet these criteria.</li>
+<li>The Client is responsible for ensuring that all job descriptions and information are true, accurate, and non-discriminatory.</li>
+<li>The Client agrees that all job advertisements submitted to the Graduate Futures Job Board comply with applicable UK employment legislation, including but not limited to the Equality Act 2010.</li>
+<li>All data submitted by the client must comply with the UK GDPR and Graduate Futures Privacy Policy.</li>
+</ul>
+
+<h3>3. Submission and Publication</h3>
+<ul>
+<li>Job adverts can be submitted online via the Graduate Futures Job Board.</li>
+<li>Publication is subject to Graduate Futures approval and full payment (where applicable).</li>
+<li>Graduate Futures aims to publish approved adverts within 24 hours.</li>
+</ul>
+
+<h3>4. Fees and Payment</h3>
+<ul>
+<li>Non-member adverts are subject to the published rate.</li>
+<li>Members may post vacancies in accordance with their membership benefits.</li>
+<li>Payment must be made by credit/debit card.</li>
+<li>All fees are payable in pounds sterling and exclusive of VAT.</li>
+</ul>
+
+<h3>5. Duration and Removal</h3>
+<ul>
+<li>Adverts will remain live on the website until the specified closing date, unless otherwise agreed.</li>
+<li>Graduate Futures reserves the right to remove adverts early if they breach these Terms or upon the Client's written request.</li>
+<li>Fees are non-refundable once an advert has gone live.</li>
+</ul>
+
+<h3>6. Refunds</h3>
+<p>Refunds may only be issued where an advert cannot be published due to Graduate Futures error or technical failure.</p>
+<p>Requests should be made in writing to info@graduatefutures.org.uk.</p>
+
+<h3>7. Liability</h3>
+<p>Graduate Futures accepts no responsibility for:</p>
+<ul>
+<li>Errors in content supplied by the Client;</li>
+<li>Failure of an advert to attract candidates; or</li>
+<li>Any indirect or consequential loss.</li>
+</ul>
+
+<h3>8. Contact</h3>
+<p>info@graduatefutures.org.uk</p>
+
+<h3>9. Right to amend</h3>
+<p>Graduate Futures reserves the right to amend these Terms at any time.</p>`;
 
 export default function JobBoardSettingsPage() {
-  const { isAdmin, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [price, setPrice] = useState('50');
   const [jobTypes, setJobTypes] = useState(['Full-time', 'Part-time', 'Contract', 'Temporary', 'Internship']);
   const [hours, setHours] = useState(['Full-time', 'Part-time', 'Flexible']);
   const [newJobType, setNewJobType] = useState('');
   const [newHour, setNewHour] = useState('');
+  const [termsTitle, setTermsTitle] = useState('Graduate Futures Job Advertising Terms and Conditions');
+  const [termsContent, setTermsContent] = useState(defaultTermsContent);
+  const [feedConfig, setFeedConfig] = useState({
+    keywords: '', exclusions: '', category: '', location: '',
+    max_days_old: 30, result_limit: 25
+  });
+  const [feedStatus, setFeedStatus] = useState(null);
+  const [feedPreview, setFeedPreview] = useState([]);
+  const [feedLoading, setFeedLoading] = useState(true);
+  const [feedAction, setFeedAction] = useState('');
   
   const queryClient = useQueryClient();
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin || isFeatureExcluded('page_JobBoardSettings')) {
+      if (isFeatureExcluded('page_JobBoardSettings')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady, isFeatureExcluded]);
+  }, [isFeatureExcluded, isAccessReady]);
+
+  const loadFeedSettings = async () => {
+    setFeedLoading(true);
+    try {
+      const response = await adminFetch('/api/admin/job-feed/adzuna', { credentials: 'include' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Unable to load Adzuna settings');
+      setFeedStatus(data);
+      setFeedConfig(prev => ({ ...prev, ...(data.config || {}) }));
+    } catch (error) {
+      toast.error(error.message);
+    } finally {
+      setFeedLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (accessChecked) loadFeedSettings();
+  }, [accessChecked]);
+
+  const runFeedAction = async (action) => {
+    setFeedAction(action);
+    try {
+      const response = await adminFetch('/api/admin/job-feed/adzuna', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, ...feedConfig })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || `Unable to ${action} Adzuna feed`);
+      if (action === 'preview') {
+        setFeedPreview(data.jobs || []);
+        toast.success(`Found ${(data.jobs || []).length} matching jobs`);
+      } else if (action === 'sync') {
+        toast.success(`Adzuna sync completed: ${data.imported || 0} jobs imported or updated`);
+        setFeedPreview([]);
+        await loadFeedSettings();
+      } else {
+        toast.success('Adzuna feed settings saved');
+        await loadFeedSettings();
+      }
+    } catch (error) {
+      toast.error(error.message);
+      await loadFeedSettings();
+    } finally {
+      setFeedAction('');
+    }
+  };
 
   const { data: priceSettings } = useQuery({
     queryKey: ['job-board-price-settings'],
@@ -55,6 +170,14 @@ export default function JobBoardSettingsPage() {
     }
   });
 
+  const { data: termsSettings } = useQuery({
+    queryKey: ['job-terms-settings'],
+    queryFn: async () => {
+      const allSettings = await base44.entities.SystemSettings.list();
+      return allSettings.find(s => s.setting_key === 'job_posting_terms');
+    }
+  });
+
   useEffect(() => {
     if (priceSettings?.setting_value) {
       setPrice(priceSettings.setting_value);
@@ -75,7 +198,16 @@ export default function JobBoardSettingsPage() {
         console.error('Failed to parse hours:', e);
       }
     }
-  }, [priceSettings, jobTypeSettings, hoursSettings]);
+    if (termsSettings?.setting_value) {
+      try {
+        const parsed = JSON.parse(termsSettings.setting_value);
+        if (parsed.title) setTermsTitle(parsed.title);
+        if (parsed.content) setTermsContent(parsed.content);
+      } catch (e) {
+        console.error('Failed to parse terms:', e);
+      }
+    }
+  }, [priceSettings, jobTypeSettings, hoursSettings, termsSettings]);
 
   const savePriceMutation = useMutation({
     mutationFn: async (newPrice) => {
@@ -148,10 +280,34 @@ export default function JobBoardSettingsPage() {
     }
   });
 
+  const saveTermsMutation = useMutation({
+    mutationFn: async ({ title, content }) => {
+      const value = JSON.stringify({ title, content });
+      if (termsSettings) {
+        return await base44.entities.SystemSettings.update(termsSettings.id, {
+          setting_value: value
+        });
+      } else {
+        return await base44.entities.SystemSettings.create({
+          setting_key: 'job_posting_terms',
+          setting_value: value,
+          description: 'Terms and conditions for job postings'
+        });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['job-terms-settings'] });
+      toast.success('Terms and conditions updated successfully');
+    },
+    onError: (error) => {
+      toast.error('Failed to update terms: ' + error.message);
+    }
+  });
+
   const handleSavePrice = () => {
     const numPrice = parseFloat(price);
-    if (isNaN(numPrice) || numPrice < 0) {
-      toast.error('Please enter a valid price');
+    if (!Number.isFinite(numPrice) || numPrice <= 0) {
+      toast.error('Please enter a price greater than £0');
       return;
     }
     savePriceMutation.mutate(price);
@@ -193,16 +349,28 @@ export default function JobBoardSettingsPage() {
     saveHoursMutation.mutate(updated);
   };
 
+  const handleSaveTerms = () => {
+    if (!termsTitle.trim()) {
+      toast.error('Please enter a title for the terms');
+      return;
+    }
+    if (!termsContent.trim()) {
+      toast.error('Please enter the terms content');
+      return;
+    }
+    saveTermsMutation.mutate({ title: termsTitle, content: termsContent });
+  };
+
   if (!accessChecked) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <div className="animate-pulse text-slate-600">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-3xl mx-auto">
         <div className="mb-8">
           <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">
@@ -214,6 +382,93 @@ export default function JobBoardSettingsPage() {
         </div>
 
         <div className="space-y-6">
+          <Card className="border-slate-200 shadow-sm">
+            <CardHeader>
+              <CardTitle>Adzuna Job Feed</CardTitle>
+              <CardDescription>
+                Choose the UK vacancies to import. Preview uses the same search as manual and hourly syncs.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              {feedLoading ? (
+                <p className="text-sm text-slate-500">Loading feed settings...</p>
+              ) : !feedStatus?.configured ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+                  <p className="font-medium text-amber-900">Adzuna is not connected and enabled.</p>
+                  <p className="mt-1 text-sm text-amber-800">
+                    Add credentials and enable the connection in{" "}
+                    <a href="/admin/integrations" className="font-medium underline">Admin → Integrations</a>.
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">
+                  Adzuna is connected and enabled. Country is fixed to United Kingdom.
+                </div>
+              )}
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="adzuna-keywords">Keywords or phrases</Label>
+                  <Textarea id="adzuna-keywords" value={feedConfig.keywords || ''} onChange={e => setFeedConfig(p => ({ ...p, keywords: e.target.value }))} placeholder={'e.g. "career development" employability graduate'} />
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="adzuna-exclusions">Excluded words or phrases</Label>
+                  <Textarea id="adzuna-exclusions" value={feedConfig.exclusions || ''} onChange={e => setFeedConfig(p => ({ ...p, exclusions: e.target.value }))} placeholder="e.g. sales retail" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="adzuna-category">Adzuna category</Label>
+                  <Input id="adzuna-category" value={feedConfig.category || ''} onChange={e => setFeedConfig(p => ({ ...p, category: e.target.value }))} placeholder="Optional category tag" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="adzuna-location">Location</Label>
+                  <Input id="adzuna-location" value={feedConfig.location || ''} onChange={e => setFeedConfig(p => ({ ...p, location: e.target.value }))} placeholder="e.g. London or United Kingdom" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="adzuna-age">Maximum vacancy age (days)</Label>
+                  <Input id="adzuna-age" type="number" min="1" max="90" value={feedConfig.max_days_old} onChange={e => setFeedConfig(p => ({ ...p, max_days_old: Number(e.target.value) }))} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="adzuna-limit">Result limit</Label>
+                  <Input id="adzuna-limit" type="number" min="1" max="50" value={feedConfig.result_limit} onChange={e => setFeedConfig(p => ({ ...p, result_limit: Number(e.target.value) }))} />
+                </div>
+              </div>
+
+              {feedStatus?.config?.last_sync_at && (
+                <div className={`rounded-lg border p-3 text-sm ${feedStatus.config.last_error ? 'border-red-200 bg-red-50 text-red-800' : 'border-slate-200 bg-slate-50 text-slate-700'}`}>
+                  <p>Last run: {new Date(feedStatus.config.last_sync_at).toLocaleString()}</p>
+                  {feedStatus.config.last_success_at && <p>Last successful: {new Date(feedStatus.config.last_success_at).toLocaleString()}</p>}
+                  {feedStatus.config.last_error
+                    ? <p className="mt-1 font-medium">{feedStatus.config.last_error}</p>
+                    : <p>{feedStatus.config.last_imported_count || 0} jobs imported or updated</p>}
+                </div>
+              )}
+
+              <div className="flex flex-wrap gap-3">
+                <Button variant="outline" disabled={!!feedAction} onClick={() => runFeedAction('save')}>
+                  <Save className="mr-2 h-4 w-4" /> {feedAction === 'save' ? 'Saving...' : 'Save Search'}
+                </Button>
+                <Button variant="outline" disabled={!!feedAction || !feedStatus?.configured} onClick={() => runFeedAction('preview')}>
+                  {feedAction === 'preview' ? 'Loading Preview...' : 'Preview Matches'}
+                </Button>
+                <Button className="bg-blue-600 hover:bg-blue-700" disabled={!!feedAction || !feedStatus?.configured} onClick={() => runFeedAction('sync')}>
+                  {feedAction === 'sync' ? 'Syncing...' : 'Run Manual Sync'}
+                </Button>
+              </div>
+
+              {feedPreview.length > 0 && (
+                <div className="space-y-2 border-t pt-4">
+                  <h4 className="font-semibold text-slate-900">Preview ({feedPreview.length})</h4>
+                  {feedPreview.map(job => (
+                    <div key={job.external_id} className="rounded-lg border border-slate-200 p-3">
+                      <p className="font-medium text-slate-900">{job.title}</p>
+                      <p className="text-sm text-slate-600">{job.company_name} · {job.location}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Price Settings */}
           <Card className="border-slate-200 shadow-sm">
             <CardHeader>
@@ -241,7 +496,7 @@ export default function JobBoardSettingsPage() {
                   />
                 </div>
                 <p className="text-sm text-slate-500">
-                  AGCAS members can always post jobs for free
+                  Members can always post jobs for free
                 </p>
               </div>
 
@@ -337,6 +592,63 @@ export default function JobBoardSettingsPage() {
                   </div>
                 ))}
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Terms and Conditions */}
+          <Card className="border-slate-200 shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileText className="w-5 h-5" />
+                Terms and Conditions
+              </CardTitle>
+              <CardDescription>
+                Edit the terms and conditions shown to users when posting a job
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="termsTitle">Title</Label>
+                <Input
+                  id="termsTitle"
+                  value={termsTitle}
+                  onChange={(e) => setTermsTitle(e.target.value)}
+                  placeholder="Terms and Conditions Title"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Content</Label>
+                <div className="border rounded-lg overflow-hidden">
+                  <ReactQuill
+                    value={termsContent}
+                    onChange={setTermsContent}
+                    theme="snow"
+                    modules={{
+                      toolbar: [
+                        [{ 'header': [1, 2, 3, false] }],
+                        ['bold', 'italic', 'underline'],
+                        [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                        ['link'],
+                        ['clean']
+                      ]
+                    }}
+                    style={{ minHeight: '300px' }}
+                  />
+                </div>
+                <p className="text-sm text-slate-500">
+                  Use headings (H1, H2, H3) to structure your terms into sections
+                </p>
+              </div>
+
+              <Button 
+                onClick={handleSaveTerms}
+                disabled={saveTermsMutation.isPending}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                <Save className="w-4 h-4 mr-2" />
+                {saveTermsMutation.isPending ? 'Saving...' : 'Save Terms and Conditions'}
+              </Button>
             </CardContent>
           </Card>
         </div>

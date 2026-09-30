@@ -1,0 +1,101 @@
+2026-01-23 19:10:07.751 [info] [DD Check Stage Actions] Agent membership result: {
+  error: null,
+  data: {
+    identity: {
+      id: '545269d1-326b-4fff-90d0-b8a4e0cab9bb',
+      email: 'mat.the.diver@googlemail.com',
+      last_name: 'Henderson',
+      first_name: 'Mat',
+      booking_slug: 'mat-henderson'
+    }
+  },
+  hasBookingSlug: true,
+  hasIdentity: true
+}
+2026-01-23 19:10:07.752 [info] [DD Check Stage Actions] Agent details collected: 1
+2026-01-23 19:10:07.752 [info] [DD Check Stage Actions] Unique agents count: 1
+2026-01-23 19:10:07.752 [info] [DD Check Stage Actions] Unique agent IDs: [ '545269d1-326b-4fff-90d0-b8a4e0cab9bb' ]
+2026-01-23 19:10:07.752 [info] [DD Check Stage Actions] Final result: {
+  "has_meeting_actions": true,
+  "meeting_actions": [
+    {
+      "meeting_request_id": "d7c1310d-c607-43cc-9896-7ab54ab273bf",
+      "template_id": "79511fd1-3cd1-40b7-a45f-60e64d99a35e",
+      "template_name": "Membership meeting",
+      "agents": [
+        {
+          "identity_id": "545269d1-326b-4fff-90d0-b8a4e0cab9bb",
+          "name": "Mat Henderson",
+          "email": "mat.the.diver@googlemail.com",
+          "booking_slug": "mat-henderson"
+        }
+      ]
+    }
+  ],
+  "requires_agent_selection": true
+}
+2026-01-23 19:10:07.752 [info] [DD Check Stage Actions] ========== END ==========
+2026-01-23 19:10:06.271 [info] [Session] Attaching preserved admin context to member: {
+  memberId: 'b24e022f-adcc-4930-8952-63a34cc16925',
+  preservedTenantUserId: '11ee8b69-e967-45d5-9bfa-dff5a52c4ae6'
+}
+2026-01-23 19:10:06.271 [info] [Session] Attaching preserved identity to member: {
+  memberId: 'b24e022f-adcc-4930-8952-63a34cc16925',
+  preservedIdentityId: '545269d1-326b-4fff-90d0-b8a4e0cab9bb'
+}
+2026-01-23 19:10:06.271 [info] [Session] getSession: Looking up session: 83a10aa1
+2026-01-23 19:10:06.415 [info] [Session] getSession: Session found, userType: tenant_user
+2026-01-23 19:10:06.415 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"83a10aa1","userType":"tenant_user","tenantUserId":"11ee8b69-e967-45d5-9bfa-dff5a52c4ae6","preservedTenantUserId":"11ee8b69-e967-45d5-9bfa-dff5a52c4ae6","memberId":"b24e022f-adcc-4930-8952-63a34cc16925","identityId":"545269d1-326b-4fff-90d0-b8a4e0cab9bb","tenantId":"21296ad6-1350-483a-a90c-1b06ece70501"}
+2026-01-23 19:10:06.417 [info] [Session] Found tenant_user session, continuing with normal handling
+2026-01-23 19:10:06.905 [info] [Session] Verified via unified identity system: mat.the.diver@googlemail.com
+2026-01-23 19:10:07.035 [info] [Session] Elevating role from tenant_user table: owner
+2026-01-23 19:10:07.035 [info] [Session] getSession: Looking up session: 83a10aa1
+2026-01-23 19:10:07.182 [info] [Session] getSession: Session found, userType: tenant_user
+2026-01-23 19:10:07.182 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"83a10aa1","userType":"tenant_user","memberId":"b24e022f-adcc-4930-8952-63a34cc16925","preservedTenantUserId":"11ee8b69-e967-45d5-9bfa-dff5a52c4ae6","preservedIdentityId":"545269d1-326b-4fff-90d0-b8a4e0cab9bb"}
+2026-01-23 19:10:07.313 [info] [Session] Attaching preserved admin context to member: {
+  memberId: 'b24e022f-adcc-4930-8952-63a34cc16925',
+  preservedTenantUserId: '11ee8b69-e967-45d5-9bfa-dff5a52c4ae6'
+}
+2026-01-23 19:10:07.313 [info] [Session] Attaching preserved identity to member: {
+  memberId: 'b24e022f-adcc-4930-8952-63a34cc16925',
+  preservedIdentityId: '545269d1-326b-4fff-90d0-b8a4e0cab9bb'
+}
+2026-01-23 19:10:07.313 [info] [DD Check Stage Actions] ========== START ==========
+2026-01-23 19:10:07.313 [info] [DD Check Stage Actions] Input: {
+  stageId: 'verified',
+  formId: 'a9ec1559-495a-4705-9da9-d51517be7bb6',
+  tenantId: '21296ad6-1350-483a-a90c-1b06ece70501'
+}
+2026-01-23 19:10:07.313 [info] [DD Check Stage Actions] Querying stage_meeting_request for stageId: verified
+2026-01-23 19:10:07.453 [info] [DD Check Stage Actions] stage_meeting_request query result: {
+  error: null,
+  count: 1,
+  data: [
+    {
+      id: 'd7c1310d-c607-43cc-9896-7ab54ab273bf',
+      due_diligence_stage_id: 'verified',
+      is_active: true,
+      meeting_template: [Object]
+    }
+  ]
+}
+2026-01-23 19:10:07.453 [info] [DD Check Stage Actions] Found 1 meeting request configs
+2026-01-23 19:10:07.453 [info] [DD Check Stage Actions] Processing meeting request: {
+  id: 'd7c1310d-c607-43cc-9896-7ab54ab273bf',
+  template: {
+    id: '79511fd1-3cd1-40b7-a45f-60e64d99a35e',
+    name: 'Membership meeting',
+    slug: 'membership-meeting',
+    duration_minutes: 30
+  }
+}
+2026-01-23 19:10:07.453 [info] [DD Check Stage Actions] Querying agent_meeting_template for template: 79511fd1-3cd1-40b7-a45f-60e64d99a35e
+2026-01-23 19:10:07.588 [info] [DD Check Stage Actions] agent_meeting_template result: {
+  error: null,
+  count: 1,
+  data: [ { identity_id: '545269d1-326b-4fff-90d0-b8a4e0cab9bb' } ]
+}
+2026-01-23 19:10:07.588 [info] [DD Check Stage Actions] Looking up agent membership for identity: 545269d1-326b-4fff-90d0-b8a4e0cab9bb
+2026-01-23 19:10:05.927 [info] [Session] getSession: Looking up session: 83a10aa1
+2026-01-23 19:10:06.109 [info] [Session] getSession: Session found, userType: tenant_user
+2026-01-23 19:10:06.109 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"83a10aa1","userType":"tenant_user","memberId":"b24e022f-adcc-4930-8952-63a34cc16925","preservedTenantUserId":"11ee8b69-e967-45d5-9bfa-dff5a52c4ae6","preservedIdentityId":"545269d1-326b-4fff-90d0-b8a4e0cab9bb"}

@@ -1,0 +1,476 @@
+// GoCardless Phase 2 — Direct Debit lifecycle emails (tenant -> member).
+//
+// Lifecycle events (spec's seven milestones + failure/cancel paths):
+//   setup_started               — member started the DD journey (hosted flow issued)
+//   setup_incomplete            — hosted flow abandoned / billing request cancelled
+//   mandate_active              — mandate confirmed
+//   first_collection_scheduled  — subscription created; first collection date known
+//   membership_activated        — membership flipped active per the tier's rule
+//   first_payment               — first instalment collected
+//   payment_confirmed           — a subsequent instalment collected
+//   payment_failed              — an instalment failed (grace period)
+//   payment_overdue             — repeated failure; plan needs attention
+//   plan_cancelled              — mandate/subscription cancelled
+//   plan_completed              — all instalments collected
+//
+// Best-effort by design: callers fire-and-forget; sendTenantEmail never
+// throws upstream state handling. `send` is injectable for tests.
+
+import { supabase } from './database.js';
+import { sendTenantEmail } from './tenantEmailService.js';
+import { resolveSavedCollectionPolicy, describeCollectionPolicy } from '../../shared/gocardlessCollectionPolicy.js';
+
+function money(value) {
+  return value != null && value !== '' && Number.isFinite(Number(value))
+    ? Number(value).toFixed(2) : null;
+}
+
+function scheduleText(c, renewal = false) {
+  const amount = money(renewal ? (c.newMonthlyAmount ?? c.monthlyAmount) : c.monthlyAmount);
+  const currency = renewal ? (c.newCurrency || c.currency) : c.currency;
+  if (c.dynamic) {
+    return `monthly Direct Debit collections at the applicable active membership structure price${amount ? ` (current indicative monthly price: ${currency} ${amount})` : ''}. The amount is not fixed for the term; each collection is subject to provider notice and submission deadlines`;
+  }
+  const count = renewal ? (c.newInstalmentCount || c.instalmentCount) : c.instalmentCount;
+  const total = renewal ? money(c.newPlanTotal) : null;
+  return `${count} monthly payments${amount ? ` of ${currency} ${amount}` : ' (amount awaiting confirmation)'}${total ? ` (total ${currency} ${total})` : ''}`;
+}
+
+function paymentAmountText(c) {
+  // A variable-price receipt must never use the initial consent quote as the
+  // amount actually collected. Callers may supply verified paymentAmount.
+  const amount = money(c.paymentAmount ?? (c.dynamic ? null : c.monthlyAmount));
+  return amount ? ` of ${c.currency} ${amount}` : '';
+}
+
+function policyParagraph(c) {
+  return c.policy ? `<p>${describeCollectionPolicy(c.policy)}</p>` : '';
+}
+
+const EVENTS = {
+  setup_started: {
+    subject: (c) => `Your Direct Debit set-up for ${c.yearLabel} membership`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>You've chosen to pay your ${c.yearLabel} membership by monthly Direct Debit
+      through ${scheduleText(c)}.</p>
+      ${policyParagraph(c)}
+      <p>Your Direct Debit mandate is being set up with your bank. We'll confirm as soon as it's active — no payment is taken until then.</p>`,
+  },
+  setup_incomplete: {
+    subject: (c) => `Your Direct Debit set-up was not completed`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>Your monthly Direct Debit set-up for the ${c.yearLabel} membership was not completed, so no payment plan is in place yet.</p>
+      <p>You can restart the set-up from your membership payment page at any time, or choose a different payment method.</p>`,
+  },
+  mandate_active: {
+    subject: (c) => `Direct Debit confirmed — ${c.yearLabel} membership`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>Your Direct Debit mandate is now active. Your ${c.yearLabel} membership will be collected in
+      ${scheduleText(c)}.</p>
+      ${policyParagraph(c)}
+      ${c.firstChargeDate ? `<p>Your first collection is expected on or around <strong>${c.firstChargeDate}</strong>.</p>` : ''}
+      <p>You'll receive advance notice from GoCardless before each collection.</p>`,
+  },
+  first_collection_scheduled: {
+    subject: (c) => `First membership payment scheduled — ${c.yearLabel}`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>Your monthly membership payment plan is now in place: ${scheduleText(c)}.</p>
+      ${policyParagraph(c)}
+      ${c.firstChargeDate ? `<p>Your first collection is scheduled on or around <strong>${c.firstChargeDate}</strong>.</p>` : '<p>Your first collection will be taken as soon as your bank allows.</p>'}
+      <p>GoCardless will notify you in advance of each collection, and your payments are protected by the Direct Debit Guarantee.</p>`,
+  },
+  membership_activated: {
+    subject: (c) => `Your ${c.yearLabel} membership is now active`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>Good news — your ${c.yearLabel} membership is now active. Your membership is being paid through ${scheduleText(c)}.</p>
+      ${policyParagraph(c)}
+      <p>Welcome aboard!</p>`,
+  },
+  first_payment: {
+    subject: (c) => `First membership payment received — ${c.yearLabel}`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>Your first monthly membership payment${paymentAmountText(c)} has been collected successfully. Thank you!</p>
+      <p>The remaining instalments will be collected automatically each month.</p>`,
+  },
+  payment_confirmed: {
+    subject: (c) => `Membership payment received — ${c.yearLabel}`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>Your monthly membership payment${paymentAmountText(c)} has been collected successfully. Thank you!</p>`,
+  },
+  payment_failed: {
+    subject: (c) => `Membership payment problem — action may be needed`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>A monthly membership payment${paymentAmountText(c)} could not be collected from your bank account.</p>
+      <p>The payment will be retried automatically. Please make sure funds are available, or contact us if your bank details have changed.</p>`,
+  },
+  card_payment_failed: {
+    subject: () => `Membership card payment problem — action may be needed`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>A monthly membership card payment of ${c.currency} ${c.monthlyAmount} could not be collected.</p>
+      <p>Please update or verify your card details, or contact us, before the payment grace period ends.</p>`,
+  },
+  payment_overdue: {
+    subject: (c) => `Membership payments overdue`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>We have been unable to collect your monthly membership payments, and your payment plan is now overdue.</p>
+      <p>Please contact us to bring your membership up to date.</p>`,
+  },
+  retry_scheduled: {
+    subject: (c) => `Membership payment retry scheduled`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>A retry of your monthly membership payment${paymentAmountText(c)} has been scheduled.</p>
+      <p>Please make sure funds are available in your account. You'll receive advance notice from GoCardless before the collection.</p>`,
+  },
+  new_mandate_required: {
+    subject: (c) => `New Direct Debit set-up needed for your membership`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>Your Direct Debit mandate for the ${c.yearLabel} membership is no longer usable, so we can't collect your monthly payments.</p>
+      <p>To keep your membership payments on track, please set up a new Direct Debit${c.setupUrl ? ` using this secure link: <a href="${c.setupUrl}">${c.setupUrl}</a>` : ' from your membership payment page'}.</p>
+      <p>No payment is taken until the new mandate is active, and you will never be charged twice for the same instalment.</p>`,
+  },
+  mandate_cancelled: {
+    subject: (c) => `Your membership Direct Debit mandate was cancelled`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>The Direct Debit mandate for your ${c.yearLabel} membership has been cancelled, so no further payments can be collected.</p>
+      <p>Your membership itself has NOT been cancelled. To continue paying monthly, please set up a new Direct Debit, or contact us to arrange a different payment method.</p>`,
+  },
+  at_risk_of_suspension: {
+    subject: (c) => `Action needed — membership at risk`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>We still haven't been able to collect your monthly membership payments and the grace period has now ended.</p>
+      <p>Your membership benefits may be restricted or suspended until payments are brought up to date. Please contact us or resolve the payment problem from your membership page as soon as possible.</p>`,
+  },
+  payment_access_restricted: {
+    subject: () => `Membership portal access updated`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>Your recurring membership payment is still overdue after the grace period, so your member role has been changed${c.fallbackRoleName ? ` to <strong>${c.fallbackRoleName}</strong>` : ''}.</p>
+      <p>You can still sign in, but the portal features available to you now follow that role's permissions. Your previous role will be restored when the payment recovers unless an administrator changes it first.</p>`,
+  },
+  payment_access_suspended: {
+    subject: () => `Membership portal access suspended`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>Your recurring membership payments remain overdue after the grace period, so access to the member portal has been suspended.</p>
+      <p>Access will be restored when the payment recovers or an administrator resolves the arrears. Please contact us for help.</p>`,
+  },
+  payment_manual_review: {
+    subject: () => `Membership payment needs review`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>Your recurring membership payment is still overdue after the grace period and has been referred to an administrator for review.</p>
+      <p>Your portal access remains active for now. Please contact us to resolve the payment.</p>`,
+  },
+  payment_cancel_at_period_end: {
+    subject: () => `Membership payment plan marked for cancellation review`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>Your recurring membership payment is still overdue after the grace period. The payment plan has been flagged for cancellation at the end of the paid period.</p>
+      <p>No immediate cancellation has taken place. Please contact us to resolve the payment or discuss the plan.</p>`,
+  },
+  payment_recovered: {
+    subject: () => `Membership payment recovered`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>Your recurring membership payment has now been resolved.</p>
+      <p>Any suspension caused by the overdue payment has been removed. If your role was automatically restricted, your previous role has been restored unless an administrator changed it while the payment was overdue.</p>`,
+  },
+  plan_cancelled: {
+    subject: (c) => `Your membership Direct Debit has been cancelled`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>Your Direct Debit for the ${c.yearLabel} membership has been cancelled. No further payments will be taken.</p>
+      <p>If this wasn't intended, or you'd like to set up a new payment arrangement, please contact us.</p>`,
+  },
+  plan_completed: {
+    subject: (c) => `Membership payments complete — ${c.yearLabel}`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>${c.dynamic ? `The eligible monthly collections for your ${c.yearLabel} membership term are complete — thank you!` : `All ${c.instalmentCount} monthly payments for your ${c.yearLabel} membership have now been collected. Your membership is fully paid — thank you!`}</p>
+      ${policyParagraph(c)}`,
+  },
+  // Phase 5 — renewals & migration -----------------------------------------
+  renewal_notice: {
+    subject: (c) => `Your membership renews soon — ${c.renewalYear || 'next year'}`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>Your ${c.yearLabel} membership is coming to an end, and your monthly Direct Debit is set to renew automatically for ${c.renewalYear || 'the next membership year'}.</p>
+      <p>The renewal plan will use ${scheduleText(c, true)}, collected using your existing Direct Debit mandate — no action is needed.</p>
+      ${policyParagraph(c)}
+      <p>If you do not wish to renew, or your details have changed, please contact us before the new membership year begins.</p>`,
+  },
+  renewal_confirmation_required: {
+    subject: (c) => `Action needed — confirm your membership renewal for ${c.renewalYear || 'next year'}`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>Your ${c.yearLabel} membership is coming to an end. To continue paying by monthly Direct Debit for ${c.renewalYear || 'the next membership year'}, please confirm your renewal.</p>
+      <p>The new plan will use ${scheduleText(c, true)}.</p>
+      ${policyParagraph(c)}
+      <p>Confirm from your membership payment page once the new membership year opens — your existing Direct Debit mandate will be reused, so there is no need to re-enter bank details.</p>
+      <p>If you do nothing, no payment will be taken for the new year.</p>`,
+  },
+  renewal_confirmed: {
+    subject: (c) => `Membership renewal confirmed — ${c.yearLabel}`,
+    body: (c) => `
+      <p>Hi ${c.firstName},</p>
+      <p>Your membership has been renewed for ${c.yearLabel}: ${scheduleText(c)}, using your existing mandate.</p>
+      ${policyParagraph(c)}
+      ${c.firstChargeDate ? `<p>Your first collection for the new year is expected on or around <strong>${c.firstChargeDate}</strong>.</p>` : ''}
+      <p>You'll receive advance notice from GoCardless before each collection.</p>`,
+  },
+};
+
+export const DD_EMAIL_EVENTS = Object.freeze(Object.keys(EVENTS));
+
+function contextFromAgreement(agreement, member) {
+  const snap = agreement?.metadata?.dd?.kind
+    ? agreement.metadata.dd
+    : (agreement?.metadata?.card || agreement?.metadata?.dd || {});
+  const policy = agreement?.metadata?.dd && snap.kind !== 'monthly_card' ? resolveSavedCollectionPolicy(snap) : null;
+  return {
+    policy,
+    dynamic: policy?.pricing_policy === 'dynamic',
+    firstName: member?.first_name || (agreement?.organization_id ? 'there' : 'Member'),
+    yearLabel: snap.commitment?.term_key
+      ? `${snap.commitment.term_start_date} – ${snap.commitment.term_end_date}`
+      : snap.membership_year || 'this year',
+    instalmentCount: snap.instalment_count || 12,
+    monthlyAmount: snap.monthly_amount != null ? Number(snap.monthly_amount).toFixed(2) : '',
+    currency: snap.currency || 'GBP',
+    firstChargeDate: null,
+  };
+}
+
+export async function sendRecurringPaymentAdminEscalation({
+  agreement,
+  plan,
+  policy,
+  db = supabase,
+  send = sendTenantEmail,
+} = {}) {
+  try {
+    if (!agreement?.tenant_id || !plan?.id || !policy) {
+      return { sent: false, reason: 'missing agreement, plan, or policy' };
+    }
+    const { data: admins, error } = await db
+      .from('tenant_user')
+      .select('email, first_name, role')
+      .eq('tenant_id', agreement.tenant_id)
+      .eq('status', 'active')
+      .in('role', ['owner', 'admin']);
+    if (error) return { sent: false, reason: error.message };
+    const recipients = Array.from(new Set(
+      (admins || []).map((row) => String(row.email || '').trim().toLowerCase()).filter(Boolean),
+    ));
+    if (!recipients.length) return { sent: false, reason: 'no active tenant administrators' };
+
+    const snap = agreement.metadata?.dd?.kind ? agreement.metadata.dd : (agreement.metadata?.card || {});
+    const subject = `Recurring membership payment escalated — ${policy.replaceAll('_', ' ')}`;
+    const html = `
+      <p>A recurring membership payment remains overdue after its grace period.</p>
+      <p><strong>Policy:</strong> ${policy.replaceAll('_', ' ')}</p>
+      <p><strong>Membership year:</strong> ${snap.membership_year || plan.membership_year || 'Not recorded'}</p>
+      <p><strong>Plan:</strong> ${plan.id}</p>
+      <p>Review the payment plan in the Direct Debit administration console. Stripe monthly plans appear in the same recurring-plan records but do not use GoCardless automatic retries.</p>`;
+    let sentAny = false;
+    for (const to of recipients) {
+      const result = await send({ tenantId: agreement.tenant_id, to, subject, html });
+      if (!result || result.success !== false) sentAny = true;
+    }
+    return sentAny ? { sent: true } : { sent: false, reason: 'send failed' };
+  } catch (err) {
+    console.error(`[DD Emails] admin escalation failed for agreement ${agreement?.id}:`, err.message);
+    return { sent: false, reason: err.message };
+  }
+}
+
+/**
+ * Resolve lifecycle-email recipients for an agreement.
+ *   member agreement       -> the member's email
+ *   organisation agreement -> billing contact email (if payer) + the primary
+ *                             contact member's email, de-duplicated.
+ * Returns { recipients: [{ email, firstName }], reason? }.
+ */
+export async function resolveDdEmailRecipients(agreement, { db = supabase } = {}) {
+  if (agreement?.member_id) {
+    const { data: member, error } = await db
+      .from('member')
+      .select('id, email, first_name, last_name')
+      .eq('id', agreement.member_id)
+      .maybeSingle();
+    if (error || !member?.email) return { recipients: [], reason: 'member email not found' };
+    return { recipients: [{ email: member.email, firstName: member.first_name || 'Member' }] };
+  }
+
+  if (agreement?.organization_id) {
+    const recipients = [];
+    if (agreement.dd_payer === 'billing_contact' && agreement.billing_contact_email) {
+      recipients.push({
+        email: agreement.billing_contact_email,
+        firstName: (agreement.billing_contact_name || '').trim().split(/\s+/)[0] || 'there',
+      });
+    }
+    if (agreement.primary_contact_member_id) {
+      const { data: member } = await db
+        .from('member')
+        .select('id, email, first_name')
+        .eq('id', agreement.primary_contact_member_id)
+        .maybeSingle();
+      if (member?.email) {
+        recipients.push({ email: member.email, firstName: member.first_name || 'there' });
+      }
+    }
+    const seen = new Set();
+    const deduped = recipients.filter((r) => {
+      const key = r.email.trim().toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    return deduped.length ? { recipients: deduped } : { recipients: [], reason: 'no organisation recipients' };
+  }
+
+  return { recipients: [], reason: 'no member or organisation on agreement' };
+}
+
+/**
+ * Send one lifecycle email for a DD agreement. Resolves recipients itself
+ * (member, or org billing contact + primary contact).
+ * Never throws — logs and returns { sent: boolean }.
+ */
+export async function sendDdLifecycleEmail(eventKey, agreement, { db = supabase, send = sendTenantEmail, extraContext = {} } = {}) {
+  try {
+    const tpl = EVENTS[eventKey];
+    if (!tpl) return { sent: false, reason: `unknown event ${eventKey}` };
+
+    const { recipients, reason } = await resolveDdEmailRecipients(agreement, { db });
+    if (!recipients.length) return { sent: false, reason: reason || 'no recipients' };
+
+    let sentAny = false;
+    let lastError = null;
+    for (const recipient of recipients) {
+      const ctx = { ...contextFromAgreement(agreement, { first_name: recipient.firstName }), ...extraContext };
+      const result = await send({
+        tenantId: agreement.tenant_id,
+        to: recipient.email,
+        subject: tpl.subject(ctx),
+        html: tpl.body(ctx),
+      });
+      if (result && result.success === false) {
+        console.error(`[DD Emails] ${eventKey} send failed for agreement ${agreement.id} (${recipient.email}):`, result.error);
+        lastError = result.error;
+      } else {
+        sentAny = true;
+      }
+    }
+    return sentAny ? { sent: true } : { sent: false, reason: lastError || 'send failed' };
+  } catch (err) {
+    console.error(`[DD Emails] ${eventKey} failed for agreement ${agreement?.id}:`, err.message);
+    return { sent: false, reason: err.message };
+  }
+}
+
+/**
+ * Phase 5 — migration invitation email (tenant -> member): invite an
+ * existing Stripe/invoice-paying member to switch to monthly Direct Debit
+ * from a given membership year. No agreement exists yet, so this takes the
+ * offer terms directly. Never throws — returns { sent: boolean }.
+ */
+export async function sendDdMigrationInviteEmail({ tenantId, member, invite, offer, setupUrl, send = sendTenantEmail } = {}) {
+  try {
+    if (!tenantId || !member?.email || !invite?.token || !offer || !setupUrl) {
+      return { sent: false, reason: 'missing tenantId/member/invite/offer/setupUrl' };
+    }
+    const firstName = member.first_name || 'Member';
+    const currency = offer.currency || 'GBP';
+    const policy = resolveSavedCollectionPolicy({ collection_policy: offer.collectionPolicy, auto_renew: offer.autoRenew });
+    const context = {
+      policy, dynamic: policy.pricing_policy === 'dynamic', currency,
+      monthlyAmount: money(offer.monthlyAmount), instalmentCount: offer.instalmentCount,
+    };
+    const total = context.dynamic ? null : money(offer.planTotal);
+    const expiry = invite.expires_at
+      ? new Date(invite.expires_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+      : null;
+    const result = await send({
+      tenantId,
+      to: member.email,
+      subject: `Switch your membership to monthly Direct Debit`,
+      html: `
+        <p>Hi ${firstName},</p>
+        <p>You can now pay your membership by monthly Direct Debit, starting from the <strong>${invite.switch_from_year}</strong> membership year.</p>
+        <p>The plan uses ${scheduleText(context)}${total ? ` (total ${currency} ${total})` : ''}. Your current membership and payment method are not affected — the switch only applies from ${invite.switch_from_year}.</p>
+        ${policyParagraph(context)}
+        <p><a href="${setupUrl}">Review the details and set up your Direct Debit</a></p>
+        ${expiry ? `<p>This link expires on <strong>${expiry}</strong>.</p>` : ''}
+        <p>Payments are protected by the Direct Debit Guarantee. If you'd rather keep paying as you do now, you can simply ignore this email or decline from the link above.</p>`,
+    });
+    if (result && result.success === false) {
+      console.error(`[DD Emails] migration invite send failed (member ${member.id}):`, result.error);
+      return { sent: false, reason: result.error };
+    }
+    return { sent: true };
+  } catch (err) {
+    console.error('[DD Emails] migration invite failed:', err.message);
+    return { sent: false, reason: err.message };
+  }
+}
+
+/**
+ * Phase 3 — billing-contact invitation email. Carries the secure set-up
+ * link; states org, category, monthly amount, instalments, total, expiry.
+ * Never throws — returns { sent: boolean }.
+ */
+export async function sendDdInvitationEmail({ agreement, invitation, organizationName, setupUrl, db = supabase, send = sendTenantEmail } = {}) {
+  try {
+    if (!agreement || !invitation?.invited_email || !setupUrl) {
+      return { sent: false, reason: 'missing agreement/invitation/setupUrl' };
+    }
+    const snap = agreement.metadata?.dd || {};
+    const firstName = (invitation.invited_name || '').trim().split(/\s+/)[0] || 'there';
+    const currency = snap.currency || 'GBP';
+    const context = contextFromAgreement(agreement);
+    const total = context.dynamic ? null : money(snap.plan_total);
+    const expiry = invitation.expires_at
+      ? new Date(invitation.expires_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+      : null;
+
+    const result = await send({
+      tenantId: agreement.tenant_id,
+      to: invitation.invited_email,
+      subject: `Direct Debit set-up requested for ${organizationName || 'your organisation'}`,
+      html: `
+        <p>Hi ${firstName},</p>
+        <p>You've been asked to set up the Direct Debit for <strong>${organizationName || 'your organisation'}</strong>'s
+        ${snap.membership_year || ''} membership${snap.tier_label ? ` (${snap.tier_label})` : ''}.</p>
+        <p>The plan uses ${scheduleText(context)}${total ? ` (total ${currency} ${total})` : ''}.</p>
+        ${policyParagraph(context)}
+        <p><a href="${setupUrl}">Review the details and set up the Direct Debit</a></p>
+        ${expiry ? `<p>This link expires on <strong>${expiry}</strong>.</p>` : ''}
+        <p>You'll be asked to confirm that you are authorised to set up Direct Debits on the organisation's bank account.
+        Payments are protected by the Direct Debit Guarantee.</p>`,
+    });
+    if (result && result.success === false) {
+      console.error(`[DD Emails] invitation send failed for agreement ${agreement.id}:`, result.error);
+      return { sent: false, reason: result.error };
+    }
+    return { sent: true };
+  } catch (err) {
+    console.error(`[DD Emails] invitation failed for agreement ${agreement?.id}:`, err.message);
+    return { sent: false, reason: err.message };
+  }
+}

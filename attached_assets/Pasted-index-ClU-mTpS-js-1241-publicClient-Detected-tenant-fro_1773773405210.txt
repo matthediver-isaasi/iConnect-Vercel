@@ -1,0 +1,98 @@
+index-ClU_mTpS.js:1241 [publicClient] Detected tenant from subdomain: gfi
+index-ClU_mTpS.js:1326 GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.93.3) 2026-03-17T18:49:29.900Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+UN @ index-ClU_mTpS.js:1326
+index-ClU_mTpS.js:1630 [usePendingPurchaseOrders] memberInfo: null
+index-ClU_mTpS.js:1630 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-ClU_mTpS.js:1634 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-ClU_mTpS.js:1634 [Layout] currentPageName: FormManagement currentPortalPageId: null
+index-ClU_mTpS.js:1630 [usePendingPurchaseOrders] memberInfo: Object
+index-ClU_mTpS.js:1630 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-ClU_mTpS.js:1634 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-ClU_mTpS.js:1634 [Layout] currentPageName: FormManagement currentPortalPageId: null
+index-ClU_mTpS.js:1630 [usePendingPurchaseOrders] Query running, memberInfo.id: 9ac39222-22b8-457e-a5df-dfca45a99eb6
+index-ClU_mTpS.js:1630 [usePendingPurchaseOrders] memberInfo: Object
+index-ClU_mTpS.js:1630 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-ClU_mTpS.js:1634 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-ClU_mTpS.js:1634 [Layout] currentPageName: FormManagement currentPortalPageId: null
+index-ClU_mTpS.js:1630 [usePendingPurchaseOrders] memberInfo: Object
+index-ClU_mTpS.js:1630 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-ClU_mTpS.js:1634 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-ClU_mTpS.js:1634 [Layout] currentPageName: FormManagement currentPortalPageId: null
+index-ClU_mTpS.js:1630 [usePendingPurchaseOrders] Fetched bookings count: 4
+index-ClU_mTpS.js:1630 [usePendingPurchaseOrders] Pending PO bookings: 1
+index-ClU_mTpS.js:1630 [usePendingPurchaseOrders] memberInfo: Object
+index-ClU_mTpS.js:1630 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-ClU_mTpS.js:1634 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-ClU_mTpS.js:1634 [Layout] currentPageName: FormManagement currentPortalPageId: null
+index-ClU_mTpS.js:1630 [usePendingPurchaseOrders] memberInfo: Object
+index-ClU_mTpS.js:1630 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-ClU_mTpS.js:1634 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-ClU_mTpS.js:1634 [Layout] currentPageName: FormManagement currentPortalPageId: null
+index-ClU_mTpS.js:1630 [usePendingPurchaseOrders] memberInfo: Object
+index-ClU_mTpS.js:1630 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-ClU_mTpS.js:1634 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-ClU_mTpS.js:1634 [Layout] currentPageName: FormManagement currentPortalPageId: null
+index-ClU_mTpS.js:1630 [usePendingPurchaseOrders] memberInfo: Object
+index-ClU_mTpS.js:1630 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-ClU_mTpS.js:1634 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-ClU_mTpS.js:1634 [Layout] currentPageName: FormManagement currentPortalPageId: null
+index-ClU_mTpS.js:1630 [usePendingPurchaseOrders] memberInfo: Object
+index-ClU_mTpS.js:1630 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-ClU_mTpS.js:1634 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-ClU_mTpS.js:1634 [Layout] currentPageName: FormManagement currentPortalPageId: null
+index-ClU_mTpS.js:1630 [usePendingPurchaseOrders] memberInfo: Object
+index-ClU_mTpS.js:1630 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-ClU_mTpS.js:1634 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-ClU_mTpS.js:1634 [Layout] currentPageName: FormManagement currentPortalPageId: null
+index-ClU_mTpS.js:1634 [Layout] Server session found: sharon@onlinem.co.uk
+index-ClU_mTpS.js:1630 [usePendingPurchaseOrders] memberInfo: Object
+index-ClU_mTpS.js:1630 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-ClU_mTpS.js:1634 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-ClU_mTpS.js:1634 [Layout] currentPageName: FormManagement currentPortalPageId: null
+index-ClU_mTpS.js:1630 [usePendingPurchaseOrders] memberInfo: Object
+index-ClU_mTpS.js:1630 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-ClU_mTpS.js:1634 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-ClU_mTpS.js:1634 [Layout] currentPageName: FormManagement currentPortalPageId: null
+index-ClU_mTpS.js:1630 [usePendingPurchaseOrders] memberInfo: Object
+index-ClU_mTpS.js:1630 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-ClU_mTpS.js:1634 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-ClU_mTpS.js:1634 [Layout] currentPageName: FormManagement currentPortalPageId: null
+index-ClU_mTpS.js:1630 [usePendingPurchaseOrders] memberInfo: Object
+index-ClU_mTpS.js:1630 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-ClU_mTpS.js:1634 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-ClU_mTpS.js:1634 [Layout] currentPageName: FormView currentPortalPageId: null
+index-ClU_mTpS.js:2719 [FormView] entity_pipelines.members: undefined
+index-ClU_mTpS.js:2719 [FormView] First member object (full): none
+index-ClU_mTpS.js:2719 [FormView] primaryMember: undefined
+index-ClU_mTpS.js:2719 [FormView] Extracted primaryMemberRoleId: null
+index-ClU_mTpS.js:1630 [usePendingPurchaseOrders] memberInfo: Object
+index-ClU_mTpS.js:1630 [usePendingPurchaseOrders] hasPendingPOs: true count: 1 isLoading: false
+index-ClU_mTpS.js:1634 [Layout] hasPendingPOs: true count: 1 isLoading: false
+index-ClU_mTpS.js:1634 [Layout] currentPageName: FormView currentPortalPageId: null
+index-ClU_mTpS.js:2719 [FormView] entity_pipelines.members: undefined
+index-ClU_mTpS.js:2719 [FormView] First member object (full): none
+index-ClU_mTpS.js:2719 [FormView] primaryMember: undefined
+index-ClU_mTpS.js:2719 [FormView] Extracted primaryMemberRoleId: null
+index-ClU_mTpS.js:40 ReferenceError: Cannot access 'Ae' before initialization
+    at ege (index-ClU_mTpS.js:2719:253168)
+    at J6 (index-ClU_mTpS.js:38:17050)
+    at lse (index-ClU_mTpS.js:40:44191)
+    at ase (index-ClU_mTpS.js:40:39894)
+    at Dwe (index-ClU_mTpS.js:40:39817)
+    at Ek (index-ClU_mTpS.js:40:39666)
+    at FF (index-ClU_mTpS.js:40:36022)
+    at tse (index-ClU_mTpS.js:40:34968)
+    at N (index-ClU_mTpS.js:25:1535)
+    at MessagePort.T (index-ClU_mTpS.js:25:1894)
+_F @ index-ClU_mTpS.js:40
+index-ClU_mTpS.js:40 Uncaught ReferenceError: Cannot access 'Ae' before initialization
+    at ege (index-ClU_mTpS.js:2719:253168)
+    at J6 (index-ClU_mTpS.js:38:17050)
+    at lse (index-ClU_mTpS.js:40:44191)
+    at ase (index-ClU_mTpS.js:40:39894)
+    at Dwe (index-ClU_mTpS.js:40:39817)
+    at Ek (index-ClU_mTpS.js:40:39666)
+    at FF (index-ClU_mTpS.js:40:36022)
+    at tse (index-ClU_mTpS.js:40:34968)
+    at N (index-ClU_mTpS.js:25:1535)
+    at MessagePort.T (index-ClU_mTpS.js:25:1894)

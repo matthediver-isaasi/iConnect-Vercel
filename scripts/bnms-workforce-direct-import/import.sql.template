@@ -1,0 +1,272 @@
+-- REVIEW-ONLY ARTIFACT — DO NOT INSTALL OR INVOKE WITHOUT SEPARATE EXPLICIT
+-- FINAL APPROVAL. This is not a migration. The renderer replaces exactly one
+-- compact manifest token; manifest.json has no trailing newline.
+
+CREATE TABLE IF NOT EXISTS public.bnms_workforce_direct_import_runs (
+  tenant_id uuid NOT NULL,
+  row_object_id uuid NOT NULL,
+  source_sha256 text NOT NULL CHECK (source_sha256 ~ '^[0-9a-f]{64}$'),
+  manifest jsonb NOT NULL CHECK (jsonb_typeof(manifest) = 'object'),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, row_object_id),
+  UNIQUE (tenant_id, row_object_id, source_sha256)
+);
+CREATE TABLE IF NOT EXISTS public.bnms_workforce_direct_import_occurrences (
+  tenant_id uuid NOT NULL,
+  row_object_id uuid NOT NULL,
+  source_sha256 text NOT NULL CHECK (source_sha256 ~ '^[0-9a-f]{64}$'),
+  source_line integer NOT NULL CHECK (source_line > 1),
+  occurrence_identity text NOT NULL UNIQUE CHECK (occurrence_identity ~ '^[0-9a-f]{64}$'),
+  department_id uuid NOT NULL,
+  record_id uuid NOT NULL UNIQUE,
+  edge_id uuid NOT NULL UNIQUE,
+  data jsonb NOT NULL CHECK (jsonb_typeof(data) = 'object'),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, row_object_id, source_sha256, source_line),
+  FOREIGN KEY (tenant_id, row_object_id) REFERENCES public.custom_object_definition(tenant_id, id),
+  FOREIGN KEY (tenant_id, row_object_id, source_sha256)
+    REFERENCES public.bnms_workforce_direct_import_runs(tenant_id, row_object_id, source_sha256)
+);
+ALTER TABLE public.bnms_workforce_direct_import_runs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.bnms_workforce_direct_import_occurrences ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS bnms_workforce_direct_runs_service_role ON public.bnms_workforce_direct_import_runs;
+DROP POLICY IF EXISTS bnms_workforce_direct_occurrences_service_role ON public.bnms_workforce_direct_import_occurrences;
+CREATE POLICY bnms_workforce_direct_runs_service_role ON public.bnms_workforce_direct_import_runs
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY bnms_workforce_direct_occurrences_service_role ON public.bnms_workforce_direct_import_occurrences
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
+REVOKE ALL ON TABLE public.bnms_workforce_direct_import_runs,
+  public.bnms_workforce_direct_import_occurrences FROM PUBLIC, anon, authenticated;
+-- Only the SECURITY DEFINER function owner writes provenance.  service_role
+-- may inspect it but cannot create partial/cross-run ledger entries directly.
+GRANT SELECT ON TABLE public.bnms_workforce_direct_import_runs,
+  public.bnms_workforce_direct_import_occurrences TO service_role;
+
+CREATE OR REPLACE FUNCTION public.import_bnms_workforce_direct_occurrences()
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+SET timezone = 'UTC'
+AS $function$
+DECLARE
+  v_manifest_text text := $manifest$__BNMS_DIRECT_MANIFEST_JSON__$manifest$;
+  v_manifest jsonb := v_manifest_text::jsonb;
+  v_tenant constant uuid := 'ff2df806-b321-4254-b651-3af11fccf1db'::uuid;
+  v_row_object constant uuid := 'bf123bdb-7227-4f45-b5f9-8344d0f65446'::uuid;
+  v_department_object constant uuid := 'cd1ebfd3-3e16-4091-be5a-99992d926f2f'::uuid;
+  v_direct_relationship constant uuid := 'a422da51-6005-4831-a69e-bf284ff6f124'::uuid;
+  v_sha constant text := 'b0c618501cf5af9073d074d6e0474cd772b0978437b3fdab55ff1a66390bf746';
+  v_id uuid;
+  v_edge uuid;
+  v_row record;
+  v_created boolean := false;
+  v_run public.bnms_workforce_direct_import_runs%ROWTYPE;
+BEGIN
+  IF jsonb_typeof(v_manifest) IS DISTINCT FROM 'object'
+     OR v_manifest->>'version' IS DISTINCT FROM '2'
+     OR v_manifest->>'tenantId' IS DISTINCT FROM v_tenant::text
+     OR v_manifest->>'rowObjectId' IS DISTINCT FROM v_row_object::text
+     OR v_manifest->>'departmentObjectId' IS DISTINCT FROM v_department_object::text
+     OR v_manifest->>'directRelationshipId' IS DISTINCT FROM v_direct_relationship::text
+     OR v_manifest->>'sourceSha256' IS DISTINCT FROM v_sha
+     OR v_manifest ? 'reportingYear' OR v_manifest ? 'surveyObjectId' THEN
+    RAISE EXCEPTION 'BNMS direct manifest pins or shape do not match';
+  END IF;
+  IF current_setting('bnms.final_import_approval', true) IS DISTINCT FROM v_sha || ':' ||
+      encode(pg_catalog.sha256(convert_to(v_manifest_text, 'UTF8')), 'hex') THEN
+    RAISE EXCEPTION 'BNMS direct manifest lacks separate final approval';
+  END IF;
+
+  SET LOCAL lock_timeout = '10s';
+  PERFORM pg_advisory_xact_lock(hashtext('bnms-workforce-direct:' || v_tenant::text || ':' || v_row_object::text));
+  LOCK TABLE public.custom_object_record, public.custom_object_relationship,
+    public.custom_object_definition, public.custom_object_relationship_definition,
+    public.preference_field IN SHARE ROW EXCLUSIVE MODE;
+  LOCK TABLE public.bnms_workforce_direct_import_runs,
+    public.bnms_workforce_direct_import_occurrences IN SHARE ROW EXCLUSIVE MODE;
+  -- Do not enable/disable or otherwise mutate metadata/triggers; fail instead.
+  IF EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t WHERE t.tgrelid IN
+      ('public.custom_object_record'::regclass, 'public.custom_object_relationship'::regclass)
+      AND NOT t.tgisinternal AND t.tgenabled = 'D') THEN
+    RAISE EXCEPTION 'BNMS direct import refuses disabled record or relationship triggers';
+  END IF;
+  IF jsonb_typeof(v_manifest#>'{metadata,objects}') IS DISTINCT FROM 'array'
+     OR jsonb_typeof(v_manifest#>'{metadata,fields}') IS DISTINCT FROM 'array'
+     OR jsonb_typeof(v_manifest#>'{metadata,definitions}') IS DISTINCT FROM 'array'
+     OR jsonb_typeof(v_manifest#>'{baseline,records}') IS DISTINCT FROM 'array'
+     OR jsonb_typeof(v_manifest#>'{baseline,edges}') IS DISTINCT FROM 'array'
+     OR jsonb_typeof(v_manifest->'departments') IS DISTINCT FROM 'array'
+     OR jsonb_typeof(v_manifest->'rows') IS DISTINCT FROM 'array'
+     OR jsonb_array_length(v_manifest->'departments') <> 136
+     OR jsonb_array_length(v_manifest->'rows') <> 1242
+     OR jsonb_array_length(v_manifest#>'{baseline,records}') <> 8 THEN
+    RAISE EXCEPTION 'BNMS direct manifest required arrays/counts are invalid';
+  END IF;
+  -- Strict pinned snapshots: timestamps alone are transport noise.
+  IF EXISTS (
+    WITH expected AS (SELECT (x->>'id')::uuid id, x - 'created_at' - 'updated_at' value
+      FROM jsonb_array_elements(v_manifest#>'{metadata,objects}') x),
+    actual AS (SELECT o.id, to_jsonb(o) - 'created_at' - 'updated_at' value
+      FROM public.custom_object_definition o JOIN expected e USING(id) WHERE o.tenant_id=v_tenant)
+    SELECT 1 WHERE (SELECT count(*) FROM expected) <> (SELECT count(*) FROM actual)
+      OR EXISTS (SELECT 1 FROM expected e LEFT JOIN actual a USING(id) WHERE e.value IS DISTINCT FROM a.value)
+  ) OR EXISTS (
+    WITH expected AS (SELECT (x->>'id')::uuid id, x - 'created_at' - 'updated_at' value
+      FROM jsonb_array_elements(v_manifest#>'{metadata,fields}') x),
+    actual AS (SELECT f.id, to_jsonb(f) - 'created_at' - 'updated_at' value FROM public.preference_field f
+      WHERE f.tenant_id=v_tenant AND f.custom_object_id IN (v_row_object,v_department_object))
+    SELECT 1 WHERE (SELECT count(*) FROM expected) <> (SELECT count(*) FROM actual)
+      OR EXISTS (SELECT 1 FROM expected e LEFT JOIN actual a USING(id) WHERE e.value IS DISTINCT FROM a.value)
+  ) OR EXISTS (
+    WITH expected AS (SELECT (x->>'id')::uuid id, x - 'created_at' - 'updated_at' value
+      FROM jsonb_array_elements(v_manifest#>'{metadata,definitions}') x),
+    actual AS (SELECT d.id, to_jsonb(d) - 'created_at' - 'updated_at' value
+      FROM public.custom_object_relationship_definition d WHERE d.tenant_id=v_tenant)
+    SELECT 1 WHERE (SELECT count(*) FROM expected) <> (SELECT count(*) FROM actual)
+      OR EXISTS (SELECT 1 FROM expected e LEFT JOIN actual a USING(id) WHERE e.value IS DISTINCT FROM a.value)
+  ) THEN
+    RAISE EXCEPTION 'BNMS direct live metadata drifted from the pinned manifest';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.custom_object_definition o JOIN public.preference_field f
+      ON f.id=o.primary_display_field_id WHERE o.id=v_row_object AND o.tenant_id=v_tenant
+      AND o.object_key='workforce_survey_row' AND o.status='active' AND f.tenant_id=v_tenant
+      AND f.name='staff_group' AND f.field_type='dropdown' AND f.is_active)
+     OR EXISTS (SELECT 1 FROM public.preference_field f WHERE f.tenant_id=v_tenant
+       AND f.custom_object_id=v_row_object AND f.name='row_name' AND f.is_active)
+     OR NOT EXISTS (SELECT 1 FROM public.custom_object_relationship_definition d WHERE d.id=v_direct_relationship
+       AND d.tenant_id=v_tenant AND d.relationship_key='workforce_survey_row_department' AND d.status='active'
+       AND d.source_kind='custom_object' AND d.target_kind='custom_object'
+       AND d.source_custom_object_id=v_row_object AND d.target_custom_object_id=v_department_object
+       AND d.cardinality='many_to_one' AND d.is_required AND d.show_on_source AND d.edit_from_source)
+     OR EXISTS (SELECT 1 FROM public.custom_object_relationship_definition d WHERE d.tenant_id=v_tenant
+       AND d.status='active' AND d.source_custom_object_id=v_row_object AND d.is_required AND d.id<>v_direct_relationship) THEN
+    RAISE EXCEPTION 'BNMS direct Row/Department metadata contract drifted';
+  END IF;
+  IF (SELECT count(*) FROM public.custom_object_definition o WHERE o.tenant_id=v_tenant
+      AND o.status='active' AND o.object_key='workforce_survey_row') <> 1
+     OR (SELECT count(*) FROM public.custom_object_definition o WHERE o.tenant_id=v_tenant
+      AND o.status='active' AND o.object_key='org_department') <> 1 THEN
+    RAISE EXCEPTION 'BNMS direct Row or Department object key is ambiguous';
+  END IF;
+
+  CREATE TEMP TABLE pg_temp.bnms_direct_rows ON COMMIT DROP AS
+  SELECT (x->>'sourceLine')::integer source_line, x->>'identity' occurrence_identity,
+    (x->>'departmentId')::uuid department_id, x->'data' data FROM jsonb_array_elements(v_manifest->'rows') x;
+  IF EXISTS (SELECT 1 FROM pg_temp.bnms_direct_rows WHERE source_line IS NULL OR source_line<=1
+      OR occurrence_identity !~ '^[0-9a-f]{64}$' OR department_id IS NULL OR jsonb_typeof(data)<>'object'
+      OR data ? 'row_name' OR data ? 'vacant_wte'
+      OR data <> jsonb_build_object('staff_group',data->'staff_group','grade',data->'grade',
+        'occupied_wte',data->'occupied_wte','legacy_vacancy_reported',data->'legacy_vacancy_reported'))
+    OR (SELECT count(*) FROM pg_temp.bnms_direct_rows) <> (SELECT count(DISTINCT source_line) FROM pg_temp.bnms_direct_rows)
+    OR (SELECT count(*) FROM pg_temp.bnms_direct_rows) <> (SELECT count(DISTINCT occurrence_identity) FROM pg_temp.bnms_direct_rows)
+    OR (SELECT coalesce(sum((data->>'occupied_wte')::numeric),-1) FROM pg_temp.bnms_direct_rows) <> 1708.14
+    OR (SELECT count(*) FROM pg_temp.bnms_direct_rows WHERE data->>'legacy_vacancy_reported'='No') <> 1141
+    OR (SELECT count(*) FROM pg_temp.bnms_direct_rows WHERE data->>'legacy_vacancy_reported'='Yes') <> 101
+    OR (WITH d AS (SELECT department_id,data,count(*) n FROM pg_temp.bnms_direct_rows GROUP BY department_id,data HAVING count(*)>1)
+      SELECT count(*)<>84 OR coalesce(sum(n),0)<>216 OR coalesce(sum(n-1),0)<>132 FROM d)
+    OR EXISTS (SELECT 1 FROM pg_temp.bnms_direct_rows r WHERE r.occurrence_identity IS DISTINCT FROM encode(
+      pg_catalog.sha256(convert_to(format('["%s","%s","%s",%s]',v_tenant,v_row_object,v_sha,r.source_line),'UTF8')),'hex')) THEN
+    RAISE EXCEPTION 'BNMS direct rows violate pinned occurrence/data identity';
+  END IF;
+  -- Exact canonical dropdown equality deliberately preserves trailing spaces.
+  IF EXISTS (SELECT 1 FROM public.preference_field f WHERE f.tenant_id=v_tenant AND f.custom_object_id=v_row_object
+    AND f.entity_scope='custom_object' AND f.is_active AND (
+      (f.is_required AND EXISTS (SELECT 1 FROM pg_temp.bnms_direct_rows r WHERE NOT (r.data ? f.name)
+        OR r.data->f.name='null'::jsonb OR (f.field_type='text' AND r.data->>f.name='')))
+      -- Optional fields (notably intentionally omitted vacant_wte) are not
+      -- type-validated as though NULL were a supplied value. Requiredness is
+      -- checked independently above.
+      OR (f.field_type='decimal' AND EXISTS (SELECT 1 FROM pg_temp.bnms_direct_rows r
+        WHERE (r.data ? f.name) AND jsonb_typeof(r.data->f.name) IS DISTINCT FROM 'number'))
+      OR (f.field_type='dropdown' AND EXISTS (SELECT 1 FROM pg_temp.bnms_direct_rows r WHERE
+        (r.data ? f.name) AND (jsonb_typeof(r.data->f.name) IS DISTINCT FROM 'string' OR jsonb_typeof(f.options) IS DISTINCT FROM 'array'
+        OR NOT EXISTS (SELECT 1 FROM jsonb_array_elements(f.options) o WHERE
+          (jsonb_typeof(o)='string' AND o#>>'{}'=r.data->>f.name) OR (jsonb_typeof(o)='object' AND o->>'value'=r.data->>f.name))))))) THEN
+    RAISE EXCEPTION 'BNMS direct required/type/exact-dropdown validation failed';
+  END IF;
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_manifest->'departments') x LEFT JOIN public.custom_object_record d
+      ON d.id=(x->>'id')::uuid WHERE d.id IS NULL OR jsonb_build_object('id',d.id,'tenant_id',d.tenant_id,
+      'custom_object_id',d.custom_object_id,'archived_at',d.archived_at) IS DISTINCT FROM x
+      OR d.tenant_id<>v_tenant OR d.custom_object_id<>v_department_object OR d.archived_at IS NOT NULL) THEN
+    RAISE EXCEPTION 'BNMS direct Department snapshot drifted';
+  END IF;
+
+  IF EXISTS (WITH expected AS (SELECT (x->>'id')::uuid id,x value FROM jsonb_array_elements(v_manifest#>'{baseline,records}') x),
+    actual AS (SELECT r.id,jsonb_build_object('id',r.id,'tenant_id',r.tenant_id,'custom_object_id',r.custom_object_id,
+      'archived_at',r.archived_at,'data',r.data) value FROM public.custom_object_record r WHERE r.id IN (SELECT id FROM expected))
+    SELECT 1 WHERE (SELECT count(*) FROM expected)<>(SELECT count(*) FROM actual)
+      OR EXISTS (SELECT 1 FROM expected e LEFT JOIN actual a USING(id) WHERE e.value IS DISTINCT FROM a.value))
+    OR EXISTS (WITH expected AS (SELECT (x->>'id')::uuid id,x value FROM jsonb_array_elements(v_manifest#>'{baseline,edges}') x),
+    actual AS (SELECT e.id,to_jsonb(e) value FROM public.custom_object_relationship e WHERE e.source_record_id IN
+      (SELECT (x->>'id')::uuid FROM jsonb_array_elements(v_manifest#>'{baseline,records}') x) OR e.target_record_id IN
+      (SELECT (x->>'id')::uuid FROM jsonb_array_elements(v_manifest#>'{baseline,records}') x))
+    SELECT 1 WHERE (SELECT count(*) FROM expected)<>(SELECT count(*) FROM actual)
+      OR EXISTS (SELECT 1 FROM expected e LEFT JOIN actual a USING(id) WHERE e.value IS DISTINCT FROM a.value)) THEN
+    RAISE EXCEPTION 'BNMS existing eight-row baseline changed';
+  END IF;
+  SELECT * INTO v_run FROM public.bnms_workforce_direct_import_runs WHERE tenant_id=v_tenant AND row_object_id=v_row_object;
+  IF FOUND AND (v_run.source_sha256<>v_sha OR v_run.manifest<>v_manifest) THEN
+    RAISE EXCEPTION 'BNMS direct changed manifest/file is permanently blocked';
+  END IF;
+  IF NOT FOUND THEN
+    IF EXISTS (SELECT 1 FROM public.bnms_workforce_direct_import_occurrences o WHERE o.tenant_id=v_tenant AND o.row_object_id=v_row_object)
+      OR EXISTS (SELECT 1 FROM public.custom_object_record r WHERE r.tenant_id=v_tenant AND r.custom_object_id=v_row_object
+        AND r.id NOT IN (SELECT (x->>'id')::uuid FROM jsonb_array_elements(v_manifest#>'{baseline,records}') x)) THEN
+      RAISE EXCEPTION 'BNMS direct first import refuses unprovenanced Row overlap or partial ledger';
+    END IF;
+    INSERT INTO public.bnms_workforce_direct_import_runs(tenant_id,row_object_id,source_sha256,manifest)
+      VALUES(v_tenant,v_row_object,v_sha,v_manifest);
+    v_created:=true;
+    FOR v_row IN SELECT * FROM pg_temp.bnms_direct_rows ORDER BY source_line LOOP
+      INSERT INTO public.custom_object_record(tenant_id,custom_object_id,data,created_by)
+        VALUES(v_tenant,v_row_object,v_row.data,'system:bnms-workforce-direct-import') RETURNING id INTO v_id;
+      INSERT INTO public.custom_object_relationship(tenant_id,relationship_definition_id,source_record_id,target_record_id,created_by)
+        VALUES(v_tenant,v_direct_relationship,v_id,v_row.department_id,'system:bnms-workforce-direct-import') RETURNING id INTO v_edge;
+      INSERT INTO public.bnms_workforce_direct_import_occurrences(tenant_id,row_object_id,source_sha256,source_line,
+        occurrence_identity,department_id,record_id,edge_id,data) VALUES(v_tenant,v_row_object,v_sha,v_row.source_line,
+        v_row.occurrence_identity,v_row.department_id,v_id,v_edge,v_row.data);
+    END LOOP;
+  END IF;
+  IF (SELECT count(*) FROM public.bnms_workforce_direct_import_occurrences o WHERE o.tenant_id=v_tenant
+      AND o.row_object_id=v_row_object)<>1242
+    OR EXISTS (SELECT 1 FROM public.bnms_workforce_direct_import_occurrences o WHERE o.tenant_id=v_tenant
+      AND o.row_object_id=v_row_object AND o.source_sha256<>v_sha)
+    OR EXISTS (SELECT 1 FROM pg_temp.bnms_direct_rows b LEFT JOIN public.bnms_workforce_direct_import_occurrences o
+      ON o.tenant_id=v_tenant AND o.row_object_id=v_row_object AND o.source_sha256=v_sha AND o.source_line=b.source_line
+      LEFT JOIN public.custom_object_record r ON r.id=o.record_id LEFT JOIN public.custom_object_relationship e ON e.id=o.edge_id
+      WHERE o.occurrence_identity IS DISTINCT FROM b.occurrence_identity OR o.department_id IS DISTINCT FROM b.department_id
+        OR o.data IS DISTINCT FROM b.data OR r.tenant_id IS DISTINCT FROM v_tenant OR r.custom_object_id IS DISTINCT FROM v_row_object
+        OR r.archived_at IS NOT NULL OR r.data IS DISTINCT FROM b.data OR e.tenant_id IS DISTINCT FROM v_tenant OR e.archived_at IS NOT NULL
+        OR e.relationship_definition_id IS DISTINCT FROM v_direct_relationship OR e.source_record_id IS DISTINCT FROM o.record_id
+        OR e.target_record_id IS DISTINCT FROM b.department_id OR e.field_values IS DISTINCT FROM '{}'::jsonb)
+    OR EXISTS (SELECT 1 FROM public.custom_object_record r WHERE r.tenant_id=v_tenant AND r.custom_object_id=v_row_object
+      AND r.id NOT IN (SELECT (x->>'id')::uuid FROM jsonb_array_elements(v_manifest#>'{baseline,records}') x
+        UNION SELECT record_id FROM public.bnms_workforce_direct_import_occurrences
+          WHERE tenant_id=v_tenant AND row_object_id=v_row_object AND source_sha256=v_sha))
+    OR (SELECT count(*) FROM public.custom_object_relationship e WHERE e.source_record_id IN
+      (SELECT record_id FROM public.bnms_workforce_direct_import_occurrences WHERE tenant_id=v_tenant AND row_object_id=v_row_object AND source_sha256=v_sha)
+      OR e.target_record_id IN (SELECT record_id FROM public.bnms_workforce_direct_import_occurrences WHERE tenant_id=v_tenant AND row_object_id=v_row_object AND source_sha256=v_sha))<>1242 THEN
+    RAISE EXCEPTION 'BNMS direct ledger is partial, archived, mutated, or has extra incident edges';
+  END IF;
+  -- Repeat the baseline proof after inserts while locks are still held.  This
+  -- catches any unexpected trigger side effect as well as ordinary drift.
+  IF EXISTS (WITH expected AS (SELECT (x->>'id')::uuid id,x value FROM jsonb_array_elements(v_manifest#>'{baseline,records}') x),
+    actual AS (SELECT r.id,jsonb_build_object('id',r.id,'tenant_id',r.tenant_id,'custom_object_id',r.custom_object_id,
+      'archived_at',r.archived_at,'data',r.data) value FROM public.custom_object_record r WHERE r.id IN (SELECT id FROM expected))
+    SELECT 1 WHERE (SELECT count(*) FROM expected)<>(SELECT count(*) FROM actual)
+      OR EXISTS (SELECT 1 FROM expected e LEFT JOIN actual a USING(id) WHERE e.value IS DISTINCT FROM a.value))
+    OR EXISTS (WITH expected AS (SELECT (x->>'id')::uuid id,x value FROM jsonb_array_elements(v_manifest#>'{baseline,edges}') x),
+    actual AS (SELECT e.id,to_jsonb(e) value FROM public.custom_object_relationship e WHERE e.source_record_id IN
+      (SELECT (x->>'id')::uuid FROM jsonb_array_elements(v_manifest#>'{baseline,records}') x) OR e.target_record_id IN
+      (SELECT (x->>'id')::uuid FROM jsonb_array_elements(v_manifest#>'{baseline,records}') x))
+    SELECT 1 WHERE (SELECT count(*) FROM expected)<>(SELECT count(*) FROM actual)
+      OR EXISTS (SELECT 1 FROM expected e LEFT JOIN actual a USING(id) WHERE e.value IS DISTINCT FROM a.value)) THEN
+    RAISE EXCEPTION 'BNMS existing eight-row baseline changed during direct import';
+  END IF;
+  RETURN jsonb_build_object('rowsCreated',CASE WHEN v_created THEN 1242 ELSE 0 END,
+    'rowsReused',CASE WHEN v_created THEN 0 ELSE 1242 END,'edgesCreated',CASE WHEN v_created THEN 1242 ELSE 0 END,
+    'edgesReused',CASE WHEN v_created THEN 0 ELSE 1242 END,'writes',CASE WHEN v_created THEN 2485 ELSE 0 END);
+END $function$;
+REVOKE ALL ON FUNCTION public.import_bnms_workforce_direct_occurrences() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.import_bnms_workforce_direct_occurrences() TO service_role;

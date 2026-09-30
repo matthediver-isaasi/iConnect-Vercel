@@ -1,0 +1,1317 @@
+# Replit Scope: GoCardless Monthly Direct Debit for Membership
+
+## 1. Objective
+
+Introduce GoCardless as a third membership payment method alongside:
+
+* Pay by invoice
+* Stripe card payment
+* GoCardless Direct Debit
+
+The principal purpose is to allow both individual and organisational members to pay for annual membership through 12 monthly Direct Debit instalments.
+
+The implementation must integrate with the existing membership application, renewal, member status, invoicing, reporting and administrative workflows. It must not replace or destabilise the current Stripe and invoice payment routes.
+
+---
+
+## 2. Core Commercial Model
+
+For the initial implementation, monthly Direct Debit should mean:
+
+> An annual membership commitment paid across 12 monthly instalments.
+
+It should not automatically be treated as a freely cancellable rolling monthly membership.
+
+This distinction must be visible during checkout and stored against the membership agreement.
+
+The platform should support an admin-configurable policy for each membership category:
+
+* Annual payment only
+* Annual or monthly payment
+* Monthly Direct Debit enabled or disabled
+* Number of monthly instalments
+* Monthly instalment price
+* Initial collection timing
+* Membership activation policy
+* Renewal behaviour
+* Payment failure grace period
+* Cancellation rules
+
+The initial default should be 12 monthly instalments, but this must not be hard-coded.
+
+---
+
+## 3. Recommended GoCardless Integration
+
+Use the current GoCardless Billing Requests API and GoCardless Hosted Payment Pages.
+
+The hosted flow should be used for the first release rather than collecting bank details directly inside iConnect. GoCardless Hosted Payment Pages provide the scheme-appropriate authorisation flow, mobile-responsive pages and regulatory handling. The application creates a Billing Request and Billing Request Flow, redirects the payer to GoCardless, receives the redirect back and then waits for webhook confirmation.
+
+Do not treat the browser redirect as confirmation that the Direct Debit has been successfully established. The redirect is only a customer journey event. Membership and payment statuses must be updated from verified GoCardless webhook events or a direct API status check.
+
+### Proposed technical flow
+
+1. Customer selects Direct Debit during membership checkout.
+2. The application creates a local pending payment plan.
+3. The server creates a GoCardless Billing Request for a Bacs mandate.
+4. The server creates a Billing Request Flow.
+5. The customer is redirected to the GoCardless authorisation page.
+6. GoCardless redirects the customer to the membership site.
+7. The application displays “Direct Debit setup is being confirmed”.
+8. GoCardless webhooks confirm that the Billing Request has been fulfilled and the mandate created.
+9. Once the mandate is active, create the relevant GoCardless subscription.
+10. The subscription collects the configured monthly amount.
+11. Payment and mandate webhooks update the internal membership account.
+12. The member and administrators can view the payment plan and collection history.
+
+GoCardless subscriptions support monthly frequency and a defined total payment count. A 12-payment annual membership plan should therefore normally be created using a monthly subscription with `count: 12`.
+
+---
+
+## 4. Membership Payment Options
+
+Update the membership payment stage so that the payment choices are clearly separate from membership eligibility and membership type.
+
+Display payment options as distinct cards or radio selections:
+
+### Pay annually by card
+
+* Processed immediately through Stripe.
+* Existing implementation remains unchanged.
+* Show the full annual amount.
+
+### Pay annually by invoice
+
+* Existing invoice workflow remains unchanged.
+* Show the full annual amount.
+* Explain the organisation’s existing invoice payment terms.
+
+### Pay monthly by Direct Debit
+
+* Show the monthly instalment amount.
+* Show the total number of instalments.
+* Show the total annual amount.
+* State that this is an annual membership paid in instalments.
+* State when the first collection is expected.
+* Link to the Direct Debit Guarantee and relevant membership cancellation terms.
+* Explain that bank payment confirmation is not instant.
+
+Example presentation:
+
+**Pay monthly by Direct Debit**
+
+£XX.XX per month for 12 months
+Total membership cost: £XXX.XX
+
+By choosing this option, you are taking annual membership and agreeing to pay the membership fee in 12 monthly instalments.
+
+The figures must always come from the database. Do not place membership prices directly in frontend code.
+
+---
+
+## 5. Membership Pricing Configuration
+
+Extend the membership category pricing model.
+
+Each category should support:
+
+* `annual_card_price`
+* `annual_invoice_price`
+* `direct_debit_enabled`
+* `direct_debit_instalment_count`
+* `direct_debit_instalment_amount`
+* `direct_debit_total_amount`
+* `direct_debit_first_collection_rule`
+* `direct_debit_collection_day`
+* `direct_debit_auto_renew`
+* `direct_debit_activation_rule`
+* `direct_debit_failure_grace_days`
+* `direct_debit_terms_version`
+
+Do not simply divide the annual price by 12 in the frontend.
+
+The monthly price should be explicitly stored so that:
+
+* Rounding does not create inconsistent totals.
+* The organisation can charge a different total for monthly payments if required.
+* Future price changes do not retrospectively alter an active payment plan.
+* Historic payment plans retain the agreed amount.
+
+When the price is saved, show:
+
+* Monthly amount
+* Number of instalments
+* Calculated plan total
+* Annual card price
+* Difference between annual and monthly totals
+
+Require admin confirmation if the monthly plan total differs from the annual payment amount.
+
+---
+
+## 6. Individual Membership Journey
+
+### New member
+
+1. Applicant completes the existing membership application.
+2. Applicant selects an eligible membership category.
+3. Applicant chooses monthly Direct Debit.
+4. The system creates:
+
+   * Membership application
+   * Membership billing agreement
+   * Pending Direct Debit setup
+5. Applicant is redirected to GoCardless.
+6. Applicant completes the Direct Debit mandate.
+7. Applicant returns to a confirmation page.
+8. The system waits for webhook confirmation.
+9. Once the mandate is active, the system creates the subscription.
+10. Membership status follows the configured activation rule.
+
+### Existing member renewal
+
+At renewal, an eligible member should be able to change from:
+
+* Invoice to Direct Debit
+* Stripe to Direct Debit
+* Direct Debit to annual card
+* Direct Debit to invoice, where permitted
+
+Changing payment method must not alter the previous membership period or historic payment records.
+
+Where the member already has an active reusable GoCardless mandate, the system may reuse it after displaying and recording the new payment agreement. Do not create duplicate mandates unnecessarily.
+
+### Member portal
+
+Add a payment section showing:
+
+* Payment method
+* Monthly amount
+* Total instalments
+* Instalments paid
+* Instalments remaining
+* Next expected collection date
+* Current mandate status
+* Current subscription status
+* Recent payments
+* Failed payment warnings
+* Membership term
+* Renewal date
+* Cancellation or contact instructions
+
+Do not expose complete bank account details.
+
+---
+
+## 7. Organisational Membership Journey
+
+Organisational membership must use the same underlying GoCardless integration but needs a clear payer and organisation relationship.
+
+Store separately:
+
+* Member organisation
+* Primary organisational contact
+* Billing contact
+* Direct Debit payer
+* Person completing the mandate
+* Payer email address
+* Organisation membership category
+* Number of seats or included members
+* Membership price snapshot
+* Billing agreement
+
+The person establishing the Direct Debit may be different from the organisation’s principal membership contact.
+
+The checkout should therefore allow the applicant to select:
+
+* “I am authorised to set up the Direct Debit”
+* “Send the Direct Debit setup link to our billing contact”
+
+### Authorised payer route
+
+The current user proceeds directly to GoCardless.
+
+### Billing contact route
+
+The system should:
+
+1. Save the organisational application.
+2. Create a pending payment setup invitation.
+3. Email a secure, expiring link to the billing contact.
+4. Allow the billing contact to review:
+
+   * Organisation name
+   * Membership category
+   * Monthly amount
+   * Instalment count
+   * Total commitment
+5. Require the billing contact to confirm that they are authorised.
+6. Redirect the billing contact to GoCardless.
+7. Associate the resulting mandate and subscription with the organisation, not merely the logged-in user.
+
+The secure setup link must:
+
+* Use a cryptographically secure token.
+* Expire after an admin-configurable period.
+* Be single-use after successful completion.
+* Be revocable by an administrator.
+* Never expose sequential database identifiers.
+
+---
+
+## 8. Membership Activation Rules
+
+Direct Debit is not an instant payment method. Existing mandates and payments follow the Bacs processing cycle, and a new mandate can extend the time before the first payment is confirmed.
+
+Add an activation setting per membership category:
+
+### Activate after mandate setup
+
+Membership becomes provisionally active once the mandate is confirmed as active and the subscription has been created.
+
+### Activate after first payment confirmation
+
+Membership remains `pending_payment` until the first payment is confirmed.
+
+### Manual approval
+
+Membership remains pending until an administrator approves it.
+
+Recommended initial default:
+
+* Individual membership: activate after first payment confirmation.
+* Organisational membership: follow the existing organisational approval process and require either first payment confirmation or explicit admin approval.
+
+While payment setup is underway, use a specific status such as:
+
+* `payment_setup_required`
+* `mandate_pending`
+* `first_payment_pending`
+* `active`
+* `payment_grace_period`
+* `payment_overdue`
+* `payment_plan_cancelled`
+* `expired`
+
+Do not overload a generic `pending` status for every stage.
+
+---
+
+## 9. GoCardless Subscription Rules
+
+Once the mandate is active, create a fixed subscription using:
+
+* Currency: GBP
+* Scheme: Bacs
+* Interval unit: monthly
+* Interval: 1
+* Count: configured instalment count, normally 12
+* Amount: stored monthly amount in pence
+* Start date: calculated first collection date
+* Mandate ID
+* Internal metadata or reference where supported
+* Idempotency key
+
+The subscription amount must be based on the stored billing agreement snapshot, not the current membership category price.
+
+### First collection date
+
+The system must calculate the earliest valid first collection date using the GoCardless mandate information and configured membership policy.
+
+Allow the admin to choose one of these policies:
+
+* Earliest possible collection date
+* A nominated day between the 1st and 28th
+* Last working collection date of the month, where supported
+* Membership renewal anniversary day, adjusted to a valid collection day
+
+The system must clearly display the expected first collection date before the payer enters the GoCardless flow where it can be calculated reliably, or immediately afterwards where the mandate’s earliest charge date is needed.
+
+### Twelve-payment plan completion
+
+When all scheduled instalments have been created and collected:
+
+* Mark the payment plan as completed.
+* Preserve the mandate unless cancellation is required by policy.
+* Do not immediately terminate an active membership if the membership term remains valid.
+* Trigger the appropriate renewal workflow before the next membership period.
+
+---
+
+## 10. Annual Renewal
+
+Add an admin setting for Direct Debit renewal behaviour.
+
+### Renewal requires confirmation
+
+Before the next membership year:
+
+1. Notify the member of the new membership price.
+2. Ask the member or organisational payer to confirm renewal.
+3. Reuse the existing mandate where still active.
+4. Create a new subscription for the next membership period.
+
+### Automatic renewal
+
+Where membership terms permit automatic renewal:
+
+1. Send the required renewal and payment notice.
+2. Create the next payment schedule using the new price.
+3. Store the new terms and price snapshot.
+4. Link the new schedule to the new membership period.
+5. Do not alter the completed previous subscription.
+
+The system must retain evidence of:
+
+* The terms accepted
+* The membership price
+* The number of instalments
+* The payer
+* The acceptance date
+* The terms version
+* The renewal notification
+* The payment schedule
+
+Price changes must never modify an already agreed active 12-payment plan.
+
+---
+
+## 11. Mid-Term Membership Changes
+
+Organisational membership pricing may change when seats, grades or entitlements change.
+
+Do not silently edit the amount of an existing fixed subscription.
+
+For the first implementation:
+
+* Downgrades take effect at the next renewal unless manually overridden.
+* Upgrades may take effect immediately.
+* An immediate upgrade difference should use the existing supplemental invoice/payment mechanism.
+* The next annual Direct Debit plan uses the revised membership price.
+* Any manual adjustment must create a visible audit record.
+
+A later phase may support one-off collections against an existing mandate, but this is not required for the first release unless the current membership system already has a reliable adjustment-payment model.
+
+---
+
+## 12. Webhook Endpoint
+
+Create a dedicated server endpoint such as:
+
+`POST /api/webhooks/gocardless`
+
+The endpoint must:
+
+1. Read the unmodified raw request body.
+2. Read the `Webhook-Signature` header.
+3. Calculate and verify the webhook signature using the configured webhook secret.
+4. Reject invalid signatures.
+5. Record receipt of the webhook.
+6. Process every event idempotently.
+7. Return a successful response quickly.
+8. Move slower membership processing to the existing job or queue mechanism where available.
+
+GoCardless requires webhook signature verification using the request body and endpoint secret.
+
+### Webhook event log
+
+Create a durable webhook event table containing:
+
+* Provider
+* GoCardless event ID
+* Resource type
+* Action
+* Resource ID
+* Received timestamp
+* Raw payload
+* Signature verified
+* Processing status
+* Processing attempts
+* Processed timestamp
+* Error details
+* Related membership ID
+* Related organisation ID
+* Related payment-plan ID
+
+Add a unique constraint on the GoCardless event ID.
+
+Repeated webhook delivery must not create duplicate:
+
+* Subscriptions
+* Payments
+* Ledger transactions
+* Emails
+* Membership renewals
+* Status-history entries
+
+---
+
+## 13. Events and Status Handling
+
+Handle at minimum:
+
+### Billing Request events
+
+* Fulfilled
+* Failed
+* Cancelled
+* Flow expired
+
+### Mandate events
+
+* Pending submission
+* Submitted
+* Active
+* Failed
+* Cancelled
+* Expired
+* Transferred where applicable
+
+GoCardless mandate statuses include pending submission, submitted, active, failed, cancelled and expired.
+
+### Subscription events
+
+* Created
+* Active
+* Paused
+* Resumed
+* Finished
+* Cancelled
+* Customer approval required or denied where applicable
+
+### Payment events
+
+* Created
+* Pending submission
+* Submitted
+* Confirmed
+* Paid out
+* Failed
+* Cancelled
+* Charged back
+* Refunded
+
+### Payout events
+
+* Paid
+* Failed
+* Reconciled
+
+The webhook handler must tolerate:
+
+* Duplicate events
+* Events received out of order
+* A confirmed payment that later fails
+* Chargebacks after payout
+* Mandate cancellation directly through the customer’s bank
+* Bank account switching
+* Delayed bank failure notifications
+
+GoCardless sandbox scenarios explicitly include successful, failed, charged-back, late-failure, invalid-mandate and expired-mandate outcomes.
+
+When an event conflicts with local state, retrieve the current resource from the GoCardless API before applying a potentially destructive membership status change.
+
+---
+
+## 14. Idempotency and Duplicate Prevention
+
+All API calls that create GoCardless resources must include a deterministic idempotency key.
+
+Suggested keys:
+
+* Billing Request: `membership-dd-br-{billingAgreementId}`
+* Subscription: `membership-dd-sub-{paymentPlanId}`
+* One-off payment: `membership-dd-payment-{internalPaymentId}`
+
+Store the idempotency key against the local record.
+
+GoCardless supports idempotency keys specifically to prevent duplicate resources and accidental duplicate charging when requests are retried.
+
+The “Set up Direct Debit” button must also be protected from:
+
+* Double-clicks
+* Browser refreshes
+* Multiple open tabs
+* Network timeout retries
+* A user returning to an old payment setup URL
+
+---
+
+## 15. Proposed Database Changes
+
+Names should be aligned with the existing schema rather than creating parallel concepts unnecessarily.
+
+### `membership_billing_agreements`
+
+Suggested fields:
+
+* `id`
+* `membership_id`
+* `organisation_id`
+* `payer_contact_id`
+* `payment_method`
+* `billing_frequency`
+* `membership_period_start`
+* `membership_period_end`
+* `instalment_count`
+* `instalment_amount_minor`
+* `total_amount_minor`
+* `currency`
+* `terms_version`
+* `terms_accepted_at`
+* `terms_accepted_by`
+* `payer_authority_confirmed_at`
+* `status`
+* `created_at`
+* `updated_at`
+
+### `gocardless_customers`
+
+* `id`
+* `internal_contact_id`
+* `organisation_id`
+* `gocardless_customer_id`
+* `environment`
+* `created_at`
+* `updated_at`
+
+One GoCardless customer may have more than one mandate over time.
+
+### `gocardless_mandates`
+
+* `id`
+* `billing_agreement_id`
+* `gocardless_customer_id`
+* `gocardless_mandate_id`
+* `scheme`
+* `status`
+* `reference`
+* `created_at`
+* `activated_at`
+* `cancelled_at`
+* `expired_at`
+* `last_event_at`
+
+Do not store sort codes, complete account numbers or other raw bank credentials.
+
+### `membership_payment_plans`
+
+* `id`
+* `billing_agreement_id`
+* `membership_id`
+* `organisation_id`
+* `provider`
+* `provider_subscription_id`
+* `status`
+* `instalment_count`
+* `instalments_created`
+* `instalments_confirmed`
+* `instalment_amount_minor`
+* `total_amount_minor`
+* `amount_confirmed_minor`
+* `start_date`
+* `expected_end_date`
+* `completed_at`
+* `cancelled_at`
+* `cancellation_reason`
+* `created_at`
+* `updated_at`
+
+### `membership_payments`
+
+Extend the existing payment or transaction table where possible:
+
+* `provider`
+* `provider_payment_id`
+* `provider_subscription_id`
+* `payment_plan_id`
+* `instalment_number`
+* `amount_minor`
+* `currency`
+* `charge_date`
+* `status`
+* `confirmed_at`
+* `paid_out_at`
+* `failed_at`
+* `failure_code`
+* `failure_message`
+* `charged_back_at`
+* `refunded_amount_minor`
+* `provider_fee_minor`
+* `payout_id`
+
+### `payment_webhook_events`
+
+Use the webhook event fields specified earlier.
+
+### `membership_payment_status_history`
+
+Record:
+
+* Previous status
+* New status
+* Reason
+* Provider event
+* Automated or manual source
+* Admin user where relevant
+* Timestamp
+
+---
+
+## 16. Server-Side Services
+
+Create a contained GoCardless service module rather than placing API calls directly in route handlers.
+
+Suggested responsibilities:
+
+* `createBillingRequest()`
+* `createBillingRequestFlow()`
+* `getBillingRequest()`
+* `createSubscription()`
+* `getSubscription()`
+* `cancelSubscription()`
+* `pauseSubscription()`
+* `resumeSubscription()`
+* `retryPayment()`
+* `getPayment()`
+* `getMandate()`
+* `cancelMandate()`
+* `verifyWebhookSignature()`
+* `processWebhookEvent()`
+* `reconcilePaymentPlan()`
+
+The service must:
+
+* Use server-side environment variables.
+* Distinguish sandbox and live environments.
+* Apply idempotency keys.
+* Implement sensible timeouts.
+* Handle rate-limit responses.
+* Log provider request IDs where available.
+* Redact tokens and personal data from logs.
+* Convert all monetary amounts to integer minor units before API submission.
+
+Never call GoCardless directly from the browser.
+
+---
+
+## 17. Application Endpoints
+
+Indicative endpoints:
+
+### Customer-facing
+
+* `POST /api/membership/direct-debit/start`
+* `GET /api/membership/direct-debit/return`
+* `GET /api/membership/payment-plan`
+* `POST /api/membership/direct-debit/resend-payer-link`
+* `POST /api/membership/direct-debit/change-payer`
+* `POST /api/membership/direct-debit/cancel-request`
+
+### Admin
+
+* `GET /api/admin/membership/direct-debit/plans`
+* `GET /api/admin/membership/direct-debit/plans/:id`
+* `POST /api/admin/membership/direct-debit/plans/:id/reconcile`
+* `POST /api/admin/membership/direct-debit/plans/:id/pause`
+* `POST /api/admin/membership/direct-debit/plans/:id/resume`
+* `POST /api/admin/membership/direct-debit/plans/:id/cancel`
+* `POST /api/admin/membership/direct-debit/payments/:id/retry`
+* `POST /api/admin/membership/direct-debit/plans/:id/manual-status`
+* `POST /api/admin/membership/direct-debit/plans/:id/resend-email`
+
+### Provider
+
+* `POST /api/webhooks/gocardless`
+
+All admin actions require existing admin authorisation and audit logging.
+
+---
+
+## 18. Failed Payment Management
+
+A failed monthly payment must not immediately erase the membership or organisation record.
+
+Introduce an admin-configurable arrears workflow:
+
+1. Payment failure received.
+2. Mark the instalment as failed.
+3. Set payment plan to `action_required`.
+4. Start the configured grace period.
+5. Notify the payer.
+6. Notify the member or organisational membership contact where different.
+7. Display a portal warning.
+8. Allow retry where the provider and payment state permit it.
+9. Escalate to administrators if unresolved.
+10. Apply the configured membership suspension rule after the grace period.
+
+Possible policies:
+
+* Keep membership active during grace period.
+* Restrict selected benefits during grace period.
+* Suspend membership after grace period.
+* Require manual admin review.
+* Cancel at the end of the current paid-through period.
+
+Do not hard-code the number of days.
+
+### Retry handling
+
+Provide:
+
+* Provider-managed retry where enabled in the GoCardless account.
+* Admin-triggered retry.
+* Member-facing “resolve payment problem” journey.
+* New mandate setup if the mandate has failed or been cancelled.
+
+GoCardless supports payment retry operations, while its optional Success+ functionality can provide intelligent retries when enabled.
+
+Never create a second payment while the first payment could still be processed.
+
+---
+
+## 19. Mandate Cancellation
+
+A payer can cancel a mandate through their bank, GoCardless or the membership organisation.
+
+When a mandate is cancelled:
+
+* Update the mandate status.
+* Stop or mark the associated subscription as cancelled.
+* Flag the membership payment plan.
+* Notify the payer.
+* Notify the membership contact.
+* Notify the membership administration team.
+* Start the relevant grace or cancellation workflow.
+* Preserve all historic payment records.
+* Provide a secure route for establishing a replacement mandate.
+
+Do not represent mandate cancellation as membership cancellation unless the membership terms and configured workflow require that result.
+
+The system should distinguish:
+
+* Mandate cancelled
+* Subscription cancelled
+* Membership cancellation requested
+* Membership terminated for non-payment
+* Membership expired normally
+
+---
+
+## 20. Member Cancellation Requests
+
+Add a member-facing request rather than an immediate provider cancellation button unless the membership policy explicitly permits instant cancellation.
+
+The request should capture:
+
+* Membership
+* Requested cancellation date
+* Reason
+* Person making the request
+* Organisation authority where applicable
+* Outstanding instalments
+* Admin decision
+* Decision timestamp
+* Notes
+
+Before cancelling an active Direct Debit schedule, show administrators:
+
+* Membership term
+* Total annual commitment
+* Instalments paid
+* Instalments outstanding
+* Next collection
+* Any outstanding invoice or adjustment
+* Existing membership cancellation terms
+
+Cancellation of the GoCardless subscription and mandate must be separate actions. The organisation may wish to stop a subscription while retaining a mandate for a replacement schedule or future renewal.
+
+---
+
+## 21. Refunds and Chargebacks
+
+Extend the existing refund process to recognise GoCardless payments.
+
+The admin must be able to see:
+
+* Original payment
+* Amount collected
+* Amount paid out
+* Refund status
+* Chargeback status
+* Membership impact
+* Associated payout
+
+Refund operations must be restricted to authorised finance administrators.
+
+A chargeback may occur after a payment was previously treated as successful. The system must therefore be able to reverse the financial status and reopen an arrears case without deleting the original transaction.
+
+GoCardless payout reconciliation includes adjustments for failed, charged-back and refunded payments.
+
+---
+
+## 22. Finance and Reconciliation
+
+Direct Debit payments must be represented in the same internal financial reporting model as Stripe and invoice payments.
+
+For each GoCardless payment, store:
+
+* Gross amount
+* Provider fee where supplied
+* Net amount
+* Charge date
+* Confirmation date
+* Payout date
+* Payout reference
+* Membership category
+* Membership period
+* Individual or organisation
+* Payment-plan ID
+* GoCardless resource IDs
+
+Add reconciliation views for:
+
+* Payments awaiting confirmation
+* Confirmed but not paid out
+* Paid out
+* Failed
+* Charged back
+* Refunded
+* Unmatched webhook events
+* Unmatched GoCardless payments
+* Payout differences
+
+Where the current deployment uses QuickBooks or another accounting platform as the financial master record, inspect and reuse the existing invoice/payment synchronisation pattern. Do not create a second accounting integration or duplicate finance records.
+
+A Direct Debit instalment should be posted into the existing finance workflow only at the status required by the current accounting policy. This is likely to be confirmed or paid out, but the exact mapping must follow the existing implementation.
+
+---
+
+## 23. Admin Interface
+
+Add a Direct Debit area within membership administration.
+
+### Summary dashboard
+
+Show:
+
+* Active mandates
+* Pending mandates
+* Active payment plans
+* Monthly expected collections
+* Payments pending
+* Failed payments
+* Members in grace period
+* Cancelled mandates
+* Chargebacks
+* Payments awaiting reconciliation
+
+### Payment-plan list
+
+Filters:
+
+* Individual or organisation
+* Membership category
+* Mandate status
+* Subscription status
+* Payment status
+* Membership status
+* Next collection date
+* Failed payment
+* Grace-period expiry
+* Renewal date
+* Payer name or email
+* Organisation
+* GoCardless reference
+
+### Payment-plan detail
+
+Show:
+
+* Member or organisation
+* Membership category
+* Membership period
+* Payer
+* Billing contact
+* Terms accepted
+* Monthly amount
+* Total plan amount
+* Instalments paid and remaining
+* Mandate status
+* Subscription status
+* Upcoming collection
+* Payment timeline
+* Provider event timeline
+* Emails sent
+* Admin notes
+* Audit log
+
+Admin actions should include:
+
+* Reconcile from GoCardless
+* Resend setup link
+* Send payment reminder
+* Retry eligible payment
+* Pause subscription
+* Resume subscription
+* Cancel subscription
+* Cancel mandate
+* Record manual resolution
+* Extend grace period
+* Export transaction history
+
+Destructive actions require a confirmation modal explaining the effect.
+
+---
+
+## 24. Customer Communications
+
+Create branded application emails for the membership-related context.
+
+At minimum:
+
+* Direct Debit setup started
+* Billing contact invitation
+* Direct Debit setup incomplete
+* Mandate confirmed
+* First collection scheduled
+* Membership activated
+* Payment confirmed
+* Payment failed
+* Retry scheduled
+* New mandate required
+* Grace period started
+* Membership at risk of suspension
+* Subscription completed
+* Renewal notice
+* Renewal payment schedule confirmed
+* Mandate cancelled
+* Membership payment plan cancelled
+
+Each email should include:
+
+* Member or organisation name
+* Membership category
+* Relevant amount
+* Relevant date
+* Clear next action
+* Secure portal link
+* Contact details
+* Avoidance of complete bank details
+
+GoCardless itself can send the scheme-required payer notifications. Custom GoCardless payer notifications and custom payment-page experiences may depend on the GoCardless account plan or add-on, so the first release should rely on GoCardless for mandatory scheme communications and use iConnect emails for membership communications.
+
+Do not accidentally send two contradictory advance-payment notices.
+
+---
+
+## 25. Environment and Configuration
+
+Add environment variables using the project’s established secret-management process:
+
+* `GOCARDLESS_ENVIRONMENT`
+* `GOCARDLESS_ACCESS_TOKEN`
+* `GOCARDLESS_WEBHOOK_SECRET`
+* `GOCARDLESS_REDIRECT_BASE_URL`
+* `GOCARDLESS_CREDITOR_ID`, only where needed
+
+Requirements:
+
+* Sandbox and production credentials must be separate.
+* Tokens must never be returned to the frontend.
+* Tokens must never be included in source control.
+* Tokens must be redacted from logs and error-monitoring payloads.
+* Production must not start with sandbox credentials.
+* Redirect URLs must be environment-specific.
+* Webhook endpoints must be configured separately in sandbox and production.
+
+---
+
+## 26. Security and Data Protection
+
+The integration must:
+
+* Use GoCardless-hosted bank-detail collection.
+* Avoid storing raw account numbers and sort codes.
+* Verify webhook signatures.
+* Use server-only API access.
+* Apply admin role checks.
+* Apply CSRF protection to applicable application routes.
+* Use secure, expiring payer invitation links.
+* Record acceptance of the payment terms.
+* Record the person establishing an organisational mandate.
+* Avoid including sensitive bank information in logs or emails.
+* Maintain an audit trail for financial status changes.
+* Honour existing data-retention and deletion policies without deleting required financial records.
+
+Deleting or anonymising a user account must not remove legally or operationally required membership transaction records.
+
+---
+
+## 27. Reliability and Scheduled Reconciliation
+
+Webhooks are the primary source of payment updates, but add a scheduled reconciliation job as a safety net.
+
+The job should:
+
+* Find payment plans with stale provider status.
+* Retrieve the current GoCardless mandate, subscription and recent payments.
+* Repair missed local state changes.
+* Identify webhook processing failures.
+* Create an admin alert for unresolved differences.
+* Never create a new payment merely because a webhook is missing.
+
+Suggested reconciliation groups:
+
+* Pending mandate for longer than expected
+* Active mandate without subscription
+* Subscription without upcoming payment
+* Local payment pending beyond expected processing time
+* Provider payment with no local transaction
+* Local active membership with cancelled mandate
+* Failed webhook event awaiting retry
+
+Do not run reconciliation more aggressively than required by provider limits and operational need.
+
+---
+
+## 28. Observability
+
+Add structured logging and monitoring for:
+
+* Billing Request creation failures
+* Hosted-flow returns
+* Invalid webhook signatures
+* Webhook processing failures
+* Duplicate event attempts
+* Subscription creation failures
+* Payment failures
+* Reconciliation differences
+* Membership status changes caused by payment events
+
+Create admin alerts for:
+
+* Webhook endpoint unavailable
+* Repeated invalid webhook signatures
+* Unprocessed events
+* Payments failing to map to a membership
+* Mandate active but subscription missing
+* Large or unexpected collection amounts
+* Production using sandbox configuration
+
+Logs must contain internal and provider record identifiers but no raw bank credentials or access tokens.
+
+---
+
+## 29. Existing Member Migration
+
+Do not automatically migrate existing Stripe or invoice members to Direct Debit.
+
+Add a controlled conversion process:
+
+1. Admin enables a “Switch to monthly Direct Debit” option for selected categories.
+2. Existing members receive an invitation or see the option at renewal.
+3. Member reviews the new payment agreement.
+4. Member establishes a GoCardless mandate.
+5. The new payment method takes effect from the specified membership period.
+6. Existing unpaid invoices are not automatically cancelled.
+7. Admin resolves any overlapping invoice or Stripe payment manually or through an explicit migration workflow.
+
+Provide reporting for:
+
+* Invited
+* Setup started
+* Mandate completed
+* Subscription active
+* Conversion failed
+* Declined
+* Remained on existing payment method
+
+---
+
+## 30. Testing Requirements
+
+Use the GoCardless sandbox throughout development.
+
+Test at minimum:
+
+### Successful journeys
+
+* New individual membership
+* Individual renewal
+* New organisational membership
+* Organisational billing-contact invitation
+* Active mandate reuse
+* Twelve-payment schedule creation
+* First payment confirmation
+* Subscription completion
+* Renewal subscription creation
+
+### Failure journeys
+
+* Customer exits hosted flow
+* Billing Request expires
+* Invalid bank details
+* Mandate setup fails
+* Mandate is cancelled by customer
+* First payment fails
+* Later instalment fails
+* Confirmed payment later fails
+* Chargeback after payout
+* Subscription creation API timeout
+* Duplicate create request
+* Duplicate webhook
+* Webhook events received out of order
+* Invalid webhook signature
+* Webhook processor throws an error
+* Billing contact uses an expired link
+* Billing contact opens a previously completed link
+
+### Regression
+
+* Existing Stripe membership payment
+* Existing pay-by-invoice flow
+* Existing renewal process
+* Existing membership approval
+* Existing member portal
+* Existing organisational membership management
+* Existing finance reporting
+* Existing accounting integration
+
+GoCardless provides sandbox scenario simulators for successful payments, insufficient funds, late failures, chargebacks, invalid mandates and expired mandates. Use these rather than only testing the happy path.
+
+---
+
+## 31. Acceptance Criteria
+
+The feature is complete when:
+
+1. Eligible individual members can select monthly Direct Debit.
+2. Eligible organisational members can select monthly Direct Debit.
+3. An organisational billing contact can complete setup through a secure link.
+4. Invoice and Stripe payment routes continue to work unchanged.
+5. GoCardless Hosted Payment Pages are used for bank authorisation.
+6. The application never stores raw bank credentials.
+7. A successful redirect alone does not activate membership.
+8. Verified webhooks update mandate, subscription and payment statuses.
+9. Webhook events are processed idempotently.
+10. Duplicate subscriptions and duplicate charges are prevented.
+11. A fixed monthly plan can be created for the configured number of instalments.
+12. The agreed price and terms are stored as an immutable snapshot.
+13. Members can view their instalment plan and payment history.
+14. Administrators can view and manage Direct Debit plans.
+15. Failed payments enter a configurable arrears workflow.
+16. Mandate cancellation is distinguished from membership cancellation.
+17. Payment, refund and chargeback records appear in finance reporting.
+18. A scheduled reconciliation process detects missed events.
+19. Existing payment methods pass regression testing.
+20. Sandbox failure and chargeback scenarios have been tested.
+21. Production credentials and webhook configuration are documented.
+22. All financial and membership status changes are auditable.
+
+---
+
+## 32. Suggested Delivery Phases
+
+### Phase 1: Technical foundation
+
+* GoCardless sandbox configuration
+* Server-side service
+* Billing Request Flow
+* Webhook endpoint
+* Signature verification
+* Core database tables
+* Event logging
+* Reconciliation framework
+
+### Phase 2: Individual membership
+
+* Payment option UI
+* Individual mandate setup
+* Twelve-payment subscription
+* Membership activation
+* Member portal
+* Basic admin visibility
+* Emails
+
+### Phase 3: Organisational membership
+
+* Organisational payer model
+* Billing-contact invitation
+* Authorisation confirmation
+* Organisation payment-plan management
+* Organisational admin reporting
+
+### Phase 4: Failure and finance workflows
+
+* Grace periods
+* Retry handling
+* Mandate replacement
+* Refunds and chargebacks
+* Payout reconciliation
+* Accounting integration
+* Finance exports
+
+### Phase 5: Renewals and migration
+
+* Direct Debit renewal workflow
+* Existing-member conversion
+* Automatic renewal where enabled
+* Historic and conversion reporting
+
+---
+
+## 33. Out of Scope for the Initial Release
+
+Unless already supported by the current platform, exclude:
+
+* Direct Debit for event bookings
+* Direct Debit for shop purchases
+* Non-GBP Direct Debit schemes
+* SEPA Direct Debit
+* Custom collection of bank account details
+* Replacement of Stripe
+* Replacement of the existing invoicing system
+* Automatic cancellation of existing invoices
+* Variable monthly membership amounts
+* Automated mid-term seat recalculation
+* Bulk migration of existing mandates
+* Instant Bank Pay
+* A full accounting-ledger replacement
+
+The architecture should not prevent these from being considered later.
+
+---
+
+## 34. Instructions to Replit Before Building
+
+Before changing code, Replit must inspect and document:
+
+1. The existing individual membership application flow.
+2. The existing organisational membership flow.
+3. How membership categories and prices are stored.
+4. How Stripe membership transactions are recorded.
+5. How invoice payments are generated and reconciled.
+6. How membership status and expiry are calculated.
+7. How renewals currently operate.
+8. The existing finance or QuickBooks integration.
+9. Existing webhook infrastructure.
+10. Existing scheduled jobs or queues.
+11. Existing email-template infrastructure.
+12. Existing admin permissions and audit logging.
+
+The implementation must extend the current domain model wherever practical. It must not create a separate, disconnected “GoCardless membership system” that duplicates members, organisations, payment records or renewal logic.
+
+Before coding, produce:
+
+* Current-state architecture summary
+* Database migration plan
+* Payment and membership state diagrams
+* GoCardless resource mapping
+* Endpoint list
+* Webhook event matrix
+* Failure-handling matrix
+* UI change list
+* Regression-test plan
+
+Any uncertainty about whether membership is annual, rolling, anniversary-based or based on a fixed common renewal date must be resolved from the existing code and membership configuration before implementing collection-date calculations.

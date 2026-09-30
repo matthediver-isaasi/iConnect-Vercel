@@ -1,0 +1,8076 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {
+  CustomObjectHttpError,
+  createCustomObjectService,
+} from './customObjectService.js';
+
+const tenantId = '22222222-2222-4222-8222-222222222222';
+const objectId = '11111111-1111-4111-8111-111111111111';
+const roleId = '33333333-3333-4333-8333-333333333333';
+
+function mockDb(seed = {}, rpcErrors = {}) {
+  const tables = Object.fromEntries(Object.entries(seed).map(([name, rows]) => [
+    name, rows.map((row) => structuredClone(row)),
+  ]));
+  const calls = [];
+
+  class Query {
+    constructor(table) {
+      this.table = table;
+      this.filters = [];
+      this.operation = 'select';
+      this.payload = null;
+      this.wantCount = false;
+      this.orders = [];
+    }
+
+    select(columns, options = {}) {
+      this.wantCount = options.count === 'exact';
+      calls.push({ table: this.table, type: 'select', columns });
+      return this;
+    }
+    eq(column, value) { this.filters.push((row) => row[column] === value); calls.push({ table: this.table, type: 'eq', column, value }); return this; }
+    neq(column, value) {
+      this.filters.push((row) => this.value(row, column) !== value);
+      calls.push({ table: this.table, type: 'neq', column, value });
+      return this;
+    }
+    is(column, value) { this.filters.push((row) => this.value(row, column) === value); return this; }
+    value(row, column) {
+      const match = column.match(/^data->>?([a-z][a-z0-9_]*)$/);
+      return match ? (row.data?.[match[1]] ?? null) : row[column];
+    }
+    in(column, values) {
+      this.filters.push((row) => values.includes(this.value(row, column)));
+      calls.push({ table: this.table, type: 'in', column, values });
+      return this;
+    }
+    filter(column, operator, value) {
+      const expected = column.includes('->>') ? value : JSON.parse(value);
+      this.filters.push((row) => {
+        const actual = this.value(row, column);
+        if (operator === 'eq') return actual === expected;
+        if (operator === 'gte') return actual >= expected;
+        if (operator === 'lte') return actual <= expected;
+        if (operator === 'ilike') return String(actual ?? '').toLowerCase().includes(String(expected).replaceAll('*', '').toLowerCase());
+        return true;
+      });
+      calls.push({ table: this.table, type: 'filter', column, operator, value });
+      return this;
+    }
+    ilike(column, value) {
+      const search = String(value).replaceAll('%', '').toLowerCase();
+      this.filters.push((row) => String(this.value(row, column) ?? '').toLowerCase().includes(search));
+      return this;
+    }
+    not(column, operator, value) {
+      if (operator === 'cs') {
+        const excluded = JSON.parse(value);
+        this.filters.push((row) => !excluded.some((item) => (this.value(row, column) || []).includes(item)));
+      } else if (operator === 'in') {
+        const excluded = value.slice(1, -1).split(',').map((item) => JSON.parse(item));
+        this.filters.push((row) => !excluded.includes(this.value(row, column)));
+      } else if (operator === 'is') {
+        this.filters.push((row) => this.value(row, column) !== value);
+      }
+      calls.push({ table: this.table, type: 'not', column, operator, value });
+      return this;
+    }
+    or(expression) { calls.push({ table: this.table, type: 'or', expression }); return this; }
+    order(column, options = {}) {
+      this.orders.push({ column, ascending: options.ascending !== false });
+      calls.push({ table: this.table, type: 'order', column, ...options });
+      return this;
+    }
+    gt(column, value) {
+      this.filters.push((row) => this.value(row, column) > value);
+      calls.push({ table: this.table, type: 'gt', column, value });
+      return this;
+    }
+    range(from, to) {
+      this.slice = [from, to + 1];
+      calls.push({ table: this.table, type: 'range', from, to });
+      return this;
+    }
+    insert(payload) { this.operation = 'insert'; this.payload = payload; return this; }
+    update(payload) { this.operation = 'update'; this.payload = payload; return this; }
+    upsert(payload) { this.operation = 'upsert'; this.payload = payload; return this; }
+
+    execute() {
+      tables[this.table] ||= [];
+      if (this.operation === 'insert') {
+        const row = { id: `${this.table}-${tables[this.table].length + 1}`, ...structuredClone(this.payload) };
+        tables[this.table].push(row);
+        return { data: row, error: null };
+      }
+      if (this.operation === 'upsert') {
+        let row = this.table === 'custom_object_report_export_chunk'
+          ? tables[this.table].find((candidate) =>
+            candidate.job_id === this.payload.job_id
+            && candidate.chunk_index === this.payload.chunk_index)
+          : tables[this.table].find((candidate) =>
+            candidate.tenant_id === this.payload.tenant_id
+            && candidate.custom_object_id === this.payload.custom_object_id
+            && candidate.role_id === this.payload.role_id);
+        if (row) Object.assign(row, structuredClone(this.payload));
+        else {
+          row = { id: `${this.table}-${tables[this.table].length + 1}`, ...structuredClone(this.payload) };
+          tables[this.table].push(row);
+        }
+        return { data: row, error: null };
+      }
+      let rows = tables[this.table].filter((row) => this.filters.every((filter) => filter(row)));
+      if (this.operation === 'update') {
+        rows.forEach((row) => Object.assign(row, structuredClone(this.payload)));
+      }
+      if (this.orders.length > 0) {
+        rows.sort((left, right) => {
+          for (const order of this.orders) {
+            const a = this.value(left, order.column);
+            const b = this.value(right, order.column);
+            if (a === b) continue;
+            if (a === null || a === undefined) return 1;
+            if (b === null || b === undefined) return -1;
+            const comparison = a < b ? -1 : 1;
+            return order.ascending ? comparison : -comparison;
+          }
+          return 0;
+        });
+      }
+      const count = rows.length;
+      if (this.slice) rows = rows.slice(...this.slice);
+      else if (this.table === 'custom_object_relationship'
+        && rpcErrors.__relationshipSelectCap) {
+        rows = rows.slice(0, rpcErrors.__relationshipSelectCap);
+      }
+      return { data: structuredClone(rows), error: null, count: this.wantCount ? count : null };
+    }
+
+    async single() {
+      const result = this.execute();
+      return { ...result, data: Array.isArray(result.data) ? result.data[0] : result.data };
+    }
+    async maybeSingle() {
+      const result = this.execute();
+      return { ...result, data: Array.isArray(result.data) ? (result.data[0] || null) : result.data };
+    }
+    then(resolve, reject) { return Promise.resolve(this.execute()).then(resolve, reject); }
+  }
+
+  return {
+    from(table) { calls.push({ table, type: 'from' }); return new Query(table); },
+    rpc(name, args) {
+      calls.push({ type: 'rpc', name, args });
+      const execute = () => {
+        if (rpcErrors[name] && Object.hasOwn(rpcErrors[name], 'mockData')) {
+          return { data: structuredClone(rpcErrors[name].mockData), error: null };
+        }
+        if (rpcErrors[name]) return { data: null, error: structuredClone(rpcErrors[name]) };
+        if (name === 'custom_object_catalogue_counts') {
+          const requestedIds = new Set(args.p_custom_object_ids);
+          const counts = [...requestedIds].map((id) => ({
+            custom_object_id: id,
+            record_count: (tables.custom_object_record || []).filter((row) =>
+              row.tenant_id === args.p_tenant_id
+              && row.custom_object_id === id
+              && row.archived_at === null).length,
+            field_count: (tables.preference_field || []).filter((row) =>
+              row.tenant_id === args.p_tenant_id
+              && row.custom_object_id === id
+              && row.entity_scope === 'custom_object'
+              && row.is_active === true).length,
+            relationship_count: new Set((tables.custom_object_relationship_definition || [])
+              .filter((row) =>
+                row.tenant_id === args.p_tenant_id
+                && row.status !== 'archived'
+                && (row.source_custom_object_id === id || row.target_custom_object_id === id))
+              .map((row) => row.id)).size,
+          }));
+          return { data: counts, error: null };
+        }
+        if (name === 'custom_object_record_relationship_projection') {
+          const rows = [];
+          const endpointFor = (item, id) => {
+            const table = {
+              custom_object: 'custom_object_record',
+              member: 'member',
+              organization: 'organization',
+              organization_group: 'organization_group',
+            }[item.endpoint_kind];
+            return (tables[table] || []).find((endpoint) =>
+              endpoint.id === id
+              && endpoint.tenant_id === args.p_tenant_id
+              && (item.endpoint_kind !== 'custom_object'
+                || (
+                  endpoint.custom_object_id === item.endpoint_custom_object_id
+                  && endpoint.archived_at == null
+                )));
+          };
+          const labelFor = (item, endpoint) => {
+            if (item.endpoint_kind === 'member') {
+              return [endpoint.first_name, endpoint.last_name].filter(Boolean).join(' ').trim()
+                || endpoint.email || endpoint.id;
+            }
+            if (item.endpoint_kind === 'custom_object') {
+              return String(endpoint.data?.[item.display_key] ?? endpoint.id);
+            }
+            return endpoint.name || endpoint.id;
+          };
+          for (const item of args.p_items || []) {
+            const routedColumn = item.side === 'source' ? 'source_record_id' : 'target_record_id';
+            const oppositeColumn = item.side === 'source' ? 'target_record_id' : 'source_record_id';
+            for (const recordId of args.p_record_ids || []) {
+              const matches = (tables.custom_object_relationship || [])
+                .filter((edge) =>
+                  edge.tenant_id === args.p_tenant_id
+                  && edge.archived_at == null
+                  && edge.relationship_definition_id === item.relationship_definition_id
+                  && edge[routedColumn] === recordId)
+                .map((edge) => ({
+                  edge,
+                  endpoint: endpointFor(item, edge[oppositeColumn]),
+                }))
+                .filter(({ endpoint }) => Boolean(endpoint))
+                .sort((left, right) =>
+                  labelFor(item, left.endpoint).localeCompare(labelFor(item, right.endpoint))
+                  || String(left.edge[oppositeColumn]).localeCompare(String(right.edge[oppositeColumn])));
+              for (const match of matches.slice(0, args.p_label_limit)) {
+                rows.push({
+                  list_field_id: item.list_field_id,
+                  routed_record_id: recordId,
+                  opposite_record_id: match.edge[oppositeColumn],
+                  total_count: matches.length,
+                });
+              }
+            }
+          }
+          return { data: rows, error: null };
+        }
+        if (name === 'custom_object_report_occurrence_page') {
+          const routed = args.p_from_side === 'source' ? 'source_record_id' : 'target_record_id';
+          const other = args.p_from_side === 'source' ? 'target_record_id' : 'source_record_id';
+          const endpointTable = {
+            custom_object: 'custom_object_record',
+            member: 'member',
+            organization: 'organization',
+            organization_group: 'organization_group',
+          }[args.p_endpoint_kind];
+          const edges = (tables.custom_object_relationship || []).filter((edge) => {
+            if (edge.tenant_id !== args.p_tenant_id
+              || edge.relationship_definition_id !== args.p_relationship_definition_id
+              || edge.archived_at != null) return false;
+            const root = (tables.custom_object_record || []).find((row) =>
+              row.id === edge[routed] && row.tenant_id === args.p_tenant_id
+              && row.custom_object_id === args.p_custom_object_id && row.archived_at == null);
+            const endpoint = (tables[endpointTable] || []).find((row) =>
+              row.id === edge[other] && row.tenant_id === args.p_tenant_id
+              && (args.p_endpoint_kind !== 'custom_object'
+                || (row.custom_object_id === args.p_endpoint_custom_object_id && row.archived_at == null)));
+            return Boolean(root && endpoint);
+          }).sort((a, b) => String(a.id).localeCompare(String(b.id)));
+          const candidates = edges.filter((edge) =>
+            !args.p_after_edge_id || String(edge.id) > String(args.p_after_edge_id));
+          const offset = args.p_after_edge_id ? 0 : args.p_offset;
+          const selected = candidates.slice(offset, offset + args.p_limit);
+          return {
+            data: {
+              total: args.p_include_total ? edges.length : null,
+              edges: structuredClone(selected),
+              has_more: candidates.length > offset + args.p_limit,
+              last_edge_id: selected.at(-1)?.id || args.p_after_edge_id || null,
+            },
+            error: null,
+          };
+        }
+        if (name === 'custom_object_report_summary_page') {
+          const endpointRows = (kind, customObjectId) => {
+            const table = {
+              custom_object: 'custom_object_record',
+              member: 'member',
+              organization: 'organization',
+              organization_group: 'organization_group',
+            }[kind];
+            return (tables[table] || []).filter((row) =>
+              row.tenant_id === args.p_tenant_id
+              && (kind !== 'custom_object'
+                || (row.custom_object_id === customObjectId && row.archived_at == null)));
+          };
+          let rows = endpointRows(args.p_start_kind, args.p_start_custom_object_id)
+            .map((record) => ({ ids: [record.id], edges: [] }));
+          for (const hop of args.p_grain_path || []) {
+            const routed = hop.from_side === 'source' ? 'source_record_id' : 'target_record_id';
+            const other = hop.from_side === 'source' ? 'target_record_id' : 'source_record_id';
+            const endpoints = new Set(endpointRows(
+              hop.endpoint_kind,
+              hop.endpoint_custom_object_id,
+            ).map((row) => row.id));
+            rows = rows.flatMap((row) => {
+              if (!row.ids.at(-1)) {
+                return args.p_include_empty
+                  ? [{ ids: [...row.ids, null], edges: [...row.edges, null] }]
+                  : [];
+              }
+              const matches = (tables.custom_object_relationship || []).filter((edge) =>
+                edge.tenant_id === args.p_tenant_id
+                && edge.relationship_definition_id === hop.relationship_definition_id
+                && edge.archived_at == null
+                && edge[routed] === row.ids.at(-1)
+                && endpoints.has(edge[other]))
+                .sort((left, right) => String(left.id).localeCompare(String(right.id)));
+              if (!matches.length && args.p_include_empty) {
+                return [{ ids: [...row.ids, null], edges: [...row.edges, null] }];
+              }
+              return matches.map((edge) => ({
+                ids: [...row.ids, edge[other]],
+                edges: [...row.edges, structuredClone(edge)],
+              }));
+            });
+          }
+          const identified = rows.map((row) => ({
+            id: [...row.ids, ...row.edges.map((edge) => edge?.id || '')].join(':'),
+            record_ids: row.ids,
+            edges: row.edges,
+          })).sort((left, right) => left.id.localeCompare(right.id));
+          const candidates = identified.filter((row) =>
+            !args.p_after_cursor || row.id > args.p_after_cursor);
+          const offset = args.p_after_cursor ? 0 : args.p_offset;
+          const selected = candidates.slice(offset, offset + args.p_limit);
+          return {
+            data: {
+              total: args.p_include_total ? identified.length : null,
+              rows: structuredClone(selected),
+              has_more: candidates.length > offset + args.p_limit,
+              last_cursor: selected.at(-1)?.id || args.p_after_cursor || null,
+            },
+            error: null,
+          };
+        }
+        if (name === 'custom_object_report_distinct_counts') {
+          const data = (args.p_start_record_ids || []).map((recordId) => {
+            let ids = [recordId];
+            for (const hop of args.p_path || []) {
+              const routed = hop.from_side === 'source' ? 'source_record_id' : 'target_record_id';
+              const other = hop.from_side === 'source' ? 'target_record_id' : 'source_record_id';
+              ids = (tables.custom_object_relationship || []).filter((edge) =>
+                edge.tenant_id === args.p_tenant_id
+                && edge.relationship_definition_id === hop.relationship_definition_id
+                && edge.archived_at == null
+                && ids.includes(edge[routed]))
+                .map((edge) => edge[other]);
+            }
+            return { record_id: recordId, count: new Set(ids).size };
+          });
+          return { data, error: null };
+        }
+        if (name === 'custom_object_report_export_commit') {
+          const job = (tables.custom_object_report_export_job || []).find((row) =>
+            row.id === args.p_job_id && row.tenant_id === args.p_tenant_id
+            && row.custom_object_id === args.p_custom_object_id
+            && row.claim_token === args.p_claim_token);
+          if (!job) return { data: null, error: null };
+          tables.custom_object_report_export_chunk ||= [];
+          let chunk = tables.custom_object_report_export_chunk.find((row) =>
+            row.job_id === job.id && row.chunk_index === args.p_chunk_index);
+          const payload = {
+            tenant_id: args.p_tenant_id, job_id: job.id,
+            chunk_index: args.p_chunk_index, row_count: args.p_row_count,
+            csv_text: args.p_csv_text,
+          };
+          if (chunk) Object.assign(chunk, payload);
+          else {
+            chunk = { id: `chunk-${tables.custom_object_report_export_chunk.length + 1}`, ...payload };
+            tables.custom_object_report_export_chunk.push(chunk);
+          }
+          Object.assign(job, {
+            status: args.p_complete ? 'complete' : 'processing',
+            processed: args.p_processed,
+            total: args.p_total,
+            next_page: job.next_page + 1,
+            cursor_value: args.p_cursor_value,
+            chunk_count: Math.max(job.chunk_count || 0, args.p_chunk_index + 1),
+            error_message: null,
+            claim_token: null,
+            ...(args.p_complete ? { completed_at: args.p_now } : {}),
+            updated_at: args.p_now,
+          });
+          return { data: structuredClone(job), error: null };
+        }
+        if (name === 'create_custom_object_record_with_relationships') {
+          const record = {
+            id: `custom_object_record-${(tables.custom_object_record || []).length + 1}`,
+            tenant_id: args.p_tenant_id,
+            custom_object_id: args.p_custom_object_id,
+            data: structuredClone(args.p_data),
+            created_by: args.p_created_by,
+            updated_by: args.p_created_by,
+          };
+          return { data: { record, relationships: [] }, error: null };
+        }
+        if (name === 'custom_object_record_relationship_list') {
+          let rows = (tables.custom_object_record || []).filter((row) =>
+            row.tenant_id === args.p_tenant_id
+            && row.custom_object_id === args.p_custom_object_id
+            && (args.p_include_archived || row.archived_at == null));
+          const scalar = args.p_scalar_plan || {};
+          const scalarKey = (filter) =>
+            String(filter.textColumn || filter.column || '').match(/([a-z][a-z0-9_]*)$/)?.[1];
+          for (const filter of scalar.filters || []) {
+            const key = scalarKey(filter);
+            rows = rows.filter((row) => {
+              const value = row.data?.[key];
+              if (filter.kind === 'is_empty') return value == null || value === '';
+              if (filter.kind === 'is_not_empty') return value != null && value !== '';
+              if (filter.kind === 'any_of_scalar') return filter.values.map(String).includes(String(value));
+              if (filter.kind === 'none_of_scalar') return !filter.values.map(String).includes(String(value));
+              if (filter.kind === 'any_of_array') {
+                return Array.isArray(value) && filter.values.some((candidate) => value.includes(candidate));
+              }
+              if (filter.kind === 'none_of_array') {
+                return !Array.isArray(value) || !filter.values.some((candidate) => value.includes(candidate));
+              }
+              if (filter.kind !== 'filter') return false;
+              if (filter.op === 'ilike') {
+                const needle = String(filter.value).replaceAll('*', '').toLocaleLowerCase();
+                return String(value ?? '').toLocaleLowerCase().includes(needle);
+              }
+              const target = String(filter.column).includes('->>')
+                ? filter.value
+                : JSON.parse(filter.value);
+              if (filter.op === 'eq') return value === target;
+              if (filter.op === 'gte') return value >= target;
+              if (filter.op === 'lte') return value <= target;
+              return false;
+            });
+          }
+          if (scalar.search) {
+            const keys = (scalar.searchable_columns || [])
+              .map((column) => String(column).match(/([a-z][a-z0-9_]*)$/)?.[1])
+              .filter(Boolean);
+            const needle = String(scalar.search).toLocaleLowerCase();
+            rows = rows.filter((row) => keys.some((key) =>
+              String(row.data?.[key] ?? '').toLocaleLowerCase().includes(needle)));
+          }
+          const endpointExists = (specification, edge, opposite) => {
+            const table = {
+              custom_object: 'custom_object_record',
+              member: 'member',
+              organization: 'organization',
+              organization_group: 'organization_group',
+            }[specification.endpoint_kind];
+            return (tables[table] || []).some((endpoint) =>
+              endpoint.id === edge[opposite]
+              && endpoint.tenant_id === args.p_tenant_id
+              && (specification.endpoint_kind !== 'custom_object'
+                || (
+                  endpoint.custom_object_id === specification.endpoint_custom_object_id
+                  && endpoint.archived_at == null
+                )));
+          };
+          for (const filter of args.p_filters || []) {
+            const opposite = filter.side === 'source' ? 'target_record_id' : 'source_record_id';
+            const routed = filter.side === 'source' ? 'source_record_id' : 'target_record_id';
+            const linked = (id) => (tables.custom_object_relationship || []).filter((edge) =>
+              edge.tenant_id === args.p_tenant_id && edge.archived_at == null
+              && edge.relationship_definition_id === filter.relationship_definition_id
+              && edge[routed] === id
+              && endpointExists(filter, edge, opposite)).map((edge) => String(edge[opposite]));
+            rows = rows.filter((row) => {
+              const values = linked(row.id);
+              if (filter.op === 'is_empty') return values.length === 0;
+              if (filter.op === 'is_not_empty') return values.length > 0;
+              const match = filter.values.some((id) => values.includes(String(id)));
+              return filter.op === 'any_of' ? match : !match;
+            });
+          }
+          if (args.p_sort) {
+            const sort = args.p_sort;
+            const opposite = sort.side === 'source' ? 'target_record_id' : 'source_record_id';
+            const routed = sort.side === 'source' ? 'source_record_id' : 'target_record_id';
+            const valueFor = (row) => {
+              const edges = (tables.custom_object_relationship || []).filter((edge) =>
+                edge.tenant_id === args.p_tenant_id && edge.archived_at == null
+                && edge.relationship_definition_id === sort.relationship_definition_id
+                && edge[routed] === row.id
+                && endpointExists(sort, edge, opposite));
+              if (sort.mode === 'count') return edges.length;
+              return edges.map((edge) => (tables.custom_object_record || []).find((endpoint) =>
+                endpoint.id === edge[opposite])?.data?.[sort.display_key] || '').sort()[0] || '';
+            };
+            rows.sort((a, b) => {
+              const left = valueFor(a); const right = valueFor(b);
+              const result = typeof left === 'number' ? left - right : String(left).localeCompare(String(right));
+              return (sort.ascending ? result : -result) || (sort.ascending
+                ? String(a.id).localeCompare(String(b.id))
+                : String(b.id).localeCompare(String(a.id)));
+            });
+          } else if (scalar.sort_column) {
+            const key = String(scalar.sort_column).match(/([a-z][a-z0-9_]*)$/)?.[1];
+            const valueFor = (row) =>
+              ['created_at', 'updated_at'].includes(scalar.sort_column)
+                ? row[scalar.sort_column]
+                : row.data?.[key];
+            rows.sort((a, b) => {
+              const left = valueFor(a); const right = valueFor(b);
+              if (left == null && right == null) return String(a.id).localeCompare(String(b.id));
+              if (left == null) return 1;
+              if (right == null) return -1;
+              const result = typeof left === 'number'
+                ? left - right
+                : String(left).localeCompare(String(right));
+              return (scalar.ascending ? result : -result) || (scalar.ascending
+                ? String(a.id).localeCompare(String(b.id))
+                : String(b.id).localeCompare(String(a.id)));
+            });
+          }
+          const total = rows.length;
+          const page = rows.slice(args.p_offset, args.p_offset + args.p_limit)
+            .map((row) => ({ record_id: row.id, total_count: total }));
+          return {
+            data: page.length ? page : [{ record_id: null, total_count: total }],
+            error: null,
+          };
+        }
+        if (name !== 'archive_custom_object_relationship') {
+          return { data: null, error: { message: 'Unknown RPC' } };
+        }
+        const row = (tables.custom_object_relationship || []).find((candidate) =>
+          candidate.tenant_id === args.p_tenant_id
+          && candidate.id === args.p_relationship_id);
+        if (!row) return { data: null, error: { code: 'P0002', message: 'Relationship edge not found for tenant' } };
+        row.archived_at = args.p_archived_at;
+        row.archived_by = args.p_archived_by;
+        return { data: structuredClone(row), error: null };
+      };
+      return {
+        async single() {
+          return execute();
+        },
+        then(resolve, reject) { return Promise.resolve(execute()).then(resolve, reject); },
+      };
+    },
+    tables,
+    calls,
+  };
+}
+
+function deletedMemberFixture(side = 'source', members = null) {
+  const other = side === 'source' ? 'target' : 'source';
+  const memberRows = members || [
+    { id: 'deleted', email: 'DeLeTeD_token@DeLeTeD.LoCaL', first_name: 'A', last_name: 'Gone' },
+    { id: 'null', email: null, first_name: 'B', last_name: 'Null' },
+    { id: 'disabled', email: 'real@example.test', first_name: 'C', last_name: 'Disabled', is_active: false, show_in_directory: false },
+    { id: 'named', email: 'named@example.test', first_name: 'Deleted', last_name: 'Member' },
+    { id: 'empty-token', email: 'deleted_@deleted.local', first_name: 'E', last_name: 'Empty' },
+    { id: 'wrong-prefix', email: 'deletedXtoken@deleted.local', first_name: 'F', last_name: 'Prefix' },
+    { id: 'wrong-domain', email: 'deleted_token@deleted.local.example', first_name: 'G', last_name: 'Domain' },
+  ];
+  return {
+    custom_object_definition: [object()],
+    preference_field: [],
+    custom_object_record: [{
+      id: 'origin', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {},
+    }],
+    custom_object_relationship_definition: [{
+      id: 'member-links', tenant_id: tenantId, status: 'active', cardinality: 'many_to_many',
+      [`${side}_kind`]: 'custom_object', [`${side}_custom_object_id`]: objectId,
+      [`${other}_kind`]: 'member', [`${other}_custom_object_id`]: null,
+      show_on_source: true, show_on_target: true, edit_from_source: true, edit_from_target: true,
+    }],
+    member: memberRows.map((row) => ({ tenant_id: tenantId, ...row })),
+    custom_object_relationship: memberRows.map((row, index) => ({
+      id: `edge-${String(index).padStart(5, '0')}`, tenant_id: tenantId,
+      relationship_definition_id: 'member-links', [`${side}_record_id`]: 'origin',
+      [`${other}_record_id`]: row.id, archived_at: null, created_at: '2026-01-01',
+    })),
+  };
+}
+
+for (const side of ['source', 'target']) {
+  test(`deleted member panels ${side}: only deletion email excluded before totals, sort and pagination`, async () => {
+    const db = mockDb(deletedMemberFixture(side));
+    const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+    const query = { definitionId: 'member-links', recordId: 'origin', side, pageSize: '2' };
+    const first = await service.listRelationships(objectId, query);
+    assert.equal(first.total, 6);
+    assert.deepEqual(first.data.map((row) => row.related.id), ['wrong-domain', 'wrong-prefix']);
+    const sorted = await service.listRelationships(objectId, { ...query, sortField: 'record', sortDir: 'asc' });
+    assert.deepEqual(sorted.data.map((row) => row.related.id), ['null', 'disabled']);
+    const descending = await service.listRelationships(objectId, { ...query, sortField: 'record', sortDir: 'desc' });
+    assert.deepEqual(descending.data.map((row) => row.related.id), ['wrong-domain', 'wrong-prefix']);
+    const last = await service.listRelationships(objectId, { ...query, page: '3' });
+    assert.equal(last.total, 6);
+    assert.deepEqual(last.data.map((row) => row.related.id), ['disabled', 'null']);
+    const beyond = await service.listRelationships(objectId, { ...query, page: '5' });
+    assert.equal(beyond.total, 6);
+    assert.deepEqual(beyond.data, []);
+    db.tables.custom_object_relationship.forEach((row) => { row.archived_at = '2026-01-02'; });
+    const archived = await service.listRelationships(objectId, { ...query, includeArchived: 'true' });
+    assert.equal(archived.total, 6);
+    assert.ok(archived.data.every((row) => row.archived_at));
+    assert.equal((await service.listRelationships(objectId, query)).total, 0);
+  });
+
+  test(`deleted member panels ${side}: all deleted is empty, missing and foreign endpoints remain errors`, async () => {
+    const seed = deletedMemberFixture(side, [{ id: 'deleted', email: 'deleted_x@deleted.local' }]);
+    const db = mockDb(seed);
+    const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+    const query = { definitionId: 'member-links', recordId: 'origin', side };
+    const result = await service.listRelationships(objectId, query);
+    assert.equal(result.total, 0);
+    assert.deepEqual(result.data, []);
+    db.tables.member[0].tenant_id = 'foreign';
+    await assert.rejects(service.listRelationships(objectId, query), (error) =>
+      error.status === 409 && /missing, archived, or unavailable/.test(error.message));
+    db.tables.member = [];
+    await assert.rejects(service.listRelationships(objectId, query), (error) => error.status === 409);
+  });
+}
+
+test('member panels scan beyond API cap and bound every endpoint batch with tenant isolation', async () => {
+  const members = Array.from({ length: 1405 }, (_, index) => ({
+    id: `m-${String(index).padStart(5, '0')}`, first_name: `Name ${String(index).padStart(5, '0')}`,
+    email: index >= 1200 ? `deleted_${index}@deleted.local` : null,
+  }));
+  const seed = deletedMemberFixture('source', members);
+  seed.custom_object_relationship.push({
+    ...seed.custom_object_relationship[0], id: 'foreign-edge', tenant_id: 'foreign', target_record_id: 'missing',
+  });
+  const db = mockDb(seed, { __relationshipSelectCap: 1000 });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const query = { definitionId: 'member-links', recordId: 'origin', page: '11', pageSize: '100' };
+  const result = await service.listRelationships(objectId, query);
+  assert.equal(result.total, 1200);
+  assert.equal(result.data.length, 100);
+  assert.equal(result.data[0].related.id, 'm-00199');
+  const sorted = await service.listRelationships(objectId, { ...query, sortField: 'record', sortDir: 'asc' });
+  assert.equal(sorted.data[0].related.id, 'm-01000');
+  assert.equal(sorted.total, 1200);
+  const memberCalls = db.calls.filter((call) => call.table === 'member');
+  assert.ok(memberCalls.filter((call) => call.type === 'in').every((call) => call.values.length <= 200));
+  assert.ok(memberCalls.filter((call) => call.type === 'eq').every((call) =>
+    call.column === 'tenant_id' && call.value === tenantId));
+  assert.ok(db.calls.filter((call) => call.table === 'custom_object_relationship' && call.type === 'range')
+    .every((call) => call.to - call.from < 200));
+});
+
+test('direct and initial member pickers and selected filter options use the same deletion eligibility', async () => {
+  const seed = deletedMemberFixture();
+  seed.custom_object_relationship = [];
+  seed.member.push({ id: 'foreign', tenant_id: 'foreign', email: null, first_name: 'Foreign' });
+  const db = mockDb(seed);
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const query = { definitionId: 'member-links', recordId: 'origin', side: 'source', pageSize: '2' };
+  const picked = await service.entityPicker(objectId, query);
+  assert.equal(picked.total, 6);
+  assert.equal(picked.data.length, 2);
+  const initial = await service.initialRelationshipCandidates(objectId, { ...query, newRecordSide: 'source' });
+  assert.deepEqual(initial.data, picked.data);
+  assert.equal(initial.total, 6);
+  const searched = await service.entityPicker(objectId, { ...query, search: 'deleted' });
+  assert.equal(searched.total, 4);
+  assert.ok(searched.data.every((row) => row.id !== 'deleted'));
+  const options = await service.relationshipFilterOptions(objectId, {
+    fieldId: 'relationship:member-links:source', search: 'Disabled',
+    selected: ['deleted', 'null', 'foreign'],
+  });
+  assert.equal(options.total, 1);
+  assert.deepEqual(options.data.map((row) => row.id), ['null', 'disabled']);
+  db.tables.member.forEach((row) => { row.email = 'deleted_all@deleted.local'; });
+  assert.equal((await service.entityPicker(objectId, query)).total, 0);
+  assert.equal((await service.initialRelationshipCandidates(objectId, { ...query, newRecordSide: 'source' })).total, 0);
+});
+
+test('member picker scans deleted prefixes beyond the API cap before counting and paging', async () => {
+  const seed = deletedMemberFixture('target', Array.from({ length: 1302 }, (_, index) => ({
+    id: `picker-${index}`, last_name: String(index).padStart(5, '0'),
+    email: index < 1100 ? `deleted_${index}@deleted.local` : null,
+  })));
+  seed.custom_object_relationship = [];
+  const db = mockDb(seed);
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const query = { definitionId: 'member-links', recordId: 'origin', side: 'target', pageSize: '100', page: '3' };
+  const picked = await service.entityPicker(objectId, query);
+  assert.equal(picked.total, 202);
+  assert.deepEqual(picked.data.map((row) => row.id), ['picker-1300', 'picker-1301']);
+  const beyond = await service.entityPicker(objectId, { ...query, page: '4' });
+  assert.equal(beyond.total, 202);
+  assert.deepEqual(beyond.data, []);
+  assert.ok(db.calls.filter((call) => call.table === 'member' && call.type === 'range')
+    .every((call) => call.to - call.from < 200));
+  assert.equal(db.calls.filter((call) => call.table === 'member' && call.type === 'not').length, 0);
+});
+
+test('compact custom-object and core cards omit deleted nested members without treating them as missing', async () => {
+  const seed = deletedMemberFixture();
+  seed.custom_object_definition.push(object({ id: 'container-object' }));
+  seed.custom_object_record.push({
+    id: 'container-record', tenant_id: tenantId, custom_object_id: 'container-object', archived_at: null, data: {},
+  });
+  seed.organization = [{ id: 'organization', tenant_id: tenantId, name: 'Organisation' }];
+  const compactConfiguration = {
+    compact_preview: { target_columns: [{
+      type: 'relationship', relationship_definition_id: 'member-links', side: 'source', label: 'Members',
+    }] },
+  };
+  seed.custom_object_relationship_definition.push({
+    id: 'container-link', tenant_id: tenantId, status: 'active', cardinality: 'many_to_many',
+    source_kind: 'custom_object', source_custom_object_id: 'container-object',
+    target_kind: 'custom_object', target_custom_object_id: objectId,
+    configuration: compactConfiguration,
+  }, {
+    id: 'organization-link', tenant_id: tenantId, status: 'active', cardinality: 'many_to_many',
+    source_kind: 'organization', source_custom_object_id: null,
+    target_kind: 'custom_object', target_custom_object_id: objectId,
+    configuration: compactConfiguration,
+  });
+  seed.custom_object_relationship.push({
+    id: 'container-edge', tenant_id: tenantId, relationship_definition_id: 'container-link',
+    source_record_id: 'container-record', target_record_id: 'origin', archived_at: null,
+  }, {
+    id: 'organization-edge', tenant_id: tenantId, relationship_definition_id: 'organization-link',
+    source_record_id: 'organization', target_record_id: 'origin', archived_at: null,
+  });
+  const db = mockDb(seed);
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const custom = await service.listRelationships('container-object', {
+    definitionId: 'container-link', recordId: 'container-record',
+  });
+  const core = await service.listCoreRelationships('organization', 'organization', {
+    definitionId: 'organization-link',
+  });
+  for (const result of [custom, core]) {
+    assert.equal(result.total, 1);
+    const columns = result.data[0].related.relationship_columns;
+    assert.equal(columns.length, 6);
+    assert.ok(columns.every((column) => column.value.id !== 'deleted'));
+    assert.ok(columns.some((column) => column.value.id === 'null'));
+  }
+});
+
+function context(overrides = {}) {
+  return {
+    isAuthenticated: true,
+    tenantId,
+    memberId: 'member-1',
+    roleId,
+    ...overrides,
+  };
+}
+
+function object(overrides = {}) {
+  return {
+    id: objectId, tenant_id: tenantId, object_key: 'departments',
+    status: 'active', primary_display_field_id: null, ...overrides,
+  };
+}
+
+function field(overrides = {}) {
+  return {
+    id: 'field-1', tenant_id: tenantId, custom_object_id: objectId,
+    entity_scope: 'custom_object', name: 'headcount', label: 'Headcount',
+    field_type: 'number', is_required: true, is_active: true, display_order: 1,
+    ...overrides,
+  };
+}
+
+const chainEndpoint = (kind, customObjectId = null) => ({
+  kind,
+  custom_object_id: customObjectId,
+});
+
+const chainDefinition = (id, source, target, overrides = {}) => ({
+  id,
+  tenant_id: tenantId,
+  status: 'active',
+  source_kind: source.kind,
+  source_custom_object_id: source.custom_object_id,
+  target_kind: target.kind,
+  target_custom_object_id: target.custom_object_id,
+  source_label: 'Related',
+  target_label: 'Related',
+  show_on_source: true,
+  show_on_target: true,
+  ...overrides,
+});
+
+function chainedSeed({
+  definitions,
+  objects = [],
+  fields = [],
+  records = [],
+  edges = [],
+  permissions = [],
+  fieldPermissions = [],
+  extraTables = {},
+} = {}) {
+  return mockDb({
+    custom_object_definition: [object(), ...objects],
+    preference_field: fields,
+    custom_object_relationship_definition: definitions,
+    custom_object_record: records,
+    custom_object_relationship: edges,
+    custom_object_role_permission: [
+      { tenant_id: tenantId, custom_object_id: objectId, role_id: roleId, can_view_records: true, can_export_records: true },
+      ...permissions,
+    ],
+    custom_object_field_role_permission: fieldPermissions,
+    ...extraTables,
+  });
+}
+
+const chainColumns = (result) => result.metadata?.chained_columns || [];
+const pathHas = (column, ids) =>
+  JSON.stringify(column.path.map((hop) => hop.relationship_definition_id)) === JSON.stringify(ids);
+const terminalColumn = (result, endpointId, terminalKind, fieldId = null, path = null) =>
+  chainColumns(result).find((column) =>
+    column.endpoint?.kind === 'custom_object'
+    && String(column.endpoint.custom_object_id) === String(endpointId)
+    && column.terminal?.kind === terminalKind
+    && (fieldId == null || String(column.terminal.field_id) === String(fieldId))
+    && (!path || pathHas(column, path)));
+
+test('field ACLs prune active and archived definitions while retaining only unknown legacy keys', async () => {
+  const archived = field({ id: 'field-archived', name: 'retired_secret', is_active: false });
+  const denied = field({ id: 'field-denied', name: 'secret', is_required: false });
+  const visible = field({ id: 'field-visible', name: 'title', field_type: 'text', is_required: false });
+  const db = mockDb({
+    custom_object_definition: [object({ primary_display_field_id: visible.id })],
+    custom_object_role_permission: [{ tenant_id: tenantId, custom_object_id: objectId, role_id: roleId, can_view_records: true }],
+    custom_object_field_role_permission: [
+      { tenant_id: tenantId, custom_object_id: objectId, role_id: roleId, field_id: denied.id, access_level: 'none' },
+      { tenant_id: tenantId, custom_object_id: objectId, role_id: roleId, field_id: archived.id, access_level: 'none' },
+    ],
+    preference_field: [visible, denied, archived],
+    custom_object_record: [{ id: 'record-1', tenant_id: tenantId, custom_object_id: objectId, data: {
+      title: 'Visible', secret: 'Denied', retired_secret: 'Denied historic', unknown_legacy: 'kept',
+    } }],
+  });
+  const record = await createCustomObjectService({ db, context: context() }).getRecord(objectId, 'record-1');
+  assert.deepEqual(record.data, { title: 'Visible', unknown_legacy: 'kept' });
+});
+
+test('field permissions reject denied query and writes and ignore required read-only fields', async () => {
+  const readOnly = field({ id: 'field-read', name: 'required_read_only', field_type: 'text', is_required: true });
+  const denied = field({ id: 'field-denied', name: 'secret', is_required: false });
+  const writable = field({ id: 'field-write', name: 'title', field_type: 'text', is_required: false });
+  const db = mockDb({
+    custom_object_definition: [object()],
+    custom_object_role_permission: [{
+      tenant_id: tenantId, custom_object_id: objectId, role_id: roleId,
+      can_view_records: true, can_create_records: true, can_edit_records: true,
+    }],
+    custom_object_field_role_permission: [
+      { tenant_id: tenantId, custom_object_id: objectId, role_id: roleId, field_id: readOnly.id, access_level: 'read' },
+      { tenant_id: tenantId, custom_object_id: objectId, role_id: roleId, field_id: denied.id, access_level: 'none' },
+    ],
+    preference_field: [readOnly, denied, writable],
+    custom_object_record: [{ id: 'record-1', tenant_id: tenantId, custom_object_id: objectId, data: { title: 'Old', secret: 'x' } }],
+  });
+  const service = createCustomObjectService({ db, context: context() });
+  await service.createRecord(objectId, { data: { title: 'New' } });
+  await assert.rejects(() => service.listRecords(objectId, { filters: JSON.stringify({ [denied.id]: { op: 'equals', value: 'x' } }) }), /Unknown or inactive filter field/);
+  await assert.rejects(() => service.listRecords(objectId, { sortField: denied.id }), /sortField/);
+  await assert.rejects(() => service.updateRecord(objectId, 'record-1', { data: { secret: 'no' } }), /read-only or unavailable/);
+  await assert.rejects(() => service.updateRecord(objectId, 'record-1', { data: { required_read_only: 'no' } }), /read-only or unavailable/);
+});
+
+test('export requires its object capability and returns only readable fields', async () => {
+  const visible = field({ id: 'field-visible', name: 'title', field_type: 'text', is_required: false });
+  const denied = field({ id: 'field-denied', name: 'secret', field_type: 'text', is_required: false });
+  const seed = {
+    custom_object_definition: [object({ primary_display_field_id: visible.id })],
+    preference_field: [visible, denied],
+    custom_object_field_role_permission: [{ tenant_id: tenantId, custom_object_id: objectId, role_id: roleId, field_id: denied.id, access_level: 'none' }],
+    custom_object_record: [{ id: 'record-1', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { title: 'Public', secret: 'Private' } }],
+  };
+  const deniedExport = createCustomObjectService({ db: mockDb({
+    ...seed,
+    custom_object_role_permission: [{ tenant_id: tenantId, custom_object_id: objectId, role_id: roleId, can_view_records: true }],
+  }), context: context() });
+  await assert.rejects(() => deniedExport.exportRecords(objectId, {}), /Access denied/);
+  const allowed = createCustomObjectService({ db: mockDb({
+    ...seed,
+    custom_object_role_permission: [{ tenant_id: tenantId, custom_object_id: objectId, role_id: roleId, can_view_records: true, can_export_records: true }],
+  }), context: context() });
+  const result = await allowed.exportRecords(objectId, {});
+  assert.deepEqual(result.columns.map((column) => column.key), ['title']);
+  assert.equal(result.data[0].display_value, 'Public');
+  assert.deepEqual(result.data[0].data, { title: 'Public' });
+  assert.equal(result.total, 1);
+  assert.equal(result.page, 1);
+  assert.equal(result.pageSize, 500);
+});
+
+test('export transport returns a real one-thousand-record page without interactive-list truncation', async () => {
+  const records = Array.from({ length: 1001 }, (_, index) => ({
+    id: `record-${String(index).padStart(4, '0')}`,
+    tenant_id: tenantId,
+    custom_object_id: objectId,
+    archived_at: null,
+    created_at: `2026-01-01T00:${String(index % 60).padStart(2, '0')}:00.000Z`,
+    updated_at: `2026-01-01T00:${String(index % 60).padStart(2, '0')}:00.000Z`,
+    data: {},
+  }));
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [],
+    custom_object_record: records,
+  });
+  const result = await createCustomObjectService({
+    db,
+    context: context({ roleId: null }),
+    isAdmin: true,
+  }).exportRecords(objectId, { page: '1', pageSize: '1000', sortField: 'created_at', sortDir: 'asc' });
+  assert.equal(result.data.length, 1000);
+  assert.equal(result.total, 1001);
+  assert.equal(result.pageSize, 1000);
+  const rangeCall = db.calls.find((call) =>
+    call.table === 'custom_object_record' && call.type === 'range');
+  assert.deepEqual([rangeCall.from, rangeCall.to], [0, 999]);
+});
+
+test('chained list columns expose authorized one-hop labels and fields and export the same values', async () => {
+  const organisationId = 'chain-organisation';
+  const orgName = field({
+    id: 'org-name', custom_object_id: organisationId, name: 'name', label: 'Organisation',
+    field_type: 'text', is_required: false,
+  });
+  const orgEmail = field({
+    id: 'org-email', custom_object_id: organisationId, name: 'email', label: 'Email',
+    field_type: 'email', is_required: false, display_order: 2,
+  });
+  const definition = chainDefinition(
+    'department-organisation',
+    chainEndpoint('custom_object', objectId),
+    chainEndpoint('custom_object', organisationId),
+    { source_label: 'Organisation', target_label: 'Department' },
+  );
+  const db = chainedSeed({
+    objects: [object({
+      id: organisationId, object_key: 'organisations', singular_label: 'Organisation',
+      plural_label: 'Organisations', primary_display_field_id: orgName.id,
+    })],
+    fields: [field({
+      id: 'department-name', name: 'name', label: 'Department', field_type: 'text',
+      is_required: false, display_order: 1,
+    }), orgName, orgEmail],
+    definitions: [definition],
+    records: [
+      {
+        id: 'department-1', tenant_id: tenantId, custom_object_id: objectId, archived_at: null,
+        data: { name: 'Finance' },
+      },
+      {
+        id: 'department-2', tenant_id: tenantId, custom_object_id: objectId, archived_at: null,
+        data: { name: 'Sales' },
+      },
+      {
+        id: 'org-1', tenant_id: tenantId, custom_object_id: organisationId, archived_at: null,
+        data: { name: 'Acme', email: 'acme@example.test' },
+      },
+      {
+        id: 'org-2', tenant_id: tenantId, custom_object_id: organisationId, archived_at: null,
+        data: { name: 'Beta', email: 'beta@example.test' },
+      },
+    ],
+    edges: [
+      {
+        id: 'edge-1', tenant_id: tenantId, relationship_definition_id: definition.id,
+        source_record_id: 'department-1', target_record_id: 'org-1', archived_at: null,
+      },
+      {
+        id: 'edge-2', tenant_id: tenantId, relationship_definition_id: definition.id,
+        source_record_id: 'department-2', target_record_id: 'org-2', archived_at: null,
+      },
+    ],
+    permissions: [{
+      tenant_id: tenantId, custom_object_id: organisationId, role_id: roleId,
+      can_view_records: true, can_export_records: true,
+    }],
+  });
+  const service = createCustomObjectService({ db, context: context() });
+  const discovered = await service.listRecords(objectId, {});
+  const label = terminalColumn(discovered, organisationId, 'label');
+  const email = terminalColumn(discovered, organisationId, 'field', orgEmail.id);
+  assert.ok(label, 'the reachable primary label is advertised');
+  assert.ok(email, 'the reachable readable field is advertised');
+  assert.match(label.id, /^chained:v1:/);
+  assert.deepEqual(label.path.map((hop) => hop.relationship_definition_id), [definition.id]);
+  const selected = JSON.stringify([label.id, email.id]);
+  const result = await service.listRecords(objectId, {
+    chainedColumns: selected, sortField: 'created_at', sortDir: 'asc',
+  });
+  assert.deepEqual(result.data.map((record) => record.chained_values[label.id]), [
+    { records: [{ label: 'Acme' }], count: 1 },
+    { records: [{ label: 'Beta' }], count: 1 },
+  ]);
+  assert.deepEqual(result.data.map((record) => record.chained_values[email.id]), [
+    { records: [{ label: 'acme@example.test' }], count: 1 },
+    { records: [{ label: 'beta@example.test' }], count: 1 },
+  ]);
+  const exported = await service.exportRecords(objectId, {
+    chainedColumns: selected, page: '1', pageSize: '500',
+    sortField: 'created_at', sortDir: 'asc',
+  });
+  assert.deepEqual(
+    exported.data.map((record) => record.chained_values),
+    result.data.map((record) => record.chained_values),
+  );
+  assert.deepEqual(exported.metadata.chained_columns, discovered.metadata.chained_columns);
+});
+
+test('chained two-hop values preserve occurrence alignment and exact counts without mixing sibling paths', async () => {
+  const projectId = 'chain-project';
+  const organisationId = 'chain-two-hop-organisation';
+  const projectName = field({
+    id: 'project-name', custom_object_id: projectId, name: 'name', label: 'Project',
+    field_type: 'text', is_required: false,
+  });
+  const orgName = field({
+    id: 'two-hop-org-name', custom_object_id: organisationId, name: 'name',
+    label: 'Organisation', field_type: 'text', is_required: false,
+  });
+  const orgEmail = field({
+    id: 'two-hop-org-email', custom_object_id: organisationId, name: 'email',
+    label: 'Email', field_type: 'email', is_required: false, display_order: 2,
+  });
+  const first = chainDefinition(
+    'department-project', chainEndpoint('custom_object', objectId),
+    chainEndpoint('custom_object', projectId), { source_label: 'Projects' },
+  );
+  const second = chainDefinition(
+    'project-organisation', chainEndpoint('custom_object', projectId),
+    chainEndpoint('custom_object', organisationId), { source_label: 'Organisations' },
+  );
+  const db = chainedSeed({
+    objects: [
+      object({
+        id: projectId, object_key: 'projects', primary_display_field_id: projectName.id,
+      }),
+      object({
+        id: organisationId, object_key: 'two_hop_organisations',
+        primary_display_field_id: orgName.id,
+      }),
+    ],
+    fields: [
+      field({ id: 'two-hop-department-name', name: 'name', label: 'Department', field_type: 'text', is_required: false }),
+      projectName, orgName, orgEmail,
+    ],
+    definitions: [first, second],
+    records: [
+      { id: 'dept-a', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { name: 'A' } },
+      { id: 'dept-b', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { name: 'B' } },
+      { id: 'project-a1', tenant_id: tenantId, custom_object_id: projectId, archived_at: null, data: { name: 'A1' } },
+      { id: 'project-a2', tenant_id: tenantId, custom_object_id: projectId, archived_at: null, data: { name: 'A2' } },
+      { id: 'project-b1', tenant_id: tenantId, custom_object_id: projectId, archived_at: null, data: { name: 'B1' } },
+      { id: 'org-a1', tenant_id: tenantId, custom_object_id: organisationId, archived_at: null, data: { name: 'Org A1', email: 'a1@example.test' } },
+      { id: 'org-a2', tenant_id: tenantId, custom_object_id: organisationId, archived_at: null, data: { name: 'Org A2', email: 'a2@example.test' } },
+      { id: 'org-b1', tenant_id: tenantId, custom_object_id: organisationId, archived_at: null, data: { name: 'Org B1', email: 'b1@example.test' } },
+    ],
+    edges: [
+      { id: 'first-a1', tenant_id: tenantId, relationship_definition_id: first.id, source_record_id: 'dept-a', target_record_id: 'project-a1', archived_at: null },
+      { id: 'first-a2', tenant_id: tenantId, relationship_definition_id: first.id, source_record_id: 'dept-a', target_record_id: 'project-a2', archived_at: null },
+      { id: 'first-b1', tenant_id: tenantId, relationship_definition_id: first.id, source_record_id: 'dept-b', target_record_id: 'project-b1', archived_at: null },
+      { id: 'second-a1', tenant_id: tenantId, relationship_definition_id: second.id, source_record_id: 'project-a1', target_record_id: 'org-a1', archived_at: null },
+      { id: 'second-a2', tenant_id: tenantId, relationship_definition_id: second.id, source_record_id: 'project-a2', target_record_id: 'org-a2', archived_at: null },
+      { id: 'second-b1', tenant_id: tenantId, relationship_definition_id: second.id, source_record_id: 'project-b1', target_record_id: 'org-b1', archived_at: null },
+    ],
+    permissions: [
+      { tenant_id: tenantId, custom_object_id: projectId, role_id: roleId, can_view_records: true },
+      { tenant_id: tenantId, custom_object_id: organisationId, role_id: roleId, can_view_records: true },
+    ],
+  });
+  const service = createCustomObjectService({ db, context: context() });
+  const discovered = await service.listRecords(objectId, {});
+  const label = terminalColumn(discovered, organisationId, 'label', null, [first.id, second.id]);
+  const email = terminalColumn(discovered, organisationId, 'field', orgEmail.id, [first.id, second.id]);
+  assert.ok(label);
+  assert.ok(email);
+  const result = await service.listRecords(objectId, {
+    chainedColumns: JSON.stringify([label.id, email.id]), sortField: 'created_at', sortDir: 'asc',
+  });
+  assert.deepEqual(result.data.map((record) => record.chained_values[label.id]), [
+    {
+      records: [{ label: 'Org A1' }, { label: 'Org A2' }],
+      count: 2,
+    },
+    { records: [{ label: 'Org B1' }], count: 1 },
+  ]);
+  assert.deepEqual(result.data.map((record) => record.chained_values[email.id]), [
+    {
+      records: [{ label: 'a1@example.test' }, { label: 'a2@example.test' }],
+      count: 2,
+    },
+    { records: [{ label: 'b1@example.test' }], count: 1 },
+  ]);
+  assert.equal(result.data[0].chained_values[label.id].records.length, 2);
+  assert.equal(result.data[1].chained_values[label.id].records.length, 1);
+});
+
+test('chained columns exclude archived edges and endpoints and cap returned labels at three', async () => {
+  const organisationId = 'chain-archived-organisation';
+  const orgName = field({
+    id: 'archived-org-name', custom_object_id: organisationId, name: 'name',
+    label: 'Organisation', field_type: 'text', is_required: false,
+  });
+  const definition = chainDefinition(
+    'archived-department-organisation', chainEndpoint('custom_object', objectId),
+    chainEndpoint('custom_object', organisationId),
+  );
+  const records = [
+    { id: 'archived-dept', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {} },
+    ...Array.from({ length: 5 }, (_, index) => ({
+      id: `archived-org-${index}`, tenant_id: tenantId, custom_object_id: organisationId,
+      archived_at: index === 4 ? '2026-01-01T00:00:00Z' : null,
+      data: { name: `Org ${index}` },
+    })),
+  ];
+  const db = chainedSeed({
+    objects: [object({ id: organisationId, primary_display_field_id: orgName.id })],
+    fields: [orgName],
+    definitions: [definition],
+    records,
+    edges: [
+      ...Array.from({ length: 5 }, (_, index) => ({
+        id: `archived-edge-${index}`, tenant_id: tenantId, relationship_definition_id: definition.id,
+        source_record_id: 'archived-dept', target_record_id: `archived-org-${index}`,
+        archived_at: index === 3 ? '2026-01-01T00:00:00Z' : null,
+      })),
+    ],
+    permissions: [{ tenant_id: tenantId, custom_object_id: organisationId, role_id: roleId, can_view_records: true }],
+  });
+  const service = createCustomObjectService({ db, context: context() });
+  const discovered = await service.listRecords(objectId, {});
+  const label = terminalColumn(discovered, organisationId, 'label');
+  assert.ok(label);
+  const result = await service.listRecords(objectId, { chainedColumns: JSON.stringify([label.id]) });
+  assert.deepEqual(result.data[0].chained_values[label.id], {
+    records: [{ label: 'Org 0' }, { label: 'Org 1' }, { label: 'Org 2' }],
+    count: 3,
+  });
+});
+
+for (const rootSide of ['source', 'target']) {
+  for (const memberSide of ['source', 'target']) {
+    test(`chained member eligibility prunes terminal and intermediate hops (${rootSide}/${memberSide})`, async () => {
+      const members = [
+        { id: 'deleted', email: 'DeLeTeD_token@DeLeTeD.LoCaL', first_name: 'A', last_name: 'Gone' },
+        { id: 'null', email: null, first_name: 'B', last_name: 'Null' },
+        { id: 'disabled', email: 'real@example.test', first_name: 'C', last_name: 'Disabled', is_active: false, show_in_directory: false },
+        { id: 'named', email: 'real2@example.test', first_name: 'Deleted', last_name: 'Member' },
+      ];
+      const seed = deletedMemberFixture(rootSide, members);
+      const leafObjectId = 'chain-member-leaf';
+      const leafName = field({
+        id: 'leaf-name', custom_object_id: leafObjectId, name: 'name',
+        field_type: 'text', is_required: false,
+      });
+      seed.preference_field.push(leafName);
+      seed.custom_object_definition.push(object({
+        id: leafObjectId, object_key: 'leaf', primary_display_field_id: leafName.id,
+      }));
+      const leafSide = memberSide === 'source' ? 'target' : 'source';
+      seed.custom_object_relationship_definition.push({
+        id: 'member-leaf', tenant_id: tenantId, status: 'active', cardinality: 'many_to_many',
+        [`${memberSide}_kind`]: 'member', [`${memberSide}_custom_object_id`]: null,
+        [`${leafSide}_kind`]: 'custom_object', [`${leafSide}_custom_object_id`]: leafObjectId,
+        show_on_source: true, show_on_target: true,
+      });
+      const memberRootSide = rootSide === 'source' ? 'target' : 'source';
+      seed.custom_object_record.push({
+        id: 'all-deleted', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {},
+      });
+      seed.custom_object_relationship.push({
+        id: 'all-deleted-edge', tenant_id: tenantId, relationship_definition_id: 'member-links',
+        [`${rootSide}_record_id`]: 'all-deleted', [`${memberRootSide}_record_id`]: 'deleted',
+        archived_at: null,
+      });
+      for (const [index, member] of members.entries()) {
+        seed.custom_object_record.push({
+          id: `leaf-${member.id}`, tenant_id: tenantId, custom_object_id: leafObjectId,
+          archived_at: null, data: { name: `Leaf ${index}` },
+        });
+        seed.custom_object_relationship.push({
+          id: `leaf-edge-${member.id}`, tenant_id: tenantId, relationship_definition_id: 'member-leaf',
+          [`${memberSide}_record_id`]: member.id, [`${leafSide}_record_id`]: `leaf-${member.id}`,
+          archived_at: null,
+        });
+      }
+      // A terminal reachable via both a deleted and an eligible member stays.
+      seed.custom_object_relationship.push({
+        id: 'shared-leaf-edge', tenant_id: tenantId, relationship_definition_id: 'member-leaf',
+        [`${memberSide}_record_id`]: 'deleted', [`${leafSide}_record_id`]: 'leaf-null',
+        archived_at: null,
+      });
+      const db = mockDb(seed);
+      const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+      const discovered = await service.listRecords(objectId, {});
+      const memberColumn = chainColumns(discovered).find((column) =>
+        column.endpoint.kind === 'member' && column.terminal.kind === 'label'
+        && pathHas(column, ['member-links']));
+      const leafColumn = terminalColumn(discovered, leafObjectId, 'label', null, ['member-links', 'member-leaf']);
+      assert.ok(memberColumn);
+      assert.ok(leafColumn);
+      const query = { chainedColumns: JSON.stringify([memberColumn.id, leafColumn.id]) };
+      const result = await service.listRecords(objectId, query);
+      const mixed = result.data.find((row) => row.id === 'origin');
+      assert.deepEqual(mixed.chained_values[memberColumn.id], {
+        count: 3, records: [{ label: 'B Null' }, { label: 'C Disabled' }, { label: 'Deleted Member' }],
+      });
+      assert.deepEqual(mixed.chained_values[leafColumn.id], {
+        count: 3, records: [{ label: 'Leaf 1' }, { label: 'Leaf 2' }, { label: 'Leaf 3' }],
+      });
+      const empty = result.data.find((row) => row.id === 'all-deleted');
+      for (const column of [memberColumn, leafColumn]) {
+        assert.deepEqual(empty.chained_values[column.id], { count: 0, records: [] });
+      }
+      assert.ok(db.calls.filter((call) =>
+        call.table === 'custom_object_relationship' && call.type === 'in')
+        .every((call) => !call.values.includes('deleted')),
+      'deleted intermediates must never reach the next hop query');
+      const exported = await service.exportRecords(objectId, query);
+      assert.deepEqual(exported.data.map((row) => row.chained_values), result.data.map((row) => row.chained_values));
+    });
+  }
+}
+
+test('chained metadata never exposes denied terminal fields or core endpoints', async () => {
+  const organisationId = 'chain-acl-organisation';
+  const secret = field({
+    id: 'org-secret', custom_object_id: organisationId, name: 'secret',
+    label: 'Secret', field_type: 'text', is_required: false,
+  });
+  const name = field({
+    id: 'org-safe-name', custom_object_id: organisationId, name: 'name',
+    label: 'Organisation', field_type: 'text', is_required: false,
+  });
+  const customDefinition = chainDefinition(
+    'acl-department-organisation', chainEndpoint('custom_object', objectId),
+    chainEndpoint('custom_object', organisationId),
+  );
+  const coreDefinition = chainDefinition(
+    'acl-department-member', chainEndpoint('custom_object', objectId),
+    chainEndpoint('member'),
+  );
+  const db = chainedSeed({
+    objects: [object({ id: organisationId, primary_display_field_id: name.id })],
+    fields: [name, secret],
+    definitions: [customDefinition, coreDefinition],
+    records: [
+      { id: 'acl-department', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {} },
+      { id: 'acl-org', tenant_id: tenantId, custom_object_id: organisationId, archived_at: null, data: { name: 'Safe', secret: 'Do not expose' } },
+    ],
+    edges: [{
+      id: 'acl-edge', tenant_id: tenantId, relationship_definition_id: customDefinition.id,
+      source_record_id: 'acl-department', target_record_id: 'acl-org', archived_at: null,
+    }],
+    permissions: [{ tenant_id: tenantId, custom_object_id: organisationId, role_id: roleId, can_view_records: true }],
+    fieldPermissions: [{
+      tenant_id: tenantId, custom_object_id: organisationId, role_id: roleId,
+      field_id: secret.id, access_level: 'none',
+    }],
+  });
+  const result = await createCustomObjectService({ db, context: context() }).listRecords(objectId, {});
+  assert.ok(terminalColumn(result, organisationId, 'label'));
+  assert.equal(
+    chainColumns(result).some((column) => String(column.terminal?.field_id) === String(secret.id)),
+    false,
+  );
+  assert.equal(
+    chainColumns(result).some((column) => column.endpoint?.kind === 'member'),
+    false,
+  );
+});
+
+test('chained IDs remain stable across display-label renames but change when terminal identity changes', async () => {
+  const organisationId = 'chain-stable-organisation';
+  const firstName = field({
+    id: 'stable-name', custom_object_id: organisationId, name: 'name',
+    label: 'Organisation', field_type: 'text', is_required: false,
+  });
+  const renamedObject = object({
+    id: organisationId, object_key: 'stable_organisations',
+    primary_display_field_id: firstName.id, singular_label: 'Organisation', plural_label: 'Organisations',
+  });
+  const definition = chainDefinition(
+    'stable-department-organisation', chainEndpoint('custom_object', objectId),
+    chainEndpoint('custom_object', organisationId), { source_label: 'Organisation' },
+  );
+  const seed = {
+    objects: [renamedObject],
+    fields: [firstName],
+    definitions: [definition],
+    records: [{ id: 'stable-department', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {} }],
+    permissions: [{ tenant_id: tenantId, custom_object_id: organisationId, role_id: roleId, can_view_records: true }],
+  };
+  const first = await createCustomObjectService({
+    db: chainedSeed(seed), context: context(),
+  }).listRecords(objectId, {});
+  const firstLabel = terminalColumn(first, organisationId, 'label');
+  assert.ok(firstLabel);
+
+  const renamedDefinition = {
+    ...definition, source_label: 'Renamed organisation', target_label: 'Renamed department',
+  };
+  const renamed = await createCustomObjectService({
+    db: chainedSeed({
+      ...seed, objects: [{ ...renamedObject, singular_label: 'Renamed organisation' }],
+      definitions: [renamedDefinition],
+    }), context: context(),
+  }).listRecords(objectId, {});
+  const renamedLabel = terminalColumn(renamed, organisationId, 'label');
+  assert.equal(renamedLabel.id, firstLabel.id);
+
+  const replacement = field({
+    id: 'stable-replacement', custom_object_id: organisationId, name: 'title',
+    label: 'Title', field_type: 'text', is_required: false,
+  });
+  const retargeted = await createCustomObjectService({
+    db: chainedSeed({
+      ...seed,
+      objects: [{ ...renamedObject, primary_display_field_id: replacement.id }],
+      fields: [firstName, replacement],
+    }), context: context(),
+  }).listRecords(objectId, {});
+  const retargetedLabel = terminalColumn(retargeted, organisationId, 'label');
+  assert.ok(retargetedLabel);
+  assert.notEqual(retargetedLabel.id, firstLabel.id);
+});
+
+test('chained selections reject malformed, disconnected, and forged IDs without defaulting to all columns', async () => {
+  const organisationId = 'chain-validation-organisation';
+  const name = field({
+    id: 'validation-name', custom_object_id: organisationId, name: 'name',
+    label: 'Organisation', field_type: 'text', is_required: false,
+  });
+  const definition = chainDefinition(
+    'validation-department-organisation', chainEndpoint('custom_object', objectId),
+    chainEndpoint('custom_object', organisationId),
+  );
+  const db = chainedSeed({
+    objects: [object({ id: organisationId, primary_display_field_id: name.id })],
+    fields: [name],
+    definitions: [definition],
+    records: [{ id: 'validation-department', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {} }],
+    permissions: [{ tenant_id: tenantId, custom_object_id: organisationId, role_id: roleId, can_view_records: true }],
+  });
+  const service = createCustomObjectService({ db, context: context() });
+  await assert.rejects(() => service.listRecords(objectId, { chainedColumns: '{bad json' }), /valid JSON|array/);
+  await assert.rejects(() => service.listRecords(objectId, { chainedColumns: JSON.stringify('not an array') }), /array/);
+  await assert.rejects(() => service.listRecords(objectId, { chainedColumns: JSON.stringify(['chained:v1:forged']) }), /Unknown|unavailable|stale/);
+  await assert.rejects(() => service.listRecords(objectId, {
+    chainedColumns: JSON.stringify([{
+      id: 'forged-object', path: [{ relationship_definition_id: 'missing', from_side: 'source' }],
+    }]),
+  }), /array|Unknown|unavailable|stale/);
+});
+
+test('chained traversal batches relationship lookups rather than querying once per root row', async () => {
+  const organisationId = 'chain-batch-organisation';
+  const orgName = field({
+    id: 'batch-name', custom_object_id: organisationId, name: 'name',
+    label: 'Organisation', field_type: 'text', is_required: false,
+  });
+  const definition = chainDefinition(
+    'batch-department-organisation', chainEndpoint('custom_object', objectId),
+    chainEndpoint('custom_object', organisationId),
+  );
+  const rootRecords = Array.from({ length: 25 }, (_, index) => ({
+    id: `batch-department-${index}`, tenant_id: tenantId, custom_object_id: objectId,
+    archived_at: null, data: {},
+  }));
+  const relatedRecords = rootRecords.map((record, index) => ({
+    id: `batch-org-${index}`, tenant_id: tenantId, custom_object_id: organisationId,
+    archived_at: null, data: { name: `Organisation ${index}` },
+  }));
+  const db = chainedSeed({
+    objects: [object({ id: organisationId, primary_display_field_id: orgName.id })],
+    fields: [orgName],
+    definitions: [definition],
+    records: [...rootRecords, ...relatedRecords],
+    edges: rootRecords.map((record, index) => ({
+      id: `batch-edge-${index}`, tenant_id: tenantId, relationship_definition_id: definition.id,
+      source_record_id: record.id, target_record_id: `batch-org-${index}`, archived_at: null,
+    })),
+    permissions: [{ tenant_id: tenantId, custom_object_id: organisationId, role_id: roleId, can_view_records: true }],
+  });
+  const service = createCustomObjectService({ db, context: context() });
+  const discovered = await service.listRecords(objectId, {});
+  const label = terminalColumn(discovered, organisationId, 'label');
+  assert.ok(label);
+  await service.listRecords(objectId, {
+    chainedColumns: JSON.stringify([label.id]), pageSize: '100',
+  });
+  const edgeReads = db.calls.filter((call) =>
+    call.table === 'custom_object_relationship' && call.type === 'in');
+  assert.ok(edgeReads.length <= 2, `expected batched edge reads, got ${edgeReads.length}`);
+  assert.ok(edgeReads.some((call) => call.values.length > 1));
+});
+
+test('chained discovery caps paths at six hops and never advertises endpoint cycles', async () => {
+  const nodes = Array.from({ length: 7 }, (_, index) => `depth-node-${index + 1}`);
+  const nodeObjects = nodes.map((id, index) => object({
+    id, object_key: id, primary_display_field_id: `depth-field-${index + 1}`,
+  }));
+  const nodeFields = nodes.map((id, index) => field({
+    id: `depth-field-${index + 1}`, custom_object_id: id, name: 'name',
+    label: `Node ${index + 1}`, field_type: 'text', is_required: false,
+  }));
+  const endpoints = [objectId, ...nodes];
+  const definitions = nodes.map((id, index) => chainDefinition(
+    `depth-edge-${index + 1}`,
+    chainEndpoint('custom_object', endpoints[index]),
+    chainEndpoint('custom_object', id),
+  ));
+  // This eighth edge would return to the root if the traversal used
+  // definition count alone. It must be ignored as an endpoint cycle.
+  definitions.push(chainDefinition(
+    'depth-cycle-to-root',
+    chainEndpoint('custom_object', nodes.at(-1)),
+    chainEndpoint('custom_object', objectId),
+  ));
+  const db = chainedSeed({
+    objects: nodeObjects,
+    fields: [
+      field({ id: 'depth-root-field', name: 'name', label: 'Root', field_type: 'text', is_required: false }),
+      ...nodeFields,
+    ],
+    definitions,
+    permissions: endpoints.slice(1).map((id) => ({
+      tenant_id: tenantId, custom_object_id: id, role_id: roleId, can_view_records: true,
+    })),
+  });
+  const result = await createCustomObjectService({ db, context: context() }).listRecords(objectId, {});
+  const columns = chainColumns(result);
+  assert.ok(columns.length > 0);
+  assert.ok(Math.max(...columns.map((column) => column.path.length)) <= 6);
+  assert.equal(columns.some((column) =>
+    String(column.endpoint?.custom_object_id) === String(objectId)), false);
+  assert.equal(columns.some((column) => column.path.length === 7), false);
+});
+
+test('denied intermediate custom-object view removes every downstream chained path', async () => {
+  const middleId = 'denied-chain-middle';
+  const terminalId = 'denied-chain-terminal';
+  const middleField = field({
+    id: 'denied-middle-name', custom_object_id: middleId, name: 'name',
+    label: 'Middle', field_type: 'text', is_required: false,
+  });
+  const terminalField = field({
+    id: 'denied-terminal-name', custom_object_id: terminalId, name: 'name',
+    label: 'Terminal', field_type: 'text', is_required: false,
+  });
+  const first = chainDefinition(
+    'denied-root-middle', chainEndpoint('custom_object', objectId),
+    chainEndpoint('custom_object', middleId),
+  );
+  const second = chainDefinition(
+    'denied-middle-terminal', chainEndpoint('custom_object', middleId),
+    chainEndpoint('custom_object', terminalId),
+  );
+  const db = chainedSeed({
+    objects: [
+      object({ id: middleId, primary_display_field_id: middleField.id }),
+      object({ id: terminalId, primary_display_field_id: terminalField.id }),
+    ],
+    fields: [middleField, terminalField],
+    definitions: [first, second],
+    permissions: [{
+      tenant_id: tenantId, custom_object_id: terminalId, role_id: roleId, can_view_records: true,
+    }],
+    // Deliberately no view grant for the intermediate endpoint.
+  });
+  const result = await createCustomObjectService({ db, context: context() }).listRecords(objectId, {});
+  assert.equal(chainColumns(result).length, 0);
+  assert.equal(chainColumns(result).some((column) =>
+    column.endpoint?.custom_object_id === terminalId), false);
+  assert.ok(Array.isArray(result.data));
+});
+
+test('chained fanout paginates over 500 active edges, counts every occurrence, and sorts bounded labels', async () => {
+  const organisationId = 'fanout-organisation';
+  const orgName = field({
+    id: 'fanout-name', custom_object_id: organisationId, name: 'name',
+    label: 'Organisation', field_type: 'text', is_required: false,
+  });
+  const definition = chainDefinition(
+    'fanout-department-organisation', chainEndpoint('custom_object', objectId),
+    chainEndpoint('custom_object', organisationId),
+  );
+  const related = Array.from({ length: 501 }, (_, index) => ({
+    id: `fanout-org-${String(index).padStart(4, '0')}`,
+    tenant_id: tenantId, custom_object_id: organisationId, archived_at: null,
+    data: { name: `Organisation ${500 - index}` },
+  }));
+  const edges = related.map((record, index) => ({
+    id: `fanout-edge-${String(index).padStart(4, '0')}`,
+    tenant_id: tenantId, relationship_definition_id: definition.id,
+    source_record_id: 'fanout-department', target_record_id: record.id, archived_at: null,
+  }));
+  const db = chainedSeed({
+    objects: [object({ id: organisationId, primary_display_field_id: orgName.id })],
+    fields: [orgName],
+    definitions: [definition],
+    records: [
+      { id: 'fanout-department', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {} },
+      ...related,
+    ],
+    edges,
+    permissions: [{
+      tenant_id: tenantId, custom_object_id: organisationId, role_id: roleId, can_view_records: true,
+    }],
+  });
+  const service = createCustomObjectService({ db, context: context() });
+  const discovered = await service.listRecords(objectId, {});
+  const label = terminalColumn(discovered, organisationId, 'label');
+  assert.ok(label);
+  const result = await service.listRecords(objectId, {
+    chainedColumns: JSON.stringify([label.id]),
+  });
+  const summary = result.data[0].chained_values[label.id];
+  assert.equal(summary.count, 501);
+  const expected = related.map((record) => record.data.name).sort((a, b) => a.localeCompare(b)).slice(0, 3);
+  assert.deepEqual(summary.records.map((record) => record.label), expected);
+  const edgeRanges = db.calls.filter((call) =>
+    call.table === 'custom_object_relationship' && call.type === 'range');
+  assert.ok(edgeRanges.length >= 2);
+  assert.ok(edgeRanges.every((call) => call.to - call.from + 1 <= 500));
+});
+
+test('too many candidate paths preserve legacy records and expose a chained discovery warning', async () => {
+  const count = 251;
+  const relatedIds = Array.from({ length: count }, (_, index) => `wide-chain-${index}`);
+  const relatedObjects = relatedIds.map((id, index) => object({
+    id, object_key: id, primary_display_field_id: `wide-field-${index}`,
+  }));
+  const relatedFields = relatedIds.map((id, index) => field({
+    id: `wide-field-${index}`, custom_object_id: id, name: 'name',
+    label: `Wide ${index}`, field_type: 'text', is_required: false,
+  }));
+  const definitions = relatedIds.map((id, index) => chainDefinition(
+    `wide-edge-${index}`, chainEndpoint('custom_object', objectId),
+    chainEndpoint('custom_object', id),
+  ));
+  const db = chainedSeed({
+    objects: relatedObjects,
+    fields: [
+      field({ id: 'wide-root-field', name: 'name', label: 'Root', field_type: 'text', is_required: false }),
+      ...relatedFields,
+    ],
+    definitions,
+    records: [{
+      id: 'wide-root', tenant_id: tenantId, custom_object_id: objectId,
+      archived_at: null, data: { name: 'Still available' },
+    }],
+    permissions: relatedIds.map((id) => ({
+      tenant_id: tenantId, custom_object_id: id, role_id: roleId, can_view_records: true,
+    })),
+  });
+  const result = await createCustomObjectService({ db, context: context() }).listRecords(objectId, {
+    relationshipColumns: '[]',
+  });
+  assert.deepEqual(result.metadata.chained_columns, []);
+  assert.match(result.metadata.chained_columns_error, /paths|supported|limit/i);
+  assert.equal(result.data[0].data.name, 'Still available');
+  assert.equal(result.total, 1);
+});
+
+test('changing an intermediate relationship definition invalidates the saved opaque column ID', async () => {
+  const middleId = 'saved-column-middle';
+  const terminalId = 'saved-column-terminal';
+  const middleField = field({
+    id: 'saved-middle-name', custom_object_id: middleId, name: 'name',
+    label: 'Middle', field_type: 'text', is_required: false,
+  });
+  const terminalField = field({
+    id: 'saved-terminal-name', custom_object_id: terminalId, name: 'name',
+    label: 'Terminal', field_type: 'text', is_required: false,
+  });
+  const first = chainDefinition(
+    'saved-first-v1', chainEndpoint('custom_object', objectId),
+    chainEndpoint('custom_object', middleId),
+  );
+  const second = chainDefinition(
+    'saved-second', chainEndpoint('custom_object', middleId),
+    chainEndpoint('custom_object', terminalId),
+  );
+  const base = {
+    objects: [
+      object({ id: middleId, primary_display_field_id: middleField.id }),
+      object({ id: terminalId, primary_display_field_id: terminalField.id }),
+    ],
+    fields: [middleField, terminalField],
+    definitions: [first, second],
+    permissions: [
+      { tenant_id: tenantId, custom_object_id: middleId, role_id: roleId, can_view_records: true },
+      { tenant_id: tenantId, custom_object_id: terminalId, role_id: roleId, can_view_records: true },
+    ],
+  };
+  const initial = await createCustomObjectService({
+    db: chainedSeed(base), context: context(),
+  }).listRecords(objectId, {});
+  const initialColumn = terminalColumn(initial, terminalId, 'label', null, [first.id, second.id]);
+  assert.ok(initialColumn);
+
+  const replacement = { ...first, id: 'saved-first-v2' };
+  const current = await createCustomObjectService({
+    db: chainedSeed({ ...base, definitions: [replacement, second] }), context: context(),
+  });
+  await assert.rejects(() => current.listRecords(objectId, {
+    chainedColumns: JSON.stringify([initialColumn.id]),
+  }), (error) => error.status === 409 && /stale|unavailable/i.test(error.message));
+});
+
+test('chained file fields project filenames without exposing storage URLs', async () => {
+  const documentObjectId = 'chain-file-document';
+  const attachment = field({
+    id: 'chain-attachment', custom_object_id: documentObjectId, name: 'attachment',
+    label: 'Attachment', field_type: 'file', is_required: false,
+    allowed_file_types: ['pdf'],
+  });
+  const definition = chainDefinition(
+    'chain-file-definition', chainEndpoint('custom_object', objectId),
+    chainEndpoint('custom_object', documentObjectId),
+  );
+  const db = chainedSeed({
+    objects: [object({
+      id: documentObjectId, object_key: 'documents',
+      primary_display_field_id: attachment.id,
+    })],
+    fields: [attachment],
+    definitions: [definition],
+    records: [
+      { id: 'file-root', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {} },
+      {
+        id: 'file-single', tenant_id: tenantId, custom_object_id: documentObjectId,
+        archived_at: null,
+        data: { attachment: { file_name: 'brief.pdf', file_url: 'https://private.test/brief.pdf' } },
+      },
+      {
+        id: 'file-multi', tenant_id: tenantId, custom_object_id: documentObjectId,
+        archived_at: null,
+        data: {
+          attachment: [
+            { file_name: 'agenda.pdf', file_url: 'https://private.test/agenda.pdf' },
+            { file_name: 'notes.pdf', file_url: 'https://private.test/notes.pdf' },
+          ],
+        },
+      },
+    ],
+    edges: [
+      {
+        id: 'file-edge-single', tenant_id: tenantId, relationship_definition_id: definition.id,
+        source_record_id: 'file-root', target_record_id: 'file-single', archived_at: null,
+      },
+      {
+        id: 'file-edge-multi', tenant_id: tenantId, relationship_definition_id: definition.id,
+        source_record_id: 'file-root', target_record_id: 'file-multi', archived_at: null,
+      },
+    ],
+    permissions: [{
+      tenant_id: tenantId, custom_object_id: documentObjectId, role_id: roleId,
+      can_view_records: true,
+    }],
+  });
+  const service = createCustomObjectService({ db, context: context() });
+  const discovered = await service.listRecords(objectId, {});
+  const fileColumn = terminalColumn(discovered, documentObjectId, 'field', attachment.id);
+  assert.ok(fileColumn);
+  const result = await service.listRecords(objectId, {
+    chainedColumns: JSON.stringify([fileColumn.id]),
+  });
+  const values = result.data[0].chained_values[fileColumn.id];
+  assert.equal(values.count, 2);
+  assert.deepEqual(values.records.map((record) => record.label), ['agenda.pdf; notes.pdf', 'brief.pdf']);
+  assert.equal(values.records.some((record) => record.label.includes('https://')), false);
+});
+
+test('reports preserve to-many Department membership occurrences and align branch and edge values', async () => {
+  const title = field({
+    id: 'department-title',
+    name: 'title',
+    label: 'Department',
+    field_type: 'text',
+    is_required: false,
+  });
+  const memberDefinition = {
+    id: 'department-member',
+    tenant_id: tenantId,
+    status: 'active',
+    source_kind: 'custom_object',
+    source_custom_object_id: objectId,
+    target_kind: 'member',
+    target_custom_object_id: null,
+    cardinality: 'many_to_many',
+    configuration: {
+      relationship_fields: [{
+        id: 'respondent-field',
+        key: 'is_respondent',
+        label: 'Survey respondent',
+        type: 'boolean',
+        default_value: false,
+      }],
+    },
+  };
+  const organizationDefinition = {
+    id: 'department-organization',
+    tenant_id: tenantId,
+    status: 'active',
+    source_kind: 'custom_object',
+    source_custom_object_id: objectId,
+    target_kind: 'organization',
+    target_custom_object_id: null,
+    cardinality: 'many_to_one',
+    configuration: {},
+  };
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [title],
+    custom_object_record: [
+      { id: 'department-1', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { title: '=Finance' } },
+      { id: 'department-2', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { title: 'Policy, Europe' } },
+      { id: 'department-archived', tenant_id: tenantId, custom_object_id: objectId, archived_at: '2026-01-01T00:00:00Z', data: { title: 'Old' } },
+    ],
+    member: [
+      { id: 'member-a', tenant_id: tenantId, first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.test' },
+      { id: 'member-b', tenant_id: tenantId, first_name: 'Grace', last_name: 'Hopper', email: 'grace@example.test' },
+    ],
+    organization: [
+      { id: 'organization-a', tenant_id: tenantId, name: 'Alpha' },
+      { id: 'organization-b', tenant_id: tenantId, name: 'Beta' },
+    ],
+    custom_object_relationship_definition: [memberDefinition, organizationDefinition],
+    custom_object_relationship: [
+      { id: 'edge-b', tenant_id: tenantId, relationship_definition_id: memberDefinition.id, source_record_id: 'department-1', target_record_id: 'member-a', archived_at: null, field_values: { is_respondent: true } },
+      { id: 'edge-a', tenant_id: tenantId, relationship_definition_id: memberDefinition.id, source_record_id: 'department-2', target_record_id: 'member-a', archived_at: null, field_values: { is_respondent: false } },
+      { id: 'edge-c', tenant_id: tenantId, relationship_definition_id: memberDefinition.id, source_record_id: 'department-2', target_record_id: 'member-b', archived_at: null, field_values: { is_respondent: true } },
+      { id: 'edge-archived-root', tenant_id: tenantId, relationship_definition_id: memberDefinition.id, source_record_id: 'department-archived', target_record_id: 'member-b', archived_at: null, field_values: { is_respondent: true } },
+      { id: 'edge-4', tenant_id: tenantId, relationship_definition_id: organizationDefinition.id, source_record_id: 'department-1', target_record_id: 'organization-a', archived_at: null, field_values: {} },
+      { id: 'edge-5', tenant_id: tenantId, relationship_definition_id: organizationDefinition.id, source_record_id: 'department-2', target_record_id: 'organization-b', archived_at: null, field_values: {} },
+    ],
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const memberPath = [{ relationship_definition_id: memberDefinition.id, from_side: 'source' }];
+  const report = {
+    version: 1,
+    grain_path: memberPath,
+    multi_value: 'join',
+    columns: [
+      { field: 'id', label: 'Department ID', path: [] },
+      { field_id: title.id, label: 'Department', path: [] },
+      { field: 'full_name', label: 'Member', path: memberPath },
+      { field: 'name', label: 'Organisation', path: [{ relationship_definition_id: organizationDefinition.id, from_side: 'source' }] },
+      { relationship_field_id: 'respondent-field', label: 'Respondent', path: memberPath },
+    ],
+  };
+
+  const preview = await service.previewReport(objectId, { definition: report, page: 1, pageSize: 1 });
+  assert.equal(preview.total, 3);
+  assert.equal(preview.data.length, 1);
+  assert.equal(preview.data[0].id, 'department-2:edge-a:member-a');
+  assert.deepEqual(preview.data[0].values, [
+    'department-2',
+    'Policy, Europe',
+    'Ada Lovelace',
+    'Beta',
+    'No',
+  ]);
+  const fullPreview = await service.previewReport(objectId, {
+    definition: report, page: 1, pageSize: 3,
+  });
+  const singleRowPages = await Promise.all([1, 2, 3].map((requestedPage) =>
+    service.previewReport(objectId, {
+      definition: report, page: requestedPage, pageSize: 1,
+    })));
+  assert.deepEqual(
+    singleRowPages.flatMap((result) => result.data.map((row) => row.id)),
+    fullPreview.data.map((row) => row.id),
+  );
+
+  let exported = await service.exportReport(objectId, {
+    action: 'start', definition: report, name: 'Department members',
+  });
+  exported = await service.exportReport(objectId, { action: 'process', job_id: exported.id });
+  assert.equal(exported.status, 'complete');
+  assert.equal(exported.processed, 3);
+  assert.equal(exported.filename, 'department-members.csv');
+  const chunk = await service.exportReport(objectId, {
+    action: 'chunk', job_id: exported.id, chunk_index: 0,
+  });
+  assert.ok(chunk.csv_text.startsWith('\ufeffDepartment ID,Department,Member,Organisation,Respondent\r\n'));
+  assert.match(chunk.csv_text, /'=Finance/);
+  assert.match(chunk.csv_text, /Grace Hopper/);
+  const occurrencePages = db.calls.filter((call) =>
+    call.type === 'rpc' && call.name === 'custom_object_report_occurrence_page');
+  assert.deepEqual(Object.keys(occurrencePages[0].args), [
+    'p_tenant_id',
+    'p_custom_object_id',
+    'p_relationship_definition_id',
+    'p_from_side',
+    'p_endpoint_kind',
+    'p_endpoint_custom_object_id',
+    'p_after_edge_id',
+    'p_include_total',
+    'p_offset',
+    'p_limit',
+  ]);
+  const requestedRanges = occurrencePages.map((call) => [
+    call.args.p_offset, call.args.p_limit,
+  ]);
+  assert.deepEqual(requestedRanges.slice(0, 5), [
+    [0, 1], [0, 3], [0, 1], [1, 1], [2, 1],
+  ]);
+  assert.deepEqual(requestedRanges.at(-1), [0, 500]);
+  assert.ok(occurrencePages.every((call) => call.args.p_limit <= 500));
+  assert.equal(occurrencePages.at(-1).args.p_include_total, true);
+});
+
+test('occurrence report preview turns a missing RPC into an actionable service error', async () => {
+  const memberDefinition = {
+    id: 'department-member',
+    tenant_id: tenantId,
+    status: 'active',
+    source_kind: 'custom_object',
+    source_custom_object_id: objectId,
+    target_kind: 'member',
+    target_custom_object_id: null,
+    cardinality: 'many_to_many',
+    configuration: {},
+  };
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [],
+    custom_object_relationship_definition: [memberDefinition],
+  }, {
+    custom_object_report_occurrence_page: {
+      code: 'PGRST202',
+      message: 'Could not find the function public.custom_object_report_occurrence_page in the schema cache',
+    },
+  });
+  const report = {
+    version: 1,
+    grain_path: [{
+      relationship_definition_id: memberDefinition.id,
+      from_side: 'source',
+    }],
+    multi_value: 'join',
+    columns: [{ field: 'full_name', path: [{
+      relationship_definition_id: memberDefinition.id,
+      from_side: 'source',
+    }] }],
+  };
+
+  await assert.rejects(
+    () => createCustomObjectService({
+      db,
+      context: context(),
+      isAdmin: true,
+    }).previewReport(objectId, { definition: report, page: 1, pageSize: 25 }),
+    (error) => {
+      assert.equal(error.status, 503);
+      assert.match(error.message, /migration is incomplete/);
+      assert.doesNotMatch(error.message, /schema cache/i);
+      return true;
+    },
+  );
+});
+
+test('version 2 reports page every row through summary RPC and anchor branch fields to row ancestry', async () => {
+  const teamObjectId = '44444444-4444-4444-8444-444444444444';
+  const teamName = field({
+    id: 'team-name', custom_object_id: teamObjectId, name: 'team_name',
+    label: 'Team', field_type: 'text', is_required: false,
+  });
+  const departmentTeam = {
+    id: 'department-team', tenant_id: tenantId, status: 'active',
+    source_kind: 'custom_object', source_custom_object_id: objectId,
+    target_kind: 'custom_object', target_custom_object_id: teamObjectId,
+    cardinality: 'many_to_many', configuration: {},
+  };
+  const teamMember = {
+    id: 'team-member', tenant_id: tenantId, status: 'active',
+    source_kind: 'custom_object', source_custom_object_id: teamObjectId,
+    target_kind: 'member', target_custom_object_id: null,
+    cardinality: 'many_to_many', configuration: {},
+  };
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({ id: teamObjectId, object_key: 'team', singular_label: 'Team', plural_label: 'Teams' }),
+    ],
+    preference_field: [teamName],
+    custom_object_record: [
+      { id: 'department-a', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {} },
+      { id: 'department-b', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {} },
+      { id: 'team-a', tenant_id: tenantId, custom_object_id: teamObjectId, archived_at: null, data: { team_name: 'Alpha' } },
+      { id: 'team-b', tenant_id: tenantId, custom_object_id: teamObjectId, archived_at: null, data: { team_name: 'Beta' } },
+    ],
+    member: [
+      { id: 'member-a', tenant_id: tenantId, first_name: 'Ada', last_name: 'Lovelace' },
+      { id: 'member-b', tenant_id: tenantId, first_name: 'Grace', last_name: 'Hopper' },
+    ],
+    custom_object_relationship_definition: [departmentTeam, teamMember],
+    custom_object_relationship: [
+      { id: 'edge-da', tenant_id: tenantId, relationship_definition_id: departmentTeam.id, source_record_id: 'department-a', target_record_id: 'team-a', archived_at: null },
+      { id: 'edge-db', tenant_id: tenantId, relationship_definition_id: departmentTeam.id, source_record_id: 'department-b', target_record_id: 'team-b', archived_at: null },
+      { id: 'edge-ma', tenant_id: tenantId, relationship_definition_id: teamMember.id, source_record_id: 'team-a', target_record_id: 'member-a', archived_at: null },
+      { id: 'edge-mb', tenant_id: tenantId, relationship_definition_id: teamMember.id, source_record_id: 'team-b', target_record_id: 'member-b', archived_at: null },
+    ],
+  });
+  const teamPath = [{ relationship_definition_id: departmentTeam.id, from_side: 'source' }];
+  const report = {
+    version: 2,
+    start_object_id: objectId,
+    start_endpoint: { kind: 'custom_object', customObjectId: objectId },
+    grain_path: [
+      ...teamPath,
+      { relationship_definition_id: teamMember.id, from_side: 'source' },
+    ],
+    include_empty: false,
+    columns: [
+      { kind: 'field', field_id: teamName.id, path: teamPath, label: 'Team' },
+      { kind: 'field', field: 'full_name', path: [
+        ...teamPath,
+        { relationship_definition_id: teamMember.id, from_side: 'source' },
+      ], label: 'Member' },
+    ],
+  };
+  const result = await createCustomObjectService({
+    db, context: context(), isAdmin: true,
+  }).previewReport(objectId, { definition: report, page: 1, pageSize: 1 });
+  assert.equal(result.total, 2);
+  assert.equal(result.data.length, 1);
+  assert.deepEqual(result.data[0].values, ['Alpha', 'Ada Lovelace']);
+  const call = db.calls.find((item) => item.name === 'custom_object_report_summary_page');
+  assert.deepEqual(Object.keys(call.args), [
+    'p_tenant_id', 'p_start_kind', 'p_start_custom_object_id', 'p_grain_path',
+    'p_include_empty', 'p_offset', 'p_limit', 'p_after_cursor', 'p_include_total',
+  ]);
+  assert.equal(call.args.p_tenant_id, tenantId);
+  assert.equal(call.args.p_limit, 1);
+  assert.equal(
+    db.calls.some((item) => item.name === 'custom_object_report_occurrence_page'),
+    false,
+  );
+});
+
+test('version 2 include-empty rows use empty labels and validated counts return numeric zero', async () => {
+  const teamObjectId = '44444444-4444-4444-8444-444444444444';
+  const teamName = field({
+    id: 'team-name', custom_object_id: teamObjectId, name: 'team_name',
+    label: 'Team', field_type: 'text', is_required: false,
+  });
+  const relationship = {
+    id: 'department-team', tenant_id: tenantId, status: 'active',
+    source_kind: 'custom_object', source_custom_object_id: objectId,
+    target_kind: 'custom_object', target_custom_object_id: teamObjectId,
+    cardinality: 'many_to_many', configuration: {},
+  };
+  const teamMember = {
+    id: 'team-member', tenant_id: tenantId, status: 'active',
+    source_kind: 'custom_object', source_custom_object_id: teamObjectId,
+    target_kind: 'member', target_custom_object_id: null,
+    cardinality: 'many_to_many', configuration: {},
+  };
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({ id: teamObjectId, object_key: 'team', singular_label: 'Team', plural_label: 'Teams' }),
+    ],
+    preference_field: [teamName],
+    custom_object_record: [
+      { id: 'department-empty', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {} },
+    ],
+    custom_object_relationship_definition: [relationship, teamMember],
+    custom_object_relationship: [],
+  });
+  const grainPath = [{ relationship_definition_id: relationship.id, from_side: 'source' }];
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const result = await service.previewReport(objectId, {
+    version: 2,
+    start_object_id: objectId,
+    start_endpoint: { kind: 'custom_object', customObjectId: objectId },
+    grain_path: grainPath,
+    include_empty: true,
+    columns: [
+      { kind: 'field', field_id: teamName.id, path: grainPath, empty_label: 'No team' },
+      { kind: 'count_distinct', path: [{
+        relationship_definition_id: teamMember.id, from_side: 'source',
+      }], label: 'Members' },
+    ],
+  });
+  assert.deepEqual(result.data[0].values, ['No team', 0]);
+  const countCall = db.calls.find((item) =>
+    item.name === 'custom_object_report_distinct_counts');
+  assert.deepEqual(countCall.args.p_start_record_ids, []);
+});
+
+test('version 2 empty labels do not replace genuine blank field values', async () => {
+  const title = field({
+    id: 'title-field', name: 'title', label: 'Title',
+    field_type: 'text', is_required: false,
+  });
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [title],
+    custom_object_record: [{
+      id: 'blank-record', tenant_id: tenantId, custom_object_id: objectId,
+      archived_at: null, data: { title: '' },
+    }],
+    custom_object_relationship_definition: [],
+  });
+  const result = await createCustomObjectService({
+    db, context: context(), isAdmin: true,
+  }).previewReport(objectId, {
+    version: 2,
+    start_object_id: objectId,
+    start_endpoint: { kind: 'custom_object', customObjectId: objectId },
+    grain_path: [],
+    include_empty: false,
+    columns: [{
+      kind: 'field', field_id: title.id, path: [], empty_label: 'Missing record',
+    }],
+  });
+  assert.deepEqual(result.data[0].values, ['']);
+});
+
+test('version 2 batches and deduplicates distinct counts once per column and page', async () => {
+  const teamObjectId = '44444444-4444-4444-8444-444444444444';
+  const departmentTeam = {
+    id: 'department-team', tenant_id: tenantId, status: 'active',
+    source_kind: 'custom_object', source_custom_object_id: objectId,
+    target_kind: 'custom_object', target_custom_object_id: teamObjectId,
+    cardinality: 'many_to_many', configuration: {},
+  };
+  const teamMember = {
+    id: 'team-member', tenant_id: tenantId, status: 'active',
+    source_kind: 'custom_object', source_custom_object_id: teamObjectId,
+    target_kind: 'member', target_custom_object_id: null,
+    cardinality: 'many_to_many', configuration: {},
+  };
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({ id: teamObjectId, object_key: 'team', singular_label: 'Team', plural_label: 'Teams' }),
+    ],
+    preference_field: [],
+    custom_object_record: [
+      { id: 'department-a', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {} },
+      { id: 'department-b', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {} },
+      { id: 'team-a', tenant_id: tenantId, custom_object_id: teamObjectId, archived_at: null, data: {} },
+    ],
+    member: [
+      { id: 'member-a', tenant_id: tenantId },
+      { id: 'member-b', tenant_id: tenantId },
+    ],
+    custom_object_relationship_definition: [departmentTeam, teamMember],
+    custom_object_relationship: [
+      { id: 'edge-team-a', tenant_id: tenantId, relationship_definition_id: departmentTeam.id, source_record_id: 'department-a', target_record_id: 'team-a', archived_at: null },
+      { id: 'edge-team-b', tenant_id: tenantId, relationship_definition_id: departmentTeam.id, source_record_id: 'department-b', target_record_id: 'team-a', archived_at: null },
+      { id: 'edge-member-a', tenant_id: tenantId, relationship_definition_id: teamMember.id, source_record_id: 'team-a', target_record_id: 'member-a', archived_at: null },
+      { id: 'edge-member-b', tenant_id: tenantId, relationship_definition_id: teamMember.id, source_record_id: 'team-a', target_record_id: 'member-b', archived_at: null },
+    ],
+  });
+  const result = await createCustomObjectService({
+    db, context: context(), isAdmin: true,
+  }).previewReport(objectId, {
+    version: 2,
+    start_object_id: objectId,
+    start_endpoint: { kind: 'custom_object', customObjectId: objectId },
+    grain_path: [{
+      relationship_definition_id: departmentTeam.id, from_side: 'source',
+    }],
+    include_empty: false,
+    columns: [{
+      kind: 'count_distinct',
+      path: [{ relationship_definition_id: teamMember.id, from_side: 'source' }],
+      label: 'Members',
+    }],
+  });
+  assert.deepEqual(result.data.map((row) => row.values), [[2], [2]]);
+  const calls = db.calls.filter((item) =>
+    item.name === 'custom_object_report_distinct_counts');
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].args.p_start_record_ids, ['team-a']);
+  assert.deepEqual(Object.keys(calls[0].args), [
+    'p_tenant_id', 'p_start_kind', 'p_start_custom_object_id',
+    'p_start_record_ids', 'p_path',
+  ]);
+});
+
+test('version 2 rejects incomplete batched distinct-count RPC results', async () => {
+  const relatedObjectId = '44444444-4444-4444-8444-444444444444';
+  const relationship = {
+    id: 'related-link', tenant_id: tenantId, status: 'active',
+    source_kind: 'custom_object', source_custom_object_id: objectId,
+    target_kind: 'custom_object', target_custom_object_id: relatedObjectId,
+    cardinality: 'many_to_many', configuration: {},
+  };
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({ id: relatedObjectId, object_key: 'related', singular_label: 'Related', plural_label: 'Related' }),
+    ],
+    preference_field: [],
+    custom_object_record: [{
+      id: 'root-a', tenant_id: tenantId, custom_object_id: objectId,
+      archived_at: null, data: {},
+    }],
+    custom_object_relationship_definition: [relationship],
+  }, {
+    custom_object_report_distinct_counts: { mockData: [] },
+  });
+  await assert.rejects(
+    () => createCustomObjectService({
+      db, context: context(), isAdmin: true,
+    }).previewReport(objectId, {
+      version: 2,
+      start_object_id: objectId,
+      start_endpoint: { kind: 'custom_object', customObjectId: objectId },
+      grain_path: [],
+      include_empty: false,
+      columns: [{
+        kind: 'count_distinct',
+        path: [{ relationship_definition_id: relationship.id, from_side: 'source' }],
+      }],
+    }),
+    /incomplete result/,
+  );
+});
+
+test('version 2 field fanout keyset-pages beyond one thousand edges and caches shared ancestry', async () => {
+  const teamObjectId = '44444444-4444-4444-8444-444444444444';
+  const departmentTeam = {
+    id: 'department-team', tenant_id: tenantId, status: 'active',
+    source_kind: 'custom_object', source_custom_object_id: objectId,
+    target_kind: 'custom_object', target_custom_object_id: teamObjectId,
+    cardinality: 'many_to_many', configuration: {},
+  };
+  const teamMember = {
+    id: 'team-member', tenant_id: tenantId, status: 'active',
+    source_kind: 'custom_object', source_custom_object_id: teamObjectId,
+    target_kind: 'member', target_custom_object_id: null,
+    cardinality: 'many_to_many', configuration: {},
+  };
+  const members = Array.from({ length: 1001 }, (_, index) => ({
+    id: `member-${String(index).padStart(4, '0')}`,
+    tenant_id: tenantId,
+    first_name: 'Member',
+    last_name: String(index),
+  }));
+  const memberEdges = members.map((member, index) => ({
+    id: `member-edge-${String(index).padStart(4, '0')}`,
+    tenant_id: tenantId,
+    relationship_definition_id: teamMember.id,
+    source_record_id: 'team-shared',
+    target_record_id: member.id,
+    archived_at: null,
+  }));
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({ id: teamObjectId, object_key: 'team', singular_label: 'Team', plural_label: 'Teams' }),
+    ],
+    preference_field: [],
+    custom_object_record: [
+      { id: 'department-a', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {} },
+      { id: 'department-b', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {} },
+      { id: 'team-shared', tenant_id: tenantId, custom_object_id: teamObjectId, archived_at: null, data: {} },
+    ],
+    member: members,
+    custom_object_relationship_definition: [departmentTeam, teamMember],
+    custom_object_relationship: [
+      { id: 'department-edge-a', tenant_id: tenantId, relationship_definition_id: departmentTeam.id, source_record_id: 'department-a', target_record_id: 'team-shared', archived_at: null },
+      { id: 'department-edge-b', tenant_id: tenantId, relationship_definition_id: departmentTeam.id, source_record_id: 'department-b', target_record_id: 'team-shared', archived_at: null },
+      ...memberEdges,
+    ],
+  }, { __relationshipSelectCap: 1000 });
+  const teamPath = [{
+    relationship_definition_id: departmentTeam.id, from_side: 'source',
+  }];
+  const result = await createCustomObjectService({
+    db, context: context(), isAdmin: true,
+  }).previewReport(objectId, {
+    version: 2,
+    start_object_id: objectId,
+    start_endpoint: { kind: 'custom_object', customObjectId: objectId },
+    grain_path: teamPath,
+    include_empty: false,
+    columns: [{
+      kind: 'field',
+      field: 'full_name',
+      path: [...teamPath, {
+        relationship_definition_id: teamMember.id, from_side: 'source',
+      }],
+      label: 'Members',
+    }],
+  });
+  assert.equal(result.data.length, 2);
+  assert.equal(result.data[0].values[0].split('; ').length, 1001);
+  assert.match(result.data[0].values[0], /Member 1000/);
+  assert.equal(result.data[1].values[0], result.data[0].values[0]);
+  const fanoutRanges = db.calls.filter((item) =>
+    item.table === 'custom_object_relationship'
+    && item.type === 'range');
+  assert.equal(fanoutRanges.length, 2);
+  assert.deepEqual(fanoutRanges.map((item) => [item.from, item.to]), [
+    [0, 999], [0, 999],
+  ]);
+  const cursorCalls = db.calls.filter((item) =>
+    item.table === 'custom_object_relationship' && item.type === 'gt');
+  assert.deepEqual(cursorCalls.map((item) => item.value), ['member-edge-0999']);
+});
+
+test('version 2 groups five hundred distinct field anchors into bounded edge batches', async () => {
+  const relationship = {
+    id: 'root-member', tenant_id: tenantId, status: 'active',
+    source_kind: 'custom_object', source_custom_object_id: objectId,
+    target_kind: 'member', target_custom_object_id: null,
+    cardinality: 'many_to_many', configuration: {},
+  };
+  const roots = Array.from({ length: 500 }, (_, index) => ({
+    id: `root-${String(index).padStart(4, '0')}`,
+    tenant_id: tenantId,
+    custom_object_id: objectId,
+    archived_at: null,
+    data: {},
+  }));
+  const members = roots.map((_, index) => ({
+    id: `member-${String(index).padStart(4, '0')}`,
+    tenant_id: tenantId,
+    first_name: 'Member',
+    last_name: String(index),
+  }));
+  const edges = roots.map((root, index) => ({
+    id: `edge-${String(index).padStart(4, '0')}`,
+    tenant_id: tenantId,
+    relationship_definition_id: relationship.id,
+    source_record_id: root.id,
+    target_record_id: members[index].id,
+    archived_at: null,
+  }));
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [],
+    custom_object_record: roots,
+    member: members,
+    custom_object_relationship_definition: [relationship],
+    custom_object_relationship: edges,
+  }, { __relationshipSelectCap: 1000 });
+  const result = await createCustomObjectService({
+    db, context: context(), isAdmin: true,
+  }).previewReport(objectId, {
+    version: 2,
+    start_object_id: objectId,
+    start_endpoint: { kind: 'custom_object', customObjectId: objectId },
+    grain_path: [],
+    include_empty: false,
+    columns: [
+      {
+        kind: 'field',
+        field: 'full_name',
+        path: [{ relationship_definition_id: relationship.id, from_side: 'source' }],
+      },
+      {
+        kind: 'field',
+        field: 'email',
+        path: [{ relationship_definition_id: relationship.id, from_side: 'source' }],
+      },
+    ],
+    page: 1,
+    pageSize: 500,
+  });
+  assert.equal(result.data.length, 500);
+  assert.deepEqual(result.data[499].values, ['Member 499', '']);
+  const ranges = db.calls.filter((item) =>
+    item.table === 'custom_object_relationship' && item.type === 'range');
+  assert.equal(ranges.length, 3);
+  const routedBatches = db.calls.filter((item) =>
+    item.table === 'custom_object_relationship'
+    && item.type === 'in'
+    && item.column === 'source_record_id');
+  assert.deepEqual(routedBatches.map((item) => item.values.length), [200, 200, 100]);
+});
+
+test('version 2 fails descriptive over-limit field expansion while distinct counts still scale', async () => {
+  const relationship = {
+    id: 'root-member', tenant_id: tenantId, status: 'active',
+    source_kind: 'custom_object', source_custom_object_id: objectId,
+    target_kind: 'member', target_custom_object_id: null,
+    cardinality: 'many_to_many', configuration: {},
+  };
+  const members = Array.from({ length: 10001 }, (_, index) => ({
+    id: `member-${String(index).padStart(5, '0')}`,
+    tenant_id: tenantId,
+    first_name: 'Member',
+    last_name: String(index),
+  }));
+  const edges = members.map((member, index) => ({
+    id: `edge-${String(index).padStart(5, '0')}`,
+    tenant_id: tenantId,
+    relationship_definition_id: relationship.id,
+    source_record_id: 'root-a',
+    target_record_id: member.id,
+    archived_at: null,
+  }));
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [],
+    custom_object_record: [{
+      id: 'root-a', tenant_id: tenantId, custom_object_id: objectId,
+      archived_at: null, data: {},
+    }],
+    member: members,
+    custom_object_relationship_definition: [relationship],
+    custom_object_relationship: edges,
+  }, { __relationshipSelectCap: 1000 });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const common = {
+    version: 2,
+    start_object_id: objectId,
+    start_endpoint: { kind: 'custom_object', customObjectId: objectId },
+    grain_path: [],
+    include_empty: false,
+  };
+  const countResult = await service.previewReport(objectId, {
+    ...common,
+    columns: [{
+      kind: 'count_distinct',
+      path: [{ relationship_definition_id: relationship.id, from_side: 'source' }],
+    }],
+  });
+  assert.deepEqual(countResult.data[0].values, [10001]);
+  await assert.rejects(
+    () => service.previewReport(objectId, {
+      ...common,
+      columns: [{
+        kind: 'field',
+        field: 'full_name',
+        path: [{ relationship_definition_id: relationship.id, from_side: 'source' }],
+      }],
+    }),
+    /field expansion exceeds 10,000 values for one cell/,
+  );
+});
+
+test('version 2 rejects cumulative page expansion when every cell remains below its limit', async () => {
+  const childObjectId = '44444444-4444-4444-8444-444444444444';
+  const rootChild = {
+    id: 'root-child', tenant_id: tenantId, status: 'active',
+    source_kind: 'custom_object', source_custom_object_id: objectId,
+    target_kind: 'custom_object', target_custom_object_id: childObjectId,
+    cardinality: 'many_to_many', configuration: {},
+  };
+  const childMember = {
+    id: 'child-member', tenant_id: tenantId, status: 'active',
+    source_kind: 'custom_object', source_custom_object_id: childObjectId,
+    target_kind: 'member', target_custom_object_id: null,
+    cardinality: 'many_to_many', configuration: {},
+  };
+  const roots = Array.from({ length: 500 }, (_, index) => ({
+    id: `root-${String(index).padStart(4, '0')}`,
+    tenant_id: tenantId,
+    custom_object_id: objectId,
+    archived_at: null,
+    data: {},
+  }));
+  const members = Array.from({ length: 201 }, (_, index) => ({
+    id: `member-${String(index).padStart(4, '0')}`,
+    tenant_id: tenantId,
+    first_name: 'Member',
+    last_name: String(index),
+  }));
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({
+        id: childObjectId,
+        object_key: 'child',
+        singular_label: 'Child',
+        plural_label: 'Children',
+      }),
+    ],
+    preference_field: [],
+    custom_object_record: [
+      ...roots,
+      {
+        id: 'shared-child',
+        tenant_id: tenantId,
+        custom_object_id: childObjectId,
+        archived_at: null,
+        data: {},
+      },
+    ],
+    member: members,
+    custom_object_relationship_definition: [rootChild, childMember],
+    custom_object_relationship: [
+      ...roots.map((root, index) => ({
+        id: `root-child-edge-${String(index).padStart(4, '0')}`,
+        tenant_id: tenantId,
+        relationship_definition_id: rootChild.id,
+        source_record_id: root.id,
+        target_record_id: 'shared-child',
+        archived_at: null,
+      })),
+      ...members.map((member, index) => ({
+        id: `child-member-edge-${String(index).padStart(4, '0')}`,
+        tenant_id: tenantId,
+        relationship_definition_id: childMember.id,
+        source_record_id: 'shared-child',
+        target_record_id: member.id,
+        archived_at: null,
+      })),
+    ],
+  }, { __relationshipSelectCap: 1000 });
+  await assert.rejects(
+    () => createCustomObjectService({
+      db, context: context(), isAdmin: true,
+    }).previewReport(objectId, {
+      version: 2,
+      start_object_id: objectId,
+      start_endpoint: { kind: 'custom_object', customObjectId: objectId },
+      grain_path: [],
+      include_empty: false,
+      page: 1,
+      pageSize: 500,
+      columns: [{
+        kind: 'field',
+        field: 'full_name',
+        path: [
+          { relationship_definition_id: rootChild.id, from_side: 'source' },
+          { relationship_definition_id: childMember.id, from_side: 'source' },
+        ],
+      }],
+    }),
+    /expands too many field values in one page/,
+  );
+});
+
+test('version 2 budgets cached field values again for repeated occurrences and columns', async () => {
+  const childObjectId = '44444444-4444-4444-8444-444444444444';
+  const rootChild = {
+    id: 'root-child', tenant_id: tenantId, status: 'active',
+    source_kind: 'custom_object', source_custom_object_id: objectId,
+    target_kind: 'custom_object', target_custom_object_id: childObjectId,
+    cardinality: 'many_to_many', configuration: {},
+  };
+  const childMember = {
+    id: 'child-member', tenant_id: tenantId, status: 'active',
+    source_kind: 'custom_object', source_custom_object_id: childObjectId,
+    target_kind: 'member', target_custom_object_id: null,
+    cardinality: 'many_to_many', configuration: {},
+  };
+  const roots = Array.from({ length: 500 }, (_, index) => ({
+    id: `root-${String(index).padStart(4, '0')}`,
+    tenant_id: tenantId,
+    custom_object_id: objectId,
+    archived_at: null,
+    data: {},
+  }));
+  // One cached traversal is small (101 values), but rendering it for 500
+  // occurrences across two columns would construct 101,000 field values.
+  const members = Array.from({ length: 101 }, (_, index) => ({
+    id: `member-${String(index).padStart(4, '0')}`,
+    tenant_id: tenantId,
+    first_name: 'Member',
+    last_name: String(index),
+    email: `member-${index}@example.test`,
+  }));
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({
+        id: childObjectId,
+        object_key: 'child',
+        singular_label: 'Child',
+        plural_label: 'Children',
+      }),
+    ],
+    preference_field: [],
+    custom_object_record: [
+      ...roots,
+      {
+        id: 'shared-child',
+        tenant_id: tenantId,
+        custom_object_id: childObjectId,
+        archived_at: null,
+        data: {},
+      },
+    ],
+    member: members,
+    custom_object_relationship_definition: [rootChild, childMember],
+    custom_object_relationship: [
+      ...roots.map((root, index) => ({
+        id: `root-child-edge-${String(index).padStart(4, '0')}`,
+        tenant_id: tenantId,
+        relationship_definition_id: rootChild.id,
+        source_record_id: root.id,
+        target_record_id: 'shared-child',
+        archived_at: null,
+      })),
+      ...members.map((member, index) => ({
+        id: `child-member-edge-${String(index).padStart(4, '0')}`,
+        tenant_id: tenantId,
+        relationship_definition_id: childMember.id,
+        source_record_id: 'shared-child',
+        target_record_id: member.id,
+        archived_at: null,
+      })),
+    ],
+  }, { __relationshipSelectCap: 1000 });
+  const grainPath = [{
+    relationship_definition_id: rootChild.id,
+    from_side: 'source',
+  }];
+  const branchPath = [
+    ...grainPath,
+    { relationship_definition_id: childMember.id, from_side: 'source' },
+  ];
+  await assert.rejects(
+    () => createCustomObjectService({
+      db, context: context(), isAdmin: true,
+    }).previewReport(objectId, {
+      version: 2,
+      start_object_id: objectId,
+      start_endpoint: { kind: 'custom_object', customObjectId: objectId },
+      grain_path: grainPath,
+      include_empty: false,
+      page: 1,
+      pageSize: 500,
+      columns: [
+        { kind: 'field', field: 'full_name', path: branchPath },
+        { kind: 'field', field: 'email', path: branchPath },
+      ],
+    }),
+    /renders too many related field values in one page/,
+  );
+  const branchQueries = db.calls.filter((item) =>
+    item.table === 'custom_object_relationship'
+    && item.type === 'eq'
+    && item.column === 'relationship_definition_id'
+    && item.value === childMember.id);
+  assert.equal(branchQueries.length, 1);
+});
+
+test('version 2 rejects null and fractional batched counts as malformed', async () => {
+  const relationship = {
+    id: 'related-link', tenant_id: tenantId, status: 'active',
+    source_kind: 'custom_object', source_custom_object_id: objectId,
+    target_kind: 'member', target_custom_object_id: null,
+    cardinality: 'many_to_many', configuration: {},
+  };
+  const baseSeed = {
+    custom_object_definition: [object()],
+    preference_field: [],
+    custom_object_record: [{
+      id: 'root-a', tenant_id: tenantId, custom_object_id: objectId,
+      archived_at: null, data: {},
+    }],
+    custom_object_relationship_definition: [relationship],
+  };
+  const report = {
+    version: 2,
+    start_object_id: objectId,
+    start_endpoint: { kind: 'custom_object', customObjectId: objectId },
+    grain_path: [],
+    include_empty: false,
+    columns: [{
+      kind: 'count_distinct',
+      path: [{ relationship_definition_id: relationship.id, from_side: 'source' }],
+    }],
+  };
+  for (const invalidCount of [null, 1.5]) {
+    const db = mockDb(baseSeed, {
+      custom_object_report_distinct_counts: {
+        mockData: [{ record_id: 'root-a', count: invalidCount }],
+      },
+    });
+    await assert.rejects(
+      () => createCustomObjectService({
+        db, context: context(), isAdmin: true,
+      }).previewReport(objectId, report),
+      /malformed result/,
+    );
+  }
+});
+
+test('version 2 validates disconnected starts and every count path before zero-row execution', async () => {
+  const unrelatedObjectId = '55555555-5555-4555-8555-555555555555';
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({ id: unrelatedObjectId, object_key: 'other', singular_label: 'Other', plural_label: 'Others' }),
+    ],
+    preference_field: [],
+    custom_object_record: [],
+    custom_object_relationship_definition: [],
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  await assert.rejects(() => service.previewReport(objectId, {
+    version: 2,
+    start_object_id: objectId,
+    start_endpoint: { kind: 'custom_object', customObjectId: unrelatedObjectId },
+    grain_path: [],
+    include_empty: false,
+    columns: [{ kind: 'field', field: 'id', path: [] }],
+  }), /disconnected or unavailable/);
+  await assert.rejects(() => service.previewReport(objectId, {
+    version: 2,
+    start_object_id: objectId,
+    start_endpoint: { kind: 'custom_object', customObjectId: objectId },
+    grain_path: [],
+    include_empty: false,
+    columns: [{ kind: 'count_distinct', path: [{
+      relationship_definition_id: 'missing', from_side: 'source',
+    }] }],
+  }), /disconnected, unavailable, or cyclic/);
+  assert.equal(
+    db.calls.some((item) => item.name === 'custom_object_report_summary_page'),
+    false,
+  );
+});
+
+test('version 2 zero-row previews are bounded and large exports stay durable across summary cursors', async () => {
+  const definition = {
+    version: 2,
+    start_object_id: objectId,
+    start_endpoint: { kind: 'custom_object', customObjectId: objectId },
+    grain_path: [],
+    include_empty: false,
+    columns: [{ kind: 'field', field: 'id', path: [], label: 'ID' }],
+  };
+  const emptyDb = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [],
+    custom_object_record: [],
+    custom_object_relationship_definition: [],
+  });
+  const empty = await createCustomObjectService({
+    db: emptyDb, context: context(), isAdmin: true,
+  }).previewReport(objectId, { definition, page: 1, pageSize: 25 });
+  assert.equal(empty.total, 0);
+  assert.equal(empty.page_count, 0);
+  assert.deepEqual(empty.data, []);
+
+  const records = Array.from({ length: 501 }, (_, index) => ({
+    id: `record-${String(index).padStart(4, '0')}`,
+    tenant_id: tenantId,
+    custom_object_id: objectId,
+    archived_at: null,
+    data: {},
+  }));
+  records.push({
+    id: 'foreign-record',
+    tenant_id: '99999999-9999-4999-8999-999999999999',
+    custom_object_id: objectId,
+    archived_at: null,
+    data: {},
+  });
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [],
+    custom_object_record: records,
+    custom_object_relationship_definition: [],
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  let job = await service.exportReport(objectId, {
+    action: 'start', definition, name: 'V2 all records',
+  });
+  assert.equal(job.status, 'queued');
+  assert.equal(job.legacy_sync, undefined);
+  job = await service.exportReport(objectId, { action: 'process', job_id: job.id });
+  assert.equal(job.status, 'processing');
+  assert.equal(job.processed, 500);
+  job = await service.exportReport(objectId, { action: 'process', job_id: job.id });
+  assert.equal(job.status, 'complete');
+  assert.equal(job.processed, 501);
+  assert.equal(job.total, 501);
+  const pages = db.calls.filter((item) => item.name === 'custom_object_report_summary_page');
+  assert.equal(pages.length, 2);
+  assert.equal(pages[0].args.p_after_cursor, null);
+  assert.equal(pages[0].args.p_include_total, true);
+  assert.equal(pages[1].args.p_after_cursor, 'record-0499');
+  assert.equal(pages[1].args.p_include_total, false);
+  assert.ok(pages.every((item) =>
+    item.args.p_tenant_id === tenantId && item.args.p_limit === 500));
+});
+
+test('version 2 connectivity searches an authorized six-hop route and loads graphs beyond one thousand definitions', async () => {
+  const deniedId = '44444444-4444-4444-8444-444444444444';
+  const allowedId = '55555555-5555-4555-8555-555555555555';
+  const startId = '66666666-6666-4666-8666-666666666666';
+  const relationship = (id, sourceId, targetId) => ({
+    id,
+    tenant_id: tenantId,
+    status: 'active',
+    archived_at: null,
+    source_kind: 'custom_object',
+    source_custom_object_id: sourceId,
+    target_kind: 'custom_object',
+    target_custom_object_id: targetId,
+    cardinality: 'many_to_many',
+    configuration: {},
+  });
+  const fillers = Array.from({ length: 1000 }, (_, index) => relationship(
+    `filler-${String(index).padStart(4, '0')}`,
+    `unused-source-${index}`,
+    `unused-target-${index}`,
+  ));
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({ id: deniedId, object_key: 'denied', singular_label: 'Denied', plural_label: 'Denied' }),
+      object({ id: allowedId, object_key: 'allowed', singular_label: 'Allowed', plural_label: 'Allowed' }),
+      object({ id: startId, object_key: 'start', singular_label: 'Start', plural_label: 'Starts' }),
+    ],
+    custom_object_role_permission: [
+      { tenant_id: tenantId, role_id: roleId, custom_object_id: objectId, can_view_records: true },
+      { tenant_id: tenantId, role_id: roleId, custom_object_id: allowedId, can_view_records: true },
+      { tenant_id: tenantId, role_id: roleId, custom_object_id: startId, can_view_records: true },
+    ],
+    preference_field: [],
+    custom_object_record: [],
+    custom_object_relationship_definition: [
+      ...fillers,
+      relationship('route-a-denied', objectId, deniedId),
+      relationship('route-b-denied-start', deniedId, startId),
+      relationship('route-c-allowed', objectId, allowedId),
+      relationship('route-d-allowed-start', allowedId, startId),
+    ],
+  });
+  const result = await createCustomObjectService({
+    db, context: context(), isAdmin: false,
+  }).previewReport(objectId, {
+    version: 2,
+    start_object_id: objectId,
+    start_endpoint: { kind: 'custom_object', customObjectId: startId },
+    grain_path: [],
+    include_empty: false,
+    multi_value: 'join',
+    columns: [{ kind: 'field', field: 'id', path: [] }],
+  });
+  assert.equal(result.total, 0);
+  const definitionRanges = db.calls.filter((item) =>
+    item.table === 'custom_object_relationship_definition' && item.type === 'range');
+  assert.deepEqual(definitionRanges.map((item) => [item.from, item.to]), [
+    [0, 999], [1000, 1999],
+  ]);
+});
+
+test('version 2 validates multi-value policy and relationship-field route visibility', async () => {
+  const relatedObjectId = '44444444-4444-4444-8444-444444444444';
+  const definition = {
+    id: 'related-link',
+    tenant_id: tenantId,
+    status: 'active',
+    archived_at: null,
+    source_kind: 'custom_object',
+    source_custom_object_id: objectId,
+    target_kind: 'custom_object',
+    target_custom_object_id: relatedObjectId,
+    cardinality: 'many_to_many',
+    configuration: {
+      relationship_fields: [{
+        id: 'private-note',
+        key: 'private_note',
+        label: 'Private note',
+        type: 'boolean',
+        display_on_source: false,
+        display_on_target: true,
+      }],
+    },
+  };
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({ id: relatedObjectId, object_key: 'related', singular_label: 'Related', plural_label: 'Related' }),
+    ],
+    preference_field: [],
+    custom_object_record: [],
+    custom_object_relationship_definition: [definition],
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const base = {
+    version: 2,
+    start_object_id: objectId,
+    start_endpoint: { kind: 'custom_object', customObjectId: objectId },
+    grain_path: [],
+    include_empty: false,
+    columns: [{ kind: 'field', field: 'id', path: [] }],
+  };
+  await assert.rejects(
+    () => service.previewReport(objectId, { ...base, multi_value: 'expand' }),
+    /multi_value must be join/,
+  );
+  await assert.rejects(
+    () => service.previewReport(objectId, {
+      ...base,
+      multi_value: 'join',
+      columns: [{
+        kind: 'relationship_field',
+        path: [{ relationship_definition_id: definition.id, from_side: 'source' }],
+        relationship_definition_id: definition.id,
+        relationship_field_id: 'private-note',
+      }],
+    }),
+    /relationship field is stale or unavailable/,
+  );
+});
+
+test('report validation rejects stale paths, stale fields, denied core access, and unsupported expansion rules', async () => {
+  const visible = field({ id: 'visible-field', name: 'title', label: 'Title', field_type: 'text', is_required: false });
+  const archivedRelationship = {
+    id: 'archived-link',
+    tenant_id: tenantId,
+    status: 'archived',
+    source_kind: 'custom_object',
+    source_custom_object_id: objectId,
+    target_kind: 'member',
+    target_custom_object_id: null,
+    configuration: {},
+  };
+  const db = mockDb({
+    custom_object_definition: [object()],
+    custom_object_role_permission: [{
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      role_id: roleId,
+      can_view_records: true,
+      can_export_records: true,
+    }],
+    preference_field: [visible],
+    custom_object_relationship_definition: [archivedRelationship],
+    custom_object_record: [],
+  });
+  const service = createCustomObjectService({ db, context: context() });
+  await assert.rejects(
+    () => service.previewReport(objectId, {
+      version: 1,
+      grain_path: [{ relationship_definition_id: archivedRelationship.id, from_side: 'source' }],
+      columns: [{ field_id: visible.id, path: [] }],
+      multi_value: 'join',
+    }),
+    /disconnected, unavailable, or cyclic/,
+  );
+  await assert.rejects(
+    () => service.previewReport(objectId, {
+      version: 1,
+      grain_path: [],
+      columns: [{ field_id: 'removed-field', path: [] }],
+      multi_value: 'join',
+    }),
+    /field is unavailable/,
+  );
+  await assert.rejects(
+    () => service.previewReport(objectId, {
+      version: 1,
+      grain_path: [],
+      columns: [{ field_id: visible.id, path: [] }],
+      multi_value: 'expand',
+    }),
+    /multi_value must be join/,
+  );
+});
+
+test('reports execute real multi-hop custom-to-custom-to-member paths and enforce every endpoint grant', async () => {
+  const teamObjectId = '44444444-4444-4444-8444-444444444444';
+  const teamField = field({
+    id: 'team-name-field',
+    custom_object_id: teamObjectId,
+    name: 'team_name',
+    label: 'Team',
+    field_type: 'text',
+    is_required: false,
+  });
+  const departmentTeam = {
+    id: 'department-team',
+    tenant_id: tenantId,
+    status: 'active',
+    source_kind: 'custom_object',
+    source_custom_object_id: objectId,
+    target_kind: 'custom_object',
+    target_custom_object_id: teamObjectId,
+    cardinality: 'one_to_many',
+    configuration: {},
+  };
+  const teamMember = {
+    id: 'team-member',
+    tenant_id: tenantId,
+    status: 'active',
+    source_kind: 'custom_object',
+    source_custom_object_id: teamObjectId,
+    target_kind: 'member',
+    target_custom_object_id: null,
+    cardinality: 'many_to_many',
+    configuration: {},
+  };
+  const seed = {
+    custom_object_definition: [
+      object(),
+      object({
+        id: teamObjectId,
+        object_key: 'teams',
+        singular_label: 'Team',
+        plural_label: 'Teams',
+      }),
+    ],
+    preference_field: [teamField],
+    custom_object_record: [
+      { id: 'department-1', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {} },
+      { id: 'department-2', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {} },
+      { id: 'team-1', tenant_id: tenantId, custom_object_id: teamObjectId, archived_at: null, data: { team_name: 'Policy team' } },
+      { id: 'team-2', tenant_id: tenantId, custom_object_id: teamObjectId, archived_at: null, data: { team_name: 'Finance team' } },
+    ],
+    member: [
+      { id: 'member-a', tenant_id: tenantId, first_name: 'Ada', last_name: 'Lovelace' },
+    ],
+    custom_object_relationship_definition: [departmentTeam, teamMember],
+    custom_object_relationship: [
+      { id: 'edge-team', tenant_id: tenantId, relationship_definition_id: departmentTeam.id, source_record_id: 'department-1', target_record_id: 'team-1', archived_at: null, field_values: {} },
+      { id: 'edge-team-2', tenant_id: tenantId, relationship_definition_id: departmentTeam.id, source_record_id: 'department-2', target_record_id: 'team-2', archived_at: null, field_values: {} },
+      { id: 'edge-member', tenant_id: tenantId, relationship_definition_id: teamMember.id, source_record_id: 'team-1', target_record_id: 'member-a', archived_at: null, field_values: {} },
+      { id: 'edge-member-2', tenant_id: tenantId, relationship_definition_id: teamMember.id, source_record_id: 'team-2', target_record_id: 'member-a', archived_at: null, field_values: {} },
+    ],
+  };
+  const pathToTeam = [{ relationship_definition_id: departmentTeam.id, from_side: 'source' }];
+  const pathToMember = [...pathToTeam, {
+    relationship_definition_id: teamMember.id,
+    from_side: 'source',
+  }];
+  const report = {
+    version: 1,
+    grain_path: pathToMember,
+    multi_value: 'join',
+    columns: [
+      { field_id: teamField.id, path: pathToTeam, label: 'Team' },
+      { field: 'full_name', path: pathToMember, label: 'Member' },
+    ],
+  };
+
+  const adminResult = await createCustomObjectService({
+    db: mockDb(seed),
+    context: context(),
+    isAdmin: true,
+  }).previewReport(objectId, { definition: report });
+  assert.equal(adminResult.total, 2);
+  assert.deepEqual(adminResult.data.map((row) => row.values), [
+    ['Policy team', 'Ada Lovelace'],
+    ['Finance team', 'Ada Lovelace'],
+  ]);
+  const secondPage = await createCustomObjectService({
+    db: mockDb(seed),
+    context: context(),
+    isAdmin: true,
+  }).previewReport(objectId, { definition: report, page: 2, pageSize: 1 });
+  assert.equal(secondPage.total, 2);
+  assert.equal(secondPage.page_count, 2);
+  assert.equal(secondPage.has_more, false);
+  assert.deepEqual(secondPage.data.map((row) => row.values), [
+    ['Finance team', 'Ada Lovelace'],
+  ]);
+
+  const denied = createCustomObjectService({
+    db: mockDb({
+      ...seed,
+      custom_object_role_permission: [{
+        tenant_id: tenantId,
+        custom_object_id: objectId,
+        role_id: roleId,
+        can_view_records: true,
+      }],
+    }),
+    context: context(),
+  });
+  await assert.rejects(
+    () => denied.previewReport(objectId, { definition: report }),
+    /Access denied/,
+  );
+
+  const forged = {
+    ...departmentTeam,
+    id: 'other-tenant-relationship',
+    tenant_id: 'other-tenant',
+  };
+  const forgedDb = mockDb({
+    ...seed,
+    custom_object_relationship_definition: [forged],
+  });
+  await assert.rejects(
+    () => createCustomObjectService({
+      db: forgedDb,
+      context: context(),
+      isAdmin: true,
+    }).previewReport(objectId, {
+      definition: {
+        version: 1,
+        grain_path: [{ relationship_definition_id: forged.id, from_side: 'source' }],
+        columns: [{ field_id: teamField.id, path: pathToTeam }],
+        multi_value: 'join',
+      },
+    }),
+    /disconnected, unavailable, or cyclic/,
+  );
+});
+
+test('reports reject active paths whose custom endpoint has since been archived', async () => {
+  const archivedObjectId = '55555555-5555-4555-8555-555555555555';
+  const definition = {
+    id: 'active-link-to-archived-object',
+    tenant_id: tenantId,
+    status: 'active',
+    source_kind: 'custom_object',
+    source_custom_object_id: objectId,
+    target_kind: 'custom_object',
+    target_custom_object_id: archivedObjectId,
+    configuration: {},
+  };
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({ id: archivedObjectId, object_key: 'archived', status: 'archived' }),
+    ],
+    preference_field: [],
+    custom_object_relationship_definition: [definition],
+    custom_object_record: [],
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  await assert.rejects(
+    () => service.previewReport(objectId, {
+      version: 1,
+      grain_path: [{ relationship_definition_id: definition.id, from_side: 'source' }],
+      columns: [{ field_id: 'anything', path: [] }],
+      multi_value: 'join',
+    }),
+    /Custom Object endpoint is unavailable/,
+  );
+  const graph = await createCustomObjectService({
+    db,
+    context: context(),
+    isAdmin: true,
+    canManageSchema: true,
+  }).relationshipDefinitionGraph(objectId);
+  assert.deepEqual(graph.data, []);
+  assert.deepEqual(graph.objects.map((item) => item.id), [objectId]);
+});
+
+test('relationship definition graph includes labelled active objects and paginates both collections', async () => {
+  const relatedObjects = Array.from({ length: 1001 }, (_, index) => object({
+    id: `object-${String(index).padStart(4, '0')}`,
+    object_key: `object_${index}`,
+    singular_label: `Object ${index}`,
+    plural_label: `Objects ${index}`,
+  }));
+  const definitions = Array.from({ length: 1001 }, (_, index) => ({
+    id: `definition-${String(index).padStart(4, '0')}`,
+    tenant_id: tenantId,
+    status: 'active',
+    source_kind: 'member',
+    source_custom_object_id: null,
+    target_kind: 'organization',
+    target_custom_object_id: null,
+    created_at: `2026-01-01T00:00:${String(index % 60).padStart(2, '0')}Z`,
+  }));
+  const db = mockDb({
+    custom_object_definition: [
+      object({ singular_label: 'Department', plural_label: 'Departments' }),
+      ...relatedObjects,
+      object({ id: 'archived-object', status: 'archived', singular_label: 'Old', plural_label: 'Old' }),
+    ],
+    custom_object_relationship_definition: definitions,
+  });
+  const graph = await createCustomObjectService({
+    db,
+    context: context(),
+    isAdmin: true,
+    canManageSchema: true,
+  }).relationshipDefinitionGraph(objectId);
+  assert.equal(graph.data.length, 1001);
+  assert.equal(graph.objects.length, 1002);
+  assert.deepEqual(
+    graph.objects.find((item) => item.id === objectId),
+    {
+      id: objectId,
+      singular_label: 'Department',
+      plural_label: 'Departments',
+    },
+  );
+  assert.equal(graph.objects.some((item) => item.id === 'archived-object'), false);
+  const definitionRanges = db.calls.filter((item) =>
+    item.table === 'custom_object_relationship_definition' && item.type === 'range');
+  const objectRanges = db.calls.filter((item) =>
+    item.table === 'custom_object_definition' && item.type === 'range');
+  assert.deepEqual(definitionRanges.map((item) => [item.from, item.to]), [
+    [0, 999], [1000, 1999],
+  ]);
+  assert.deepEqual(objectRanges.map((item) => [item.from, item.to]), [
+    [0, 999], [1000, 1999],
+  ]);
+});
+
+test('report export resumes through every root without truncating or duplicating chunks', async () => {
+  const title = field({
+    id: 'report-title',
+    name: 'title',
+    label: 'Title',
+    field_type: 'text',
+    is_required: false,
+  });
+  const records = Array.from({ length: 1001 }, (_, index) => ({
+    id: `record-${String(index).padStart(4, '0')}`,
+    tenant_id: tenantId,
+    custom_object_id: objectId,
+    archived_at: null,
+    data: { title: `Row ${index}` },
+  }));
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [title],
+    custom_object_record: records,
+    custom_object_relationship_definition: [],
+  });
+  const service = createCustomObjectService({
+    db,
+    context: context(),
+    isAdmin: true,
+  });
+  let result = await service.exportReport(objectId, {
+    action: 'start',
+    definition: {
+      version: 1,
+      grain_path: [],
+      columns: [{ field_id: title.id, path: [], label: 'Title' }],
+      multi_value: 'join',
+    },
+  });
+  // Simulate a serverless invocation dying after claiming page 1 but before
+  // committing its chunk. The expired takeover must retry page 1, not skip it.
+  Object.assign(db.tables.custom_object_report_export_job[0], {
+    status: 'processing',
+    claim_token: '00000000-0000-4000-8000-000000000000',
+    next_page: 1,
+    updated_at: '2020-01-01T00:00:00.000Z',
+  });
+  while (result.status !== 'complete') {
+    result = await service.exportReport(objectId, { action: 'process', job_id: result.id });
+  }
+  assert.equal(result.processed, 1001);
+  assert.equal(result.chunk_count, 3);
+  const chunks = await Promise.all([0, 1, 2].map((chunk_index) =>
+    service.exportReport(objectId, { action: 'chunk', job_id: result.id, chunk_index })));
+  const lines = chunks.map((chunk) => chunk.csv_text).join('').trim().split('\r\n');
+  assert.equal(lines.length, 1002);
+  assert.equal(new Set(lines.slice(1)).size, 1001);
+  assert.deepEqual(
+    db.tables.custom_object_report_export_chunk.map((chunk) => chunk.chunk_index),
+    [0, 1, 2],
+  );
+  const rootKeysetCalls = db.calls.filter((call) =>
+    call.table === 'custom_object_record' && call.type === 'gt');
+  assert.deepEqual(rootKeysetCalls.map((call) => call.value), [
+    'record-0499', 'record-0999',
+  ]);
+  const ranges = db.calls.filter((call) =>
+    call.table === 'custom_object_record' && call.type === 'range');
+  assert.deepEqual(ranges.slice(-3).map((call) => [call.from, call.to]), [
+    [0, 500],
+    [0, 500],
+    [0, 500],
+  ]);
+});
+
+test('report columns may use a different path that converges on the grain endpoint type', async () => {
+  const assignedMember = {
+    id: 'assigned-member',
+    tenant_id: tenantId,
+    status: 'active',
+    source_kind: 'custom_object',
+    source_custom_object_id: objectId,
+    target_kind: 'member',
+    target_custom_object_id: null,
+    configuration: {},
+  };
+  const managerMember = {
+    ...assignedMember,
+    id: 'manager-member',
+  };
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [],
+    custom_object_record: [
+      { id: 'department-1', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {} },
+    ],
+    member: [
+      { id: 'member-assigned', tenant_id: tenantId, first_name: 'Ada', last_name: 'Assigned' },
+      { id: 'member-manager', tenant_id: tenantId, first_name: 'Grace', last_name: 'Manager' },
+    ],
+    custom_object_relationship_definition: [assignedMember, managerMember],
+    custom_object_relationship: [
+      { id: 'edge-assigned', tenant_id: tenantId, relationship_definition_id: assignedMember.id, source_record_id: 'department-1', target_record_id: 'member-assigned', archived_at: null, field_values: {} },
+      { id: 'edge-manager', tenant_id: tenantId, relationship_definition_id: managerMember.id, source_record_id: 'department-1', target_record_id: 'member-manager', archived_at: null, field_values: {} },
+    ],
+  });
+  const assignedPath = [{
+    relationship_definition_id: assignedMember.id,
+    from_side: 'source',
+  }];
+  const managerPath = [{
+    relationship_definition_id: managerMember.id,
+    from_side: 'source',
+  }];
+  const result = await createCustomObjectService({
+    db,
+    context: context(),
+    isAdmin: true,
+  }).previewReport(objectId, {
+    definition: {
+      version: 1,
+      grain_path: assignedPath,
+      multi_value: 'join',
+      columns: [
+        { field: 'full_name', path: assignedPath, label: 'Assigned member' },
+        { field: 'full_name', path: managerPath, label: 'Manager' },
+      ],
+    },
+  });
+  assert.equal(result.total, 1);
+  assert.deepEqual(result.data[0].values, ['Ada Assigned', 'Grace Manager']);
+});
+
+test('field permission listing and upsert require schema access and enforce object-owned fields', async () => {
+  const controlled = field({ id: 'field-controlled', is_required: false });
+  const seed = {
+    custom_object_definition: [object()],
+    preference_field: [controlled],
+    role: [{ id: roleId, tenant_id: tenantId, name: 'portal' }],
+    custom_object_field_role_permission: [],
+  };
+  const reader = createCustomObjectService({ db: mockDb(seed), context: context() });
+  await assert.rejects(() => reader.listFieldPermissions(objectId, {}), /catalogue access required/);
+  await assert.rejects(() => reader.upsertFieldPermission(objectId, {
+    role_id: roleId, field_id: controlled.id, access_level: 'read',
+  }), /management access required/);
+  const db = mockDb(seed);
+  const manager = createCustomObjectService({
+    db, context: context(), canViewSchema: true, canManageSchema: true,
+  });
+  const saved = await manager.upsertFieldPermission(objectId, {
+    role_id: roleId, field_id: controlled.id, access_level: 'read',
+  });
+  assert.equal(saved.access_level, 'read');
+  assert.equal((await manager.listFieldPermissions(objectId, {})).data[0].field_id, controlled.id);
+});
+
+test('service denies unauthenticated, mismatched, and missing-tenant contexts', () => {
+  const db = mockDb();
+  assert.throws(
+    () => createCustomObjectService({ db, context: { isAuthenticated: false } }),
+    (error) => error instanceof CustomObjectHttpError && error.status === 401,
+  );
+  assert.throws(
+    () => createCustomObjectService({ db, context: context({ tenantMismatch: true }) }),
+    (error) => error.status === 409,
+  );
+  assert.throws(
+    () => createCustomObjectService({ db, context: context({ tenantId: null }) }),
+    (error) => error.status === 400,
+  );
+});
+
+test('all object reads are tenant scoped and cross-tenant IDs are invisible', async () => {
+  const db = mockDb({
+    custom_object_definition: [object(), object({ tenant_id: 'other-tenant' })],
+    custom_object_role_permission: [{
+      tenant_id: tenantId, custom_object_id: objectId, role_id: roleId, can_view_records: true,
+    }],
+  });
+  const service = createCustomObjectService({ db, context: context() });
+  await service.getObject(objectId);
+  assert.ok(db.calls.some((call) => call.table === 'custom_object_definition'
+    && call.type === 'eq' && call.column === 'tenant_id' && call.value === tenantId));
+  const otherService = createCustomObjectService({ db, context: context({ tenantId: 'third-tenant' }) });
+  await assert.rejects(() => otherService.getObject(objectId), (error) => error.status === 404);
+});
+
+test('role permission is deny-by-default while an administrator bypasses it', async () => {
+  const db = mockDb({ custom_object_definition: [object()] });
+  await assert.rejects(
+    () => createCustomObjectService({ db, context: context() }).getObject(objectId),
+    (error) => error.status === 403,
+  );
+  assert.equal(
+    (await createCustomObjectService({ db, context: context(), isAdmin: true }).getObject(objectId)).id,
+    objectId,
+  );
+});
+
+test('non-admin portal reads fail closed without an object role grant', async () => {
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [field()],
+    custom_object_record: [{
+      id: 'record-1', tenant_id: tenantId, custom_object_id: objectId,
+      archived_at: null, data: { headcount: 1 },
+    }],
+  });
+  const service = createCustomObjectService({
+    db,
+    context: context(),
+    isAdmin: false,
+  });
+  await assert.rejects(() => service.getObject(objectId), (error) => error.status === 403);
+  await assert.rejects(() => service.listFields(objectId, {}), (error) => error.status === 403);
+  await assert.rejects(() => service.listRecords(objectId, {}), (error) => error.status === 403);
+  await assert.rejects(() => service.getRecord(objectId, 'record-1'), (error) => error.status === 403);
+  assert.deepEqual(await service.listObjects({}), {
+    data: [], total: 0, page: 1, pageSize: 25,
+  });
+});
+
+test('record-reader object catalogue omits unprojected presentation metadata', async () => {
+  const db = mockDb({
+    custom_object_definition: [object({
+      primary_display_field_id: 'field-denied',
+      configuration: {
+        views: {
+          detail: {
+            version: 2,
+            schema_field_ids: ['field-denied'],
+            cards: [{
+              id: 'private',
+              title: 'Private',
+              columns: 1,
+              fields: [{
+                id: 'field:field-denied',
+                type: 'field',
+                field_id: 'field-denied',
+                columnIndex: 0,
+              }],
+            }],
+          },
+        },
+      },
+    })],
+    custom_object_role_permission: [{
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      role_id: roleId,
+      can_view_records: true,
+    }],
+  });
+  const result = await createCustomObjectService({
+    db,
+    context: context(),
+    isAdmin: false,
+  }).listObjects({ status: 'active' });
+  assert.equal(result.data.length, 1);
+  assert.equal(Object.hasOwn(result.data[0], 'configuration'), false);
+  assert.equal(Object.hasOwn(result.data[0], 'primary_display_field_id'), false);
+  assert.equal(result.data[0].capabilities.view, true);
+});
+
+test('object reads safely reconcile versioned CRM presentation against current fields', async () => {
+  const retained = field({ id: 'field-retained', name: 'title', is_required: false });
+  const added = field({ id: 'field-added', name: 'code', is_required: false });
+  const db = mockDb({
+    custom_object_definition: [object({
+      configuration: {
+        views: {
+          detail: {
+            version: 2,
+            schema_field_ids: [retained.id],
+            cards: [{
+              id: 'card-details',
+              title: 'Details',
+              columns: 1,
+              fields: [
+                {
+                  id: 'custom:field-retained',
+                  type: 'custom',
+                  fieldId: `custom:${retained.id}`,
+                  columnIndex: 0,
+                },
+                { id: 'field:removed', type: 'field', field_id: 'removed', columnIndex: 0 },
+              ],
+            }],
+          },
+        },
+      },
+    })],
+    preference_field: [retained, added],
+    custom_object_relationship_definition: [],
+    custom_object_role_permission: [{
+      tenant_id: tenantId, custom_object_id: objectId, role_id: roleId,
+      can_view_records: true,
+    }],
+  });
+  const result = await createCustomObjectService({ db, context: context() }).getObject(objectId);
+  assert.deepEqual(
+    result.configuration.views.detail.cards.flatMap((card) => card.fields).map((item) => item.id),
+    ['custom:field-retained', 'field:field-added'],
+  );
+  assert.equal(db.tables.custom_object_definition[0].configuration.views.detail.cards[0].fields.length, 2);
+});
+
+test('object updates persist valid organisation directory consent and reject forged selections', async () => {
+  const published = field({ id: 'field-published', name: 'published', is_required: false });
+  const direct = {
+    id: 'relationship-direct',
+    tenant_id: tenantId,
+    status: 'active',
+    source_kind: 'custom_object',
+    source_custom_object_id: objectId,
+    target_kind: 'organization',
+  };
+  const unavailableDefinitions = [
+    { ...direct, id: 'relationship-archived', status: 'archived' },
+    { ...direct, id: 'relationship-cross-tenant', tenant_id: 'another-tenant' },
+    {
+      ...direct,
+      id: 'relationship-wrong-object',
+      source_custom_object_id: '44444444-4444-4444-8444-444444444444',
+    },
+  ];
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [published],
+    custom_object_relationship_definition: [direct, ...unavailableDefinitions],
+  });
+  const service = createCustomObjectService({
+    db,
+    context: context(),
+    canManageSchema: true,
+    canViewSchema: true,
+  });
+  const configuration = {
+    retained: { value: true },
+    views: {
+      organisation_directory: {
+        enabled: true,
+        relationships: [{ relationship_id: direct.id, direction: 'target' }],
+        field_ids: [published.id],
+      },
+      list: { field_ids: [published.id] },
+      detail: {
+        version: 2,
+        schema_field_ids: [published.id],
+        cards: [{
+          id: 'card-details',
+          title: 'Details',
+          columns: 1,
+          fields: [{
+            id: `field:${published.id}`,
+            type: 'field',
+            field_id: published.id,
+            columnIndex: 0,
+          }],
+        }],
+        visibility_rules: { version: 1, rules: [] },
+      },
+    },
+  };
+  const updated = await service.updateObject(objectId, { configuration });
+  assert.deepEqual(updated.configuration, configuration);
+  const unavailableSelections = [
+    { relationship_id: direct.id, direction: 'source' },
+    { relationship_id: 'relationship-missing', direction: 'target' },
+    ...unavailableDefinitions.map((definition) => ({
+      relationship_id: definition.id,
+      direction: 'target',
+    })),
+  ];
+  for (const selection of unavailableSelections) {
+    const forged = structuredClone(configuration);
+    forged.views.organisation_directory.relationships = [selection];
+    await assert.rejects(
+      () => service.updateObject(objectId, { configuration: forged }),
+      (error) => error.status === 400
+        && error.details.some((detail) => detail.includes('unavailable Organisation relationship')),
+    );
+  }
+});
+
+test('object reads prune stale organisation directory references without clobbering stored configuration', async () => {
+  const published = field({ id: 'field-published', name: 'published', is_required: false });
+  const storedConfiguration = {
+    retained: { value: true },
+    views: {
+      organisation_directory: {
+        enabled: true,
+        relationships: [{ relationship_id: 'removed', direction: 'target' }],
+        field_ids: [published.id, 'archived-field'],
+      },
+    },
+  };
+  const db = mockDb({
+    custom_object_definition: [object({ configuration: storedConfiguration })],
+    preference_field: [published],
+    custom_object_relationship_definition: [],
+  });
+  const result = await createCustomObjectService({
+    db,
+    context: context(),
+    canViewSchema: true,
+  }).getObject(objectId);
+  assert.deepEqual(result.configuration.views.organisation_directory, {
+    enabled: true,
+    relationships: [],
+    field_ids: [published.id],
+  });
+  assert.deepEqual(result.configuration.retained, { value: true });
+  assert.equal(
+    db.tables.custom_object_definition[0].configuration.views.organisation_directory.field_ids.length,
+    2,
+  );
+});
+
+test('record-reader object metadata prunes denied fields and stale dependent rules', async () => {
+  const visible = field({ id: 'field-visible', name: 'title', is_required: false });
+  const denied = field({ id: 'field-denied', name: 'secret', is_required: false });
+  const db = mockDb({
+    custom_object_definition: [object({
+      configuration: {
+        views: {
+          detail: {
+            version: 2,
+            schema_field_ids: [visible.id, denied.id],
+            cards: [{
+              id: 'card-details',
+              title: 'Details',
+              columns: 1,
+              fields: [
+                { id: `field:${visible.id}`, type: 'field', field_id: visible.id, columnIndex: 0 },
+                { id: `field:${denied.id}`, type: 'field', field_id: denied.id, columnIndex: 0 },
+              ],
+            }],
+            visibility_rules: [{
+              id: 'private-rule',
+              conditions: [{ field_id: denied.id, operator: 'not_empty' }],
+              actions: [{
+                action_type: 'hide',
+                target_type: 'field',
+                target_field_id: `field:${visible.id}`,
+              }],
+            }],
+          },
+        },
+      },
+    })],
+    preference_field: [visible, denied],
+    custom_object_relationship_definition: [],
+    custom_object_role_permission: [{
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      role_id: roleId,
+      can_view_records: true,
+    }],
+    custom_object_field_role_permission: [{
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      role_id: roleId,
+      field_id: denied.id,
+      access_level: 'none',
+    }],
+  });
+  const result = await createCustomObjectService({ db, context: context() }).getObject(objectId);
+  assert.deepEqual(result.configuration.views.detail.schema_field_ids, [visible.id]);
+  assert.deepEqual(
+    result.configuration.views.detail.cards.flatMap((card) => card.fields).map((item) => item.id),
+    [`field:${visible.id}`],
+  );
+  assert.deepEqual(result.configuration.views.detail.visibility_rules, []);
+});
+
+test('hidden relationship sides reject direct non-admin create and archive mutations', async () => {
+  const targetObjectId = '44444444-4444-4444-8444-444444444444';
+  const definitionId = '55555555-5555-4555-8555-555555555555';
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({ id: targetObjectId, object_key: 'target' }),
+    ],
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      status: 'active',
+      cardinality: 'many_to_many',
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'custom_object',
+      target_custom_object_id: targetObjectId,
+      show_on_source: false,
+      show_on_target: true,
+      edit_from_source: true,
+      edit_from_target: true,
+    }],
+    custom_object_record: [
+      { id: 'source-1', tenant_id: tenantId, custom_object_id: objectId, archived_at: null },
+      { id: 'target-1', tenant_id: tenantId, custom_object_id: targetObjectId, archived_at: null },
+    ],
+    custom_object_relationship: [{
+      id: 'edge-1',
+      tenant_id: tenantId,
+      relationship_definition_id: definitionId,
+      source_record_id: 'source-1',
+      target_record_id: 'target-1',
+      archived_at: null,
+    }],
+    custom_object_role_permission: [
+      {
+        tenant_id: tenantId,
+        custom_object_id: objectId,
+        role_id: roleId,
+        can_view_records: true,
+        can_edit_records: true,
+      },
+      {
+        tenant_id: tenantId,
+        custom_object_id: targetObjectId,
+        role_id: roleId,
+        can_view_records: true,
+        can_edit_records: true,
+      },
+    ],
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: false });
+  await assert.rejects(
+    () => service.createRelationship(objectId, {
+      relationship_definition_id: definitionId,
+      source_record_id: 'source-1',
+      target_record_id: 'target-1',
+      routed_side: 'source',
+      routed_record_id: 'source-1',
+    }),
+    (error) => error.status === 403 && /hidden/.test(error.message),
+  );
+  await assert.rejects(
+    () => service.archiveRelationship(objectId, 'edge-1', {
+      routed_side: 'source',
+      routed_record_id: 'source-1',
+    }),
+    (error) => error.status === 403 && /hidden/.test(error.message),
+  );
+});
+
+test('record creation coerces typed JSONB, rejects invalid values, and authors mutation identity', async () => {
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [field()],
+    custom_object_role_permission: [{
+      tenant_id: tenantId, custom_object_id: objectId, role_id: roleId,
+      can_view_records: true, can_create_records: true,
+    }],
+  });
+  const service = createCustomObjectService({
+    db,
+    context: context({ memberId: 'trusted-member', tenantUserId: null }),
+  });
+  const created = await service.createRecord(objectId, {
+    data: { headcount: '42' },
+    created_by: 'forged',
+    actor_id: 'forged',
+  });
+  assert.equal(created.data.headcount, 42);
+  assert.equal(created.created_by, 'member:trusted-member');
+
+  await assert.rejects(
+    () => service.createRecord(objectId, { data: { headcount: '4.2' } }),
+    (error) => error.status === 400 && error.details[0].field === 'headcount',
+  );
+});
+
+test('trusted persisted record writes reserve IDs and use domain validation', async () => {
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [field()],
+  });
+  const service = createCustomObjectService({
+    db,
+    context: context({ memberId: 'processing-member', tenantUserId: null }),
+    isAdmin: true,
+  });
+  const created = await service.writeTrustedPersistedRecord(objectId, {
+    reservedRecordId: 'ledger-record',
+    data: { headcount: '7' },
+  });
+  assert.equal(created.record.id, 'ledger-record');
+  assert.equal(created.record.data.headcount, 7);
+  assert.equal(created.record.created_by, 'member:processing-member');
+
+  await assert.rejects(() => service.writeTrustedPersistedRecord(objectId, {
+    data: { headcount: 'not-a-number' },
+  }), /Invalid record data/i);
+
+  const nonAdmin = createCustomObjectService({ db, context: context(), isAdmin: false });
+  await assert.rejects(() => nonAdmin.writeTrustedPersistedRecord(objectId, {
+    data: { headcount: 1 },
+  }), error => error.status === 403);
+});
+
+test('atomic record creation routes an originating edge and additional edges through the tenant RPC', async () => {
+  const relatedObjectId = '44444444-4444-4444-8444-444444444444';
+  const definitionId = '55555555-5555-4555-8555-555555555555';
+  const db = mockDb({
+    custom_object_definition: [object(), object({ id: relatedObjectId, object_key: 'regions' })],
+    preference_field: [field()],
+    custom_object_role_permission: [
+      { tenant_id: tenantId, custom_object_id: objectId, role_id: roleId, can_view_records: true, can_create_records: true, can_edit_records: true },
+      { tenant_id: tenantId, custom_object_id: relatedObjectId, role_id: roleId, can_view_records: true, can_edit_records: true },
+    ],
+    custom_object_relationship_definition: [{
+      id: definitionId, tenant_id: tenantId, status: 'active', cardinality: 'many_to_many',
+      source_kind: 'custom_object', source_custom_object_id: relatedObjectId,
+      target_kind: 'custom_object', target_custom_object_id: objectId,
+      show_on_source: true, show_on_target: true, edit_from_source: true, edit_from_target: true,
+    }],
+    custom_object_record: [{ id: 'region-1', tenant_id: tenantId, custom_object_id: relatedObjectId, archived_at: null }],
+  });
+  const result = await createCustomObjectService({ db, context: context() }).createRecordWithRelationships(objectId, {
+    data: { headcount: 4 },
+    originating_relationship: {
+      relationship_definition_id: definitionId, routed_side: 'target', related_record_id: 'region-1',
+    },
+  });
+  assert.equal(result.record.data.headcount, 4);
+  const rpc = db.calls.find((call) => call.type === 'rpc' && call.name === 'create_custom_object_record_with_relationships');
+  assert.equal(rpc.args.p_tenant_id, tenantId);
+  assert.deepEqual(rpc.args.p_relationships, [{
+    relationship_definition_id: definitionId, routed_side: 'target', related_record_id: 'region-1', originating: true,
+  }]);
+});
+
+test('missing atomic create RPC returns an actionable service error without non-transactional fallback', async () => {
+  const definitionId = '55555555-5555-4555-8555-555555555555';
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [field()],
+    custom_object_role_permission: [{
+      tenant_id: tenantId, custom_object_id: objectId, role_id: roleId,
+      can_view_records: true, can_create_records: true, can_edit_records: true,
+    }],
+    custom_object_relationship_definition: [{
+      id: definitionId, tenant_id: tenantId, status: 'active', cardinality: 'many_to_many',
+      source_kind: 'custom_object', source_custom_object_id: objectId,
+      target_kind: 'member', target_custom_object_id: null,
+      show_on_source: true, edit_from_source: true,
+    }],
+    member: [{ id: 'member-2', tenant_id: tenantId }],
+  });
+  const originalRpc = db.rpc;
+  db.rpc = (name, args) => {
+    if (name !== 'create_custom_object_record_with_relationships') return originalRpc(name, args);
+    db.calls.push({ type: 'rpc', name, args });
+    return {
+      async single() {
+        return {
+          data: null,
+          error: {
+            code: 'PGRST202',
+            message: 'Could not find the function public.create_custom_object_record_with_relationships in the schema cache',
+          },
+        };
+      },
+    };
+  };
+
+  await assert.rejects(
+    () => createCustomObjectService({ db, context: context(), isAdmin: true }).createRecordWithRelationships(objectId, {
+      data: { headcount: 4 },
+      initial_relationships: [{
+        relationship_definition_id: definitionId,
+        routed_side: 'source',
+        related_record_id: 'member-2',
+      }],
+    }),
+    (error) => error.status === 503
+      && /20260925_custom_object_record_relationship_create\.sql/.test(error.message),
+  );
+  assert.equal(db.tables.custom_object_record?.length || 0, 0);
+});
+
+test('originating relationship uses the existing core card metadata, not the new record metadata', async () => {
+  const definitionId = '66666666-6666-4666-8666-666666666666';
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [field()],
+    custom_object_relationship_definition: [{
+      id: definitionId, tenant_id: tenantId, status: 'active', cardinality: 'many_to_many',
+      source_kind: 'custom_object', source_custom_object_id: objectId,
+      target_kind: 'organization', target_custom_object_id: null,
+      show_on_source: true, edit_from_source: false, show_on_target: true, edit_from_target: true,
+    }],
+    organization: [{ id: 'organization-1', tenant_id: tenantId, name: 'Existing card' }],
+  });
+  await createCustomObjectService({ db, context: context(), isAdmin: true }).createRecordWithRelationships(objectId, {
+    data: { headcount: 4 },
+    originating_relationship: {
+      relationship_definition_id: definitionId, routed_side: 'source', related_record_id: 'organization-1',
+    },
+  });
+  assert.ok(db.calls.some((call) => call.type === 'rpc'
+    && call.name === 'create_custom_object_record_with_relationships'));
+});
+
+test('initial relationship candidate picker excludes saturated opposite endpoints without a routed record', async () => {
+  const relatedObjectId = '77777777-7777-4777-8777-777777777777';
+  const definitionId = '88888888-8888-4888-8888-888888888888';
+  const db = mockDb({
+    custom_object_definition: [object(), object({ id: relatedObjectId, object_key: 'regions' })],
+    preference_field: [field(), field({ id: 'region-name', custom_object_id: relatedObjectId, name: 'headcount', is_required: false })],
+    custom_object_role_permission: [
+      { tenant_id: tenantId, custom_object_id: objectId, role_id: roleId, can_view_records: true, can_create_records: true, can_edit_records: true },
+      { tenant_id: tenantId, custom_object_id: relatedObjectId, role_id: roleId, can_view_records: true, can_edit_records: true },
+    ],
+    custom_object_relationship_definition: [{
+      id: definitionId, tenant_id: tenantId, status: 'active', cardinality: 'one_to_many',
+      source_kind: 'custom_object', source_custom_object_id: objectId,
+      target_kind: 'custom_object', target_custom_object_id: relatedObjectId,
+      show_on_source: true, edit_from_source: true, show_on_target: true, edit_from_target: true,
+    }],
+    custom_object_record: [
+      { id: 'available', tenant_id: tenantId, custom_object_id: relatedObjectId, data: { headcount: 2 }, archived_at: null },
+      { id: 'saturated', tenant_id: tenantId, custom_object_id: relatedObjectId, data: { headcount: 3 }, archived_at: null },
+    ],
+    custom_object_relationship: [{
+      tenant_id: tenantId, relationship_definition_id: definitionId, source_record_id: 'old-source',
+      target_record_id: 'saturated', archived_at: null,
+    }],
+  });
+  const result = await createCustomObjectService({ db, context: context() }).initialRelationshipCandidates(objectId, {
+    definitionId, newRecordSide: 'source',
+  });
+  assert.deepEqual(result.data.map((row) => row.id), ['available']);
+  assert.equal(result.data[0].kind, 'custom_object');
+});
+
+test('newly required fields preserve historical records until that field is supplied', async () => {
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [
+      field({ name: 'headcount', is_required: false }),
+      field({
+        id: 'field-required',
+        name: 'cost_centre',
+        label: 'Cost centre',
+        field_type: 'text',
+        is_required: true,
+      }),
+    ],
+    custom_object_record: [{
+      id: 'record-1',
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      data: { headcount: 10 },
+      archived_at: null,
+    }],
+    custom_object_role_permission: [{
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      role_id: roleId,
+      can_view_records: true,
+      can_edit_records: true,
+    }],
+  });
+  const service = createCustomObjectService({ db, context: context() });
+  const edited = await service.updateRecord(objectId, 'record-1', {
+    data: { headcount: 11 },
+  });
+  assert.deepEqual(edited.data, { headcount: 11 });
+  await assert.rejects(
+    () => service.updateRecord(objectId, 'record-1', {
+      data: { cost_centre: '' },
+    }),
+    (error) => error.status === 400
+      && error.details.some((detail) => detail.field === 'cost_centre'),
+  );
+  assert.equal((await service.updateRecord(objectId, 'record-1', {
+    data: { cost_centre: 'CC-100' },
+  })).data.cost_centre, 'CC-100');
+});
+
+test('record create and update reject non-canonical country codes even when all countries are enabled', async () => {
+  const countryField = field({
+    id: 'country-field',
+    name: 'country',
+    label: 'Country',
+    field_type: 'country',
+    is_required: false,
+    all_countries: true,
+  });
+  const countriesField = field({
+    id: 'countries-field',
+    name: 'countries',
+    label: 'Countries',
+    field_type: 'countries',
+    is_required: false,
+    all_countries: true,
+  });
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [countryField, countriesField],
+    custom_object_record: [{
+      id: 'record-1',
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      data: { country: 'GB', countries: ['GB'] },
+      archived_at: null,
+    }],
+    custom_object_role_permission: [{
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      role_id: roleId,
+      can_view_records: true,
+      can_create_records: true,
+      can_edit_records: true,
+    }],
+  });
+  const service = createCustomObjectService({ db, context: context() });
+  await assert.rejects(
+    () => service.createRecord(objectId, {
+      data: { country: 'XX', countries: ['GB'] },
+    }),
+    (error) => error.status === 400
+      && error.details.some((detail) => detail.field === 'country' && /ISO-2/.test(detail.message)),
+  );
+  await assert.rejects(
+    () => service.createRecord(objectId, {
+      data: { country: 'GB', countries: ['GB', 'XX'] },
+    }),
+    (error) => error.status === 400
+      && error.details.some((detail) => detail.field === 'countries' && /ISO-2/.test(detail.message)),
+  );
+  await assert.rejects(
+    () => service.updateRecord(objectId, 'record-1', {
+      data: { country: 'XX' },
+    }),
+    (error) => error.status === 400
+      && error.details.some((detail) => detail.field === 'country' && /ISO-2/.test(detail.message)),
+  );
+  await assert.rejects(
+    () => service.updateRecord(objectId, 'record-1', {
+      data: { countries: ['GB', 'XX'] },
+    }),
+    (error) => error.status === 400
+      && error.details.some((detail) => detail.field === 'countries' && /ISO-2/.test(detail.message)),
+  );
+});
+
+test('relationship creation validates endpoint kind/object and authors mutation identity', async () => {
+  const targetObjectId = '44444444-4444-4444-8444-444444444444';
+  const definitionId = '55555555-5555-4555-8555-555555555555';
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({ id: targetObjectId, object_key: 'locations' }),
+    ],
+    custom_object_role_permission: [{
+      tenant_id: tenantId, custom_object_id: objectId, role_id: roleId,
+      can_view_records: true, can_edit_records: true,
+    }, {
+      tenant_id: tenantId, custom_object_id: targetObjectId, role_id: roleId,
+      can_view_records: true, can_edit_records: true,
+    }],
+    custom_object_relationship_definition: [{
+      id: definitionId, tenant_id: tenantId, status: 'active', cardinality: 'many_to_many',
+      source_kind: 'custom_object', source_custom_object_id: objectId,
+      target_kind: 'custom_object', target_custom_object_id: targetObjectId,
+    }],
+    custom_object_record: [
+      { id: 'source-1', tenant_id: tenantId, custom_object_id: objectId, archived_at: null },
+      { id: 'target-1', tenant_id: tenantId, custom_object_id: targetObjectId, archived_at: null },
+      { id: 'wrong-target', tenant_id: tenantId, custom_object_id: objectId, archived_at: null },
+    ],
+  });
+  const service = createCustomObjectService({ db, context: context() });
+  const relation = await service.createRelationship(objectId, {
+    relationship_definition_id: definitionId,
+    source_record_id: 'source-1',
+    target_record_id: 'target-1',
+    routed_side: 'source',
+    routed_record_id: 'source-1',
+    created_by: 'forged',
+  });
+  assert.equal(relation.created_by, 'member:member-1');
+  await assert.rejects(
+    () => service.createRelationship(objectId, {
+      relationship_definition_id: definitionId,
+      source_record_id: 'source-1',
+      target_record_id: 'wrong-target',
+      routed_side: 'source',
+      routed_record_id: 'source-1',
+    }),
+    (error) => error.status === 400 && /different Custom Object/.test(error.message),
+  );
+});
+
+test('schema catalogue counts active tenant-scoped records, fields, and relationships', async () => {
+  const otherObjectId = '44444444-4444-4444-8444-444444444444';
+  const db = mockDb({
+    custom_object_definition: [object(), object({ id: otherObjectId, object_key: 'offices' })],
+    custom_object_record: [
+      { tenant_id: tenantId, custom_object_id: objectId, archived_at: null },
+      { tenant_id: tenantId, custom_object_id: objectId, archived_at: '2026-01-01' },
+      { tenant_id: 'other-tenant', custom_object_id: objectId, archived_at: null },
+    ],
+    preference_field: [
+      field(),
+      field({ id: 'field-2', is_active: false }),
+      field({ id: 'field-other', tenant_id: 'other-tenant' }),
+    ],
+    custom_object_relationship_definition: [{
+      tenant_id: tenantId, source_custom_object_id: objectId,
+      target_custom_object_id: otherObjectId, status: 'active',
+    }, {
+      tenant_id: tenantId, source_custom_object_id: objectId,
+      target_custom_object_id: otherObjectId, status: 'archived',
+    }, {
+      tenant_id: 'other-tenant', source_custom_object_id: objectId,
+      target_custom_object_id: otherObjectId, status: 'active',
+    }],
+  });
+  const result = await createCustomObjectService({
+    db,
+    context: context(),
+    canViewSchema: true,
+  }).listObjects({});
+  const row = result.data.find((item) => item.id === objectId);
+  assert.deepEqual(
+    [row.record_count, row.field_count, row.relationship_count],
+    [1, 1, 1],
+  );
+});
+
+test('activation requires a valid active field owned by the same tenant and object', async () => {
+  const db = mockDb({
+    custom_object_definition: [object({ status: 'draft' })],
+    preference_field: [
+      field({ id: 'inactive', is_active: false }),
+      field({ id: 'invalid', field_type: 'unsupported' }),
+      field({ id: 'valid', field_type: 'text', is_required: false }),
+    ],
+  });
+  const service = createCustomObjectService({
+    db,
+    context: context(),
+    canManageSchema: true,
+  });
+  await assert.rejects(
+    () => service.updateObject(objectId, { status: 'active', primary_display_field_id: 'inactive' }),
+    (error) => error.status === 400 && /active field/.test(error.message),
+  );
+  await assert.rejects(
+    () => service.updateObject(objectId, { status: 'active', primary_display_field_id: 'invalid' }),
+    (error) => error.status === 400 && /invalid field definition/.test(error.message),
+  );
+  assert.equal(
+    (await service.updateObject(objectId, {
+      status: 'active',
+      primary_display_field_id: 'valid',
+    })).status,
+    'active',
+  );
+});
+
+test('field schema settings persist through the dedicated service', async () => {
+  const db = mockDb({
+    custom_object_definition: [object({ status: 'draft' })],
+  });
+  const service = createCustomObjectService({
+    db,
+    context: context(),
+    canManageSchema: true,
+  });
+  const countries = await service.createField(objectId, {
+    name: 'operating_countries',
+    label: 'Operating countries',
+    field_type: 'countries',
+    all_countries: false,
+    selected_countries: ['GB', 'FR'],
+    default_countries: ['GB'],
+  });
+  assert.deepEqual(countries.default_countries, ['GB']);
+
+  const upload = await service.createField(objectId, {
+    name: 'supporting_file',
+    label: 'Supporting file',
+    field_type: 'file',
+    allowed_file_types: ['pdf'],
+    public_access: true,
+  });
+  assert.equal(upload.public_access, true);
+});
+
+test('object and field keys are immutable and archived objects are terminal', async () => {
+  const db = mockDb({
+    custom_object_definition: [object({ status: 'draft' })],
+    preference_field: [field()],
+  });
+  const service = createCustomObjectService({
+    db,
+    context: context(),
+    canManageSchema: true,
+    now: () => '2026-08-25T00:00:00.000Z',
+  });
+  await assert.rejects(
+    () => service.updateObject(objectId, { object_key: 'renamed' }),
+    (error) => error.status === 400 && /cannot be changed/.test(error.message),
+  );
+  await assert.rejects(
+    () => service.updateField(objectId, 'field-1', { name: 'renamed' }),
+    (error) => error.status === 400 && /cannot be changed/.test(error.message),
+  );
+  const archived = await service.updateObject(objectId, {}, true);
+  assert.equal(archived.status, 'archived');
+  assert.equal(db.tables.custom_object_definition.length, 1);
+  assert.deepEqual(await service.updateObject(objectId, {}, true), archived);
+  await assert.rejects(
+    () => service.updateObject(objectId, { singular_label: 'Changed' }),
+    (error) => error.status === 409 && /cannot be modified/.test(error.message),
+  );
+});
+
+test('database duplicate-key errors map to useful conflict responses', async () => {
+  const db = {
+    from() {
+      return {
+        insert() { return this; },
+        select() { return this; },
+        async single() {
+          return {
+            data: null,
+            error: { code: '23505', constraint: 'custom_object_definition_tenant_key_unique' },
+          };
+        },
+      };
+    },
+  };
+  const service = createCustomObjectService({
+    db,
+    context: context(),
+    canManageSchema: true,
+  });
+  await assert.rejects(
+    () => service.createObject({
+      object_key: 'departments',
+      singular_label: 'Department',
+      plural_label: 'Departments',
+    }),
+    (error) => error.status === 409 && /object key already exists/i.test(error.message),
+  );
+});
+
+test('audit listing returns only tenant/object events and does not write audit rows itself', async () => {
+  const db = mockDb({
+    custom_object_definition: [object()],
+    custom_object_audit_event: [
+      { id: 'audit-1', tenant_id: tenantId, custom_object_id: objectId, action: 'updated' },
+      { id: 'audit-2', tenant_id: 'other-tenant', custom_object_id: objectId, action: 'updated' },
+    ],
+  });
+  const result = await createCustomObjectService({
+    db,
+    context: context(),
+    canViewSchema: true,
+  }).listAudit(objectId, {});
+  assert.deepEqual(result.data.map((event) => event.id), ['audit-1']);
+  assert.equal(db.calls.filter(
+    (call) => call.table === 'custom_object_audit_event' && call.type === 'from',
+  ).length, 1);
+  await assert.rejects(
+    () => createCustomObjectService({
+      db,
+      context: context(),
+      canViewSchema: true,
+    }).listAudit(objectId, { entityType: 'arbitrary_table' }),
+    (error) => error.status === 400 && /audit entity type/.test(error.message),
+  );
+});
+
+test('schema service authorization does not treat record admin status as schema access', async () => {
+  const db = mockDb({ custom_object_definition: [object({ status: 'draft' })] });
+  const service = createCustomObjectService({
+    db,
+    context: context(),
+    isAdmin: true,
+  });
+  await assert.rejects(
+    () => service.createField(objectId, {
+      name: 'title', label: 'Title', field_type: 'text',
+    }),
+    (error) => error.status === 403 && /management access/.test(error.message),
+  );
+  await assert.rejects(
+    () => service.listAudit(objectId, {}),
+    (error) => error.status === 403 && /catalogue access/.test(error.message),
+  );
+});
+
+test('view-only schema catalogue can include draft, active, and archived objects', async () => {
+  const db = mockDb({
+    custom_object_definition: [
+      object({ id: 'draft', status: 'draft' }),
+      object({ id: 'active', status: 'active' }),
+      object({ id: 'archived', status: 'archived' }),
+    ],
+  });
+  const service = createCustomObjectService({
+    db,
+    context: context(),
+    canViewSchema: true,
+  });
+  const normal = await service.listObjects({});
+  assert.deepEqual(normal.data.map((row) => row.status).sort(), ['active', 'draft']);
+  const includingArchived = await service.listObjects({ includeArchived: 'true' });
+  assert.deepEqual(
+    includingArchived.data.map((row) => row.status).sort(),
+    ['active', 'archived', 'draft'],
+  );
+});
+
+test('schema catalogue applies lifecycle status before count and pagination', async () => {
+  const db = mockDb({
+    custom_object_definition: [
+      object({ id: 'draft-1', status: 'draft', created_at: '2026-03-01' }),
+      object({ id: 'active-1', status: 'active', created_at: '2026-02-01' }),
+      object({ id: 'active-2', status: 'active', created_at: '2026-01-01' }),
+    ],
+  });
+  const service = createCustomObjectService({
+    db,
+    context: context(),
+    canViewSchema: true,
+  });
+  const result = await service.listObjects({
+    status: 'active',
+    page: '2',
+    pageSize: '1',
+  });
+  assert.equal(result.total, 2);
+  assert.equal(result.page, 2);
+  assert.deepEqual(result.data.map((row) => row.id), ['active-2']);
+  await assert.rejects(
+    () => service.listObjects({ status: 'deleted' }),
+    (error) => error.status === 400 && /status must be/.test(error.message),
+  );
+});
+
+test('archived objects reject child schema and permission mutations', async () => {
+  const relationshipId = '55555555-5555-4555-8555-555555555555';
+  const db = mockDb({
+    custom_object_definition: [object({ status: 'archived', archived_at: '2026-01-01' })],
+    preference_field: [field()],
+    custom_object_relationship_definition: [{
+      id: relationshipId,
+      tenant_id: tenantId,
+      source_custom_object_id: objectId,
+      target_custom_object_id: null,
+    }],
+  });
+  const service = createCustomObjectService({
+    db,
+    context: context(),
+    canManageSchema: true,
+  });
+  const assertions = [
+    () => service.createField(objectId, { name: 'title', label: 'Title', field_type: 'text' }),
+    () => service.updateField(objectId, 'field-1', { label: 'Changed' }),
+    () => service.updateField(objectId, 'field-1', {}, true),
+    () => service.createRelationshipDefinition(objectId, {}),
+    () => service.updateRelationshipDefinition(objectId, relationshipId, {}),
+    () => service.updateRelationshipDefinition(objectId, relationshipId, {}, true),
+    () => service.upsertPermission(objectId, { role_id: roleId }),
+  ];
+  for (const mutate of assertions) {
+    await assert.rejects(
+      mutate,
+      (error) => error.status === 409 && /Archived Custom Objects/.test(error.message),
+    );
+  }
+});
+
+test('active primary display field cannot be deactivated', async () => {
+  const db = mockDb({
+    custom_object_definition: [object({ primary_display_field_id: 'field-1' })],
+    preference_field: [field()],
+  });
+  const service = createCustomObjectService({
+    db,
+    context: context(),
+    canManageSchema: true,
+  });
+  await assert.rejects(
+    () => service.updateField(objectId, 'field-1', {}, true),
+    (error) => error.status === 409 && /primary display field/.test(error.message),
+  );
+  assert.equal(db.tables.preference_field[0].is_active, true);
+});
+
+test('object responses project only the current role effective record capabilities', async () => {
+  const otherRoleId = '99999999-9999-4999-8999-999999999999';
+  const db = mockDb({
+    custom_object_definition: [object()],
+    custom_object_role_permission: [{
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      role_id: roleId,
+      can_view_records: true,
+      can_create_records: true,
+      can_edit_records: false,
+      can_archive_records: true,
+      can_export_records: false,
+    }, {
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      role_id: otherRoleId,
+      can_view_records: true,
+      can_create_records: false,
+      can_edit_records: true,
+      can_archive_records: false,
+      can_export_records: true,
+    }],
+  });
+  const service = createCustomObjectService({
+    db,
+    context: context(),
+    canViewSchema: true,
+  });
+  const detail = await service.getObject(objectId);
+  assert.deepEqual(detail.capabilities, {
+    view: true, create: true, edit: false, archive: true, export: false,
+  });
+  const listed = await service.listObjects({});
+  assert.deepEqual(listed.data[0].capabilities, detail.capabilities);
+  assert.equal(Object.hasOwn(listed.data[0], 'role_id'), false);
+  const permissionRoleLookups = db.calls.filter((call) =>
+    call.table === 'custom_object_role_permission'
+    && call.type === 'eq'
+    && call.column === 'role_id');
+  assert.ok(permissionRoleLookups.every((call) => call.value === roleId));
+});
+
+test('tenant administrators receive all projected record capabilities without role rows', async () => {
+  const db = mockDb({ custom_object_definition: [object()] });
+  const service = createCustomObjectService({
+    db,
+    context: context({ roleId: null }),
+    isAdmin: true,
+    canViewSchema: true,
+  });
+  assert.deepEqual((await service.getObject(objectId)).capabilities, {
+    view: true, create: true, edit: true, archive: true, export: true,
+  });
+});
+
+test('archived objects honor non-admin retrieval grants while disabling create and edit', async () => {
+  const archivedObject = object({
+    status: 'archived',
+    archived_at: '2026-01-01T00:00:00.000Z',
+  });
+  const db = mockDb({
+    custom_object_definition: [archivedObject],
+    preference_field: [field({ is_required: false })],
+    custom_object_record: [{
+      id: 'record-1',
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      data: { headcount: 12, historic_value: 'preserved' },
+      archived_at: null,
+    }],
+    custom_object_role_permission: [{
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      role_id: roleId,
+      can_view_records: true,
+      can_create_records: true,
+      can_edit_records: true,
+      can_archive_records: true,
+      can_export_records: true,
+    }],
+  });
+  const service = createCustomObjectService({ db, context: context() });
+  const detail = await service.getObject(objectId);
+  assert.deepEqual(detail.capabilities, {
+    view: true,
+    create: false,
+    edit: false,
+    archive: true,
+    export: true,
+  });
+  const records = await service.listRecords(objectId, {});
+  assert.equal(records.total, 1);
+  assert.deepEqual(records.data[0].data, {
+    headcount: 12,
+    historic_value: 'preserved',
+  });
+});
+
+test('record-only catalogue can discover granted archived objects but never drafts', async () => {
+  const draftId = '44444444-4444-4444-8444-444444444444';
+  const db = mockDb({
+    custom_object_definition: [
+      object({ status: 'archived', archived_at: '2026-01-01T00:00:00.000Z' }),
+      object({ id: draftId, object_key: 'draft_object', status: 'draft' }),
+    ],
+    custom_object_role_permission: [{
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      role_id: roleId,
+      can_view_records: true,
+      can_archive_records: true,
+    }, {
+      tenant_id: tenantId,
+      custom_object_id: draftId,
+      role_id: roleId,
+      can_view_records: true,
+    }],
+  });
+  const service = createCustomObjectService({ db, context: context() });
+  assert.deepEqual((await service.listObjects({})).data, []);
+  const result = await service.listObjects({ includeArchived: 'true' });
+  assert.deepEqual(result.data.map((row) => row.id), [objectId]);
+  assert.deepEqual(result.data[0].capabilities, {
+    view: true,
+    create: false,
+    edit: false,
+    archive: true,
+    export: false,
+  });
+});
+
+test('tenant admin archived projection keeps retrieval bypass but disables create and edit', async () => {
+  const db = mockDb({
+    custom_object_definition: [object({
+      status: 'archived',
+      archived_at: '2026-01-01T00:00:00.000Z',
+    })],
+  });
+  const detail = await createCustomObjectService({
+    db,
+    context: context({ roleId: null }),
+    isAdmin: true,
+    canViewSchema: true,
+  }).getObject(objectId);
+  assert.deepEqual(detail.capabilities, {
+    view: true,
+    create: false,
+    edit: false,
+    archive: true,
+    export: true,
+  });
+});
+
+test('record writes explicitly reject draft or archived object lifecycles even for admins', async () => {
+  for (const status of ['draft', 'archived']) {
+    const db = mockDb({
+      custom_object_definition: [object({ status })],
+      custom_object_record: [{
+        id: 'record-1', tenant_id: tenantId, custom_object_id: objectId,
+        data: { headcount: 1 }, archived_at: null,
+      }],
+      preference_field: [field()],
+    });
+    const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+    await assert.rejects(
+      () => service.createRecord(objectId, { data: { headcount: 2 } }),
+      (error) => error.status === 409 && /active Custom Objects/.test(error.message),
+    );
+    await assert.rejects(
+      () => service.updateRecord(objectId, 'record-1', { data: { headcount: 2 } }),
+      (error) => error.status === 409 && /active Custom Objects/.test(error.message),
+    );
+  }
+});
+
+test('record listing applies typed metadata filters, exact filtered count, and stable field sorting', async () => {
+  const sortable = field({ id: '44444444-4444-4444-8444-444444444444' });
+  const records = [
+    { id: 'b', tenant_id: tenantId, custom_object_id: objectId, data: { headcount: 20, historic: 'kept' }, archived_at: null },
+    { id: 'a', tenant_id: tenantId, custom_object_id: objectId, data: { headcount: 20 }, archived_at: null },
+    { id: 'c', tenant_id: tenantId, custom_object_id: objectId, data: { headcount: 5 }, archived_at: null },
+  ];
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [sortable],
+    custom_object_record: records,
+  });
+  const result = await createCustomObjectService({
+    db, context: context(), isAdmin: true,
+  }).listRecords(objectId, {
+    page: '1',
+    pageSize: '1',
+    sortField: sortable.id,
+    sortDir: 'asc',
+    filters: JSON.stringify({ [sortable.id]: { op: 'gte', value: '20' } }),
+  });
+  assert.equal(result.total, 2);
+  assert.equal(result.data[0].id, 'a');
+  assert.equal(result.data[0].data.headcount, 20);
+  const orders = db.calls.filter((call) => call.table === 'custom_object_record' && call.type === 'order');
+  assert.deepEqual(orders.map((call) => call.column), ['data->headcount', 'id']);
+  assert.ok(db.calls.some((call) =>
+    call.type === 'filter' && call.column === 'data->headcount' && call.operator === 'gte'));
+});
+
+test('record search uses only active searchable metadata and rejects unwhitelisted fields/operators', async () => {
+  const title = field({
+    id: '44444444-4444-4444-8444-444444444444',
+    name: 'title',
+    label: 'Title',
+    field_type: 'text',
+    is_required: false,
+  });
+  const archived = field({
+    id: '55555555-5555-4555-8555-555555555555',
+    name: 'secret',
+    field_type: 'text',
+    is_active: false,
+  });
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [title, archived],
+    custom_object_record: [],
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  await service.listRecords(objectId, { search: 'quoted",unsafe', pageSize: '25' });
+  const searchCall = db.calls.find((call) =>
+    call.table === 'custom_object_record' && call.type === 'or');
+  assert.match(searchCall.expression, /^data->>title\.ilike\./);
+  assert.doesNotMatch(searchCall.expression, /secret/);
+
+  await assert.rejects(
+    () => service.listRecords(objectId, {
+      filters: JSON.stringify({ [archived.id]: { op: 'contains', value: 'x' } }),
+    }),
+    (error) => error.status === 400 && /Unknown or inactive/.test(error.message),
+  );
+  await assert.rejects(
+    () => service.listRecords(objectId, {
+      filters: JSON.stringify({ [title.id]: { op: 'gte', value: 'x' } }),
+    }),
+    (error) => error.status === 400 && /not supported/.test(error.message),
+  );
+});
+
+test('record list metadata unifies readable scalar fields and permission-pruned relationship sides', async () => {
+  const targetId = '44444444-4444-4444-8444-444444444444';
+  const hiddenTargetId = '55555555-5555-4555-8555-555555555555';
+  const display = field({
+    id: 'display-field', custom_object_id: targetId, name: 'name',
+    label: 'Name', field_type: 'text', is_required: false,
+  });
+  const deniedListField = field({ id: 'denied-list', name: 'private', field_type: 'text' });
+  const multi = field({ id: 'multi', name: 'tags', field_type: 'picklist', is_required: false });
+  const attachment = field({ id: 'attachment', name: 'attachment', field_type: 'file', is_required: false });
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({ id: targetId, object_key: 'teams', primary_display_field_id: display.id }),
+      object({ id: hiddenTargetId, object_key: 'private_teams' }),
+    ],
+    preference_field: [field({ id: 'scalar' }), deniedListField, multi, attachment, display],
+    custom_object_role_permission: [
+      { tenant_id: tenantId, custom_object_id: objectId, role_id: roleId, can_view_records: true },
+      { tenant_id: tenantId, custom_object_id: targetId, role_id: roleId, can_view_records: true },
+    ],
+    custom_object_field_role_permission: [
+      { tenant_id: tenantId, custom_object_id: objectId, role_id: roleId, field_id: deniedListField.id, access_level: 'none' },
+      { tenant_id: tenantId, custom_object_id: targetId, role_id: roleId, field_id: display.id, access_level: 'none' },
+    ],
+    custom_object_relationship_definition: [
+      {
+        id: 'visible-relation', tenant_id: tenantId, status: 'active',
+        cardinality: 'one_to_many', source_kind: 'custom_object',
+        source_custom_object_id: objectId, target_kind: 'custom_object',
+        target_custom_object_id: targetId, source_label: 'Teams', show_on_source: true,
+      },
+      {
+        id: 'inaccessible-relation', tenant_id: tenantId, status: 'active',
+        cardinality: 'many_to_many', source_kind: 'custom_object',
+        source_custom_object_id: objectId, target_kind: 'custom_object',
+        target_custom_object_id: hiddenTargetId, show_on_source: true,
+      },
+      {
+        id: 'inactive-relation', tenant_id: tenantId, status: 'archived',
+        source_kind: 'custom_object', source_custom_object_id: objectId,
+        target_kind: 'custom_object', target_custom_object_id: targetId,
+      },
+    ],
+    custom_object_record: [],
+  });
+  const result = await createCustomObjectService({ db, context: context() }).listRecords(objectId, {});
+  assert.deepEqual(result.metadata.fields.map((item) => item.id), ['attachment', 'multi', 'scalar']);
+  assert.deepEqual(result.metadata.fields.find((item) => item.id === multi.id), {
+    id: 'multi',
+    kind: 'field',
+    field_id: 'multi',
+    key: 'tags',
+    label: 'Headcount',
+    field_type: 'picklist',
+    value_shape: 'array',
+    operators: ['any_of', 'none_of'],
+    filterable: true,
+    sortable: true,
+  });
+  assert.deepEqual(result.metadata.fields.find((item) => item.id === attachment.id), {
+    id: 'attachment',
+    kind: 'field',
+    field_id: 'attachment',
+    key: 'attachment',
+    label: 'Headcount',
+    field_type: 'file',
+    value_shape: 'file',
+    operators: [],
+    filterable: false,
+    sortable: false,
+  });
+  assert.deepEqual(result.metadata.relationships, []);
+});
+
+test('relationship filter options search core endpoints through a tenant-scoped permission-safe route', async () => {
+  const relationId = 'organization-relation';
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [],
+    custom_object_role_permission: [{
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      role_id: roleId,
+      can_view_records: true,
+    }],
+    custom_object_relationship_definition: [{
+      id: relationId,
+      tenant_id: tenantId,
+      status: 'active',
+      cardinality: 'many_to_one',
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'organization',
+      target_custom_object_id: null,
+      source_label: 'Organisation',
+      show_on_source: true,
+    }],
+    organization: [
+      { id: 'org-alpha', tenant_id: tenantId, name: 'Alpha Group', email: 'alpha@example.test' },
+      { id: 'org-beta', tenant_id: tenantId, name: 'Beta Group' },
+      { id: 'org-foreign', tenant_id: 'other-tenant', name: 'Alpha Foreign' },
+    ],
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const result = await service.relationshipFilterOptions(objectId, {
+    fieldId: `relationship:${relationId}:source`,
+    search: 'alpha',
+    selected: JSON.stringify(['org-beta']),
+    page: '1',
+    pageSize: '50',
+  });
+  assert.equal(result.total, 1);
+  assert.deepEqual(result.data, [
+    {
+      id: 'org-beta',
+      kind: 'organization',
+      custom_object_id: null,
+      primary_label: 'Beta Group',
+      secondary_text: null,
+    },
+    {
+      id: 'org-alpha',
+      kind: 'organization',
+      custom_object_id: null,
+      primary_label: 'Alpha Group',
+      secondary_text: 'alpha@example.test',
+    },
+  ]);
+
+  await assert.rejects(
+    () => createCustomObjectService({
+      db,
+      context: context(),
+    }).relationshipFilterOptions(objectId, {
+      fieldId: `relationship:${relationId}:source`,
+    }),
+    (error) => error.status === 400 && /inaccessible relationship/.test(error.message),
+  );
+});
+
+test('relationship filtering ignores inactive, archived, and cross-tenant endpoints and reports exact total', async () => {
+  const targetId = '44444444-4444-4444-8444-444444444444';
+  const relationId = 'relation-filter';
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({ id: targetId, object_key: 'teams', primary_display_field_id: 'target-name' }),
+    ],
+    preference_field: [
+      field({ id: 'target-name', custom_object_id: targetId, name: 'name', field_type: 'text', is_required: false }),
+    ],
+    custom_object_relationship_definition: [{
+      id: relationId, tenant_id: tenantId, status: 'active', cardinality: 'many_to_many',
+      source_kind: 'custom_object', source_custom_object_id: objectId,
+      target_kind: 'custom_object', target_custom_object_id: targetId, show_on_source: true,
+    }],
+    custom_object_record: [
+      ...['source-valid', 'source-archived', 'source-foreign', 'source-empty'].map((id) => ({
+        id, tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {},
+      })),
+      { id: 'valid-target', tenant_id: tenantId, custom_object_id: targetId, archived_at: null, data: { name: 'Valid' } },
+      { id: 'archived-target', tenant_id: tenantId, custom_object_id: targetId, archived_at: '2026-01-01', data: { name: 'Old' } },
+      { id: 'foreign-target', tenant_id: 'other-tenant', custom_object_id: targetId, archived_at: null, data: { name: 'Foreign' } },
+    ],
+    custom_object_relationship: [
+      { relationship_definition_id: relationId, tenant_id: tenantId, source_record_id: 'source-valid', target_record_id: 'valid-target', archived_at: null },
+      { relationship_definition_id: relationId, tenant_id: tenantId, source_record_id: 'source-archived', target_record_id: 'archived-target', archived_at: null },
+      { relationship_definition_id: relationId, tenant_id: tenantId, source_record_id: 'source-foreign', target_record_id: 'foreign-target', archived_at: null },
+    ],
+  });
+  const key = `relationship:${relationId}:source`;
+  const result = await createCustomObjectService({
+    db, context: context(), isAdmin: true,
+  }).listRecords(objectId, {
+    pageSize: 1,
+    relationshipFilters: JSON.stringify({ [key]: { op: 'is_not_empty' } }),
+  });
+  assert.equal(result.total, 1);
+  assert.deepEqual(result.data.map((row) => row.id), ['source-valid']);
+  assert.equal(result.data[0].relationships[key].count, 1);
+  assert.equal(result.data[0].relationships[key].records[0].primary_label, 'Valid');
+});
+
+test('relationship RPC combines search and typed scalar filters before exact totals and pagination', async () => {
+  const targetId = '44444444-4444-4444-8444-444444444444';
+  const relationId = 'combined-relation';
+  const title = field({ id: 'field-title', name: 'title', label: 'Title', field_type: 'text', is_required: false });
+  const headcount = field({ id: 'field-count', name: 'headcount', field_type: 'number', is_required: false });
+  const opened = field({ id: 'field-opened', name: 'opened', field_type: 'date', is_required: false });
+  const active = field({ id: 'field-active', name: 'active', field_type: 'boolean', is_required: false });
+  const tags = field({ id: 'field-tags', name: 'tags', field_type: 'picklist', is_required: false });
+  const targetName = field({
+    id: 'target-name',
+    custom_object_id: targetId,
+    name: 'name',
+    label: 'Name',
+    field_type: 'text',
+    is_required: false,
+  });
+  const source = (id, data) => ({
+    id,
+    tenant_id: tenantId,
+    custom_object_id: objectId,
+    archived_at: null,
+    data,
+  });
+  const base = {
+    title: 'Needle department',
+    headcount: 30,
+    opened: '2026-06-01',
+    active: true,
+    tags: ['green', 'priority'],
+  };
+  const db = mockDb({
+    custom_object_definition: [
+      object({ primary_display_field_id: title.id }),
+      object({ id: targetId, object_key: 'teams', primary_display_field_id: targetName.id }),
+    ],
+    preference_field: [title, headcount, opened, active, tags, targetName],
+    custom_object_relationship_definition: [{
+      id: relationId,
+      tenant_id: tenantId,
+      status: 'active',
+      cardinality: 'many_to_many',
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'custom_object',
+      target_custom_object_id: targetId,
+      source_label: 'Teams',
+      show_on_source: true,
+    }],
+    custom_object_record: [
+      source('source-match', base),
+      source('source-low', { ...base, headcount: 10 }),
+      source('source-late', { ...base, opened: '2027-01-01' }),
+      source('source-inactive', { ...base, active: false }),
+      source('source-blue', { ...base, tags: ['blue'] }),
+      source('source-unlinked', base),
+      {
+        id: 'target-match',
+        tenant_id: tenantId,
+        custom_object_id: targetId,
+        archived_at: null,
+        data: { name: 'Target team' },
+      },
+    ],
+    custom_object_relationship: [
+      ...['source-match', 'source-low', 'source-late', 'source-inactive', 'source-blue'].map((id) => ({
+        id: `edge-${id}`,
+        relationship_definition_id: relationId,
+        tenant_id: tenantId,
+        source_record_id: id,
+        target_record_id: 'target-match',
+        archived_at: null,
+      })),
+    ],
+  });
+  const key = `relationship:${relationId}:source`;
+  const service = createCustomObjectService({
+    db,
+    context: context(),
+    isAdmin: true,
+  });
+  const result = await service.listRecords(objectId, {
+    page: 1,
+    pageSize: 1,
+    search: 'needle',
+    sortField: headcount.id,
+    sortDir: 'asc',
+    filters: JSON.stringify({
+      [title.id]: { op: 'contains', value: 'department' },
+      [headcount.id]: { op: 'gte', value: 20 },
+      [opened.id]: { op: 'lte', value: '2026-12-31' },
+      [active.id]: { op: 'equals', value: true },
+      [tags.id]: { op: 'any_of', value: ['green'] },
+      [key]: { op: 'any_of', value: ['target-match'] },
+    }),
+  });
+  assert.equal(result.total, 1);
+  assert.deepEqual(result.data.map((row) => row.id), ['source-match']);
+  const rpc = db.calls.find((call) =>
+    call.type === 'rpc' && call.name === 'custom_object_record_relationship_list');
+  assert.equal(rpc.args.p_scalar_plan.filters.length, 5);
+  assert.equal(rpc.args.p_scalar_plan.search, 'needle');
+  assert.equal(rpc.args.p_scalar_plan.sort_column, 'data->headcount');
+  assert.deepEqual(rpc.args.p_filters[0].values, ['target-match']);
+});
+
+test('relationship count sorting is numeric and stable before pagination', async () => {
+  const targetId = '44444444-4444-4444-8444-444444444444';
+  const relationId = 'count-sort-relation';
+  const sourceName = field({ id: 'source-name', name: 'name', field_type: 'text', is_required: false });
+  const targetName = field({
+    id: 'target-name',
+    custom_object_id: targetId,
+    name: 'name',
+    field_type: 'text',
+    is_required: false,
+  });
+  const sources = Array.from({ length: 12 }, (_, count) => ({
+    id: `source-${String(count).padStart(2, '0')}`,
+    tenant_id: tenantId,
+    custom_object_id: objectId,
+    archived_at: null,
+    data: { name: `Source ${count}` },
+  }));
+  const targets = [];
+  const edges = [];
+  for (let count = 0; count < sources.length; count += 1) {
+    for (let edgeIndex = 0; edgeIndex < count; edgeIndex += 1) {
+      const targetRecordId = `target-${count}-${edgeIndex}`;
+      targets.push({
+        id: targetRecordId,
+        tenant_id: tenantId,
+        custom_object_id: targetId,
+        archived_at: null,
+        data: { name: `Target ${count}-${edgeIndex}` },
+      });
+      edges.push({
+        id: `edge-${count}-${edgeIndex}`,
+        relationship_definition_id: relationId,
+        tenant_id: tenantId,
+        source_record_id: sources[count].id,
+        target_record_id: targetRecordId,
+        archived_at: null,
+      });
+    }
+  }
+  const db = mockDb({
+    custom_object_definition: [
+      object({ primary_display_field_id: sourceName.id }),
+      object({ id: targetId, object_key: 'teams', primary_display_field_id: targetName.id }),
+    ],
+    preference_field: [sourceName, targetName],
+    custom_object_relationship_definition: [{
+      id: relationId,
+      tenant_id: tenantId,
+      status: 'active',
+      cardinality: 'many_to_many',
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'custom_object',
+      target_custom_object_id: targetId,
+      source_label: 'Teams',
+      show_on_source: true,
+    }],
+    custom_object_record: [...sources, ...targets],
+    custom_object_relationship: edges,
+  });
+  const service = createCustomObjectService({
+    db,
+    context: context(),
+    isAdmin: true,
+  });
+  const result = await service.listRecords(objectId, {
+    page: 1,
+    pageSize: 3,
+    relationshipSort: `relationship:${relationId}:source`,
+    relationshipSortMode: 'count',
+    sortDir: 'desc',
+  });
+  assert.equal(result.total, 12);
+  assert.deepEqual(result.data.map((row) => row.id), ['source-11', 'source-10', 'source-09']);
+  const largest = result.data[0].relationships[`relationship:${relationId}:source`];
+  assert.equal(largest.count, 11);
+  assert.equal(largest.records.length, 3);
+  const projectionCall = db.calls.find((call) =>
+    call.type === 'rpc' && call.name === 'custom_object_record_relationship_projection');
+  assert.equal(projectionCall.args.p_label_limit, 3);
+  assert.equal(db.calls.some((call) => call.type === 'from' && call.table === 'custom_object_relationship'), false);
+
+  const beyondLastPage = await service.listRecords(objectId, {
+    page: 99,
+    pageSize: 3,
+    relationshipSort: `relationship:${relationId}:source`,
+    relationshipSortMode: 'count',
+    sortDir: 'desc',
+  });
+  assert.equal(beyondLastPage.total, 12);
+  assert.deepEqual(beyondLastPage.data, []);
+});
+
+test('relationship projection validates a bounded requested column inventory', async () => {
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [],
+    custom_object_record: [],
+  });
+  await assert.rejects(
+    () => createCustomObjectService({
+      db,
+      context: context(),
+      isAdmin: true,
+    }).listRecords(objectId, {
+      relationshipColumns: JSON.stringify(Array.from({ length: 101 }, (_, index) => `relationship:${index}:source`)),
+    }),
+    (error) => error.status === 400 && /at most 100/.test(error.message),
+  );
+});
+
+test('relationship label projection chunks large endpoint ID lookups', async () => {
+  const targetId = '44444444-4444-4444-8444-444444444444';
+  const relationId = 'projection-chunk-relation';
+  const key = `relationship:${relationId}:source`;
+  const sourceName = field({
+    id: 'source-name',
+    name: 'name',
+    field_type: 'text',
+    is_required: false,
+  });
+  const targetName = field({
+    id: 'target-name',
+    custom_object_id: targetId,
+    name: 'name',
+    field_type: 'text',
+    is_required: false,
+  });
+  const sources = Array.from({ length: 70 }, (_, index) => ({
+    id: `source-${index}`,
+    tenant_id: tenantId,
+    custom_object_id: objectId,
+    archived_at: null,
+    data: { name: `Source ${index}` },
+  }));
+  const targets = [];
+  const edges = [];
+  for (const source of sources) {
+    for (let index = 0; index < 3; index += 1) {
+      const targetRecordId = `target-${source.id}-${index}`;
+      targets.push({
+        id: targetRecordId,
+        tenant_id: tenantId,
+        custom_object_id: targetId,
+        archived_at: null,
+        data: { name: `Target ${source.id}-${index}` },
+      });
+      edges.push({
+        id: `edge-${source.id}-${index}`,
+        tenant_id: tenantId,
+        relationship_definition_id: relationId,
+        source_record_id: source.id,
+        target_record_id: targetRecordId,
+        archived_at: null,
+      });
+    }
+  }
+  const db = mockDb({
+    custom_object_definition: [
+      object({ primary_display_field_id: sourceName.id }),
+      object({ id: targetId, object_key: 'teams', primary_display_field_id: targetName.id }),
+    ],
+    preference_field: [sourceName, targetName],
+    custom_object_relationship_definition: [{
+      id: relationId,
+      tenant_id: tenantId,
+      status: 'active',
+      cardinality: 'many_to_many',
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'custom_object',
+      target_custom_object_id: targetId,
+      source_label: 'Teams',
+      show_on_source: true,
+    }],
+    custom_object_record: [...sources, ...targets],
+    custom_object_relationship: edges,
+  });
+  const result = await createCustomObjectService({
+    db,
+    context: context(),
+    isAdmin: true,
+  }).listRecords(objectId, {
+    page: 1,
+    pageSize: 100,
+    relationshipColumns: JSON.stringify([key]),
+  });
+  assert.equal(result.data.length, 70);
+  assert.ok(result.data.every((row) =>
+    row.relationships[key].count === 3 && row.relationships[key].records.length === 3));
+  const endpointBatches = db.calls.filter((call) =>
+    call.type === 'in'
+    && call.table === 'custom_object_record'
+    && call.column === 'id'
+    && call.values.some((id) => String(id).startsWith('target-')));
+  assert.deepEqual(endpointBatches.map((call) => call.values.length), [200, 10]);
+});
+
+test('missing relationship list RPC returns an actionable 503 without an in-memory fallback', async () => {
+  const targetId = '44444444-4444-4444-8444-444444444444';
+  const relationId = 'missing-rpc-relation';
+  const display = field({
+    id: 'target-name',
+    custom_object_id: targetId,
+    name: 'name',
+    field_type: 'text',
+    is_required: false,
+  });
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({ id: targetId, object_key: 'teams', primary_display_field_id: display.id }),
+    ],
+    preference_field: [display],
+    custom_object_relationship_definition: [{
+      id: relationId,
+      tenant_id: tenantId,
+      status: 'active',
+      cardinality: 'many_to_many',
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'custom_object',
+      target_custom_object_id: targetId,
+      source_label: 'Teams',
+      show_on_source: true,
+    }],
+  });
+  const originalRpc = db.rpc;
+  db.rpc = (name, args) => {
+    if (name !== 'custom_object_record_relationship_list') return originalRpc(name, args);
+    db.calls.push({ type: 'rpc', name, args });
+    return Promise.resolve({
+      data: null,
+      error: {
+        code: 'PGRST202',
+        message: 'Could not find the function public.custom_object_record_relationship_list in the schema cache',
+      },
+    });
+  };
+  await assert.rejects(
+    () => createCustomObjectService({
+      db,
+      context: context(),
+      isAdmin: true,
+    }).listRecords(objectId, {
+      relationshipFilters: JSON.stringify({
+        [`relationship:${relationId}:source`]: { op: 'is_not_empty' },
+      }),
+    }),
+    (error) => error.status === 503
+      && /20260928_custom_object_relationship_list_rpc\.sql/.test(error.message),
+  );
+});
+
+test('relationship label sorting is stable before pagination and export uses the same result contract', async () => {
+  const targetId = '44444444-4444-4444-8444-444444444444';
+  const relationId = 'relation-sort';
+  const sourceRows = Array.from({ length: 125 }, (_, index) => ({
+    id: `source-${String(index).padStart(3, '0')}`,
+    tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {},
+  }));
+  const targetRows = sourceRows.map((source, index) => ({
+    id: `target-${index}`, tenant_id: tenantId, custom_object_id: targetId,
+    archived_at: null, data: { name: `Label ${String(124 - index).padStart(3, '0')}` },
+  }));
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({ id: targetId, object_key: 'teams', primary_display_field_id: 'target-name' }),
+    ],
+    preference_field: [
+      field({ id: 'target-name', custom_object_id: targetId, name: 'name', field_type: 'text', is_required: false }),
+    ],
+    custom_object_relationship_definition: [{
+      id: relationId, tenant_id: tenantId, status: 'active', cardinality: 'one_to_one',
+      source_kind: 'custom_object', source_custom_object_id: objectId,
+      target_kind: 'custom_object', target_custom_object_id: targetId, show_on_source: true,
+    }],
+    custom_object_record: [...sourceRows, ...targetRows],
+    custom_object_relationship: sourceRows.map((source, index) => ({
+      id: `edge-${index}`, relationship_definition_id: relationId, tenant_id: tenantId,
+      source_record_id: source.id, target_record_id: `target-${index}`, archived_at: null,
+    })),
+  });
+  const key = `relationship:${relationId}:source`;
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const page = await service.listRecords(objectId, {
+    page: 3, pageSize: 10, relationshipSort: key, sortDir: 'asc',
+  });
+  assert.equal(page.total, 125);
+  assert.deepEqual(page.data.map((row) => row.id), sourceRows.slice(95, 105).map((row) => row.id).reverse());
+  const exported = await service.exportRecords(objectId, {
+    page: 3, pageSize: 10, relationshipSort: key, sortDir: 'asc',
+  });
+  assert.deepEqual(exported.data.map((row) => row.id), page.data.map((row) => row.id));
+  assert.equal(exported.total, 125);
+  assert.deepEqual(exported.relationship_columns, page.metadata.relationships);
+});
+
+test('is_not_empty uses explicit non-null and non-empty predicates', async () => {
+  const title = field({
+    id: '44444444-4444-4444-8444-444444444444',
+    name: 'title',
+    label: 'Title',
+    field_type: 'text',
+    is_required: false,
+  });
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [title],
+    custom_object_record: [
+      { id: 'null', tenant_id: tenantId, custom_object_id: objectId, data: { title: null }, archived_at: null },
+      { id: 'empty', tenant_id: tenantId, custom_object_id: objectId, data: { title: '' }, archived_at: null },
+      { id: 'missing', tenant_id: tenantId, custom_object_id: objectId, data: {}, archived_at: null },
+      { id: 'value', tenant_id: tenantId, custom_object_id: objectId, data: { title: 'Present' }, archived_at: null },
+    ],
+  });
+  const result = await createCustomObjectService({
+    db, context: context(), isAdmin: true,
+  }).listRecords(objectId, {
+    filters: JSON.stringify({ [title.id]: { op: 'is_not_empty' } }),
+  });
+  assert.deepEqual(result.data.map((record) => record.id), ['value']);
+  assert.ok(db.calls.some((call) =>
+    call.type === 'not'
+    && call.column === 'data->>title'
+    && call.operator === 'is'
+    && call.value === null));
+  assert.ok(db.calls.some((call) =>
+    call.type === 'neq' && call.column === 'data->>title' && call.value === ''));
+  assert.equal(db.calls.some((call) =>
+    call.type === 'not' && call.operator === 'in'), false);
+});
+
+test('permission listing includes every tenant role and never returns another tenant role', async () => {
+  const db = mockDb({
+    custom_object_definition: [object()],
+    role: [
+      { id: 'role-z', tenant_id: tenantId, name: 'Zeta', is_system: false },
+      { id: 'role-a', tenant_id: tenantId, name: 'Alpha', is_system: true },
+      { id: 'foreign-role', tenant_id: 'other-tenant', name: 'Foreign', is_system: false },
+    ],
+    custom_object_role_permission: [
+      {
+        id: 'permission-1',
+        tenant_id: tenantId,
+        custom_object_id: objectId,
+        role_id: 'role-a',
+        can_view_records: true,
+      },
+      {
+        id: 'foreign-permission',
+        tenant_id: 'other-tenant',
+        custom_object_id: objectId,
+        role_id: 'foreign-role',
+        can_view_records: true,
+      },
+    ],
+  });
+  const result = await createCustomObjectService({
+    db,
+    context: context(),
+    canViewSchema: true,
+  }).listPermissions(objectId, { page: '1', pageSize: '1' });
+  assert.deepEqual(result.data.map((permission) => permission.id), ['permission-1']);
+  assert.equal(result.total, 1);
+  assert.deepEqual(result.roles.map((role) => role.id), ['role-a', 'role-z']);
+  assert.ok(db.calls.some((call) =>
+    call.table === 'role'
+    && call.type === 'select'
+    && call.columns === 'id,name,is_system'));
+  assert.equal(db.calls.some((call) =>
+    call.table === 'role'
+    && call.type === 'select'
+    && call.columns.includes('label')), false);
+  assert.ok(db.calls.some((call) =>
+    call.table === 'role'
+    && call.type === 'eq'
+    && call.column === 'tenant_id'
+    && call.value === tenantId));
+});
+
+test('permission upserts require view for every dependent record capability', async () => {
+  const db = mockDb({
+    custom_object_definition: [object()],
+    role: [{ id: roleId, tenant_id: tenantId, name: 'Member' }],
+  });
+  const service = createCustomObjectService({
+    db,
+    context: context(),
+    canManageSchema: true,
+  });
+  for (const capability of [
+    'can_create_records',
+    'can_edit_records',
+    'can_archive_records',
+    'can_export_records',
+  ]) {
+    await assert.rejects(
+      () => service.upsertPermission(objectId, {
+        role_id: roleId,
+        can_view_records: false,
+        [capability]: true,
+      }),
+      (error) => error.status === 400 && /View records permission is required/.test(error.message),
+      capability,
+    );
+  }
+  await assert.rejects(
+    () => service.upsertPermission(objectId, {
+      role_id: roleId,
+      can_view_records: 'true',
+    }),
+    (error) => error.status === 400 && /must be a boolean/.test(error.message),
+  );
+
+  const granted = await service.upsertPermission(objectId, {
+    role_id: roleId,
+    can_view_records: true,
+    can_create_records: true,
+  });
+  assert.equal(granted.can_view_records, true);
+  assert.equal(granted.can_create_records, true);
+  assert.equal(granted.can_edit_records, false);
+
+  await assert.rejects(
+    () => service.upsertPermission(objectId, {
+      role_id: roleId,
+      can_view_records: false,
+    }),
+    (error) => error.status === 400 && /View records permission is required/.test(error.message),
+  );
+  const revoked = await service.upsertPermission(objectId, {
+    role_id: roleId,
+    can_view_records: false,
+    can_create_records: false,
+  });
+  assert.equal(revoked.can_view_records, false);
+  assert.equal(revoked.can_create_records, false);
+});
+
+test('relationship definitions validate endpoint ownership and preserve immutable topology', async () => {
+  const targetObjectId = '44444444-4444-4444-8444-444444444444';
+  const definitionId = '55555555-5555-4555-8555-555555555555';
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({ id: targetObjectId, object_key: 'locations' }),
+    ],
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      relationship_key: 'department_location',
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'custom_object',
+      target_custom_object_id: targetObjectId,
+      cardinality: 'many_to_many',
+      source_label: 'Locations',
+      target_label: 'Departments',
+      is_required: false,
+      show_on_source: true,
+      show_on_target: true,
+      edit_from_source: true,
+      edit_from_target: true,
+      status: 'active',
+      configuration: {},
+    }, {
+      id: '66666666-6666-4666-8666-666666666666',
+      tenant_id: tenantId,
+      relationship_key: 'location_organization',
+      source_kind: 'custom_object',
+      source_custom_object_id: targetObjectId,
+      target_kind: 'organization',
+      target_custom_object_id: null,
+      cardinality: 'many_to_one',
+      source_label: 'Organization',
+      target_label: 'Locations',
+      status: 'active',
+      configuration: {},
+    }],
+  });
+  const service = createCustomObjectService({
+    db, context: context(), canManageSchema: true,
+  });
+  await assert.rejects(
+    () => service.createRelationshipDefinition(objectId, {
+      relationship_key: 'invalid key',
+      source_kind: 'custom_object',
+      target_kind: 'member',
+      cardinality: 'many_to_many',
+      source_label: 'Members',
+      target_label: 'Departments',
+    }),
+    (error) => error.status === 400 && /Invalid relationship definition/.test(error.message),
+  );
+  await assert.rejects(
+    () => service.updateRelationshipDefinition(objectId, definitionId, {
+      cardinality: 'one_to_one',
+    }),
+    (error) => error.status === 409 && /cannot be changed/.test(error.message),
+  );
+  await assert.rejects(
+    () => service.updateRelationshipDefinition(objectId, definitionId, {
+      configuration: {
+        picker_scope: {
+          version: 2,
+          match: 'intersects',
+          source_path: [{
+            relationship_definition_id: 'missing-source-path',
+            from_side: 'source',
+          }],
+          target_path: [{
+            relationship_definition_id: 'missing-target-path',
+            from_side: 'target',
+          }],
+        },
+      },
+    }),
+    (error) => error.status === 409 && /unavailable relationship/.test(error.message),
+  );
+  await assert.rejects(
+    () => service.updateRelationshipDefinition(objectId, definitionId, {
+      configuration: {
+        compact_preview: {
+          target_columns: [{
+            type: 'relationship',
+            relationship_definition_id: '66666666-6666-4666-8666-666666666666',
+            side: 'target',
+            label: 'Organization',
+          }],
+        },
+      },
+    }),
+    (error) => error.status === 400
+      && /Invalid compact preview configuration/.test(error.message)
+      && error.details?.some((detail) => /unavailable relationship/.test(detail)),
+  );
+  const updated = await service.updateRelationshipDefinition(objectId, definitionId, {
+    target_label: 'Teams',
+  });
+  assert.equal(updated.target_label, 'Teams');
+});
+
+test('entity picker paginates and projects stable labels for every endpoint shape', async () => {
+  const definitionId = '55555555-5555-4555-8555-555555555555';
+  const db = mockDb({
+    custom_object_definition: [object()],
+    custom_object_record: [{
+      id: 'record-1', tenant_id: tenantId, custom_object_id: objectId, archived_at: null,
+    }, {
+      id: 'wrong-record', tenant_id: tenantId, custom_object_id: 'other-object', archived_at: null,
+    }],
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      status: 'active',
+      cardinality: 'many_to_many',
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'member',
+      target_custom_object_id: null,
+      show_on_source: true,
+      edit_from_source: true,
+    }],
+    member: [
+      { id: 'member-b', tenant_id: tenantId, first_name: 'Bea', last_name: 'Zulu', email: 'bea@example.com' },
+      { id: 'member-a', tenant_id: tenantId, first_name: 'Ada', last_name: 'Alpha', email: 'ada@example.com' },
+      { id: 'foreign', tenant_id: 'other-tenant', first_name: 'Foreign', last_name: 'Member' },
+    ],
+  });
+  const result = await createCustomObjectService({
+    db, context: context(), isAdmin: true,
+  }).entityPicker(objectId, {
+    definitionId, recordId: 'record-1', side: 'source', page: '1', pageSize: '1',
+  });
+  assert.deepEqual(result, {
+    data: [{
+      id: 'member-a',
+      kind: 'member',
+      custom_object_id: null,
+      primary_label: 'Ada Alpha',
+      secondary_text: 'ada@example.com',
+    }],
+    page: 1,
+    pageSize: 1,
+    total: 2,
+  });
+});
+
+test('configured compact previews follow the opposite endpoint in both picker directions', async () => {
+  const sourceId = objectId;
+  const targetId = '44444444-4444-4444-8444-444444444444';
+  const definitionId = '55555555-5555-4555-8555-555555555555';
+  const sourceField = field({ id: 'field-source', name: 'source_note', field_type: 'text', is_required: false });
+  const targetField = field({ id: 'field-target', custom_object_id: targetId, name: 'target_note', field_type: 'text', is_required: false });
+  const db = mockDb({
+    custom_object_definition: [object({ id: sourceId }), object({ id: targetId, object_key: 'targets' })],
+    preference_field: [sourceField, targetField],
+    custom_object_record: [
+      { id: 'source-record', tenant_id: tenantId, custom_object_id: sourceId, archived_at: null, data: { source_note: 'Source preview' } },
+      { id: 'target-record', tenant_id: tenantId, custom_object_id: targetId, archived_at: null, data: { target_note: 'Target preview' } },
+    ],
+    custom_object_relationship_definition: [{
+      id: definitionId, tenant_id: tenantId, status: 'active', cardinality: 'many_to_many',
+      source_kind: 'custom_object', source_custom_object_id: sourceId,
+      target_kind: 'custom_object', target_custom_object_id: targetId,
+      show_on_source: true, show_on_target: true, edit_from_source: true, edit_from_target: true,
+      configuration: { compact_preview: { source_field_ids: [sourceField.id], target_field_ids: [targetField.id] } },
+    }],
+    custom_object_role_permission: [
+      { tenant_id: tenantId, custom_object_id: sourceId, role_id: roleId, can_view_records: true, can_create_records: true, can_edit_records: true },
+      { tenant_id: tenantId, custom_object_id: targetId, role_id: roleId, can_view_records: true, can_create_records: true, can_edit_records: true },
+    ],
+  });
+  const service = createCustomObjectService({ db, context: context() });
+  const fromSource = await service.entityPicker(sourceId, { definitionId, recordId: 'source-record', side: 'source' });
+  const fromTarget = await service.entityPicker(targetId, { definitionId, recordId: 'target-record', side: 'target' });
+  const initialFromSource = await service.initialRelationshipCandidates(sourceId, { definitionId, newRecordSide: 'source' });
+  const initialFromTarget = await service.initialRelationshipCandidates(targetId, { definitionId, newRecordSide: 'target' });
+  assert.equal(fromSource.data[0].compact_fields[0].value, 'Target preview');
+  assert.equal(fromTarget.data[0].compact_fields[0].value, 'Source preview');
+  assert.equal(initialFromSource.data[0].compact_fields[0].value, 'Target preview');
+  assert.equal(initialFromTarget.data[0].compact_fields[0].value, 'Source preview');
+});
+
+test('related list preview columns inherit the linked object list view and preserve explicit empty choices', async () => {
+  const targetId = '44444444-4444-4444-8444-444444444444';
+  const definitionId = '55555555-5555-4555-8555-555555555555';
+  const targetField = field({
+    id: 'target-list-field',
+    custom_object_id: targetId,
+    name: 'status',
+    label: 'Status',
+    field_type: 'text',
+    is_required: false,
+  });
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({
+        id: targetId,
+        object_key: 'targets',
+        configuration: { views: { list: { field_ids: [targetField.id] } } },
+      }),
+    ],
+    preference_field: [targetField],
+    custom_object_record: [{
+      id: 'source-record',
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      archived_at: null,
+      data: {},
+    }],
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      status: 'active',
+      cardinality: 'many_to_many',
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'custom_object',
+      target_custom_object_id: targetId,
+      show_on_source: true,
+      show_on_target: true,
+      configuration: {},
+    }],
+    custom_object_relationship: [],
+    custom_object_role_permission: [
+      { tenant_id: tenantId, custom_object_id: objectId, role_id: roleId, can_view_records: true },
+      { tenant_id: tenantId, custom_object_id: targetId, role_id: roleId, can_view_records: true },
+    ],
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const inherited = await service.listRelationships(objectId, {
+    definitionId,
+    recordId: 'source-record',
+    side: 'source',
+  });
+  assert.deepEqual(inherited.preview_columns, [{
+    type: 'field',
+    field_id: targetField.id,
+    label: targetField.label,
+  }]);
+  assert.deepEqual(inherited.data, []);
+
+  db.tables.custom_object_relationship_definition[0].configuration = {
+    compact_preview: { target_field_ids: [] },
+  };
+  const explicitEmpty = await service.listRelationships(objectId, {
+    definitionId,
+    recordId: 'source-record',
+    side: 'source',
+  });
+  assert.deepEqual(explicitEmpty.preview_columns, []);
+});
+
+test('inherited related list fields project rows in both directions and enforce field access', async () => {
+  const sourceId = objectId;
+  const targetId = '44444444-4444-4444-8444-444444444444';
+  const definitionId = 'fallback-bidirectional-definition';
+  const sourceField = field({
+    id: 'source-list-field',
+    custom_object_id: sourceId,
+    name: 'source_value',
+    label: 'Source value',
+    field_type: 'text',
+    is_required: false,
+  });
+  const targetAllowed = field({
+    id: 'target-list-allowed',
+    custom_object_id: targetId,
+    name: 'target_value',
+    label: 'Target value',
+    field_type: 'text',
+    is_required: false,
+  });
+  const targetDenied = field({
+    id: 'target-list-denied',
+    custom_object_id: targetId,
+    name: 'secret_value',
+    label: 'Secret value',
+    field_type: 'text',
+    is_required: false,
+  });
+  const targetInactive = field({
+    id: 'target-list-inactive',
+    custom_object_id: targetId,
+    name: 'old_value',
+    label: 'Old value',
+    field_type: 'text',
+    is_required: false,
+    is_active: false,
+  });
+  const db = mockDb({
+    custom_object_definition: [
+      object({
+        configuration: { views: { list: { field_ids: [sourceField.id] } } },
+      }),
+      object({
+        id: targetId,
+        object_key: 'targets',
+        configuration: {
+          views: {
+            list: {
+              field_ids: [targetAllowed.id, targetDenied.id, targetInactive.id],
+            },
+          },
+        },
+      }),
+    ],
+    preference_field: [sourceField, targetAllowed, targetDenied, targetInactive],
+    custom_object_record: [
+      {
+        id: 'source-record',
+        tenant_id: tenantId,
+        custom_object_id: sourceId,
+        archived_at: null,
+        data: { source_value: 'Source row' },
+      },
+      {
+        id: 'target-record',
+        tenant_id: tenantId,
+        custom_object_id: targetId,
+        archived_at: null,
+        data: {
+          target_value: 'Target row',
+          secret_value: 'Do not expose',
+          old_value: 'Archived schema',
+        },
+      },
+    ],
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      status: 'active',
+      cardinality: 'many_to_many',
+      source_kind: 'custom_object',
+      source_custom_object_id: sourceId,
+      target_kind: 'custom_object',
+      target_custom_object_id: targetId,
+      show_on_source: true,
+      show_on_target: true,
+      configuration: {},
+    }],
+    custom_object_relationship: [{
+      id: 'fallback-edge',
+      tenant_id: tenantId,
+      relationship_definition_id: definitionId,
+      source_record_id: 'source-record',
+      target_record_id: 'target-record',
+      archived_at: null,
+      created_at: '2026-01-01',
+    }],
+    custom_object_role_permission: [
+      { tenant_id: tenantId, custom_object_id: sourceId, role_id: roleId, can_view_records: true },
+      { tenant_id: tenantId, custom_object_id: targetId, role_id: roleId, can_view_records: true },
+    ],
+    custom_object_field_role_permission: [{
+      tenant_id: tenantId,
+      custom_object_id: targetId,
+      role_id: roleId,
+      field_id: targetDenied.id,
+      access_level: 'none',
+    }],
+  });
+  const service = createCustomObjectService({ db, context: context() });
+  const fromSource = await service.listRelationships(sourceId, {
+    definitionId,
+    recordId: 'source-record',
+    side: 'source',
+  });
+  assert.deepEqual(fromSource.preview_columns, [{
+    type: 'field',
+    field_id: targetAllowed.id,
+    label: targetAllowed.label,
+  }]);
+  assert.deepEqual(fromSource.data[0].related.compact_fields, [{
+    field_id: targetAllowed.id,
+    key: targetAllowed.name,
+    label: targetAllowed.label,
+    value: 'Target row',
+  }]);
+
+  const fromTarget = await service.listRelationships(targetId, {
+    definitionId,
+    recordId: 'target-record',
+    side: 'target',
+  });
+  assert.deepEqual(fromTarget.preview_columns, [{
+    type: 'field',
+    field_id: sourceField.id,
+    label: sourceField.label,
+  }]);
+  assert.deepEqual(fromTarget.data[0].related.compact_fields, [{
+    field_id: sourceField.id,
+    key: sourceField.name,
+    label: sourceField.label,
+    value: 'Source row',
+  }]);
+
+  const extra = field({
+    id: 'target-list-extra',
+    custom_object_id: targetId,
+    name: 'extra_value',
+    label: 'Extra value',
+    field_type: 'text',
+    is_required: false,
+  });
+  db.tables.preference_field.push(extra);
+  db.tables.custom_object_relationship_definition[0].configuration = {
+    compact_preview_fields: { target_field_ids: [targetAllowed.id] },
+    compact_preview: {
+      target_field_ids: [extra.id],
+      target_columns: [
+        {
+          type: 'relationship',
+          relationship_definition_id: 'nested-definition',
+          side: 'source',
+          label: 'Nested custom heading',
+        },
+        { type: 'field', field_id: targetAllowed.id, label: 'Authored target heading' },
+      ],
+    },
+  };
+  const mixed = await service.listRelationships(sourceId, {
+    definitionId,
+    recordId: 'source-record',
+    side: 'source',
+  });
+  assert.deepEqual(mixed.preview_columns, [
+    { type: 'field', field_id: extra.id, label: extra.label },
+    {
+      type: 'relationship',
+      relationship_definition_id: 'nested-definition',
+      side: 'source',
+      label: 'Nested custom heading',
+    },
+    { type: 'field', field_id: targetAllowed.id, label: 'Authored target heading' },
+  ]);
+});
+
+test('core-to-custom related lists inherit custom object list fields', async () => {
+  const definitionId = 'core-custom-list-definition';
+  const targetField = field({
+    id: 'core-target-list-field',
+    name: 'qualification',
+    label: 'Qualification',
+    field_type: 'text',
+    is_required: false,
+  });
+  const db = mockDb({
+    custom_object_definition: [object({
+      configuration: { views: { list: { field_ids: [targetField.id] } } },
+    })],
+    preference_field: [targetField],
+    member: [{ id: 'member-1', tenant_id: tenantId, first_name: 'Ada', last_name: 'Lovelace' }],
+    custom_object_record: [{
+      id: 'qualification-1',
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      archived_at: null,
+      data: { qualification: 'First Aid' },
+    }],
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      status: 'active',
+      cardinality: 'many_to_many',
+      source_kind: 'member',
+      source_custom_object_id: null,
+      target_kind: 'custom_object',
+      target_custom_object_id: objectId,
+      show_on_source: true,
+      configuration: {},
+    }],
+    custom_object_relationship: [{
+      id: 'core-fallback-edge',
+      tenant_id: tenantId,
+      relationship_definition_id: definitionId,
+      source_record_id: 'member-1',
+      target_record_id: 'qualification-1',
+      archived_at: null,
+      created_at: '2026-01-01',
+    }],
+    custom_object_role_permission: [{
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      role_id: roleId,
+      can_view_records: true,
+    }],
+  });
+  const result = await createCustomObjectService({
+    db,
+    context: context(),
+    isAdmin: true,
+  }).listCoreRelationships('member', 'member-1', { definitionId });
+  assert.deepEqual(result.preview_columns, [{
+    type: 'field',
+    field_id: targetField.id,
+    label: targetField.label,
+  }]);
+  assert.deepEqual(result.data[0].related.compact_fields, [{
+    field_id: targetField.id,
+    key: targetField.name,
+    label: targetField.label,
+    value: 'First Aid',
+  }]);
+});
+
+test('core picker projects migrated BNMS owning-Organisation context after search, pagination, and exclusions', async () => {
+  const departmentObjectId = objectId;
+  const memberDepartmentId = 'picker-member-department';
+  const departmentOrganizationId = 'picker-department-organization';
+  const nameField = field({
+    id: 'department-name',
+    custom_object_id: departmentObjectId,
+    name: 'name',
+    field_type: 'text',
+    is_required: false,
+  });
+  const db = mockDb({
+    member: [{ id: 'member-1', tenant_id: tenantId, first_name: 'Ada' }],
+    organization: [
+      { id: 'org-a', tenant_id: tenantId, name: 'Alpha Organisation' },
+      { id: 'org-b', tenant_id: tenantId, name: 'Beta Organisation' },
+    ],
+    custom_object_definition: [object({
+      singular_label: 'Department',
+      primary_display_field_id: nameField.id,
+    })],
+    preference_field: [nameField],
+    custom_object_role_permission: [{
+      tenant_id: tenantId,
+      custom_object_id: departmentObjectId,
+      role_id: roleId,
+      can_view_records: true,
+      can_edit_records: true,
+    }],
+    custom_object_relationship_definition: [{
+      id: memberDepartmentId,
+      tenant_id: tenantId,
+      status: 'active',
+      cardinality: 'many_to_many',
+       source_kind: 'custom_object',
+       source_custom_object_id: departmentObjectId,
+       target_kind: 'member',
+       target_custom_object_id: null,
+      target_label: 'Departments',
+      show_on_source: true,
+      edit_from_source: true,
+      configuration: {
+        picker_context: {
+          source_column: {
+            relationship_definition_id: departmentOrganizationId,
+            side: 'source',
+            label: 'Organisation',
+          },
+        },
+      },
+    }, {
+      id: departmentOrganizationId,
+      tenant_id: tenantId,
+      status: 'active',
+      cardinality: 'many_to_one',
+      source_kind: 'custom_object',
+      source_custom_object_id: departmentObjectId,
+      target_kind: 'organization',
+      target_custom_object_id: null,
+      source_label: 'Organisation',
+    }],
+    custom_object_record: [
+      { id: 'department-linked', tenant_id: tenantId, custom_object_id: departmentObjectId, archived_at: null, created_at: '2026-01-01', data: { name: 'Finance' } },
+      { id: 'department-a', tenant_id: tenantId, custom_object_id: departmentObjectId, archived_at: null, created_at: '2026-01-02', data: { name: 'Finance' } },
+      { id: 'department-b', tenant_id: tenantId, custom_object_id: departmentObjectId, archived_at: null, created_at: '2026-01-03', data: { name: 'Finance' } },
+      { id: 'department-missing', tenant_id: tenantId, custom_object_id: departmentObjectId, archived_at: null, created_at: '2026-01-04', data: { name: 'Finance' } },
+    ],
+    custom_object_relationship: [
+      { id: 'existing', tenant_id: tenantId, relationship_definition_id: memberDepartmentId, source_record_id: 'department-linked', target_record_id: 'member-1', archived_at: null },
+      { id: 'owner-a', tenant_id: tenantId, relationship_definition_id: departmentOrganizationId, source_record_id: 'department-a', target_record_id: 'org-a', archived_at: null },
+      { id: 'owner-b', tenant_id: tenantId, relationship_definition_id: departmentOrganizationId, source_record_id: 'department-b', target_record_id: 'org-b', archived_at: null },
+      { id: 'owner-missing', tenant_id: tenantId, relationship_definition_id: departmentOrganizationId, source_record_id: 'department-missing', target_record_id: 'org-missing', archived_at: null },
+    ],
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const first = await service.coreEntityPicker('member', 'member-1', {
+    definitionId: memberDepartmentId,
+    search: 'Finance',
+    page: '1',
+    pageSize: '2',
+  });
+  const second = await service.coreEntityPicker('member', 'member-1', {
+    definitionId: memberDepartmentId,
+    search: 'Finance',
+    page: '2',
+    pageSize: '2',
+  });
+  assert.equal(first.total, 3);
+  assert.equal(first.primaryColumnLabel, 'Department');
+  assert.equal(first.contextColumnLabel, 'Organisation');
+  assert.deepEqual(first.data.map((row) => [row.primary_label, row.picker_context_label]), [
+    ['Finance', 'Alpha Organisation'],
+    ['Finance', 'Beta Organisation'],
+  ]);
+  assert.deepEqual(second.data.map((row) => [row.id, row.picker_context_label]), [
+    ['department-missing', null],
+  ]);
+});
+
+test('member relationship cards project owning organisations for duplicate department labels', async () => {
+  const memberDepartmentId = '55555555-5555-4555-8555-555555555555';
+  const departmentOrganizationId = '66666666-6666-4666-8666-666666666666';
+  const nameField = field({
+    id: 'field-name',
+    name: 'name',
+    field_type: 'text',
+    is_required: false,
+  });
+  const categoryField = field({
+    id: 'field-category',
+    name: 'category',
+    label: 'Category',
+    field_type: 'text',
+    is_required: false,
+  });
+  const db = mockDb({
+    custom_object_definition: [object({ primary_display_field_id: nameField.id })],
+    preference_field: [nameField, categoryField],
+    custom_object_record: [
+      { id: 'department-a', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { name: 'Imaging', category: 'Clinical' } },
+      { id: 'department-b', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { name: 'Imaging', category: 'Research' } },
+    ],
+    member: [{ id: 'member-1', tenant_id: tenantId, first_name: 'Ada', last_name: 'Lovelace' }],
+    organization: [
+      { id: 'organization-a', tenant_id: tenantId, name: 'Alpha Hospital' },
+      { id: 'organization-b', tenant_id: tenantId, name: 'Beta Hospital' },
+    ],
+    custom_object_relationship_definition: [{
+      id: memberDepartmentId,
+      tenant_id: tenantId,
+      status: 'active',
+      cardinality: 'many_to_many',
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'member',
+      target_custom_object_id: null,
+      show_on_target: true,
+      configuration: {
+        compact_preview_fields: { source_field_ids: [categoryField.id] },
+        compact_preview: { source_columns: [{
+        type: 'relationship',
+        relationship_definition_id: departmentOrganizationId,
+        side: 'source',
+        label: 'Organisation',
+        }] },
+      },
+    }, {
+      id: departmentOrganizationId,
+      tenant_id: tenantId,
+      status: 'active',
+      cardinality: 'many_to_one',
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'organization',
+      target_custom_object_id: null,
+      source_label: 'Organisations',
+      target_label: 'Departments',
+    }],
+    custom_object_relationship: [{
+      id: 'member-edge-a', tenant_id: tenantId, relationship_definition_id: memberDepartmentId,
+      source_record_id: 'department-a', target_record_id: 'member-1', archived_at: null, created_at: '2026-01-02',
+    }, {
+      id: 'member-edge-b', tenant_id: tenantId, relationship_definition_id: memberDepartmentId,
+      source_record_id: 'department-b', target_record_id: 'member-1', archived_at: null, created_at: '2026-01-01',
+    }, {
+      id: 'owner-edge-a', tenant_id: tenantId, relationship_definition_id: departmentOrganizationId,
+      source_record_id: 'department-a', target_record_id: 'organization-a', archived_at: null,
+    }, {
+      id: 'owner-edge-b', tenant_id: tenantId, relationship_definition_id: departmentOrganizationId,
+      source_record_id: 'department-b', target_record_id: 'organization-b', archived_at: null,
+    }],
+  });
+  const result = await createCustomObjectService({
+    db, context: context(), isAdmin: true,
+  }).listCoreRelationships('member', 'member-1', {
+    definitionId: memberDepartmentId,
+    page: 1,
+    pageSize: 10,
+  });
+  assert.deepEqual(result.data.map((row) => ({
+    department: row.related.primary_label,
+    category: row.related.compact_fields[0].value,
+    organization: row.related.relationship_columns[0].value.primary_label,
+    kind: row.related.relationship_columns[0].value.kind,
+  })), [
+    { department: 'Imaging', category: 'Clinical', organization: 'Alpha Hospital', kind: 'organization' },
+    { department: 'Imaging', category: 'Research', organization: 'Beta Hospital', kind: 'organization' },
+  ]);
+});
+
+test('relationship list sorting is global, case-insensitive, stable, and paginated afterwards', async () => {
+  const definitionId = 'sorted-custom-relationships';
+  const title = field({
+    id: 'field-title',
+    name: 'title',
+    label: 'Title',
+    field_type: 'text',
+    is_required: false,
+  });
+  const db = mockDb({
+    custom_object_definition: [object({ primary_display_field_id: title.id })],
+    preference_field: [title],
+    custom_object_record: [
+      { id: 'origin', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { title: 'Origin' } },
+      { id: 'target-a', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { title: 'alpha' } },
+      { id: 'target-b', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { title: 'Alpha' } },
+      { id: 'target-c', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { title: 'Beta' } },
+      { id: 'target-d', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { title: '' } },
+      { id: 'owner-a', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { title: 'aardvark' } },
+      { id: 'owner-b', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { title: 'Zebra' } },
+    ],
+    custom_object_relationship_definition: [
+      {
+        id: definitionId,
+        tenant_id: tenantId,
+        status: 'active',
+        source_kind: 'custom_object',
+        source_custom_object_id: objectId,
+        target_kind: 'custom_object',
+        target_custom_object_id: objectId,
+        show_on_source: true,
+        configuration: {
+          relationship_fields: [{
+            id: 'featured',
+            key: 'is_featured',
+            label: 'Featured',
+            type: 'boolean',
+            default_value: true,
+            display_on_source: true,
+          }],
+          compact_preview: {
+            target_columns: [
+              { type: 'field', field_id: title.id, label: 'Title' },
+              {
+                type: 'relationship',
+                relationship_definition_id: 'direct-owner',
+                side: 'source',
+                label: 'Owner',
+              },
+            ],
+          },
+        },
+      },
+      {
+        id: 'direct-owner',
+        tenant_id: tenantId,
+        status: 'active',
+        source_kind: 'custom_object',
+        source_custom_object_id: objectId,
+        target_kind: 'custom_object',
+        target_custom_object_id: objectId,
+        show_on_source: true,
+      },
+    ],
+    custom_object_relationship: [
+      { id: 'edge-d', tenant_id: tenantId, relationship_definition_id: definitionId, source_record_id: 'origin', target_record_id: 'target-d', field_values: {}, archived_at: null, created_at: '2026-01-04' },
+      { id: 'edge-c', tenant_id: tenantId, relationship_definition_id: definitionId, source_record_id: 'origin', target_record_id: 'target-c', field_values: {}, archived_at: null, created_at: '2026-01-03' },
+      { id: 'edge-b', tenant_id: tenantId, relationship_definition_id: definitionId, source_record_id: 'origin', target_record_id: 'target-b', field_values: { is_featured: false }, archived_at: null, created_at: '2026-01-02' },
+      { id: 'edge-a', tenant_id: tenantId, relationship_definition_id: definitionId, source_record_id: 'origin', target_record_id: 'target-a', field_values: { is_featured: true }, archived_at: null, created_at: '2026-01-01' },
+      { id: 'direct-a', tenant_id: tenantId, relationship_definition_id: 'direct-owner', source_record_id: 'target-a', target_record_id: 'owner-b', archived_at: null, created_at: '2026-01-01' },
+      { id: 'direct-b', tenant_id: tenantId, relationship_definition_id: 'direct-owner', source_record_id: 'target-b', target_record_id: 'owner-a', archived_at: null, created_at: '2026-01-01' },
+    ],
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const result = await service.listRelationships(objectId, {
+    definitionId,
+    recordId: 'origin',
+    side: 'source',
+    sortField: `field:${title.id}`,
+    sortDir: 'asc',
+    page: '2',
+    pageSize: '2',
+  });
+  assert.equal(result.total, 4);
+  assert.deepEqual(result.data.map((row) => row.relationship_id), ['edge-c', 'edge-d']);
+  assert.deepEqual(
+    db.calls.filter((call) => call.table === 'custom_object_relationship' && call.type === 'range')
+      .map(({ from, to }) => [from, to]),
+    [[0, 999], [0, 199]], // Full panel sort, then the bounded compact relationship projection.
+  );
+  const descending = await service.listRelationships(objectId, {
+    definitionId,
+    recordId: 'origin',
+    side: 'source',
+    sortField: `field:${title.id}`,
+    sortDir: 'desc',
+    pageSize: '10',
+  });
+  assert.deepEqual(
+    descending.data.map((row) => row.relationship_id),
+    ['edge-c', 'edge-a', 'edge-b', 'edge-d'],
+  );
+  const booleans = await service.listRelationships(objectId, {
+    definitionId,
+    recordId: 'origin',
+    side: 'source',
+    sortField: 'relationship_field:featured',
+    sortDir: 'asc',
+    pageSize: '10',
+  });
+  assert.deepEqual(
+    booleans.data.map((row) => row.relationship_id),
+    ['edge-b', 'edge-a', 'edge-c', 'edge-d'],
+  );
+  const directRelationships = await service.listRelationships(objectId, {
+    definitionId,
+    recordId: 'origin',
+    side: 'source',
+    sortField: 'relationship:direct-owner:source',
+    sortDir: 'desc',
+    pageSize: '10',
+  });
+  assert.deepEqual(
+    directRelationships.data.map((row) => row.relationship_id),
+    ['edge-a', 'edge-b', 'edge-c', 'edge-d'],
+  );
+  await assert.rejects(
+    () => service.listRelationships(objectId, {
+      definitionId, recordId: 'origin', side: 'source',
+      sortField: 'field:not-configured', sortDir: 'asc',
+    }),
+    (error) => error.status === 400 && /sort field/.test(error.message),
+  );
+  await assert.rejects(
+    () => service.listRelationships(objectId, {
+      definitionId, recordId: 'origin', side: 'source',
+      sortField: 'record', sortDir: 'sideways',
+    }),
+    (error) => error.status === 400 && /sortDir/.test(error.message),
+  );
+});
+
+test('relationship sorting reads every edge batch before stable pagination', async () => {
+  const definitionId = 'large-sorted-relationships';
+  const title = field({
+    id: 'large-title',
+    name: 'title',
+    label: 'Title',
+    field_type: 'text',
+    is_required: false,
+  });
+  const records = Array.from({ length: 1001 }, (_, index) => ({
+    id: `target-${String(index).padStart(4, '0')}`,
+    tenant_id: tenantId,
+    custom_object_id: objectId,
+    archived_at: null,
+    data: { title: `Label ${String(1000 - index).padStart(4, '0')}` },
+  }));
+  const db = mockDb({
+    custom_object_definition: [object({ primary_display_field_id: title.id })],
+    preference_field: [title],
+    custom_object_record: [
+      { id: 'origin', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { title: 'Origin' } },
+      ...records,
+    ],
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      status: 'active',
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'custom_object',
+      target_custom_object_id: objectId,
+      show_on_source: true,
+    }],
+    custom_object_relationship: records.map((record, index) => ({
+      id: `edge-${String(index).padStart(4, '0')}`,
+      tenant_id: tenantId,
+      relationship_definition_id: definitionId,
+      source_record_id: 'origin',
+      target_record_id: record.id,
+      archived_at: null,
+      created_at: `2026-01-${String((index % 28) + 1).padStart(2, '0')}`,
+    })),
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const result = await service.listRelationships(objectId, {
+    definitionId,
+    recordId: 'origin',
+    side: 'source',
+    sortField: 'record',
+    sortDir: 'asc',
+    page: '2',
+    pageSize: '1',
+  });
+  assert.equal(result.total, 1001);
+  assert.equal(result.data[0].related.primary_label, 'Label 0001');
+  assert.deepEqual(
+    db.calls.filter((call) =>
+      call.table === 'custom_object_relationship' && call.type === 'range')
+      .map(({ from, to }) => [from, to]),
+    [[0, 999], [1000, 1999]],
+  );
+});
+
+test('core relationship sorting uses the full set and validates scoped column IDs', async () => {
+  const definitionId = 'sorted-core-relationships';
+  const title = field({
+    id: 'field-title-core',
+    name: 'title',
+    label: 'Title',
+    field_type: 'text',
+    is_required: false,
+  });
+  const db = mockDb({
+    custom_object_definition: [object({ primary_display_field_id: title.id })],
+    preference_field: [title],
+    member: [{ id: 'member-1', tenant_id: tenantId, first_name: 'Ada', last_name: 'Lovelace' }],
+    custom_object_record: [
+      { id: 'target-z', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { title: 'Zulu' } },
+      { id: 'target-a2', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { title: 'alpha' } },
+      { id: 'target-a1', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { title: 'Alpha' } },
+    ],
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      status: 'active',
+      source_kind: 'member',
+      source_custom_object_id: null,
+      target_kind: 'custom_object',
+      target_custom_object_id: objectId,
+      show_on_source: true,
+      configuration: {
+        compact_preview: {
+          target_columns: [{ type: 'field', field_id: title.id, label: 'Title' }],
+        },
+      },
+    }],
+    custom_object_relationship: [
+      { id: 'edge-z', tenant_id: tenantId, relationship_definition_id: definitionId, source_record_id: 'member-1', target_record_id: 'target-z', archived_at: null, created_at: '2026-01-03' },
+      { id: 'edge-a2', tenant_id: tenantId, relationship_definition_id: definitionId, source_record_id: 'member-1', target_record_id: 'target-a2', archived_at: null, created_at: '2026-01-02' },
+      { id: 'edge-a1', tenant_id: tenantId, relationship_definition_id: definitionId, source_record_id: 'member-1', target_record_id: 'target-a1', archived_at: null, created_at: '2026-01-01' },
+    ],
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const result = await service.listCoreRelationships('member', 'member-1', {
+    definitionId,
+    sortField: 'record',
+    sortDir: 'asc',
+    page: '2',
+    pageSize: '1',
+  });
+  assert.equal(result.total, 3);
+  assert.equal(result.data[0].relationship_id, 'edge-a2');
+  await assert.rejects(
+    () => service.listCoreRelationships('member', 'member-1', {
+      definitionId,
+      sortField: 'relationship:another-definition:source',
+      sortDir: 'desc',
+    }),
+    (error) => error.status === 400,
+  );
+});
+
+test('relationship panel preferences are normalized and isolated by server actor', async () => {
+  const definitionId = 'personal-panel-definition';
+  const db = mockDb({
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      status: 'active',
+      source_kind: 'member',
+      target_kind: 'custom_object',
+      target_custom_object_id: objectId,
+      configuration: {
+        relationship_fields: [{
+          id: 'primary',
+          key: 'is_primary',
+          label: 'Primary',
+          type: 'boolean',
+          display_on_source: true,
+        }],
+        compact_preview: {
+          target_columns: [{ type: 'field', field_id: 'field-title', label: 'Title' }],
+        },
+      },
+    }],
+    system_settings: [],
+  });
+  const first = createCustomObjectService({
+    db,
+    context: context({ tenantUserId: 'admin-a' }),
+    isAdmin: true,
+  });
+  const saved = await first.saveRelationshipPanelPreference({
+    definitionId,
+    side: 'source',
+  }, {
+    order: ['field:field-title', 'stale-column'],
+    widths: { 'field:field-title': 999, record: 10 },
+    sortField: 'field:field-title',
+    sortDir: 'desc',
+  });
+  assert.deepEqual(saved.preference, {
+    order: ['field:field-title', 'record', 'relationship-field:primary'],
+    widths: {
+      'field:field-title': 480,
+      record: 120,
+      'relationship-field:primary': 180,
+    },
+    sortField: 'field:field-title',
+    sortDir: 'desc',
+  });
+  assert.deepEqual(
+    (await first.getRelationshipPanelPreference({
+      definitionId,
+      side: 'source',
+    })).preference,
+    saved.preference,
+  );
+
+  const second = createCustomObjectService({
+    db,
+    context: context({ tenantUserId: 'admin-b' }),
+    isAdmin: true,
+  });
+  assert.equal(
+    (await second.getRelationshipPanelPreference({
+      definitionId,
+      side: 'source',
+    })).preference.sortField,
+    '',
+  );
+  const settingKeys = db.calls
+    .filter((call) =>
+      call.table === 'system_settings'
+      && call.type === 'eq'
+      && call.column === 'setting_key')
+    .map((call) => call.value);
+  assert.ok(settingKeys.some((key) => key.includes('tenant_user_admin-a')));
+  assert.ok(settingKeys.some((key) => key.includes('tenant_user_admin-b')));
+
+  const nonAdmin = createCustomObjectService({
+    db,
+    context: context({ memberId: 'ordinary-member', tenantUserId: null }),
+    isAdmin: false,
+  });
+  await assert.rejects(
+    () => nonAdmin.getRelationshipPanelPreference({ definitionId, side: 'source' }),
+    (error) => error.status === 403,
+  );
+});
+
+test('inaccessible direct relationship columns are omitted without hiding the base row', async () => {
+  const targetId = '44444444-4444-4444-8444-444444444444';
+  const restrictedId = '77777777-7777-4777-8777-777777777777';
+  const cardDefinitionId = '55555555-5555-4555-8555-555555555555';
+  const directDefinitionId = '66666666-6666-4666-8666-666666666666';
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({ id: targetId, object_key: 'targets' }),
+      object({ id: restrictedId, object_key: 'restricted' }),
+    ],
+    preference_field: [],
+    custom_object_record: [
+      { id: 'source-record', tenant_id: tenantId, custom_object_id: objectId, archived_at: null },
+      { id: 'target-record', tenant_id: tenantId, custom_object_id: targetId, archived_at: null },
+      { id: 'restricted-record', tenant_id: tenantId, custom_object_id: restrictedId, archived_at: null },
+    ],
+    custom_object_role_permission: [
+      { tenant_id: tenantId, custom_object_id: objectId, role_id: roleId, can_view_records: true },
+      { tenant_id: tenantId, custom_object_id: targetId, role_id: roleId, can_view_records: true },
+    ],
+    custom_object_relationship_definition: [{
+      id: cardDefinitionId, tenant_id: tenantId, status: 'active', cardinality: 'many_to_many',
+      source_kind: 'custom_object', source_custom_object_id: objectId,
+      target_kind: 'custom_object', target_custom_object_id: targetId,
+      show_on_source: true,
+      configuration: { compact_preview: { target_columns: [{
+        type: 'relationship', relationship_definition_id: directDefinitionId,
+        side: 'source', label: 'Restricted',
+      }] } },
+    }, {
+      id: directDefinitionId, tenant_id: tenantId, status: 'active', cardinality: 'many_to_many',
+      source_kind: 'custom_object', source_custom_object_id: targetId,
+      target_kind: 'custom_object', target_custom_object_id: restrictedId,
+    }],
+    custom_object_relationship: [{
+      id: 'card-edge', tenant_id: tenantId, relationship_definition_id: cardDefinitionId,
+      source_record_id: 'source-record', target_record_id: 'target-record', archived_at: null,
+    }, {
+      id: 'restricted-edge', tenant_id: tenantId, relationship_definition_id: directDefinitionId,
+      source_record_id: 'target-record', target_record_id: 'restricted-record', archived_at: null,
+    }],
+  });
+  const result = await createCustomObjectService({
+    db, context: context(),
+  }).listRelationships(objectId, {
+    definitionId: cardDefinitionId,
+    recordId: 'source-record',
+    side: 'source',
+  });
+  assert.equal(result.data.length, 1);
+  assert.deepEqual(result.data[0].related.relationship_columns, []);
+});
+
+test('record-scoped related query supports reverse display and resolves one level only', async () => {
+  const definitionId = '55555555-5555-4555-8555-555555555555';
+  const db = mockDb({
+    custom_object_definition: [object()],
+    custom_object_record: [{
+      id: 'department-1',
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      archived_at: null,
+    }],
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      status: 'active',
+      cardinality: 'many_to_many',
+      source_kind: 'member',
+      source_custom_object_id: null,
+      target_kind: 'custom_object',
+      target_custom_object_id: objectId,
+      show_on_target: true,
+    }],
+    custom_object_relationship: [{
+      id: 'edge-1',
+      tenant_id: tenantId,
+      relationship_definition_id: definitionId,
+      source_record_id: 'member-1',
+      target_record_id: 'department-1',
+      archived_at: null,
+      created_at: '2026-01-01',
+    }],
+    member: [{
+      id: 'member-1',
+      tenant_id: tenantId,
+      first_name: 'Ada',
+      last_name: 'Lovelace',
+      email: 'ada@example.com',
+    }],
+  });
+  const result = await createCustomObjectService({
+    db, context: context(), isAdmin: true,
+  }).listRelationships(objectId, {
+    definitionId,
+    recordId: 'department-1',
+    side: 'target',
+  });
+  assert.equal(result.total, 1);
+  assert.deepEqual(result.data[0].related, {
+    id: 'member-1',
+    kind: 'member',
+    custom_object_id: null,
+    primary_label: 'Ada Lovelace',
+    secondary_text: 'ada@example.com',
+  });
+  assert.equal(Object.hasOwn(result.data[0].related, 'relationships'), false);
+});
+
+test('archived edges remain listable when their related custom record and object are archived', async () => {
+  const targetObjectId = '44444444-4444-4444-8444-444444444444';
+  const definitionId = '55555555-5555-4555-8555-555555555555';
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({
+        id: targetObjectId,
+        object_key: 'locations',
+        status: 'archived',
+        archived_at: '2026-01-02T00:00:00.000Z',
+      }),
+    ],
+    preference_field: [field({ is_required: false })],
+    custom_object_record: [{
+      id: 'source-1',
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      data: {},
+      archived_at: null,
+    }, {
+      id: 'target-1',
+      tenant_id: tenantId,
+      custom_object_id: targetObjectId,
+      data: {},
+      archived_at: '2026-01-02T00:00:00.000Z',
+    }],
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      status: 'archived',
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'custom_object',
+      target_custom_object_id: targetObjectId,
+      show_on_source: true,
+    }],
+    custom_object_relationship: [{
+      id: 'edge-1',
+      tenant_id: tenantId,
+      relationship_definition_id: definitionId,
+      source_record_id: 'source-1',
+      target_record_id: 'target-1',
+      archived_at: '2026-01-02T00:00:00.000Z',
+      created_at: '2026-01-01T00:00:00.000Z',
+    }],
+    custom_object_role_permission: [{
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      role_id: roleId,
+      can_view_records: true,
+    }, {
+      tenant_id: tenantId,
+      custom_object_id: targetObjectId,
+      role_id: roleId,
+      can_view_records: true,
+    }],
+  });
+  const service = createCustomObjectService({ db, context: context() });
+  const result = await service.listRelationships(objectId, {
+    definitionId,
+    recordId: 'source-1',
+    side: 'source',
+    includeArchived: 'true',
+  });
+  assert.equal(result.total, 1);
+  assert.equal(result.data[0].archived_at, '2026-01-02T00:00:00.000Z');
+  assert.equal(result.data[0].related.archived_at, '2026-01-02T00:00:00.000Z');
+  assert.equal(result.data[0].related.custom_object_status, 'archived');
+});
+
+test('edge mutation requires an explicit routed side and matching routed record', async () => {
+  const definitionId = '55555555-5555-4555-8555-555555555555';
+  const db = mockDb({
+    custom_object_definition: [object()],
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      status: 'active',
+      cardinality: 'many_to_many',
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'member',
+      target_custom_object_id: null,
+      edit_from_source: true,
+    }],
+    custom_object_record: [{
+      id: 'department-1', tenant_id: tenantId, custom_object_id: objectId, archived_at: null,
+    }],
+    member: [{ id: 'member-1', tenant_id: tenantId }],
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  await assert.rejects(
+    () => service.createRelationship(objectId, {
+      relationship_definition_id: definitionId,
+      source_record_id: 'department-1',
+      target_record_id: 'member-1',
+    }),
+    (error) => error.status === 400 && /routed_side/.test(error.message),
+  );
+  await assert.rejects(
+    () => service.createRelationship(objectId, {
+      relationship_definition_id: definitionId,
+      source_record_id: 'department-1',
+      target_record_id: 'member-1',
+      routed_side: 'source',
+      routed_record_id: 'another-record',
+    }),
+    (error) => error.status === 400 && /routed_record_id/.test(error.message),
+  );
+});
+
+test('archived definitions remain reviewable after their routed endpoint object archives', async () => {
+  const definitionId = '55555555-5555-4555-8555-555555555555';
+  const db = mockDb({
+    custom_object_definition: [object({
+      status: 'archived',
+      archived_at: '2026-01-01T00:00:00.000Z',
+    })],
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'member',
+      target_custom_object_id: null,
+      status: 'archived',
+      archived_at: '2026-01-01T00:00:00.000Z',
+      created_at: '2026-01-01T00:00:00.000Z',
+    }],
+  });
+  const result = await createCustomObjectService({
+    db, context: context(), canViewSchema: true,
+  }).listRelationshipDefinitions(objectId, { includeArchived: 'true' });
+  assert.deepEqual(result.data.map((definition) => definition.id), [definitionId]);
+  const activeResult = await createCustomObjectService({
+    db, context: context(), canViewSchema: true,
+  }).listRelationshipDefinitions(objectId, {});
+  assert.deepEqual(activeResult.data, []);
+});
+
+test('active relationship definitions reject archived Custom Object endpoints during listing', async () => {
+  const targetObjectId = '44444444-4444-4444-8444-444444444444';
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({
+        id: targetObjectId,
+        object_key: 'archived_target',
+        status: 'archived',
+        archived_at: '2026-01-01T00:00:00.000Z',
+      }),
+    ],
+    custom_object_relationship_definition: [{
+      id: 'definition-1',
+      tenant_id: tenantId,
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'custom_object',
+      target_custom_object_id: targetObjectId,
+      status: 'active',
+      created_at: '2026-01-01T00:00:00.000Z',
+    }],
+  });
+  await assert.rejects(
+    () => createCustomObjectService({
+      db, context: context(), canViewSchema: true,
+    }).listRelationshipDefinitions(objectId, {}),
+    (error) => error.status === 409 && /endpoint is unavailable/.test(error.message),
+  );
+});
+
+test('database cardinality and required-edge guards map to HTTP 409 conflicts', async () => {
+  const definitionId = '55555555-5555-4555-8555-555555555555';
+  const baseSeed = {
+    custom_object_definition: [object()],
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      status: 'active',
+      cardinality: 'one_to_one',
+      is_required: true,
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'custom_object',
+      target_custom_object_id: objectId,
+      edit_from_source: true,
+    }],
+    custom_object_record: [
+      { id: 'source-1', tenant_id: tenantId, custom_object_id: objectId, archived_at: null },
+      { id: 'target-1', tenant_id: tenantId, custom_object_id: objectId, archived_at: null },
+    ],
+  };
+  const cardinalityDb = mockDb(baseSeed);
+  const cardinalityFrom = cardinalityDb.from.bind(cardinalityDb);
+  cardinalityDb.from = (table) => {
+    if (table !== 'custom_object_relationship') return cardinalityFrom(table);
+    return {
+      insert() { return this; },
+      select() { return this; },
+      async single() {
+        return {
+          data: null,
+          error: {
+            code: '23505',
+            constraint: 'custom_object_relationship_source_cardinality',
+            message: 'Source record exceeds relationship cardinality',
+          },
+        };
+      },
+    };
+  };
+  await assert.rejects(
+    () => createCustomObjectService({
+      db: cardinalityDb, context: context(), isAdmin: true,
+    }).createRelationship(objectId, {
+      relationship_definition_id: definitionId,
+      source_record_id: 'source-1',
+      target_record_id: 'target-1',
+      routed_side: 'source',
+      routed_record_id: 'source-1',
+    }),
+    (error) => error.status === 409 && /cardinality/.test(error.message),
+  );
+
+  const requiredDb = mockDb({
+    ...baseSeed,
+    custom_object_relationship: [{
+      id: 'edge-1',
+      tenant_id: tenantId,
+      relationship_definition_id: definitionId,
+      source_record_id: 'source-1',
+      target_record_id: 'target-1',
+      archived_at: null,
+    }],
+  });
+  requiredDb.rpc = () => {
+    return {
+      async single() {
+        return {
+          data: null,
+          error: {
+            code: '23514',
+            constraint: 'custom_object_relationship_required_source',
+            message: 'A required relationship cannot lose its final active edge',
+          },
+        };
+      },
+    };
+  };
+  await assert.rejects(
+    () => createCustomObjectService({
+      db: requiredDb, context: context(), isAdmin: true,
+    }).archiveRelationship(objectId, 'edge-1', {
+      routed_side: 'source',
+      routed_record_id: 'source-1',
+    }),
+    (error) => {
+      assert.equal(error.status, 409);
+      assert.match(error.message, /required relationship/);
+      assert.deepEqual(error.details, {
+        code: 'REQUIRED_RELATIONSHIP',
+        archive_record: {
+          object_id: objectId,
+          record_id: 'source-1',
+          label: 'source-1',
+        },
+      });
+      return true;
+    },
+  );
+});
+
+test('required final-edge conflicts expose an archive route only with independent source record permissions', async () => {
+  const definitionId = 'required-route-definition';
+  const conflict = {
+    code: 'P0001',
+    message: 'A required relationship cannot lose its final active edge',
+  };
+  const seed = (canArchive) => ({
+    custom_object_definition: [object({ primary_display_field_id: 'title-field' })],
+    preference_field: [field({
+      id: 'title-field',
+      name: 'title',
+      label: 'Title',
+      field_type: 'text',
+      is_required: false,
+    })],
+    custom_object_role_permission: [{
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      role_id: roleId,
+      can_view_records: true,
+      can_edit_records: true,
+      can_archive_records: canArchive,
+    }],
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      status: 'active',
+      cardinality: 'one_to_one',
+      is_required: true,
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'custom_object',
+      target_custom_object_id: objectId,
+      show_on_source: true,
+      edit_from_source: true,
+    }],
+    custom_object_record: [
+      {
+        id: 'source-route',
+        tenant_id: tenantId,
+        custom_object_id: objectId,
+        archived_at: null,
+        data: { title: 'Assignment 42' },
+      },
+      {
+        id: 'target-route',
+        tenant_id: tenantId,
+        custom_object_id: objectId,
+        archived_at: null,
+        data: { title: 'Churchill Hospital' },
+      },
+    ],
+    custom_object_relationship: [{
+      id: 'required-route-edge',
+      tenant_id: tenantId,
+      relationship_definition_id: definitionId,
+      source_record_id: 'source-route',
+      target_record_id: 'target-route',
+      archived_at: null,
+    }],
+  });
+  const archive = (service) => service.archiveRelationship(objectId, 'required-route-edge', {
+    routed_side: 'source',
+    routed_record_id: 'source-route',
+  });
+
+  const allowedDb = mockDb(seed(true), {
+    archive_custom_object_relationship: conflict,
+  });
+  await assert.rejects(
+    () => archive(createCustomObjectService({ db: allowedDb, context: context() })),
+    (error) => {
+      assert.equal(error.status, 409);
+      assert.deepEqual(error.details, {
+        code: 'REQUIRED_RELATIONSHIP',
+        archive_record: {
+          object_id: objectId,
+          record_id: 'source-route',
+          label: 'Assignment 42',
+        },
+      });
+      return true;
+    },
+  );
+
+  const deniedDb = mockDb(seed(false), {
+    archive_custom_object_relationship: conflict,
+  });
+  await assert.rejects(
+    () => archive(createCustomObjectService({ db: deniedDb, context: context() })),
+    (error) => {
+      assert.equal(error.status, 409);
+      assert.deepEqual(error.details, { code: 'REQUIRED_RELATIONSHIP' });
+      assert.equal(Object.hasOwn(error.details, 'archive_record'), false);
+      return true;
+    },
+  );
+});
+
+test('core final-edge conflicts omit the archive route for an archived source Custom Object record', async () => {
+  const definitionId = 'required-core-route-definition';
+  const db = mockDb({
+    member: [{ id: 'member-core-route', tenant_id: tenantId }],
+    custom_object_definition: [object()],
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      status: 'active',
+      cardinality: 'many_to_one',
+      is_required: true,
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'member',
+      target_custom_object_id: null,
+      show_on_target: true,
+      edit_from_target: true,
+    }],
+    custom_object_record: [{
+      id: 'archived-source-route',
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      archived_at: '2026-10-01T00:00:00.000Z',
+      data: {},
+    }],
+    custom_object_relationship: [{
+      id: 'required-core-route-edge',
+      tenant_id: tenantId,
+      relationship_definition_id: definitionId,
+      source_record_id: 'archived-source-route',
+      target_record_id: 'member-core-route',
+      archived_at: null,
+    }],
+  }, {
+    archive_custom_object_relationship: {
+      code: '23514',
+      details: 'A required relationship cannot lose its final active edge',
+      message: 'check constraint violation',
+    },
+  });
+
+  await assert.rejects(
+    () => createCustomObjectService({
+      db,
+      context: context(),
+      isAdmin: true,
+    }).archiveCoreRelationship(
+      'member',
+      'member-core-route',
+      'required-core-route-edge',
+    ),
+    (error) => {
+      assert.equal(error.status, 409);
+      assert.deepEqual(error.details, { code: 'REQUIRED_RELATIONSHIP' });
+      return true;
+    },
+  );
+});
+
+test('definition-bound picker rejects arbitrary, hidden, mismatched, and non-admin core access', async () => {
+  const definitionId = '55555555-5555-4555-8555-555555555555';
+  const definition = {
+    id: definitionId,
+    tenant_id: tenantId,
+    status: 'active',
+    source_kind: 'custom_object',
+    source_custom_object_id: objectId,
+    target_kind: 'member',
+    target_custom_object_id: null,
+    show_on_source: true,
+    edit_from_source: true,
+  };
+  const db = mockDb({
+    custom_object_definition: [object()],
+    custom_object_record: [{
+      id: 'record-1', tenant_id: tenantId, custom_object_id: objectId, archived_at: null,
+    }, {
+      id: 'wrong-record', tenant_id: tenantId, custom_object_id: 'other-object', archived_at: null,
+    }],
+    custom_object_relationship_definition: [definition],
+    member: [{ id: 'member-1', tenant_id: tenantId, email: 'private@example.com' }],
+  });
+  const adminService = createCustomObjectService({ db, context: context(), isAdmin: true });
+  await assert.rejects(
+    () => adminService.entityPicker(objectId, { kind: 'member', customObjectId: 'forged' }),
+    (error) => error.status === 400 && /derived/.test(error.message),
+  );
+  await assert.rejects(
+    () => adminService.entityPicker(objectId, {
+      definitionId, recordId: 'record-1', side: 'target',
+    }),
+    (error) => error.status === 400 && /Routed side/.test(error.message),
+  );
+  await assert.rejects(
+    () => adminService.entityPicker(objectId, {
+      definitionId, recordId: 'wrong-record', side: 'source',
+    }),
+    (error) => error.status === 404,
+  );
+  db.tables.custom_object_relationship_definition[0].show_on_source = false;
+  await assert.rejects(
+    () => adminService.entityPicker(objectId, {
+      definitionId, recordId: 'record-1', side: 'source',
+    }),
+    (error) => error.status === 403 && /hidden/.test(error.message),
+  );
+  db.tables.custom_object_relationship_definition[0].show_on_source = true;
+  db.tables.custom_object_relationship_definition[0].edit_from_source = false;
+  await assert.rejects(
+    () => adminService.entityPicker(objectId, {
+      definitionId, recordId: 'record-1', side: 'source',
+    }),
+    (error) => error.status === 403 && /cannot be edited/.test(error.message),
+  );
+  db.tables.custom_object_relationship_definition[0].edit_from_source = true;
+  await assert.rejects(
+    () => createCustomObjectService({
+      db, context: context(), isAdmin: false,
+    }).entityPicker(objectId, {
+      definitionId, recordId: 'record-1', side: 'source',
+    }),
+    (error) => error.status === 403 && /administrator/.test(error.message),
+  );
+});
+
+test('non-admin record APIs cannot enumerate or mutate core-endpoint relationships', async () => {
+  const definitionId = '55555555-5555-4555-8555-555555555555';
+  const db = mockDb({
+    custom_object_definition: [object()],
+    custom_object_record: [{
+      id: 'record-1', tenant_id: tenantId, custom_object_id: objectId, archived_at: null,
+    }],
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      status: 'active',
+      cardinality: 'many_to_many',
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'member',
+      target_custom_object_id: null,
+      show_on_source: true,
+      edit_from_source: true,
+      created_at: '2026-01-01',
+    }],
+    member: [{ id: 'member-1', tenant_id: tenantId }],
+    custom_object_relationship: [{
+      id: 'edge-1',
+      tenant_id: tenantId,
+      relationship_definition_id: definitionId,
+      source_record_id: 'record-1',
+      target_record_id: 'member-1',
+      archived_at: null,
+    }],
+    custom_object_role_permission: [{
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      role_id: roleId,
+      can_view_records: true,
+      can_edit_records: true,
+    }],
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: false });
+  assert.deepEqual((await service.listRelationshipDefinitions(objectId, {})).data, []);
+  await assert.rejects(
+    () => service.listRelationships(objectId, {
+      definitionId, recordId: 'record-1', side: 'source',
+    }),
+    (error) => error.status === 403 && /administrator/.test(error.message),
+  );
+  await assert.rejects(
+    () => service.createRelationship(objectId, {
+      relationship_definition_id: definitionId,
+      source_record_id: 'record-1',
+      target_record_id: 'member-1',
+      routed_side: 'source',
+      routed_record_id: 'record-1',
+    }),
+    (error) => error.status === 403 && /administrator/.test(error.message),
+  );
+  await assert.rejects(
+    () => service.archiveRelationship(objectId, 'edge-1', {
+      routed_side: 'source', routed_record_id: 'record-1',
+    }),
+    (error) => error.status === 403 && /administrator/.test(error.message),
+  );
+});
+
+test('relationship edge fields apply boolean defaults and enforce configured side metadata', async () => {
+  const targetObjectId = '44444444-4444-4444-8444-444444444444';
+  const definitionId = '55555555-5555-4555-8555-555555555555';
+  const definition = {
+    id: definitionId,
+    tenant_id: tenantId,
+    status: 'active',
+    source_kind: 'custom_object',
+    source_custom_object_id: objectId,
+    target_kind: 'custom_object',
+    target_custom_object_id: targetObjectId,
+    cardinality: 'many_to_many',
+    show_on_source: true,
+    show_on_target: true,
+    edit_from_source: true,
+    edit_from_target: true,
+    configuration: {
+      relationship_fields: [{
+        id: 'field-primary',
+        key: 'is_primary',
+        label: 'Primary',
+        type: 'boolean',
+        required: true,
+        default_value: false,
+        display_on_source: true,
+        display_on_target: false,
+        edit_from_source: true,
+        edit_from_target: false,
+      }],
+    },
+  };
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({ id: targetObjectId, object_key: 'targets' }),
+    ],
+    custom_object_relationship_definition: [definition],
+    custom_object_record: [{
+      id: 'source-1', tenant_id: tenantId, custom_object_id: objectId,
+      archived_at: null, data: {},
+    }, {
+      id: 'target-1', tenant_id: tenantId, custom_object_id: targetObjectId,
+      archived_at: null, data: {},
+    }],
+    preference_field: [],
+    custom_object_relationship: [],
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  delete db.tables.custom_object_relationship_definition[0]
+    .configuration.relationship_fields[0].default_value;
+  await assert.rejects(() => service.createRelationship(objectId, {
+    relationship_definition_id: definitionId,
+    source_record_id: 'source-1',
+    target_record_id: 'target-1',
+    routed_side: 'source',
+    routed_record_id: 'source-1',
+  }), (error) => error.status === 400 && /must have a default/.test(error.message));
+  db.tables.custom_object_relationship_definition[0]
+    .configuration.relationship_fields[0].default_value = false;
+
+  const created = await service.createRelationship(objectId, {
+    relationship_definition_id: definitionId,
+    source_record_id: 'source-1',
+    target_record_id: 'target-1',
+    routed_side: 'source',
+    routed_record_id: 'source-1',
+  });
+  assert.deepEqual(created.field_values, { is_primary: false });
+  db.tables.custom_object_relationship[0].archived_at = null;
+
+  const updated = await service.updateRelationship(objectId, created.id, {
+    routed_side: 'source',
+    routed_record_id: 'source-1',
+    field_values: { 'field-primary': true },
+  });
+  assert.deepEqual(updated.field_values, { is_primary: true });
+  assert.equal(updated.relationship_fields[0].value, true);
+  assert.ok(db.calls.some((call) => call.table === 'custom_object_relationship'
+    && call.type === 'eq' && call.column === 'tenant_id' && call.value === tenantId));
+
+  await assert.rejects(() => service.updateRelationship(objectId, created.id, {
+    routed_side: 'source',
+    routed_record_id: 'source-1',
+    field_values: { forged: true },
+  }), (error) => error.status === 400 && /Unknown relationship field/.test(error.message));
+  await assert.rejects(() => service.updateRelationship(targetObjectId, created.id, {
+    routed_side: 'target',
+    routed_record_id: 'target-1',
+    field_values: { is_primary: false },
+  }), (error) => error.status === 403 && /cannot be edited/.test(error.message));
+
+  const listed = await service.listRelationships(objectId, {
+    definitionId,
+    recordId: 'source-1',
+    side: 'source',
+  });
+  assert.deepEqual(listed.data[0].field_values, { is_primary: true });
+  assert.equal(listed.data[0].relationship_fields[0].editable, true);
+
+  db.tables.custom_object_relationship[0].archived_at = '2026-01-01T00:00:00.000Z';
+  await assert.rejects(() => service.updateRelationship(objectId, created.id, {
+    routed_side: 'source',
+    routed_record_id: 'source-1',
+    field_values: { is_primary: false },
+  }), (error) => error.status === 409 && /Archived relationship/.test(error.message));
+});
+
+test('legacy definition configuration fields are not interpreted as relationship fields', async () => {
+  const targetObjectId = '44444444-4444-4444-8444-444444444444';
+  const definitionId = '55555555-5555-4555-8555-555555555557';
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({ id: targetObjectId, object_key: 'targets' }),
+    ],
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      status: 'active',
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'custom_object',
+      target_custom_object_id: targetObjectId,
+      cardinality: 'many_to_many',
+      show_on_source: true,
+      show_on_target: true,
+      edit_from_source: true,
+      edit_from_target: true,
+      configuration: { fields: [{ legacy: true }] },
+    }],
+    custom_object_record: [{
+      id: 'source-1', tenant_id: tenantId, custom_object_id: objectId,
+      archived_at: null, data: {},
+    }, {
+      id: 'target-1', tenant_id: tenantId, custom_object_id: targetObjectId,
+      archived_at: null, data: {},
+    }],
+    preference_field: [],
+    custom_object_relationship: [{
+      id: 'edge-legacy-configuration',
+      tenant_id: tenantId,
+      relationship_definition_id: definitionId,
+      source_record_id: 'source-1',
+      target_record_id: 'target-1',
+      field_values: {},
+      archived_at: null,
+      created_at: '2026-09-05T00:00:00.000Z',
+    }],
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+
+  const listed = await service.listRelationships(objectId, {
+    definitionId,
+    recordId: 'source-1',
+    side: 'source',
+  });
+
+  assert.deepEqual(listed.data[0].relationship_fields, []);
+  assert.deepEqual(listed.data[0].field_values, {});
+});
+
+test('core relationship edge field PATCH uses the derived tenant-scoped routed side', async () => {
+  const definitionId = '55555555-5555-4555-8555-555555555556';
+  const db = mockDb({
+    member: [{ id: 'member-1', tenant_id: tenantId }],
+    custom_object_definition: [object()],
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      status: 'active',
+      source_kind: 'member',
+      source_custom_object_id: null,
+      target_kind: 'custom_object',
+      target_custom_object_id: objectId,
+      cardinality: 'many_to_many',
+      show_on_source: true,
+      edit_from_source: true,
+      configuration: {
+        relationship_fields: [{
+          id: 'verified-field',
+          key: 'verified',
+          label: 'Verified',
+          type: 'boolean',
+          required: true,
+          default: false,
+          display: true,
+          edit_from_source: true,
+          edit_from_target: false,
+        }],
+      },
+    }],
+    custom_object_record: [{
+      id: 'record-1', tenant_id: tenantId, custom_object_id: objectId,
+      archived_at: null, data: {},
+    }],
+    custom_object_relationship: [{
+      id: 'edge-1',
+      tenant_id: tenantId,
+      relationship_definition_id: definitionId,
+      source_record_id: 'member-1',
+      target_record_id: 'record-1',
+      archived_at: null,
+      field_values: { verified: false },
+    }],
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const updated = await service.updateCoreRelationship(
+    'member', 'member-1', 'edge-1', { field_values: { verified: true } },
+  );
+  assert.deepEqual(updated.field_values, { verified: true });
+  assert.equal(updated.relationship_fields[0].editable, true);
+  await assert.rejects(
+    () => service.updateCoreRelationship(
+      'member', 'another-member', 'edge-1', { field_values: { verified: false } },
+    ),
+    (error) => error.status === 404,
+  );
+});
+
+test('non-admin relationship definition visibility is filtered before pagination and count', async () => {
+  const targetObjectId = '44444444-4444-4444-8444-444444444444';
+  const hiddenObjectId = '66666666-6666-4666-8666-666666666666';
+  const db = mockDb({
+    custom_object_definition: [
+      object(),
+      object({ id: targetObjectId, object_key: 'locations' }),
+      object({ id: hiddenObjectId, object_key: 'hidden' }),
+    ],
+    custom_object_relationship_definition: [{
+      id: 'newest-core',
+      tenant_id: tenantId,
+      status: 'active',
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'member',
+      target_custom_object_id: null,
+      created_at: '2026-03-01',
+    }, {
+      id: 'hidden-custom',
+      tenant_id: tenantId,
+      status: 'active',
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'custom_object',
+      target_custom_object_id: hiddenObjectId,
+      created_at: '2026-02-01',
+    }, {
+      id: 'visible-custom',
+      tenant_id: tenantId,
+      status: 'active',
+      source_kind: 'custom_object',
+      source_custom_object_id: objectId,
+      target_kind: 'custom_object',
+      target_custom_object_id: targetObjectId,
+      created_at: '2026-01-01',
+    }],
+    custom_object_role_permission: [{
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      role_id: roleId,
+      can_view_records: true,
+    }, {
+      tenant_id: tenantId,
+      custom_object_id: targetObjectId,
+      role_id: roleId,
+      can_view_records: true,
+    }],
+  });
+  const result = await createCustomObjectService({
+    db,
+    context: context(),
+  }).listRelationshipDefinitions(objectId, { page: '1', pageSize: '1' });
+  assert.deepEqual(result.data.map((definition) => definition.id), ['visible-custom']);
+  assert.equal(result.total, 1);
+  const rangeIndex = db.calls.findIndex((call) =>
+    call.table === 'custom_object_relationship_definition' && call.type === 'from');
+  assert.ok(db.calls.slice(rangeIndex).some((call) =>
+    call.table === 'custom_object_relationship_definition'
+    && call.type === 'eq'
+    && call.column === 'source_kind'
+    && call.value === 'custom_object'));
+});
+
+test('core relationship discovery is generic across all core kinds and hides inactive or one-sided definitions', async () => {
+  const coreKinds = ['member', 'organization', 'organization_group'];
+  const coreTables = Object.fromEntries(coreKinds.map((kind) => [
+    kind,
+    [{ id: `${kind}-1`, tenant_id: tenantId, name: `${kind} one` }],
+  ]));
+  const definitions = coreKinds.map((kind, index) => ({
+    id: `definition-${index}`,
+    tenant_id: tenantId,
+    relationship_key: `${kind}_departments`,
+    status: 'active',
+    source_kind: kind,
+    source_custom_object_id: null,
+    target_kind: 'custom_object',
+    target_custom_object_id: objectId,
+    source_label: 'Departments',
+    target_label: kind,
+    cardinality: 'many_to_many',
+    show_on_source: true,
+    edit_from_source: index !== 1,
+    created_at: `2026-01-0${index + 1}`,
+  }));
+  const db = mockDb({
+    ...coreTables,
+    custom_object_definition: [object({
+      singular_label: 'Department',
+      plural_label: 'Departments',
+      primary_display_field_id: 'field-name',
+    })],
+    preference_field: [field({
+      id: 'field-name',
+      name: 'name',
+      label: 'Name',
+      field_type: 'text',
+      is_required: false,
+    })],
+    custom_object_relationship_definition: [
+      ...definitions,
+      { ...definitions[0], id: 'draft', relationship_key: 'draft', status: 'draft' },
+      { ...definitions[0], id: 'hidden', relationship_key: 'hidden', show_on_source: false },
+      { ...definitions[0], id: 'foreign', relationship_key: 'foreign', tenant_id: 'other-tenant' },
+    ],
+    custom_object_relationship: coreKinds.map((kind, index) => ({
+      id: `edge-${index}`,
+      tenant_id: tenantId,
+      relationship_definition_id: `definition-${index}`,
+      source_record_id: `${kind}-1`,
+      target_record_id: `department-${index}`,
+      archived_at: null,
+    })),
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  for (let index = 0; index < coreKinds.length; index += 1) {
+    const kind = coreKinds[index];
+    const result = await service.listCoreRelationshipDefinitions(kind, `${kind}-1`);
+    assert.equal(result.data.length, 1);
+    assert.deepEqual(result.data[0], {
+      definition: {
+        id: `definition-${index}`,
+        relationship_key: `${kind}_departments`,
+        status: 'active',
+        source_kind: kind,
+        source_custom_object_id: null,
+        target_kind: 'custom_object',
+        target_custom_object_id: objectId,
+        source_label: 'Departments',
+        target_label: kind,
+        cardinality: 'many_to_many',
+        show_on_source: true,
+        show_on_target: undefined,
+        edit_from_source: index !== 1,
+        edit_from_target: undefined,
+      },
+      side: 'source',
+      label: 'Departments',
+      related_object: {
+        id: objectId,
+        object_key: 'departments',
+        singular_label: 'Department',
+        plural_label: 'Departments',
+      },
+      count: 1,
+      can_edit: index !== 1,
+    });
+  }
+  db.tables.custom_object_relationship_definition.length = 0;
+  assert.deepEqual(
+    await service.listCoreRelationshipDefinitions('member', 'member-1'),
+    { data: [] },
+  );
+});
+
+test('core relationship rows use primary labels, paginate, enforce edit flags, permissions, and tenant isolation', async () => {
+  const definitionId = 'core-definition';
+  const db = mockDb({
+    member: [
+      { id: 'member-1', tenant_id: tenantId, first_name: 'Ada' },
+      { id: 'foreign-member', tenant_id: 'other-tenant' },
+    ],
+    custom_object_definition: [object({
+      singular_label: 'Qualification',
+      plural_label: 'Qualifications',
+      primary_display_field_id: 'field-name',
+    })],
+    preference_field: [field({
+      id: 'field-name', name: 'name', field_type: 'text', is_required: false,
+    })],
+    custom_object_relationship_definition: [{
+      id: definitionId,
+      tenant_id: tenantId,
+      status: 'active',
+      source_kind: 'member',
+      source_custom_object_id: null,
+      target_kind: 'custom_object',
+      target_custom_object_id: objectId,
+      show_on_source: true,
+      edit_from_source: true,
+      cardinality: 'many_to_many',
+    }],
+    custom_object_record: [{
+      id: 'qualification-1',
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      data: { name: 'First Aid' },
+      archived_at: null,
+      created_at: '2026-01-01',
+    }, {
+      id: 'qualification-2',
+      tenant_id: tenantId,
+      custom_object_id: objectId,
+      data: { name: 'Governance' },
+      archived_at: null,
+      created_at: '2026-01-02',
+    }, {
+      id: 'foreign-qualification',
+      tenant_id: 'other-tenant',
+      custom_object_id: objectId,
+      data: { name: 'Private' },
+      archived_at: null,
+    }],
+    custom_object_relationship: [{
+      id: 'edge-1',
+      tenant_id: tenantId,
+      relationship_definition_id: definitionId,
+      source_record_id: 'member-1',
+      target_record_id: 'qualification-1',
+      archived_at: null,
+      created_at: '2026-01-01',
+    }, {
+      id: 'edge-2',
+      tenant_id: tenantId,
+      relationship_definition_id: definitionId,
+      source_record_id: 'member-1',
+      target_record_id: 'qualification-2',
+      archived_at: null,
+      created_at: '2026-01-02',
+    }, {
+      id: 'foreign-edge',
+      tenant_id: 'other-tenant',
+      relationship_definition_id: definitionId,
+      source_record_id: 'member-1',
+      target_record_id: 'foreign-qualification',
+      archived_at: null,
+    }],
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const page = await service.listCoreRelationships('member', 'member-1', {
+    definitionId, page: '2', pageSize: '1',
+  });
+  assert.equal(page.total, 2);
+  assert.equal(page.page, 2);
+  assert.equal(page.data[0].related.primary_label, 'First Aid');
+  const picker = await service.coreEntityPicker('member', 'member-1', {
+    definitionId, page: '1', pageSize: '1',
+  });
+  assert.equal(picker.total, 0);
+  assert.deepEqual(picker.data, []);
+  await assert.rejects(
+    () => service.listCoreRelationshipDefinitions('member', 'foreign-member'),
+    (error) => error.status === 404,
+  );
+  db.tables.custom_object_relationship_definition[0].edit_from_source = false;
+  await assert.rejects(
+    () => service.coreEntityPicker('member', 'member-1', { definitionId }),
+    (error) => error.status === 403,
+  );
+  await assert.rejects(
+    () => createCustomObjectService({ db, context: context(), isAdmin: false })
+      .listCoreRelationshipDefinitions('member', 'member-1'),
+    (error) => error.status === 403 && /administrator/.test(error.message),
+  );
+});
+
+test('Department-member pickers are constrained to the Department organisation only', async () => {
+  const departmentObjectId = objectId;
+  const memberDefinitionId = 'department-members';
+  const parentDefinitionId = 'department-organisation';
+  const seed = {
+    custom_object_definition: [object({ id: departmentObjectId, object_key: 'org_department' })],
+    preference_field: [field({ custom_object_id: departmentObjectId, name: 'name', field_type: 'text' })],
+    custom_object_relationship_definition: [{
+      id: memberDefinitionId, tenant_id: tenantId, relationship_key: 'members', status: 'active',
+      source_kind: 'custom_object', source_custom_object_id: departmentObjectId,
+      target_kind: 'member', target_custom_object_id: null, cardinality: 'many_to_many',
+      configuration: { picker_scope: { via_relationship_key: 'organisation', routed_core_field: 'organization_id' } },
+      show_on_source: true, show_on_target: true, edit_from_source: true, edit_from_target: true,
+    }, {
+      id: parentDefinitionId, tenant_id: tenantId, relationship_key: 'organisation', status: 'active',
+      is_required: true, source_kind: 'custom_object', source_custom_object_id: departmentObjectId,
+      target_kind: 'organization', target_custom_object_id: null, cardinality: 'many_to_one',
+    }],
+    custom_object_record: [
+      { id: 'dept-a', tenant_id: tenantId, custom_object_id: departmentObjectId, archived_at: null, data: { name: 'A' } },
+      { id: 'dept-c', tenant_id: tenantId, custom_object_id: departmentObjectId, archived_at: null, data: { name: 'C' } },
+      { id: 'dept-b', tenant_id: tenantId, custom_object_id: departmentObjectId, archived_at: null, data: { name: 'B' } },
+    ],
+    member: [
+      { id: 'member-a', tenant_id: tenantId, organization_id: 'org-a', first_name: 'A', last_name: 'Member' },
+      { id: 'member-b', tenant_id: tenantId, organization_id: 'org-b', first_name: 'B', last_name: 'Member' },
+    ],
+    custom_object_relationship: [
+      { id: 'parent-a', tenant_id: tenantId, relationship_definition_id: parentDefinitionId, source_record_id: 'dept-a', target_record_id: 'org-a', archived_at: null },
+      { id: 'parent-c', tenant_id: tenantId, relationship_definition_id: parentDefinitionId, source_record_id: 'dept-c', target_record_id: 'org-a', archived_at: null },
+      { id: 'parent-b', tenant_id: tenantId, relationship_definition_id: parentDefinitionId, source_record_id: 'dept-b', target_record_id: 'org-b', archived_at: null },
+    ],
+  };
+  const legacySeed = structuredClone(seed);
+  legacySeed.custom_object_relationship_definition[0].cardinality = 'one_to_many';
+  const legacyPicker = await createCustomObjectService({
+    db: mockDb(legacySeed),
+    context: context(),
+    isAdmin: true,
+  }).coreEntityPicker('member', 'member-a', { definitionId: memberDefinitionId });
+  assert.deepEqual(legacyPicker.data.map(row => row.id), ['dept-a', 'dept-c']);
+
+  const db = mockDb(seed);
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const fromMember = await service.coreEntityPicker('member', 'member-a', { definitionId: memberDefinitionId });
+  assert.deepEqual(fromMember.data.map(row => row.id), ['dept-a', 'dept-c']);
+  const fromDepartment = await service.entityPicker(departmentObjectId, {
+    definitionId: memberDefinitionId, recordId: 'dept-a', side: 'source',
+  });
+  assert.deepEqual(fromDepartment.data.map(row => row.id), ['member-a']);
+  await service.createCoreRelationship('member', 'member-a', {
+    relationship_definition_id: memberDefinitionId, related_record_id: 'dept-a',
+  });
+  await service.createCoreRelationship('member', 'member-a', {
+    relationship_definition_id: memberDefinitionId, related_record_id: 'dept-c',
+  });
+  assert.equal(db.tables.custom_object_relationship.filter(edge =>
+    edge.relationship_definition_id === memberDefinitionId
+      && edge.target_record_id === 'member-a').length, 2);
+  await assert.rejects(
+    () => service.createCoreRelationship('member', 'member-a', {
+      relationship_definition_id: memberDefinitionId, related_record_id: 'dept-b',
+    }),
+    (error) => error.status === 400 && /picker scope/.test(error.message),
+  );
+});
+
+test('v2 picker paths intersect through reusable relationship graph hops in both directions', async () => {
+  const departmentObjectId = objectId;
+  const assignmentObjectId = 'assignment-object';
+  const memberDefinitionId = 'department-members-v2';
+  const departmentOrganisationId = 'department-organisation-v2';
+  const assignmentMemberId = 'assignment-member';
+  const assignmentOrganisationId = 'assignment-organisation';
+  const db = mockDb({
+    custom_object_definition: [
+      object({ id: departmentObjectId, object_key: 'org_department', primary_display_field_id: 'field-1' }),
+      object({ id: assignmentObjectId, object_key: 'member_organisation_assignment' }),
+    ],
+    preference_field: [field({ custom_object_id: departmentObjectId, name: 'name', field_type: 'text' })],
+    custom_object_relationship_definition: [{
+      id: memberDefinitionId, tenant_id: tenantId, relationship_key: 'members', status: 'active',
+      source_kind: 'custom_object', source_custom_object_id: departmentObjectId,
+      target_kind: 'member', target_custom_object_id: null, cardinality: 'many_to_many',
+      configuration: {
+        picker_scope: {
+          version: 2,
+          match: 'intersects',
+          source_path: [{
+            relationship_definition_id: departmentOrganisationId,
+            from_side: 'source',
+          }],
+          target_terminal_sources: [{
+            type: 'core_field',
+            field: 'organization_id',
+          }],
+          target_path: [{
+            relationship_definition_id: assignmentMemberId,
+            from_side: 'target',
+          }, {
+            relationship_definition_id: assignmentOrganisationId,
+            from_side: 'source',
+          }],
+        },
+      },
+      show_on_source: true, show_on_target: true, edit_from_source: true, edit_from_target: true,
+    }, {
+      id: departmentOrganisationId, tenant_id: tenantId, relationship_key: 'organisation', status: 'active',
+      source_kind: 'custom_object', source_custom_object_id: departmentObjectId,
+      target_kind: 'organization', target_custom_object_id: null, cardinality: 'many_to_one',
+    }, {
+      id: assignmentMemberId, tenant_id: tenantId, relationship_key: 'assignment_member', status: 'active',
+      source_kind: 'custom_object', source_custom_object_id: assignmentObjectId,
+      target_kind: 'member', target_custom_object_id: null, cardinality: 'many_to_one',
+    }, {
+      id: assignmentOrganisationId, tenant_id: tenantId, relationship_key: 'assignment_organisation', status: 'active',
+      source_kind: 'custom_object', source_custom_object_id: assignmentObjectId,
+      target_kind: 'organization', target_custom_object_id: null, cardinality: 'many_to_one',
+    }],
+    custom_object_record: [
+      { id: 'dept-a', tenant_id: tenantId, custom_object_id: departmentObjectId, archived_at: null, created_at: '2026-01-01', data: { name: 'Alpha' } },
+      { id: 'dept-b', tenant_id: tenantId, custom_object_id: departmentObjectId, archived_at: null, created_at: '2026-01-02', data: { name: 'Beta' } },
+      { id: 'dept-c', tenant_id: tenantId, custom_object_id: departmentObjectId, archived_at: null, created_at: '2026-01-03', data: { name: 'Charlie' } },
+      { id: 'assignment-a', tenant_id: tenantId, custom_object_id: assignmentObjectId, archived_at: null },
+      { id: 'assignment-c', tenant_id: tenantId, custom_object_id: assignmentObjectId, archived_at: null },
+      { id: 'assignment-b', tenant_id: tenantId, custom_object_id: assignmentObjectId, archived_at: null },
+      { id: 'assignment-archived', tenant_id: tenantId, custom_object_id: assignmentObjectId, archived_at: null },
+    ],
+    organization: [
+      { id: 'org-a', tenant_id: tenantId, name: 'A' },
+      { id: 'org-b', tenant_id: tenantId, name: 'B' },
+      { id: 'org-c', tenant_id: tenantId, name: 'C' },
+    ],
+    member: [
+      { id: 'member-a', tenant_id: tenantId, organization_id: 'org-b', first_name: 'A', last_name: 'Member' },
+      { id: 'member-b', tenant_id: tenantId, first_name: 'B', last_name: 'Member' },
+      { id: 'member-primary-only', tenant_id: tenantId, organization_id: 'org-a', first_name: 'Primary', last_name: 'Only' },
+    ],
+    custom_object_relationship: [
+      { id: 'dept-org-a', tenant_id: tenantId, relationship_definition_id: departmentOrganisationId, source_record_id: 'dept-a', target_record_id: 'org-a', archived_at: null },
+      { id: 'dept-org-b', tenant_id: tenantId, relationship_definition_id: departmentOrganisationId, source_record_id: 'dept-b', target_record_id: 'org-b', archived_at: null },
+      { id: 'dept-org-c', tenant_id: tenantId, relationship_definition_id: departmentOrganisationId, source_record_id: 'dept-c', target_record_id: 'org-c', archived_at: null },
+      { id: 'assignment-member-a', tenant_id: tenantId, relationship_definition_id: assignmentMemberId, source_record_id: 'assignment-a', target_record_id: 'member-a', archived_at: null },
+      { id: 'assignment-member-c', tenant_id: tenantId, relationship_definition_id: assignmentMemberId, source_record_id: 'assignment-c', target_record_id: 'member-a', archived_at: null },
+      { id: 'assignment-member-b', tenant_id: tenantId, relationship_definition_id: assignmentMemberId, source_record_id: 'assignment-b', target_record_id: 'member-b', archived_at: null },
+      { id: 'assignment-member-archived', tenant_id: tenantId, relationship_definition_id: assignmentMemberId, source_record_id: 'assignment-archived', target_record_id: 'member-a', archived_at: null },
+      { id: 'assignment-org-a', tenant_id: tenantId, relationship_definition_id: assignmentOrganisationId, source_record_id: 'assignment-a', target_record_id: 'org-a', archived_at: null },
+      { id: 'assignment-org-c', tenant_id: tenantId, relationship_definition_id: assignmentOrganisationId, source_record_id: 'assignment-c', target_record_id: 'org-c', archived_at: null },
+      { id: 'assignment-org-b', tenant_id: tenantId, relationship_definition_id: assignmentOrganisationId, source_record_id: 'assignment-b', target_record_id: 'org-b', archived_at: null },
+      { id: 'assignment-org-archived', tenant_id: tenantId, relationship_definition_id: assignmentOrganisationId, source_record_id: 'assignment-archived', target_record_id: 'org-b', archived_at: '2026-01-01' },
+      { id: 'foreign-assignment', tenant_id: 'other-tenant', relationship_definition_id: assignmentOrganisationId, source_record_id: 'assignment-a', target_record_id: 'org-b', archived_at: null },
+      { id: 'existing-department-link', tenant_id: tenantId, relationship_definition_id: memberDefinitionId, source_record_id: 'dept-a', target_record_id: 'member-primary-only', archived_at: null },
+    ],
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const pickerScope = db.tables.custom_object_relationship_definition
+    .find(definition => definition.id === memberDefinitionId)
+    .configuration.picker_scope;
+  pickerScope.source_terminal_sources = [];
+  await assert.rejects(
+    () => service.entityPicker(departmentObjectId, {
+      definitionId: memberDefinitionId, recordId: 'dept-a', side: 'source',
+    }),
+    (error) => error.status === 409 && /terminal source is malformed/.test(error.message),
+  );
+  delete pickerScope.source_terminal_sources;
+
+  const primaryOnly = await service.coreEntityPicker('member', 'member-primary-only', {
+    definitionId: memberDefinitionId,
+  });
+  assert.equal(primaryOnly.total, 0, 'the only primary-organisation Department is already linked');
+  db.tables.custom_object_record.push({
+    id: 'dept-a-sibling', tenant_id: tenantId, custom_object_id: departmentObjectId,
+    archived_at: null, created_at: '2026-01-04', data: { name: 'Alpha sibling' },
+  });
+  db.tables.custom_object_relationship.push({
+    id: 'dept-org-a-sibling', tenant_id: tenantId,
+    relationship_definition_id: departmentOrganisationId,
+    source_record_id: 'dept-a-sibling', target_record_id: 'org-a', archived_at: null,
+  });
+  const primarySibling = await service.coreEntityPicker('member', 'member-primary-only', {
+    definitionId: memberDefinitionId,
+  });
+  assert.deepEqual(primarySibling.data.map((row) => row.id), ['dept-a-sibling']);
+  await service.createCoreRelationship('member', 'member-primary-only', {
+    relationship_definition_id: memberDefinitionId,
+    related_record_id: 'dept-a-sibling',
+  });
+
+  const firstPage = await service.coreEntityPicker('member', 'member-a', {
+    definitionId: memberDefinitionId, page: '1', pageSize: '1',
+  });
+  assert.equal(firstPage.total, 4);
+  assert.deepEqual(firstPage.data.map((row) => row.id), ['dept-a']);
+  const secondPage = await service.coreEntityPicker('member', 'member-a', {
+    definitionId: memberDefinitionId, page: '2', pageSize: '1',
+  });
+  assert.deepEqual(secondPage.data.map((row) => row.id), ['dept-b']);
+  const searched = await service.coreEntityPicker('member', 'member-a', {
+    definitionId: memberDefinitionId, search: 'Char',
+  });
+  assert.equal(searched.total, 1);
+  assert.deepEqual(searched.data.map((row) => row.id), ['dept-c']);
+
+  const fromDepartment = await service.entityPicker(departmentObjectId, {
+    definitionId: memberDefinitionId, recordId: 'dept-b', side: 'source',
+  });
+  assert.deepEqual(fromDepartment.data.map((row) => row.id), ['member-a', 'member-b']);
+
+  const noInitialPath = await service.initialRelationshipCandidates(departmentObjectId, {
+    definitionId: memberDefinitionId,
+    newRecordSide: 'source',
+  });
+  assert.equal(noInitialPath.total, 0);
+  const initialWithProposedParent = await service.initialRelationshipCandidates(departmentObjectId, {
+    definitionId: memberDefinitionId,
+    newRecordSide: 'source',
+    proposedRelationships: JSON.stringify([{
+      relationship_definition_id: departmentOrganisationId,
+      routed_side: 'source',
+      related_record_id: 'org-a',
+    }]),
+  });
+  assert.deepEqual(
+    initialWithProposedParent.data.map((row) => row.id),
+    ['member-a', 'member-primary-only'],
+  );
+  await assert.rejects(
+    () => service.createRecordWithRelationships(departmentObjectId, {
+      data: { name: 'New Department' },
+      initial_relationships: [{
+        relationship_definition_id: departmentOrganisationId,
+        routed_side: 'source',
+        related_record_id: 'org-a',
+      }, {
+        relationship_definition_id: memberDefinitionId,
+        routed_side: 'source',
+        related_record_id: 'member-b',
+      }],
+    }),
+    (error) => error.status === 400 && /picker scope/.test(error.message),
+  );
+  await assert.rejects(
+    () => service.createCoreRelationship('member', 'member-primary-only', {
+      relationship_definition_id: memberDefinitionId,
+      related_record_id: 'dept-b',
+    }),
+    (error) => error.status === 400 && /picker scope/.test(error.message),
+  );
+
+  await service.createCoreRelationship('member', 'member-a', {
+    relationship_definition_id: memberDefinitionId,
+    related_record_id: 'dept-c',
+  });
+  db.tables.member.find((member) => member.id === 'member-a').organization_id = null;
+  db.tables.custom_object_relationship.find((edge) => edge.id === 'assignment-org-b').archived_at = '2026-02-01';
+  const emptyAfterArchive = await service.entityPicker(departmentObjectId, {
+    definitionId: memberDefinitionId, recordId: 'dept-b', side: 'source',
+  });
+  assert.equal(emptyAfterArchive.total, 0);
+  assert.deepEqual(emptyAfterArchive.data, []);
+
+  db.tables.member.push(...Array.from({ length: 1001 }, (_, index) => ({
+    id: `bulk-member-${String(index).padStart(4, '0')}`,
+    tenant_id: tenantId,
+    organization_id: 'org-a',
+    first_name: 'Bulk',
+    last_name: String(index).padStart(4, '0'),
+  })));
+  const largeReverseScope = await service.entityPicker(departmentObjectId, {
+    definitionId: memberDefinitionId,
+    recordId: 'dept-a',
+    side: 'source',
+    page: '11',
+    pageSize: '100',
+  });
+  assert.equal(largeReverseScope.total, 1002);
+  assert.equal(largeReverseScope.data.length, 2);
+  assert.ok(db.calls.some((call) =>
+    call.table === 'member' && call.type === 'range' && call.from === 1000));
+
+  // Both the graph path and the primary-organisation terminal source must
+  // remove anonymised members, while null/disabled members remain searchable.
+  db.tables.member.filter((row) => row.id.startsWith('bulk-member-'))
+    .forEach((row) => { row.email = 'DELETED_bulk@DELETED.LOCAL'; });
+  const retained = db.tables.member.find((row) => row.id === 'bulk-member-1000');
+  retained.email = null;
+  retained.is_active = false;
+  retained.show_in_directory = false;
+  db.tables.member.find((row) => row.id === 'member-a').email = 'deleted_graph@deleted.local';
+  db.tables.member.find((row) => row.id === 'member-primary-only').email = 'deleted_primary@deleted.local';
+  const eligibleScope = await service.entityPicker(departmentObjectId, {
+    definitionId: memberDefinitionId, recordId: 'dept-a', side: 'source', search: 'Bulk',
+  });
+  assert.equal(eligibleScope.total, 1);
+  assert.deepEqual(eligibleScope.data.map((row) => row.id), ['bulk-member-1000']);
+  const beyondEligibleScope = await service.entityPicker(departmentObjectId, {
+    definitionId: memberDefinitionId, recordId: 'dept-a', side: 'source', page: '2', pageSize: '1',
+  });
+  assert.equal(beyondEligibleScope.total, 1);
+  assert.deepEqual(beyondEligibleScope.data, []);
+  const scopedInitial = await service.initialRelationshipCandidates(departmentObjectId, {
+    definitionId: memberDefinitionId, newRecordSide: 'source',
+    proposedRelationships: JSON.stringify([{
+      relationship_definition_id: departmentOrganisationId, routed_side: 'source', related_record_id: 'org-a',
+    }]),
+  });
+  assert.equal(scopedInitial.total, 1);
+  assert.deepEqual(scopedInitial.data.map((row) => row.id), ['bulk-member-1000']);
+  const coreCustomCandidates = await service.coreEntityPicker('member', retained.id, {
+    definitionId: memberDefinitionId,
+  });
+  assert.equal(coreCustomCandidates.total, 2, 'Custom Object candidates must not be classified as deleted members');
+
+  db.tables.custom_object_definition.find((item) => item.id === assignmentObjectId).status = 'archived';
+  await assert.rejects(
+    () => service.coreEntityPicker('member', 'member-a', {
+      definitionId: memberDefinitionId,
+    }),
+    (error) => error.status === 409 && /endpoint is unavailable/.test(error.message),
+  );
+});
+
+test('unrelated relationship pickers retain generic candidates, including a non-Department members key', async () => {
+  const definitionId = 'generic-members';
+  const db = mockDb({
+    custom_object_definition: [object()],
+    preference_field: [field({ field_type: 'text' })],
+    custom_object_relationship_definition: [{
+      id: definitionId, tenant_id: tenantId, relationship_key: 'members', status: 'active',
+      source_kind: 'custom_object', source_custom_object_id: objectId,
+      target_kind: 'member', target_custom_object_id: null, cardinality: 'one_to_many',
+      show_on_source: true, edit_from_source: true,
+    }],
+    custom_object_record: [{ id: 'record-a', tenant_id: tenantId, custom_object_id: objectId, archived_at: null }],
+    member: [
+      { id: 'member-a', tenant_id: tenantId, organization_id: 'org-a', first_name: 'A' },
+      { id: 'member-b', tenant_id: tenantId, organization_id: 'org-b', first_name: 'B' },
+    ],
+  });
+  const picker = await createCustomObjectService({ db, context: context(), isAdmin: true }).entityPicker(objectId, {
+    definitionId, recordId: 'record-a', side: 'source',
+  });
+  assert.deepEqual(picker.data.map(row => row.id).sort(), ['member-a', 'member-b']);
+});
+
+test('custom-routed pickers exclude linked and cardinality-exhausted candidates before pagination', async () => {
+  const definitionId = 'picker-one-many';
+  const db = mockDb({
+    custom_object_definition: [object()],
+    custom_object_record: [{ id: 'department-1', tenant_id: tenantId, custom_object_id: objectId, archived_at: null }],
+    custom_object_relationship_definition: [{
+      id: definitionId, tenant_id: tenantId, status: 'active', cardinality: 'one_to_many',
+      source_kind: 'custom_object', source_custom_object_id: objectId,
+      target_kind: 'member', target_custom_object_id: null,
+      show_on_source: true, edit_from_source: true,
+    }],
+    member: [
+      { id: 'available-a', tenant_id: tenantId, first_name: 'A', last_name: 'Alpha' },
+      { id: 'available-b', tenant_id: tenantId, first_name: 'B', last_name: 'Beta' },
+      { id: 'linked-pair', tenant_id: tenantId, first_name: 'C', last_name: 'Charlie' },
+      { id: 'exhausted', tenant_id: tenantId, first_name: 'D', last_name: 'Delta' },
+    ],
+    custom_object_relationship: [
+      { tenant_id: tenantId, relationship_definition_id: definitionId, source_record_id: 'department-1', target_record_id: 'linked-pair', archived_at: null },
+      { tenant_id: tenantId, relationship_definition_id: definitionId, source_record_id: 'department-2', target_record_id: 'exhausted', archived_at: null },
+    ],
+  });
+  const result = await createCustomObjectService({ db, context: context(), isAdmin: true }).entityPicker(objectId, {
+    definitionId, recordId: 'department-1', side: 'source', page: '2', pageSize: '1',
+  });
+  assert.equal(result.total, 2);
+  assert.deepEqual(result.data.map((row) => row.id), ['available-b']);
+});
+
+test('many-to-many picker excludes only an existing pair, not candidates linked elsewhere', async () => {
+  const definitionId = 'picker-many-many';
+  const db = mockDb({
+    custom_object_definition: [object()],
+    custom_object_record: [{ id: 'department-1', tenant_id: tenantId, custom_object_id: objectId, archived_at: null }],
+    custom_object_relationship_definition: [{
+      id: definitionId, tenant_id: tenantId, status: 'active', cardinality: 'many_to_many',
+      source_kind: 'custom_object', source_custom_object_id: objectId,
+      target_kind: 'organization', target_custom_object_id: null,
+      show_on_source: true, edit_from_source: true,
+    }],
+    organization: [
+      { id: 'linked-pair', tenant_id: tenantId, name: 'Alpha' },
+      { id: 'linked-elsewhere', tenant_id: tenantId, name: 'Beta' },
+      { id: 'available', tenant_id: tenantId, name: 'Gamma' },
+    ],
+    custom_object_relationship: [
+      { tenant_id: tenantId, relationship_definition_id: definitionId, source_record_id: 'department-1', target_record_id: 'linked-pair', archived_at: null },
+      { tenant_id: tenantId, relationship_definition_id: definitionId, source_record_id: 'department-2', target_record_id: 'linked-elsewhere', archived_at: null },
+    ],
+  });
+  const result = await createCustomObjectService({ db, context: context(), isAdmin: true }).entityPicker(objectId, {
+    definitionId, recordId: 'department-1', side: 'source',
+  });
+  assert.equal(result.total, 2);
+  assert.deepEqual(result.data.map((row) => row.id), ['linked-elsewhere', 'available']);
+});
+
+test('core-routed pickers apply pair and candidate cardinality exclusions', async () => {
+  const definitionId = 'core-picker-one-many';
+  const db = mockDb({
+    member: [{ id: 'member-1', tenant_id: tenantId, first_name: 'Ada' }],
+    custom_object_definition: [object()],
+    preference_field: [field({ id: 'name-field', name: 'name', field_type: 'text', is_required: false })],
+    custom_object_relationship_definition: [{
+      id: definitionId, tenant_id: tenantId, status: 'active', cardinality: 'one_to_many',
+      source_kind: 'member', source_custom_object_id: null,
+      target_kind: 'custom_object', target_custom_object_id: objectId,
+      show_on_source: true, edit_from_source: true,
+    }],
+    custom_object_record: [
+      { id: 'available-a', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, created_at: '2026-01-01', data: { name: 'A' } },
+      { id: 'available-b', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, created_at: '2026-01-02', data: { name: 'B' } },
+      { id: 'linked-pair', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, created_at: '2026-01-03', data: { name: 'C' } },
+      { id: 'exhausted', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, created_at: '2026-01-04', data: { name: 'D' } },
+    ],
+    custom_object_relationship: [
+      { tenant_id: tenantId, relationship_definition_id: definitionId, source_record_id: 'member-1', target_record_id: 'linked-pair', archived_at: null },
+      { tenant_id: tenantId, relationship_definition_id: definitionId, source_record_id: 'member-2', target_record_id: 'exhausted', archived_at: null },
+    ],
+  });
+  const result = await createCustomObjectService({ db, context: context(), isAdmin: true }).coreEntityPicker('member', 'member-1', {
+    definitionId, page: '2', pageSize: '1',
+  });
+  assert.equal(result.total, 2);
+  assert.deepEqual(result.data.map((row) => row.id), ['available-b']);
+});
+
+test('pickers filter pairs and candidate cardinality on every cardinality and routed side', async () => {
+  const sourceObjectId = objectId;
+  const targetObjectId = 'picker-target-object';
+  const cases = [
+    ['one_to_one', 'source', true, true],
+    ['one_to_one', 'target', true, true],
+    ['one_to_many', 'source', true, false],
+    ['one_to_many', 'target', false, true],
+    ['many_to_one', 'source', false, true],
+    ['many_to_one', 'target', true, false],
+    ['many_to_many', 'source', false, false],
+    ['many_to_many', 'target', false, false],
+  ];
+
+  for (const [cardinality, routedSide, candidateHasSingleEdge, routedHasSingleEdge] of cases) {
+    const definitionId = `${cardinality}-${routedSide}`;
+    const routedObjectId = routedSide === 'source' ? sourceObjectId : targetObjectId;
+    const candidateObjectId = routedSide === 'source' ? targetObjectId : sourceObjectId;
+    const candidateRows = ['linked-pair', 'shared', 'available-a', 'available-b'].map((id, index) => ({
+      id,
+      tenant_id: tenantId,
+      custom_object_id: candidateObjectId,
+      archived_at: null,
+      created_at: `2026-01-0${index + 1}`,
+    }));
+    const db = mockDb({
+      custom_object_definition: [
+        object({ id: sourceObjectId }),
+        object({ id: targetObjectId, object_key: 'picker_targets' }),
+      ],
+      custom_object_relationship_definition: [{
+        id: definitionId, tenant_id: tenantId, status: 'active', cardinality,
+        source_kind: 'custom_object', source_custom_object_id: sourceObjectId,
+        target_kind: 'custom_object', target_custom_object_id: targetObjectId,
+        show_on_source: true, show_on_target: true, edit_from_source: true, edit_from_target: true,
+      }],
+      custom_object_record: [
+        {
+          id: routedSide === 'source' ? 'source-route' : 'target-route',
+          tenant_id: tenantId,
+          custom_object_id: routedObjectId,
+          archived_at: null,
+        },
+        ...candidateRows,
+      ],
+      custom_object_relationship: routedSide === 'source' ? [
+        { id: 'edge-pair', tenant_id: tenantId, relationship_definition_id: definitionId, source_record_id: 'source-route', target_record_id: 'linked-pair', archived_at: null },
+        { id: 'edge-shared', tenant_id: tenantId, relationship_definition_id: definitionId, source_record_id: 'source-other', target_record_id: 'shared', archived_at: null },
+      ] : [
+        { id: 'edge-pair', tenant_id: tenantId, relationship_definition_id: definitionId, source_record_id: 'linked-pair', target_record_id: 'target-route', archived_at: null },
+        { id: 'edge-shared', tenant_id: tenantId, relationship_definition_id: definitionId, source_record_id: 'shared', target_record_id: 'target-other', archived_at: null },
+      ],
+    });
+    const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+    const all = await service.entityPicker(routedObjectId, {
+      definitionId,
+      recordId: routedSide === 'source' ? 'source-route' : 'target-route',
+      side: routedSide,
+      pageSize: '10',
+    });
+    const pageTwo = await service.entityPicker(routedObjectId, {
+      definitionId,
+      recordId: routedSide === 'source' ? 'source-route' : 'target-route',
+      side: routedSide,
+      page: '2',
+      pageSize: '1',
+    });
+    assert.equal(all.total, routedHasSingleEdge ? 0 : (candidateHasSingleEdge ? 2 : 3), `${cardinality}/${routedSide}`);
+    assert.equal(all.data.some((row) => row.id === 'linked-pair'), false, `${cardinality}/${routedSide} pair`);
+    assert.equal(
+      all.data.some((row) => row.id === 'shared'),
+      !routedHasSingleEdge && !candidateHasSingleEdge,
+      `${cardinality}/${routedSide} shared`,
+    );
+    assert.deepEqual(
+      pageTwo.data.map((row) => row.id),
+      routedHasSingleEdge ? [] : [candidateHasSingleEdge ? 'available-b' : 'available-a'],
+      `${cardinality}/${routedSide} page two`,
+    );
+  }
+});
+
+test('picker edge exclusion reads page two for every cardinality and routed side', async () => {
+  const sourceObjectId = objectId;
+  const targetObjectId = 'large-picker-target-object';
+  const cases = [
+    ['one_to_one', 'source', true, true],
+    ['one_to_one', 'target', true, true],
+    ['one_to_many', 'source', true, false],
+    ['one_to_many', 'target', false, true],
+    ['many_to_one', 'source', false, true],
+    ['many_to_one', 'target', true, false],
+    ['many_to_many', 'source', false, false],
+    ['many_to_many', 'target', false, false],
+  ];
+
+  for (const [cardinality, routedSide, candidateHasSingleEdge, routedHasSingleEdge] of cases) {
+    const definitionId = `large-${cardinality}-${routedSide}`;
+    const routedObjectId = routedSide === 'source' ? sourceObjectId : targetObjectId;
+    const candidateObjectId = routedSide === 'source' ? targetObjectId : sourceObjectId;
+    const edges = Array.from({ length: 1000 }, (_, index) => ({
+      id: `edge-${String(index).padStart(4, '0')}`,
+      tenant_id: tenantId,
+      relationship_definition_id: definitionId,
+      source_record_id: `other-source-${index}`,
+      target_record_id: `other-target-${index}`,
+      archived_at: null,
+    }));
+    // A bounded candidate is exhausted by an edge elsewhere. An unlimited
+    // candidate instead relies on the duplicate-pair rule. In both cases this
+    // is the first relevant edge and is deliberately on page two.
+    edges.push({
+      id: 'edge-1000',
+      tenant_id: tenantId,
+      relationship_definition_id: definitionId,
+      source_record_id: routedSide === 'source'
+        ? (routedHasSingleEdge || !candidateHasSingleEdge ? 'source-route' : 'different-source')
+        : 'excluded-on-second-page',
+      target_record_id: routedSide === 'target'
+        ? (routedHasSingleEdge || !candidateHasSingleEdge ? 'target-route' : 'different-target')
+        : 'excluded-on-second-page',
+      archived_at: null,
+    });
+    const db = mockDb({
+      custom_object_definition: [
+        object({ id: sourceObjectId }),
+        object({ id: targetObjectId, object_key: 'large_picker_targets' }),
+      ],
+      custom_object_relationship_definition: [{
+        id: definitionId, tenant_id: tenantId, status: 'active', cardinality,
+        source_kind: 'custom_object', source_custom_object_id: sourceObjectId,
+        target_kind: 'custom_object', target_custom_object_id: targetObjectId,
+        show_on_source: true, show_on_target: true, edit_from_source: true, edit_from_target: true,
+      }],
+      custom_object_record: [
+        {
+          id: routedSide === 'source' ? 'source-route' : 'target-route',
+          tenant_id: tenantId, custom_object_id: routedObjectId, archived_at: null,
+        },
+        {
+          id: 'excluded-on-second-page',
+          tenant_id: tenantId, custom_object_id: candidateObjectId, archived_at: null,
+        },
+        {
+          id: 'available',
+          tenant_id: tenantId, custom_object_id: candidateObjectId, archived_at: null,
+        },
+      ],
+      custom_object_relationship: edges,
+    });
+    const result = await createCustomObjectService({ db, context: context(), isAdmin: true }).entityPicker(routedObjectId, {
+      definitionId,
+      recordId: routedSide === 'source' ? 'source-route' : 'target-route',
+      side: routedSide,
+    });
+    assert.equal(result.total, routedHasSingleEdge ? 0 : 1, `${cardinality}/${routedSide}`);
+    assert.deepEqual(result.data.map((row) => row.id), routedHasSingleEdge ? [] : ['available'], `${cardinality}/${routedSide}`);
+    assert.ok(db.calls.some((call) => call.table === 'custom_object_relationship'
+      && call.type === 'order' && call.column === 'id'), `${cardinality}/${routedSide}`);
+  }
+});

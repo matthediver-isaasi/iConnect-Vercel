@@ -1,0 +1,989 @@
+================================================================================
+ROLE MANAGEMENT AUDIT - December 15, 2025
+================================================================================
+
+This document maps all pages in the application to their current role management
+feature controls. It identifies inconsistencies, missing features, and provides
+recommendations for a cleaner structure.
+
+================================================================================
+CURRENT FEATURE CATEGORIES (from AVAILABLE_FEATURES in RoleManagement.jsx)
+================================================================================
+
+The system currently defines 58 features across 9 categories:
+
+1. User Navigation (18 features)
+2. Admin Navigation (48 features)  
+3. Standalone Pages (9 features)
+4. UI Elements (10 features)
+5. Profile Fields (2 features)
+6. Payment Options (2 features)
+7. Content Actions (4 features)
+8. Admin Capabilities (2 features)
+9. Job Board Features (1 feature)
+
+================================================================================
+ISSUE #1: INCONSISTENT FEATURE ID PREFIXES
+================================================================================
+
+Current prefix patterns in use:
+- page_user_*     (e.g., page_user_BuyProgramTickets)
+- page_admin_*    (e.g., page_admin_NewsSection)
+- page_*          (e.g., page_Dashboard, page_EventDetails)
+- element_*       (e.g., element_EventDescription)
+- payment_*       (e.g., payment_training_vouchers)
+- action_*        (e.g., action_news_edit)
+- admin_*         (e.g., admin_can_edit_members)
+- feature_*       (e.g., feature_PostJobOnBehalfOfOrg)
+- edit_*          (e.g., edit_professional_biography)
+- view_*          (e.g., view_member_biography)
+
+PROBLEM: The Layout.jsx navigation uses DIFFERENT prefixes than what's 
+defined in AVAILABLE_FEATURES:
+
+Layout.jsx uses:          AVAILABLE_FEATURES defines:
+-----------------         --------------------------
+page_BuyProgramTickets    page_user_BuyProgramTickets
+page_Events               page_user_Events
+page_Bookings             page_user_Bookings
+page_MyTickets            page_user_MyTickets
+page_Balances             page_user_Balances
+page_History              page_user_History
+page_Team                 page_user_Team
+page_MemberDirectory      page_user_MemberDirectory
+page_OrganisationDirectory page_user_OrganisationDirectory
+page_Resources            page_user_Resources
+page_ArticlesSection      page_user_ArticlesSection
+page_MyArticles           page_user_MyArticles
+page_Articles             page_user_Articles
+page_MyJobPostings        page_user_MyJobPostings
+page_Preferences          page_user_Preferences
+page_Support              page_user_Support
+page_MyOrganisation       page_user_MyOrganisation
+
+This means the feature exclusion checks MAY NOT WORK correctly because the 
+IDs don't match!
+
+================================================================================
+SECTION A: USER-FACING PAGES
+================================================================================
+
+A1. EVENTS & BOOKING PAGES
+--------------------------
+Page: Events.jsx
+  Nav Feature ID (Layout.jsx): page_Events
+  Defined Feature ID: page_user_Events
+  Page-level checks: None (open access)
+  Element-level features used on this page:
+    - element_EventsPageDescription
+    - element_EventsSearch
+  
+Page: EventDetails.jsx
+  Nav Feature ID: page_EventDetails
+  Defined Feature ID: page_EventDetails
+  Page-level checks: None (open access)
+  Element-level features used:
+    - element_EventDescription
+    - element_SelfRegistration
+    - element_AddColleaguesToEvents
+    - element_PurchaseButton
+    - element_AvailableSeatsDisplay
+
+Page: Bookings.jsx
+  Nav Feature ID: page_Bookings
+  Defined Feature ID: page_user_Bookings
+  Page-level checks: Uses isFeatureExcluded (member access)
+
+Page: BuyProgramTickets.jsx
+  Nav Feature ID: page_BuyProgramTickets
+  Defined Feature ID: page_user_BuyProgramTickets
+  Page-level checks: Member access required
+  Additional features checked:
+    - payment_training_vouchers
+    - payment_training_fund
+
+Page: MyTickets.jsx
+  Nav Feature ID: page_MyTickets
+  Defined Feature ID: page_user_MyTickets
+  Page-level checks: Uses isFeatureExcluded
+
+A2. MEMBER & TEAM PAGES
+-----------------------
+Page: Team.jsx
+  Nav Feature ID: page_Team
+  Defined Feature ID: page_user_Team
+  Page-level checks: Uses isFeatureExcluded
+
+Page: MemberDirectory.jsx
+  Nav Feature ID: page_MemberDirectory
+  Defined Feature ID: page_user_MemberDirectory
+  Page-level checks: Uses isFeatureExcluded
+  Element-level features:
+    - element_ShowDisabledAccounts
+    - view_member_biography
+
+Page: OrganisationDirectory.jsx
+  Nav Feature ID: page_OrganisationDirectory  
+  Defined Feature ID: page_user_OrganisationDirectory
+  Page-level checks: Uses isFeatureExcluded
+  Content action features:
+    - action_org_logo_edit (admin only)
+
+Page: MyOrganisation.jsx
+  Nav Feature ID: page_MyOrganisation
+  Defined Feature ID: page_user_MyOrganisation
+  Page-level checks: isFeatureExcluded('page_user_MyOrganisation')
+  Note: This one correctly uses the page_user_ prefix!
+
+A3. CONTENT PAGES (USER VIEW)
+-----------------------------
+Page: Articles.jsx
+  Nav Feature ID: page_Articles
+  Defined Feature ID: page_user_Articles
+  Page-level checks: None
+  Content action features:
+    - action_article_edit (admin)
+    - action_article_delete (admin)
+
+Page: MyArticles.jsx
+  Nav Feature ID: page_MyArticles
+  Defined Feature ID: page_user_MyArticles
+  Page-level checks: Uses isFeatureExcluded
+
+Page: News.jsx
+  Nav Feature ID: page_user_News (CORRECT!)
+  Defined Feature ID: page_user_News
+  Content action features:
+    - action_news_edit
+    - action_news_delete
+
+Page: Resources.jsx
+  Nav Feature ID: page_Resources
+  Defined Feature ID: page_user_Resources
+  Page-level checks: Uses isFeatureExcluded
+
+Page: Support.jsx
+  Nav Feature ID: page_Support
+  Defined Feature ID: page_user_Support
+  Page-level checks: Uses isFeatureExcluded
+
+A4. ACCOUNT & PREFERENCES
+-------------------------
+Page: Balances.jsx
+  Nav Feature ID: page_Balances
+  Defined Feature ID: page_user_Balances
+  Page-level checks: Uses isFeatureExcluded
+
+Page: History.jsx
+  Nav Feature ID: page_History
+  Defined Feature ID: page_user_History
+  Page-level checks: Uses isFeatureExcluded
+
+Page: Preferences.jsx
+  Nav Feature ID: page_Preferences
+  Defined Feature ID: page_user_Preferences
+  Page-level checks: Uses isFeatureExcluded
+  Profile field features:
+    - edit_professional_biography
+
+A5. JOB BOARD (USER)
+--------------------
+Page: JobBoard.jsx
+  Nav Feature ID: Not in sidebar
+  Defined Feature ID: Not in AVAILABLE_FEATURES
+  Note: Public page
+
+Page: PostJob.jsx
+  Nav Feature ID: Not in sidebar
+  Defined Feature ID: Not in AVAILABLE_FEATURES
+  Special features checked:
+    - feature_PostJobOnBehalfOfOrg
+
+Page: MyJobPostings.jsx
+  Nav Feature ID: page_MyJobPostings
+  Defined Feature ID: page_user_MyJobPostings
+  Page-level checks: Uses isFeatureExcluded
+
+================================================================================
+SECTION B: ADMIN PAGES
+================================================================================
+
+B1. USER & ROLE MANAGEMENT
+--------------------------
+Page: RoleManagement.jsx
+  Nav Feature ID: page_RoleManagement
+  Defined Feature ID: page_admin_RoleManagement
+  Check in code: isFeatureExcluded('page_RoleManagement') <- MISMATCH!
+
+Page: MemberRoleAssignment.jsx
+  Nav Feature ID: page_MemberRoleAssignment
+  Defined Feature ID: page_admin_MemberRoleAssignment
+  Check in code: isFeatureExcluded('page_MemberRoleAssignment')
+
+Page: TeamMemberManagement.jsx
+  Nav Feature ID: page_TeamMemberManagement
+  Defined Feature ID: page_admin_TeamMemberManagement
+  Check in code: isFeatureExcluded('page_TeamMemberManagement')
+
+Page: MemberHandleManagement.jsx
+  Nav Feature ID: page_MemberHandleManagement
+  Defined Feature ID: page_admin_MemberHandleManagement
+  Check in code: isFeatureExcluded('page_MemberHandleManagement')
+
+Page: MemberDirectorySettings.jsx
+  Nav Feature ID: page_MemberDirectorySettings
+  Defined Feature ID: page_admin_MemberDirectorySettings
+  Check in code: isFeatureExcluded('page_MemberDirectorySettings')
+
+Page: MemberGroupManagement.jsx
+  Nav Feature ID: Not in Layout
+  Defined Feature ID: page_admin_MemberGroupManagement
+  Check in code: isFeatureExcluded('page_MemberGroupManagement')
+
+Page: MembersList.jsx
+  Nav Feature ID: Not in Layout
+  Defined Feature ID: NOT DEFINED
+  Check in code: isFeatureExcluded('page_MembersList')
+
+Page: OrganisationsList.jsx
+  Nav Feature ID: Not in Layout
+  Defined Feature ID: NOT DEFINED
+  Check in code: isFeatureExcluded('page_OrganisationsList') && 
+                 isFeatureExcluded('page_OrganisationDirectory')
+
+B2. EVENT ADMINISTRATION
+------------------------
+Page: EventSettings.jsx
+  Nav Feature ID: page_EventSettings
+  Defined Feature ID: page_admin_EventSettings
+  Check in code: isFeatureExcluded('page_EventSettings')
+
+Page: TicketSalesAnalytics.jsx
+  Nav Feature ID: page_TicketSalesAnalytics
+  Defined Feature ID: page_admin_TicketSalesAnalytics
+  Check in code: isFeatureExcluded('page_TicketSalesAnalytics')
+
+Page: DiscountCodeManagement.jsx
+  Nav Feature ID: page_DiscountCodeManagement
+  Defined Feature ID: page_admin_DiscountCodeManagement
+  Check in code: isFeatureExcluded('page_DiscountCodeManagement')
+
+Page: CreateEvent.jsx
+  Nav Feature ID: Not in Layout
+  Defined Feature ID: NOT DEFINED
+  Check in code: None (admin access only)
+
+B3. CONTENT ADMINISTRATION
+--------------------------
+Page: ArticleManagement.jsx
+  Nav Feature ID: page_ArticleManagement
+  Defined Feature ID: page_admin_ArticleManagement
+  Check in code: isFeatureExcluded('page_ArticleManagement')
+
+Page: ArticlesSettings.jsx
+  Nav Feature ID: page_ArticlesSettings
+  Defined Feature ID: page_admin_ArticlesSettings
+  Check in code: isFeatureExcluded('page_ArticlesSettings')
+
+Page: ArticleEditor.jsx
+  Nav Feature ID: Not in Layout
+  Defined Feature ID: page_ArticleEditor
+  Check in code: Uses isFeatureExcluded
+
+Page: ArticleView.jsx
+  Nav Feature ID: Not in Layout
+  Defined Feature ID: page_ArticleView
+  Check in code: Uses isFeatureExcluded
+
+Page: MyNews.jsx (Admin News Management)
+  Nav Feature ID: page_MyNews
+  Defined Feature ID: page_admin_MyNews
+  Check in code: Uses isFeatureExcluded
+
+Page: NewsSettings.jsx
+  Nav Feature ID: page_NewsSettings
+  Defined Feature ID: page_admin_NewsSettings
+  Check in code: Uses isFeatureExcluded
+
+Page: NewsEditor.jsx
+  Nav Feature ID: Not in Layout
+  Defined Feature ID: page_NewsEditor
+  Check in code: Uses isFeatureExcluded
+
+Page: NewsView.jsx
+  Nav Feature ID: Not in Layout
+  Defined Feature ID: page_NewsView
+  Check in code: Uses isFeatureExcluded
+
+Page: GuestWriterManagement.jsx
+  Nav Feature ID: Not in Layout
+  Defined Feature ID: page_GuestWriterManagement
+  Check in code: Uses isFeatureExcluded
+
+B4. RESOURCE ADMINISTRATION
+---------------------------
+Page: ResourceManagement.jsx
+  Nav Feature ID: page_ResourceManagement
+  Defined Feature ID: page_admin_ResourceManagement
+  Check in code: Uses isFeatureExcluded
+
+Page: ResourceSettings.jsx
+  Nav Feature ID: page_ResourceSettings
+  Defined Feature ID: page_admin_ResourceSettings
+  Check in code: Uses isFeatureExcluded
+
+Page: TagManagement.jsx
+  Nav Feature ID: page_TagManagement
+  Defined Feature ID: page_admin_TagManagement
+  Check in code: Uses isFeatureExcluded
+
+Page: FileManagement.jsx
+  Nav Feature ID: page_FileManagement
+  Defined Feature ID: page_admin_FileManagement
+  Check in code: Uses isFeatureExcluded
+
+Page: CategoryManagement.jsx
+  Nav Feature ID: page_CategoryManagement
+  Defined Feature ID: page_admin_CategoryManagement
+  Check in code: Uses isFeatureExcluded
+
+Page: AwardManagement.jsx
+  Nav Feature ID: page_AwardManagement
+  Defined Feature ID: page_admin_AwardManagement
+  Check in code: isFeatureExcluded('page_AwardManagement')
+
+B5. JOB BOARD ADMINISTRATION
+----------------------------
+Page: JobPostingManagement.jsx
+  Nav Feature ID: page_JobPostingManagement
+  Defined Feature ID: page_admin_JobPostingManagement
+  Check in code: isFeatureExcluded('page_JobPostingManagement')
+
+Page: JobBoardSettings.jsx
+  Nav Feature ID: page_JobBoardSettings
+  Defined Feature ID: page_admin_JobBoardSettings
+  Check in code: isFeatureExcluded('page_JobBoardSettings')
+
+B6. PAGE BUILDER & DESIGN
+-------------------------
+Page: IEditPageManagement.jsx
+  Nav Feature ID: page_IEditPageManagement
+  Defined Feature ID: page_admin_IEditPageManagement
+  Check in code: Uses isFeatureExcluded
+
+Page: IEditTemplateManagement.jsx
+  Nav Feature ID: page_IEditTemplateManagement
+  Defined Feature ID: page_admin_IEditTemplateManagement
+  Check in code: Uses isFeatureExcluded
+
+Page: IEditPageEditor.jsx
+  Nav Feature ID: Not in Layout
+  Defined Feature ID: page_IEditPageEditor
+  Check in code: Uses isFeatureExcluded
+
+Page: PageBannerManagement.jsx
+  Nav Feature ID: page_PageBannerManagement
+  Defined Feature ID: page_admin_PageBannerManagement
+  Check in code: isFeatureExcluded('page_PageBannerManagement')
+
+Page: NavigationManagement.jsx
+  Nav Feature ID: page_NavigationManagement
+  Defined Feature ID: page_admin_NavigationManagement
+  Check in code: Uses isFeatureExcluded
+
+Page: ButtonElements.jsx
+  Nav Feature ID: page_ButtonElements
+  Defined Feature ID: page_admin_ButtonElements
+  Check in code: Uses isFeatureExcluded
+
+Page: ButtonStyleManagement.jsx
+  Nav Feature ID: page_ButtonStyleManagement
+  Defined Feature ID: page_admin_ButtonStyleManagement
+  Check in code: isFeatureExcluded('page_ButtonStyleManagement')
+
+Page: BorderRadiusSettings.jsx
+  Nav Feature ID: Not in Layout
+  Defined Feature ID: NOT DEFINED
+  Check in code: isFeatureExcluded('page_BorderRadiusSettings')
+
+Page: WallOfFameManagement.jsx
+  Nav Feature ID: page_WallOfFameManagement
+  Defined Feature ID: page_admin_WallOfFameManagement
+  Check in code: isFeatureExcluded('page_WallOfFameManagement')
+
+Page: InstalledFonts.jsx
+  Nav Feature ID: page_InstalledFonts
+  Defined Feature ID: page_admin_InstalledFonts
+  Check in code: isFeatureExcluded('page_InstalledFonts')
+
+Page: FloaterManagement.jsx
+  Nav Feature ID: page_FloaterManagement
+  Defined Feature ID: page_admin_FloaterManagement
+  Check in code: isFeatureExcluded('page_FloaterManagement')
+
+Page: CardDeckManagement.jsx
+  Nav Feature ID: Not in Layout
+  Defined Feature ID: NOT DEFINED
+  Check in code: isFeatureExcluded('page_CardDeckManagement')
+
+B7. FORMS
+---------
+Page: FormManagement.jsx
+  Nav Feature ID: page_FormManagement
+  Defined Feature ID: page_admin_FormManagement
+  Check in code: isFeatureExcluded('page_FormManagement')
+
+Page: FormBuilder.jsx
+  Nav Feature ID: Not in Layout
+  Defined Feature ID: NOT DEFINED
+  Check in code: isFeatureExcluded('page_FormBuilder')
+
+Page: FormSubmissions.jsx
+  Nav Feature ID: page_FormSubmissions
+  Defined Feature ID: page_admin_FormSubmissions
+  Check in code: isFeatureExcluded('page_FormSubmissions')
+
+Page: FormView.jsx
+  Nav Feature ID: Not in Layout
+  Defined Feature ID: NOT DEFINED
+  Check in code: Uses isFeatureExcluded
+
+B8. SYSTEM & CONFIGURATION
+--------------------------
+Page: PortalMenuManagement.jsx
+  Nav Feature ID: Not in Layout
+  Defined Feature ID: page_admin_PortalMenuManagement
+  Check in code: Uses isFeatureExcluded
+
+Page: PortalNavigationManagement.jsx
+  Nav Feature ID: page_PortalNavigationManagement
+  Defined Feature ID: page_admin_PortalNavigationManagement
+  Check in code: Uses isFeatureExcluded
+
+Page: TourManagement.jsx
+  Nav Feature ID: page_TourManagement
+  Defined Feature ID: page_admin_TourManagement
+  Check in code: isFeatureExcluded('page_TourManagement')
+
+Page: DataExport.jsx
+  Nav Feature ID: page_DataExport
+  Defined Feature ID: page_admin_DataExport
+  Check in code: Uses isFeatureExcluded
+
+Page: SiteMap.jsx
+  Nav Feature ID: page_SiteMap
+  Defined Feature ID: page_admin_SiteMap
+  Check in code: Uses isFeatureExcluded
+
+Page: SupportManagement.jsx
+  Nav Feature ID: page_SupportManagement
+  Defined Feature ID: page_admin_SupportManagement
+  Check in code: Uses isFeatureExcluded
+
+Page: TeamInviteSettings.jsx
+  Nav Feature ID: page_TeamInviteSettings
+  Defined Feature ID: page_admin_TeamInviteSettings
+  Check in code: isFeatureExcluded('page_TeamInviteSettings')
+
+Page: TeamSettings.jsx
+  Nav Feature ID: Not in Layout
+  Defined Feature ID: NOT DEFINED
+  Check in code: isFeatureExcluded('page_TeamSettings')
+
+Page: TeamEngagementReport.jsx
+  Nav Feature ID: Not in Layout
+  Defined Feature ID: NOT DEFINED
+  Check in code: Uses isFeatureExcluded
+
+Page: PreferenceSettings.jsx
+  Nav Feature ID: Not in Layout
+  Defined Feature ID: NOT DEFINED
+  Check in code: isFeatureExcluded('page_PreferenceSettings')
+
+Page: ZoomWebinarProvisioning.jsx
+  Nav Feature ID: page_ZoomWebinarProvisioning
+  Defined Feature ID: page_admin_ZoomWebinarProvisioning
+  Check in code: isFeatureExcluded('page_ZoomWebinarProvisioning')
+
+Page: SpeakerManagement.jsx
+  Nav Feature ID: Not in Layout
+  Defined Feature ID: page_admin_SpeakerManagement
+  Check in code: isFeatureExcluded('page_SpeakerManagement')
+
+Page: OrganisationPreferences.jsx
+  Nav Feature ID: page_admin_OrganisationPreferences
+  Defined Feature ID: page_admin_OrganisationPreferences
+  Check in code: isFeatureExcluded('page_admin_OrganisationPreferences')
+  Note: This one correctly uses the admin prefix!
+
+Page: CommunicationsManagement.jsx
+  Nav Feature ID: Not in Layout
+  Defined Feature ID: NOT DEFINED
+  Check in code: Uses isFeatureExcluded
+
+Page: CustomFieldsAdmin.jsx
+  Nav Feature ID: Not in Layout
+  Defined Feature ID: NOT DEFINED
+  Check in code: isFeatureExcluded('page_CustomFieldsAdmin')
+
+Page: EmailTemplateManagement.jsx
+  Nav Feature ID: Not in Layout
+  Defined Feature ID: NOT DEFINED
+  Check in code: isFeatureExcluded('page_EmailTemplateManagement')
+
+Page: WorkflowManagement.jsx
+  Nav Feature ID: Not in Layout
+  Defined Feature ID: NOT DEFINED
+  Check in code: Uses isFeatureExcluded
+
+Page: DynamicDirectoryManagement.jsx
+  Nav Feature ID: Not in Layout
+  Defined Feature ID: NOT DEFINED
+  Check in code: isFeatureExcluded('page_DynamicDirectoryManagement')
+
+Page: DynamicDirectoryView.jsx
+  Nav Feature ID: Not in Layout
+  Defined Feature ID: NOT DEFINED
+  Check in code: Uses isFeatureExcluded
+
+Page: VoucherManagement.jsx
+  Nav Feature ID: Not in Layout
+  Defined Feature ID: NOT DEFINED
+  Check in code: isFeatureExcluded('page_VoucherManagement')
+
+Page: TrainingFundManagement.jsx
+  Nav Feature ID: Not in Layout
+  Defined Feature ID: NOT DEFINED
+  Check in code: isFeatureExcluded('page_TrainingFundManagement')
+
+Page: MemberGroupGuestManagement.jsx
+  Nav Feature ID: Not in Layout
+  Defined Feature ID: NOT DEFINED
+  Check in code: isFeatureExcluded('page_MemberGroupGuestManagement')
+
+Page: MemberGroupAssignmentReport.jsx
+  Nav Feature ID: Not in Layout
+  Defined Feature ID: NOT DEFINED
+  Check in code: Uses isFeatureExcluded
+
+Page: MemberRoleReport.jsx
+  Nav Feature ID: Not in Layout
+  Defined Feature ID: NOT DEFINED
+  Check in code: Uses isFeatureExcluded
+
+Page: OrganisationDirectorySettings.jsx
+  Nav Feature ID: Not in Layout
+  Defined Feature ID: page_OrganisationDirectorySettings
+  Check in code: Uses isFeatureExcluded
+
+Page: PageVisibilitySettings.jsx
+  Nav Feature ID: page_PageVisibilitySettings
+  Defined Feature ID: NOT DEFINED
+  Check in code: None found
+
+================================================================================
+SECTION C: GLOBAL UI ELEMENT FEATURES
+================================================================================
+
+These features control visibility of UI elements across multiple pages:
+
+element_EventDescription
+  - Used on: EventDetails.jsx
+  - Controls: Event description visibility
+
+element_EventsPageDescription
+  - Used on: Events.jsx
+  - Controls: Page description visibility
+
+element_EventsSearch
+  - Used on: Events.jsx
+  - Controls: Search and filter visibility
+
+element_SelfRegistration
+  - Used on: EventDetails.jsx
+  - Controls: Self-registration capability
+
+element_AddColleaguesToEvents
+  - Used on: EventDetails.jsx
+  - Controls: Ability to add colleagues to events
+
+element_PurchaseButton
+  - Used on: EventDetails.jsx
+  - Controls: Purchase button visibility
+
+element_AvailableSeatsDisplay
+  - Used on: EventDetails.jsx
+  - Controls: Available seats counter
+
+element_FloatersDisplay
+  - Used on: Layout.jsx
+  - Controls: Global floater popups
+
+element_NewsTickerBar
+  - Used on: Layout.jsx
+  - Controls: News ticker in header
+
+element_ShowDisabledAccounts
+  - Used on: MemberDirectory.jsx, DynamicDirectoryView.jsx
+  - Controls: Toggle to show disabled accounts
+
+================================================================================
+SECTION D: ACTION/CAPABILITY FEATURES
+================================================================================
+
+action_news_edit
+  - Used on: News.jsx
+  - Controls: Edit news articles (admin only)
+
+action_news_delete
+  - Used on: News.jsx
+  - Controls: Delete news articles (admin only)
+
+action_article_edit
+  - Used on: Articles.jsx
+  - Controls: Edit articles (admin only)
+  - NOTE: Not in AVAILABLE_FEATURES!
+
+action_article_delete
+  - Used on: Articles.jsx
+  - Controls: Delete articles (admin only)
+  - NOTE: Not in AVAILABLE_FEATURES!
+
+action_org_logo_edit
+  - Used on: OrganisationDirectory.jsx, DynamicDirectoryView.jsx
+  - Controls: Edit organization logos
+
+admin_can_edit_members
+  - Defined in AVAILABLE_FEATURES
+  - Not found in page-level checks
+
+admin_can_manage_communications
+  - Defined in AVAILABLE_FEATURES
+  - Not found in page-level checks
+
+================================================================================
+SECTION E: PAYMENT & PROFILE FEATURES
+================================================================================
+
+payment_training_vouchers
+  - Used on: BuyProgramTickets.jsx
+  - Controls: Voucher payment option visibility
+
+payment_training_fund
+  - Used on: BuyProgramTickets.jsx
+  - Controls: Training fund payment option
+
+edit_professional_biography
+  - Used on: Preferences.jsx (assumed)
+  - Controls: Ability to edit bio
+
+view_member_biography
+  - Used on: MemberDirectory.jsx
+  - Controls: Viewing other members' bios
+
+================================================================================
+SECTION F: SPECIAL FEATURES
+================================================================================
+
+feature_PostJobOnBehalfOfOrg
+  - Used on: PostJob.jsx
+  - Controls: Post jobs for other organizations
+
+================================================================================
+ISSUE #2: PAGES MISSING FROM AVAILABLE_FEATURES
+================================================================================
+
+These pages have isFeatureExcluded checks but NO matching entry in AVAILABLE_FEATURES:
+
+1. page_MembersList
+2. page_OrganisationsList
+3. page_BorderRadiusSettings
+4. page_TeamSettings
+5. page_TeamEngagementReport
+6. page_PreferenceSettings
+7. page_FormBuilder
+8. page_FormView
+9. page_CardDeckManagement
+10. page_CustomFieldsAdmin
+11. page_EmailTemplateManagement
+12. page_WorkflowManagement
+13. page_DynamicDirectoryManagement
+14. page_DynamicDirectoryView
+15. page_VoucherManagement
+16. page_TrainingFundManagement
+17. page_MemberGroupGuestManagement
+18. page_MemberGroupAssignmentReport
+19. page_MemberRoleReport
+20. page_PageVisibilitySettings
+21. page_CommunicationsManagement
+22. action_article_edit
+23. action_article_delete
+
+================================================================================
+ISSUE #3: PARENT/SECTION FEATURES
+================================================================================
+
+Some features are marked as "parent" sections that group child pages:
+
+Admin Navigation Parents:
+- page_admin_NewsSection (parent for MyNews, NewsSettings)
+- page_admin_ArticlesSection (parent for ArticleManagement, ArticlesSettings)
+- page_admin_ResourcesSection (parent for ResourceManagement, TagManagement, etc.)
+- page_admin_JobBoardSection (parent for JobPostingManagement, JobBoardSettings)
+- page_admin_PageBuilder (parent for IEditPageManagement, etc.)
+- page_admin_FormsSection (parent for FormManagement, FormSubmissions)
+
+User Navigation Parents:
+- page_user_ArticlesSection (parent for MyArticles, Articles)
+
+Layout.jsx Parents (different IDs!):
+- page_NewsAdmin
+- page_ArticlesAdmin
+- page_ResourcesAdmin
+- page_JobBoardAdmin
+- page_PageBuilder
+- page_FormsAdmin
+- page_ArticlesSection
+
+These parent IDs in Layout.jsx don't match AVAILABLE_FEATURES!
+
+================================================================================
+RECOMMENDATIONS FOR CLEANUP
+================================================================================
+
+1. STANDARDIZE PREFIXES
+   - Use consistent prefix pattern: {scope}_{category}_{pageName}
+   - Examples:
+     - user_page_Events
+     - admin_page_RoleManagement
+     - element_NewsTickerBar
+     - action_NewsEdit
+     - payment_TrainingVoucher
+     - capability_EditMembers
+
+2. ALIGN IDS BETWEEN SYSTEMS
+   - Make Layout.jsx featureIds match AVAILABLE_FEATURES exactly
+   - Or update AVAILABLE_FEATURES to match what Layout.jsx uses
+
+3. ADD MISSING FEATURES
+   - Add all 23 missing page/action features to AVAILABLE_FEATURES
+
+4. GROUP BY FUNCTIONAL DOMAIN
+   Instead of User/Admin split, consider:
+   - Events & Bookings (user + admin pages together)
+   - Members & Organizations
+   - Content (Articles, News, Resources)
+   - Job Board
+   - Page Builder & Design
+   - Forms
+   - System Configuration
+
+5. SEPARATE CONCERNS
+   - Page Access: Controls visibility in navigation + page access
+   - Element Visibility: Controls UI elements within pages
+   - Actions: Controls specific actions (edit, delete, etc.)
+   - Capabilities: Cross-cutting abilities (manage communications, etc.)
+   - Payment Features: Payment method visibility
+
+================================================================================
+CURRENT FEATURE COUNT SUMMARY
+================================================================================
+
+Defined in AVAILABLE_FEATURES:  58 features
+Actually used in code:          80+ feature checks
+Missing from AVAILABLE_FEATURES: 23 features
+Mismatched IDs between systems: 17+ features
+
+================================================================================
+SECTION G: PUBLIC PAGES (No Auth Required)
+================================================================================
+
+These pages are accessible without authentication and typically don't have 
+role-based feature controls:
+
+Page: Login.jsx - Public login page
+Page: ResetPassword.jsx - Password reset
+Page: PublicEvents.jsx - Public events listing
+Page: PublicArticles.jsx - Public articles
+Page: PublicNews.jsx - Public news
+Page: PublicResources.jsx - Public resources
+Page: PublicAbout.jsx - About page
+Page: PublicContact.jsx - Contact page
+Page: JobBoard.jsx - Public job board
+Page: JobDetails.jsx - Public job details
+Page: JobPostSuccess.jsx - Job post confirmation
+Page: Home.jsx - Homepage
+Page: Dashboard.jsx - User dashboard (page_Dashboard)
+Page: DynamicPage.jsx - CMS pages (/:slug routes)
+Page: ViewPage.jsx - Page viewer
+
+================================================================================
+SECTION H: COMPLETE FEATURE MAPPING TABLE
+================================================================================
+
+FEATURE ID                              | DEFINED IN AVAIL_FEATURES | USED IN CODE | LAYOUT NAV
+----------------------------------------|---------------------------|--------------|------------
+page_user_BuyProgramTickets             | YES                       | NO           | page_BuyProgramTickets
+page_user_Events                        | YES                       | NO           | page_Events
+page_user_Bookings                      | YES                       | NO           | page_Bookings
+page_user_MyTickets                     | YES                       | NO           | page_MyTickets
+page_user_Balances                      | YES                       | NO           | page_Balances
+page_user_History                       | YES                       | NO           | page_History
+page_user_Team                          | YES                       | NO           | page_Team
+page_user_MemberDirectory               | YES                       | NO           | page_MemberDirectory
+page_user_OrganisationDirectory         | YES                       | NO           | page_OrganisationDirectory
+page_user_MyOrganisation                | YES                       | YES          | page_MyOrganisation
+page_user_Resources                     | YES                       | NO           | page_Resources
+page_user_ArticlesSection               | YES                       | NO           | page_ArticlesSection
+page_user_MyArticles                    | YES                       | NO           | page_MyArticles
+page_user_Articles                      | YES                       | NO           | page_Articles
+page_user_News                          | YES                       | NO           | page_user_News ✓
+page_user_MyJobPostings                 | YES                       | NO           | page_MyJobPostings
+page_user_Preferences                   | YES                       | NO           | page_Preferences
+page_user_Support                       | YES                       | NO           | page_Support
+page_admin_NewsSection                  | YES                       | NO           | page_NewsAdmin
+page_admin_MyNews                       | YES                       | NO           | page_MyNews
+page_admin_NewsSettings                 | YES                       | NO           | page_NewsSettings
+page_admin_ArticlesSection              | YES                       | NO           | page_ArticlesAdmin
+page_admin_ArticleManagement            | YES                       | page_ArticleManagement | page_ArticleManagement
+page_admin_ArticlesSettings             | YES                       | page_ArticlesSettings | page_ArticlesSettings
+page_admin_RoleManagement               | YES                       | page_RoleManagement | page_RoleManagement
+page_admin_MemberRoleAssignment         | YES                       | page_MemberRoleAssignment | page_MemberRoleAssignment
+page_admin_TeamMemberManagement         | YES                       | page_TeamMemberManagement | page_TeamMemberManagement
+page_admin_MemberHandleManagement       | YES                       | page_MemberHandleManagement | page_MemberHandleManagement
+page_admin_MemberDirectorySettings      | YES                       | page_MemberDirectorySettings | page_MemberDirectorySettings
+page_admin_DiscountCodeManagement       | YES                       | page_DiscountCodeManagement | page_DiscountCodeManagement
+page_admin_EventSettings                | YES                       | page_EventSettings | page_EventSettings
+page_admin_TicketSalesAnalytics         | YES                       | page_TicketSalesAnalytics | page_TicketSalesAnalytics
+page_admin_AwardManagement              | YES                       | page_AwardManagement | page_AwardManagement
+page_admin_CategoryManagement           | YES                       | NO           | page_CategoryManagement
+page_admin_ResourceSettings             | YES                       | NO           | page_ResourceSettings
+page_admin_ResourcesSection             | YES                       | NO           | page_ResourcesAdmin
+page_admin_ResourceManagement           | YES                       | NO           | page_ResourceManagement
+page_admin_TagManagement                | YES                       | NO           | page_TagManagement
+page_admin_FileManagement               | YES                       | NO           | page_FileManagement
+page_admin_JobBoardSection              | YES                       | NO           | page_JobBoardAdmin
+page_admin_JobPostingManagement         | YES                       | page_JobPostingManagement | page_JobPostingManagement
+page_admin_JobBoardSettings             | YES                       | page_JobBoardSettings | page_JobBoardSettings
+page_admin_PageBuilder                  | YES                       | NO           | page_PageBuilder
+page_admin_IEditPageManagement          | YES                       | NO           | page_IEditPageManagement
+page_admin_IEditTemplateManagement      | YES                       | NO           | page_IEditTemplateManagement
+page_admin_PageBannerManagement         | YES                       | page_PageBannerManagement | page_PageBannerManagement
+page_admin_NavigationManagement         | YES                       | NO           | page_NavigationManagement
+page_admin_ButtonElements               | YES                       | NO           | page_ButtonElements
+page_admin_ButtonStyleManagement        | YES                       | page_ButtonStyleManagement | page_ButtonStyleManagement
+page_admin_WallOfFameManagement         | YES                       | page_WallOfFameManagement | page_WallOfFameManagement
+page_admin_InstalledFonts               | YES                       | page_InstalledFonts | page_InstalledFonts
+page_admin_FormsSection                 | YES                       | NO           | page_FormsAdmin
+page_admin_FormManagement               | YES                       | page_FormManagement | page_FormManagement
+page_admin_FormSubmissions              | YES                       | page_FormSubmissions | page_FormSubmissions
+page_admin_FloaterManagement            | YES                       | page_FloaterManagement | page_FloaterManagement
+page_admin_TeamInviteSettings           | YES                       | page_TeamInviteSettings | page_TeamInviteSettings
+page_admin_DataExport                   | YES                       | NO           | page_DataExport
+page_admin_SiteMap                      | YES                       | NO           | page_SiteMap
+page_admin_SupportManagement            | YES                       | NO           | page_SupportManagement
+page_admin_PortalNavigationManagement   | YES                       | NO           | page_PortalNavigationManagement
+page_admin_PortalMenuManagement         | YES                       | NO           | NOT IN LAYOUT
+page_admin_TourManagement               | YES                       | page_TourManagement | page_TourManagement
+page_admin_MemberGroupManagement        | YES                       | NO           | NOT IN LAYOUT
+page_admin_ZoomWebinarProvisioning      | YES                       | page_ZoomWebinarProvisioning | page_ZoomWebinarProvisioning
+page_admin_SpeakerManagement            | YES                       | page_SpeakerManagement | NOT IN LAYOUT
+page_admin_OrganisationPreferences      | YES                       | page_admin_OrganisationPreferences ✓ | page_admin_OrganisationPreferences ✓
+page_Dashboard                          | YES                       | NO           | NOT IN LAYOUT
+page_EventDetails                       | YES                       | NO           | NOT IN LAYOUT
+page_ArticleEditor                      | YES                       | NO           | NOT IN LAYOUT
+page_ArticleView                        | YES                       | NO           | NOT IN LAYOUT
+page_NewsEditor                         | YES                       | NO           | NOT IN LAYOUT
+page_NewsView                           | YES                       | NO           | NOT IN LAYOUT
+page_IEditPageEditor                    | YES                       | NO           | NOT IN LAYOUT
+page_GuestWriterManagement              | YES                       | NO           | NOT IN LAYOUT
+page_OrganisationDirectorySettings      | YES                       | NO           | NOT IN LAYOUT
+element_EventDescription                | YES                       | NO           | N/A
+element_EventsPageDescription           | YES                       | NO           | N/A
+element_EventsSearch                    | YES                       | NO           | N/A
+element_SelfRegistration                | YES                       | NO           | N/A
+element_AddColleaguesToEvents           | YES                       | YES          | N/A
+element_PurchaseButton                  | YES                       | NO           | N/A
+element_AvailableSeatsDisplay           | YES                       | YES          | N/A
+element_FloatersDisplay                 | YES                       | YES          | N/A
+element_NewsTickerBar                   | YES                       | YES          | N/A
+element_ShowDisabledAccounts            | YES                       | YES          | N/A
+edit_professional_biography             | YES                       | NO           | N/A
+view_member_biography                   | YES                       | YES          | N/A
+payment_training_vouchers               | YES                       | YES          | N/A
+payment_training_fund                   | YES                       | YES          | N/A
+action_news_edit                        | YES                       | YES          | N/A
+action_news_delete                      | YES                       | YES          | N/A
+action_org_logo_edit                    | YES                       | YES          | N/A
+admin_can_edit_members                  | YES                       | NO           | N/A
+admin_can_manage_communications         | YES                       | NO           | N/A
+feature_PostJobOnBehalfOfOrg            | YES                       | YES          | N/A
+
+--- FEATURES USED IN CODE BUT NOT DEFINED IN AVAILABLE_FEATURES ---
+
+page_MembersList                        | NO                        | YES          | NOT IN LAYOUT
+page_OrganisationsList                  | NO                        | YES          | NOT IN LAYOUT
+page_BorderRadiusSettings               | NO                        | YES          | NOT IN LAYOUT
+page_TeamSettings                       | NO                        | YES          | NOT IN LAYOUT
+page_TeamEngagementReport               | NO                        | NO           | NOT IN LAYOUT
+page_PreferenceSettings                 | NO                        | YES          | NOT IN LAYOUT
+page_FormBuilder                        | NO                        | YES          | NOT IN LAYOUT
+page_FormView                           | NO                        | NO           | NOT IN LAYOUT
+page_CardDeckManagement                 | NO                        | NO           | NOT IN LAYOUT
+page_CustomFieldsAdmin                  | NO                        | YES          | NOT IN LAYOUT
+page_EmailTemplateManagement            | NO                        | YES          | NOT IN LAYOUT
+page_WorkflowManagement                 | NO                        | NO           | NOT IN LAYOUT
+page_DynamicDirectoryManagement         | NO                        | YES          | NOT IN LAYOUT
+page_DynamicDirectoryView               | NO                        | NO           | NOT IN LAYOUT
+page_VoucherManagement                  | NO                        | YES          | NOT IN LAYOUT
+page_TrainingFundManagement             | NO                        | YES          | NOT IN LAYOUT
+page_MemberGroupGuestManagement         | NO                        | YES          | NOT IN LAYOUT
+page_MemberGroupAssignmentReport        | NO                        | NO           | NOT IN LAYOUT
+page_MemberRoleReport                   | NO                        | NO           | NOT IN LAYOUT
+page_PageVisibilitySettings             | NO                        | NO           | page_PageVisibilitySettings
+page_CommunicationsManagement           | NO                        | NO           | NOT IN LAYOUT
+action_article_edit                     | NO                        | YES          | N/A
+action_article_delete                   | NO                        | YES          | N/A
+
+================================================================================
+QUICK ACTION SUMMARY
+================================================================================
+
+1. FIX IMMEDIATELY (Breaking Issues):
+   - Layout.jsx uses page_* prefixes but AVAILABLE_FEATURES defines page_user_* 
+   - This mismatch means user nav items may not be excluded correctly for roles
+   - Similarly for admin pages: Layout uses page_* but AVAILABLE_FEATURES has page_admin_*
+
+2. ADD TO AVAILABLE_FEATURES (23 missing features):
+   - page_MembersList
+   - page_OrganisationsList  
+   - page_BorderRadiusSettings
+   - page_TeamSettings
+   - page_TeamEngagementReport
+   - page_PreferenceSettings
+   - page_FormBuilder
+   - page_FormView
+   - page_CardDeckManagement
+   - page_CustomFieldsAdmin
+   - page_EmailTemplateManagement
+   - page_WorkflowManagement
+   - page_DynamicDirectoryManagement
+   - page_DynamicDirectoryView
+   - page_VoucherManagement
+   - page_TrainingFundManagement
+   - page_MemberGroupGuestManagement
+   - page_MemberGroupAssignmentReport
+   - page_MemberRoleReport
+   - page_PageVisibilitySettings
+   - page_CommunicationsManagement
+   - action_article_edit
+   - action_article_delete
+
+3. CONSIDER FOR RESTRUCTURING:
+   - Simplify prefix system (remove page_user_ and page_admin_ distinction)
+   - Group features by functional domain instead of user/admin split
+   - Create parent categories that auto-control child pages
+
+================================================================================
+END OF AUDIT
+================================================================================

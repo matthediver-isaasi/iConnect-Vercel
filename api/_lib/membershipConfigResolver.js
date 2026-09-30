@@ -1,0 +1,11 @@
+import { supabase } from './database.js';
+import { createMembershipConfigResolver } from './membershipConfigResolverCore.js';
+export const resolveRollingSuccessorConfig = (...args) => createMembershipConfigResolver(supabase).resolveRollingSuccessorConfig(...args);
+export const findHistoricalMemberConfigs = (...args) => createMembershipConfigResolver(supabase).findHistoricalMemberConfigs(...args);
+export const getAllActiveConfigs = (...args) => createMembershipConfigResolver(supabase).getAllActiveConfigs(...args);
+export const getAllActiveConfigsStrict = (...args) => createMembershipConfigResolver(supabase).getAllActiveConfigsStrict(...args);
+export const getConfigForOrganisation = (...args) => createMembershipConfigResolver(supabase).getConfigForOrganisation(...args);
+export const resolveBasisFieldLabel = (...args) => createMembershipConfigResolver(supabase).resolveBasisFieldLabel(...args);
+export const resolveBasisFieldLabels = (...args) => createMembershipConfigResolver(supabase).resolveBasisFieldLabels(...args);
+export const getConfigByIdDirect = (...args) => createMembershipConfigResolver(supabase).getConfigByIdDirect(...args);
+export const getConfigForMember = (...args) => createMembershipConfigResolver(supabase).getConfigForMember(...args);

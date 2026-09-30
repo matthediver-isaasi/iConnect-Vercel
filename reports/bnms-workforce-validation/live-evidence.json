@@ -1,0 +1,959 @@
+{
+  "observation": {
+    "startedAt": "2026-09-17T11:02:06.688Z",
+    "finishedAt": "2026-09-17T11:02:15.707Z",
+    "fingerprint": "c6aa744668bf54ac6b7aa7f6c173fd203e8547fcb62d9a6d0d67babb1c727b66",
+    "completePasses": 2,
+    "stableAcrossPasses": true,
+    "databaseWrites": 0,
+    "firstPassPagination": [
+      {
+        "label": "tenant",
+        "table": "tenant",
+        "count": 1,
+        "rowsRead": 1,
+        "requests": 1,
+        "pageSize": 500,
+        "complete": true
+      },
+      {
+        "label": "custom_object_definition",
+        "table": "custom_object_definition",
+        "count": 8,
+        "rowsRead": 8,
+        "requests": 1,
+        "pageSize": 500,
+        "complete": true
+      },
+      {
+        "label": "custom_object_relationship_definition",
+        "table": "custom_object_relationship_definition",
+        "count": 12,
+        "rowsRead": 12,
+        "requests": 1,
+        "pageSize": 500,
+        "complete": true
+      },
+      {
+        "label": "preference_field",
+        "table": "preference_field",
+        "count": 15,
+        "rowsRead": 15,
+        "requests": 1,
+        "pageSize": 500,
+        "complete": true
+      },
+      {
+        "label": "custom_object_record",
+        "table": "custom_object_record",
+        "count": 337,
+        "rowsRead": 337,
+        "requests": 1,
+        "pageSize": 500,
+        "complete": true
+      },
+      {
+        "label": "custom_object_relationship",
+        "table": "custom_object_relationship",
+        "count": 4414,
+        "rowsRead": 4414,
+        "requests": 9,
+        "pageSize": 500,
+        "complete": true
+      },
+      {
+        "label": "Department UUIDs 1-50",
+        "table": "custom_object_record",
+        "count": 50,
+        "rowsRead": 50,
+        "requests": 1,
+        "pageSize": 500,
+        "complete": true
+      },
+      {
+        "label": "Department UUIDs 51-100",
+        "table": "custom_object_record",
+        "count": 50,
+        "rowsRead": 50,
+        "requests": 1,
+        "pageSize": 500,
+        "complete": true
+      },
+      {
+        "label": "Department UUIDs 101-136",
+        "table": "custom_object_record",
+        "count": 36,
+        "rowsRead": 36,
+        "requests": 1,
+        "pageSize": 500,
+        "complete": true
+      },
+      {
+        "label": "Workforce incident edges 1-11",
+        "table": "custom_object_relationship",
+        "count": 11,
+        "rowsRead": 11,
+        "requests": 1,
+        "pageSize": 500,
+        "complete": true
+      }
+    ],
+    "earlierMetadataChanges": [
+      "The initial Grade inspection did not contain \"Band 8d\"; the final two complete matching reads do contain that canonical option."
+    ]
+  },
+  "project": "lvmzliemqnieeoruhkik",
+  "tenant": {
+    "id": "ff2df806-b321-4254-b651-3af11fccf1db",
+    "name": "BNMS",
+    "slug": "bnms"
+  },
+  "objects": [
+    {
+      "id": "931df885-c3b7-449a-b206-eef31fb9e883",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "object_key": "workforce_survey",
+      "singular_label": "Workforce survey",
+      "plural_label": "Workforce surveys",
+      "status": "active",
+      "primary_display_field_id": "a45a59cd-a9e1-47aa-991b-992577fa7e19"
+    },
+    {
+      "id": "bf123bdb-7227-4f45-b5f9-8344d0f65446",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "object_key": "workforce_survey_row",
+      "singular_label": "Workforce Survey Row",
+      "plural_label": "Workforce Survey Rows",
+      "status": "active",
+      "primary_display_field_id": "68508e3d-577e-42d1-9e6d-8612241189dd"
+    },
+    {
+      "id": "cd1ebfd3-3e16-4091-be5a-99992d926f2f",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "object_key": "org_department",
+      "singular_label": "Organisation department",
+      "plural_label": "Organisation departments",
+      "status": "active",
+      "primary_display_field_id": "35e4f2dd-6f22-4875-8d2f-4ffb05b1980f"
+    }
+  ],
+  "fields": [
+    {
+      "id": "143a0dc1-f1b3-4e52-8890-5cf5c2b99924",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "custom_object_id": "cd1ebfd3-3e16-4091-be5a-99992d926f2f",
+      "entity_scope": "custom_object",
+      "name": "address_line2",
+      "label": "Address line 2",
+      "field_type": "text",
+      "is_active": true,
+      "is_required": false,
+      "archived_at": null,
+      "options": null,
+      "min_length": null,
+      "max_length": null,
+      "min_selections": null,
+      "max_selections": null
+    },
+    {
+      "id": "2126d5c5-ee9e-4ef4-b8f6-e584c5523b76",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "custom_object_id": "cd1ebfd3-3e16-4091-be5a-99992d926f2f",
+      "entity_scope": "custom_object",
+      "name": "phone_number",
+      "label": "Phone number",
+      "field_type": "number",
+      "is_active": true,
+      "is_required": false,
+      "archived_at": null,
+      "options": null,
+      "min_length": null,
+      "max_length": null,
+      "min_selections": null,
+      "max_selections": null
+    },
+    {
+      "id": "233b0552-ac3a-4ede-af71-51962fa47869",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "custom_object_id": "bf123bdb-7227-4f45-b5f9-8344d0f65446",
+      "entity_scope": "custom_object",
+      "name": "grade",
+      "label": "Grade",
+      "field_type": "dropdown",
+      "is_active": true,
+      "is_required": true,
+      "archived_at": null,
+      "options": [
+        {
+          "label": "Band 1",
+          "value": "Band 1"
+        },
+        {
+          "label": "Band 2",
+          "value": "Band 2"
+        },
+        {
+          "label": "Band 3",
+          "value": "Band 3"
+        },
+        {
+          "label": "Band 4",
+          "value": "Band 4"
+        },
+        {
+          "label": "Band 5",
+          "value": "Band 5"
+        },
+        {
+          "label": "Band 6",
+          "value": "Band 6"
+        },
+        {
+          "label": "Band 7",
+          "value": "Band 7"
+        },
+        {
+          "label": "Band 8a",
+          "value": "Band 8a"
+        },
+        {
+          "label": "Band 8b",
+          "value": "Band 8b"
+        },
+        {
+          "label": "Band 8c",
+          "value": "Band 8c"
+        },
+        {
+          "label": "Band 9",
+          "value": "Band 9"
+        },
+        {
+          "label": "Apprentice",
+          "value": "Apprentice"
+        },
+        {
+          "label": "Consultant",
+          "value": "Consultant"
+        },
+        {
+          "label": "Consultant – dual accredited",
+          "value": "Consultant – dual accredited"
+        },
+        {
+          "label": "Registrar/Specialty trainee",
+          "value": "Registrar/Specialty trainee"
+        },
+        {
+          "label": "Fellow",
+          "value": "Fellow "
+        },
+        {
+          "label": "Other medical grade",
+          "value": "Other medical grade"
+        },
+        {
+          "label": "Not applicable",
+          "value": "Not applicable"
+        },
+        {
+          "label": "Radionuclide Radiologist",
+          "value": "Radionuclide Radiologist"
+        },
+        {
+          "label": "Band 8d",
+          "value": "Band 8d"
+        }
+      ],
+      "min_length": null,
+      "max_length": null,
+      "min_selections": null,
+      "max_selections": null
+    },
+    {
+      "id": "27ecfa6d-f6c7-4320-b1e5-37d6ef8d7f01",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "custom_object_id": "bf123bdb-7227-4f45-b5f9-8344d0f65446",
+      "entity_scope": "custom_object",
+      "name": "staff_group",
+      "label": "Staff group",
+      "field_type": "dropdown",
+      "is_active": true,
+      "is_required": true,
+      "archived_at": null,
+      "options": [
+        {
+          "label": "Administrator/Clerical",
+          "value": "Administrator/Clerical"
+        },
+        {
+          "label": "Apprentice Clinical Technologist",
+          "value": "Apprentice Clinical Technologist"
+        },
+        {
+          "label": "Assistant Practitioner ",
+          "value": "Assistant Practitioner "
+        },
+        {
+          "label": "Clinical Practitioner – Radiographer",
+          "value": "Clinical Practitioner – Radiographer "
+        },
+        {
+          "label": "Clinical Practitioner – Technologist",
+          "value": "Clinical Practitioner – Technologist "
+        },
+        {
+          "label": "Clinical Scientist",
+          "value": "Clinical Scientist"
+        },
+        {
+          "label": "HCA/Imaging Assistant",
+          "value": "HCA/Imaging Assistant"
+        },
+        {
+          "label": "Nurse",
+          "value": "Nurse"
+        },
+        {
+          "label": "Physician",
+          "value": "Physician"
+        },
+        {
+          "label": "Radiologist",
+          "value": "Radiologist"
+        }
+      ],
+      "min_length": null,
+      "max_length": null,
+      "min_selections": null,
+      "max_selections": null
+    },
+    {
+      "id": "35e4f2dd-6f22-4875-8d2f-4ffb05b1980f",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "custom_object_id": "cd1ebfd3-3e16-4091-be5a-99992d926f2f",
+      "entity_scope": "custom_object",
+      "name": "name",
+      "label": "Name",
+      "field_type": "text",
+      "is_active": true,
+      "is_required": true,
+      "archived_at": null,
+      "options": null,
+      "min_length": null,
+      "max_length": null,
+      "min_selections": null,
+      "max_selections": null
+    },
+    {
+      "id": "4eb06b66-915b-4df5-96e6-db6b8f4aefff",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "custom_object_id": "cd1ebfd3-3e16-4091-be5a-99992d926f2f",
+      "entity_scope": "custom_object",
+      "name": "address_line_3",
+      "label": "Address line 3",
+      "field_type": "text",
+      "is_active": true,
+      "is_required": false,
+      "archived_at": null,
+      "options": null,
+      "min_length": null,
+      "max_length": null,
+      "min_selections": null,
+      "max_selections": null
+    },
+    {
+      "id": "53ff60e0-9290-4f9b-80e7-002876c8496c",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "custom_object_id": "bf123bdb-7227-4f45-b5f9-8344d0f65446",
+      "entity_scope": "custom_object",
+      "name": "legacy_vacancy_reported",
+      "label": "Legacy vacancy reported",
+      "field_type": "dropdown",
+      "is_active": true,
+      "is_required": false,
+      "archived_at": null,
+      "options": [
+        {
+          "label": "no",
+          "value": "No"
+        },
+        {
+          "label": "yes",
+          "value": "Yes"
+        },
+        {
+          "label": "unknown",
+          "value": "Unknown"
+        }
+      ],
+      "min_length": null,
+      "max_length": null,
+      "min_selections": null,
+      "max_selections": null
+    },
+    {
+      "id": "569e2b57-1a2b-43ae-8b63-85d5c66356d0",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "custom_object_id": "cd1ebfd3-3e16-4091-be5a-99992d926f2f",
+      "entity_scope": "custom_object",
+      "name": "address_post_code",
+      "label": "Address post code",
+      "field_type": "text",
+      "is_active": true,
+      "is_required": false,
+      "archived_at": null,
+      "options": null,
+      "min_length": null,
+      "max_length": null,
+      "min_selections": null,
+      "max_selections": null
+    },
+    {
+      "id": "63c5e4ef-a256-40dd-ab43-258dbb4d5213",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "custom_object_id": "cd1ebfd3-3e16-4091-be5a-99992d926f2f",
+      "entity_scope": "custom_object",
+      "name": "address_county",
+      "label": "Address county",
+      "field_type": "text",
+      "is_active": true,
+      "is_required": false,
+      "archived_at": null,
+      "options": null,
+      "min_length": null,
+      "max_length": null,
+      "min_selections": null,
+      "max_selections": null
+    },
+    {
+      "id": "68508e3d-577e-42d1-9e6d-8612241189dd",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "custom_object_id": "bf123bdb-7227-4f45-b5f9-8344d0f65446",
+      "entity_scope": "custom_object",
+      "name": "row_name",
+      "label": "Row name",
+      "field_type": "text",
+      "is_active": true,
+      "is_required": true,
+      "archived_at": null,
+      "options": null,
+      "min_length": null,
+      "max_length": null,
+      "min_selections": null,
+      "max_selections": null
+    },
+    {
+      "id": "a094e3a7-daae-492a-88c9-17651d1d08b5",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "custom_object_id": "bf123bdb-7227-4f45-b5f9-8344d0f65446",
+      "entity_scope": "custom_object",
+      "name": "vacant_wte",
+      "label": "Vacant WTE",
+      "field_type": "decimal",
+      "is_active": true,
+      "is_required": false,
+      "archived_at": null,
+      "options": null,
+      "min_length": null,
+      "max_length": null,
+      "min_selections": null,
+      "max_selections": null
+    },
+    {
+      "id": "a45a59cd-a9e1-47aa-991b-992577fa7e19",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "custom_object_id": "931df885-c3b7-449a-b206-eef31fb9e883",
+      "entity_scope": "custom_object",
+      "name": "survey_name",
+      "label": "Reporting year",
+      "field_type": "text",
+      "is_active": true,
+      "is_required": true,
+      "archived_at": null,
+      "options": null,
+      "min_length": null,
+      "max_length": null,
+      "min_selections": null,
+      "max_selections": null
+    },
+    {
+      "id": "ae61882c-ab42-4482-bf69-d50697cffffc",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "custom_object_id": "cd1ebfd3-3e16-4091-be5a-99992d926f2f",
+      "entity_scope": "custom_object",
+      "name": "address_line_1",
+      "label": "Address line 1",
+      "field_type": "text",
+      "is_active": true,
+      "is_required": false,
+      "archived_at": null,
+      "options": null,
+      "min_length": null,
+      "max_length": null,
+      "min_selections": null,
+      "max_selections": null
+    },
+    {
+      "id": "b4d93634-a98f-43ba-a247-676a137069b9",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "custom_object_id": "cd1ebfd3-3e16-4091-be5a-99992d926f2f",
+      "entity_scope": "custom_object",
+      "name": "address_town_city",
+      "label": "Address Town/City",
+      "field_type": "text",
+      "is_active": true,
+      "is_required": false,
+      "archived_at": null,
+      "options": null,
+      "min_length": null,
+      "max_length": null,
+      "min_selections": null,
+      "max_selections": null
+    },
+    {
+      "id": "d85afb1f-7744-4111-8b59-ab4841aadb5f",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "custom_object_id": "bf123bdb-7227-4f45-b5f9-8344d0f65446",
+      "entity_scope": "custom_object",
+      "name": "occupied_wte",
+      "label": "Occupied WTE",
+      "field_type": "decimal",
+      "is_active": true,
+      "is_required": true,
+      "archived_at": null,
+      "options": null,
+      "min_length": null,
+      "max_length": null,
+      "min_selections": null,
+      "max_selections": null
+    }
+  ],
+  "relationships": [
+    {
+      "id": "749598f1-e2e8-4fc9-b5f4-fb5d8af53f3c",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "relationship_key": "workforce_survey_row_survey",
+      "status": "active",
+      "source_kind": "custom_object",
+      "source_custom_object_id": "bf123bdb-7227-4f45-b5f9-8344d0f65446",
+      "target_kind": "custom_object",
+      "target_custom_object_id": "931df885-c3b7-449a-b206-eef31fb9e883",
+      "cardinality": "many_to_one",
+      "is_required": true,
+      "show_on_source": true,
+      "edit_from_source": true,
+      "show_on_target": true,
+      "edit_from_target": true,
+      "configuration": {}
+    },
+    {
+      "id": "ab296a40-f032-4a3b-8155-108636a2cfc3",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "relationship_key": "workforce_survey_department",
+      "status": "active",
+      "source_kind": "custom_object",
+      "source_custom_object_id": "931df885-c3b7-449a-b206-eef31fb9e883",
+      "target_kind": "custom_object",
+      "target_custom_object_id": "cd1ebfd3-3e16-4091-be5a-99992d926f2f",
+      "cardinality": "many_to_one",
+      "is_required": true,
+      "show_on_source": true,
+      "edit_from_source": true,
+      "show_on_target": true,
+      "edit_from_target": false,
+      "configuration": {}
+    }
+  ],
+  "existingWorkforceRecords": [
+    {
+      "id": "35bc7f85-4a40-420f-a17b-8019b3a21fef",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "custom_object_id": "931df885-c3b7-449a-b206-eef31fb9e883",
+      "archived_at": null,
+      "data": {
+        "survey_name": "2025/26"
+      }
+    },
+    {
+      "id": "41cb7700-3787-4ede-ba34-b352ab677f7b",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "custom_object_id": "bf123bdb-7227-4f45-b5f9-8344d0f65446",
+      "archived_at": null,
+      "data": {
+        "grade": "Band 6",
+        "row_name": "2025/26",
+        "staff_group": "Clinical Practitioner – Radiographer ",
+        "occupied_wte": 1,
+        "legacy_vacancy_reported": "Yes"
+      }
+    },
+    {
+      "id": "4949b6bc-830f-4630-9464-82a9d4bd5f39",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "custom_object_id": "931df885-c3b7-449a-b206-eef31fb9e883",
+      "archived_at": null,
+      "data": {
+        "survey_name": "2025/26"
+      }
+    },
+    {
+      "id": "644faba0-607a-404b-a039-a86d44968b9a",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "custom_object_id": "bf123bdb-7227-4f45-b5f9-8344d0f65446",
+      "archived_at": null,
+      "data": {
+        "grade": "Band 7",
+        "row_name": "2025/26",
+        "staff_group": "Clinical Practitioner – Technologist ",
+        "occupied_wte": 1,
+        "legacy_vacancy_reported": "No"
+      }
+    },
+    {
+      "id": "7e21e19e-d2df-40a2-bc4e-9249f4ad6e8b",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "custom_object_id": "bf123bdb-7227-4f45-b5f9-8344d0f65446",
+      "archived_at": null,
+      "data": {
+        "grade": "Consultant",
+        "row_name": "2025/26",
+        "staff_group": "Radiologist",
+        "occupied_wte": 0.4,
+        "legacy_vacancy_reported": "No"
+      }
+    },
+    {
+      "id": "81adad93-38b9-45be-93d6-a7526f3d01b8",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "custom_object_id": "bf123bdb-7227-4f45-b5f9-8344d0f65446",
+      "archived_at": null,
+      "data": {
+        "grade": "Consultant – dual accredited",
+        "row_name": "2025/26",
+        "staff_group": "Radiologist",
+        "occupied_wte": 0.6,
+        "legacy_vacancy_reported": "Unknown"
+      }
+    },
+    {
+      "id": "9300d1c7-b142-47bd-8902-8a17d8a0f9c3",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "custom_object_id": "bf123bdb-7227-4f45-b5f9-8344d0f65446",
+      "archived_at": null,
+      "data": {
+        "grade": "Band 6",
+        "row_name": "2025/26",
+        "staff_group": "Clinical Practitioner – Technologist ",
+        "occupied_wte": 0.4,
+        "legacy_vacancy_reported": "No"
+      }
+    },
+    {
+      "id": "b970f749-4b2a-43b2-8cd7-87fbbe01868b",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "custom_object_id": "bf123bdb-7227-4f45-b5f9-8344d0f65446",
+      "archived_at": null,
+      "data": {
+        "grade": "Band 7",
+        "row_name": "2025/26",
+        "staff_group": "Clinical Practitioner – Technologist ",
+        "occupied_wte": 1,
+        "legacy_vacancy_reported": "No"
+      }
+    },
+    {
+      "id": "bf2ba2d1-44c7-45b7-83ab-9e05cf836487",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "custom_object_id": "bf123bdb-7227-4f45-b5f9-8344d0f65446",
+      "archived_at": null,
+      "data": {
+        "grade": "Radionuclide Radiologist",
+        "row_name": "2025/26",
+        "staff_group": "Radiologist",
+        "occupied_wte": 0.2,
+        "legacy_vacancy_reported": "Yes"
+      }
+    },
+    {
+      "id": "c0119444-05e3-48e0-b4e7-78a60da8b55e",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "custom_object_id": "bf123bdb-7227-4f45-b5f9-8344d0f65446",
+      "archived_at": null,
+      "data": {
+        "grade": "Band 7",
+        "row_name": "2025/26",
+        "staff_group": "Clinical Scientist",
+        "occupied_wte": 1,
+        "legacy_vacancy_reported": "No"
+      }
+    },
+    {
+      "id": "f0d08e54-3ff4-4709-929f-8f7602b62389",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "custom_object_id": "931df885-c3b7-449a-b206-eef31fb9e883",
+      "archived_at": null,
+      "data": {
+        "survey_name": "2025/26"
+      }
+    }
+  ],
+  "existingWorkforceEdges": [
+    {
+      "id": "0a5283bd-f8b7-4e58-bacd-45d4f9bdefb3",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "relationship_definition_id": "ab296a40-f032-4a3b-8155-108636a2cfc3",
+      "source_record_id": "f0d08e54-3ff4-4709-929f-8f7602b62389",
+      "target_record_id": "04110cda-8682-4d31-b8b3-6592259bb65c",
+      "archived_at": null,
+      "field_values": {}
+    },
+    {
+      "id": "1a322ac6-e269-4a2f-812a-865530cd2bff",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "relationship_definition_id": "ab296a40-f032-4a3b-8155-108636a2cfc3",
+      "source_record_id": "4949b6bc-830f-4630-9464-82a9d4bd5f39",
+      "target_record_id": "09f6f695-7773-4d27-8938-d526bfa83615",
+      "archived_at": null,
+      "field_values": {}
+    },
+    {
+      "id": "1e631c25-63bf-453e-a5f2-9987ee5bf24d",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "relationship_definition_id": "749598f1-e2e8-4fc9-b5f4-fb5d8af53f3c",
+      "source_record_id": "41cb7700-3787-4ede-ba34-b352ab677f7b",
+      "target_record_id": "4949b6bc-830f-4630-9464-82a9d4bd5f39",
+      "archived_at": null,
+      "field_values": {}
+    },
+    {
+      "id": "2b7ef1cb-0820-412b-b62e-dece3bb7cc50",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "relationship_definition_id": "749598f1-e2e8-4fc9-b5f4-fb5d8af53f3c",
+      "source_record_id": "644faba0-607a-404b-a039-a86d44968b9a",
+      "target_record_id": "4949b6bc-830f-4630-9464-82a9d4bd5f39",
+      "archived_at": null,
+      "field_values": {}
+    },
+    {
+      "id": "3de035a5-e0c3-42fe-aeb7-1c6ee3f39747",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "relationship_definition_id": "749598f1-e2e8-4fc9-b5f4-fb5d8af53f3c",
+      "source_record_id": "7e21e19e-d2df-40a2-bc4e-9249f4ad6e8b",
+      "target_record_id": "f0d08e54-3ff4-4709-929f-8f7602b62389",
+      "archived_at": null,
+      "field_values": {}
+    },
+    {
+      "id": "62840394-6e6a-4b1f-af62-be0b945d6157",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "relationship_definition_id": "749598f1-e2e8-4fc9-b5f4-fb5d8af53f3c",
+      "source_record_id": "bf2ba2d1-44c7-45b7-83ab-9e05cf836487",
+      "target_record_id": "4949b6bc-830f-4630-9464-82a9d4bd5f39",
+      "archived_at": null,
+      "field_values": {}
+    },
+    {
+      "id": "670f9b1d-9fc2-450a-b331-f104171fb4b8",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "relationship_definition_id": "749598f1-e2e8-4fc9-b5f4-fb5d8af53f3c",
+      "source_record_id": "c0119444-05e3-48e0-b4e7-78a60da8b55e",
+      "target_record_id": "35bc7f85-4a40-420f-a17b-8019b3a21fef",
+      "archived_at": null,
+      "field_values": {}
+    },
+    {
+      "id": "722fc21a-bbd9-45d9-9018-eb5c48aa8f54",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "relationship_definition_id": "749598f1-e2e8-4fc9-b5f4-fb5d8af53f3c",
+      "source_record_id": "b970f749-4b2a-43b2-8cd7-87fbbe01868b",
+      "target_record_id": "35bc7f85-4a40-420f-a17b-8019b3a21fef",
+      "archived_at": null,
+      "field_values": {}
+    },
+    {
+      "id": "845bb5a7-08ce-42c1-b524-06ce53bd97df",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "relationship_definition_id": "749598f1-e2e8-4fc9-b5f4-fb5d8af53f3c",
+      "source_record_id": "81adad93-38b9-45be-93d6-a7526f3d01b8",
+      "target_record_id": "4949b6bc-830f-4630-9464-82a9d4bd5f39",
+      "archived_at": null,
+      "field_values": {}
+    },
+    {
+      "id": "8db56d73-41b6-4852-9cfc-9fa7ab3ff2d1",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "relationship_definition_id": "ab296a40-f032-4a3b-8155-108636a2cfc3",
+      "source_record_id": "35bc7f85-4a40-420f-a17b-8019b3a21fef",
+      "target_record_id": "0243228c-0eac-472e-84f9-ff18f0639751",
+      "archived_at": null,
+      "field_values": {}
+    },
+    {
+      "id": "e041660e-d777-4f51-ab1d-ac8734e2e5fe",
+      "tenant_id": "ff2df806-b321-4254-b651-3af11fccf1db",
+      "relationship_definition_id": "749598f1-e2e8-4fc9-b5f4-fb5d8af53f3c",
+      "source_record_id": "9300d1c7-b142-47bd-8902-8a17d8a0f9c3",
+      "target_record_id": "f0d08e54-3ff4-4709-929f-8f7602b62389",
+      "archived_at": null,
+      "field_values": {}
+    }
+  ],
+  "pagination": [
+    {
+      "label": "tenant",
+      "table": "tenant",
+      "count": 1,
+      "rowsRead": 1,
+      "requests": 1,
+      "pageSize": 500,
+      "complete": true
+    },
+    {
+      "label": "custom_object_definition",
+      "table": "custom_object_definition",
+      "count": 8,
+      "rowsRead": 8,
+      "requests": 1,
+      "pageSize": 500,
+      "complete": true
+    },
+    {
+      "label": "custom_object_relationship_definition",
+      "table": "custom_object_relationship_definition",
+      "count": 12,
+      "rowsRead": 12,
+      "requests": 1,
+      "pageSize": 500,
+      "complete": true
+    },
+    {
+      "label": "custom_object_record",
+      "table": "custom_object_record",
+      "count": 337,
+      "rowsRead": 337,
+      "requests": 1,
+      "pageSize": 500,
+      "complete": true
+    },
+    {
+      "label": "preference_field",
+      "table": "preference_field",
+      "count": 15,
+      "rowsRead": 15,
+      "requests": 1,
+      "pageSize": 500,
+      "complete": true
+    },
+    {
+      "label": "custom_object_relationship",
+      "table": "custom_object_relationship",
+      "count": 4414,
+      "rowsRead": 4414,
+      "requests": 9,
+      "pageSize": 500,
+      "complete": true
+    },
+    {
+      "label": "Department UUIDs 1-50",
+      "table": "custom_object_record",
+      "count": 50,
+      "rowsRead": 50,
+      "requests": 1,
+      "pageSize": 500,
+      "complete": true
+    },
+    {
+      "label": "Department UUIDs 51-100",
+      "table": "custom_object_record",
+      "count": 50,
+      "rowsRead": 50,
+      "requests": 1,
+      "pageSize": 500,
+      "complete": true
+    },
+    {
+      "label": "Department UUIDs 101-136",
+      "table": "custom_object_record",
+      "count": 36,
+      "rowsRead": 36,
+      "requests": 1,
+      "pageSize": 500,
+      "complete": true
+    },
+    {
+      "label": "Workforce incident edges 1-11",
+      "table": "custom_object_relationship",
+      "count": 11,
+      "rowsRead": 11,
+      "requests": 1,
+      "pageSize": 500,
+      "complete": true
+    }
+  ],
+  "priorSample": {
+    "fingerprint": "f85374976acdb625f36dc58465eae9160f3853e4ade2d6abea07d719f68739ad",
+    "verified": true,
+    "rows": 8,
+    "departments": 3,
+    "departmentOverlapWithCsv": 0,
+    "matches": [
+      {
+        "sourceRow": 2,
+        "departmentId": "0243228c-0eac-472e-84f9-ff18f0639751",
+        "matchedIds": [
+          "b970f749-4b2a-43b2-8cd7-87fbbe01868b"
+        ]
+      },
+      {
+        "sourceRow": 3,
+        "departmentId": "0243228c-0eac-472e-84f9-ff18f0639751",
+        "matchedIds": [
+          "c0119444-05e3-48e0-b4e7-78a60da8b55e"
+        ]
+      },
+      {
+        "sourceRow": 4,
+        "departmentId": "04110cda-8682-4d31-b8b3-6592259bb65c",
+        "matchedIds": [
+          "9300d1c7-b142-47bd-8902-8a17d8a0f9c3"
+        ]
+      },
+      {
+        "sourceRow": 5,
+        "departmentId": "04110cda-8682-4d31-b8b3-6592259bb65c",
+        "matchedIds": [
+          "7e21e19e-d2df-40a2-bc4e-9249f4ad6e8b"
+        ]
+      },
+      {
+        "sourceRow": 6,
+        "departmentId": "09f6f695-7773-4d27-8938-d526bfa83615",
+        "matchedIds": [
+          "41cb7700-3787-4ede-ba34-b352ab677f7b"
+        ]
+      },
+      {
+        "sourceRow": 7,
+        "departmentId": "09f6f695-7773-4d27-8938-d526bfa83615",
+        "matchedIds": [
+          "644faba0-607a-404b-a039-a86d44968b9a"
+        ]
+      },
+      {
+        "sourceRow": 8,
+        "departmentId": "09f6f695-7773-4d27-8938-d526bfa83615",
+        "matchedIds": [
+          "81adad93-38b9-45be-93d6-a7526f3d01b8"
+        ]
+      },
+      {
+        "sourceRow": 9,
+        "departmentId": "09f6f695-7773-4d27-8938-d526bfa83615",
+        "matchedIds": [
+          "bf2ba2d1-44c7-45b7-83ab-9e05cf836487"
+        ]
+      }
+    ]
+  }
+}

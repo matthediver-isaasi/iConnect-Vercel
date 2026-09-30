@@ -1,0 +1,450 @@
+import { createClient } from '@supabase/supabase-js';
+import crypto from 'crypto';
+import { verifyApplicantContinuation, bindApplicantDraft, FormApplicantContinuationError } from '../_lib/formApplicantContinuation.js';
+import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import { resolveFormAccess, sendFormAccessDenied } from '../_lib/formAccessPolicy.js';
+import { isFormScheduleAvailable } from '../_lib/formAvailability.js';
+import { stripFormNoRelationshipValues } from '../../shared/formNoRelationshipChoice.js';
+import {
+  DEPARTMENT_CURRENT_SET_FORM_ID,
+  DEPARTMENT_CURRENT_SET_METADATA_KEY,
+  DepartmentCurrentSetError,
+  loadDepartmentCurrentSet,
+} from '../_lib/departmentCurrentSet.js';
+
+// Generate a secure random token
+function generateResumeToken() {
+  return crypto.randomBytes(32).toString('base64url');
+}
+
+// Hash the token for storage (never store raw tokens)
+function hashToken(token) {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+// Default draft expiry: 30 days
+const DEFAULT_EXPIRY_DAYS = 30;
+
+function currentSetDepartmentId(draftData) {
+  const id = draftData?.[DEPARTMENT_CURRENT_SET_METADATA_KEY]?.department_id;
+  return typeof id === 'string' ? id : null;
+}
+
+async function authorizeCurrentSetDraft({
+  supabase, req, tenantId, form, draftData, getMember, getActiveSession,
+}) {
+  // This is deliberately destination-pinned. Do not make every ordinary
+  // draft depend on the optional current-set table during staged rollout.
+  if (form?.id !== DEPARTMENT_CURRENT_SET_FORM_ID) return null;
+  const { data: config, error } = await supabase
+    .from('department_current_set_config')
+    .select('config')
+    .eq('tenant_id', tenantId)
+    .eq('form_id', form.id)
+    .maybeSingle();
+  if (error && error.code !== '42P01') throw error;
+  if (!config?.config) return null;
+  const departmentId = currentSetDepartmentId(draftData);
+  if (!departmentId) {
+    throw new DepartmentCurrentSetError(
+      400,
+      'CURRENT_SET_INCOMPLETE',
+      'A current Department draft must include its authorized Department and version.',
+    );
+  }
+  const currentSet = await loadDepartmentCurrentSet({
+    db: supabase, req, tenantId, formId: form.id, departmentId, getMember, getActiveSession,
+  });
+  const version = draftData?.[DEPARTMENT_CURRENT_SET_METADATA_KEY]?.version;
+  if (typeof version !== 'string' || version !== currentSet?.version) {
+    throw new DepartmentCurrentSetError(
+      409,
+      'CURRENT_SET_CONFLICT',
+      'Current Department data changed. Reload and review it before saving this draft.',
+    );
+  }
+  return { departmentId, version };
+}
+
+export default async function handler(req, res, dependencies = {}) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
+
+  if ((!supabaseUrl || !supabaseServiceKey) && !dependencies.supabase) {
+    return res.status(503).json({ error: 'Database not configured' });
+  }
+
+  const supabase = dependencies.supabase || createClient(supabaseUrl, supabaseServiceKey);
+
+  try {
+    // POST: Save or update a draft
+    if (req.method === 'POST') {
+      const { 
+        form_slug, 
+        form_id,
+        draft_data, 
+        current_page_index,
+        contact_email,
+        resume_token, // If provided, update existing draft
+        tenant: tenantSlug,
+        form_updated_at
+      } = req.body;
+
+      if (!form_slug && !form_id) {
+        return res.status(400).json({ error: 'Form slug or ID is required' });
+      }
+
+      if (!draft_data || typeof draft_data !== 'object') {
+        return res.status(400).json({ error: 'Draft data is required' });
+      }
+
+      // Use centralized tenant resolver (handles subdomains and custom domains)
+      const tenantData = dependencies.tenantData || await resolveTenantFromRequest(req);
+      console.log('[Form Draft] Tenant resolution:', { 
+        tenantData: tenantData ? { id: tenantData.id, slug: tenantData.slug } : null,
+        host: req.headers['x-forwarded-host'] || req.headers.host 
+      });
+      
+      if (!tenantData) {
+        return res.status(400).json({ error: 'Invalid tenant context' });
+      }
+
+      // Get form to verify it exists
+      let formQuery = supabase
+        .from('form')
+        .select('*')
+        .eq('tenant_id', tenantData.id)
+        .eq('is_active', true);
+
+      if (form_id) {
+        formQuery = formQuery.eq('id', form_id);
+      } else {
+        formQuery = formQuery.eq('slug', form_slug);
+      }
+
+      console.log('[Form Draft] Form query params:', { 
+        form_id, 
+        form_slug, 
+        tenant_id: tenantData.id 
+      });
+
+      const { data: form, error: formError } = await formQuery.single();
+
+      console.log('[Form Draft] Form lookup result:', { 
+        form: form ? { id: form.id, tenant_id: form.tenant_id } : null, 
+        error: formError?.message,
+        code: formError?.code 
+      });
+
+      if (formError || !form) {
+        return res.status(404).json({ 
+          error: 'Form not found',
+          debug: { form_id, form_slug, tenant_id: tenantData.id, dbError: formError?.message }
+        });
+      }
+      if (!isFormScheduleAvailable(form)) {
+        return res.status(404).json({ error: 'Form not found or inactive' });
+      }
+      const access = await resolveFormAccess({
+        supabase, req, tenantId: tenantData.id, policy: form.access_policy,
+      });
+      if (!access.allowed) return sendFormAccessDenied(res, access);
+      const safeDraftData = stripFormNoRelationshipValues(draft_data, form.fields);
+      let currentSetDraft;
+      try {
+        currentSetDraft = await authorizeCurrentSetDraft({
+          supabase, req, tenantId: tenantData.id, form, draftData: safeDraftData,
+          getMember: dependencies.getSessionMember,
+          getActiveSession: dependencies.getActiveSession,
+        });
+      } catch (error) {
+        if (error instanceof DepartmentCurrentSetError) {
+          return res.status(error.status).json({ error: error.message, code: error.code });
+        }
+        throw error;
+      }
+
+      // Only a real bearer capability may be attached to a draft. Answers and
+      // draft IDs never establish mutation authority.
+      const applicantGrant = req.body.applicant_continuation_token
+        ? await verifyApplicantContinuation({ db: supabase, form,
+          token: req.body.applicant_continuation_token })
+        : null;
+
+      // Calculate expiry date (always use default since settings column doesn't exist)
+      const expiryDays = DEFAULT_EXPIRY_DAYS;
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + expiryDays);
+
+      // If resume_token provided, update existing draft
+      if (resume_token) {
+        const tokenHash = hashToken(resume_token);
+        
+        const { data: existingDraft, error: findError } = await supabase
+          .from('form_draft_submission')
+          .select('id, form_id, draft_data')
+          .eq('resume_token_hash', tokenHash)
+          .eq('tenant_id', tenantData.id)
+          .single();
+
+        if (findError || !existingDraft || existingDraft.form_id !== form.id) {
+          return res.status(404).json({ error: 'Draft not found or expired' });
+        }
+        if (currentSetDraft
+          && currentSetDepartmentId(existingDraft.draft_data) !== currentSetDraft.departmentId) {
+          return res.status(409).json({
+            error: 'This draft belongs to a different Department.',
+            code: 'CURRENT_SET_DRAFT_DEPARTMENT_MISMATCH',
+          });
+        }
+
+        if (applicantGrant) await bindApplicantDraft({ db: supabase, grant: applicantGrant, resumeToken: resume_token });
+        // Update existing draft
+        const { error: updateError } = await supabase
+          .from('form_draft_submission')
+          .update({
+            ...(applicantGrant ? { applicant_continuation_id: applicantGrant.id } : {}),
+            draft_data: safeDraftData,
+            current_page_index: current_page_index || 0,
+            contact_email: contact_email || null,
+            form_updated_at: form_updated_at || null,
+            expires_at: expiresAt.toISOString(),
+            last_saved_at: new Date().toISOString()
+          })
+          .eq('id', existingDraft.id);
+
+        if (updateError) {
+          console.error('[Form Draft] Update error:', updateError);
+          return res.status(500).json({ error: 'Failed to update draft' });
+        }
+
+        return res.status(200).json({
+          success: true,
+          resume_token: resume_token, // Return same token
+          expires_at: expiresAt.toISOString(),
+          message: 'Draft updated successfully'
+        });
+      }
+
+      // Create new draft with new token
+      const newToken = generateResumeToken();
+      const tokenHash = hashToken(newToken);
+      if (applicantGrant) await bindApplicantDraft({ db: supabase, grant: applicantGrant, resumeToken: newToken });
+
+      const { error: insertError } = await supabase
+        .from('form_draft_submission')
+        .insert({
+          ...(applicantGrant ? { applicant_continuation_id: applicantGrant.id } : {}),
+          tenant_id: tenantData.id,
+          form_id: form.id,
+          resume_token_hash: tokenHash,
+          draft_data: safeDraftData,
+          current_page_index: current_page_index || 0,
+          contact_email: contact_email || null,
+          form_updated_at: form_updated_at || null,
+          expires_at: expiresAt.toISOString()
+        });
+
+      if (insertError) {
+        console.error('[Form Draft] Insert error:', insertError);
+        return res.status(500).json({ error: 'Failed to save draft' });
+      }
+
+      return res.status(201).json({
+        success: true,
+        resume_token: newToken, // Return raw token to user (only time it's exposed)
+        expires_at: expiresAt.toISOString(),
+        message: 'Draft saved successfully'
+      });
+    }
+
+    // GET: Fetch draft by resume token
+    if (req.method === 'GET') {
+      const { token } = req.query;
+
+      if (!token) {
+        return res.status(400).json({ error: 'Resume token is required' });
+      }
+
+      // Use centralized tenant resolver (handles subdomains and custom domains)
+      const tenantData = dependencies.tenantData || await resolveTenantFromRequest(req);
+      if (!tenantData) {
+        return res.status(400).json({ error: 'Invalid tenant context' });
+      }
+
+      const tokenHash = hashToken(token);
+
+      const { data: draft, error: findError } = await supabase
+        .from('form_draft_submission')
+        .select('*')
+        .eq('resume_token_hash', tokenHash)
+        .eq('tenant_id', tenantData.id)
+        .single();
+
+      if (findError || !draft) {
+        return res.status(404).json({ error: 'Draft not found or expired' });
+      }
+
+      // Check if expired
+      if (new Date(draft.expires_at) < new Date()) {
+        // Clean up expired draft
+        await supabase
+          .from('form_draft_submission')
+          .delete()
+          .eq('id', draft.id);
+        
+        return res.status(410).json({ error: 'Draft has expired' });
+      }
+
+      // Get current form to verify it still exists and is active
+      // Must include tenant_id filter for Supabase RLS policies
+      const { data: form, error: formError } = await supabase
+        .from('form')
+        .select('*')
+        .eq('id', draft.form_id)
+        .eq('tenant_id', tenantData.id)
+        .eq('is_active', true)
+        .single();
+
+      if (formError || !form) {
+        console.error('[Form Draft] Form lookup error:', { formError, formId: draft.form_id, tenantId: tenantData.id });
+        return res.status(404).json({ error: 'Form no longer exists' });
+      }
+      if (!isFormScheduleAvailable(form)) {
+        return res.status(404).json({ error: 'Form not found or inactive' });
+      }
+      const access = await resolveFormAccess({
+        supabase, req, tenantId: tenantData.id, policy: form.access_policy,
+      });
+      if (!access.allowed) return sendFormAccessDenied(res, access);
+      try {
+        await authorizeCurrentSetDraft({
+          supabase, req, tenantId: tenantData.id, form, draftData: draft.draft_data,
+          getMember: dependencies.getSessionMember,
+          getActiveSession: dependencies.getActiveSession,
+        });
+      } catch (error) {
+        if (error instanceof DepartmentCurrentSetError) {
+          return res.status(error.status).json({ error: error.message, code: error.code });
+        }
+        throw error;
+      }
+
+      // Schema drift detection is not currently supported (form table lacks updated_at column)
+      const schemaChanged = false;
+      const applicantGrant = draft.applicant_continuation_id
+        ? await verifyApplicantContinuation({ db: supabase, form, resumeToken: token })
+        : null;
+
+      return res.status(200).json({
+        success: true,
+        ...(applicantGrant ? { applicant_continuation: {
+          form_id: applicantGrant.form_id,
+          organization_id: applicantGrant.organization_id,
+          expires_at: applicantGrant.expires_at,
+        } } : {}),
+        draft: {
+          draft_data: stripFormNoRelationshipValues(draft.draft_data, form.fields),
+          current_page_index: draft.current_page_index,
+          contact_email: draft.contact_email,
+          last_saved_at: draft.last_saved_at,
+          expires_at: draft.expires_at
+        },
+        form: {
+          id: form.id,
+          slug: form.slug,
+          name: form.name
+        },
+        schema_changed: schemaChanged,
+        message: schemaChanged 
+          ? 'Form has been updated since you last saved. Some fields may have changed.'
+          : null
+      });
+    }
+
+    // DELETE: Abandon/delete a draft
+    if (req.method === 'DELETE') {
+      const { token } = req.query;
+
+      if (!token) {
+        return res.status(400).json({ error: 'Resume token is required' });
+      }
+
+      // Use centralized tenant resolver (handles subdomains and custom domains)
+      const tenantData = dependencies.tenantData || await resolveTenantFromRequest(req);
+      if (!tenantData) {
+        return res.status(400).json({ error: 'Invalid tenant context' });
+      }
+
+      const tokenHash = hashToken(token);
+
+      const { data: draft, error: draftError } = await supabase
+        .from('form_draft_submission')
+        .select('form_id, draft_data')
+        .eq('resume_token_hash', tokenHash)
+        .eq('tenant_id', tenantData.id)
+        .maybeSingle();
+      if (draftError || !draft) return res.status(404).json({ error: 'Draft not found or expired' });
+      const { data: form, error: formError } = await supabase
+        .from('form')
+        .select('id, access_policy, deactivate_at')
+        .eq('id', draft.form_id)
+        .eq('tenant_id', tenantData.id)
+        .eq('is_active', true)
+        .maybeSingle();
+      if (formError || !form) return res.status(404).json({ error: 'Form no longer exists' });
+      if (!isFormScheduleAvailable(form)) {
+        return res.status(404).json({ error: 'Form not found or inactive' });
+      }
+      const access = await resolveFormAccess({
+        supabase, req, tenantId: tenantData.id, policy: form.access_policy,
+      });
+      if (!access.allowed) return sendFormAccessDenied(res, access);
+      try {
+        await authorizeCurrentSetDraft({
+          supabase, req, tenantId: tenantData.id, form, draftData: draft.draft_data,
+          getMember: dependencies.getSessionMember,
+          getActiveSession: dependencies.getActiveSession,
+        });
+      } catch (error) {
+        if (error instanceof DepartmentCurrentSetError) {
+          return res.status(error.status).json({ error: error.message, code: error.code });
+        }
+        throw error;
+      }
+
+      const { error: deleteError } = await supabase
+        .from('form_draft_submission')
+        .delete()
+        .eq('resume_token_hash', tokenHash)
+        .eq('tenant_id', tenantData.id);
+
+      if (deleteError) {
+        console.error('[Form Draft] Delete error:', deleteError);
+        return res.status(500).json({ error: 'Failed to delete draft' });
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: 'Draft deleted successfully'
+      });
+    }
+
+    return res.status(405).json({ error: 'Method not allowed' });
+
+  } catch (error) {
+    if (error instanceof FormApplicantContinuationError) {
+      return res.status(error.status).json({ error: error.message, code: error.code });
+    }
+    console.error('[Form Draft] Unexpected error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}

@@ -1,0 +1,24 @@
+2026-01-02 09:20:29.317 [info] [Import] Delimiter: ";", rows parsing...
+2026-01-02 09:20:29.519 [info] [Import] Parsed 5122 rows
+2026-01-02 09:20:29.519 [info] [Import] Attempting SQL function import...
+2026-01-02 09:20:29.544 [info] [Import] Sample record: {"row_index":0,"email":"j.l.edwards@ljmu.ac.uk","role_name":"University Member","first_name":"Jenny","last_name":"Edwards","organization_name":"Liverpool John Moores University","created_on":"2018-01-01","job_title":""}
+2026-01-02 09:20:29.545 [info] [Import] Records with emails: 5122 of 5122
+2026-01-02 09:20:29.545 [info] [Import] SQL batch 1-1000 of 5122
+2026-01-02 09:20:32.511 [info] [Import] RPC response: {"data":{"success":true,"created":0,"updated":0,"skipped":0,"errors":1000,"total":1000,"first_error":"Row 0: column \"phone\" does not exist"},"error":null}
+2026-01-02 09:20:32.511 [info] [Import] First error in batch: Row 0: column "phone" does not exist
+2026-01-02 09:20:32.511 [info] [Import] SQL batch 1001-2000 of 5122
+2026-01-02 09:20:35.090 [info] [Import] RPC response: {"data":{"success":true,"created":0,"updated":0,"skipped":0,"errors":1000,"total":1000,"first_error":"Row 1000: column \"phone\" does not exist"},"error":null}
+2026-01-02 09:20:35.090 [info] [Import] First error in batch: Row 1000: column "phone" does not exist
+2026-01-02 09:20:35.091 [info] [Import] SQL batch 2001-3000 of 5122
+2026-01-02 09:20:37.933 [info] [Import] RPC response: {"data":{"success":true,"created":0,"updated":0,"skipped":0,"errors":1000,"total":1000,"first_error":"Row 2000: column \"phone\" does not exist"},"error":null}
+2026-01-02 09:20:37.933 [info] [Import] First error in batch: Row 2000: column "phone" does not exist
+2026-01-02 09:20:37.933 [info] [Import] SQL batch 3001-4000 of 5122
+2026-01-02 09:20:40.557 [info] [Import] RPC response: {"data":{"success":true,"created":0,"updated":0,"skipped":0,"errors":1000,"total":1000,"first_error":"Row 3000: column \"phone\" does not exist"},"error":null}
+2026-01-02 09:20:40.557 [info] [Import] First error in batch: Row 3000: column "phone" does not exist
+2026-01-02 09:20:40.557 [info] [Import] SQL batch 4001-5000 of 5122
+2026-01-02 09:20:43.364 [info] [Import] RPC response: {"data":{"success":true,"created":0,"updated":0,"skipped":0,"errors":1000,"total":1000,"first_error":"Row 4000: column \"phone\" does not exist"},"error":null}
+2026-01-02 09:20:43.365 [info] [Import] First error in batch: Row 4000: column "phone" does not exist
+2026-01-02 09:20:43.365 [info] [Import] SQL batch 5001-5122 of 5122
+2026-01-02 09:20:43.820 [info] [Import] RPC response: {"data":{"success":true,"created":0,"updated":0,"skipped":0,"errors":122,"total":122,"first_error":"Row 5000: column \"phone\" does not exist"},"error":null}
+2026-01-02 09:20:43.820 [info] [Import] First error in batch: Row 5000: column "phone" does not exist
+2026-01-02 09:20:43.820 [info] [Import] SQL function complete: 0 created, 0 updated

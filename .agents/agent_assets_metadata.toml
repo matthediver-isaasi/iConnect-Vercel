@@ -1,0 +1,1001 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "tQsX-aQ3iKoUUe1yU_gzl"
+uri = "file://attached_assets/mailchimp_member_lookup_results.xlsx"
+type = "table"
+title = "MailChimp Member Lookup Results (Corrected)"
+logical_id = "6bf6ae9b-2624-4d92-b865-b6d93cb78420"
+
+[[outputs]]
+id = "axW6smhLqW0Do65uDwzr1"
+uri = "file://.local/wordpress-integration-proposal.md"
+type = "text"
+title = "WordPress Content Sync — Global Schools Forum / iConnect Proposal"
+logical_id = "7359ac75-8484-45a4-8186-0bc1d97ef264"
+
+[[outputs]]
+id = "N2B6mBZOqqmKvuZjHrXnS"
+uri = "file://.local/wordpress-integration-proposal.docx"
+type = "word_document"
+title = "WordPress Content Sync — Global Schools Forum / iConnect Proposal (Word)"
+logical_id = "739921a0-7d44-41db-8929-a61d28a222e9"
+
+[[outputs]]
+id = "ww54CePseorboUB_oDbud"
+uri = "file://iconnect-sync.zip"
+type = "unspecified"
+title = "iConnect Content Sync WordPress Plugin (v1.1.0)"
+logical_id = "915420ef-8a71-4e0f-833a-7d4f6a47d19a"
+
+[[outputs]]
+id = "qQGKfoAGhoJvr-dmsdNAv"
+uri = "file://reports/seo-board-report.docx"
+type = "word_document"
+title = "GFI — SEO & Link-Preview Capability Board Update"
+logical_id = "de56bd25-ce85-44b4-8cd1-9a1076ccb1a3"
+
+[[outputs]]
+id = "vRAAVRf2iHTJl2DiEwJEr"
+uri = "file://exports/GFI-Security-and-Support-Board-Paper-v1.0.docx"
+type = "word_document"
+title = "GFI Security & 5-Year Support — Board Paper v1.0"
+logical_id = "624fbc9a-9ecb-4177-ab00-083710860e0e"
+
+[[outputs]]
+id = "72kzeHLD3gkxPvjWWw4-s"
+uri = "file://guides/canvasbuilder-accessibility-board-report.pdf"
+type = "pdf"
+title = "CanvasBuilder Accessibility — Board Report (PDF)"
+logical_id = "23ace045-1c1a-4b1f-86e6-fe49afd95f97"
+
+[[outputs]]
+id = "LoUrLCdSsQf9xpcI3LBby"
+uri = "file://reports/iConnect-Search-and-Member-AI-Board-Report.docx"
+type = "word_document"
+title = "iConnect Search & Member AI — Board Report"
+logical_id = "6ecd7629-64d7-4776-a1d1-f73b8606f2c3"
+
+[[outputs]]
+id = "6aUPznNyx_OakArBO13rz"
+uri = "file://guides/canvasbuilder-accessibility-board-report.docx"
+type = "word_document"
+title = "CanvasBuilder Accessibility Board Report (Word)"
+logical_id = "3b973f4c-aa43-437c-8cb8-ecfab82adcd2"
+
+[[outputs]]
+id = "MOntkLH5GvWaSFOVeH2rf"
+uri = "file://deliverables/gsf-map-switchover/class-zoho-api.iconnect.php.txt"
+type = "text"
+title = "Annotated WordPress plugin file (Zoho → iConnect)"
+logical_id = "73bcfe93-a0c0-47cc-be25-3cfc2b90f63a"
+
+[[outputs]]
+id = "0XgBoHweJu_bqx8dUgi1L"
+uri = "file://deliverables/gsf-map-switchover/HANDOVER.md"
+type = "text"
+title = "Handover note for the WordPress developers"
+logical_id = "760d9b3a-c839-4ec7-bedb-b327c005aa4a"
+
+[[outputs]]
+id = "Fpuq_XA8DI46uNcZHuKuZ"
+uri = "file://deliverables/gsf-map-switchover/gsf-map-iconnect-switchover.zip"
+type = "unspecified"
+title = "GSF map package with country-search alias fix"
+description = "Verified 12-file WordPress package containing class integration v3.1.1 and map stats v1.2.0. Selecting Kyrgyzstan now searches canonical Kyrgyz Republic metadata."
+logical_id = "a0ad0d8c-a301-4152-add0-e96ef8b1eecb"
+
+[[outputs]]
+id = "oifXWZnx3cfDJZsSdPajB"
+uri = "file://.local/tasks/seo-prerender-ssr-scope.md"
+type = "text"
+title = "SEO Prerender/SSR Scope (single-tenant)"
+logical_id = "40f4be3e-a77f-496a-92a4-4a2aa8727420"
+
+[[outputs]]
+id = "Q0YW-61b8IPWdIZvJvwHQ"
+uri = "file://exports/job-posting-wrong-email-recipients.csv"
+type = "table"
+title = "Job Posting email recipients (317)"
+logical_id = "d0c08a7e-9b40-41d2-83f9-f664630325e8"
+
+[[outputs]]
+id = "wXUdkECOJMO0ScuvTxJcm"
+uri = "file://.local/reports/bnms-memberships-unpaid-invoices.csv"
+type = "table"
+title = "BNMS Outstanding Membership Invoices"
+description = "21 AUTHORISED (unpaid) membership invoices — total AmountDue £6,578.80"
+logical_id = "42dc9e71-d60d-41a2-8db0-9ee405b456f4"
+
+[[outputs]]
+id = "8knhZEEwY0VeFSncM0VnW"
+uri = "file://exports/bnms-memberships-invoices.csv"
+type = "table"
+title = "BNMS MEMBERSHIPS Invoices (2025-01-01 onward)"
+description = "7,379 Xero invoices with Projects = MEMBERSHIPS tracking. Columns: InvoiceNumber, Contact, Date, Status, SubTotal, Tax, Total, AmountDue, Currency, Reference."
+logical_id = "a279c33d-e78d-4789-9193-17123a137898"
+
+[[outputs]]
+id = "EgUk8ClNwZyKrlLlkks6-"
+uri = "file://bnms-memberships-invoices.csv"
+type = "table"
+title = "BNMS MEMBERSHIPS Invoices (2025-01-01 onward)"
+description = "7,379 Xero invoices with Projects = MEMBERSHIPS tracking (7,319 PAID, 21 AUTHORISED, 38 VOIDED, 1 DELETED; £314,621.06 live value). Columns: InvoiceNumber, Contact, Date, Status, SubTotal, Tax, Total, AmountDue, Currency, Reference."
+logical_id = "de237524-406d-4367-b9f2-7b787f827d46"
+
+[[outputs]]
+id = "BqmmEYI-JF0pcukAIJsXS"
+uri = "file://attached_assets/bnms-organisation-departments.csv"
+type = "table"
+title = "BNMS Organisation Departments"
+description = "CSV containing Organisation name and UUID plus each linked Department name and UUID. Includes Organisations with no linked Departments."
+logical_id = "01ac773b-e55c-4a0b-86ca-2894f9609afe"
+
+[[outputs]]
+id = "yiaZvX8cKtUq6s6VLrARr"
+uri = "file://guides/events-functionality-catalogue.pdf"
+type = "pdf"
+title = "Events Functionality Catalogue"
+description = "Publication-ready 20-page A4 catalogue of verified simple and complex event capabilities, dependencies and current boundaries."
+logical_id = "83e4c31c-dc13-418c-9b21-82c9e900e298"
+content_hash = "sha256:69c13e9d12ac5735dc57b974dae631a7add1f0706e14af7e670a60a1eb513e2d"
+size = 128674
+mtime_ms = 1788770611038
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/83e4c31c-dc13-418c-9b21-82c9e900e298/5f3c657b-b914-4397-80a3-31e98e9c1d74"
+storage_version_token = "1788770652294477"
+content_type = "application/pdf"
+
+[[outputs]]
+id = "vZK9Bw2vKWrmJLMI1Ip4F"
+uri = "file://attached_assets/bnms-department-responder-import-audit-2026-09-07.json"
+type = "unspecified"
+title = "BNMS Department responder import audit"
+description = "Row-level audit for all 153 imported Department Survey Responder assignments, including member and relationship actions and final verification totals."
+logical_id = "066fde4b-0dfe-4d9b-b519-b6ee5ade43a2"
+content_hash = "sha256:23bac059ebb052d8d2b7dce93ec8b4aff4ef1de5bf99c9a5243d31da68989b3a"
+size = 55623
+mtime_ms = 1788794965196
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/066fde4b-0dfe-4d9b-b519-b6ee5ade43a2/90c0b3f6-f120-4264-a040-9777529191fe"
+storage_version_token = "1788794981096498"
+content_type = "application/octet-stream"
+
+[[outputs]]
+id = "6holHzzRD7L4a1DQao4U2"
+uri = "file://guides/microsite-events-user-guide.pdf"
+type = "pdf"
+title = "Event Microsite User Guide"
+description = "A polished 15-page guide for planning, building, launching, operating and safely retiring an in-person event microsite."
+logical_id = "ac32d0b1-f99a-4d64-b78c-565eaaf1eb20"
+content_hash = "sha256:b7670b3495238507921b965de5a46e9553ac7669bcc702f2d6029c8089ecb3da"
+size = 391084
+mtime_ms = 1788934747979
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/ac32d0b1-f99a-4d64-b78c-565eaaf1eb20/ab12b1cb-0996-4d63-8172-9f02020a9903"
+storage_version_token = "1788934799649077"
+content_type = "application/pdf"
+
+[[outputs]]
+id = "LDIIyQ78jXKyWuBmpPIZ1"
+uri = "file://client/public/guides/stripe-membership-payments.pdf"
+type = "pdf"
+title = "Updated Stripe membership payments guide"
+description = "Clarifies both monthly invoicing modes using the exact setting names, with a worked example and successful-payment/accounting recovery behavior. See pages 5–6."
+logical_id = "14bf9539-29f9-4b54-9488-ea4ad7a02782"
+content_hash = "sha256:d9c063fb02ca4272892fac5c5f4a6900abdf4c0cef68ba61455ae1c4284ad095"
+size = 106971
+mtime_ms = 1789064883845
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/14bf9539-29f9-4b54-9488-ea4ad7a02782/a003e21c-c349-4c5b-aea6-2ebffc88e075"
+storage_version_token = "1789064908686755"
+content_type = "application/pdf"
+
+[[outputs]]
+id = "EHq7I0gyF8bc5TTydYRL5"
+uri = "file://guides/pdf/dashboard-reporting-functionality.pdf"
+type = "pdf"
+title = "Dashboard and Reporting"
+description = "11-page PDF with formatted headings, tables and page numbers."
+logical_id = "7d6c0ae1-bf58-4792-89b9-f5cc5a00b6db"
+content_hash = "sha256:449bb0038f72f38ea4ab5d0f4f47953e0129675ffeb4bc77cf1ba768d7857d89"
+size = 245600
+mtime_ms = 1789075420376
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/7d6c0ae1-bf58-4792-89b9-f5cc5a00b6db/51ce7b15-622f-4a1a-8d7f-d2ea62f794f1"
+storage_version_token = "1789075436306654"
+content_type = "application/pdf"
+
+[[outputs]]
+id = "RYnEOQFNL9NjggengOkEg"
+uri = "file://guides/pdf/crm-search-export-functionality.pdf"
+type = "pdf"
+title = "CRM Search and Export"
+description = "10-page PDF with formatted headings, tables and page numbers."
+logical_id = "869525fc-c863-4d7a-991c-abcd12fd5398"
+content_hash = "sha256:df8bd258a11aa5baadc87e88f73c37eed69f33a69a34196db84a91ed2b773b6a"
+size = 192536
+mtime_ms = 1789075420316
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/869525fc-c863-4d7a-991c-abcd12fd5398/e6aeec61-79b1-4cac-8db5-92ef9c1181ea"
+storage_version_token = "1789075437330427"
+content_type = "application/pdf"
+
+[[outputs]]
+id = "6Mj5X3LDRBpDfInhWND67"
+uri = "file://guides/pdf/due-diligence-functionality.pdf"
+type = "pdf"
+title = "Due Diligence"
+description = "12-page PDF with formatted headings, tables and page numbers."
+logical_id = "17cdda71-1783-4a2b-b9e2-19ffb666927c"
+content_hash = "sha256:3e01b3a479f245e9778c38020931cefdfa795af8a0b468a4a39377e5d855804f"
+size = 228473
+mtime_ms = 1789075420240
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/17cdda71-1783-4a2b-b9e2-19ffb666927c/bfecf0fe-9526-4fec-ac5f-7d4634d28768"
+storage_version_token = "1789075438155280"
+content_type = "application/pdf"
+
+[[outputs]]
+id = "KUcCFp9Q3wMQlldVEXVGX"
+uri = "file://.local/bnms-youtube-categorisation/approval-report.xlsx"
+type = "table"
+title = "BNMS categorisation approval report"
+description = "Row-level matches, current classifications, merged additions, blocked rows and Collection proposals. Read-only dry run."
+logical_id = "8612599a-886d-4d1d-8d1a-62b7b0ad1208"
+content_hash = "sha256:1cd3ccd90b8ce24a67bd698647568d7b77dee564e8c724b01683cfd380f4ab85"
+size = 717769
+mtime_ms = 1789472937540
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/8612599a-886d-4d1d-8d1a-62b7b0ad1208/d6903755-0cce-4db4-9f29-9c8bbcc33e69"
+storage_version_token = "1789473036416681"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "erJvIG7GBTc5Py4hCHhub"
+uri = "file://.local/bnms-youtube-categorisation/runs/2026-09-15T12-41-07.993Z/BNMS-classification-audit.xlsx"
+type = "table"
+title = "BNMS Resource Categorisation — Audit Report"
+description = "184 videos updated, 5 already complete; before/after recovery snapshots, classification changes, skipped rows, checksum and verified zero-write replay."
+logical_id = "82bfd6c2-683f-42de-bc20-3a7411dda8d4"
+content_hash = "sha256:81babd7829c810700cde3171b17d2225c7737e3c3d2d2526ef5f10d4da7c347b"
+size = 4701920
+mtime_ms = 1789476158717
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/82bfd6c2-683f-42de-bc20-3a7411dda8d4/c1df9365-527c-425f-8d8d-d52154f99223"
+storage_version_token = "1789476170624623"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "yBXlCy9y0JoThsIa8r8Qt"
+uri = "file://reports/bnms-presentations/2026-09-15T13-27-11.746Z/approval-report.xlsx"
+type = "table"
+title = "BNMS presentations — approval workbook"
+description = "All 1,445 rows, proposed actions, blocked rows, mapping guide, and before/proposed values. No live changes applied."
+logical_id = "dd1e35aa-9ee2-4a80-802c-87fd22b8f315"
+content_hash = "sha256:f6d8ffeb4da987f075a48de2b5482365eed338e31278baa6ff82d945c4f1c14c"
+size = 1941186
+mtime_ms = 1789478832186
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/dd1e35aa-9ee2-4a80-802c-87fd22b8f315/64303b8f-d032-41b2-99a9-8024ee50389d"
+storage_version_token = "1789478881556596"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "jBjoB76pSaUoUh1uwcEPQ"
+uri = "file://reports/bnms-presentations/approval-audit.zip"
+type = "unspecified"
+title = "BNMS presentations — reproducible audit"
+description = "Full JSON proposal and destination snapshot, approval summary, checksums, and verification results."
+logical_id = "e1a16367-10bb-459a-b211-86d818c4a2ca"
+content_hash = "sha256:5b0d273ec132a9209ccec17b929332bb2a7c78f5326698c467939d10e931b3e7"
+size = 590398
+mtime_ms = 1789478870474
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/e1a16367-10bb-459a-b211-86d818c4a2ca/ab87645d-ce0f-4379-abb9-49de0b137ea5"
+storage_version_token = "1789478882437206"
+content_type = "application/octet-stream"
+
+[[outputs]]
+id = "YoXi5Oeih7sStkyKM0BjT"
+uri = "file://reports/bnms-presentations/execution/2026-09-15T13-38-24.208Z/execution-report.xlsx"
+type = "table"
+title = "Download BNMS presentations import report"
+description = "XLSX report: 1,354 resources added, 4 updated, 87 unresolved rows skipped; live import verified."
+logical_id = "157d7346-fa49-453d-a960-4e4a123977b3"
+content_hash = "sha256:b710192b231ab317b25fe0f6ff752d14ac142ee39cab6aad44e1e8bc088c67ae"
+size = 390828
+mtime_ms = 1789479561718
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/157d7346-fa49-453d-a960-4e4a123977b3/c20e65ac-ea30-4790-bf3b-44851d70cc8b"
+storage_version_token = "1789479809920964"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "ShoglGWTvdxGofztGnjdM"
+uri = "file://reports/bnms-presentations/execution-audit.zip"
+type = "unspecified"
+title = "BNMS presentations — execution audit"
+description = "Saved plan, before/after snapshots, transaction journal, checksums and zero-write replay verification."
+logical_id = "62d14fd7-80dc-4666-b37f-9f0bbf6d17f1"
+content_hash = "sha256:008222158279ad0e592744a16728772b3f113f47828164b7fea696fd73e5d306"
+size = 2165491
+mtime_ms = 1789479591678
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/62d14fd7-80dc-4666-b37f-9f0bbf6d17f1/451e9341-02ce-4e21-aaf8-debd01c8027a"
+storage_version_token = "1789479599277549"
+content_type = "application/octet-stream"
+
+[[outputs]]
+id = "Ragm6fQa3dze9s4c6XSQ9"
+uri = "file://reports/bnms-posters/2026-09-15T13-50-57.289Z/approval.xlsx"
+type = "table"
+title = "BNMS posters — row-level approval workbook"
+description = "921 source rows, exact matches, before/proposed values, taxonomy and decisions. No changes applied."
+logical_id = "76b180d5-f159-470b-9137-608105ad8618"
+content_hash = "sha256:c908d904c50df0da44dd2453fab345c6ef1a862426e8bbd4f8fae230f2859821"
+size = 5728534
+mtime_ms = 1789480386875
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/76b180d5-f159-470b-9137-608105ad8618/e177181a-93f6-4511-8ce3-128f1570f153"
+storage_version_token = "1789480406486564"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "DEM_QJ0iHVJvP6_3O2bjF"
+uri = "file://reports/bnms-posters/2026-09-15T13-50-57.289Z/approval-summary.html"
+type = "html"
+title = "BNMS posters — approval summary"
+description = "0 inserts, 920 proposed updates, 1 blocked row. Includes approval decisions, checksums and destination coverage."
+logical_id = "40b6acea-0fff-498e-9261-7000d2c52bcf"
+content_hash = "sha256:f181b9e60e625816f32a8e1e2ecb48b3b79f83c72f3989669b928cf0eae880d5"
+size = 7372
+mtime_ms = 1789480386864
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/40b6acea-0fff-498e-9261-7000d2c52bcf/d57f8567-fcaf-4bb2-96d1-7d481d935c56"
+storage_version_token = "1789480407377101"
+content_type = "text/html"
+
+[[outputs]]
+id = "1NYnkZpyacDC91XvJJ4Us"
+uri = "file://reports/bnms-final-resources/2026-09-15T15-36-08.721Z/approval-report.xlsx"
+type = "table"
+title = "BNMS resources import review"
+description = "All 530 rows, proposed updates, held rows, duplicate links, and classification checks. No database changes made."
+logical_id = "78ab867e-9451-4165-a455-80a5d6817fb2"
+content_hash = "sha256:e9c57afd96994afda24e39b2fa25e715321de4b39fefb6afd8ba0e12b85f8993"
+size = 548223
+mtime_ms = 1789486568914
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/78ab867e-9451-4165-a455-80a5d6817fb2/d0d45155-2f89-4e99-8b8c-cd7f82ae4269"
+storage_version_token = "1789486608638014"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "9IIC6MwL9TChz_xFTKz6G"
+uri = "file://reports/bnms-final-resources/execution/2026-09-15T16-03-05.701Z/execution-report.xlsx"
+type = "table"
+title = "BNMS resource import results"
+description = "Verified results for all 530 rows, including imported and updated resources and reasons for the 121 held rows."
+logical_id = "9141c73a-62b7-4ed1-8100-8343d6f1b06a"
+content_hash = "sha256:44c0220fa9c915ad354d2c312d997935fddbc4f1cd324094b4e39ddc3535b4bd"
+size = 158010
+mtime_ms = 1789488217806
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/9141c73a-62b7-4ed1-8100-8343d6f1b06a/e5621811-b710-4c70-b983-76cbbbe4d564"
+storage_version_token = "1789488360868885"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "CaHw6C0cQ1ru2df6Q-ojf"
+uri = "file://reports/bnms-spring-2026-resources/execution/2026-09-15T16-46-42.963Z/execution-report.xlsx"
+type = "table"
+title = "BNMS 2026 import results"
+description = "Actual execution results and row-by-row audit, including the 135 unresolved rows."
+logical_id = "5f19d42f-f211-469a-b58e-3f44f592b706"
+content_hash = "sha256:852f29273b5336b86fc1a614e17e54bb3bf4320b06618195b33b46159ca7d9b0"
+size = 190738
+mtime_ms = 1789490827702
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/5f19d42f-f211-469a-b58e-3f44f592b706/8fe02422-1a83-496b-beb3-3cd97c57d5bc"
+storage_version_token = "1789491076924002"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "k3pEzBHbunkpcn2ZqOv_4"
+uri = "file://reports/bnms-workforce-validation/report.html"
+type = "html"
+title = "BNMS workforce validation report"
+description = "Verified mappings, live destination reconciliation, duplicate totals, and the remaining approval blockers. Read-only: zero database writes."
+logical_id = "22106f7e-c9ed-49c5-880f-bc8e69db82a0"
+content_hash = "sha256:1d191272cab0579f4ca1c0296df15d3acdf2a1aac5b339817737ddfe47a86548"
+size = 48266
+mtime_ms = 1789642936559
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/22106f7e-c9ed-49c5-880f-bc8e69db82a0/47b8eca5-f99a-4846-9d5b-0f6ec59a25ca"
+storage_version_token = "1789643007611233"
+content_type = "text/html"
+
+[[outputs]]
+id = "D0jgmLsRJfDSXvkmYFH8a"
+uri = "file://reports/bnms-workforce-validation/departments.csv"
+type = "table"
+title = "Per-Department dry-run counts"
+description = "All 136 Departments with source totals and prospective survey, row, and relationship actions."
+logical_id = "ffb1bf13-1f34-4227-b09f-682b71956418"
+content_hash = "sha256:21f10194c68019f47c64cc001c2bab6469ef05472c6a37ac1ec70cea67b61874"
+size = 24248
+mtime_ms = 1789642936539
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/ffb1bf13-1f34-4227-b09f-682b71956418/7657edf0-631c-4614-bcda-0e9e83806b48"
+storage_version_token = "1789643008368784"
+content_type = "text/csv"
+
+[[outputs]]
+id = "dbu3YPxkU_IBiFy4MPKcB"
+uri = "file://reports/bnms-workforce-validation/occurrences.csv"
+type = "table"
+title = "All 1,242 proposed row occurrences"
+description = "Source-line provenance, canonical values, blank-to-No conversion, mapping blockers, and proposed rerun identities. Not an import file approval."
+logical_id = "1b1dd244-926c-441b-9c88-9b9d33168a41"
+content_hash = "sha256:45a238c82b17d3dd352705afc3d22f769b4048a59a68035152203a07d3781ac0"
+size = 321208
+mtime_ms = 1789642936539
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/1b1dd244-926c-441b-9c88-9b9d33168a41/55d88176-90ba-4378-b853-5bdd8fc2fb40"
+storage_version_token = "1789643009157505"
+content_type = "text/csv"
+
+[[outputs]]
+id = "Km-OmWSmiGLrPDsZh-t-f"
+uri = "file://reports/bnms-workforce-validation/duplicates.csv"
+type = "table"
+title = "Original and normalized duplicate groups"
+description = "Every duplicate group with source lines and WTE totals; no occurrences have been removed."
+logical_id = "457f723c-3fbc-41e4-a17a-9db19cb6ad6d"
+content_hash = "sha256:3f9ce882cfba974e80699f84789142c0ae252ad2fb41ab176077f744f70c7347"
+size = 40672
+mtime_ms = 1789642936543
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/457f723c-3fbc-41e4-a17a-9db19cb6ad6d/0e74747b-c805-4699-9a50-cc6939dc8a7b"
+storage_version_token = "1789643009795978"
+content_type = "text/csv"
+
+[[outputs]]
+id = "fy07op4CjTInjHJAMDrs8"
+uri = "file://reports/bnms-workforce-import-preparation/report.html"
+type = "html"
+title = "BNMS workforce import — final preparation review"
+description = "Approved mappings, retained duplicates, per-Department totals, rerun safeguards, operational impact, and the separate final approval boundary. No live import performed."
+logical_id = "3a2fafe0-25b9-4367-bd2c-36d1c372089e"
+content_hash = "sha256:e19588af04161f467f5a068f9c57c85e67fe6d8121daa8b7d736d015fe9fb4dd"
+size = 22933
+mtime_ms = 1789644218917
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/3a2fafe0-25b9-4367-bd2c-36d1c372089e/fb3ce490-971a-4dad-93c5-eb8a3369e66a"
+storage_version_token = "1789644288890214"
+content_type = "text/html"
+
+[[outputs]]
+id = "tjUA528Xp2Fcq9QgrCsx4"
+uri = "file://reports/bnms-workforce-direct-import-preparation-v3/report.html"
+type = "html"
+title = "Updated workforce import review"
+description = "Direct department mappings for 1,242 workforce rows, with Reporting Year omitted. Includes totals, preservation checks, and import execution requirements."
+logical_id = "e406159e-d8eb-4061-8863-564d3a1c87fb"
+content_hash = "sha256:7baf173d2b5903d5aeb0252db93046e627685f723758534a2c96b6492db5c24a"
+size = 15634
+mtime_ms = 1789662290985
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/e406159e-d8eb-4061-8863-564d3a1c87fb/c81ce763-f5e7-47d0-987e-6590faedd656"
+storage_version_token = "1789662335938878"
+content_type = "text/html"
+
+[[outputs]]
+id = "PLNqh4JiTQnwsaN3odK8N"
+uri = "file://reports/bnms-department-addresses/dry-run-rows.csv"
+type = "table"
+title = "Department address dry run — all 301 rows"
+description = "Source rows, duplicate mappings, resolved targets and proposed changes. No updates applied."
+logical_id = "21e41623-0d02-40e0-a905-77291c129bd4"
+content_hash = "sha256:bf982424cab50b7374fe64bd456b5300afa66f946ffa1740a46d7a06f884d3f6"
+size = 107519
+mtime_ms = 1789713160998
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/21e41623-0d02-40e0-a905-77291c129bd4/ddf047e1-40c5-46ca-9015-37fd166ea34d"
+storage_version_token = "1789713171257452"
+content_type = "text/csv"
+
+[[outputs]]
+id = "027-YS-lX-2NQXjmFj5ld"
+uri = "file://reports/bnms-department-addresses/matching-candidates.csv"
+type = "table"
+title = "Duplicate matching candidates"
+description = "Exact Organisation and Department IDs, creation dates and relationship counts for the unresolved matches."
+logical_id = "3bcd86e7-b707-46df-8b60-e48a24d2bfbf"
+content_hash = "sha256:0a79e3331de49e81243b3e13fe191541170a521f0feb6928d6e8bddf30b4aad9"
+size = 2550
+mtime_ms = 1789713160998
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/3bcd86e7-b707-46df-8b60-e48a24d2bfbf/95aff6f3-fb0e-4254-8d25-e75f7645a481"
+storage_version_token = "1789713171957337"
+content_type = "text/csv"
+
+[[outputs]]
+id = "EgHz5eDZ7_NfA2ZWHH3xQ"
+uri = "file://reports/bnms-department-addresses/completed-rows.csv"
+type = "table"
+title = "Completed BNMS Department address import"
+description = "All 301 source rows accounted for, with target IDs, duplicate mappings and verified final values."
+logical_id = "a393f3d5-59e6-4ca4-b3d4-5e7daca18bce"
+content_hash = "sha256:4ff0fd5eb1441702603f78de4c05092f9b2e4ecf7d7c319dcb2ecac2c6ee4116"
+size = 103771
+mtime_ms = 1789713634654
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/a393f3d5-59e6-4ca4-b3d4-5e7daca18bce/b0972488-3491-4a66-951c-ea5a9a1f376a"
+storage_version_token = "1789713669659731"
+content_type = "text/csv"
+
+[[outputs]]
+id = "M2hnPUbvRh9ZghbAyFQNe"
+uri = "file://.agents/outputs/bnms-membership-dry-run-2026-09-18/summary.html"
+type = "html"
+title = "BNMS membership reconciliation — read-only report"
+description = "Grouped findings, member-level blockers, scope exclusions and source coverage. No changes are approved or applied."
+logical_id = "1474ecbc-50bc-4bdf-88e3-81fa946f5ad3"
+content_hash = "sha256:474a4296afc1509ee2770c2f36afd759f05f3d71306c27ce3a46745e13e554f2"
+size = 1090637
+mtime_ms = 1789723234572
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/1474ecbc-50bc-4bdf-88e3-81fa946f5ad3/bdbb3c1b-a7fa-4c64-b55a-98468c73bd41"
+storage_version_token = "1789723252670245"
+content_type = "text/html"
+
+[[outputs]]
+id = "NbWftPM57egW-uxvH1aEl"
+uri = "file://.agents/outputs/bnms-membership-dry-run-2026-09-18/all-members.csv"
+type = "table"
+title = "BNMS member-by-member review spreadsheet"
+description = "All 3,822 records, including 882 review candidates, mapped structures, proposed dates, payment hints, provider references and explanations. Contains confidential member information."
+logical_id = "59fd3450-7dc3-4917-bff2-8fe825214211"
+content_hash = "sha256:f10a98ea2153aaa4a979f7eb86dd161748cd5d4b9873d3ee46ac6527034e456b"
+size = 4520540
+mtime_ms = 1789723234552
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/59fd3450-7dc3-4917-bff2-8fe825214211/1203bc42-8d71-4cb1-8b07-88f134a676db"
+storage_version_token = "1789723253874206"
+content_type = "text/csv"
+
+[[outputs]]
+id = "H0IysnGg2G5di2m-CUbZO"
+uri = "file://.agents/outputs/bnms-membership-dry-run-2026-09-18/proposed-records.json"
+type = "unspecified"
+title = "BNMS detailed evidence and proposed record fields"
+description = "Complete per-member evidence, invoice/payment candidates, original source values, incomplete canonical membership fields and source fingerprints. Read-only data, not an executable migration."
+logical_id = "5b9a6e1f-89fb-482b-b11d-3633435b1b40"
+content_hash = "sha256:c2921f58ebf262779b22412f2188572e0d439bed4d92677f01a1c66baf376e2c"
+size = 26843413
+mtime_ms = 1789723234340
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/5b9a6e1f-89fb-482b-b11d-3633435b1b40/e455166f-c115-4da9-9815-3d127e8ccbf4"
+storage_version_token = "1789723255143842"
+content_type = "application/octet-stream"
+
+[[outputs]]
+id = "9Vz3b9KUNWqcc7ChWxdUo"
+uri = "file://.agents/outputs/BNMS-Full-members-renewal-review-2026-09-18.xlsx"
+type = "table"
+title = "BNMS Full members — renewal reconciliation"
+description = "Excel workbook for 167 members with member_class exactly Full, using the last twelve months of invoice evidence. Includes deduplicated invoices, GoCardless payment evidence, proposed fields and review limitations. Nominal-code matching remains unverified: both Full structure codes are empty and Xero invoice-line codes are unavailable. Read-only; no database changes or migrations applied."
+logical_id = "cf614161-495c-4891-b349-380eccc2f062"
+content_hash = "sha256:61158a0619f6dd857f8c2a29aa4df48a5d6007607f4fff11ec84ba745dcb5a58"
+size = 553032
+mtime_ms = 1789724513099
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/cf614161-495c-4891-b349-380eccc2f062/1a62c0e7-c86f-4313-9040-a64eb9f950f0"
+storage_version_token = "1789724557009682"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "k9SL_QVpF6_t1UCh1JOEi"
+uri = "file://.agents/outputs/BNMS-Full-members-to-complete.xlsx"
+type = "table"
+title = "BNMS Full members — simplified completion workbook"
+description = "Exactly two sheets with identical columns: Ready to set up and Needs completion. Yellow cells are editable; each member has a short completion checklist. Member IDs and technical references are preserved for a later validated import. Read-only: no member changes or migrations applied."
+logical_id = "3bd17727-06f6-4fd3-9421-69d10f00cf3c"
+content_hash = "sha256:cbff87253cec4b205da9e7e911a1d85e882419b624d5e3e250a7ad6ce581d8b2"
+size = 43513
+mtime_ms = 1789724931012
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/3bd17727-06f6-4fd3-9421-69d10f00cf3c/3319d7cb-fc4f-40ad-9bd7-a30e5cdbbad3"
+storage_version_token = "1789724942211040"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "M8nUlbaHNNgFnqeCGGUqQ"
+uri = "file://.agents/outputs/BNMS-Full-members-completion-dropdowns.xlsx"
+type = "table"
+title = "BNMS Full members — completion workbook with dropdowns"
+description = "Updated two-sheet Excel workbook. Includes dropdowns and cell guidance for payment method, frequency, status, currency, membership class, structure, billing period and import approval. All 167 member rows are unchanged; unknown payment values remain blank."
+logical_id = "de2039d8-0a91-40f9-b79f-74f4e826745f"
+content_hash = "sha256:1cd330ef805523edd6a5e717be3c45464844b34186c5699936c15af39a2351fc"
+size = 45325
+mtime_ms = 1789725413395
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/de2039d8-0a91-40f9-b79f-74f4e826745f/86df81a4-de65-402e-b6a8-0071b5b2b642"
+storage_version_token = "1789725431254643"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "y8VImRxqUub4Ex-Fhy8yO"
+uri = "file://.agents/outputs/BNMS-Full-members-completion-dropdowns.zip"
+type = "unspecified"
+title = "Download original Excel workbook (ZIP)"
+description = "Contains the original .xlsx file, verified byte-for-byte unchanged. Download the ZIP, extract it, then open the Excel file directly—no spreadsheet preview/export needed."
+logical_id = "d8665c19-f126-4e6c-8471-aad73d6d5bb1"
+content_hash = "sha256:70a2b0aa52a3c78eaceef11be025569eca5663fffd54938127d471bf7db3228e"
+size = 38829
+mtime_ms = 1789725565539
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/d8665c19-f126-4e6c-8471-aad73d6d5bb1/4c6d5e52-4256-462d-91b8-2931c124d1c2"
+storage_version_token = "1789725570176756"
+content_type = "application/octet-stream"
+
+[[outputs]]
+id = "Txn5-oNt2neN4ABPlrMjp"
+uri = "file://.agents/outputs/BNMS-Full-members-CORRECTED.zip"
+type = "unspecified"
+title = "Download corrected Excel workbook (ZIP)"
+description = "Rebuilt with a standard Excel writer, replacing the malformed dropdown structure. Preserves all 167 members, both sheets and eight dropdowns per sheet. Independently read back without warnings and checked for correct worksheet structure. Extract and open BNMS-Full-members-CORRECTED.xlsx."
+logical_id = "64fd3183-8d58-4c36-9f46-86ac93d7bc2a"
+content_hash = "sha256:5077cd07ac52e3116629a292abb0e5e84d1886f0edd8f0327d79196de82899cd"
+size = 38268
+mtime_ms = 1789725703086
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/64fd3183-8d58-4c36-9f46-86ac93d7bc2a/f5bdb470-b051-4d3d-af0b-24f6290d4f11"
+storage_version_token = "1789725733893339"
+content_type = "application/octet-stream"
+
+[[outputs]]
+id = "y_s6ual5DlG-STUqWx_75"
+uri = "file://test-results/task-4517-gocardless-embed/task-4517-gocardless-embed-6860a-isturbing-sibling-ownership/mobile-live-gocardless-reservation.png"
+type = "image"
+title = "Mobile payment layout — isolated test"
+description = "Provider-shaped mock in the real Canvas embed. The lower control remains reachable and the second form stays separate. No bank details or mandates."
+logical_id = "e3c0da45-8817-40b8-b875-1f323b418881"
+content_hash = "sha256:831aa460ffde5ed74e21c5dfcaac1682ceb093b29f27dd5066f6c1e93cb22265"
+size = 67935
+mtime_ms = 1789739328734
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/e3c0da45-8817-40b8-b875-1f323b418881/67f6881d-f38c-4227-8743-28aa776dc383"
+storage_version_token = "1789739500313125"
+content_type = "image/png"
+
+[[outputs]]
+id = "wiIUDuLgpJQtBZShjmTjO"
+uri = "file://test-results/task-4517-gocardless-embed/task-4517-gocardless-embed-eea57-on-restore-intrinsic-sizing/desktop-success-cleanup.png"
+type = "image"
+title = "Desktop confirmation — isolated test"
+description = "The provider overlay is removed after successful setup and the embedded confirmation returns to its natural height."
+logical_id = "cb440365-4d8e-43bc-94e5-ae31e6c82099"
+content_hash = "sha256:dc6cd9073fd87322ecd265fa36fd8833c7bb8ca52ca87a6c4369ffe3137dc63e"
+size = 103485
+mtime_ms = 1789739365677
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/cb440365-4d8e-43bc-94e5-ae31e6c82099/57572144-cfb5-462f-8d28-b0bbd9874d93"
+storage_version_token = "1789739501269066"
+content_type = "image/png"
+
+[[outputs]]
+id = "LgRI1EcWsP9_75txXB37u"
+uri = "file://reports/bnms-dd-pilot-preflight.html"
+type = "html"
+title = "BNMS pilot — monthly history and October readiness"
+description = "Verified historical invoice links, corrected monthly admin view, released October plan, production exact-invoice safeguards, migrations and remaining future collection checks."
+logical_id = "b13fbce8-f00f-4c3a-a8d3-73ca1899231b"
+content_hash = "sha256:ad7758ae48d65a942182142cdc95a913e43e7d7e8abe86e246ae94321d65d1bb"
+size = 18907
+mtime_ms = 1789815223539
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/b13fbce8-f00f-4c3a-a8d3-73ca1899231b/fbc1fa1c-2ef0-4155-bf5c-8af3b2731fa9"
+storage_version_token = "1789815345222946"
+content_type = "text/html"
+
+[[outputs]]
+id = "KoJndLI9tIo-PCGITjhtH"
+uri = "file://exports/bnms-additional-members/held-rows.csv"
+type = "table"
+title = "BNMS — 69 held member rows"
+description = "Original source columns plus workbook row number and hold reasons. Contains member personal data; share only with authorized administrators."
+logical_id = "1f5e16da-d1b8-4520-b326-bea42585f208"
+content_hash = "sha256:7f6d97aafe61987f71fb9fa1dc728aea648bc41a802b205f5ac571998ccafc5c"
+size = 24398
+mtime_ms = 1789834891195
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/1f5e16da-d1b8-4520-b326-bea42585f208/4b3f0602-a9f3-4ee6-98f6-f0a18accaee8"
+storage_version_token = "1789834949382821"
+content_type = "text/csv"
+
+[[outputs]]
+id = "5gNu440OLJ1D4CtxhV356"
+uri = "file://.local/private-reports/bnms-held-current/BNMS-held-rows-REGENERATED-current-state-2026-09-19.csv"
+type = "table"
+title = "BNMS held rows — regenerated current-state CSV"
+description = "69 held source rows, all 31 original columns, source row numbers and manual-attention reasons. Regenerated read-only on 19 September 2026; not the recovered historical report. No member data changes or migrations."
+logical_id = "8b8b458e-0a5f-4719-946c-a712785a750f"
+content_hash = "sha256:7f6d97aafe61987f71fb9fa1dc728aea648bc41a802b205f5ac571998ccafc5c"
+size = 24398
+mtime_ms = 1789836597543
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/8b8b458e-0a5f-4719-946c-a712785a750f/882857a7-445b-4840-b336-0b4449236e02"
+storage_version_token = "1789836635411419"
+content_type = "text/csv"
+
+[[outputs]]
+id = "lYE2e7tF82yQ7Vfdch3YW"
+uri = "file://exports/private-bnms-held/BNMS-69-held-rows.xlsx"
+type = "table"
+title = "BNMS — 69 held rows (Excel)"
+description = "Verified 69 populated rows with all original values, Excel row numbers and hold reasons. Includes reconciliation of all 96 source rows and historical provenance. Private member data: authorized administrators only."
+logical_id = "d71f3389-6060-49f6-a2dc-862368e1d141"
+content_hash = "sha256:1115a3b4f05755d1d1fb4642e61232148561df4a35a619e5fa02f23833687d2e"
+size = 25296
+mtime_ms = 1789838618704
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/d71f3389-6060-49f6-a2dc-862368e1d141/df5b2f43-2f7a-4aa3-ba1e-c3be054be512"
+storage_version_token = "1789838624976461"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "UqpXcyCYu1VEbQzOO5E5S"
+uri = "file://exports/private-bnms-held/BNMS-69-held-rows.csv"
+type = "table"
+title = "BNMS — 69 held rows (CSV)"
+description = "Verified 69 data rows. Exact byte-for-byte match to the original historical attachment hash; 24,398 bytes. Private member data: authorized administrators only."
+logical_id = "b75d88c8-226f-4427-93dc-4fd554727464"
+content_hash = "sha256:7f6d97aafe61987f71fb9fa1dc728aea648bc41a802b205f5ac571998ccafc5c"
+size = 24398
+mtime_ms = 1789838618266
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/b75d88c8-226f-4427-93dc-4fd554727464/234f79bc-943a-4f4b-a55c-05612c1c9e20"
+storage_version_token = "1789838625831102"
+content_type = "text/csv"
+
+[[outputs]]
+id = "GkuY8-nAI6RP-ceeObFKL"
+uri = "file://exports/private-bnms-held-replacement/run-20260919T172956Z/BNMS-69-held-rows-replacement-20260919T172956Z.xlsx"
+type = "table"
+title = "BNMS held rows — replacement Excel"
+description = "Verified 69 populated rows on the visible Held rows sheet, with all original columns, source row numbers and hold reasons. Contains private member information."
+logical_id = "eed70c61-1148-4ba3-b28d-d0c3d6b7828b"
+content_hash = "sha256:85a6e08073918d2f8418a4d5bed5903372bd180e98e10008e783e0e6044bdc35"
+size = 22463
+mtime_ms = 1789839111565
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/eed70c61-1148-4ba3-b28d-d0c3d6b7828b/d83f1cbc-0f3d-4c39-9c22-cd4c9f3cc8f2"
+storage_version_token = "1789839168585805"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "BXUvr3b2-u2d_m8NTqWKx"
+uri = "file://exports/private-bnms-held-replacement/run-20260919T172956Z/BNMS-69-held-rows-replacement-20260919T172956Z.csv"
+type = "table"
+title = "BNMS held rows — replacement CSV"
+description = "Verified 69 populated rows; 24,398 bytes and an exact hash match to the original report. Contains private member information."
+logical_id = "79f9a18e-d7ba-4f90-a605-0c37a848b6e0"
+content_hash = "sha256:7f6d97aafe61987f71fb9fa1dc728aea648bc41a802b205f5ac571998ccafc5c"
+size = 24398
+mtime_ms = 1789839032357
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/79f9a18e-d7ba-4f90-a605-0c37a848b6e0/859ef19b-ccea-4d73-868e-5bd88c4a8857"
+storage_version_token = "1789839169307725"
+content_type = "text/csv"
+
+[[outputs]]
+id = "XtFqqT5_0THd_bS6WdbxM"
+uri = "file://exports/private-bnms-alpha-final-review-20260920/BNMS-alpha-review.xlsx"
+type = "table"
+title = "BNMS alpha import — prepared members and exceptions"
+description = "Review only: 249 planned future held memberships, 2,137 matched historical invoices, and 170 mandate exceptions. No alpha records imported yet. Contains private member data."
+logical_id = "c33895f7-c686-43bd-96db-1005d5160778"
+content_hash = "sha256:5c5fb395225beeb169b32574fcc0216a3e3f1e863962ef742e87a1388ac93efb"
+size = 42136
+mtime_ms = 1789845183468
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/c33895f7-c686-43bd-96db-1005d5160778/e52d707e-1603-4399-9dbf-d0037b14302f"
+storage_version_token = "1789845310368606"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "dvft8WJjIezVq9Z-UvnUj"
+uri = "file://exports/private-bnms-alpha-final-review-20260920/BNMS-alpha-exceptions.csv"
+type = "table"
+title = "BNMS alpha — 170 mandate exceptions"
+description = "Records excluded from the prepared batch, with reasons requiring review. Contains private member data."
+logical_id = "4deb11c1-81f2-4288-bb06-a32ae695899c"
+content_hash = "sha256:2fe47352a60adf493174a6389d6e1b1abebe40fc130afc624dad6cdba1118f7f"
+size = 34138
+mtime_ms = 1789845183472
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/4deb11c1-81f2-4288-bb06-a32ae695899c/fa5e0daa-be70-4320-8805-ac88962bd69a"
+storage_version_token = "1789845311117629"
+content_type = "text/csv"
+
+[[outputs]]
+id = "NrwKDJneD5H7Oy5RsZ5D9"
+uri = "file://exports/private-bnms-alpha-completed-20260920/BNMS-alpha-completed.xlsx"
+type = "table"
+title = "BNMS alpha review workbook"
+description = "Open the Exceptions tab to review all 170 excluded mandate records and their reasons. Contains private member information."
+logical_id = "22f5d875-444d-4610-8fb7-f1e5812b7abf"
+content_hash = "sha256:d074f5e04ae6c49bb5a5778780ec7935b190f44972cfa8fe2a4a80a66307df8d"
+size = 58438
+mtime_ms = 1789885314240
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/22f5d875-444d-4610-8fb7-f1e5812b7abf/6dab6b8c-3870-4b27-9471-1f65c59a15eb"
+storage_version_token = "1789885862650914"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "CQGp8bVJnjfyb2D64Amrc"
+uri = "file://exports/private-bnms-alpha-completed-20260920/BNMS-alpha-imported.csv"
+type = "table"
+title = "Alpha — 249 imported members"
+description = "Verified imported member list with reconciliation counts. Private member information."
+logical_id = "1d77bd56-e793-4b48-bcd3-578b2a45ede3"
+content_hash = "sha256:04028b945a26474a3df7a2187e432f668a7b8030d5c81cc72aa4a8bd49205d28"
+size = 61897
+mtime_ms = 1789885314244
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/1d77bd56-e793-4b48-bcd3-578b2a45ede3/2240439b-5703-4f64-815d-ee31eafbd419"
+storage_version_token = "1789885500458786"
+content_type = "text/csv"
+
+[[outputs]]
+id = "I3aI8I49ge_Tfwd8SKywI"
+uri = "file://exports/private-bnms-alpha-completed-20260920/BNMS-alpha-exceptions.csv"
+type = "table"
+title = "170 exceptions — CSV"
+description = "Exceptions-only list with member ID, email, mandate ID and reasons, for filtering in Excel."
+logical_id = "0422efbf-984f-4c83-941f-926446af8613"
+content_hash = "sha256:05f10b4f1ef46092c017155fab8ac141defae3580d48b96efb3df9f203175485"
+size = 25984
+mtime_ms = 1789885314244
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/0422efbf-984f-4c83-941f-926446af8613/81ce954e-f947-4782-a687-8e9b5523b8a9"
+storage_version_token = "1789885863309353"
+content_type = "text/csv"
+
+[[outputs]]
+id = "BKZWQ3wUQuG_TexOXsuXA"
+uri = "file://exports/.bnms-all-members/BNMS-All-Members.xlsx"
+type = "table"
+title = "All BNMS Members — Excel Export"
+description = "3,865 retained BNMS members, including 52 anonymised placeholders. Five requested columns; verified against the read-only production DEST snapshot from 20 September 2026 at 12:58 UTC."
+logical_id = "2b79f6de-9aa8-443c-95e6-5319b592377c"
+content_hash = "sha256:091065d00187aea7802fd00033c6655a803b3ad0f6b86f21c116091bea8b6ab7"
+size = 227286
+mtime_ms = 1789909086970
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/2b79f6de-9aa8-443c-95e6-5319b592377c/1bcdac7e-2848-4493-a974-a176d928d0cb"
+storage_version_token = "1789909096098041"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "irbYyiQ3XwHLG_USToaUj"
+uri = "file://exports/.bnms-remaining-member/BNMS-Remaining-Member-Role-Review-2026-09-20.xlsx"
+type = "table"
+title = "BNMS — Remaining Member Role Review"
+description = "614 records currently assigned the Member role, with the same five fields: member ID, email, ym_membership_type, member_class and role name. Includes a summary by member class."
+logical_id = "9cb32114-cb56-45b7-a667-c2ee141723b4"
+content_hash = "sha256:ed9430d38c368f7096ab611466086b8588a7f64b620765a903c86724b8f3f004"
+size = 43411
+mtime_ms = 1789909668880
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/9cb32114-cb56-45b7-a667-c2ee141723b4/da183d09-81ee-414a-ae8b-51a2405e40c3"
+storage_version_token = "1789909689506452"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "FrBo9fEuDkScbA1zKPVa7"
+uri = "file://exports/.bnms-remaining-member/BNMS-Remaining-Member-Role-Review-After-Former-Update-2026-09-20.xlsx"
+type = "table"
+title = "BNMS — Remaining Member Role Review (Updated)"
+description = "Updated after assigning Former roles. Contains the 200 BNMS records still assigned Member, with the same five fields and a member-class summary."
+logical_id = "98d3a18b-f050-4d24-96a4-13181b34c0f3"
+content_hash = "sha256:60bfd16372c77200a37c14fee09294198ba2d31a1a2e420f5c9820b69ef29147"
+size = 19975
+mtime_ms = 1789909950427
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/98d3a18b-f050-4d24-96a4-13181b34c0f3/2ac75a19-c6c8-4d8c-b461-b734df908254"
+storage_version_token = "1789909969793934"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "EfdOUHNmq25Xfdj_Ju4Y0"
+uri = "file://exports/.bnms-remaining-member/BNMS-Remaining-Member-Role-Review-After-Honorary-Update-2026-09-20.xlsx"
+type = "table"
+title = "BNMS — Remaining Member Role Review (After Honorary Update)"
+description = "179 BNMS records still assigned Member, with the same five fields and an updated member-class summary."
+logical_id = "576c1324-1568-4c51-8f80-f6826e23d314"
+content_hash = "sha256:7d8d4e8fb9495863e37f30694ed3c2fa4cc5a4018312537df0d82c79c9789e96"
+size = 18732
+mtime_ms = 1789910109020
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/576c1324-1568-4c51-8f80-f6826e23d314/7f5294e3-93fb-4003-a92b-34edc7626faa"
+storage_version_token = "1789910127479379"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "TLzOg2rjU2xmlCyu67Yk-"
+uri = "file://exports/.bnms-remaining-member/BNMS-Remaining-Member-Role-Review-Final-2026-09-20.xlsx"
+type = "table"
+title = "BNMS — Remaining 12 Member Role Records"
+description = "Current export of the 12 BNMS records still assigned Member, using the same five fields as previous spreadsheets."
+logical_id = "9f2bef37-9463-4d50-a5b9-b239b9979c97"
+content_hash = "sha256:3fb6f7d577774e91f86bcd6f7a638bdc1e26257c21c016e3b9eef37f4e609193"
+size = 8821
+mtime_ms = 1789910494671
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/9f2bef37-9463-4d50-a5b9-b239b9979c97/4bd055cc-e169-49e1-aae3-0f92abf0e6b5"
+storage_version_token = "1789910514970195"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "gF67dZuJMnbDjKDM_a-Pk"
+uri = "file://reports/bnms-resource-audit/bnms-resource-import-audit.xlsx"
+type = "table"
+title = "BNMS resource import audit"
+description = "Row-level audit of 5,773 source rows across 10 uploads, with current matches, exceptions, history and next actions."
+logical_id = "331a9ffd-6200-47fe-b8e2-b6fa65c4b903"
+content_hash = "sha256:39bbab4ca2b74371e790189fb239be0d2fda39714dffc375347a21622527a934"
+size = 7422644
+mtime_ms = 1789915538870
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/331a9ffd-6200-47fe-b8e2-b6fa65c4b903/5d875f26-acae-4ccd-9539-27306c8b86bd"
+storage_version_token = "1789915591741769"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "9syr63HN8o7M8XoTMF-Ui"
+uri = "file://reports/bnms-resource-audit/bnms-resource-audit-evidence.zip"
+type = "unspecified"
+title = "BNMS audit evidence"
+description = "Machine-readable audit, stable production snapshot, source inventory, dated summary and interpretation."
+logical_id = "1b34b674-1ad1-45ea-b00f-d35253e5b13b"
+content_hash = "sha256:ac53bc66be56a8c2576c17f359462f2a7136375048e3a48b7f24130ace6121be"
+size = 2597988
+mtime_ms = 1789915582969
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/1b34b674-1ad1-45ea-b00f-d35253e5b13b/ea102765-8ac3-4a9f-a00e-170664d041be"
+storage_version_token = "1789915592683303"
+content_type = "application/octet-stream"
+
+[[outputs]]
+id = "ODt9n48PzCe-xFvmWLa3M"
+uri = "file://exports/private-bnms-alpha-financial-exceptions-20260921/member-financial-exceptions.csv"
+type = "table"
+title = "Alpha members — manual financial follow-up"
+description = "Three members: two unpaid membership invoices and five failed GoCardless attempts. Includes member details and financial references; no settlement or retry performed."
+logical_id = "199c9828-7eb6-4317-989a-43cd18c49b98"
+content_hash = "sha256:361bea614b9a301036c43eb84759168f6d4828a1ff087b61cdc06c5910e8ffec"
+size = 1664
+mtime_ms = 1789989145676
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/199c9828-7eb6-4317-989a-43cd18c49b98/961ad203-3846-4373-b3c1-e95cc7c5d73d"
+storage_version_token = "1789989975041468"
+content_type = "text/csv"
+
+[[outputs]]
+id = "VtSXLbXDe-K0TVZcRVP5m"
+uri = "file://tests/fixtures/gmail-columns/generated/gmail-columns.after.html"
+type = "html"
+title = "Candidate sponsor email — browser preview only"
+description = "Sanitized offline candidate with three sponsors, CTA and footer. Not proof of Gmail or Outlook compatibility."
+logical_id = "332a3903-e7b5-42f7-9846-a9b1982d870f"
+content_hash = "sha256:520f8b267d006a92c1d3e19e1f6957bd4f32cd04007ac5256738b2a7cecf5a1b"
+size = 15517
+mtime_ms = 1790089816194
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/332a3903-e7b5-42f7-9846-a9b1982d870f/935aa41f-e713-49f8-9a5d-e48b5f38cd55"
+storage_version_token = "1790089872574403"
+content_type = "text/html"
+
+[[outputs]]
+id = "CufsGzx2f_BL-fg219iu6"
+uri = "file://tests/fixtures/gmail-columns/generated/gmail-columns.before.html"
+type = "html"
+title = "Baseline sponsor email"
+description = "Sanitized baseline for comparison. Recipient-free EML copies and release checklist are under tests/fixtures/gmail-columns."
+logical_id = "171023b2-642c-4d2f-835e-a56731e3336a"
+content_hash = "sha256:85103ef2ba219afa58b02d6232ca23964ca03854b56fde59bcc3c03a4685275a"
+size = 15233
+mtime_ms = 1790089816182
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/171023b2-642c-4d2f-835e-a56731e3336a/97320574-f162-4616-8c6f-cc4534a53795"
+storage_version_token = "1790089873216978"
+content_type = "text/html"
+
+[[outputs]]
+id = "cgYGvLaMCMwkLFbmsZxaZ"
+uri = "file://exports/bnms-final-validation/summary.html"
+type = "html"
+title = "BNMS final workbook — validation summary"
+description = "Read-only results and the complete 21-column mapping table. Personal row-level evidence remains in owner-only, git-ignored reports."
+logical_id = "17784305-b854-42ee-ac91-b871dcb4fb8f"
+content_hash = "sha256:ba2cbaecc897915f2c6f27333fc6753760edc50ef5c5ddf0263221534858c48e"
+size = 12172
+mtime_ms = 1790150611314
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/17784305-b854-42ee-ac91-b871dcb4fb8f/5c90995b-fac7-49fe-b073-26dd911620cc"
+storage_version_token = "1790150653100505"
+content_type = "text/html"
+
+[[outputs]]
+id = "ySBbbwnL0zVWULGzHR4sm"
+uri = "file://exports/bnms-final-import/BNMS-private-exceptions-awaiting-execution.xlsx"
+type = "table"
+title = "BNMS private exceptions — awaiting execution"
+description = "Confidential staff workbook: 30 original blocked rows, 2 exclusions, and all 47 approved rows currently on hold. No members imported yet."
+logical_id = "da484b2a-b1ef-4ec8-a75f-eab6bab4465d"
+content_hash = "sha256:4cca9418cb711d69c749e7f7722b330db0289501b254850ac41495605dac6712"
+size = 43773
+mtime_ms = 1790154376107
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/da484b2a-b1ef-4ec8-a75f-eab6bab4465d/5aab02b7-4d2a-46a8-8b75-3984a3540cb9"
+storage_version_token = "1790154392565509"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "Y1yLCJz8YWDM2FKQS1cuj"
+uri = "file://exports/bnms-final-import/BNMS-private-exceptions.xlsx"
+type = "table"
+title = "BNMS private exceptions — completed import"
+description = "Final confidential staff workbook: 47 imported, 30 original exceptions, 2 exclusions; full row-level reconciliation and manual resolution columns."
+logical_id = "42b0e418-edf8-4784-8e59-f6fe0e813249"
+content_hash = "sha256:dc33a5d405c4fede171bae1ad4c10c0391370ddb7fba7d61a35ac7085a4b2f16"
+size = 40302
+mtime_ms = 1790154854459
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/42b0e418-edf8-4784-8e59-f6fe0e813249/8b1f37b2-e545-44f2-9324-573611a0fbc2"
+storage_version_token = "1790154914084105"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

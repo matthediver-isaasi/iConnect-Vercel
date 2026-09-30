@@ -1,0 +1,7 @@
+.wp-block-iconnect-sync-articles .iconnect-articles {
+    pointer-events: none;
+}
+
+.wp-block-iconnect-sync-articles .iconnect-article-card:hover {
+    box-shadow: none;
+}

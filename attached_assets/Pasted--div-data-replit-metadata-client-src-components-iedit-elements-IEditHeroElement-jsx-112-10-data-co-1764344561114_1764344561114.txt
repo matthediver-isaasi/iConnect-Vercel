@@ -1,0 +1,19 @@
+<div data-replit-metadata="client/src/components/iedit/elements/IEditHeroElement.jsx:112:10" data-component-name="div" class="max-w-7xl mx-auto px-4 w-full" style="padding: 80px 140px 400px; text-align: left;"><div data-replit-metadata="client/src/components/iedit/elements/IEditHeroElement.jsx:114:14" data-component-name="div"><h1 data-replit-metadata="client/src/components/iedit/elements/IEditHeroElement.jsx:115:16" data-component-name="h1" class="font-bold" style="font-family: Poppins; font-size: 16px; letter-spacing: 5px; color: rgb(255, 255, 255); margin-bottom: 15px;">TRAINING EVENTS</h1><div data-replit-metadata="client/src/components/iedit/elements/IEditHeroElement.jsx:128:18" data-component-name="div" style="width: 15px; height: 2px; background-color: rgb(255, 255, 255); margin: 0px 0px 40px;"></div></div><p data-replit-metadata="client/src/components/iedit/elements/IEditHeroElement.jsx:141:14" data-component-name="p" class="mb-8 opacity-90" style="font-family: &quot;Degular Medium&quot;; font-size: 45px; line-height: 1.1; color: rgb(255, 255, 255); white-space: pre-line;">Workshop:
+Getting Started
+with Embedding
+Employability</p><div data-replit-metadata="client/src/components/iedit/elements/IEditHeroElement.jsx:155:14" data-component-name="div" style="margin-top: 45px;"><button data-replit-metadata="client/src/components/iedit/elements/IEditHeroElement.jsx:156:16" data-component-name="AGCASButton" class="inline-flex items-center justify-center gap-2 whitespace-nowrap px-6 py-3 text-sm font-bold transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed agcas-styled-button" style="background-color: transparent; color: rgb(255, 255, 255); border: 2px solid rgb(255, 255, 255); font-family: Poppins, sans-serif;"><style data-replit-metadata="client/src/components/ui/AGCASButton.jsx:96:6" data-component-name="style">
+        .agcas-button {
+          box-shadow: inset 0 0 0 2px black;
+        }
+        .agcas-button:hover:not(:disabled) {
+          background: linear-gradient(to right top, rgb(92, 0, 133), rgb(186, 0, 135), rgb(238, 0, 195), rgb(255, 66, 41), rgb(255, 176, 0));
+          box-shadow: none !important;
+        }
+        .agcas-button:disabled {
+          background: transparent;
+        }
+        .agcas-styled-button:hover:not(:disabled) {
+          background-color: var(--hover-bg);
+          color: var(--hover-text);
+        }
+      </style>Learn More<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-up-right w-5 h-5 ml-0.5" data-replit-metadata="client/src/components/ui/AGCASButton.jsx:113:20" data-component-name="ArrowUpRight"><path d="M7 7h10v10"></path><path d="M7 17 17 7"></path></svg></button></div></div>

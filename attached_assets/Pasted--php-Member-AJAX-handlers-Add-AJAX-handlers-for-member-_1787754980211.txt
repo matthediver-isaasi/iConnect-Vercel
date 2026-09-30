@@ -1,0 +1,161 @@
+<?php
+/**
+ * Member AJAX handlers
+ */
+
+// Add AJAX handlers for member search
+add_action('wp_ajax_search_members', 'gsf_ajax_search_members');
+add_action('wp_ajax_nopriv_search_members', 'gsf_ajax_search_members');
+
+// Add AJAX handlers for map data
+add_action('wp_ajax_get_map_data', 'gsf_ajax_get_map_data');
+add_action('wp_ajax_nopriv_get_map_data', 'gsf_ajax_get_map_data');
+
+function gsf_ajax_get_map_data()
+{
+    $logger = GSF_Logger::getInstance();
+
+    check_ajax_referer('gsf_member_search', '_wpnonce');
+
+    $country_counts = gsf_get_map_country_counts();
+
+    $logger->log('Map country counts built', 'DEBUG', [
+        'country_count' => count($country_counts)
+    ]);
+
+    wp_send_json_success([
+        'countryCounts' => $country_counts
+    ]);
+}
+
+function gsf_ajax_search_members()
+{
+    $logger = GSF_Logger::getInstance();
+
+    check_ajax_referer('gsf_member_search', '_wpnonce');  // Changed from _ajax_nonce to _wpnonce
+
+    $search = sanitize_text_field($_GET['search'] ?? '');
+    $country = sanitize_text_field($_GET['country'] ?? '');
+    $organization_type = sanitize_text_field($_GET['organization_type'] ?? '');
+    $focus_areas = sanitize_text_field($_GET['focus_areas'] ?? '');
+    $page = absint($_GET['page'] ?? 1);
+    $per_page = absint($_GET['per_page'] ?? 14);
+
+    $logger->log('Member search request', 'INFO', [
+        'search' => $search,
+        'country' => $country,
+        'organization_type' => $organization_type,
+        'page' => $page,
+        'per_page' => $per_page
+    ]);
+
+    // Check if test data is enabled
+    if (get_option('gsf_use_test_data', false)) {
+        $all_members = gsf_generate_test_members();
+
+        // Filter test data
+        $filtered_members = array_filter($all_members, function ($member) use ($search, $country, $organization_type, $focus_areas) {
+            if ($search && stripos($member['Organisation_name'], $search) === false) {
+                return false;
+            }
+
+            // Check if country filter should apply to Countries_of_Operation
+            if ($country) {
+                // ONLY check Countries_of_Operation, regardless of the member's primary Country field
+                if (isset($member['Countries_of_Operation']) && is_array($member['Countries_of_Operation'])) {
+                    $found = false;
+                    foreach ($member['Countries_of_Operation'] as $memberCountry) {
+                        if (stripos($memberCountry, $country) !== false) {
+                            $found = true;
+                            break;
+                        }
+                    }
+                    if (!$found) {
+                        return false;
+                    }
+                } else {
+                    // If Countries_of_Operation is empty or not set, this member should not match any country filter
+                    return false;
+                }
+            }
+
+            if ($organization_type) {
+
+                $types = array_map('trim', explode(',', $organization_type));
+                if (!in_array('Member - ' . $member['Account_Type'], $types)) {
+                    return false;
+                }
+            }
+
+            return true;
+        });
+
+        $total = count($filtered_members);
+        $filtered_members = array_values($filtered_members);
+
+        // Sort alphabetically by Organisation_name before pagination
+        usort($filtered_members, function ($a, $b) {
+            return strcasecmp($a['Organisation_name'], $b['Organisation_name']);
+        });
+
+        // Apply pagination
+        $offset = ($page - 1) * $per_page;
+        $members = array_slice($filtered_members, $offset, $per_page);
+    } else {
+        // Use real data from Zoho
+        $zoho_result = gsf_get_members([
+            'search' => $search,
+            'country' => $country,
+            'organization_type' => $organization_type,
+            'focus_areas' => $focus_areas,
+            'page' => $page,
+            'per_page' => $per_page
+        ]);
+
+        $members = $zoho_result['members'] ?? [];
+        $total = $zoho_result['total'] ?? count($members);
+    }
+
+    $logger->log('Member search completed', 'INFO', [
+        'results_count' => count($members),
+        'total' => $total,
+        'page' => $page
+    ]);
+
+    wp_send_json_success([
+        'members' => $members,
+        'total' => $total,
+        'page' => $page,
+        'per_page' => $per_page,
+        'total_pages' => ceil($total / $per_page)
+    ]);
+}
+
+// Add necessary scripts
+add_action('wp_enqueue_scripts', 'gsf_enqueue_member_scripts');
+function gsf_enqueue_member_scripts()
+{
+    // Check if we're on any page that might contain the member search
+    if (!is_admin()) {
+        wp_enqueue_script(
+            'gsf-member-search-init',
+            get_template_directory_uri() . '/js/member-search-init.js',
+            [],
+            '1.0.1',
+            true
+        );
+
+        // Add type="module" to the script tag
+        add_filter('script_loader_tag', function ($tag, $handle, $src) {
+            if ('gsf-member-search-init' === $handle) {
+                return '<script type="module" src="' . esc_url($src) . '"></script>';
+            }
+            return $tag;
+        }, 10, 3);
+
+        wp_localize_script('gsf-member-search-init', 'gsfMemberSearch', array(
+            'ajaxurl' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('gsf_member_search')
+        ));
+    }
+}

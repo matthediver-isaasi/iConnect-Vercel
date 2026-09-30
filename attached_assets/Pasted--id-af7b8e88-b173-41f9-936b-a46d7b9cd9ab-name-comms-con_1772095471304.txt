@@ -1,0 +1,514 @@
+[
+    {
+        "id": "af7b8e88-b173-41f9-936b-a46d7b9cd9ab",
+        "name": "comms_consent",
+        "label": "Consent for communication",
+        "field_type": "boolean",
+        "options": null,
+        "is_required": false,
+        "display_order": 0,
+        "is_active": true,
+        "created_at": "2025-12-14T06:18:27.084+00:00",
+        "updated_at": "2025-12-14T06:18:27.084+00:00",
+        "entity_scope": "member",
+        "is_filterable": false,
+        "min_selections": null,
+        "max_selections": null,
+        "show_in_my_organisation": true,
+        "show_in_directory_card": true,
+        "show_in_admin_list": true,
+        "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+        "allowed_file_types": null,
+        "all_countries": true,
+        "selected_countries": [],
+        "default_country": null,
+        "default_countries": [],
+        "public_access": false,
+        "show_in_my_preferences": true,
+        "show_in_member_directory": true,
+        "show_in_member_admin_list": true
+    },
+    {
+        "id": "c333eefa-d206-4ddf-820e-ae25413c3acb",
+        "name": "publication_credits",
+        "label": "Consent for publication credits",
+        "field_type": "boolean",
+        "options": null,
+        "is_required": false,
+        "display_order": 2,
+        "is_active": true,
+        "created_at": "2025-12-14T06:19:51.491+00:00",
+        "updated_at": "2025-12-14T06:19:51.491+00:00",
+        "entity_scope": "member",
+        "is_filterable": false,
+        "min_selections": null,
+        "max_selections": null,
+        "show_in_my_organisation": true,
+        "show_in_directory_card": true,
+        "show_in_admin_list": true,
+        "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+        "allowed_file_types": null,
+        "all_countries": true,
+        "selected_countries": [],
+        "default_country": null,
+        "default_countries": [],
+        "public_access": false,
+        "show_in_my_preferences": true,
+        "show_in_member_directory": true,
+        "show_in_member_admin_list": true
+    },
+    {
+        "id": "5879bf12-cd56-4a73-9ae4-0c27d82bd33a",
+        "name": "department",
+        "label": "Department",
+        "field_type": "dropdown",
+        "options": [
+            {
+                "label": "Careers Service",
+                "value": "Careers Service"
+            },
+            {
+                "label": "Employability & Skills Team",
+                "value": "Employability & Skills Team"
+            },
+            {
+                "label": "Employer Engagement",
+                "value": "Employer Engagement"
+            },
+            {
+                "label": "Entrepreneurship Hub",
+                "value": "Entrepreneurship Hub"
+            },
+            {
+                "label": "Graduate Outcomes Team",
+                "value": "Graduate Outcomes Team"
+            },
+            {
+                "label": "International Careers Support",
+                "value": "International Careers Support"
+            },
+            {
+                "label": "Internship Team",
+                "value": "Internship Team"
+            },
+            {
+                "label": "Partnerships",
+                "value": "Partnerships"
+            },
+            {
+                "label": "Placements Office",
+                "value": "Placements Office"
+            },
+            {
+                "label": "Student Enterprise",
+                "value": "Student Enterprise"
+            }
+        ],
+        "is_required": false,
+        "display_order": 3,
+        "is_active": true,
+        "created_at": "2025-12-14T06:51:33.572+00:00",
+        "updated_at": "2025-12-14T06:51:33.572+00:00",
+        "entity_scope": "member",
+        "is_filterable": false,
+        "min_selections": null,
+        "max_selections": null,
+        "show_in_my_organisation": true,
+        "show_in_directory_card": true,
+        "show_in_admin_list": true,
+        "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+        "allowed_file_types": null,
+        "all_countries": true,
+        "selected_countries": [],
+        "default_country": null,
+        "default_countries": [],
+        "public_access": false,
+        "show_in_my_preferences": true,
+        "show_in_member_directory": true,
+        "show_in_member_admin_list": true
+    },
+    {
+        "id": "d40255e9-13df-42a9-9cb2-b26452d692ad",
+        "name": "role_alignment",
+        "label": "Role alignment",
+        "field_type": "dropdown",
+        "options": [
+            {
+                "label": "Careers Information Advice and Guidance",
+                "value": "Careers Information Advice and Guidance"
+            },
+            {
+                "label": "Employer engagement",
+                "value": "Employer engagement"
+            },
+            {
+                "label": "Enterprise",
+                "value": "Enterprise"
+            },
+            {
+                "label": "Graduate Support",
+                "value": "Graduate Support"
+            },
+            {
+                "label": "Internships",
+                "value": "Internships"
+            },
+            {
+                "label": "Placements",
+                "value": "Placements"
+            }
+        ],
+        "is_required": false,
+        "display_order": 6,
+        "is_active": true,
+        "created_at": "2025-12-14T06:40:48.518+00:00",
+        "updated_at": "2025-12-14T06:40:48.518+00:00",
+        "entity_scope": "member",
+        "is_filterable": false,
+        "min_selections": null,
+        "max_selections": null,
+        "show_in_my_organisation": true,
+        "show_in_directory_card": true,
+        "show_in_admin_list": true,
+        "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+        "allowed_file_types": null,
+        "all_countries": null,
+        "selected_countries": null,
+        "default_country": null,
+        "default_countries": null,
+        "public_access": null,
+        "show_in_my_preferences": true,
+        "show_in_member_directory": false,
+        "show_in_member_admin_list": true
+    },
+    {
+        "id": "a608bc1e-9252-4590-9798-4f39d8ec7485",
+        "name": "pronouns",
+        "label": "Prefered pronouns",
+        "field_type": "dropdown",
+        "options": [
+            {
+                "label": "She/her",
+                "value": "She/her"
+            },
+            {
+                "label": "He/him",
+                "value": "He/him"
+            },
+            {
+                "label": "They/them",
+                "value": "They/them"
+            },
+            {
+                "label": "Prefer not to answer",
+                "value": "Prefer not to answer"
+            },
+            {
+                "label": "I don't use pronouns, please use my name",
+                "value": "I don't use pronouns, please use my name"
+            }
+        ],
+        "is_required": false,
+        "display_order": 7,
+        "is_active": true,
+        "created_at": "2025-12-14T06:42:01.776+00:00",
+        "updated_at": "2025-12-14T06:42:01.776+00:00",
+        "entity_scope": "member",
+        "is_filterable": false,
+        "min_selections": null,
+        "max_selections": null,
+        "show_in_my_organisation": true,
+        "show_in_directory_card": true,
+        "show_in_admin_list": true,
+        "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+        "allowed_file_types": null,
+        "all_countries": true,
+        "selected_countries": [],
+        "default_country": null,
+        "default_countries": [],
+        "public_access": false,
+        "show_in_my_preferences": true,
+        "show_in_member_directory": true,
+        "show_in_member_admin_list": true
+    },
+    {
+        "id": "2bab42f4-4320-4c1c-82bc-b8f67828427e",
+        "name": "postnominals",
+        "label": "Postnominals",
+        "field_type": "text",
+        "options": null,
+        "is_required": false,
+        "display_order": 8,
+        "is_active": true,
+        "created_at": "2025-12-14T06:42:36.871+00:00",
+        "updated_at": "2025-12-14T06:42:36.871+00:00",
+        "entity_scope": "member",
+        "is_filterable": false,
+        "min_selections": null,
+        "max_selections": null,
+        "show_in_my_organisation": true,
+        "show_in_directory_card": true,
+        "show_in_admin_list": true,
+        "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+        "allowed_file_types": null,
+        "all_countries": true,
+        "selected_countries": [],
+        "default_country": null,
+        "default_countries": [],
+        "public_access": false,
+        "show_in_my_preferences": true,
+        "show_in_member_directory": true,
+        "show_in_member_admin_list": true
+    },
+    {
+        "id": "3b4f312b-1d61-41a6-acf4-95482e2a3359",
+        "name": "what_is_your_role",
+        "label": "Which of the following 3 areas best reflect the main focus of your day-to-day role?",
+        "field_type": "picklist",
+        "options": [
+            {
+                "label": "AI",
+                "value": "AI"
+            },
+            {
+                "label": "Conducting research",
+                "value": "Conducting research"
+            },
+            {
+                "label": "Data, Insights & labour market info",
+                "value": "Data, Insights & labour market info"
+            },
+            {
+                "label": "Embedded employability and curriculum",
+                "value": "Embedded employability and curriculum"
+            },
+            {
+                "label": "Employer engagement",
+                "value": "Employer engagement"
+            },
+            {
+                "label": "Enterprise & entrepreneurship",
+                "value": "Enterprise & entrepreneurship"
+            },
+            {
+                "label": "Equality, diversity & inclusion inc. social mobility",
+                "value": "Equality, diversity & inclusion inc. social mobility"
+            },
+            {
+                "label": "Graduates & alumni",
+                "value": "Graduates & alumni"
+            },
+            {
+                "label": "Information, advice & guidance",
+                "value": "Information, advice & guidance"
+            },
+            {
+                "label": "International & global",
+                "value": "International & global"
+            },
+            {
+                "label": "Skills development",
+                "value": "Skills development"
+            },
+            {
+                "label": "Student and graduate engagement",
+                "value": "Student and graduate engagement"
+            },
+            {
+                "label": "Student workers",
+                "value": "Student workers"
+            },
+            {
+                "label": "Sustainability",
+                "value": "Sustainability"
+            },
+            {
+                "label": "Placements, internships, work-based learning",
+                "value": "Placements, internships, work-based learning"
+            },
+            {
+                "label": "Information & operations",
+                "value": "Information & operations"
+            },
+            {
+                "label": "Apprenticeships",
+                "value": "Apprenticeships"
+            },
+            {
+                "label": "Online/distance learners",
+                "value": "Online/distance learners"
+            },
+            {
+                "label": "Transnational Education",
+                "value": "Transnational Education"
+            },
+            {
+                "label": "Postgraduates",
+                "value": "Postgraduates"
+            },
+            {
+                "label": "Mentoring",
+                "value": "Mentoring"
+            }
+        ],
+        "is_required": false,
+        "display_order": 8,
+        "is_active": true,
+        "created_at": "2025-12-15T08:48:06.435+00:00",
+        "updated_at": "2025-12-15T08:48:06.435+00:00",
+        "entity_scope": "member",
+        "is_filterable": false,
+        "min_selections": 1,
+        "max_selections": 3,
+        "show_in_my_organisation": true,
+        "show_in_directory_card": true,
+        "show_in_admin_list": true,
+        "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+        "allowed_file_types": null,
+        "all_countries": null,
+        "selected_countries": null,
+        "default_country": null,
+        "default_countries": null,
+        "public_access": null,
+        "show_in_my_preferences": true,
+        "show_in_member_directory": false,
+        "show_in_member_admin_list": true
+    },
+    {
+        "id": "6d2fd088-8995-44ef-a955-c21c8b390544",
+        "name": "linked_in",
+        "label": "LinkedIn profile",
+        "field_type": "text",
+        "options": null,
+        "is_required": false,
+        "display_order": 9,
+        "is_active": true,
+        "created_at": "2025-12-14T07:53:13.92+00:00",
+        "updated_at": "2025-12-14T07:53:13.92+00:00",
+        "entity_scope": "member",
+        "is_filterable": false,
+        "min_selections": null,
+        "max_selections": null,
+        "show_in_my_organisation": true,
+        "show_in_directory_card": true,
+        "show_in_admin_list": true,
+        "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+        "allowed_file_types": null,
+        "all_countries": true,
+        "selected_countries": [],
+        "default_country": null,
+        "default_countries": [],
+        "public_access": false,
+        "show_in_my_preferences": true,
+        "show_in_member_directory": true,
+        "show_in_member_admin_list": true
+    },
+    {
+        "id": "5fd5abf0-609d-42e6-8548-28af1e44599f",
+        "name": "freelancer-skills",
+        "label": "Freelancer Skills",
+        "field_type": "text",
+        "options": null,
+        "is_required": false,
+        "display_order": 9,
+        "is_active": true,
+        "created_at": "2025-12-29T20:50:13.742+00:00",
+        "updated_at": "2025-12-29T20:50:13.742+00:00",
+        "entity_scope": "member",
+        "is_filterable": false,
+        "min_selections": null,
+        "max_selections": null,
+        "show_in_my_organisation": true,
+        "show_in_directory_card": true,
+        "show_in_admin_list": true,
+        "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+        "allowed_file_types": null,
+        "all_countries": true,
+        "selected_countries": [],
+        "default_country": null,
+        "default_countries": [],
+        "public_access": false,
+        "show_in_my_preferences": true,
+        "show_in_member_directory": true,
+        "show_in_member_admin_list": true
+    },
+    {
+        "id": "ec7a5a4e-1fb3-4886-b3e9-fd5617571451",
+        "name": "freelancer-website",
+        "label": "Freelancer website",
+        "field_type": "text",
+        "options": null,
+        "is_required": false,
+        "display_order": 10,
+        "is_active": true,
+        "created_at": "2025-12-29T20:52:12.45+00:00",
+        "updated_at": "2025-12-29T20:52:12.45+00:00",
+        "entity_scope": "member",
+        "is_filterable": false,
+        "min_selections": null,
+        "max_selections": null,
+        "show_in_my_organisation": true,
+        "show_in_directory_card": true,
+        "show_in_admin_list": true,
+        "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+        "allowed_file_types": null,
+        "all_countries": true,
+        "selected_countries": [],
+        "default_country": null,
+        "default_countries": [],
+        "public_access": false,
+        "show_in_my_preferences": true,
+        "show_in_member_directory": true,
+        "show_in_member_admin_list": true
+    },
+    {
+        "id": "3e7c6379-ca2e-45bc-b232-25906019cc50",
+        "name": "member_class",
+        "label": "Member class",
+        "field_type": "dropdown",
+        "options": [
+            {
+                "label": "University",
+                "value": "University"
+            },
+            {
+                "label": "Alumni",
+                "value": "Alumni"
+            },
+            {
+                "label": "Partner",
+                "value": "Partner"
+            },
+            {
+                "label": "Freelancer",
+                "value": "Freelancer"
+            },
+            {
+                "label": "Internal",
+                "value": "Internal"
+            }
+        ],
+        "is_required": false,
+        "display_order": 11,
+        "is_active": true,
+        "created_at": "2026-02-26T07:46:12.547365+00:00",
+        "updated_at": "2026-02-26T07:46:12.547365+00:00",
+        "entity_scope": "member",
+        "is_filterable": false,
+        "min_selections": null,
+        "max_selections": null,
+        "show_in_my_organisation": true,
+        "show_in_directory_card": true,
+        "show_in_admin_list": true,
+        "tenant_id": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+        "allowed_file_types": null,
+        "all_countries": null,
+        "selected_countries": null,
+        "default_country": null,
+        "default_countries": null,
+        "public_access": null,
+        "show_in_my_preferences": false,
+        "show_in_member_directory": false,
+        "show_in_member_admin_list": true
+    }
+]

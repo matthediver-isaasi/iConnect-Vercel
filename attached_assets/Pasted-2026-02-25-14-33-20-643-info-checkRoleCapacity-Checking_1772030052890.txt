@@ -1,0 +1,612 @@
+2026-02-25 14:33:20.643 [info] [checkRoleCapacity] Checking capacity for role: d913cc27-5203-48b4-b1eb-695010e1ef12 org: e09f75a3-d2ca-4e20-8ca7-70e19ad9c1ad
+2026-02-25 14:33:20.782 [info] [checkRoleCapacity] No max_members limit for role: Primary Coordinator
+2026-02-25 14:33:20.782 [info] [AppProcessor] Additional member role capacity check: {"hasCapacity":true,"maxMembers":null,"roleName":"Primary Coordinator"}
+2026-02-25 14:33:20.782 [info] [AppProcessor] Creating new additional member: Additional Member 1 {
+  email: 'isaasitesting1@outlook.com',
+  login_enabled: false,
+  show_in_directory: true,
+  organization_id: 'TEsting International',
+  first_name: 'Sharon',
+  last_name: 'TEst',
+  job_title: 'tester',
+  role_id: 'd913cc27-5203-48b4-b1eb-695010e1ef12',
+  tenant_id: 'fd82da65-aab7-4a5c-85b8-b2febeb2003d'
+}
+2026-02-25 14:33:20.946 [error] [AppProcessor] Failed to create additional member: {
+  code: '22P02',
+  details: null,
+  hint: null,
+  message: 'invalid input syntax for type uuid: "TEsting International"'
+}
+2026-02-25 14:33:20.946 [info] [AppProcessor] Additional members processed: 0
+2026-02-25 14:33:19.434 [info] [AppProcessor] Member processing enabled. Action: upsert MemberData: {
+  first_name: 'HOS',
+  last_name: 'Last',
+  job_title: 'HOS title',
+  email: 'isaasitesting2@outlook.com',
+  show_in_directory: false,
+  organization_id: 'TEsting International',
+  role_id: '561682bb-57f2-4a61-89aa-c3c201692923',
+  login_enabled: false
+} PrefillMemberId: undefined
+2026-02-25 14:33:19.597 [info] [AppProcessor] Found member by email: undefined (tenant: fd82da65-aab7-4a5c-85b8-b2febeb2003d)
+2026-02-25 14:33:19.597 [info] [AppProcessor] Resolved orgIdForNewMember: e09f75a3-d2ca-4e20-8ca7-70e19ad9c1ad
+2026-02-25 14:33:19.597 [info] [AppProcessor] Role ID resolution: {
+  memberData_role_id: '561682bb-57f2-4a61-89aa-c3c201692923',
+  role_id_param: null,
+  effectiveRoleId: '561682bb-57f2-4a61-89aa-c3c201692923'
+}
+2026-02-25 14:33:19.597 [info] [AppProcessor] Adding role_id to member insert: 561682bb-57f2-4a61-89aa-c3c201692923
+2026-02-25 14:33:19.597 [info] [checkRoleCapacity] Checking capacity for role: 561682bb-57f2-4a61-89aa-c3c201692923 org: e09f75a3-d2ca-4e20-8ca7-70e19ad9c1ad
+2026-02-25 14:33:19.887 [info] [checkRoleCapacity] Per-org capacity check: {
+  roleId: '561682bb-57f2-4a61-89aa-c3c201692923',
+  roleName: 'Head of Service',
+  organizationId: 'e09f75a3-d2ca-4e20-8ca7-70e19ad9c1ad',
+  currentCount: 0,
+  maxMembers: 1,
+  hasCapacity: true
+}
+2026-02-25 14:33:19.887 [info] [AppProcessor] Role capacity check result: {"hasCapacity":true,"currentCount":0,"maxMembers":1,"roleName":"Head of Service"}
+2026-02-25 14:33:19.887 [info] [AppProcessor] login_enabled for member insert: false
+2026-02-25 14:33:19.887 [info] [AppProcessor] Final memberInsertData: {"email":"isaasitesting2@outlook.com","first_name":"HOS","last_name":"Last","organization_id":"e09f75a3-d2ca-4e20-8ca7-70e19ad9c1ad","login_enabled":false,"show_in_directory":false,"tenant_id":"fd82da65-aab7-4a5c-85b8-b2febeb2003d","job_title":"HOS title","role_id":"561682bb-57f2-4a61-89aa-c3c201692923"}
+2026-02-25 14:33:20.020 [info] [AppProcessor] Created member: 5abfef28-78f4-4598-b994-80503800c6bd
+2026-02-25 14:33:20.021 [info] [Workflows] triggerWorkflows called: entityType=member, entityId=5abfef28-78f4-4598-b994-80503800c6bd, triggerType=record_create
+2026-02-25 14:33:20.021 [info] [Workflows] afterData.tenant_id=fd82da65-aab7-4a5c-85b8-b2febeb2003d, beforeData.tenant_id=undefined
+2026-02-25 14:33:20.021 [info] [Workflows] Initial tenantId from data: fd82da65-aab7-4a5c-85b8-b2febeb2003d
+2026-02-25 14:33:20.021 [info] [Workflows] Querying workflows: entity_type=member, tenant_id=fd82da65-aab7-4a5c-85b8-b2febeb2003d, is_active=true
+2026-02-25 14:33:20.169 [info] [Workflows] Query result: 0 workflows found, error: null
+2026-02-25 14:33:20.169 [info] [Workflows] No matching workflows found for member in tenant fd82da65-aab7-4a5c-85b8-b2febeb2003d
+2026-02-25 14:33:20.169 [info] [AppProcessor] Workflow evaluation completed for member: 5abfef28-78f4-4598-b994-80503800c6bd
+2026-02-25 14:33:20.169 [info] [AppProcessor] Triggered workflows for new member: 5abfef28-78f4-4598-b994-80503800c6bd
+2026-02-25 14:33:20.170 [info] [AppProcessor] Communication preferences path #1 check: createdMemberId=5abfef28-78f4-4598-b994-80503800c6bd, fields=20 fields, form_values keys=19
+2026-02-25 14:33:20.170 [info] [AppProcessor] Found 0 communication_preferences fields in form fields array
+2026-02-25 14:33:20.353 [info] [AppProcessor] Tracking primary member email (from DB): isaasitesting2@outlook.com -> {
+  id: '5abfef28-78f4-4598-b994-80503800c6bd',
+  role_id: '561682bb-57f2-4a61-89aa-c3c201692923',
+  organization_id: 'e09f75a3-d2ca-4e20-8ca7-70e19ad9c1ad'
+}
+2026-02-25 14:33:20.353 [info] [AppProcessor] Using entity_pipelines.members: 1 non-primary entries
+2026-02-25 14:33:20.353 [info] [AppProcessor] Processing member creations: 1
+2026-02-25 14:33:20.494 [info] [AppProcessor] ======= Processing member config 1/1: "Additional Member 1" =======
+2026-02-25 14:33:20.494 [info] [AppProcessor] Config mappings: [
+  {
+    "id": "mapping_1771355129152",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "first_name",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1770978949371",
+    "source_category_id": ""
+  },
+  {
+    "id": "mapping_1771355155819",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "last_name",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1770978985371",
+    "source_category_id": ""
+  },
+  {
+    "id": "mapping_1771355162302",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "job_title",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1770979011539",
+    "source_category_id": ""
+  },
+  {
+    "id": "mapping_1771355173868",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "email",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1770978905589",
+    "source_category_id": ""
+  },
+  {
+    "id": "mapping_1771503267575",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "organization_id",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765610636257",
+    "source_category_id": ""
+  }
+]
+2026-02-25 14:33:20.494 [info] [AppProcessor] Form values for this member config:
+2026-02-25 14:33:20.494 [info] - first_name: form_values["field_1770978949371"] = "Sharon"
+2026-02-25 14:33:20.494 [info] - last_name: form_values["field_1770978985371"] = "TEst"
+2026-02-25 14:33:20.494 [info] - job_title: form_values["field_1770979011539"] = "tester"
+2026-02-25 14:33:20.494 [info] - email: form_values["field_1770978905589"] = "isaasitesting1@outlook.com"
+2026-02-25 14:33:20.494 [info] - organization_id: form_values["field_1765610636257"] = "TEsting International"
+2026-02-25 14:33:20.494 [info] [AppProcessor] Built data for "Additional Member 1": {
+  email: 'isaasitesting1@outlook.com',
+  additionalMemberData: {
+    first_name: 'Sharon',
+    last_name: 'TEst',
+    job_title: 'tester',
+    organization_id: 'TEsting International'
+  },
+  customFieldCount: 0
+}
+2026-02-25 14:33:20.494 [info] [AppProcessor] Additional member role_id: d913cc27-5203-48b4-b1eb-695010e1ef12
+2026-02-25 14:33:20.494 [info] [AppProcessor] Additional member login_enabled: false
+2026-02-25 14:33:20.494 [info] [AppProcessor] Processing additional member: Additional Member 1 email: isaasitesting1@outlook.com data: {
+  first_name: 'Sharon',
+  last_name: 'TEst',
+  job_title: 'tester',
+  organization_id: 'TEsting International',
+  role_id: 'd913cc27-5203-48b4-b1eb-695010e1ef12',
+  login_enabled: false
+} clearFields: []
+2026-02-25 14:33:16.373 [info] [AppProcessor] Entity pipelines - members: 2 organisations: 1
+2026-02-25 14:33:16.373 [info] [AppProcessor] Form values - all field IDs present: [
+  'field_1765610636257', 'field_1765611561892',
+  'field_1765614961476', 'field_1765635992459',
+  'field_1765637262772', 'field_1765637349881',
+  'field_1765640393181', 'field_1765654021220',
+  'field_1765654193504', 'field_1765654276539',
+  'field_1765654323522', 'field_1765654363656',
+  'field_1765919899063', 'field_1766924358873',
+  'field_1767003307766', 'field_1770978905589',
+  'field_1770978949371', 'field_1770978985371',
+  'field_1770979011539'
+]
+2026-02-25 14:33:16.373 [info] [AppProcessor] Form values sample (first 5 entries): [
+  'field_1765610636257="TEsting International"',
+  'field_1765611561892="222"',
+  'field_1765614961476=["outlook.com","onlinem.co.uk"]',
+  'field_1765635992459=["Research Plus"]',
+  'field_1765637262772=["Postgraduate taught courses"]'
+]
+2026-02-25 14:33:16.373 [info] [AppProcessor] Entity actions - member: upsert organization: upsert
+2026-02-25 14:33:16.374 [info] [AppProcessor] Received role_id: null type: object
+2026-02-25 14:33:16.869 [info] [AppProcessor] Entity pipeline fields to skip in legacy field_mappings - member: [
+  'first_name',
+  'last_name',
+  'job_title',
+  'email',
+  'show_in_directory',
+  'organization_id'
+] org: [ 'name', 'invoicing_address', 'invoicing_email', 'phone' ]
+2026-02-25 14:33:16.870 [info] [AppProcessor] Using field_mappings: 3 mappings
+2026-02-25 14:33:16.870 [info] [AppProcessor] Skipping legacy field_mappings for member field (entity_pipelines takes precedence): email
+2026-02-25 14:33:16.870 [info] [AppProcessor] Skipping legacy field_mappings for member field (entity_pipelines takes precedence): first_name
+2026-02-25 14:33:16.872 [info] [AppProcessor] Skipping legacy field_mappings for member field (entity_pipelines takes precedence): last_name
+2026-02-25 14:33:16.872 [info] [AppProcessor] Member pipelines: 2 Primary found: true
+2026-02-25 14:33:16.872 [info] [AppProcessor] Processing member from entity_pipelines (new format): HoS mappings: 6
+2026-02-25 14:33:16.872 [info] [AppProcessor] HoS mappings detail: [
+  {
+    "id": "mapping_1767009847672",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "first_name",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765654276539"
+  },
+  {
+    "id": "mapping_1767009860205",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "last_name",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765654323522"
+  },
+  {
+    "id": "mapping_1767009868089",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "job_title",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765919899063"
+  },
+  {
+    "id": "mapping_1767009878888",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "email",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765654363656"
+  },
+  {
+    "id": "mapping_1767515921365",
+    "source_type": "static",
+    "target_type": "core",
+    "static_value": "False",
+    "target_field": "show_in_directory",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": ""
+  },
+  {
+    "id": "mapping_1771503256407",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "organization_id",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765610636257",
+    "source_category_id": ""
+  }
+]
+2026-02-25 14:33:16.872 [info] [AppProcessor] Form values for HoS:
+2026-02-25 14:33:16.872 [info] - first_name: form_values["field_1765654276539"] = "HOS"
+2026-02-25 14:33:16.872 [info] - last_name: form_values["field_1765654323522"] = "Last"
+2026-02-25 14:33:16.872 [info] - job_title: form_values["field_1765919899063"] = "HOS title"
+2026-02-25 14:33:16.872 [info] - email: form_values["field_1765654363656"] = "isaasitesting2@outlook.com"
+2026-02-25 14:33:16.873 [info] - organization_id: form_values["field_1765610636257"] = "TEsting International"
+2026-02-25 14:33:16.873 [info] [AppProcessor] Using pipeline role_id: 561682bb-57f2-4a61-89aa-c3c201692923
+2026-02-25 14:33:16.873 [info] [AppProcessor] Using pipeline login_enabled: false
+2026-02-25 14:33:16.873 [info] [AppProcessor] Org pipelines: 1 Primary found: true
+2026-02-25 14:33:16.873 [info] [AppProcessor] Primary org pipeline mappings: [
+  {
+    "id": "mapping_1765927645960",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "name",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1765610636257"
+  },
+  {
+    "id": "mapping_1765927665179",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "b85d80f4-d9f4-43a0-9c6d-810d987b732f",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1765637262772"
+  },
+  {
+    "id": "mapping_1765927706778",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "6a137764-59a2-437c-a110-54701cc41bfe",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1765635992459"
+  },
+  {
+    "id": "mapping_1765929242450",
+    "source_type": "static",
+    "target_type": "custom",
+    "static_value": "Full application received",
+    "target_field": "1c395ccf-7df2-4818-917d-1cd672216f71",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": ""
+  },
+  {
+    "id": "mapping_1765930141420",
+    "source_type": "static",
+    "target_type": "custom",
+    "static_value": "University",
+    "target_field": "e5ac547d-edb1-4ff1-83ab-fc82c1813065",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": ""
+  },
+  {
+    "id": "mapping_1766926026592",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "invoicing_address",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1766924358873"
+  },
+  {
+    "id": "mapping_1766927583562",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "invoicing_email",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1765654021220"
+  },
+  {
+    "id": "mapping_1767015619411",
+    "source_type": "static",
+    "target_type": "custom",
+    "static_value": "Full application received",
+    "target_field": "1c395ccf-7df2-4818-917d-1cd672216f71",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": ""
+  },
+  {
+    "id": "mapping_1770972685738",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "cc05916d-7570-4243-ba54-ab4d71700120",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1765611561892"
+  },
+  {
+    "id": "mapping_1770979128623",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "1ff67037-36ee-4ac0-b261-27707550b4e8",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1770978949371"
+  },
+  {
+    "id": "mapping_1770979139508",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "a9265da5-d28c-431e-be14-631c15989a8f",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1770978985371"
+  },
+  {
+    "id": "mapping_1770979148341",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "1833e681-6bb7-4ccc-a953-70dda8cc4920",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1770979011539"
+  },
+  {
+    "id": "mapping_1771242376821",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "phone",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1765611537713"
+  }
+]
+2026-02-25 14:33:16.873 [info] [AppProcessor] Processing organization from entity_pipelines (new format): Primary Organisation mappings: 13
+2026-02-25 14:33:16.873 [info] [AppProcessor] Primary Organisation mappings detail: [
+  {
+    "id": "mapping_1765927645960",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "name",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1765610636257"
+  },
+  {
+    "id": "mapping_1765927665179",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "b85d80f4-d9f4-43a0-9c6d-810d987b732f",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1765637262772"
+  },
+  {
+    "id": "mapping_1765927706778",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "6a137764-59a2-437c-a110-54701cc41bfe",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1765635992459"
+  },
+  {
+    "id": "mapping_1765929242450",
+    "source_type": "static",
+    "target_type": "custom",
+    "static_value": "Full application received",
+    "target_field": "1c395ccf-7df2-4818-917d-1cd672216f71",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": ""
+  },
+  {
+    "id": "mapping_1765930141420",
+    "source_type": "static",
+    "target_type": "custom",
+    "static_value": "University",
+    "target_field": "e5ac547d-edb1-4ff1-83ab-fc82c1813065",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": ""
+  },
+  {
+    "id": "mapping_1766926026592",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "invoicing_address",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1766924358873"
+  },
+  {
+    "id": "mapping_1766927583562",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "invoicing_email",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1765654021220"
+  },
+  {
+    "id": "mapping_1767015619411",
+    "source_type": "static",
+    "target_type": "custom",
+    "static_value": "Full application received",
+    "target_field": "1c395ccf-7df2-4818-917d-1cd672216f71",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": ""
+  },
+  {
+    "id": "mapping_1770972685738",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "cc05916d-7570-4243-ba54-ab4d71700120",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1765611561892"
+  },
+  {
+    "id": "mapping_1770979128623",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "1ff67037-36ee-4ac0-b261-27707550b4e8",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1770978949371"
+  },
+  {
+    "id": "mapping_1770979139508",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "a9265da5-d28c-431e-be14-631c15989a8f",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1770978985371"
+  },
+  {
+    "id": "mapping_1770979148341",
+    "source_type": "field",
+    "target_type": "custom",
+    "static_value": "",
+    "target_field": "1833e681-6bb7-4ccc-a953-70dda8cc4920",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1770979011539"
+  },
+  {
+    "id": "mapping_1771242376821",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "phone",
+    "target_entity": "organization",
+    "transformation": "none",
+    "source_field_id": "field_1765611537713"
+  }
+]
+2026-02-25 14:33:16.873 [info] [AppProcessor] Form values for Primary Organisation:
+2026-02-25 14:33:16.873 [info] - name: form_values["field_1765610636257"] = "TEsting International"
+2026-02-25 14:33:16.873 [info] - b85d80f4-d9f4-43a0-9c6d-810d987b732f: form_values["field_1765637262772"] = "Postgraduate taught courses"
+2026-02-25 14:33:16.873 [info] - 6a137764-59a2-437c-a110-54701cc41bfe: form_values["field_1765635992459"] = "Research Plus"
+2026-02-25 14:33:16.873 [info] - invoicing_address: form_values["field_1766924358873"] = "NO. 1 Who knows where
+In a nice town
+Spain
+02222"
+2026-02-25 14:33:16.873 [info] - invoicing_email: form_values["field_1765654021220"] = "isaasitesting2@outlook.com"
+2026-02-25 14:33:16.873 [info] - cc05916d-7570-4243-ba54-ab4d71700120: form_values["field_1765611561892"] = "222"
+2026-02-25 14:33:16.873 [info] - 1ff67037-36ee-4ac0-b261-27707550b4e8: form_values["field_1770978949371"] = "Sharon"
+2026-02-25 14:33:16.873 [info] - a9265da5-d28c-431e-be14-631c15989a8f: form_values["field_1770978985371"] = "TEst"
+2026-02-25 14:33:16.873 [info] - 1833e681-6bb7-4ccc-a953-70dda8cc4920: form_values["field_1770979011539"] = "tester"
+2026-02-25 14:33:16.873 [info] - phone: form_values["field_1765611537713"] = "undefined"
+2026-02-25 14:33:16.873 [info] [AppProcessor] Custom field mapping: target=b85d80f4-d9f4-43a0-9c6d-810d987b732f, source=field_1765637262772, value=["Postgraduate taught courses"], hasValue=true
+2026-02-25 14:33:16.873 [info] [AppProcessor] Added custom field value: b85d80f4-d9f4-43a0-9c6d-810d987b732f = "Postgraduate taught courses"
+2026-02-25 14:33:16.873 [info] [AppProcessor] Custom field mapping: target=6a137764-59a2-437c-a110-54701cc41bfe, source=field_1765635992459, value=["Research Plus"], hasValue=true
+2026-02-25 14:33:16.873 [info] [AppProcessor] Added custom field value: 6a137764-59a2-437c-a110-54701cc41bfe = "Research Plus"
+2026-02-25 14:33:16.873 [info] [AppProcessor] Custom field mapping: target=1c395ccf-7df2-4818-917d-1cd672216f71, source=, value="Full application received", hasValue=true
+2026-02-25 14:33:16.873 [info] [AppProcessor] Added custom field value: 1c395ccf-7df2-4818-917d-1cd672216f71 = "Full application received"
+2026-02-25 14:33:16.873 [info] [AppProcessor] Custom field mapping: target=e5ac547d-edb1-4ff1-83ab-fc82c1813065, source=, value="University", hasValue=true
+2026-02-25 14:33:16.873 [info] [AppProcessor] Added custom field value: e5ac547d-edb1-4ff1-83ab-fc82c1813065 = "University"
+2026-02-25 14:33:16.873 [info] [AppProcessor] Custom field mapping: target=1c395ccf-7df2-4818-917d-1cd672216f71, source=, value="Full application received", hasValue=true
+2026-02-25 14:33:16.873 [info] [AppProcessor] Added custom field value: 1c395ccf-7df2-4818-917d-1cd672216f71 = "Full application received"
+2026-02-25 14:33:16.873 [info] [AppProcessor] Custom field mapping: target=cc05916d-7570-4243-ba54-ab4d71700120, source=field_1765611561892, value="222", hasValue=true
+2026-02-25 14:33:16.873 [info] [AppProcessor] Added custom field value: cc05916d-7570-4243-ba54-ab4d71700120 = "222"
+2026-02-25 14:33:16.873 [info] [AppProcessor] Custom field mapping: target=1ff67037-36ee-4ac0-b261-27707550b4e8, source=field_1770978949371, value="Sharon", hasValue=true
+2026-02-25 14:33:16.873 [info] [AppProcessor] Added custom field value: 1ff67037-36ee-4ac0-b261-27707550b4e8 = "Sharon"
+2026-02-25 14:33:16.873 [info] [AppProcessor] Custom field mapping: target=a9265da5-d28c-431e-be14-631c15989a8f, source=field_1770978985371, value="TEst", hasValue=true
+2026-02-25 14:33:16.873 [info] [AppProcessor] Added custom field value: a9265da5-d28c-431e-be14-631c15989a8f = "TEst"
+2026-02-25 14:33:16.873 [info] [AppProcessor] Custom field mapping: target=1833e681-6bb7-4ccc-a953-70dda8cc4920, source=field_1770979011539, value="tester", hasValue=true
+2026-02-25 14:33:16.873 [info] [AppProcessor] Added custom field value: 1833e681-6bb7-4ccc-a953-70dda8cc4920 = "tester"
+2026-02-25 14:33:16.873 [info] [AppProcessor] Extracted data: {
+  memberData: {
+    first_name: 'HOS',
+    last_name: 'Last',
+    job_title: 'HOS title',
+    email: 'isaasitesting2@outlook.com',
+    show_in_directory: false,
+    organization_id: 'TEsting International',
+    role_id: '561682bb-57f2-4a61-89aa-c3c201692923',
+    login_enabled: false
+  },
+  orgData: {
+    name: 'TEsting International',
+    invoicing_address: 'NO. 1 Who knows where\nIn a nice town\nSpain\n02222',
+    invoicing_email: 'isaasitesting2@outlook.com'
+  },
+  memberCustomFields: 0,
+  orgCustomFields: 8,
+  orgCustomFieldsDetail: [
+    {
+      field_id: 'b85d80f4-d9f4-43a0-9c6d-810d987b732f',
+      value: '["Postgraduate taught courses"]'
+    },
+    {
+      field_id: '6a137764-59a2-437c-a110-54701cc41bfe',
+      value: '["Research Plus"]'
+    },
+    {
+      field_id: '1c395ccf-7df2-4818-917d-1cd672216f71',
+      value: 'Full application received'
+    },
+    {
+      field_id: 'e5ac547d-edb1-4ff1-83ab-fc82c1813065',
+      value: 'University'
+    },
+    { field_id: 'cc05916d-7570-4243-ba54-ab4d71700120', value: '222' },
+    {
+      field_id: '1ff67037-36ee-4ac0-b261-27707550b4e8',
+      value: 'Sharon'
+    },
+    { field_id: 'a9265da5-d28c-431e-be14-631c15989a8f', value: 'TEst' },
+    {
+      field_id: '1833e681-6bb7-4ccc-a953-70dda8cc4920',
+      value: 'tester'
+    }
+  ]
+}
+2026-02-25 14:33:16.874 [info] [AppProcessor] Org processing enabled. Action: upsert OrgData: {
+  name: 'TEsting International',
+  invoicing_address: 'NO. 1 Who knows where\nIn a nice town\nSpain\n02222',
+  invoicing_email: 'isaasitesting2@outlook.com'
+} PrefillOrgId: null
+2026-02-25 14:33:17.018 [info] [AppProcessor] Found org by name: e09f75a3-d2ca-4e20-8ca7-70e19ad9c1ad
+2026-02-25 14:33:17.149 [info] [AppProcessor] Updated organization: e09f75a3-d2ca-4e20-8ca7-70e19ad9c1ad

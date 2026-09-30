@@ -1,0 +1,413 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  FORM_NOT_LISTED_LABELS_KEY,
+  FORM_NOT_LISTED_TEXT_KEY,
+  FORM_NOT_LISTED_VALUE,
+  applyExclusiveFormNotListedSelection,
+  applyInclusiveFormNotListedSelection,
+  hasEnabledFormNotListedChoice,
+  prependFormNotListedOption,
+  preserveFormNotListedLabelSnapshots,
+  normalizeFormPrefillOrganizationId,
+  resolveFormSubmissionOrganizationId,
+  resolveFormNotListedDisplayValue,
+  resolveRawFormNotListedText,
+  resolveFormNotListedText,
+  resolveMappedOrganizationDropdownValue,
+  pruneFormNotListedText,
+  setFormNotListedText,
+  setRepeatableRowNotListedText,
+  snapshotFormNotListedLabels,
+  validateFormNotListedText,
+} from './formNotListedChoice.js';
+
+const field = {
+  id: 'org',
+  type: 'organisation_dropdown',
+  not_listed_choice: { enabled: true, label: 'My organisation is not listed' },
+};
+
+test('resolves real organisation ids and treats the not-listed choice as no existing organisation', () => {
+  assert.equal(normalizeFormPrefillOrganizationId(FORM_NOT_LISTED_VALUE), null);
+  assert.equal(normalizeFormPrefillOrganizationId('org-123'), 'org-123');
+  assert.equal(resolveFormSubmissionOrganizationId({
+    fields: [field],
+    submissionData: { org: FORM_NOT_LISTED_VALUE },
+  }), null);
+  assert.equal(resolveFormSubmissionOrganizationId({
+    fields: [field],
+    submissionData: { org: 'org-123' },
+  }), 'org-123');
+});
+
+test('pipeline organisation dropdown resolution preserves not-listed answers while returning no existing target', () => {
+  const otherField = { ...field, id: 'other_org' };
+  const submissionData = {
+    other_org: 'org-standalone',
+    org: FORM_NOT_LISTED_VALUE,
+    [FORM_NOT_LISTED_TEXT_KEY]: { org: 'New Organisation Ltd' },
+  };
+  assert.equal(resolveFormSubmissionOrganizationId({
+    pipelineSourceFieldId: 'org',
+    fields: [otherField, field],
+    submissionData,
+  }), null);
+  assert.equal(submissionData.org, FORM_NOT_LISTED_VALUE);
+  assert.equal(submissionData[FORM_NOT_LISTED_TEXT_KEY].org, 'New Organisation Ltd');
+});
+
+test('maps a not-listed organisation name only for a mapped organisation name dropdown', () => {
+  const submissionData = {
+    org: FORM_NOT_LISTED_VALUE,
+    [FORM_NOT_LISTED_TEXT_KEY]: { org: '  New Organisation Ltd  ' },
+  };
+  assert.deepEqual(resolveMappedOrganizationDropdownValue({
+    field,
+    targetField: 'name',
+    value: submissionData.org,
+    submissionData,
+  }), {
+    organizationId: null,
+    organizationName: 'New Organisation Ltd',
+  });
+  assert.deepEqual(resolveMappedOrganizationDropdownValue({
+    field,
+    targetField: 'phone',
+    value: submissionData.org,
+    submissionData,
+  }), {
+    organizationId: null,
+    organizationName: '',
+  });
+});
+
+test('mapped organisation dropdown preserves listed ids and rejects blank not-listed names', () => {
+  assert.deepEqual(resolveMappedOrganizationDropdownValue({
+    field,
+    targetField: 'name',
+    value: 'org-123',
+    submissionData: {
+      org: 'org-123',
+      [FORM_NOT_LISTED_TEXT_KEY]: { org: 'must not be used' },
+    },
+  }), {
+    organizationId: 'org-123',
+    organizationName: '',
+  });
+  for (const text of [undefined, '', '   ']) {
+    assert.deepEqual(resolveMappedOrganizationDropdownValue({
+      field,
+      targetField: 'name',
+      value: FORM_NOT_LISTED_VALUE,
+      submissionData: text === undefined
+        ? { org: FORM_NOT_LISTED_VALUE }
+        : {
+            org: FORM_NOT_LISTED_VALUE,
+            [FORM_NOT_LISTED_TEXT_KEY]: { org: text },
+          },
+    }), {
+      organizationId: null,
+      organizationName: '',
+    });
+  }
+});
+
+test('enables only supported fields with a non-blank configured label', () => {
+  assert.equal(hasEnabledFormNotListedChoice(field), true);
+  assert.equal(hasEnabledFormNotListedChoice({
+    ...field,
+    type: 'organisation_group_dropdown',
+  }), true);
+  assert.equal(hasEnabledFormNotListedChoice({ ...field, type: 'select' }), false);
+  assert.equal(hasEnabledFormNotListedChoice({ ...field, not_listed_choice: { enabled: true, label: ' ' } }), false);
+});
+
+test('organisation group choices use the shared sentinel, text, and label snapshot behavior', () => {
+  const groupField = {
+    id: 'group',
+    type: 'organisation_group_dropdown',
+    not_listed_choice: { enabled: true, label: 'My group is not listed' },
+  };
+  assert.deepEqual(prependFormNotListedOption(groupField, [{ id: 'g1', name: 'Group 1' }], (id, name) => ({ id, name })), [
+    { id: FORM_NOT_LISTED_VALUE, name: 'My group is not listed' },
+    { id: 'g1', name: 'Group 1' },
+  ]);
+  const submission = {
+    group: FORM_NOT_LISTED_VALUE,
+    [FORM_NOT_LISTED_TEXT_KEY]: { group: 'A new group' },
+  };
+  assert.equal(validateFormNotListedText([groupField], submission).valid, true);
+  const snapshotted = snapshotFormNotListedLabels([groupField], submission);
+  assert.equal(snapshotted[FORM_NOT_LISTED_LABELS_KEY].group, 'My group is not listed');
+  assert.equal(
+    resolveFormNotListedDisplayValue(groupField, FORM_NOT_LISTED_VALUE, snapshotted),
+    'My group is not listed — A new group',
+  );
+});
+
+test('prepends one stable synthetic value without changing real options', () => {
+  assert.deepEqual(prependFormNotListedOption(field, [{ value: 'org-1', label: 'Org 1' }]), [
+    { value: FORM_NOT_LISTED_VALUE, label: 'My organisation is not listed' },
+    { value: 'org-1', label: 'Org 1' },
+  ]);
+});
+
+test('multi-select synthetic choice is exclusive with real values', () => {
+  assert.deepEqual(applyExclusiveFormNotListedSelection(['one'], FORM_NOT_LISTED_VALUE), [FORM_NOT_LISTED_VALUE]);
+  assert.deepEqual(applyExclusiveFormNotListedSelection([FORM_NOT_LISTED_VALUE], 'one'), ['one']);
+  assert.deepEqual(applyExclusiveFormNotListedSelection([FORM_NOT_LISTED_VALUE], FORM_NOT_LISTED_VALUE), []);
+});
+
+test('inclusive synthetic choice can coexist with real values', () => {
+  assert.deepEqual(
+    applyInclusiveFormNotListedSelection(['record-1'], FORM_NOT_LISTED_VALUE),
+    ['record-1', FORM_NOT_LISTED_VALUE],
+  );
+  assert.deepEqual(
+    applyInclusiveFormNotListedSelection(['record-1', FORM_NOT_LISTED_VALUE], FORM_NOT_LISTED_VALUE),
+    ['record-1'],
+  );
+});
+
+test('snapshots and resolves the submitted label after configuration changes', () => {
+  const stored = snapshotFormNotListedLabels([field], { org: FORM_NOT_LISTED_VALUE });
+  assert.equal(stored[FORM_NOT_LISTED_LABELS_KEY].org, 'My organisation is not listed');
+  const renamed = { ...field, not_listed_choice: { enabled: false, label: 'A new label' } };
+  assert.equal(
+    resolveFormNotListedDisplayValue(renamed, FORM_NOT_LISTED_VALUE, stored),
+    'My organisation is not listed',
+  );
+});
+
+test('snapshots repeatable child labels independently beneath the container field', () => {
+  const repeatable = {
+    id: 'rows',
+    type: 'repeatable_row',
+    repeatable_row: {
+      children: [{
+        id: 'country',
+        type: 'country',
+        not_listed_choice: { enabled: true, label: 'Original country label' },
+      }],
+    },
+  };
+  const stored = snapshotFormNotListedLabels([repeatable], {
+    rows: [{ country: FORM_NOT_LISTED_VALUE }],
+  });
+  assert.equal(stored[FORM_NOT_LISTED_LABELS_KEY].rows.country, 'Original country label');
+  const renamedChild = {
+    ...repeatable.repeatable_row.children[0],
+    not_listed_choice: { enabled: false, label: 'Renamed country label' },
+  };
+  assert.equal(
+    resolveFormNotListedDisplayValue(
+      renamedChild,
+      FORM_NOT_LISTED_VALUE,
+      stored,
+      { parentField: repeatable },
+    ),
+    'Original country label',
+  );
+});
+
+test('trusted historical labels survive a later submission edit while new labels are retained', () => {
+  const merged = preserveFormNotListedLabelSnapshots({
+    __not_listed_choice_labels: {
+      rows: { new_child: 'New child label', old_child: 'Renamed label' },
+    },
+  }, {
+    __not_listed_choice_labels: {
+      rows: { old_child: 'Original child label' },
+      top_level: 'Original top-level label',
+    },
+  });
+  assert.deepEqual(merged.__not_listed_choice_labels, {
+    rows: {
+      new_child: 'New child label',
+      old_child: 'Original child label',
+    },
+    top_level: 'Original top-level label',
+  });
+});
+
+test('stores and resolves normal and repeatable not-listed text without changing the sentinel', () => {
+  const normal = setFormNotListedText({ org: FORM_NOT_LISTED_VALUE }, 'org', '  Acme Other  ');
+  assert.equal(normal.org, FORM_NOT_LISTED_VALUE);
+  assert.equal(normal[FORM_NOT_LISTED_TEXT_KEY].org, '  Acme Other  ');
+  assert.equal(resolveRawFormNotListedText(field, normal), '  Acme Other  ');
+  assert.equal(resolveFormNotListedText(field, normal), 'Acme Other');
+  assert.equal(
+    resolveFormNotListedDisplayValue(field, normal.org, normal),
+    'My organisation is not listed — Acme Other',
+  );
+
+  const child = {
+    id: 'country',
+    type: 'country',
+    not_listed_choice: { enabled: true, label: 'Other country' },
+  };
+  const row = setRepeatableRowNotListedText(
+    { _row_id: 'r1', country: FORM_NOT_LISTED_VALUE },
+    child.id,
+    'Atlantis',
+  );
+  const data = { rows: [row] };
+  assert.equal(resolveRawFormNotListedText(child, data, { row }), 'Atlantis');
+  assert.equal(resolveFormNotListedText(child, data, { row }), 'Atlantis');
+  assert.equal(
+    resolveFormNotListedDisplayValue(child, row.country, data, { row }),
+    'Other country — Atlantis',
+  );
+});
+
+test('validates required and non-orphaned normal and repeatable text', () => {
+  const repeatable = {
+    id: 'rows',
+    type: 'repeatable_rows',
+    repeatable_row: {
+      child_fields: [{
+        id: 'country',
+        type: 'country',
+        not_listed_choice: { enabled: true, label: 'Other country' },
+      }],
+    },
+  };
+  assert.equal(validateFormNotListedText([field], {
+    org: FORM_NOT_LISTED_VALUE,
+  }).valid, false);
+  assert.equal(validateFormNotListedText([field], {
+    org: FORM_NOT_LISTED_VALUE,
+    [FORM_NOT_LISTED_TEXT_KEY]: { org: 'Acme Other' },
+  }).valid, true);
+  assert.equal(validateFormNotListedText([field], {
+    org: FORM_NOT_LISTED_VALUE,
+    [FORM_NOT_LISTED_TEXT_KEY]: { org: '   ' },
+  }).valid, false);
+  assert.equal(validateFormNotListedText([field], {
+    org: 'real-id',
+    [FORM_NOT_LISTED_TEXT_KEY]: { org: 'orphaned' },
+  }).valid, false);
+  assert.equal(validateFormNotListedText([repeatable], {
+    rows: [{
+      _row_id: 'r1',
+      country: FORM_NOT_LISTED_VALUE,
+      [FORM_NOT_LISTED_TEXT_KEY]: { country: 'Atlantis' },
+    }],
+  }).valid, true);
+  assert.equal(validateFormNotListedText([repeatable], {
+    rows: [{
+      _row_id: 'r1',
+      country: FORM_NOT_LISTED_VALUE,
+      [FORM_NOT_LISTED_TEXT_KEY]: { unknown: 'forged' },
+    }],
+  }).valid, false);
+});
+
+test('row-local visibility skips retained not-listed text errors without weakening visible rows or metadata shape', () => {
+  for (const mode of ['show_when', 'hide_when']) {
+    const container = {
+      id: 'rows',
+      type: 'repeatable_rows',
+      children: [
+        { id: 'driver', type: 'select', options: ['Yes', 'No'] },
+        {
+          id: 'country', type: 'country',
+          not_listed_choice: { enabled: true, label: 'Other country' },
+          row_visibility: { mode, source_field_id: 'driver', value: 'Yes' },
+        },
+      ],
+    };
+    const hiddenDriver = mode === 'show_when' ? 'No' : 'Yes';
+    const visibleDriver = mode === 'show_when' ? 'Yes' : 'No';
+    for (const text of [undefined, '', 42, 'x'.repeat(501)]) {
+      const hidden = {
+        _row_id: 'hidden', driver: hiddenDriver, country: FORM_NOT_LISTED_VALUE,
+        ...(text === undefined ? {} : { [FORM_NOT_LISTED_TEXT_KEY]: { country: text } }),
+      };
+      const values = { rows: [hidden] };
+      const snapshot = structuredClone(values);
+      assert.equal(validateFormNotListedText([container], values).valid, true);
+      assert.deepEqual(values, snapshot, 'raw hidden answers and metadata are retained');
+      assert.equal(validateFormNotListedText([container], {
+        rows: [hidden, { ...hidden, _row_id: 'visible', driver: visibleDriver }],
+      }).valid, false, 'a different visible row still validates its text');
+    }
+    assert.equal(validateFormNotListedText([container], {
+      rows: [{
+        driver: hiddenDriver, country: 'GB',
+        [FORM_NOT_LISTED_TEXT_KEY]: { country: 'Stale companion text' },
+      }],
+    }).valid, true);
+    for (const invalidMap of ['not-an-object', { unknown_child: 'forged' }]) {
+      assert.equal(validateFormNotListedText([container], {
+        rows: [{ driver: hiddenDriver, [FORM_NOT_LISTED_TEXT_KEY]: invalidMap }],
+      }).valid, false, 'metadata shape and unknown-key guards still run');
+    }
+    assert.equal(validateFormNotListedText([container], {
+      rows: [{ driver: visibleDriver, country: FORM_NOT_LISTED_VALUE }],
+    }, { ignoredFieldIds: new Set(['rows']) }).valid, true);
+  }
+});
+
+test('nested not-listed validation uses a hidden raw source to reveal a visible target', () => {
+  const container = {
+    id: 'rows', type: 'repeatable_rows',
+    children: [
+      { id: 'gate', type: 'select', options: ['Yes', 'No'] },
+      {
+        id: 'source', type: 'select', options: ['Yes', 'No'],
+        row_visibility: { mode: 'hide_when', source_field_id: 'gate', value: 'Yes' },
+      },
+      {
+        id: 'country', type: 'country',
+        not_listed_choice: { enabled: true, label: 'Other country' },
+        row_visibility: { mode: 'show_when', source_field_id: 'source', value: 'Yes' },
+      },
+    ],
+  };
+  const row = { gate: 'Yes', source: 'Yes', country: FORM_NOT_LISTED_VALUE };
+  assert.equal(validateFormNotListedText([container], { rows: [row] }).valid, false);
+  assert.equal(validateFormNotListedText([container], {
+    rows: [{ ...row, [FORM_NOT_LISTED_TEXT_KEY]: { country: 'Atlantis' } }],
+  }).valid, true);
+});
+
+test('prunes orphaned root and row text without disturbing selected sentinel text', () => {
+  const repeatable = {
+    id: 'rows',
+    type: 'repeatable_rows',
+    child_fields: [{
+      id: 'country',
+      type: 'country',
+      not_listed_choice: { enabled: true, label: 'Other country' },
+    }],
+  };
+  const data = {
+    org: 'real-org',
+    [FORM_NOT_LISTED_TEXT_KEY]: { org: 'stale root text' },
+    rows: [
+      {
+        _row_id: 'one',
+        country: 'Spain',
+        [FORM_NOT_LISTED_TEXT_KEY]: { country: 'stale row text' },
+      },
+      {
+        _row_id: 'two',
+        country: FORM_NOT_LISTED_VALUE,
+        [FORM_NOT_LISTED_TEXT_KEY]: { country: 'Atlantis' },
+      },
+    ],
+  };
+  assert.deepEqual(pruneFormNotListedText([field, repeatable], data), {
+    org: 'real-org',
+    rows: [
+      { _row_id: 'one', country: 'Spain' },
+      {
+        _row_id: 'two',
+        country: FORM_NOT_LISTED_VALUE,
+        [FORM_NOT_LISTED_TEXT_KEY]: { country: 'Atlantis' },
+      },
+    ],
+  });
+});

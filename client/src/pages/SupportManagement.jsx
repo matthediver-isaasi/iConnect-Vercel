@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,11 +9,52 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Bug, Lightbulb, HelpCircle, Mail, Search, Clock, CheckCircle, Upload, Loader2 } from "lucide-react";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Bug, Lightbulb, HelpCircle, Mail, Search, Clock, CheckCircle, Upload, Loader2, Bell, MessageSquare, AlertCircle, Settings, Plus, Trash2, ArrowUp, ArrowDown, Star } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { format } from "date-fns";
+import { showUploadErrorToast } from "@/lib/planQuotaError";
+import { format, formatDistanceToNow } from "date-fns";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import TicketConversation from "@/components/support/TicketConversation";
+import {
+  SUPPORT_LEVELS_KEY,
+  SUPPORT_INSTRUCTIONS_KEY,
+  resolveSupportLevels,
+  resolveSupportInstructions,
+  getDefaultSeverity,
+  getSeverityLabel,
+  getSeverityBadgeClass,
+} from "@/lib/supportLevels";
+import {
+  SUPPORT_AREAS_KEY,
+  resolveSupportAreas,
+  getAreaLabel,
+  AREA_BADGE_CLASS,
+} from "@/lib/supportAreas";
+import { isResourceExcluded } from "@/lib/roleVisibility";
+import {
+  classifyTicketQueue,
+  getTicketLastActivity,
+  QUEUE_NEEDS_ATTENTION,
+  QUEUE_WAITING_ON_MEMBER,
+  QUEUE_RESOLVED,
+  QUEUE_CLOSED,
+} from "../../../api/_lib/supportTicketQueues.js";
+import {
+  SUPPORT_AUTO_CLOSE_KEY,
+  AUTO_CLOSE_DEFAULTS,
+  resolveAutoCloseSettings,
+} from "@/lib/supportAutoClose";
+
+const QUEUE_TABS = [
+  { value: QUEUE_NEEDS_ATTENTION, label: "Needs attention" },
+  { value: QUEUE_WAITING_ON_MEMBER, label: "Waiting on member" },
+  { value: QUEUE_RESOLVED, label: "Resolved" },
+  { value: QUEUE_CLOSED, label: "Closed" },
+];
 
 const typeIcons = {
   bug: Bug,
@@ -31,39 +72,116 @@ const typeLabels = {
 
 const statusColors = {
   open: "bg-blue-100 text-blue-800",
-  in_progress: "bg-yellow-100 text-yellow-800",
+  in_progress: "bg-warning/10 text-warning",
   resolved: "bg-green-100 text-green-800",
   closed: "bg-slate-100 text-slate-800"
 };
 
-const priorityColors = {
-  low: "bg-slate-100 text-slate-700",
-  medium: "bg-blue-100 text-blue-700",
-  high: "bg-orange-100 text-orange-700",
-  urgent: "bg-red-100 text-red-700"
+const EVENT_TYPE_LABELS = {
+  new_ticket: "New ticket submitted",
+  user_reply: "Member replied",
+  admin_reply: "Admin reply sent",
 };
 
-const severityColors = {
-  minor: "bg-green-100 text-green-700",
-  moderate: "bg-yellow-100 text-yellow-700",
-  major: "bg-orange-100 text-orange-700",
-  critical: "bg-red-100 text-red-700"
+const EVENT_TYPE_ICONS = {
+  new_ticket: MessageSquare,
+  user_reply: MessageSquare,
+  admin_reply: CheckCircle,
 };
+
+function formatRelative(dateString) {
+  if (!dateString) return "";
+  try {
+    return formatDistanceToNow(new Date(dateString), { addSuffix: true });
+  } catch {
+    return "";
+  }
+}
 
 export default function SupportManagementPage() {
-  const { isAdmin, memberInfo, isAccessReady } = useMemberAccess();
+  const { isAdmin, memberInfo, isAccessReady, isFeatureExcluded } = useMemberAccess();
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [activeQueue, setActiveQueue] = useState(QUEUE_NEEDS_ATTENTION);
   const [typeFilter, setTypeFilter] = useState("all");
+  const [severityFilter, setSeverityFilter] = useState("all");
+  const [areaFilter, setAreaFilter] = useState("all");
   const [selectedTicket, setSelectedTicket] = useState(null);
-  const [replyMessage, setReplyMessage] = useState("");
   const [updateData, setUpdateData] = useState({});
-  const [uploadingImages, setUploadingImages] = useState(false);
-  const [responseAttachments, setResponseAttachments] = useState([]);
+  const [inboxOpen, setInboxOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [levelsDraft, setLevelsDraft] = useState([]);
+  const [instructionsDraft, setInstructionsDraft] = useState("");
+  const [areasDraft, setAreasDraft] = useState([]);
+  const [autoCloseDraft, setAutoCloseDraft] = useState({ ...AUTO_CLOSE_DEFAULTS });
 
   const queryClient = useQueryClient();
 
-  const hasAccess = memberInfo?.email?.includes('isaasi.co.uk') || memberInfo?.email === 'sharon@onlinem.co.uk';
+  const hasAccess = isAccessReady && !isFeatureExcluded('support.management');
+
+  const { data: settings = [] } = useQuery({
+    queryKey: ['support-system-settings'],
+    queryFn: () => base44.entities.SystemSettings.list(),
+    enabled: hasAccess && isAccessReady,
+  });
+
+  const supportLevels = useMemo(() => resolveSupportLevels(settings), [settings]);
+  const supportAreas = useMemo(() => resolveSupportAreas(settings), [settings]);
+
+  // Load roles so we can restrict the area assignee picker to support-eligible members.
+  const { data: allRoles = [] } = useQuery({
+    queryKey: ['support-roles'],
+    queryFn: () => base44.entities.Role.list(),
+    enabled: hasAccess && isAccessReady,
+  });
+
+  // Role IDs that grant support management or tenant-admin access.
+  // Uses isResourceExcluded (not a naive array includes) so that a role which
+  // excludes a parent page or module — e.g. the whole `admin` module, which
+  // covers `admin.role-management` — is correctly treated as excluded. This
+  // matches the server-side resolveSupportRecipients logic in api/support/notify.js.
+  const supportEligibleRoleIds = useMemo(() => {
+    const eligible = new Set();
+    for (const role of allRoles) {
+      const excluded = Array.isArray(role.excluded_features) ? role.excluded_features : [];
+      const hasSupportAccess = !isResourceExcluded(excluded, 'support.management');
+      const hasAdminAccess = !isResourceExcluded(excluded, 'admin.role-management');
+      if (hasSupportAccess || hasAdminAccess) {
+        eligible.add(role.id);
+      }
+    }
+    return eligible;
+  }, [allRoles]);
+
+  // Load ALL members then filter client-side to support-eligible roles only
+  const { data: eligibleMembers = [] } = useQuery({
+    queryKey: ['support-eligible-members'],
+    queryFn: () => base44.entities.Member.list(),
+    enabled: hasAccess && isAccessReady,
+    select: (members) =>
+      members.filter(
+        (m) =>
+          m.email &&
+          !m.email.startsWith('deleted_') &&
+          m.role_id &&
+          supportEligibleRoleIds.has(m.role_id)
+      ),
+  });
+
+  // Build a fast lookup from member ID or email → full name for resolving assigned_to
+  const agentNameMap = useMemo(() => {
+    const map = new Map();
+    for (const m of eligibleMembers) {
+      const fullName = [m.first_name, m.last_name].filter(Boolean).join(' ') || m.email;
+      if (m.id) map.set(m.id, fullName);
+      if (m.email) map.set(m.email.toLowerCase(), fullName);
+    }
+    return map;
+  }, [eligibleMembers]);
+
+  const resolveAgentName = (assignedTo) => {
+    if (!assignedTo) return null;
+    return agentNameMap.get(assignedTo) || agentNameMap.get(assignedTo.toLowerCase()) || null;
+  };
 
   const { data: tickets = [], isLoading } = useQuery({
     queryKey: ['all-support-tickets'],
@@ -71,13 +189,62 @@ export default function SupportManagementPage() {
     enabled: hasAccess && isAccessReady
   });
 
-  const { data: responses = [] } = useQuery({
-    queryKey: ['support-responses', selectedTicket?.id],
+  // All conversation entries for queue classification (staff view — the
+  // server returns internal notes to support staff; classification ignores
+  // them via classifyTicketQueue).
+  const { data: allResponses = [] } = useQuery({
+    queryKey: ['all-support-ticket-responses'],
+    queryFn: () => base44.entities.SupportTicketResponse.list(),
+    enabled: hasAccess && isAccessReady,
+    refetchInterval: 60000,
+  });
+
+  const responsesByTicket = useMemo(() => {
+    const map = new Map();
+    for (const r of allResponses) {
+      if (!r?.ticket_id) continue;
+      if (!map.has(r.ticket_id)) map.set(r.ticket_id, []);
+      map.get(r.ticket_id).push(r);
+    }
+    return map;
+  }, [allResponses]);
+
+  // Keep the open ticket dialog in sync with live ticket updates (realtime
+  // invalidations refresh the tickets list; mirror changes into selectedTicket).
+  React.useEffect(() => {
+    if (!selectedTicket) return;
+    const fresh = tickets.find((t) => t.id === selectedTicket.id);
+    if (fresh && fresh !== selectedTicket) {
+      setSelectedTicket((prev) => (prev && prev.id === fresh.id ? { ...prev, ...fresh } : prev));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tickets]);
+
+  const { data: inboxData = { items: [], unread_count: 0 }, isLoading: inboxLoading } = useQuery({
+    queryKey: ['support-inbox'],
     queryFn: async () => {
-      const allResponses = await base44.entities.SupportTicketResponse.list("created_date");
-      return allResponses.filter(r => r.ticket_id === selectedTicket?.id);
+      const res = await fetch('/api/support/inbox', { credentials: 'include' });
+      if (!res.ok) return { items: [], unread_count: 0 };
+      return res.json();
     },
-    enabled: !!selectedTicket
+    enabled: hasAccess && isAccessReady,
+    refetchInterval: 60000,
+  });
+
+  const markReadMutation = useMutation({
+    mutationFn: async ({ item_ids, mark_all_read }) => {
+      const res = await fetch('/api/support/inbox', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(item_ids ? { item_ids } : { mark_all_read: true }),
+      });
+      if (!res.ok) throw new Error('Failed to mark as read');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['support-inbox'] });
+    },
   });
 
   const updateTicketMutation = useMutation({
@@ -89,20 +256,148 @@ export default function SupportManagementPage() {
     onError: () => toast.error('Failed to update ticket')
   });
 
-  const addResponseMutation = useMutation({
-    mutationFn: (responseData) => base44.entities.SupportTicketResponse.create(responseData),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['support-responses'] });
-      toast.success('Response added');
-      setReplyMessage("");
-      setResponseAttachments([]);
+  const upsertSetting = async (key, value) => {
+    const existing = settings.find((s) => s.setting_key === key);
+    if (existing) {
+      return base44.entities.SystemSettings.update(existing.id, { setting_value: value });
+    }
+    return base44.entities.SystemSettings.create({ setting_key: key, setting_value: value });
+  };
+
+  const saveSettingsMutation = useMutation({
+    mutationFn: async ({ levels, instructions, areas, autoClose }) => {
+      await upsertSetting(SUPPORT_LEVELS_KEY, JSON.stringify(levels));
+      await upsertSetting(SUPPORT_INSTRUCTIONS_KEY, instructions);
+      await upsertSetting(SUPPORT_AREAS_KEY, JSON.stringify(areas));
+      await upsertSetting(SUPPORT_AUTO_CLOSE_KEY, JSON.stringify(autoClose));
     },
-    onError: () => toast.error('Failed to add response')
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['support-system-settings'] });
+      queryClient.invalidateQueries({ queryKey: ['public-support-settings'] });
+      toast.success('Support settings saved');
+      setSettingsOpen(false);
+    },
+    onError: () => toast.error('Failed to save support settings'),
   });
+
+  const openSettings = () => {
+    setLevelsDraft(resolveSupportLevels(settings).map((lvl) => ({ ...lvl })));
+    setInstructionsDraft(resolveSupportInstructions(settings));
+    setAreasDraft(resolveSupportAreas(settings).map((a) => ({ ...a, memberIds: [...(a.memberIds || [])] })));
+    setAutoCloseDraft(resolveAutoCloseSettings(settings));
+    setSettingsOpen(true);
+  };
+
+  const slugifyLevelValue = (label) =>
+    label
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+
+  const updateLevelLabel = (index, label) => {
+    setLevelsDraft((prev) => prev.map((lvl, i) => {
+      if (i !== index) return lvl;
+      // Keep a stable value once set; only derive a value when blank (new rows).
+      const value = lvl.value && lvl.value.trim() !== '' ? lvl.value : slugifyLevelValue(label);
+      return { ...lvl, label, value };
+    }));
+  };
+
+  const setLevelDefault = (index) => {
+    setLevelsDraft((prev) => prev.map((lvl, i) => ({ ...lvl, isDefault: i === index })));
+  };
+
+  const removeLevel = (index) => {
+    setLevelsDraft((prev) => {
+      const next = prev.filter((_, i) => i !== index);
+      // Ensure at least one default remains.
+      if (next.length > 0 && !next.some((lvl) => lvl.isDefault)) {
+        next[0] = { ...next[0], isDefault: true };
+      }
+      return next;
+    });
+  };
+
+  const moveLevel = (index, direction) => {
+    setLevelsDraft((prev) => {
+      const target = index + direction;
+      if (target < 0 || target >= prev.length) return prev;
+      const next = [...prev];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  };
+
+  const addLevel = () => {
+    setLevelsDraft((prev) => [...prev, { value: '', label: '', isDefault: prev.length === 0 }]);
+  };
+
+  const handleSaveSettings = () => {
+    const cleaned = levelsDraft
+      .map((lvl) => ({
+        value: (lvl.value && lvl.value.trim() !== '' ? lvl.value : slugifyLevelValue(lvl.label || '')).trim(),
+        label: (lvl.label || '').trim(),
+        isDefault: !!lvl.isDefault,
+      }))
+      .filter((lvl) => lvl.label !== '' && lvl.value !== '');
+
+    if (cleaned.length === 0) {
+      toast.error('Add at least one support level');
+      return;
+    }
+
+    const values = cleaned.map((lvl) => lvl.value);
+    if (new Set(values).size !== values.length) {
+      toast.error('Support level names must be unique');
+      return;
+    }
+
+    if (!cleaned.some((lvl) => lvl.isDefault)) {
+      cleaned[0].isDefault = true;
+    }
+
+    const cleanedAreas = areasDraft
+      .map((a) => ({
+        value: (a.value && a.value.trim() !== '' ? a.value : slugifyLevelValue(a.label || '')).trim(),
+        label: (a.label || '').trim(),
+        memberIds: Array.isArray(a.memberIds) ? a.memberIds.filter(Boolean) : [],
+      }))
+      .filter((a) => a.label !== '' && a.value !== '');
+
+    const areaValues = cleanedAreas.map((a) => a.value);
+    if (new Set(areaValues).size !== areaValues.length) {
+      toast.error('Support area names must be unique');
+      return;
+    }
+
+    const warnDays = parseInt(autoCloseDraft.warnDays, 10);
+    const closeDays = parseInt(autoCloseDraft.closeDays, 10);
+    if (autoCloseDraft.enabled) {
+      if (!Number.isInteger(warnDays) || warnDays < 1) {
+        toast.error('Warning days must be at least 1');
+        return;
+      }
+      if (!Number.isInteger(closeDays) || closeDays <= warnDays) {
+        toast.error('Auto-close days must be greater than warning days');
+        return;
+      }
+    }
+    const cleanedAutoClose = {
+      enabled: !!autoCloseDraft.enabled,
+      warnDays: Number.isInteger(warnDays) && warnDays >= 1 ? warnDays : AUTO_CLOSE_DEFAULTS.warnDays,
+      closeDays: Number.isInteger(closeDays) && closeDays >= 1 ? closeDays : AUTO_CLOSE_DEFAULTS.closeDays,
+    };
+    if (cleanedAutoClose.closeDays <= cleanedAutoClose.warnDays) {
+      cleanedAutoClose.closeDays = cleanedAutoClose.warnDays + 1;
+    }
+
+    saveSettingsMutation.mutate({ levels: cleaned, instructions: instructionsDraft.trim(), areas: cleanedAreas, autoClose: cleanedAutoClose });
+  };
 
   if (!isAccessReady) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
       </div>
     );
@@ -116,87 +411,155 @@ export default function SupportManagementPage() {
     setSelectedTicket({ ...selectedTicket, ...updates });
   };
 
-  const handleAddResponse = () => {
-    if (!replyMessage.trim()) return;
-
-    addResponseMutation.mutate({
-      ticket_id: selectedTicket.id,
-      message: replyMessage,
-      is_admin_response: true,
-      responder_email: memberInfo.email,
-      responder_name: `${memberInfo.first_name} ${memberInfo.last_name}`,
-      attachments: responseAttachments
-    });
-  };
-
-  const handleImageUpload = async (files) => {
-    if (!files || files.length === 0) return;
-
-    setUploadingImages(true);
-    try {
-      const uploadPromises = Array.from(files).map(async (file) => {
-        const response = await base44.integrations.Core.UploadFile({ file });
-        return response.file_url;
-      });
-      
-      const urls = await Promise.all(uploadPromises);
-      setResponseAttachments(prev => [...prev, ...urls]);
-      toast.success(`Uploaded ${urls.length} image(s)`);
-    } catch (error) {
-      toast.error('Failed to upload images: ' + error.message);
-    } finally {
-      setUploadingImages(false);
+  const handleInboxItemClick = (item) => {
+    // Mark the item as read
+    if (!item.read_at) {
+      markReadMutation.mutate({ item_ids: [item.id] });
+    }
+    // Open the related ticket
+    const ticket = tickets.find(t => t.id === item.ticket_id);
+    if (ticket) {
+      setSelectedTicket(ticket);
+      setInboxOpen(false);
     }
   };
 
-  const handleRemoveAttachment = (url) => {
-    setResponseAttachments(prev => prev.filter(u => u !== url));
+  // Per-admin unread state: unread inbox items about member activity, keyed
+  // by ticket id. Opening a ticket marks its items read (clears the dot).
+  const unreadItemIdsByTicket = new Map();
+  for (const item of (inboxData.items || [])) {
+    if (item.read_at || !item.ticket_id) continue;
+    if (item.event_type !== 'user_reply' && item.event_type !== 'new_ticket') continue;
+    if (!unreadItemIdsByTicket.has(item.ticket_id)) unreadItemIdsByTicket.set(item.ticket_id, []);
+    unreadItemIdsByTicket.get(item.ticket_id).push(item.id);
+  }
+
+  const handleOpenTicket = (ticket) => {
+    setSelectedTicket(ticket);
+    const ids = unreadItemIdsByTicket.get(ticket.id);
+    if (ids && ids.length > 0) {
+      markReadMutation.mutate({ item_ids: ids });
+    }
   };
 
   if (!hasAccess) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <Card className="border-red-200">
           <CardContent className="p-8 text-center">
-            <p className="text-red-600">Access restricted to isaasi.co.uk team members</p>
+            <p className="text-red-600">You don't have permission to access support management.</p>
           </CardContent>
         </Card>
       </div>
     );
   }
 
-  const filteredTickets = tickets.filter(ticket => {
-    const matchesSearch = ticket.subject.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         ticket.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         ticket.submitter_name.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === "all" || ticket.status === statusFilter;
+  // Search/type/severity/area filters apply across all queues; queue counts
+  // reflect the filtered set so the tab badges match what you'd see.
+  const baseFilteredTickets = tickets.filter(ticket => {
+    const q = searchQuery.toLowerCase();
+    const matchesSearch = (ticket.subject || '').toLowerCase().includes(q) ||
+                         (ticket.description || '').toLowerCase().includes(q) ||
+                         (ticket.submitter_name || '').toLowerCase().includes(q);
     const matchesType = typeFilter === "all" || ticket.type === typeFilter;
-    return matchesSearch && matchesStatus && matchesType;
+    const matchesSeverity = severityFilter === "all" || ticket.severity === severityFilter;
+    const matchesArea = areaFilter === "all" || ticket.area === areaFilter;
+    return matchesSearch && matchesType && matchesSeverity && matchesArea;
   });
+
+  const queueCounts = { [QUEUE_NEEDS_ATTENTION]: 0, [QUEUE_WAITING_ON_MEMBER]: 0, [QUEUE_RESOLVED]: 0, [QUEUE_CLOSED]: 0 };
+  const ticketQueueMap = new Map();
+  for (const ticket of baseFilteredTickets) {
+    const queue = classifyTicketQueue(ticket, responsesByTicket.get(ticket.id));
+    ticketQueueMap.set(ticket.id, queue);
+    queueCounts[queue] = (queueCounts[queue] || 0) + 1;
+  }
+
+  const filteredTickets = baseFilteredTickets
+    .filter((t) => ticketQueueMap.get(t.id) === activeQueue)
+    .sort(
+      (a, b) =>
+        getTicketLastActivity(b, responsesByTicket.get(b.id)) -
+        getTicketLastActivity(a, responsesByTicket.get(a.id))
+    );
+
+  // Per-member ticket indicator (plain derivation — no hook, safe after early return)
+  const myMemberId = memberInfo?.id;
+  const myAssignedTickets = myMemberId
+    ? tickets.filter(t => t.assigned_to === myMemberId || t.assigned_to === memberInfo?.email)
+    : [];
+  const myOpenTickets = myAssignedTickets.filter(t => t.status === 'open' || t.status === 'in_progress');
 
   const getTicketCounts = (status) => {
     return tickets.filter(t => t.status === status).length;
   };
 
+  const unreadCount = inboxData.unread_count || 0;
+  const inboxItems = inboxData.items || [];
+
+  const ratedTickets = tickets.filter((t) => Number.isInteger(t.satisfaction_rating));
+  const avgSatisfaction = ratedTickets.length > 0
+    ? (ratedTickets.reduce((sum, t) => sum + t.satisfaction_rating, 0) / ratedTickets.length)
+    : null;
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
-        <div className="mb-8">
-          <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">Support Management</h1>
-          <p className="text-slate-600">Manage and respond to support tickets</p>
+        <div className="mb-8 flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">Support Management</h1>
+            <p className="text-slate-600">Manage and respond to support tickets</p>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              onClick={openSettings}
+              data-testid="button-support-settings"
+            >
+              <Settings className="w-4 h-4 mr-2" />
+              Settings
+            </Button>
+            <Button
+              variant="outline"
+              className="relative"
+              onClick={() => setInboxOpen(true)}
+              data-testid="button-support-inbox"
+            >
+              <Bell className="w-4 h-4 mr-2" />
+              Notifications
+              {unreadCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-blue-600 text-white text-xs font-bold" data-testid="text-unread-count">
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+              )}
+            </Button>
+          </div>
         </div>
 
+        {/* Per-member indicator */}
+        {myMemberId && myAssignedTickets.length > 0 && (
+          <div className="mb-4 flex items-center gap-2 p-3 rounded-md border bg-blue-50 border-blue-200 text-sm text-blue-800" data-testid="my-tickets-indicator">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            <span>
+              You are assigned to <strong>{myAssignedTickets.length}</strong> ticket{myAssignedTickets.length !== 1 ? 's' : ''}
+              {myOpenTickets.length > 0 && (
+                <> — <strong>{myOpenTickets.length}</strong> open/in-progress</>
+              )}
+            </span>
+          </div>
+        )}
+
         {/* Stats */}
-        <div className="grid md:grid-cols-4 gap-4 mb-6">
+        <div className="grid md:grid-cols-5 gap-4 mb-6">
           <Card className="border-blue-200">
             <CardContent className="p-4">
               <div className="text-2xl font-bold text-blue-600">{getTicketCounts('open')}</div>
               <div className="text-sm text-slate-600">Open</div>
             </CardContent>
           </Card>
-          <Card className="border-yellow-200">
+          <Card className="border-warning/30">
             <CardContent className="p-4">
-              <div className="text-2xl font-bold text-yellow-600">{getTicketCounts('in_progress')}</div>
+              <div className="text-2xl font-bold text-warning">{getTicketCounts('in_progress')}</div>
               <div className="text-sm text-slate-600">In Progress</div>
             </CardContent>
           </Card>
@@ -210,6 +573,23 @@ export default function SupportManagementPage() {
             <CardContent className="p-4">
               <div className="text-2xl font-bold text-slate-600">{getTicketCounts('closed')}</div>
               <div className="text-sm text-slate-600">Closed</div>
+            </CardContent>
+          </Card>
+          <Card className="border-amber-200">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-1 text-2xl font-bold text-amber-500" data-testid="text-avg-satisfaction">
+                {avgSatisfaction !== null ? (
+                  <>
+                    {avgSatisfaction.toFixed(1)}
+                    <Star className="w-5 h-5 fill-amber-400 text-amber-400" />
+                  </>
+                ) : (
+                  <span className="text-slate-400">—</span>
+                )}
+              </div>
+              <div className="text-sm text-slate-600">
+                Avg satisfaction{ratedTickets.length > 0 ? ` (${ratedTickets.length})` : ''}
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -227,18 +607,6 @@ export default function SupportManagementPage() {
                   className="pl-10"
                 />
               </div>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-full md:w-48">
-                  <SelectValue placeholder="All Statuses" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Statuses</SelectItem>
-                  <SelectItem value="open">Open</SelectItem>
-                  <SelectItem value="in_progress">In Progress</SelectItem>
-                  <SelectItem value="resolved">Resolved</SelectItem>
-                  <SelectItem value="closed">Closed</SelectItem>
-                </SelectContent>
-              </Select>
               <Select value={typeFilter} onValueChange={setTypeFilter}>
                 <SelectTrigger className="w-full md:w-48">
                   <SelectValue placeholder="All Types" />
@@ -251,9 +619,62 @@ export default function SupportManagementPage() {
                   <SelectItem value="general">General Message</SelectItem>
                 </SelectContent>
               </Select>
+              <Select value={severityFilter} onValueChange={setSeverityFilter} data-testid="select-severity-filter">
+                <SelectTrigger className="w-full md:w-40">
+                  <SelectValue placeholder="All Severities" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Severities</SelectItem>
+                  {supportLevels.map((lvl) => (
+                    <SelectItem key={lvl.value} value={lvl.value}>{lvl.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {supportAreas.length > 0 && (
+                <Select value={areaFilter} onValueChange={setAreaFilter} data-testid="select-area-filter">
+                  <SelectTrigger className="w-full md:w-40">
+                    <SelectValue placeholder="All Areas" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Areas</SelectItem>
+                    {supportAreas.map((area) => (
+                      <SelectItem key={area.value} value={area.value}>{area.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
           </CardContent>
         </Card>
+
+        {/* Queue tabs */}
+        <div className="flex items-center gap-1 flex-wrap mb-4" data-testid="queue-tabs">
+          {QUEUE_TABS.map((tab) => {
+            const isActive = activeQueue === tab.value;
+            const showCount = tab.value === QUEUE_NEEDS_ATTENTION && queueCounts[QUEUE_NEEDS_ATTENTION] > 0;
+            return (
+              <Button
+                key={tab.value}
+                type="button"
+                size="sm"
+                variant="ghost"
+                className={isActive ? "toggle-elevate toggle-elevated font-semibold" : ""}
+                onClick={() => setActiveQueue(tab.value)}
+                data-testid={`tab-queue-${tab.value}`}
+              >
+                {tab.label}
+                {showCount && (
+                  <Badge
+                    className="ml-2 bg-blue-600 text-white no-default-active-elevate"
+                    data-testid="badge-needs-attention-count"
+                  >
+                    {queueCounts[QUEUE_NEEDS_ATTENTION]}
+                  </Badge>
+                )}
+              </Button>
+            );
+          })}
+        </div>
 
         {/* Tickets List */}
         {isLoading ? (
@@ -261,28 +682,46 @@ export default function SupportManagementPage() {
         ) : filteredTickets.length === 0 ? (
           <Card className="border-slate-200">
             <CardContent className="p-12 text-center">
-              <p className="text-slate-600">No tickets found</p>
+              <p className="text-slate-600">
+                {activeQueue === QUEUE_NEEDS_ATTENTION
+                  ? "Nothing needs attention — you're all caught up"
+                  : "No tickets in this queue"}
+              </p>
             </CardContent>
           </Card>
         ) : (
           <div className="space-y-4">
             {filteredTickets.map((ticket) => {
               const TypeIcon = typeIcons[ticket.type];
+              const isUnreadTicket = unreadItemIdsByTicket.has(ticket.id);
               return (
                 <Card
                   key={ticket.id}
-                  className="border-slate-200 shadow-sm hover:shadow-md transition-shadow cursor-pointer"
-                  onClick={() => setSelectedTicket(ticket)}
+                  className={`shadow-sm hover:shadow-md transition-shadow cursor-pointer ${
+                    isUnreadTicket ? "border-blue-300 bg-blue-50/40" : "border-slate-200"
+                  }`}
+                  onClick={() => handleOpenTicket(ticket)}
+                  data-testid={`card-ticket-${ticket.id}`}
                 >
                   <CardContent className="p-4">
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-2 flex-wrap">
+                          {isUnreadTicket && (
+                            <span
+                              className="inline-block w-2 h-2 rounded-full bg-blue-600 flex-shrink-0"
+                              aria-label="Unread activity"
+                              data-testid={`dot-unread-${ticket.id}`}
+                            />
+                          )}
                           <TypeIcon className="w-5 h-5 text-blue-600" />
                           <Badge variant="outline" className="text-xs">{typeLabels[ticket.type]}</Badge>
                           <Badge className={statusColors[ticket.status]}>{ticket.status.replace('_', ' ')}</Badge>
                           {ticket.severity && (
-                            <Badge className={severityColors[ticket.severity]}>{ticket.severity}</Badge>
+                            <Badge className={getSeverityBadgeClass(ticket.severity)}>{getSeverityLabel(supportLevels, ticket.severity)}</Badge>
+                          )}
+                          {ticket.area && (
+                            <Badge className={AREA_BADGE_CLASS} data-testid={`badge-area-${ticket.id}`}>{getAreaLabel(supportAreas, ticket.area)}</Badge>
                           )}
                         </div>
                         <h3 className="font-semibold text-lg text-slate-900 mb-1">{ticket.subject}</h3>
@@ -295,6 +734,11 @@ export default function SupportManagementPage() {
                               ? format(new Date(ticket.created_date), 'MMM d, yyyy h:mm a')
                               : 'Date not recorded'}
                           </div>
+                          <span data-testid={`text-assigned-${ticket.id}`}>
+                            {ticket.assigned_to && resolveAgentName(ticket.assigned_to)
+                              ? `Assigned to: ${resolveAgentName(ticket.assigned_to)}`
+                              : 'Unassigned'}
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -331,19 +775,37 @@ export default function SupportManagementPage() {
                           </SelectContent>
                         </Select>
                         <Select
-                          value={selectedTicket.severity || "moderate"}
+                          value={selectedTicket.severity || getDefaultSeverity(supportLevels)}
                           onValueChange={(value) => handleUpdateTicket({ severity: value })}
                         >
                           <SelectTrigger className="w-32 h-7 text-xs">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="minor">Minor</SelectItem>
-                            <SelectItem value="moderate">Moderate</SelectItem>
-                            <SelectItem value="major">Major</SelectItem>
-                            <SelectItem value="critical">Critical</SelectItem>
+                            {supportLevels.map((level) => (
+                              <SelectItem key={level.value} value={level.value}>{level.label}</SelectItem>
+                            ))}
+                            {selectedTicket.severity && !supportLevels.some((l) => l.value === selectedTicket.severity) && (
+                              <SelectItem value={selectedTicket.severity}>{selectedTicket.severity}</SelectItem>
+                            )}
                           </SelectContent>
                         </Select>
+                        {supportAreas.length > 0 && (
+                          <Select
+                            value={selectedTicket.area || "none"}
+                            onValueChange={(value) => handleUpdateTicket({ area: value === "none" ? null : value })}
+                          >
+                            <SelectTrigger className="w-36 h-7 text-xs" data-testid="select-ticket-area">
+                              <SelectValue placeholder="No area" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">No area</SelectItem>
+                              {supportAreas.map((area) => (
+                                <SelectItem key={area.value} value={area.value}>{area.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
                       </div>
                       <DialogTitle className="text-2xl">{selectedTicket.subject}</DialogTitle>
                       <p className="text-sm text-slate-500 mt-2">
@@ -406,127 +868,408 @@ export default function SupportManagementPage() {
                     </div>
                   )}
 
-                  {/* Conversation Thread */}
-                  {responses.length > 0 && (
-                    <div className="space-y-4">
-                      <h3 className="font-semibold text-slate-900">Conversation</h3>
-                      {responses.map((response) => (
-                        <div
-                          key={response.id}
-                          className={`rounded-lg p-4 ${
-                            response.is_admin_response
-                              ? 'bg-blue-50 border border-blue-200'
-                              : 'bg-slate-50 border border-slate-200'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="font-semibold text-sm text-slate-900">
-                              {response.responder_name}
-                              {response.is_admin_response && (
-                                <Badge className="ml-2 bg-blue-600 text-white">Developer</Badge>
-                              )}
-                            </span>
-                            {response.created_date && (
-                              <span className="text-xs text-slate-500">
-                                {format(new Date(response.created_date), 'MMM d, h:mm a')}
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-sm text-slate-700 whitespace-pre-wrap">{response.message}</p>
-                          {response.attachments && response.attachments.length > 0 && (
-                            <div className="mt-3 grid grid-cols-2 gap-2">
-                              {response.attachments.map((url, idx) => (
-                                <a
-                                  key={idx}
-                                  href={url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="block"
-                                >
-                                  <img
-                                    src={url}
-                                    alt={`Attachment ${idx + 1}`}
-                                    className="w-full h-32 object-cover rounded border border-slate-200 hover:opacity-90 transition-opacity"
-                                  />
-                                </a>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ))}
+                  {/* Satisfaction rating from the submitter */}
+                  {Number.isInteger(selectedTicket.satisfaction_rating) && (
+                    <div className="bg-amber-50 rounded-lg p-4 border border-amber-200" data-testid="section-satisfaction">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <span className="font-semibold text-slate-900 text-sm">Member satisfaction:</span>
+                        <span className="flex items-center gap-0.5" data-testid="text-satisfaction-rating">
+                          {[1, 2, 3, 4, 5].map((s) => (
+                            <Star
+                              key={s}
+                              className={`w-4 h-4 ${s <= selectedTicket.satisfaction_rating ? 'fill-amber-400 text-amber-400' : 'text-slate-300'}`}
+                            />
+                          ))}
+                        </span>
+                        <span className="text-sm text-slate-600">{selectedTicket.satisfaction_rating}/5</span>
+                        {selectedTicket.satisfaction_rated_at && (
+                          <span className="text-xs text-slate-500">
+                            {format(new Date(selectedTicket.satisfaction_rated_at), 'MMM d, yyyy')}
+                          </span>
+                        )}
+                      </div>
+                      {selectedTicket.satisfaction_comment && (
+                        <p className="text-sm text-slate-700 whitespace-pre-wrap mt-2" data-testid="text-satisfaction-comment">
+                          “{selectedTicket.satisfaction_comment}”
+                        </p>
+                      )}
                     </div>
                   )}
 
-                  {/* Reply Section */}
-                  <div className="space-y-3">
-                    <Label>Add Response</Label>
-                    <Textarea
-                      placeholder="Type your response to the user..."
-                      rows={4}
-                      value={replyMessage}
-                      onChange={(e) => setReplyMessage(e.target.value)}
-                    />
-                    
-                    {/* Image Upload */}
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <Label htmlFor="response-images" className="cursor-pointer">
-                          <div className="flex items-center gap-2 px-4 py-2 border border-slate-300 rounded-md hover:bg-slate-50 transition-colors">
-                            <Upload className="w-4 h-4" />
-                            <span className="text-sm">
-                              {uploadingImages ? 'Uploading...' : 'Attach Images'}
-                            </span>
-                          </div>
-                        </Label>
-                        <input
-                          id="response-images"
-                          type="file"
-                          accept="image/*"
-                          multiple
-                          onChange={(e) => handleImageUpload(e.target.files)}
-                          className="hidden"
-                          disabled={uploadingImages}
-                        />
-                      </div>
-                      
-                      {responseAttachments.length > 0 && (
-                        <div className="grid grid-cols-3 gap-2">
-                          {responseAttachments.map((url, idx) => (
-                            <div key={idx} className="relative group">
-                              <img
-                                src={url}
-                                alt={`Upload ${idx + 1}`}
-                                className="w-full h-24 object-cover rounded border border-slate-200"
-                              />
-                              <button
-                                onClick={() => handleRemoveAttachment(url)}
-                                className="absolute top-1 right-1 bg-red-600 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                              >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                  {/* Auto-close lifecycle info */}
+                  {selectedTicket.status === 'closed' && selectedTicket.closed_reason && (
+                    <p className="text-xs text-slate-500" data-testid="text-closed-reason">
+                      {selectedTicket.closed_reason === 'auto'
+                        ? 'Closed automatically after the resolution grace period.'
+                        : 'Closed manually.'}
+                    </p>
+                  )}
 
-                    <div className="flex justify-end">
-                      <Button
-                        onClick={handleAddResponse}
-                        disabled={addResponseMutation.isPending || !replyMessage.trim() || uploadingImages}
-                        className="bg-blue-600 hover:bg-blue-700"
-                      >
-                        Send Response
-                      </Button>
-                    </div>
-                  </div>
+                  {/* Conversation */}
+                  <TicketConversation
+                    ticket={selectedTicket}
+                    memberInfo={memberInfo}
+                    isAdminView
+                    ticketQueryKeys={[['all-support-tickets']]}
+                  />
                 </div>
               </>
             )}
           </DialogContent>
         </Dialog>
+
+        {/* Support Settings Dialog */}
+        <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Support Settings</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-6">
+              <div className="space-y-2">
+                <Label>Support levels</Label>
+                <p className="text-sm text-slate-500">
+                  These appear in the Severity dropdown when members create a ticket. Set one as the default selection.
+                </p>
+                <div className="space-y-2">
+                  {levelsDraft.map((level, index) => (
+                    <div key={index} className="flex items-center gap-2" data-testid={`row-support-level-${index}`}>
+                      <Input
+                        value={level.label}
+                        placeholder="Level name"
+                        onChange={(e) => updateLevelLabel(index, e.target.value)}
+                        data-testid={`input-support-level-${index}`}
+                      />
+                      <Button
+                        type="button"
+                        variant={level.isDefault ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setLevelDefault(index)}
+                        data-testid={`button-set-default-${index}`}
+                      >
+                        {level.isDefault ? "Default" : "Set default"}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => moveLevel(index, -1)}
+                        disabled={index === 0}
+                        data-testid={`button-move-up-${index}`}
+                      >
+                        <ArrowUp className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => moveLevel(index, 1)}
+                        disabled={index === levelsDraft.length - 1}
+                        data-testid={`button-move-down-${index}`}
+                      >
+                        <ArrowDown className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => removeLevel(index)}
+                        data-testid={`button-remove-level-${index}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={addLevel}
+                  data-testid="button-add-support-level"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add level
+                </Button>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Create ticket instructions</Label>
+                <p className="text-sm text-slate-500">
+                  Shown at the top of the Create Support Ticket form. Leave blank to hide it.
+                </p>
+                <Textarea
+                  rows={4}
+                  value={instructionsDraft}
+                  placeholder="e.g. Before submitting, please check our help centre. Include screenshots where possible."
+                  onChange={(e) => setInstructionsDraft(e.target.value)}
+                  data-testid="input-support-instructions"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Support Areas</Label>
+                <p className="text-sm text-slate-500">
+                  Categorise tickets by team or topic. Assign support members to each area — new tickets and submitter replies are routed only to the assigned members. Tickets with no area, or areas with no assignees, do not notify anyone.
+                </p>
+                <div className="space-y-3">
+                  {areasDraft.map((area, index) => (
+                    <div key={index} className="space-y-2 p-3 border rounded-md" data-testid={`row-support-area-${index}`}>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          value={area.label}
+                          placeholder="Area name (e.g. Finance)"
+                          onChange={(e) => {
+                            const label = e.target.value;
+                            setAreasDraft((prev) => prev.map((a, i) => {
+                              if (i !== index) return a;
+                              const value = a.value && a.value.trim() !== '' ? a.value : slugifyLevelValue(label);
+                              return { ...a, label, value };
+                            }));
+                          }}
+                          data-testid={`input-area-label-${index}`}
+                        />
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => setAreasDraft((prev) => {
+                            const target = index - 1;
+                            if (target < 0) return prev;
+                            const next = [...prev];
+                            [next[index], next[target]] = [next[target], next[index]];
+                            return next;
+                          })}
+                          disabled={index === 0}
+                          data-testid={`button-area-up-${index}`}
+                        >
+                          <ArrowUp className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => setAreasDraft((prev) => {
+                            const target = index + 1;
+                            if (target >= prev.length) return prev;
+                            const next = [...prev];
+                            [next[index], next[target]] = [next[target], next[index]];
+                            return next;
+                          })}
+                          disabled={index === areasDraft.length - 1}
+                          data-testid={`button-area-down-${index}`}
+                        >
+                          <ArrowDown className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => setAreasDraft((prev) => prev.filter((_, i) => i !== index))}
+                          data-testid={`button-area-remove-${index}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs text-slate-500">Assigned support members (notified for new tickets in this area):</p>
+                        <div className="flex flex-wrap gap-2">
+                          {eligibleMembers.map((member) => {
+                            const isSelected = (area.memberIds || []).includes(member.id);
+                            return (
+                              <button
+                                key={member.id}
+                                type="button"
+                                onClick={() => {
+                                  setAreasDraft((prev) => prev.map((a, i) => {
+                                    if (i !== index) return a;
+                                    const ids = a.memberIds || [];
+                                    return {
+                                      ...a,
+                                      memberIds: isSelected ? ids.filter((id) => id !== member.id) : [...ids, member.id],
+                                    };
+                                  }));
+                                }}
+                                className={`text-xs px-2 py-1 rounded-md border transition-colors ${
+                                  isSelected
+                                    ? 'bg-blue-600 text-white border-blue-600'
+                                    : 'bg-white text-slate-700 border-slate-300 hover:border-slate-400'
+                                }`}
+                                data-testid={`toggle-area-member-${index}-${member.id}`}
+                              >
+                                {member.first_name} {member.last_name}
+                              </button>
+                            );
+                          })}
+                          {eligibleMembers.length === 0 && (
+                            <span className="text-xs text-slate-400">No members available</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setAreasDraft((prev) => [...prev, { value: '', label: '', memberIds: [] }])}
+                  data-testid="button-add-support-area"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add area
+                </Button>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Auto-close resolved tickets</Label>
+                <p className="text-sm text-slate-500">
+                  When enabled, members are warned after a resolved ticket has been inactive for the warning period, and the ticket is closed automatically after the grace period. Replying always reopens the ticket and cancels the countdown.
+                </p>
+                <div className="flex items-center gap-2">
+                  <Switch
+                    checked={autoCloseDraft.enabled}
+                    onCheckedChange={(checked) => setAutoCloseDraft((prev) => ({ ...prev, enabled: checked }))}
+                    data-testid="switch-auto-close-enabled"
+                  />
+                  <span className="text-sm text-slate-700">
+                    {autoCloseDraft.enabled ? 'Enabled' : 'Disabled'}
+                  </span>
+                </div>
+                {autoCloseDraft.enabled && (
+                  <div className="grid grid-cols-2 gap-4 pt-2">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Warn after (days)</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={autoCloseDraft.warnDays}
+                        onChange={(e) => setAutoCloseDraft((prev) => ({ ...prev, warnDays: e.target.value === '' ? '' : parseInt(e.target.value, 10) }))}
+                        data-testid="input-auto-close-warn-days"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-600">Close after (days)</Label>
+                      <Input
+                        type="number"
+                        min={2}
+                        value={autoCloseDraft.closeDays}
+                        onChange={(e) => setAutoCloseDraft((prev) => ({ ...prev, closeDays: e.target.value === '' ? '' : parseInt(e.target.value, 10) }))}
+                        data-testid="input-auto-close-close-days"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setSettingsOpen(false)}>Cancel</Button>
+              <Button
+                onClick={handleSaveSettings}
+                disabled={saveSettingsMutation.isPending}
+                data-testid="button-save-support-settings"
+              >
+                {saveSettingsMutation.isPending ? "Saving..." : "Save Settings"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Notifications Inbox Sheet */}
+        <Sheet open={inboxOpen} onOpenChange={setInboxOpen}>
+          <SheetContent className="w-full sm:max-w-md flex flex-col">
+            <SheetHeader className="flex-shrink-0">
+              <div className="flex items-center justify-between gap-2">
+                <SheetTitle className="flex items-center gap-2">
+                  <Bell className="w-5 h-5" />
+                  Notifications
+                  {unreadCount > 0 && (
+                    <Badge className="bg-blue-600 text-white" data-testid="text-inbox-unread-badge">
+                      {unreadCount}
+                    </Badge>
+                  )}
+                </SheetTitle>
+                {unreadCount > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => markReadMutation.mutate({ mark_all_read: true })}
+                    disabled={markReadMutation.isPending}
+                    data-testid="button-mark-all-read"
+                  >
+                    Mark all read
+                  </Button>
+                )}
+              </div>
+            </SheetHeader>
+
+            <div className="flex-1 overflow-hidden mt-4">
+              {inboxLoading ? (
+                <div className="space-y-3 p-1">
+                  {[0, 1, 2].map(i => (
+                    <div key={i} className="flex items-start gap-3 p-3 rounded-md border">
+                      <Skeleton className="w-8 h-8 rounded-md flex-shrink-0" />
+                      <div className="flex-1 space-y-2">
+                        <Skeleton className="h-4 w-3/4" />
+                        <Skeleton className="h-3 w-1/2" />
+                        <Skeleton className="h-3 w-1/3" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : inboxItems.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-48 text-center px-4">
+                  <Bell className="w-10 h-10 text-slate-300 mb-3" />
+                  <p className="text-sm text-muted-foreground">No notifications yet</p>
+                  <p className="text-xs text-muted-foreground mt-1">You'll be notified when new tickets arrive or members reply</p>
+                </div>
+              ) : (
+                <ScrollArea className="h-full pr-1">
+                  <div className="flex flex-col gap-2">
+                    {inboxItems.map(item => {
+                      const isUnread = !item.read_at;
+                      const EventIcon = EVENT_TYPE_ICONS[item.event_type] || MessageSquare;
+                      const eventLabel = EVENT_TYPE_LABELS[item.event_type] || item.event_type;
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => handleInboxItemClick(item)}
+                          className={`w-full text-left flex items-start gap-3 p-3 rounded-md border hover-elevate transition-colors ${
+                            isUnread ? 'bg-primary/5 border-primary/30' : 'bg-background'
+                          }`}
+                          data-testid={`inbox-item-${item.id}`}
+                        >
+                          <div className="mt-0.5 flex-shrink-0">
+                            <EventIcon className={`w-4 h-4 ${isUnread ? 'text-primary' : 'text-muted-foreground'}`} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-0.5">
+                              <span className={`text-sm truncate ${isUnread ? 'font-semibold' : 'font-medium'}`}>
+                                {item.ticket_subject || item.metadata?.ticket_subject || 'Support ticket'}
+                              </span>
+                              {isUnread && (
+                                <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" aria-label="Unread" />
+                              )}
+                            </div>
+                            <div className="text-xs text-muted-foreground">{eventLabel}</div>
+                            {item.metadata?.submitter_name && (
+                              <div className="text-xs text-muted-foreground truncate">
+                                From: {item.metadata.submitter_name}
+                              </div>
+                            )}
+                            <div className="text-xs text-muted-foreground/70 mt-1">
+                              {formatRelative(item.created_at)}
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </ScrollArea>
+              )}
+            </div>
+          </SheetContent>
+        </Sheet>
       </div>
     </div>
   );

@@ -1,0 +1,1219 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en-GB" xml:lang="en-GB">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="dcterms.date" content="2026-09-07" />
+  <title>iConnect Platform — Events Functionality Catalogue</title>
+  <style>
+    html {
+      color: #1a1a1a;
+      background-color: #fdfdfd;
+    }
+    body {
+      margin: 0 auto;
+      max-width: 36em;
+      padding-left: 50px;
+      padding-right: 50px;
+      padding-top: 50px;
+      padding-bottom: 50px;
+      hyphens: auto;
+      overflow-wrap: break-word;
+      text-rendering: optimizeLegibility;
+      font-kerning: normal;
+    }
+    @media (max-width: 600px) {
+      body {
+        font-size: 0.9em;
+        padding: 12px;
+      }
+      h1 {
+        font-size: 1.8em;
+      }
+    }
+    @media print {
+      html {
+        background-color: white;
+      }
+      body {
+        background-color: transparent;
+        color: black;
+        font-size: 12pt;
+      }
+      p, h2, h3 {
+        orphans: 3;
+        widows: 3;
+      }
+      h2, h3, h4 {
+        page-break-after: avoid;
+      }
+    }
+    p {
+      margin: 1em 0;
+    }
+    a {
+      color: #1a1a1a;
+    }
+    a:visited {
+      color: #1a1a1a;
+    }
+    img {
+      max-width: 100%;
+    }
+    svg {
+      height: auto;
+      max-width: 100%;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1.4em;
+    }
+    h5, h6 {
+      font-size: 1em;
+      font-style: italic;
+    }
+    h6 {
+      font-weight: normal;
+    }
+    ol, ul {
+      padding-left: 1.7em;
+      margin-top: 1em;
+    }
+    li > ol, li > ul {
+      margin-top: 0;
+    }
+    blockquote {
+      margin: 1em 0 1em 1.7em;
+      padding-left: 1em;
+      border-left: 2px solid #e6e6e6;
+      color: #606060;
+    }
+    code {
+      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
+      font-size: 85%;
+      margin: 0;
+      hyphens: manual;
+    }
+    pre {
+      margin: 1em 0;
+      overflow: auto;
+    }
+    pre code {
+      padding: 0;
+      overflow: visible;
+      overflow-wrap: normal;
+    }
+    .sourceCode {
+     background-color: transparent;
+     overflow: visible;
+    }
+    hr {
+      background-color: #1a1a1a;
+      border: none;
+      height: 1px;
+      margin: 1em 0;
+    }
+    table {
+      margin: 1em 0;
+      border-collapse: collapse;
+      width: 100%;
+      overflow-x: auto;
+      display: block;
+      font-variant-numeric: lining-nums tabular-nums;
+    }
+    table caption {
+      margin-bottom: 0.75em;
+    }
+    tbody {
+      margin-top: 0.5em;
+      border-top: 1px solid #1a1a1a;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    th {
+      border-top: 1px solid #1a1a1a;
+      padding: 0.25em 0.5em 0.25em 0.5em;
+    }
+    td {
+      padding: 0.125em 0.5em 0.25em 0.5em;
+    }
+    header {
+      margin-bottom: 4em;
+      text-align: center;
+    }
+    #TOC li {
+      list-style: none;
+    }
+    #TOC ul {
+      padding-left: 1.3em;
+    }
+    #TOC > ul {
+      padding-left: 0;
+    }
+    #TOC a:not(:hover) {
+      text-decoration: none;
+    }
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+<style>
+@page { size:A4; margin:18mm 15mm 16mm; }
+:root{--navy:#17365d;--blue:#2e75b6;--pale:#edf3f8;--ink:#202936;--muted:#5c6673} *{box-sizing:border-box} html{font-size:10pt} body{max-width:none;padding:0;font-family:Arial,Helvetica,sans-serif;color:var(--ink);line-height:1.43;margin:0} h1,h2,h3{color:var(--navy);line-height:1.17;break-inside:avoid-page} h2,h3{break-after:avoid-page} h1{font-size:20pt;border-bottom:2px solid var(--blue);padding-bottom:5px;margin:24px 0 12px} h2{font-size:13.5pt;margin:19px 0 8px} p{margin:0 0 9px} ul{margin:6px 0 10px;padding-left:20px} a{color:#1c609c;text-decoration:none} #TOC ul{list-style:none;padding-left:0}.cover{height:252mm;display:flex;flex-direction:column;justify-content:center;text-align:center;page-break-after:always}.cover h1{border:0;font-size:34pt;margin:8px 0 18px}.cover-kicker{letter-spacing:2px;color:var(--muted);font-weight:bold}.cover-subtitle{font-size:15pt;color:var(--muted);margin-bottom:36px}.confidence{display:inline-block;margin:34px auto 0!important;color:#a61b2b;font-weight:bold;letter-spacing:.7px}.print-header,.print-footer{display:none}table{width:100%;border-collapse:collapse;margin:8px 0 16px;font-size:8.6pt;break-inside:auto}thead{display:table-header-group}tr{break-inside:avoid}th{background:var(--navy);color:white;text-align:left;font-weight:bold}th,td{border:1px solid #b9c5d1;padding:6px 7px;vertical-align:top}td:first-child{width:18%;font-weight:bold;color:#244d77}td:nth-child(2){width:24%;font-weight:bold}td:nth-child(3){width:58%}tbody tr:nth-child(even){background:#f7f9fb}hr{border:0;border-top:1px solid #c7d2dc;margin-top:24px} @media print{a{color:inherit}h1{break-before:page}h1:first-of-type{break-before:auto}}
+</style></head>
+<body>
+
+<div class="cover">
+<div class="cover-kicker">
+iCONNECT PLATFORM
+</div>
+<h1>
+Events Functionality<br>Catalogue
+</h1>
+<p class="cover-subtitle">
+Verified capability catalogue for stakeholder review
+</p>
+<p>
+7 September 2026 · Version 1.0
+</p>
+<p class="confidence">
+COMMERCIAL IN CONFIDENCE
+</p>
+</div>
+<h1 id="contents">Contents</h1>
+<ol type="1">
+<li><a href="#1-purpose-scope-and-method">Purpose, scope and
+method</a><br />
+</li>
+<li><a href="#2-reading-this-catalogue">Reading this catalogue</a><br />
+</li>
+<li><a href="#3-simple-and-complex-events-at-a-glance">Simple and
+complex events at a glance</a><br />
+</li>
+<li><a href="#4-administration-and-event-configuration">Administration
+and event configuration</a><br />
+</li>
+<li><a href="#5-discovery-event-pages-and-access">Discovery, event pages
+and access</a><br />
+</li>
+<li><a href="#6-schedules-sessions-and-event-content">Schedules,
+sessions and event content</a><br />
+</li>
+<li><a href="#7-ticket-classes-eligibility-and-registration">Ticket
+classes, eligibility and registration</a><br />
+</li>
+<li><a href="#8-capacity-pricing-and-payment">Capacity, pricing and
+payment</a><br />
+</li>
+<li><a href="#9-booking-management-cancellation-and-transfer">Booking
+management, cancellation and transfer</a><br />
+</li>
+<li><a
+href="#10-communications-virtual-delivery-and-attendance">Communications,
+virtual delivery and attendance</a><br />
+</li>
+<li><a href="#11-surveys-check-in-reporting-and-workflows">Surveys,
+check-in, reporting and workflows</a><br />
+</li>
+<li><a href="#12-permissions-integrations-and-safeguards">Permissions,
+integrations and safeguards</a><br />
+</li>
+<li><a href="#13-important-current-boundaries">Important current
+boundaries</a><br />
+</li>
+<li><a href="#14-glossary">Glossary</a></li>
+</ol>
+<h1 id="1-purpose-scope-and-method">1. Purpose, scope and method</h1>
+<p>This catalogue describes <strong>currently implemented</strong> event
+capability in iConnect, in business language. It is intended to support
+product, commercial and operational review; it is not a configuration
+guide or technical specification.</p>
+<p>The catalogue covers the full event lifecycle: administration,
+discovery, programme content, registration, commerce, delivery,
+follow-up and governance. It distinguishes the two event models:</p>
+<ul>
+<li><strong>Simple event</strong> — one event record, suitable for a
+conventional meeting, webinar, course or group-limited event. A training
+variant can carry a multi-day agenda.</li>
+<li><strong>Complex event</strong> — a multi-session event with tracks,
+ticket-to-track access and session-level online delivery.</li>
+</ul>
+<h2 id="verification-approach">Verification approach</h2>
+<p>Statements are based on the verified implementation inventories
+prepared for this review: simple events; complex events; event commerce;
+and event operations. Inventory evidence was traced to active user
+interfaces, service behaviour and supporting data changes. Proposed
+work, task descriptions and specifications without independently
+verified implementation are deliberately excluded. “Available” therefore
+means present in the current product, not a commitment that every tenant
+has configured it or that every event displays it.</p>
+<h1 id="2-reading-this-catalogue">2. Reading this catalogue</h1>
+<h2 id="availability-legend">Availability legend</h2>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Availability</th>
+<th>Meaning</th>
+<th>Reader implication</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Shared</strong></td>
+<td>Available in both event models.</td>
+<td>The detailed behaviour can differ by model.</td>
+</tr>
+<tr class="even">
+<td><strong>Simple</strong></td>
+<td>Available for simple events.</td>
+<td>Includes training and group-limited variants where stated.</td>
+</tr>
+<tr class="odd">
+<td><strong>Complex</strong></td>
+<td>Available for complex events.</td>
+<td>Normally relates to sessions, tracks or multi-ticket checkout.</td>
+</tr>
+<tr class="even">
+<td><strong>Conditional</strong></td>
+<td>Available when a named setting, data assignment, access rule or
+integration is in place.</td>
+<td>It should be confirmed for the tenant and event concerned.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="terms-used-in-tables">Terms used in tables</h2>
+<p>The <strong>Availability</strong> column combines labels where useful
+(for example, <strong>Shared · Conditional</strong>). The
+<strong>Description / dependency</strong> column states what a reader
+can expect and, where material, the enabling condition or boundary.
+“Member” means an authenticated person in the tenant; “guest” means a
+person without that member context. “Tenant” means the client
+organisation’s isolated platform environment.</p>
+<h1 id="3-simple-and-complex-events-at-a-glance">3. Simple and complex
+events at a glance</h1>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Availability</th>
+<th>Capability</th>
+<th>Description / dependency</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Simple</strong></td>
+<td>Conventional event model</td>
+<td>One event with date, place or online mode, ticket classes, speakers,
+tags, call to action and documents. It also supports a training agenda
+and a group-limited variant.</td>
+</tr>
+<tr class="even">
+<td><strong>Complex</strong></td>
+<td>Programme event model</td>
+<td>One event can contain days, tracks and separately managed sessions,
+with ticket classes that can grant access to selected tracks.</td>
+</tr>
+<tr class="odd">
+<td><strong>Shared</strong></td>
+<td>Public event experience</td>
+<td>Each model has public listing and detail experiences, subject to
+publication and visibility rules.</td>
+</tr>
+<tr class="even">
+<td><strong>Shared · Conditional</strong></td>
+<td>Paid or free registration</td>
+<td>Both models support registration and commercial controls. Available
+payment options depend on tenant configuration, user context and the
+selected ticket.</td>
+</tr>
+<tr class="odd">
+<td><strong>Simple · Conditional</strong></td>
+<td>Training event</td>
+<td>A simple-event training flag derives the overall span from its
+agenda. Training cannot use Immediate timing.</td>
+</tr>
+<tr class="even">
+<td><strong>Complex · Conditional</strong></td>
+<td>Session delivery</td>
+<td>Each session can carry its own online delivery, provider and access
+configuration.</td>
+</tr>
+<tr class="odd">
+<td><strong>Shared</strong></td>
+<td>Lifecycle controls</td>
+<td>Confirmations, reminders, attendance reporting, cancellation
+requests, transfers and safe event deletion are supported, with
+model-specific handling where necessary.</td>
+</tr>
+</tbody>
+</table>
+<h1 id="4-administration-and-event-configuration">4. Administration and
+event configuration</h1>
+<h2 id="event-creation-editing-and-timing">Event creation, editing and
+timing</h2>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Availability</th>
+<th>Capability</th>
+<th>Description / dependency</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Simple</strong></td>
+<td>Event details and publishing</td>
+<td>Administrators can create and edit titles, descriptions, dates,
+location or online mode, seats, visibility, status, speakers, tags, call
+to action, documents, attendance policy and ticketing details.</td>
+</tr>
+<tr class="even">
+<td><strong>Simple · Conditional</strong></td>
+<td>Timing states</td>
+<td>Scheduled, TBC and Immediate states are supported. TBC intentionally
+has no fixed schedule; Immediate is treated as current rather than
+past.</td>
+</tr>
+<tr class="odd">
+<td><strong>Simple · Conditional</strong></td>
+<td>Immediate event boundary</td>
+<td>Immediate is only for non-training, non-complex, non-group events.
+It has no dates, registration close, timezone, Zoom identifiers or
+training agenda.</td>
+</tr>
+<tr class="even">
+<td><strong>Simple · Conditional</strong></td>
+<td>Group-limited event</td>
+<td>An event can be limited to a member group. This variant uses a group
+association and manual meeting link, and is free-ticket mode rather than
+ordinary paid ticketing.</td>
+</tr>
+<tr class="odd">
+<td><strong>Complex</strong></td>
+<td>Complex event builder</td>
+<td>Administrators can manage event dates, registration window, tracks,
+sessions, ticket classes, speakers, sponsors, resources and
+online-delivery information in a dedicated builder.</td>
+</tr>
+<tr class="even">
+<td><strong>Complex</strong></td>
+<td>Session administration</td>
+<td>Sessions can be added and updated with title, description, timing,
+track, speakers and online provider details. Session deletion and event
+deletion use controlled cancellation rather than a direct purge.</td>
+</tr>
+<tr class="odd">
+<td><strong>Shared · Conditional</strong></td>
+<td>Tenant event settings</td>
+<td>Tenant settings cover voucher expiry treatment and
+accounting/payment choices such as Xero status and account codes or
+Stripe clearing account. These settings enable behaviour; they do not
+guarantee that every event uses it.</td>
+</tr>
+<tr class="even">
+<td><strong>Shared · Conditional</strong></td>
+<td>Ticket offers and programmes</td>
+<td>Administrators can manage ticket offers and programmes, including
+discount-related configurations. Whether an offer is effective depends
+on its applicable rule and dates.</td>
+</tr>
+</tbody>
+</table>
+<h1 id="5-discovery-event-pages-and-access">5. Discovery, event pages
+and access</h1>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Availability</th>
+<th>Capability</th>
+<th>Description / dependency</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Shared</strong></td>
+<td>Public listing</td>
+<td>Published and otherwise permitted events can be discovered in
+tenant-scoped public lists. Simple events include published, TBC and
+Immediate states; complex events have their own public list and detail
+route.</td>
+</tr>
+<tr class="even">
+<td><strong>Simple · Conditional</strong></td>
+<td>Public event detail</td>
+<td>Detail can be reached by identifier or friendly link and shows
+event, ticket and commercial information appropriate to the viewer. A
+direct link to a private group event does not itself grant booking
+permission.</td>
+</tr>
+<tr class="odd">
+<td><strong>Complex</strong></td>
+<td>Programme detail and agenda</td>
+<td>The public complex-event page presents day- and track-aware
+schedules, sessions, tickets and sponsors where configured.</td>
+</tr>
+<tr class="even">
+<td><strong>Shared · Conditional</strong></td>
+<td>Public ticket visibility</td>
+<td>Publicly visible ticket classes are shown to guests. Member, role or
+group-restricted classes are revealed and accepted only when the viewer
+meets the applicable rule.</td>
+</tr>
+<tr class="odd">
+<td><strong>Shared · Conditional</strong></td>
+<td>Group visibility</td>
+<td>Public lists exclude private group-only events. A group event must
+be explicitly public to appear there; membership is separately enforced
+at booking.</td>
+</tr>
+<tr class="even">
+<td><strong>Shared · Conditional</strong></td>
+<td>Public content sections</td>
+<td>Sponsors, documents and resources appear only when they have been
+assigned and public content is populated.</td>
+</tr>
+<tr class="odd">
+<td><strong>Shared · Conditional</strong></td>
+<td>Search and indexing boundary</td>
+<td>Public discovery is implemented; automatic event sitemap generation,
+canonical metadata, JSON-LD and indexing policy are not evidenced by
+this review.</td>
+</tr>
+</tbody>
+</table>
+<h1 id="6-schedules-sessions-and-event-content">6. Schedules, sessions
+and event content</h1>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Availability</th>
+<th>Capability</th>
+<th>Description / dependency</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Simple · Conditional</strong></td>
+<td>Training agenda</td>
+<td>A training simple event can hold agenda items and use them to
+determine its overall event span. Public summaries omit agenda for
+Immediate events.</td>
+</tr>
+<tr class="even">
+<td><strong>Complex</strong></td>
+<td>Days, tracks and sessions</td>
+<td>A complex event supports a programme organised by day, track and
+individual sessions, giving attendees a structured agenda rather than a
+single timetable.</td>
+</tr>
+<tr class="odd">
+<td><strong>Complex · Conditional</strong></td>
+<td>Ticket-to-track access</td>
+<td>Tickets can permit all tracks or selected tracks. Schedule
+indicators and registration filtering reflect this only when ticket
+classes have track restrictions.</td>
+</tr>
+<tr class="even">
+<td><strong>Complex</strong></td>
+<td>Speaker assignment</td>
+<td>Sessions can be associated with managed speaker records, allowing
+the programme to present the relevant contributors.</td>
+</tr>
+<tr class="odd">
+<td><strong>Shared · Conditional</strong></td>
+<td>Sponsors</td>
+<td>Managed sponsors can be assigned to simple or complex events and
+shown publicly when assignments and display content exist.</td>
+</tr>
+<tr class="even">
+<td><strong>Shared · Conditional</strong></td>
+<td>Documents and resources</td>
+<td>Event material can be associated with the event and displayed
+publicly where suitable records and public content are present.</td>
+</tr>
+<tr class="odd">
+<td><strong>Simple · Conditional</strong></td>
+<td>Speaker, tag and call-to-action content</td>
+<td>The simple event editor supports speaker, tag, document and
+call-to-action content. Display depends on the populated event record
+and visibility.</td>
+</tr>
+</tbody>
+</table>
+<h1 id="7-ticket-classes-eligibility-and-registration">7. Ticket
+classes, eligibility and registration</h1>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Availability</th>
+<th>Capability</th>
+<th>Description / dependency</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Shared</strong></td>
+<td>Ticket classes</td>
+<td>Events can offer ticket classes with visibility, availability and
+commercial attributes. The complex manager also supports classes linked
+to tracks.</td>
+</tr>
+<tr class="even">
+<td><strong>Complex</strong></td>
+<td>Multi-ticket attendee checkout</td>
+<td>A buyer can assemble multiple ticket items and add, update or remove
+attendee details before submitting a complex-event booking.</td>
+</tr>
+<tr class="odd">
+<td><strong>Shared · Conditional</strong></td>
+<td>Eligibility controls</td>
+<td>Ticket availability can be restricted by member status, role or
+group. The service validates restricted classes rather than relying only
+on the screen.</td>
+</tr>
+<tr class="even">
+<td><strong>Complex · Conditional</strong></td>
+<td>Group-linked self-registration</td>
+<td>For a complex event linked to a group, an authenticated active group
+member can register only themselves; guest, colleague and buy-many
+routes are rejected.</td>
+</tr>
+<tr class="odd">
+<td><strong>Simple · Conditional</strong></td>
+<td>Group participant completion</td>
+<td>Group event participants can complete registration through a
+tokenised flow, with locking at the configured cut-off.</td>
+</tr>
+<tr class="even">
+<td><strong>Shared</strong></td>
+<td>Attendee information</td>
+<td>Registration records carry attendee identity and booking
+information. Complex checkout captures name, email, organisation, phone,
+job title and optional dietary/accessibility selections.</td>
+</tr>
+<tr class="odd">
+<td><strong>Complex</strong></td>
+<td>Duplicate attendee protection</td>
+<td>Checkout normalises email addresses and rejects duplicates within
+the request and against active or pending bookings. A member profile can
+fill a missing job title.</td>
+</tr>
+<tr class="even">
+<td><strong>Simple</strong></td>
+<td>Administrative attendee import</td>
+<td>Administrators can import attendee data in CSV form, with per-row
+errors and warnings, de-duplication and confirmation handling. It does
+not process payment and can complete partially.</td>
+</tr>
+<tr class="odd">
+<td><strong>Simple · Conditional</strong></td>
+<td>Import warning boundary</td>
+<td>Import warns, rather than blocks, a guest placed in a members-only
+class; administrators should review warnings.</td>
+</tr>
+</tbody>
+</table>
+<h1 id="8-capacity-pricing-and-payment">8. Capacity, pricing and
+payment</h1>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Availability</th>
+<th>Capability</th>
+<th>Description / dependency</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Shared</strong></td>
+<td>Availability and sold-out status</td>
+<td>Registration surfaces calculate availability from configured
+capacity and confirmed bookings, so sold-out status reflects commercial
+allocation rather than a display-only flag.</td>
+</tr>
+<tr class="even">
+<td><strong>Complex</strong></td>
+<td>Strong capacity controls</td>
+<td>Event seats use an atomic decrement and ticket-class capacity is
+checked from confirmed bookings with race protection and rollback.</td>
+</tr>
+<tr class="odd">
+<td><strong>Simple</strong></td>
+<td>Seat restoration</td>
+<td>Booking cancellation restores simple-event seats. The regular path
+has a fallback update when its seat-adjustment operation is unavailable,
+making it less strongly atomic than the complex path.</td>
+</tr>
+<tr class="even">
+<td><strong>Complex</strong></td>
+<td>Server-authoritative prices</td>
+<td>The service determines ticket prices and totals, including free
+tickets and early-bird prices before their deadline; mixed checkout
+currencies are rejected.</td>
+</tr>
+<tr class="odd">
+<td><strong>Shared · Conditional</strong></td>
+<td>Discount codes</td>
+<td>Discounts can be scoped by event, ticket, organisation, member, role
+or group, with expiry and maximum-use checks. The applicable rule
+determines eligibility.</td>
+</tr>
+<tr class="even">
+<td><strong>Shared · Conditional</strong></td>
+<td>Payment methods</td>
+<td>Card, account, account balance, training fund, voucher and invoice
+routes are supported for complex checkout; availability depends on
+login, organisation balances, permitted roles and tenant payment
+configuration.</td>
+</tr>
+<tr class="odd">
+<td><strong>Shared · Conditional</strong></td>
+<td>Card payment</td>
+<td>Card payments use Stripe payment intent validation. A completed,
+correctly bound payment is required for paid card registrations.</td>
+</tr>
+<tr class="even">
+<td><strong>Shared · Conditional</strong></td>
+<td>Voucher and training funding</td>
+<td>Eligible organisation-owned vouchers and training funds can be
+applied when balance, expiry and role rules permit. Voucher payment
+requires full coverage; training fund can be a validated partial
+contribution.</td>
+</tr>
+<tr class="odd">
+<td><strong>Shared · Conditional</strong></td>
+<td>Account and invoice</td>
+<td>Account/invoice registrations are pending and require an
+authenticated context; purchase-order information can be recorded.
+Downstream invoice issuance or reconciliation is provider/manual-process
+dependent for complex checkout.</td>
+</tr>
+<tr class="even">
+<td><strong>Simple · Conditional</strong></td>
+<td>Regular-event accounting</td>
+<td>The regular booking route can create accounting invoices where
+configured and records ticket, discount, voucher and training-fund
+allocations.</td>
+</tr>
+<tr class="odd">
+<td><strong>Shared</strong></td>
+<td>Tax boundary</td>
+<td>No event-commerce VAT calculation or VAT-inclusive/exclusive line is
+evidenced in the inspected booking flows. Displayed ticket totals should
+be treated as final currency amounts in those flows.</td>
+</tr>
+<tr class="even">
+<td><strong>Shared</strong></td>
+<td>Offer boundary</td>
+<td>Early-bird and discount-code pricing are verified. The presence of a
+general offer label is not evidence that every advertised offer type is
+calculated at checkout.</td>
+</tr>
+</tbody>
+</table>
+<h1 id="9-booking-management-cancellation-and-transfer">9. Booking
+management, cancellation and transfer</h1>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Availability</th>
+<th>Capability</th>
+<th>Description / dependency</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Shared</strong></td>
+<td>Booking history and lookup</td>
+<td>The platform has unified lookup handling for regular and complex
+booking sources. Complex member history is enriched with event, session
+and ticket-track context.</td>
+</tr>
+<tr class="even">
+<td><strong>Shared</strong></td>
+<td>Cancellation request and approval</td>
+<td>Members can create authorised requests and administrators can
+initiate, approve or reject them. Duplicate pending requests and
+mixed-source requests are prevented.</td>
+</tr>
+<tr class="odd">
+<td><strong>Shared</strong></td>
+<td>Idempotent cancellation engine</td>
+<td>Approval uses one cancellation engine that can safely handle repeat
+attempts, move booking/allocation status and restore operational
+inventory.</td>
+</tr>
+<tr class="even">
+<td><strong>Shared · Conditional</strong></td>
+<td>Reversals</td>
+<td>Cancellation can restore seats, Zoom registration, training funds,
+vouchers, discount usage or a regular programme ticket; Stripe refunds
+and Xero credit notes depend on configured provider credentials and
+payment data.</td>
+</tr>
+<tr class="odd">
+<td><strong>Shared · Conditional</strong></td>
+<td>Manual-action handling</td>
+<td>Missing or disabled payment/accounting providers, or failed
+Stripe/Xero reversals, are recorded for manual follow-up. Cancellation
+may still complete; some best-effort side effects can also require
+review.</td>
+</tr>
+<tr class="even">
+<td><strong>Shared · Conditional</strong></td>
+<td>Discount restoration</td>
+<td>An expired discount is not automatically restored. A replacement is
+made only when a reviewer supplies a new expiry date.</td>
+</tr>
+<tr class="odd">
+<td><strong>Shared</strong></td>
+<td>Transfer request</td>
+<td>A booking can be transferred through a request and approval flow.
+Pending transfer and cancellation requests are mutually exclusive.</td>
+</tr>
+<tr class="even">
+<td><strong>Shared · Conditional</strong></td>
+<td>Transfer rules</td>
+<td>Public targets need valid identity details and must not already be
+members; member transfers can enforce same organisation and role.
+Approval changes attendee identity, not price or payment.</td>
+</tr>
+<tr class="odd">
+<td><strong>Shared · Conditional</strong></td>
+<td>Transfer follow-up boundary</td>
+<td>Zoom, accounting and email work is non-blocking. Public transfers
+deliberately skip accounting invoice update, so operational follow-up
+can be needed.</td>
+</tr>
+<tr class="even">
+<td><strong>Shared</strong></td>
+<td>Safe event deletion</td>
+<td>Deletion first puts an event into a cancelling state, blocks new
+registrations, processes bookings and then removes the event. A preview
+identifies affected bookings and potential provider follow-up.</td>
+</tr>
+<tr class="odd">
+<td><strong>Shared · Conditional</strong></td>
+<td>Deletion recovery</td>
+<td>Processing failures leave the event in cancelling for rerun or
+manual resolution. Financial items marked for manual action do not by
+themselves prevent deletion.</td>
+</tr>
+</tbody>
+</table>
+<h1 id="10-communications-virtual-delivery-and-attendance">10.
+Communications, virtual delivery and attendance</h1>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Availability</th>
+<th>Capability</th>
+<th>Description / dependency</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Shared · Conditional</strong></td>
+<td>Event email configuration</td>
+<td>Event emails can be configured with timing, custom send point,
+subject, body, CC and enabled state. Saving schedules simple or complex
+reminders as appropriate.</td>
+</tr>
+<tr class="even">
+<td><strong>Shared · Conditional</strong></td>
+<td>Automated reminders</td>
+<td>A scheduled reminder process sends enabled event communications.
+Scheduling outcomes surface skipped items and failures for
+follow-up.</td>
+</tr>
+<tr class="odd">
+<td><strong>Simple · Conditional</strong></td>
+<td>Agenda in email</td>
+<td>Training agenda content can be rendered into confirmations and
+reminders when the event email uses the agenda schedule content.</td>
+</tr>
+<tr class="even">
+<td><strong>Shared</strong></td>
+<td>Confirmation resend</td>
+<td>Administrators can resend attendee confirmations.</td>
+</tr>
+<tr class="odd">
+<td><strong>Shared · Conditional</strong></td>
+<td>Zoom event delivery</td>
+<td>Zoom meetings/webinars can be managed, reassigned and synchronised.
+Active registrations can be moved when an associated meeting
+changes.</td>
+</tr>
+<tr class="even">
+<td><strong>Complex · Conditional</strong></td>
+<td>Session-level virtual delivery</td>
+<td>A complex session can specify online mode, provider, Zoom host/type
+and registration requirement, or a Teams meeting identifier. Zoom can be
+provisioned, changed and synchronised per session.</td>
+</tr>
+<tr class="odd">
+<td><strong>Complex · Conditional</strong></td>
+<td>Protected join links</td>
+<td>Complex-event agenda Zoom join links are shown only to entitled
+viewers with a confirmed booking; they are not a general public
+disclosure route.</td>
+</tr>
+<tr class="even">
+<td><strong>Shared · Conditional</strong></td>
+<td>Microsoft Teams and Outlook</td>
+<td>Teams meeting and attendance functions require a connected Outlook
+organiser and Microsoft administrator consent. Outlook calendar
+connection, status and synchronisation are supported.</td>
+</tr>
+<tr class="odd">
+<td><strong>Shared · Conditional</strong></td>
+<td>External join links</td>
+<td>Online events can hold external join links, including Teams, Zoom or
+Google Meet-style links. This is not evidence of native Google Calendar
+integration.</td>
+</tr>
+<tr class="even">
+<td><strong>Shared · Conditional</strong></td>
+<td>Attendance synchronisation</td>
+<td>Zoom and Teams/provider attendance can be synchronised and linked to
+participant outcomes. Successful provider binding and sync are
+required.</td>
+</tr>
+<tr class="odd">
+<td><strong>Shared · Conditional</strong></td>
+<td>Attendance outcome</td>
+<td>Registration reporting can identify attended, below-threshold and
+absent outcomes, duration and session detail. Unmatched provider
+participants can remain unmatched.</td>
+</tr>
+</tbody>
+</table>
+<h1 id="11-surveys-check-in-reporting-and-workflows">11. Surveys,
+check-in, reporting and workflows</h1>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Availability</th>
+<th>Capability</th>
+<th>Description / dependency</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Shared · Conditional</strong></td>
+<td>Event survey assignment</td>
+<td>A published survey version can be assigned to a simple or complex
+event with an access mode and open/close window. The assignment retains
+the event context.</td>
+</tr>
+<tr class="even">
+<td><strong>Shared · Conditional</strong></td>
+<td>Survey access control</td>
+<td>A token resolves the current published survey within its assignment
+window. Outside the window, context may be shown but the form cannot be
+completed; access policy can deny access.</td>
+</tr>
+<tr class="odd">
+<td><strong>Shared · Conditional</strong></td>
+<td>Entrance QR check-in</td>
+<td>Physical events can include entrance QR codes in confirmation email:
+one per simple booking and one per registered in-person session for a
+complex booking. Staff scan them through the check-in service. Online
+events deliberately have no entrance QR.</td>
+</tr>
+<tr class="even">
+<td><strong>Shared</strong></td>
+<td>Registration reporting</td>
+<td>A registration report brings together booking and attendance
+information. Complex events can add session-level detail.</td>
+</tr>
+<tr class="odd">
+<td><strong>Shared · Conditional</strong></td>
+<td>Saved exports</td>
+<td>Report/export infrastructure and saved-export use are available.
+Specific output formats are not asserted here because they depend on the
+report surface selected.</td>
+</tr>
+<tr class="even">
+<td><strong>Shared · Conditional</strong></td>
+<td>Workflow platform</td>
+<td>Administrators have a workflow engine and management surface
+available in the platform. This review does not establish a complete
+catalogue of event-specific triggers or actions.</td>
+</tr>
+</tbody>
+</table>
+<h1 id="12-permissions-integrations-and-safeguards">12. Permissions,
+integrations and safeguards</h1>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Availability</th>
+<th>Capability</th>
+<th>Description / dependency</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Shared</strong></td>
+<td>Role-based access</td>
+<td>Platform roles include event, calendar, cancellation and site-map
+capabilities. Administrative screens and service operations apply
+permission and tenant controls.</td>
+</tr>
+<tr class="even">
+<td><strong>Shared</strong></td>
+<td>Tenant isolation</td>
+<td>Public discovery and booking-related operations resolve the tenant
+and scope data to it, helping prevent one client organisation’s events
+being exposed to another.</td>
+</tr>
+<tr class="odd">
+<td><strong>Shared</strong></td>
+<td>Server-side booking protection</td>
+<td>Services validate event state, ticket identity, visibility/access
+and payment-sensitive data instead of trusting browser-submitted
+totals.</td>
+</tr>
+<tr class="even">
+<td><strong>Shared · Conditional</strong></td>
+<td>Registration state controls</td>
+<td>Regular registration rejects a past registration deadline. Complex
+checkout blocks unpublished, draft, closed or cancelling events.</td>
+</tr>
+<tr class="odd">
+<td><strong>Complex</strong></td>
+<td>Complex deadline boundary</td>
+<td>The inspected complex public booking and payment-intent paths do not
+show an equivalent registration-deadline check; event state controls
+still apply.</td>
+</tr>
+<tr class="even">
+<td><strong>Shared · Conditional</strong></td>
+<td>Stripe</td>
+<td>Stripe supports card payment flows and applicable cancellation
+refunds. The tenant must have working Stripe configuration.</td>
+</tr>
+<tr class="odd">
+<td><strong>Shared · Conditional</strong></td>
+<td>Xero</td>
+<td>Xero settings and booking linkage support regular-event accounting
+and applicable credit-note outcomes. Provider availability and
+configuration determine completion.</td>
+</tr>
+<tr class="even">
+<td><strong>Shared · Conditional</strong></td>
+<td>Zoom</td>
+<td>Zoom supports delivery, registration movement and attendance sync
+when relevant identifiers, host settings and tenant credentials are
+configured.</td>
+</tr>
+<tr class="odd">
+<td><strong>Shared · Conditional</strong></td>
+<td>Microsoft Graph</td>
+<td>Outlook calendars and Teams meeting/attendance functions rely on
+Microsoft connection, consent and accessible meetings.</td>
+</tr>
+</tbody>
+</table>
+<h1 id="13-important-current-boundaries">13. Important current
+boundaries</h1>
+<p>The following are intentionally prominent because they affect
+planning and stakeholder expectations:</p>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Availability</th>
+<th>Capability / boundary</th>
+<th>Description / dependency</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Simple · Conditional</strong></td>
+<td>Immediate and group limitations</td>
+<td>Immediate cannot be training or group-limited and does not carry
+schedule or Zoom data. Group-limited simple events are
+free-ticket/manual-link mode.</td>
+</tr>
+<tr class="even">
+<td><strong>Shared · Conditional</strong></td>
+<td>Configuration is not automatic</td>
+<td>Sponsors, resources, public tickets, virtual delivery, provider
+links and restricted access appear only when configured, assigned and
+permitted.</td>
+</tr>
+<tr class="odd">
+<td><strong>Shared</strong></td>
+<td>Proposed work excluded</td>
+<td>Cancellation terms/deadline policies, certain refund/notification
+changes and member-only experience changes appearing in task planning
+are not represented as shipped capability.</td>
+</tr>
+<tr class="even">
+<td><strong>Shared</strong></td>
+<td>Operational follow-up can remain</td>
+<td>Some provider-side refund, credit-note, Zoom, accounting or email
+outcomes are non-blocking and may require manual follow-up.</td>
+</tr>
+<tr class="odd">
+<td><strong>Shared</strong></td>
+<td>No commerce VAT engine evidenced</td>
+<td>The reviewed event booking flows do not evidence VAT computation or
+a VAT line.</td>
+</tr>
+<tr class="even">
+<td><strong>Shared</strong></td>
+<td>Not an appointment-booking catalogue</td>
+<td>Separate agent meeting-booking/calendar functions are not event
+commerce and are not described as ticket-checkout capability here.</td>
+</tr>
+</tbody>
+</table>
+<h1 id="14-glossary">14. Glossary</h1>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Availability</th>
+<th>Term</th>
+<th>Description / dependency</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>Shared</strong></td>
+<td><strong>Attendee</strong></td>
+<td>The person registered to attend; they may differ from the person who
+made or paid for the booking.</td>
+</tr>
+<tr class="even">
+<td><strong>Shared</strong></td>
+<td><strong>Booking source</strong></td>
+<td>The underlying simple/regular or complex booking route; lifecycle
+controls use this distinction to handle each correctly.</td>
+</tr>
+<tr class="odd">
+<td><strong>Shared</strong></td>
+<td><strong>Complex event</strong></td>
+<td>A multi-session programme with days, tracks, sessions and
+potentially track-limited tickets.</td>
+</tr>
+<tr class="even">
+<td><strong>Shared</strong></td>
+<td><strong>Conditional</strong></td>
+<td>A capability that requires a setting, linked record, eligibility
+rule or connected external provider.</td>
+</tr>
+<tr class="odd">
+<td><strong>Shared</strong></td>
+<td><strong>Group-limited event</strong></td>
+<td>An event associated with a defined member group; visibility and
+registration are subject to group rules.</td>
+</tr>
+<tr class="even">
+<td><strong>Shared</strong></td>
+<td><strong>Immediate / TBC</strong></td>
+<td>Timing states for simple events. Immediate has no schedule; TBC has
+no confirmed schedule at creation.</td>
+</tr>
+<tr class="odd">
+<td><strong>Shared</strong></td>
+<td><strong>Simple event</strong></td>
+<td>A conventional single event record; it may also be a training or
+group-limited variant.</td>
+</tr>
+<tr class="even">
+<td><strong>Shared</strong></td>
+<td><strong>Tenant</strong></td>
+<td>The client organisation’s isolated iConnect environment, including
+its data, branding, permissions and integrations.</td>
+</tr>
+<tr class="odd">
+<td><strong>Shared</strong></td>
+<td><strong>Track</strong></td>
+<td>A strand of a complex-event programme. Tickets can be configured to
+allow all tracks or selected tracks.</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<p><em>Document control: Events Functionality Catalogue · Version 1.0 ·
+Published 7 September 2026 · Commercial in Confidence.</em></p>
+</body>
+</html>

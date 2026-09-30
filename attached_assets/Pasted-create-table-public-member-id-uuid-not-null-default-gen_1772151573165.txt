@@ -1,0 +1,78 @@
+create table public.member (
+  id uuid not null default gen_random_uuid (),
+  email text not null,
+  first_name text null,
+  last_name text null,
+  handle text null,
+  job_title text null,
+  biography text null,
+  profile_photo_url text null,
+  organization_id uuid null,
+  role_id uuid null,
+  role_effective_from date null,
+  last_activity timestamp with time zone null,
+  login_enabled boolean null default true,
+  member_excluded_features text[] null default '{}'::text[],
+  page_tours_seen jsonb null default '{}'::jsonb,
+  show_in_directory boolean null default true,
+  zoho_organization_id text null,
+  created_on timestamp with time zone null default now(),
+  mobile text null,
+  landline text null,
+  engagement_opening_balances jsonb null default '{}'::jsonb,
+  status character varying(50) null default 'active'::character varying,
+  google_id character varying(255) null,
+  tenant_id uuid null,
+  identity_id text null,
+  communications_opted_out_all boolean null default false,
+  constraint member_pkey primary key (id),
+  constraint member_email_tenant_unique unique (email, tenant_id),
+  constraint member_identity_id_fkey foreign KEY (identity_id) references tenant_identity (id),
+  constraint member_organization_id_fkey foreign KEY (organization_id) references organization (id),
+  constraint member_role_id_fkey foreign KEY (role_id) references role (id),
+  constraint member_handle_format_check check (
+    (
+      (handle is null)
+      or (handle ~ '^[a-z0-9]([a-z0-9-]*[a-z0-9])?$'::text)
+    )
+  )
+) TABLESPACE pg_default;
+
+create index IF not exists idx_member_google_id on public.member using btree (google_id) TABLESPACE pg_default
+where
+  (google_id is not null);
+
+create unique INDEX IF not exists member_email_tenant_unique_ci_idx on public.member using btree (
+  tenant_id,
+  lower(
+    TRIM(
+      both
+      from
+        email
+    )
+  )
+) TABLESPACE pg_default;
+
+create index IF not exists idx_member_identity_id on public.member using btree (identity_id) TABLESPACE pg_default;
+
+create unique INDEX IF not exists member_google_id_tenant_unique_idx on public.member using btree (tenant_id, google_id) TABLESPACE pg_default
+where
+  (google_id is not null);
+
+create unique INDEX IF not exists member_handle_tenant_unique on public.member using btree (handle, tenant_id) TABLESPACE pg_default
+where
+  (
+    (handle is not null)
+    and (tenant_id is not null)
+  );
+
+create unique INDEX IF not exists member_handle_org_unique on public.member using btree (handle, organization_id) TABLESPACE pg_default
+where
+  (
+    (handle is not null)
+    and (tenant_id is null)
+    and (organization_id is not null)
+  );
+
+create trigger trigger_set_member_tenant_id BEFORE INSERT on member for EACH row
+execute FUNCTION set_member_tenant_id ();

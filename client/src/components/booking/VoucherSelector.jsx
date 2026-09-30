@@ -8,7 +8,15 @@ import { Badge } from "@/components/ui/badge";
 import { Ticket, Calendar, AlertCircle, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 
-export default function VoucherSelector({ organizationId, selectedVouchers, onVoucherToggle, maxAmount }) {
+export default function VoucherSelector({ organizationId, selectedVouchers, onVoucherToggle, maxAmount, eventStartDate = null, restrictToEventDate = false, manualOrder = false, onManualOrderChange = null }) {
+  // When the tenant disallows using vouchers past their expiry for a later event,
+  // a voucher is only eligible if it expires AFTER the event's start date.
+  const eventStart = restrictToEventDate && eventStartDate ? new Date(eventStartDate) : null;
+  const isVoucherEligible = (voucher) => {
+    if (!eventStart || isNaN(eventStart.getTime())) return true;
+    if (!voucher.expires_at) return true;
+    return new Date(voucher.expires_at) > eventStart;
+  };
   // Fetch raw vouchers without any sorting in the queryFn
   const { data: rawVouchers = [], isLoading, error } = useQuery({
     queryKey: ['vouchers', organizationId],
@@ -18,13 +26,17 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
       console.log('[VoucherSelector] Fetching vouchers for org:', organizationId);
       
       // Fetch ALL vouchers, then filter in JavaScript
-      const allVouchers = await base44.entities.Voucher.list();
+      const allVouchers = await base44.entities.Voucher.list() || [];
       
       console.log('[VoucherSelector] All vouchers fetched:', allVouchers.length);
       
-      // Filter for this organization and active status ONLY - no sorting here
+      // Filter for this organization, active status, and not expired - no sorting here
+      const now = new Date();
       const activeVouchers = allVouchers.filter(v => 
-        v.organization_id === organizationId && v.status === 'active'
+        v.organization_id === organizationId && 
+        v.status === 'active' &&
+        // Exclude expired vouchers
+        (!v.expires_at || new Date(v.expires_at) > now)
       );
       
       console.log('[VoucherSelector] Active vouchers for this org:', activeVouchers.length);
@@ -47,9 +59,8 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
       expiryTimestamp: new Date(v.expires_at).getTime()
     })));
     
-    // Sort intelligently:
-    // 1. Primary sort: By expiry date (soonest first)
-    // 2. Secondary sort: By value (smallest first) for same expiry date
+    // First-expiry-first-used ordering (mirrors the server-side booking
+    // paths): earliest expiry first, then earliest allocation date.
     const sortedVouchers = [...rawVouchers].sort((a, b) => {
       const dateA = new Date(a.expires_at).getTime();
       const dateB = new Date(b.expires_at).getTime();
@@ -59,7 +70,12 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
         return dateA - dateB;
       }
       
-      // Secondary sort: by value (ascending - smallest first)
+      // Secondary sort: by allocation date (ascending - earliest first)
+      const issuedA = new Date(a.issued_at || a.created_at || 0).getTime();
+      const issuedB = new Date(b.issued_at || b.created_at || 0).getTime();
+      if (issuedA !== issuedB) {
+        return issuedA - issuedB;
+      }
       return a.value - b.value;
     });
     
@@ -81,20 +97,29 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
       return usageMap;
     }
 
-    // Get selected vouchers in the correct sorted order
-    const selectedVoucherObjects = selectedVouchers
+    // Simulate in the order vouchers will actually be applied: the user's
+    // selection order when manual ordering is on, otherwise
+    // first-expiry-first-used (mirrors the server).
+    let selectedVoucherObjects = selectedVouchers
       .map(id => vouchers.find(v => v.id === id))
-      .filter(v => v !== undefined)
-      .sort((a, b) => {
+      .filter(v => v !== undefined);
+    if (!manualOrder) {
+      selectedVoucherObjects = selectedVoucherObjects.sort((a, b) => {
         const dateA = new Date(a.expires_at).getTime();
         const dateB = new Date(b.expires_at).getTime();
-        
+
         if (dateA !== dateB) {
           return dateA - dateB;
         }
-        
+
+        const issuedA = new Date(a.issued_at || a.created_at || 0).getTime();
+        const issuedB = new Date(b.issued_at || b.created_at || 0).getTime();
+        if (issuedA !== issuedB) {
+          return issuedA - issuedB;
+        }
         return a.value - b.value;
       });
+    }
 
     let remainingCost = maxAmount;
 
@@ -117,15 +142,31 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
     }
 
     return usageMap;
-  }, [vouchers, selectedVouchers, maxAmount]);
+  }, [vouchers, selectedVouchers, maxAmount, manualOrder]);
 
   const handleToggle = (voucherId, checked) => {
     if (checked) {
+      const voucher = vouchers.find(v => v.id === voucherId);
+      if (voucher && !isVoucherEligible(voucher)) return;
       onVoucherToggle([...selectedVouchers, voucherId]);
     } else {
       onVoucherToggle(selectedVouchers.filter(id => id !== voucherId));
     }
   };
+
+  // If the eligibility rule kicks in (e.g. setting/event date loads after the user
+  // selected a voucher), automatically deselect any ineligible vouchers.
+  useEffect(() => {
+    if (!eventStart || isNaN(eventStart.getTime())) return;
+    if (!vouchers.length || !selectedVouchers.length) return;
+    const eligibleSelected = selectedVouchers.filter(id => {
+      const voucher = vouchers.find(v => v.id === id);
+      return !voucher || isVoucherEligible(voucher);
+    });
+    if (eligibleSelected.length !== selectedVouchers.length) {
+      onVoucherToggle(eligibleSelected);
+    }
+  }, [vouchers, selectedVouchers, restrictToEventDate, eventStartDate]);
 
   if (isLoading) {
     return (
@@ -154,10 +195,10 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
 
   if (!organizationId) {
     return (
-      <div className="p-4 rounded-lg border border-amber-200 bg-amber-50">
-        <div className="flex items-start gap-2 text-sm text-amber-600">
+      <div className="p-4 rounded-lg border border-warning/30 bg-warning/10">
+        <div className="flex items-start gap-2 text-sm text-warning">
           <AlertCircle className="w-4 h-4 mt-0.5" />
-          <span>Organization information not available</span>
+          <span>Organisation information not available</span>
         </div>
       </div>
     );
@@ -182,9 +223,29 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
         </p>
       )}
 
+      {onManualOrderChange && selectedVouchers.length > 1 && (
+        <div className="flex items-start justify-between gap-3 p-3 rounded-lg border border-slate-200 bg-slate-50" data-testid="voucher-manual-order-toggle">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-slate-900">Use my selection order</p>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {manualOrder
+                ? 'Vouchers will be applied in the order you selected them. This override is recorded in the transaction notes.'
+                : 'By default, vouchers expiring soonest are used first.'}
+            </p>
+          </div>
+          <Switch
+            checked={manualOrder}
+            onCheckedChange={onManualOrderChange}
+            className="shrink-0"
+            data-testid="switch-voucher-manual-order"
+          />
+        </div>
+      )}
+
       <div className="space-y-2 max-h-64 overflow-y-auto">
         {vouchers.map((voucher) => {
-          const isSelected = selectedVouchers.includes(voucher.id);
+          const isEligible = isVoucherEligible(voucher);
+          const isSelected = isEligible && selectedVouchers.includes(voucher.id);
           const usageInfo = voucherUsageInfo.get(voucher.id);
           const isFullyUsed = usageInfo?.isFullyUsed || false;
           const remainingValue = usageInfo?.remainingValue || 0;
@@ -199,7 +260,7 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
           if (isSelected && isFullyUsed) {
             bgColor = 'bg-green-50';
           } else if (isSelected && showRemainingValue) {
-            bgColor = 'bg-yellow-50';
+            bgColor = 'bg-warning/10';
           } else if (isSelected) {
             bgColor = 'bg-blue-50';
           }
@@ -209,7 +270,7 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
           if (isSelected && isFullyUsed) {
             borderColor = 'border-green-300';
           } else if (isSelected && showRemainingValue) {
-            borderColor = 'border-yellow-300';
+            borderColor = 'border-warning/30';
           } else if (isSelected) {
             borderColor = 'border-blue-500';
           }
@@ -219,7 +280,7 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
           if (isSelected && isFullyUsed) {
             iconColor = 'text-green-600';
           } else if (isSelected && showRemainingValue) {
-            iconColor = 'text-yellow-600';
+            iconColor = 'text-warning';
           } else if (isSelected) {
             iconColor = 'text-blue-600';
           }
@@ -227,7 +288,8 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
           return (
             <div
               key={voucher.id}
-              className={`p-3 rounded-lg border transition-all ${borderColor} ${bgColor}`}
+              className={`p-3 rounded-lg border transition-all ${borderColor} ${bgColor} ${!isEligible ? 'opacity-60' : ''}`}
+              data-testid={`voucher-option-${voucher.id}`}
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
@@ -245,15 +307,23 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
                   
                   <div className="flex items-center gap-1 text-xs">
                     <Calendar className="w-3 h-3 text-slate-400" />
-                    <span className={isExpiringSoon ? 'text-amber-600 font-medium' : 'text-slate-500'}>
+                    <span className={isExpiringSoon ? 'text-warning font-medium' : 'text-slate-500'}>
                       Expires {format(expiryDate, 'MMM d, yyyy')}
                       {isExpiringSoon && ` (${daysUntilExpiry} days)`}
                     </span>
                   </div>
                   
+                  {!isEligible && (
+                    <div className="mt-2 pt-2 border-t border-warning/30">
+                      <p className="text-xs text-warning font-medium" data-testid={`text-voucher-ineligible-${voucher.id}`}>
+                        This voucher expires before the event takes place, so it can't be used for this booking.
+                      </p>
+                    </div>
+                  )}
+                  
                   {showRemainingValue && (
-                    <div className="mt-2 pt-2 border-t border-yellow-200">
-                      <p className="text-xs text-yellow-700 font-medium">
+                    <div className="mt-2 pt-2 border-t border-warning/30">
+                      <p className="text-xs text-warning font-medium">
                         Remaining balance after purchase: £{remainingValue.toFixed(2)}
                       </p>
                     </div>
@@ -262,6 +332,7 @@ export default function VoucherSelector({ organizationId, selectedVouchers, onVo
                 
                 <Switch
                   checked={isSelected}
+                  disabled={!isEligible}
                   onCheckedChange={(checked) => handleToggle(voucher.id, checked)}
                   className="shrink-0"
                 />

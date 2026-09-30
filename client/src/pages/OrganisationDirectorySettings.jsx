@@ -1,69 +1,207 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Save, Settings, Search, Building } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
+import { Save, Settings, Search, Building, Filter, Shield, Users } from "lucide-react";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
+import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
+import { ORG_BACK_CORE_ITEMS, ORG_BACK_DEFAULT_ORDER, resolveBackFieldOrder } from "@/utils/directorySettings";
+import BackFieldOrderList from "@/components/directory/BackFieldOrderList";
+import { useDirectoryObjectSources } from "@/hooks/useDirectoryObjectSources";
+import DirectoryObjectSourcesGuidance from "@/components/directory/DirectoryObjectSourcesGuidance";
+import DirectoryFilterToggle from "@/components/directory/DirectoryFilterToggle";
+import { useOrganisationDirectoryFilterSettings } from "@/hooks/useOrganisationDirectoryFilterSettings";
+import { useOrganisationDirectoryCsvSettings } from "@/hooks/useOrganisationDirectoryCsvSettings";
+import { isOrganisationDirectoryFieldFilterable } from "../../../shared/organisationDirectoryFilters.js";
+import {
+  ORGANISATION_DIRECTORY_GUEST_DEFAULTS,
+  normalizeOrganisationDirectoryGuestLink,
+  saveOrganisationDirectoryGuestSettings,
+} from "@/lib/organisationDirectoryGuestSettings";
 
 export default function OrganisationDirectorySettingsPage() {
-  const { isAdmin, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const queryClient = useQueryClient();
+  const [directoryHeader, setDirectoryHeader] = useState("Organisation Directory");
   const [showLogo, setShowLogo] = useState(true);
+  const [showTitle, setShowTitle] = useState(true);
   const [showDomains, setShowDomains] = useState(true);
   const [showMemberCount, setShowMemberCount] = useState(true);
+  const [showNameTooltip, setShowNameTooltip] = useState(false);
+  const [cardsPerRow, setCardsPerRow] = useState("3");
   const [excludedOrgIds, setExcludedOrgIds] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [allowedApplicationStatuses, setAllowedApplicationStatuses] = useState([]);
+  const [visibleOrgTypes, setVisibleOrgTypes] = useState([]);
+  const [reverseCardRoleIds, setReverseCardRoleIds] = useState([]);
+  const [viewMembersRoleIds, setViewMembersRoleIds] = useState([]);
+  const [backFieldOrder, setBackFieldOrder] = useState([]);
+  const [customFieldsLabel, setCustomFieldsLabel] = useState("");
+  const [guestHeading, setGuestHeading] = useState(ORGANISATION_DIRECTORY_GUEST_DEFAULTS.heading);
+  const [guestDescription, setGuestDescription] = useState(ORGANISATION_DIRECTORY_GUEST_DEFAULTS.description);
+  const [guestJoinLink, setGuestJoinLink] = useState("");
+  const tenantId = memberInfo?.tenant_id || null;
+  const objectSourcesQuery = useDirectoryObjectSources({ settings: true, enabled: accessChecked });
+  const objectSources = objectSourcesQuery.isError ? [] : (objectSourcesQuery.data?.sources || []);
+  const filterSettings = useOrganisationDirectoryFilterSettings({
+    enabled: accessChecked,
+    identity: `${memberInfo?.tenant_id || ""}:${memberInfo?.id || ""}`,
+  });
+  const csvSettings = useOrganisationDirectoryCsvSettings({
+    enabled: accessChecked,
+    identity: `${memberInfo?.tenant_id || ""}:${memberInfo?.id || ""}`,
+  });
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin) {
+      if (isFeatureExcluded('membership.organisation-directory-settings')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   // Fetch all organizations
   const { data: organizations = [] } = useQuery({
     queryKey: ['all-organizations'],
-    queryFn: () => base44.entities.Organization.list('name')
+    queryFn: () => listOrganizationsForAdmin('name')
   });
+
+  // Fetch all roles for the reverse card multi-select
+  const { data: roles = [] } = useQuery({
+    queryKey: ['roles-for-org-directory-settings'],
+    queryFn: async () => {
+      const allRoles = await base44.entities.Role.list();
+      return (allRoles || []).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    },
+    staleTime: 5 * 60 * 1000
+  });
+
+  // Fetch organization custom fields to get application_status options
+  const { data: orgCustomFields = [], isPending: fieldsPending, isError: fieldsError, isFetching: fieldsFetching, refetch: refetchFields } = useQuery({
+    queryKey: ['org-custom-fields-for-directory-settings'],
+    enabled: accessChecked,
+    queryFn: async () => {
+      const fields = await base44.entities.PreferenceField.listAll({
+        filter: { is_active: true, entity_scope: 'organization' },
+        sort: { id: 'asc' },
+      });
+      return (fields || []).filter(f => f.entity_scope === 'organization');
+    }
+  });
+
+  // Find the application_status field
+  const applicationStatusField = useMemo(() => {
+    return orgCustomFields.find(f => f.name === 'application_status');
+  }, [orgCustomFields]);
+
+  // Find the org_type field
+  const orgTypeField = useMemo(() => {
+    return orgCustomFields.find(f =>
+      f.name === 'org_type' || f.name === 'organisation_type' || f.name === 'organization_type'
+    );
+  }, [orgCustomFields]);
+
+  const orgTypeOptions = useMemo(() => {
+    if (!orgTypeField?.options) return [];
+    return orgTypeField.options.map(opt => {
+      if (typeof opt === 'string') {
+        return { value: opt, label: opt };
+      }
+      return { value: opt.value || opt, label: opt.label || opt.value || opt };
+    });
+  }, [orgTypeField]);
+
+  // Normalize application_status options to ensure we always have { value, label } pairs
+  const applicationStatusOptions = useMemo(() => {
+    if (!applicationStatusField?.options) return [];
+    return applicationStatusField.options.map(opt => {
+      // Handle both string options and object options with value/label
+      if (typeof opt === 'string') {
+        return { value: opt, label: opt };
+      }
+      return { value: opt.value || opt, label: opt.label || opt.value || opt };
+    });
+  }, [applicationStatusField]);
 
   // Fetch current settings
   const { data: settings } = useQuery({
-    queryKey: ['organisation-directory-settings'],
+    queryKey: ['organisation-directory-settings-admin', tenantId],
+    enabled: accessChecked && Boolean(tenantId),
     queryFn: async () => {
       const allSettings = await base44.entities.SystemSettings.list();
+      const headerSetting = allSettings.find((s) => s.setting_key === 'org_directory_header');
       const logoSetting = allSettings.find((s) => s.setting_key === 'org_directory_show_logo');
+      const titleSetting = allSettings.find((s) => s.setting_key === 'org_directory_show_title');
       const domainsSetting = allSettings.find((s) => s.setting_key === 'org_directory_show_domains');
       const memberCountSetting = allSettings.find((s) => s.setting_key === 'org_directory_show_member_count');
+      const nameTooltipSetting = allSettings.find((s) => s.setting_key === 'org_directory_show_name_tooltip');
+      const cardsPerRowSetting = allSettings.find((s) => s.setting_key === 'org_directory_cards_per_row');
       const excludedOrgsSetting = allSettings.find((s) => s.setting_key === 'org_directory_excluded_orgs');
+      const allowedStatusesSetting = allSettings.find((s) => s.setting_key === 'org_directory_allowed_application_statuses');
+      const visibleOrgTypesSetting = allSettings.find((s) => s.setting_key === 'org_directory_visible_org_types');
+      const reverseCardRolesSetting = allSettings.find((s) => s.setting_key === 'org_directory_reverse_card_role_ids');
+      const viewMembersRolesSetting = allSettings.find((s) => s.setting_key === 'org_directory_view_members_role_ids');
+      const backOrderSetting = allSettings.find((s) => s.setting_key === 'org_directory_back_field_order');
+      const customFieldsLabelSetting = allSettings.find((s) => s.setting_key === 'org_directory_custom_fields_label');
+      const guestHeadingSetting = allSettings.find((s) => s.setting_key === 'org_directory_guest_heading');
+      const guestDescriptionSetting = allSettings.find((s) => s.setting_key === 'org_directory_guest_description');
+      const guestJoinLinkSetting = allSettings.find((s) => s.setting_key === 'org_directory_guest_join_link');
       return {
+        header: headerSetting,
         logo: logoSetting,
+        title: titleSetting,
         domains: domainsSetting,
         memberCount: memberCountSetting,
-        excludedOrgs: excludedOrgsSetting
+        nameTooltip: nameTooltipSetting,
+        cardsPerRow: cardsPerRowSetting,
+        excludedOrgs: excludedOrgsSetting,
+        allowedStatuses: allowedStatusesSetting,
+        visibleOrgTypes: visibleOrgTypesSetting,
+        reverseCardRoles: reverseCardRolesSetting,
+        viewMembersRoles: viewMembersRolesSetting,
+        backOrder: backOrderSetting,
+        customFieldsLabel: customFieldsLabelSetting,
+        guestHeading: guestHeadingSetting,
+        guestDescription: guestDescriptionSetting,
+        guestJoinLink: guestJoinLinkSetting
       };
     },
     refetchOnMount: true
   });
 
   useEffect(() => {
+    if (settings?.header) {
+      setDirectoryHeader(settings.header.setting_value || "Organisation Directory");
+    }
     if (settings?.logo) {
       setShowLogo(settings.logo.setting_value === 'true');
+    }
+    if (settings?.title) {
+      setShowTitle(settings.title.setting_value !== 'false'); // Default to true if not set
     }
     if (settings?.domains) {
       setShowDomains(settings.domains.setting_value === 'true');
     }
     if (settings?.memberCount) {
       setShowMemberCount(settings.memberCount.setting_value === 'true');
+    }
+    if (settings?.nameTooltip) {
+      setShowNameTooltip(settings.nameTooltip.setting_value === 'true');
+    }
+    if (settings?.cardsPerRow) {
+      setCardsPerRow(settings.cardsPerRow.setting_value || "3");
     }
     if (settings?.excludedOrgs) {
       try {
@@ -73,10 +211,104 @@ export default function OrganisationDirectorySettingsPage() {
         setExcludedOrgIds([]);
       }
     }
+    if (settings?.allowedStatuses) {
+      try {
+        const statuses = JSON.parse(settings.allowedStatuses.setting_value);
+        setAllowedApplicationStatuses(Array.isArray(statuses) ? statuses : []);
+      } catch {
+        setAllowedApplicationStatuses([]);
+      }
+    }
+    if (settings?.visibleOrgTypes) {
+      try {
+        const types = JSON.parse(settings.visibleOrgTypes.setting_value);
+        setVisibleOrgTypes(Array.isArray(types) ? types : []);
+      } catch {
+        setVisibleOrgTypes([]);
+      }
+    }
+    if (settings?.reverseCardRoles) {
+      try {
+        const ids = JSON.parse(settings.reverseCardRoles.setting_value);
+        setReverseCardRoleIds(Array.isArray(ids) ? ids : []);
+      } catch {
+        setReverseCardRoleIds([]);
+      }
+    }
+    if (settings?.viewMembersRoles) {
+      try {
+        const ids = JSON.parse(settings.viewMembersRoles.setting_value);
+        setViewMembersRoleIds(Array.isArray(ids) ? ids : []);
+      } catch {
+        setViewMembersRoleIds([]);
+      }
+    }
+    if (settings?.backOrder) {
+      try {
+        const order = JSON.parse(settings.backOrder.setting_value);
+        setBackFieldOrder(Array.isArray(order) ? order : []);
+      } catch {
+        setBackFieldOrder([]);
+      }
+    }
+    if (settings?.customFieldsLabel) {
+      setCustomFieldsLabel(settings.customFieldsLabel.setting_value || "");
+    }
+    setGuestHeading(settings?.guestHeading?.setting_value || ORGANISATION_DIRECTORY_GUEST_DEFAULTS.heading);
+    setGuestDescription(
+      settings?.guestDescription?.setting_value || ORGANISATION_DIRECTORY_GUEST_DEFAULTS.description
+    );
+    setGuestJoinLink(settings?.guestJoinLink?.setting_value || "");
   }, [settings]);
+
+  // Handler for toggling logo - ensures at least one of logo/title is enabled
+  const handleLogoToggle = (checked) => {
+    if (!checked && !showTitle) {
+      toast.error('At least one of Logo or Title must be enabled');
+      return;
+    }
+    setShowLogo(checked);
+  };
+
+  // Handler for toggling title - ensures at least one of logo/title is enabled
+  const handleTitleToggle = (checked) => {
+    if (!checked && !showLogo) {
+      toast.error('At least one of Logo or Title must be enabled');
+      return;
+    }
+    setShowTitle(checked);
+  };
 
   const saveMutation = useMutation({
     mutationFn: async () => {
+      if (!settings || !filterSettings.isSuccess || filterSettings.isFetching
+        || !csvSettings.isSuccess || csvSettings.isFetching
+        || fieldsPending || fieldsError || fieldsFetching
+        || objectSourcesQuery.isPending || objectSourcesQuery.isError || objectSourcesQuery.isFetching) {
+        throw new Error("Wait for directory settings and field metadata to load before saving");
+      }
+      // Validation: at least one of logo or title must be enabled
+      if (!showLogo && !showTitle) {
+        throw new Error('At least one of Logo or Title must be enabled');
+      }
+      const normalizedGuestJoinLink = normalizeOrganisationDirectoryGuestLink(guestJoinLink);
+      if (normalizedGuestJoinLink === null) {
+        throw new Error('Join link must be a root-relative path or an http(s) URL');
+      }
+
+      // Save header setting
+      if (settings?.header) {
+        await base44.entities.SystemSettings.update(settings.header.id, {
+          setting_value: directoryHeader.trim() || 'Organisation Directory'
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'org_directory_header',
+          setting_value: directoryHeader.trim() || 'Organisation Directory',
+          description: 'Page header title for the organisation directory'
+        });
+      }
+
       // Save logo setting
       if (settings?.logo) {
         await base44.entities.SystemSettings.update(settings.logo.id, {
@@ -86,7 +318,20 @@ export default function OrganisationDirectorySettingsPage() {
         await base44.entities.SystemSettings.create({
           setting_key: 'org_directory_show_logo',
           setting_value: showLogo.toString(),
-          description: 'Show organization logo on directory cards'
+          description: 'Show organisation logo on directory cards'
+        });
+      }
+
+      // Save title setting
+      if (settings?.title) {
+        await base44.entities.SystemSettings.update(settings.title.id, {
+          setting_value: showTitle.toString()
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'org_directory_show_title',
+          setting_value: showTitle.toString(),
+          description: 'Show organisation title on directory cards'
         });
       }
 
@@ -99,7 +344,7 @@ export default function OrganisationDirectorySettingsPage() {
         await base44.entities.SystemSettings.create({
           setting_key: 'org_directory_show_domains',
           setting_value: showDomains.toString(),
-          description: 'Show organization domains on directory cards'
+          description: 'Show organisation domains on directory cards'
         });
       }
 
@@ -116,6 +361,32 @@ export default function OrganisationDirectorySettingsPage() {
         });
       }
 
+      // Save name tooltip setting
+      if (settings?.nameTooltip) {
+        await base44.entities.SystemSettings.update(settings.nameTooltip.id, {
+          setting_value: showNameTooltip.toString()
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'org_directory_show_name_tooltip',
+          setting_value: showNameTooltip.toString(),
+          description: 'Show organisation name as tooltip on hover'
+        });
+      }
+
+      // Save cards per row setting
+      if (settings?.cardsPerRow) {
+        await base44.entities.SystemSettings.update(settings.cardsPerRow.id, {
+          setting_value: cardsPerRow
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'org_directory_cards_per_row',
+          setting_value: cardsPerRow,
+          description: 'Number of organisation cards to show per row'
+        });
+      }
+
       // Save excluded organizations setting
       if (settings?.excludedOrgs) {
         await base44.entities.SystemSettings.update(settings.excludedOrgs.id, {
@@ -125,18 +396,118 @@ export default function OrganisationDirectorySettingsPage() {
         await base44.entities.SystemSettings.create({
           setting_key: 'org_directory_excluded_orgs',
           setting_value: JSON.stringify(excludedOrgIds),
-          description: 'List of organization IDs excluded from the directory'
+          description: 'List of organisation IDs excluded from the directory'
         });
       }
+
+      // Save allowed application statuses setting
+      if (settings?.allowedStatuses) {
+        await base44.entities.SystemSettings.update(settings.allowedStatuses.id, {
+          setting_value: JSON.stringify(allowedApplicationStatuses)
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'org_directory_allowed_application_statuses',
+          setting_value: JSON.stringify(allowedApplicationStatuses),
+          description: 'List of application_status values that allow an organisation to appear in the directory'
+        });
+      }
+
+      // Save visible organisation types setting
+      if (settings?.visibleOrgTypes) {
+        await base44.entities.SystemSettings.update(settings.visibleOrgTypes.id, {
+          setting_value: JSON.stringify(visibleOrgTypes)
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'org_directory_visible_org_types',
+          setting_value: JSON.stringify(visibleOrgTypes),
+          description: 'List of organisation type values that allow an organisation to appear in the directory'
+        });
+      }
+
+      // Save reverse card role IDs setting
+      if (settings?.reverseCardRoles) {
+        await base44.entities.SystemSettings.update(settings.reverseCardRoles.id, {
+          setting_value: JSON.stringify(reverseCardRoleIds)
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'org_directory_reverse_card_role_ids',
+          setting_value: JSON.stringify(reverseCardRoleIds),
+          description: 'List of role IDs whose members are listed on the reverse of organisation directory cards'
+        });
+      }
+
+      // Save the independent View Members role policy.
+      if (settings?.viewMembersRoles) {
+        await base44.entities.SystemSettings.update(settings.viewMembersRoles.id, {
+          setting_value: JSON.stringify(viewMembersRoleIds)
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'org_directory_view_members_role_ids',
+          setting_value: JSON.stringify(viewMembersRoleIds),
+          description: 'Role IDs eligible for organisation directory View Members pages'
+        });
+      }
+
+      // Save custom fields section label setting
+      if (settings?.customFieldsLabel) {
+        await base44.entities.SystemSettings.update(settings.customFieldsLabel.id, {
+          setting_value: customFieldsLabel.trim()
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'org_directory_custom_fields_label',
+          setting_value: customFieldsLabel.trim(),
+          description: 'Heading shown above the custom-field section on the reverse of organisation directory cards (blank = "Additional Information")'
+        });
+      }
+
+      // Save unified back-of-card field order setting
+      if (settings?.backOrder) {
+        await base44.entities.SystemSettings.update(settings.backOrder.id, {
+          setting_value: JSON.stringify(backFieldOrder)
+        });
+      } else {
+        await base44.entities.SystemSettings.create({
+          setting_key: 'org_directory_back_field_order',
+          setting_value: JSON.stringify(backFieldOrder),
+          description: 'Tenant-wide order of core elements and custom fields on the reverse of organisation directory cards'
+        });
+      }
+
+      await saveOrganisationDirectoryGuestSettings({
+        entity: base44.entities.SystemSettings,
+        existingSettings: {
+          heading: settings.guestHeading,
+          description: settings.guestDescription,
+          joinLink: settings.guestJoinLink,
+        },
+        heading: guestHeading,
+        description: guestDescription,
+        joinLink: normalizedGuestJoinLink,
+      });
+      await filterSettings.save();
+      await csvSettings.save();
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['organisation-directory-settings-admin'] });
       queryClient.invalidateQueries({ queryKey: ['organisation-directory-settings'] });
+      queryClient.invalidateQueries({ queryKey: ['organisation-directory-guest-settings'] });
+      queryClient.invalidateQueries({ queryKey: ['organisation-directory-filters'] });
       toast.success('Settings saved successfully');
     },
     onError: (error) => {
       toast.error('Failed to save settings: ' + error.message);
     }
   });
+
+  const settingsSaveDisabled = saveMutation.isPending
+    || !settings
+    || !csvSettings.isSuccess
+    || csvSettings.isFetching;
 
   const toggleOrganization = (orgId) => {
     setExcludedOrgIds((prev) =>
@@ -146,13 +517,69 @@ export default function OrganisationDirectorySettingsPage() {
     );
   };
 
+  const toggleApplicationStatus = (status) => {
+    setAllowedApplicationStatuses((prev) =>
+      prev.includes(status)
+        ? prev.filter((s) => s !== status)
+        : [...prev, status]
+    );
+  };
+
+  const toggleOrgType = (typeValue) => {
+    setVisibleOrgTypes((prev) =>
+      prev.includes(typeValue)
+        ? prev.filter((t) => t !== typeValue)
+        : [...prev, typeValue]
+    );
+  };
+
+  const toggleReverseCardRole = (roleId) => {
+    setReverseCardRoleIds((prev) =>
+      prev.includes(roleId)
+        ? prev.filter((id) => id !== roleId)
+        : [...prev, roleId]
+    );
+  };
+
+  const toggleViewMembersRole = (roleId) => {
+    setViewMembersRoleIds((prev) =>
+      prev.includes(roleId) ? prev.filter((id) => id !== roleId) : [...prev, roleId]
+    );
+  };
+
+  // Unified reverse-card order: org core elements + org custom fields interleaved.
+  const activeOrgFields = useMemo(
+    () => [...orgCustomFields].sort((a, b) => (a.display_order || 0) - (b.display_order || 0)),
+    [orgCustomFields]
+  );
+  const resolvedBackOrder = resolveBackFieldOrder({
+    directoryOrder: null,
+    tenantOrder: backFieldOrder,
+    defaultOrder: ORG_BACK_DEFAULT_ORDER,
+    customFields: activeOrgFields,
+    objectSources,
+  });
+  const backOrderItems = useMemo(() => {
+    const items = {};
+    for (const core of ORG_BACK_CORE_ITEMS) {
+      items[core.key] = { label: core.label, description: core.description };
+    }
+    for (const f of activeOrgFields) {
+        items[`custom:${f.id}`] = { label: f.label, isCustom: true, field: f };
+    }
+    for (const source of objectSources) {
+      items[source.key] = { label: source.label, isCustom: true, isObjectField: true };
+    }
+    return items;
+  }, [activeOrgFields, objectSources]);
+
   const filteredOrganizations = organizations.filter((org) =>
   org.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   if (!accessChecked) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-8">
+      <div className="min-h-screen p-8">
         <div className="max-w-4xl mx-auto">
           <Card>
             <CardContent className="p-8 text-center">
@@ -165,7 +592,7 @@ export default function OrganisationDirectorySettingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-8">
+    <div className="min-h-screen p-8">
       <div className="max-w-4xl mx-auto">
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-slate-900 mb-2 flex items-center gap-3">
@@ -182,6 +609,22 @@ export default function OrganisationDirectorySettingsPage() {
             <CardTitle>Display Settings</CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
+            <div className="p-4 bg-slate-50 rounded-lg space-y-2">
+              <Label htmlFor="directoryHeader" className="text-base font-medium">
+                Page Header
+              </Label>
+              <p className="text-sm text-slate-600">
+                The heading displayed at the top of the organisation directory page
+              </p>
+              <Input
+                id="directoryHeader"
+                value={directoryHeader}
+                onChange={(e) => setDirectoryHeader(e.target.value)}
+                placeholder="Organisation Directory"
+                data-testid="input-directory-header"
+              />
+            </div>
+
             <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
               <div>
                 <Label htmlFor="showLogo" className="text-base font-medium cursor-pointer">
@@ -195,10 +638,34 @@ export default function OrganisationDirectorySettingsPage() {
                 type="checkbox"
                 id="showLogo"
                 checked={showLogo}
-                onChange={(e) => setShowLogo(e.target.checked)}
+                onChange={(e) => handleLogoToggle(e.target.checked)}
                 className="w-5 h-5 cursor-pointer" />
-
             </div>
+
+            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
+              <div>
+                <Label htmlFor="showTitle" className="text-base font-medium cursor-pointer">
+                  Show Organization Title
+                </Label>
+                <p className="text-sm text-slate-600 mt-1">
+                  Display organization name on directory cards
+                </p>
+              </div>
+              <input
+                type="checkbox"
+                id="showTitle"
+                checked={showTitle}
+                onChange={(e) => handleTitleToggle(e.target.checked)}
+                className="w-5 h-5 cursor-pointer" />
+            </div>
+
+            {(!showLogo || !showTitle) && (
+              <div className="p-3 bg-warning/10 border border-warning/30 rounded-lg">
+                <p className="text-sm text-warning">
+                  Note: At least one of Logo or Title must be enabled for cards to display content.
+                </p>
+              </div>
+            )}
 
             <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
               <div>
@@ -215,7 +682,6 @@ export default function OrganisationDirectorySettingsPage() {
                 checked={showDomains}
                 onChange={(e) => setShowDomains(e.target.checked)}
                 className="w-5 h-5 cursor-pointer" />
-
             </div>
 
             <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
@@ -224,7 +690,7 @@ export default function OrganisationDirectorySettingsPage() {
                   Show Member Count
                 </Label>
                 <p className="text-sm text-slate-600 mt-1">
-                  Display the number of members from each organization
+                  Display the number of members from each organisation
                 </p>
               </div>
               <input
@@ -233,13 +699,82 @@ export default function OrganisationDirectorySettingsPage() {
                 checked={showMemberCount}
                 onChange={(e) => setShowMemberCount(e.target.checked)}
                 className="w-5 h-5 cursor-pointer" />
-
             </div>
+
+            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
+              <div>
+                <Label htmlFor="showNameTooltip" className="text-base font-medium cursor-pointer">
+                  Show Name Tooltip on Hover
+                </Label>
+                <p className="text-sm text-slate-600 mt-1">
+                  Display the organisation name as a tooltip when hovering over a card
+                </p>
+              </div>
+              <input
+                type="checkbox"
+                id="showNameTooltip"
+                checked={showNameTooltip}
+                onChange={(e) => setShowNameTooltip(e.target.checked)}
+                className="w-5 h-5 cursor-pointer" />
+            </div>
+
+            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
+              <div>
+                <Label htmlFor="cardsPerRow" className="text-base font-medium">
+                  Cards Per Row
+                </Label>
+                <p className="text-sm text-slate-600 mt-1">
+                  Number of organisation cards to display per row on large screens
+                </p>
+              </div>
+              <Select value={cardsPerRow} onValueChange={setCardsPerRow}>
+                <SelectTrigger className="w-24" data-testid="select-cards-per-row">
+                  <SelectValue placeholder="3" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="2">2</SelectItem>
+                  <SelectItem value="3">3</SelectItem>
+                  <SelectItem value="4">4</SelectItem>
+                  <SelectItem value="5">5</SelectItem>
+                  <SelectItem value="6">6</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-lg">
+              <div className="pr-4">
+                <Label htmlFor="allowCsvDownload" className="text-base font-medium cursor-pointer">
+                  Allow members to download directory as CSV
+                </Label>
+                <p className="text-sm text-slate-600 mt-1">
+                  Members can download full directory entries, including both front-of-card and back-of-card fields.
+                </p>
+              </div>
+              <Switch
+                id="allowCsvDownload"
+                checked={csvSettings.allowCsvDownload}
+                disabled={!csvSettings.isSuccess || csvSettings.isFetching || saveMutation.isPending}
+                onCheckedChange={csvSettings.setAllowCsvDownload}
+                aria-label="Allow members to download directory as CSV"
+                data-testid="switch-allow-csv-download"
+              />
+            </div>
+            {csvSettings.isPending && (
+              <p role="status" className="text-sm text-slate-600">
+                Loading CSV download setting…
+              </p>
+            )}
+            {csvSettings.isError && (
+              <div role="alert" className="text-sm text-red-700">
+                CSV download setting could not be loaded. Saving is unavailable until it loads.
+                <Button variant="link" onClick={() => csvSettings.refetch()}>Retry</Button>
+              </div>
+            )}
 
             <div className="pt-4 border-t">
               <Button
                 onClick={() => saveMutation.mutate()}
-                disabled={saveMutation.isPending}
+                disabled={settingsSaveDisabled}
                 className="bg-blue-600 hover:bg-blue-700">
 
                 <Save className="w-4 h-4 mr-2" />
@@ -251,9 +786,383 @@ export default function OrganisationDirectorySettingsPage() {
 
         <Card className="border-slate-200 shadow-sm mt-6">
           <CardHeader>
-            <CardTitle className="text-2xl font-semibold leading-none tracking-tight">Exclude Organisations</CardTitle>
-            <p className="text-sm text-slate-600 mt-2">Hide specific organisations from appearing in the directory
+            <CardTitle>Guest Introduction</CardTitle>
+            <p className="text-sm text-slate-600 mt-2">
+              Configure the introduction shown to signed-out visitors. This content appears separately from the
+              directory page header and signed-in directory content.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="space-y-2">
+              <Label htmlFor="org-directory-guest-heading">Heading</Label>
+              <Input
+                id="org-directory-guest-heading"
+                value={guestHeading}
+                onChange={(event) => setGuestHeading(event.target.value)}
+                placeholder="Organisation Directory"
+                data-testid="input-org-directory-guest-heading"
+              />
+              <p className="text-xs text-slate-500">
+                Leave blank to use “Organisation Directory”.
+              </p>
+            </div>
 
+            <div className="space-y-2">
+              <Label htmlFor="org-directory-guest-description">Description</Label>
+              <Textarea
+                id="org-directory-guest-description"
+                value={guestDescription}
+                onChange={(event) => setGuestDescription(event.target.value)}
+                placeholder="Sign in to view the organisation directory."
+                rows={4}
+                data-testid="textarea-org-directory-guest-description"
+              />
+              <p className="text-xs text-slate-500">
+                Leave blank to use “Sign in to view the organisation directory.”
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="org-directory-guest-join-link">Join link</Label>
+              <Input
+                id="org-directory-guest-join-link"
+                value={guestJoinLink}
+                onChange={(event) => setGuestJoinLink(event.target.value)}
+                placeholder="/join"
+                data-testid="input-org-directory-guest-join-link"
+              />
+              <p className="text-xs text-slate-500">
+                Enter a link beginning with / or a full http(s) URL. Leave blank to hide the Join link.
+              </p>
+            </div>
+
+            <div className="pt-4 border-t">
+              <Button
+                onClick={() => saveMutation.mutate()}
+                disabled={settingsSaveDisabled}
+                className="bg-blue-600 hover:bg-blue-700"
+                data-testid="button-save-org-directory-guest-introduction"
+              >
+                <Save className="w-4 h-4 mr-2" />
+                {saveMutation.isPending ? 'Saving...' : 'Save Settings'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {applicationStatusField && applicationStatusOptions.length > 0 && (
+          <Card className="border-slate-200 shadow-sm mt-6">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Filter className="w-5 h-5" />
+                Application Status Filter
+              </CardTitle>
+              <p className="text-sm text-slate-600 mt-2">
+                Only show organisations with specific application status values. If no statuses are selected, all organisations will be shown.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-3">
+                {applicationStatusOptions.map((opt) => (
+                  <div
+                    key={opt.value}
+                    className="flex items-center justify-between p-3 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors"
+                  >
+                    <span className="font-medium text-slate-900">{opt.label}</span>
+                    <Checkbox
+                      checked={allowedApplicationStatuses.includes(opt.value)}
+                      onCheckedChange={() => toggleApplicationStatus(opt.value)}
+                      data-testid={`checkbox-status-${String(opt.value).toLowerCase().replace(/\s+/g, '-')}`}
+                    />
+                  </div>
+                ))}
+              </div>
+
+              {allowedApplicationStatuses.length > 0 && (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-sm text-blue-800">
+                    Only showing organisations with status: {allowedApplicationStatuses.map(val => {
+                      const opt = applicationStatusOptions.find(o => o.value === val);
+                      return opt?.label || val;
+                    }).join(', ')}
+                  </p>
+                </div>
+              )}
+
+              {allowedApplicationStatuses.length === 0 && (
+                <div className="p-3 bg-warning/10 border border-warning/30 rounded-lg">
+                  <p className="text-sm text-warning">
+                    No filter applied - all organisations will be shown regardless of application status
+                  </p>
+                </div>
+              )}
+
+              <div className="pt-4 border-t">
+                <Button
+                  onClick={() => saveMutation.mutate()}
+                  disabled={settingsSaveDisabled}
+                  className="bg-blue-600 hover:bg-blue-700"
+                >
+                  <Save className="w-4 h-4 mr-2" />
+                  {saveMutation.isPending ? 'Saving...' : 'Save Settings'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {orgTypeField && orgTypeOptions.length > 0 && (
+          <Card className="border-slate-200 shadow-sm mt-6">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Filter className="w-5 h-5" />
+                Organisation Type Filter
+              </CardTitle>
+              <p className="text-sm text-slate-600 mt-2">
+                Only show organisations with specific types. If no types are selected, all organisations will be shown.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-3">
+                {orgTypeOptions.map((opt) => (
+                  <div
+                    key={opt.value}
+                    className="flex items-center justify-between p-3 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors"
+                  >
+                    <span className="font-medium text-slate-900">{opt.label}</span>
+                    <Checkbox
+                      checked={visibleOrgTypes.includes(opt.value)}
+                      onCheckedChange={() => toggleOrgType(opt.value)}
+                      data-testid={`checkbox-org-type-${String(opt.value).toLowerCase().replace(/\s+/g, '-')}`}
+                    />
+                  </div>
+                ))}
+              </div>
+
+              {visibleOrgTypes.length > 0 && (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-sm text-blue-800">
+                    Only showing organisations with type: {visibleOrgTypes.map(val => {
+                      const opt = orgTypeOptions.find(o => o.value === val);
+                      return opt?.label || val;
+                    }).join(', ')}
+                  </p>
+                </div>
+              )}
+
+              {visibleOrgTypes.length === 0 && (
+                <div className="p-3 bg-warning/10 border border-warning/30 rounded-lg">
+                  <p className="text-sm text-warning">
+                    No filter applied - all organisations will be shown regardless of type
+                  </p>
+                </div>
+              )}
+
+              <div className="pt-4 border-t">
+                <Button
+                  onClick={() => saveMutation.mutate()}
+                  disabled={settingsSaveDisabled}
+                  className="bg-blue-600 hover:bg-blue-700"
+                >
+                  <Save className="w-4 h-4 mr-2" />
+                  {saveMutation.isPending ? 'Saving...' : 'Save Settings'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        <Card className="border-slate-200 shadow-sm mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Shield className="w-5 h-5" />
+              Reverse card member roles
+            </CardTitle>
+            <p className="text-sm text-slate-600 mt-2">
+              Members holding any of the selected roles will be listed in the contacts section inside each organisation card's detail popup.
+              If no roles are selected, the contacts section will not appear.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {roles.length === 0 ? (
+              <p className="text-sm text-slate-500">No roles found.</p>
+            ) : (
+              <div
+                className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"
+                data-testid="select-reverse-card-roles"
+              >
+                {roles.map((role) => {
+                  const isChecked = reverseCardRoleIds.includes(role.id);
+                  return (
+                    <label
+                      key={role.id}
+                      className="flex items-center gap-2.5 p-2.5 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer hover-elevate"
+                      data-testid={`checkbox-reverse-card-role-${role.id}`}
+                    >
+                      <Checkbox
+                        checked={isChecked}
+                        onCheckedChange={() => toggleReverseCardRole(role.id)}
+                      />
+                      <span className="text-sm font-medium text-slate-700 truncate">{role.name}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+
+            {reverseCardRoleIds.length > 0 && (
+              <p className="text-xs text-slate-500">
+                {reverseCardRoleIds.length} role{reverseCardRoleIds.length !== 1 ? 's' : ''} selected
+              </p>
+            )}
+
+            <div className="pt-4 border-t">
+              <Button
+                onClick={() => saveMutation.mutate()}
+                disabled={settingsSaveDisabled}
+                className="bg-blue-600 hover:bg-blue-700"
+                data-testid="button-save-reverse-card-roles"
+              >
+                <Save className="w-4 h-4 mr-2" />
+                {saveMutation.isPending ? 'Saving...' : 'Save Settings'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-200 shadow-sm mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="w-5 h-5" />
+              View Members roles
+            </CardTitle>
+            <p className="text-sm text-slate-600 mt-2">
+              Selected roles determine which people appear after a user clicks View Members for an organisation.
+              If no roles are selected, the View Members button is hidden on organisation directory cards.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3" data-testid="select-view-members-roles">
+              {roles.map((role) => (
+                <label key={role.id} className="flex items-center gap-2.5 p-2.5 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer">
+                  <Checkbox
+                    checked={viewMembersRoleIds.includes(role.id)}
+                    onCheckedChange={() => toggleViewMembersRole(role.id)}
+                    data-testid={`checkbox-view-members-role-${role.id}`}
+                  />
+                  <span className="text-sm font-medium text-slate-700 truncate">{role.name}</span>
+                </label>
+              ))}
+            </div>
+            <div className="pt-4 border-t">
+              <Button onClick={() => saveMutation.mutate()} disabled={settingsSaveDisabled} className="bg-blue-600 hover:bg-blue-700" data-testid="button-save-view-members-roles">
+                <Save className="w-4 h-4 mr-2" />
+                {saveMutation.isPending ? 'Saving...' : 'Save Settings'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-200 shadow-sm mt-6">
+          <CardHeader>
+            <CardTitle>Reverse Card Field Order</CardTitle>
+            <p className="text-sm text-slate-600 mt-2">
+              Arrange the order in which core elements and custom fields appear on the reverse of organisation
+              cards. This is the tenant-wide default; individual dynamic directories can override it in Dynamic
+              Directory Management. Visibility settings (member count toggle, reverse-card roles, per-directory
+              custom field settings) still control what shows.
+              {" "}Use as filter controls which fields visitors can filter by in the main Organisation Directory.
+              Data Studio filters remain limited to fields the visitor has permission to access.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <DirectoryObjectSourcesGuidance query={objectSourcesQuery} />
+            {fieldsError && (
+              <div role="alert" className="text-sm text-red-700">
+                Custom fields could not be loaded. Saving is unavailable until they load.
+                <Button variant="link" onClick={() => refetchFields()}>Retry</Button>
+              </div>
+            )}
+            {filterSettings.isPending && <p role="status" className="text-sm text-slate-600">Loading filter settings…</p>}
+            {filterSettings.isError && (
+              <div role="alert" className="text-sm text-red-700">
+                Filter settings could not be loaded. Your saved choices have not been changed.
+                <Button variant="link" onClick={() => filterSettings.refetch()}>Retry</Button>
+              </div>
+            )}
+            <BackFieldOrderList
+              order={resolvedBackOrder}
+              items={backOrderItems}
+              droppableId="org-back-order"
+              onChange={setBackFieldOrder}
+              disabled={fieldsPending || fieldsError || fieldsFetching || objectSourcesQuery.isPending || objectSourcesQuery.isError || objectSourcesQuery.isFetching}
+              renderControls={(key, item) => (
+                <DirectoryFilterToggle
+                  label={item.label}
+                  checked={isOrganisationDirectoryFieldFilterable(key, filterSettings.overrides, item.field)}
+                  disabled={!filterSettings.isSuccess || filterSettings.isFetching || saveMutation.isPending
+                    || fieldsPending || fieldsError || fieldsFetching
+                    || objectSourcesQuery.isPending || objectSourcesQuery.isError || objectSourcesQuery.isFetching}
+                  onCheckedChange={checked => filterSettings.setOverride(key, checked)}
+                />
+              )}
+            />
+            <div className="pt-4 border-t">
+              <Button
+                onClick={() => saveMutation.mutate()}
+                disabled={settingsSaveDisabled || !filterSettings.isSuccess || filterSettings.isFetching
+                  || fieldsPending || fieldsError || fieldsFetching
+                  || objectSourcesQuery.isPending || objectSourcesQuery.isError || objectSourcesQuery.isFetching}
+                className="bg-blue-600 hover:bg-blue-700"
+                data-testid="button-save-back-order"
+              >
+                <Save className="w-4 h-4 mr-2" />
+                {saveMutation.isPending ? 'Saving...' : 'Save Settings'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-200 shadow-sm mt-6">
+          <CardHeader>
+            <CardTitle>Custom Fields Section Label</CardTitle>
+            <p className="text-sm text-slate-600 mt-2">
+              The heading shown above the custom-field section on the reverse of organisation cards
+              (and on the My Organisation profile page). Leave blank to use the default
+              "Additional Information". Individual dynamic directories can override this in
+              Dynamic Directory Management.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2 max-w-md">
+              <Label htmlFor="org-custom-fields-label">Section label</Label>
+              <Input
+                id="org-custom-fields-label"
+                value={customFieldsLabel}
+                onChange={(e) => setCustomFieldsLabel(e.target.value)}
+                placeholder="Additional Information"
+                data-testid="input-custom-fields-label"
+              />
+            </div>
+            <div className="pt-4 border-t">
+              <Button
+                onClick={() => saveMutation.mutate()}
+                disabled={settingsSaveDisabled}
+                className="bg-blue-600 hover:bg-blue-700"
+                data-testid="button-save-custom-fields-label"
+              >
+                <Save className="w-4 h-4 mr-2" />
+                {saveMutation.isPending ? 'Saving...' : 'Save Settings'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-200 shadow-sm mt-6">
+          <CardHeader>
+            <CardTitle className="text-2xl font-semibold leading-none tracking-tight">Exclude Organisations</CardTitle>
+            <p className="text-sm text-slate-600 mt-2">
+              Hide specific organisations from appearing in the directory
             </p>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -308,7 +1217,7 @@ export default function OrganisationDirectorySettingsPage() {
             <div className="pt-4 border-t">
               <Button
                 onClick={() => saveMutation.mutate()}
-                disabled={saveMutation.isPending}
+                disabled={settingsSaveDisabled}
                 className="bg-blue-600 hover:bg-blue-700">
 
                 <Save className="w-4 h-4 mr-2" />

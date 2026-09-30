@@ -1,0 +1,338 @@
+{
+  "databaseWrites": 0,
+  "blockers": [
+    {
+      "organisation": "Midland Metropolitan University Hospital",
+      "organisationId": "9c6835b0-c3be-4aa9-bbba-c8408eea6ab2",
+      "organisationCreatedAt": "2026-08-27T14:40:16.739944+00:00",
+      "status": "active",
+      "group": "Sandwell and West Birmingham NHS Trust",
+      "departmentCount": 3,
+      "departments": [
+        {
+          "id": "197b6854-fdc8-4ea0-b78d-e61d346bd1fc",
+          "name": "Radiology based Nuclear Medicine",
+          "archivedAt": null,
+          "createdAt": "2026-08-27T14:41:37.38995+00:00",
+          "updatedAt": "2026-08-27T14:41:37.38995+00:00",
+          "currentAddress": {},
+          "relationships": [
+            {
+              "name": "members",
+              "count": 1
+            },
+            {
+              "name": "organisation",
+              "count": 1
+            },
+            {
+              "name": "department_type",
+              "count": 1
+            },
+            {
+              "name": "equipment_register_department",
+              "count": 8
+            }
+          ]
+        },
+        {
+          "id": "591efcf1-6561-45ba-a78e-d93976319283",
+          "name": "Radiopharmacy",
+          "archivedAt": null,
+          "createdAt": "2026-08-27T14:41:36.968473+00:00",
+          "updatedAt": "2026-08-27T14:41:36.968473+00:00",
+          "currentAddress": {},
+          "relationships": [
+            {
+              "name": "members",
+              "count": 2
+            },
+            {
+              "name": "organisation",
+              "count": 1
+            },
+            {
+              "name": "department_type",
+              "count": 1
+            }
+          ]
+        },
+        {
+          "id": "78815a75-a597-42ea-94d8-dd0c6c3d281e",
+          "name": "Radiology based Nuclear Medicine",
+          "archivedAt": null,
+          "createdAt": "2026-09-04T08:39:33.62263+00:00",
+          "updatedAt": "2026-09-04T08:39:33.62263+00:00",
+          "currentAddress": {},
+          "relationships": [
+            {
+              "name": "members",
+              "count": 1
+            },
+            {
+              "name": "organisation",
+              "count": 1
+            },
+            {
+              "name": "department_type",
+              "count": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "organisation": "Royal United Hospital",
+      "organisationId": "e6840819-4d9f-41c8-b2e4-189de51f8e68",
+      "organisationCreatedAt": "2026-08-27T14:40:30.811111+00:00",
+      "status": "active",
+      "group": "Royal United Hospitals Bath NHS Foundation Trust",
+      "departmentCount": 3,
+      "departments": [
+        {
+          "id": "5fbce29c-213a-48bc-8a8c-e2d891e42c95",
+          "name": "Radiopharmacy",
+          "archivedAt": null,
+          "createdAt": "2026-08-27T14:42:17.343501+00:00",
+          "updatedAt": "2026-08-27T14:42:17.343501+00:00",
+          "currentAddress": {},
+          "relationships": [
+            {
+              "name": "members",
+              "count": 4
+            },
+            {
+              "name": "organisation",
+              "count": 1
+            },
+            {
+              "name": "department_type",
+              "count": 1
+            }
+          ]
+        },
+        {
+          "id": "cf7e7f81-3fb3-42bd-9872-1065e426c6a1",
+          "name": "Nuclear Medicine - Physics based",
+          "archivedAt": null,
+          "createdAt": "2026-09-04T08:42:15.317356+00:00",
+          "updatedAt": "2026-09-04T08:42:15.317356+00:00",
+          "currentAddress": {},
+          "relationships": [
+            {
+              "name": "members",
+              "count": 1
+            },
+            {
+              "name": "organisation",
+              "count": 1
+            },
+            {
+              "name": "department_type",
+              "count": 1
+            }
+          ]
+        },
+        {
+          "id": "e2633069-3409-4146-b28c-148263acb7b3",
+          "name": "Nuclear Medicine - Physics based",
+          "archivedAt": null,
+          "createdAt": "2026-08-27T14:42:17.76816+00:00",
+          "updatedAt": "2026-08-27T14:42:17.76816+00:00",
+          "currentAddress": {},
+          "relationships": [
+            {
+              "name": "members",
+              "count": 1
+            },
+            {
+              "name": "organisation",
+              "count": 1
+            },
+            {
+              "name": "department_type",
+              "count": 1
+            },
+            {
+              "name": "equipment_register_department",
+              "count": 16
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "organisation": "Scarborough Hospital",
+      "organisationId": "17b1300a-e17a-41a7-bd87-c9b53deedb32",
+      "organisationCreatedAt": "2026-08-27T14:40:32.237527+00:00",
+      "status": "active",
+      "group": "York and Scarborough Teaching Hospitals NHS Foundation Trust",
+      "departmentCount": 3,
+      "departments": [
+        {
+          "id": "31eed8be-ad30-426b-9771-dde17af3495f",
+          "name": "Nuclear Medicine Stand Alone",
+          "archivedAt": null,
+          "createdAt": "2026-09-04T08:43:02.165543+00:00",
+          "updatedAt": "2026-09-04T08:43:02.165543+00:00",
+          "currentAddress": {},
+          "relationships": [
+            {
+              "name": "members",
+              "count": 1
+            },
+            {
+              "name": "organisation",
+              "count": 1
+            },
+            {
+              "name": "department_type",
+              "count": 1
+            }
+          ]
+        },
+        {
+          "id": "ad731b3d-c4bb-4f21-a58d-9ef85800a3ff",
+          "name": "Nuclear Medicine Stand Alone",
+          "archivedAt": null,
+          "createdAt": "2026-08-27T14:42:20.691708+00:00",
+          "updatedAt": "2026-08-27T14:42:20.691708+00:00",
+          "currentAddress": {},
+          "relationships": [
+            {
+              "name": "members",
+              "count": 1
+            },
+            {
+              "name": "organisation",
+              "count": 1
+            },
+            {
+              "name": "department_type",
+              "count": 1
+            },
+            {
+              "name": "equipment_register_department",
+              "count": 1
+            }
+          ]
+        },
+        {
+          "id": "fc381e7b-5eb5-4d05-8dcb-ede8ba50e271",
+          "name": "Radiopharmacy",
+          "archivedAt": null,
+          "createdAt": "2026-08-27T14:42:21.102801+00:00",
+          "updatedAt": "2026-08-27T14:42:21.102801+00:00",
+          "currentAddress": {},
+          "relationships": [
+            {
+              "name": "members",
+              "count": 1
+            },
+            {
+              "name": "organisation",
+              "count": 1
+            },
+            {
+              "name": "department_type",
+              "count": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "organisation": "University Hospital Coventry",
+      "organisationId": "445febff-bffc-4c66-87b7-b8369246cd23",
+      "organisationCreatedAt": "2026-09-10T12:15:36.81248+00:00",
+      "status": "active",
+      "group": "University Hospitals Coventry and Warwickshire NHS Trust",
+      "departmentCount": 0,
+      "departments": []
+    },
+    {
+      "organisation": "University Hospital Coventry",
+      "organisationId": "bd2b845b-a8b7-49f8-ad1b-17c466c94f2f",
+      "organisationCreatedAt": "2026-08-27T14:40:39.799308+00:00",
+      "status": "active",
+      "group": "University Hospitals Coventry and Warwickshire NHS Trust",
+      "departmentCount": 3,
+      "departments": [
+        {
+          "id": "4cd68788-5333-45d5-ab3e-88fcea4b9293",
+          "name": "Nuclear Medicine Stand Alone",
+          "archivedAt": null,
+          "createdAt": "2026-08-27T14:42:42.253616+00:00",
+          "updatedAt": "2026-08-27T14:42:42.253616+00:00",
+          "currentAddress": {},
+          "relationships": [
+            {
+              "name": "members",
+              "count": 3
+            },
+            {
+              "name": "organisation",
+              "count": 1
+            },
+            {
+              "name": "department_type",
+              "count": 1
+            },
+            {
+              "name": "equipment_register_department",
+              "count": 8
+            }
+          ]
+        },
+        {
+          "id": "6cab6cb9-2a26-4a1f-9292-b5112fc71e54",
+          "name": "Radiopharmacy",
+          "archivedAt": null,
+          "createdAt": "2026-08-27T14:42:43.113156+00:00",
+          "updatedAt": "2026-08-27T14:42:43.113156+00:00",
+          "currentAddress": {},
+          "relationships": [
+            {
+              "name": "members",
+              "count": 1
+            },
+            {
+              "name": "organisation",
+              "count": 1
+            },
+            {
+              "name": "department_type",
+              "count": 1
+            }
+          ]
+        },
+        {
+          "id": "ad920974-8272-435e-af15-4a1c5631c6fc",
+          "name": "PET Centre",
+          "archivedAt": null,
+          "createdAt": "2026-08-27T14:42:42.664112+00:00",
+          "updatedAt": "2026-08-27T14:42:42.664112+00:00",
+          "currentAddress": {},
+          "relationships": [
+            {
+              "name": "members",
+              "count": 1
+            },
+            {
+              "name": "organisation",
+              "count": 1
+            },
+            {
+              "name": "department_type",
+              "count": 1
+            },
+            {
+              "name": "equipment_register_department",
+              "count": 3
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

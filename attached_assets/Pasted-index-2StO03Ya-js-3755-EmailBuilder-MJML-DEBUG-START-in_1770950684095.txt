@@ -1,0 +1,1927 @@
+index-2StO03Ya.js:3755 [EmailBuilder] === MJML DEBUG START ===
+index-2StO03Ya.js:3755 
+    <mjml>
+      <mj-head>
+        <mj-font name="Lato" href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap" />
+        <mj-attributes>
+          <mj-all font-family="Arial, sans-serif" />
+          <mj-body background-color="#ffffff" />
+        </mj-attributes>
+        <mj-style>
+          h1, h2, h3, h4, h5, h6 { margin: 0; }
+          p { margin: 0 0 1em 0; }
+          p:last-child { margin-bottom: 0; }
+          .tenant-email-footer img { max-width: 100% !important; height: auto !important; }
+          .tenant-email-footer table { max-width: 100% !important; }
+        </mj-style>
+      </mj-head>
+      <mj-body background-color="#ffffff" width="700px">
+        <mj-wrapper background-color="#ffffff" padding="0px">
+          
+        <mj-section padding="0px 0px 0px 0px">
+          <mj-column>
+            <mj-text 
+              font-family="'Lato', sans-serif"
+              color="#333333"
+              line-height="1.5"
+              padding="10px 20px 10px 20px"
+            ><p><span style="font-family: Lato, sans-serif;"><strong>2 February 2026</strong></span><br><span style="color: rgb(255, 0, 0); font-family: Lato, sans-serif; font-size: 12px;">By Jeremy Swan, Head of Policy and Advocacy, Graduate Futures Institute</span></p></mj-text>
+          </mj-column>
+        </mj-section>
+      
+
+        <mj-section padding="0px 0px 0px 0px">
+          <mj-column>
+            <mj-divider 
+              border-color="#ff0000"
+              border-width="2px"
+              border-style="solid"
+              padding="0px 0px 0px 0px"
+            />
+          </mj-column>
+        </mj-section>
+      
+
+        <mj-section padding="0px 0px 0px 0px">
+          <mj-column>
+            <mj-text 
+              font-family="'Lato', sans-serif"
+              color="#333333"
+              line-height="1.5"
+              padding="10px 20px 0px 20px"
+            ><h1><span style="font-family: Lato, sans-serif; font-size: 24px;">Shaping the future of our sector, together</span></h1></mj-text>
+          </mj-column>
+        </mj-section>
+      
+
+        <mj-section padding="0px 0px 0px 0px">
+          <mj-column>
+            <mj-text 
+              font-family="'Lato', sans-serif"
+              color="#333333"
+              line-height="1.75"
+              padding="10px 20px 10px 20px"
+            ><p><span style="font-family: Lato, sans-serif; font-size: 16px;">Welcome to the very first issue of <strong>The Fast Track</strong> from the Graduate Futures Institute.</span></p><p><span style="font-family: Lato, sans-serif; font-size: 16px;">Each week, we'll bring you the key insights and opportunities you need to know, so you can stay ahead and act fast. Whatever your role in careers and employability around higher education, we're here to help you do your best work.</span></p><p><span style="color: rgb(255, 0, 0); font-family: Lato, sans-serif; font-size: 16px;"><strong>Money worries</strong></span><span style="font-size: 16px;"><br></span><span style="font-family: Lato, sans-serif; font-size: 16px;">A report from the Institute of Fiscal Studies (IFS) shows that total public spending on education in the UK has <u>fallen by 10%</u> since 2010-11, with drop mostly due to shifting the cost of higher education from the taxpayer onto graduates. When you look at public spending on education as a share of national income, we're now at historic lows last seen in the late 1990s.</span></p><p><span style="font-family: Lato, sans-serif; font-size: 16px;">Meanwhile, research published by the Office for Students (OfS) shows that <u>many students are aware of cost-cutting measures</u> at their universities. Around half of the c.1,200 students polled said they had noticed changes, with one-fifth (20%) specifically highlighting careers and employability services. Interestingly though, when asked about the changes to student support services overall (which includes careers), students were more likely to report positive changes (37% positive, 34% negative, 27% no change, 2% don't know).</span></p><p><span style="font-family: Lato, sans-serif; font-size: 16px;">Students are feeling the pinch too, with many taking on paid work to ease financial pressure. A new article on HEPI highlights that <u>academic performance declines once working hours exceed 10 per week</u>, while job quality also has a big impact on academic results. The authors call for careers services to be 'rebalanced' and links with local employers strengthened to help students find good work that will help the local economy while preparing them for graduate roles.</span></p><p><span style="color: rgb(255, 0, 0); font-family: Lato, sans-serif; font-size: 16px;"><strong>Championing university careers services</strong></span><span style="font-size: 16px;"><br></span><span style="font-family: Lato, sans-serif; font-size: 16px;">Careers and employability services do outstanding work across the sector, but too often it goes unseen by policy makers and the publi
+index-2StO03Ya.js:3755 [EmailBuilder] === MJML DEBUG END ===
+index-2StO03Ya.js:3755 [EmailBuilder] === HTML DEBUG START ===
+index-2StO03Ya.js:3755 <!doctype html>
+<html lang="und" dir="auto" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+  <head>
+    <title></title>
+    <!--[if !mso]><!-->
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <!--<![endif]-->
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style type="text/css">
+      #outlook a { padding:0; }
+      body { margin:0;padding:0;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%; }
+      table, td { border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt; }
+      img { border:0;height:auto;line-height:100%; outline:none;text-decoration:none;-ms-interpolation-mode:bicubic; }
+      p { display:block;margin:13px 0; }
+    </style>
+    <!--[if mso]>
+    <noscript>
+    <xml>
+    <o:OfficeDocumentSettings>
+      <o:AllowPNG/>
+      <o:PixelsPerInch>96</o:PixelsPerInch>
+    </o:OfficeDocumentSettings>
+    </xml>
+    </noscript>
+    <![endif]-->
+    <!--[if lte mso 11]>
+    <style type="text/css">
+      .mj-outlook-group-fix { width:100% !important; }
+    </style>
+    <![endif]-->
+    
+      <!--[if !mso]><!-->
+        <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap" rel="stylesheet" type="text/css">
+        <style type="text/css">
+          @import url(https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap);
+        </style>
+      <!--<![endif]-->
+
+    
+    
+    <style type="text/css">
+      @media only screen and (min-width:480px) {
+        .mj-column-per-100 { width:100% !important; max-width: 100%; }
+.mj-column-per-60 { width:60% !important; max-width: 60%; }
+.mj-column-per-40 { width:40% !important; max-width: 40%; }
+      }
+    </style>
+    <style media="screen and (min-width:480px)">
+      .moz-text-html .mj-column-per-100 { width:100% !important; max-width: 100%; }
+.moz-text-html .mj-column-per-60 { width:60% !important; max-width: 60%; }
+.moz-text-html .mj-column-per-40 { width:40% !important; max-width: 40%; }
+    </style>
+    
+    
+  
+    
+    <style type="text/css">
+
+    @media only screen and (max-width:479px) {
+      table.mj-full-width-mobile { width: 100% !important; }
+      td.mj-full-width-mobile { width: auto !important; }
+    }
+  
+    </style>
+     
+    <style type="text/css">
+h1, h2, h3, h4, h5, h6 { margin: 0; }
+          p { margin: 0 0 1em 0; }
+          p:last-child { margin-bottom: 0; }
+          .tenant-email-footer img { max-width: 100% !important; height: auto !important; }
+          .tenant-email-footer table { max-width: 100% !important; }
+    </style>
+    
+  </head>
+  <body style="word-spacing:normal;background-color:#ffffff;">
+    
+    
+      <div
+         aria-roledescription="email" style="background-color:#ffffff;" role="article" lang="und" dir="auto"
+      >
+        
+      
+      <!--[if mso | IE]><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:700px;" width="700" bgcolor="#ffffff" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="background:#ffffff;background-color:#ffffff;margin:0px auto;max-width:700px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background:#ffffff;background-color:#ffffff;width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:0px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" width="700px" ><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:700px;" width="700" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="margin:0px auto;max-width:700px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:0px 0px 0px 0px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" style="vertical-align:top;width:700px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-100 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="vertical-align:top;" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   align="left" style="font-size:0px;padding
+index-2StO03Ya.js:3755 [EmailBuilder] === HTML DEBUG END ===
+index-2StO03Ya.js:3755 [EmailBuilder] === MJML DEBUG START ===
+index-2StO03Ya.js:3755 
+    <mjml>
+      <mj-head>
+        <mj-font name="Lato" href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap" />
+        <mj-attributes>
+          <mj-all font-family="Arial, sans-serif" />
+          <mj-body background-color="#ffffff" />
+        </mj-attributes>
+        <mj-style>
+          h1, h2, h3, h4, h5, h6 { margin: 0; }
+          p { margin: 0 0 1em 0; }
+          p:last-child { margin-bottom: 0; }
+          .tenant-email-footer img { max-width: 100% !important; height: auto !important; }
+          .tenant-email-footer table { max-width: 100% !important; }
+        </mj-style>
+      </mj-head>
+      <mj-body background-color="#ffffff" width="700px">
+        <mj-wrapper background-color="#ffffff" padding="0px">
+          
+        <mj-section padding="0px 0px 0px 0px">
+          <mj-column>
+            <mj-text 
+              font-family="'Lato', sans-serif"
+              color="#333333"
+              line-height="1.5"
+              padding="10px 20px 10px 20px"
+            ><p><span style="font-family: Lato, sans-serif;"><strong>2 February 2026</strong></span><br><span style="color: rgb(255, 0, 0); font-family: Lato, sans-serif; font-size: 12px;">By Jeremy Swan, Head of Policy and Advocacy, Graduate Futures Institute</span></p></mj-text>
+          </mj-column>
+        </mj-section>
+      
+
+        <mj-section padding="0px 0px 0px 0px">
+          <mj-column>
+            <mj-divider 
+              border-color="#ff0000"
+              border-width="2px"
+              border-style="solid"
+              padding="0px 0px 0px 0px"
+            />
+          </mj-column>
+        </mj-section>
+      
+
+        <mj-section padding="0px 0px 0px 0px">
+          <mj-column>
+            <mj-text 
+              font-family="'Lato', sans-serif"
+              color="#333333"
+              line-height="1.5"
+              padding="10px 20px 0px 20px"
+            ><h1><span style="font-family: Lato, sans-serif; font-size: 24px;">Shaping the future of our sector, together</span></h1></mj-text>
+          </mj-column>
+        </mj-section>
+      
+
+        <mj-section padding="0px 0px 0px 0px">
+          <mj-column>
+            <mj-text 
+              font-family="'Lato', sans-serif"
+              color="#333333"
+              line-height="1.75"
+              padding="10px 20px 10px 20px"
+            ><p><span style="font-family: Lato, sans-serif; font-size: 16px;">Welcome to the very first issue of <strong>The Fast Track</strong> from the Graduate Futures Institute.</span></p><p><span style="font-family: Lato, sans-serif; font-size: 16px;">Each week, we'll bring you the key insights and opportunities you need to know, so you can stay ahead and act fast. Whatever your role in careers and employability around higher education, we're here to help you do your best work.</span></p><p><span style="color: rgb(255, 0, 0); font-family: Lato, sans-serif; font-size: 16px;"><strong>Money worries</strong></span><span style="font-size: 16px;"><br></span><span style="font-family: Lato, sans-serif; font-size: 16px;">A report from the Institute of Fiscal Studies (IFS) shows that total public spending on education in the UK has <u>fallen by 10%</u> since 2010-11, with drop mostly due to shifting the cost of higher education from the taxpayer onto graduates. When you look at public spending on education as a share of national income, we're now at historic lows last seen in the late 1990s.</span></p><p><span style="font-family: Lato, sans-serif; font-size: 16px;">Meanwhile, research published by the Office for Students (OfS) shows that <u>many students are aware of cost-cutting measures</u> at their universities. Around half of the c.1,200 students polled said they had noticed changes, with one-fifth (20%) specifically highlighting careers and employability services. Interestingly though, when asked about the changes to student support services overall (which includes careers), students were more likely to report positive changes (37% positive, 34% negative, 27% no change, 2% don't know).</span></p><p><span style="font-family: Lato, sans-serif; font-size: 16px;">Students are feeling the pinch too, with many taking on paid work to ease financial pressure. A new article on HEPI highlights that <u>academic performance declines once working hours exceed 10 per week</u>, while job quality also has a big impact on academic results. The authors call for careers services to be 'rebalanced' and links with local employers strengthened to help students find good work that will help the local economy while preparing them for graduate roles.</span></p><p><span style="color: rgb(255, 0, 0); font-family: Lato, sans-serif; font-size: 16px;"><strong>Championing university careers services</strong></span><span style="font-size: 16px;"><br></span><span style="font-family: Lato, sans-serif; font-size: 16px;">Careers and employability services do outstanding work across the sector, but too often it goes unseen by policy makers and the publi
+index-2StO03Ya.js:3755 [EmailBuilder] === MJML DEBUG END ===
+index-2StO03Ya.js:3755 [EmailBuilder] === HTML DEBUG START ===
+index-2StO03Ya.js:3755 <!doctype html>
+<html lang="und" dir="auto" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+  <head>
+    <title></title>
+    <!--[if !mso]><!-->
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <!--<![endif]-->
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style type="text/css">
+      #outlook a { padding:0; }
+      body { margin:0;padding:0;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%; }
+      table, td { border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt; }
+      img { border:0;height:auto;line-height:100%; outline:none;text-decoration:none;-ms-interpolation-mode:bicubic; }
+      p { display:block;margin:13px 0; }
+    </style>
+    <!--[if mso]>
+    <noscript>
+    <xml>
+    <o:OfficeDocumentSettings>
+      <o:AllowPNG/>
+      <o:PixelsPerInch>96</o:PixelsPerInch>
+    </o:OfficeDocumentSettings>
+    </xml>
+    </noscript>
+    <![endif]-->
+    <!--[if lte mso 11]>
+    <style type="text/css">
+      .mj-outlook-group-fix { width:100% !important; }
+    </style>
+    <![endif]-->
+    
+      <!--[if !mso]><!-->
+        <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap" rel="stylesheet" type="text/css">
+        <style type="text/css">
+          @import url(https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap);
+        </style>
+      <!--<![endif]-->
+
+    
+    
+    <style type="text/css">
+      @media only screen and (min-width:480px) {
+        .mj-column-per-100 { width:100% !important; max-width: 100%; }
+.mj-column-per-60 { width:60% !important; max-width: 60%; }
+.mj-column-per-40 { width:40% !important; max-width: 40%; }
+      }
+    </style>
+    <style media="screen and (min-width:480px)">
+      .moz-text-html .mj-column-per-100 { width:100% !important; max-width: 100%; }
+.moz-text-html .mj-column-per-60 { width:60% !important; max-width: 60%; }
+.moz-text-html .mj-column-per-40 { width:40% !important; max-width: 40%; }
+    </style>
+    
+    
+  
+    
+    <style type="text/css">
+
+    @media only screen and (max-width:479px) {
+      table.mj-full-width-mobile { width: 100% !important; }
+      td.mj-full-width-mobile { width: auto !important; }
+    }
+  
+    </style>
+     
+    <style type="text/css">
+h1, h2, h3, h4, h5, h6 { margin: 0; }
+          p { margin: 0 0 1em 0; }
+          p:last-child { margin-bottom: 0; }
+          .tenant-email-footer img { max-width: 100% !important; height: auto !important; }
+          .tenant-email-footer table { max-width: 100% !important; }
+    </style>
+    
+  </head>
+  <body style="word-spacing:normal;background-color:#ffffff;">
+    
+    
+      <div
+         aria-roledescription="email" style="background-color:#ffffff;" role="article" lang="und" dir="auto"
+      >
+        
+      
+      <!--[if mso | IE]><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:700px;" width="700" bgcolor="#ffffff" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="background:#ffffff;background-color:#ffffff;margin:0px auto;max-width:700px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background:#ffffff;background-color:#ffffff;width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:0px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" width="700px" ><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:700px;" width="700" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="margin:0px auto;max-width:700px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:0px 0px 0px 0px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" style="vertical-align:top;width:700px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-100 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="vertical-align:top;" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   align="left" style="font-size:0px;padding
+index-2StO03Ya.js:3755 [EmailBuilder] === HTML DEBUG END ===
+index-2StO03Ya.js:3755 [EmailBuilder] === MJML DEBUG START ===
+index-2StO03Ya.js:3755 
+    <mjml>
+      <mj-head>
+        <mj-font name="Lato" href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap" />
+        <mj-attributes>
+          <mj-all font-family="Arial, sans-serif" />
+          <mj-body background-color="#ffffff" />
+        </mj-attributes>
+        <mj-style>
+          h1, h2, h3, h4, h5, h6 { margin: 0; }
+          p { margin: 0 0 1em 0; }
+          p:last-child { margin-bottom: 0; }
+          .tenant-email-footer img { max-width: 100% !important; height: auto !important; }
+          .tenant-email-footer table { max-width: 100% !important; }
+        </mj-style>
+      </mj-head>
+      <mj-body background-color="#ffffff" width="700px">
+        <mj-wrapper background-color="#ffffff" padding="0px">
+          
+        <mj-section padding="0px 0px 0px 0px">
+          <mj-column>
+            <mj-text 
+              font-family="'Lato', sans-serif"
+              color="#333333"
+              line-height="1.5"
+              padding="10px 20px 10px 20px"
+            ><p><span style="font-family: Lato, sans-serif;"><strong>2 February 2026</strong></span><br><span style="color: rgb(255, 0, 0); font-family: Lato, sans-serif; font-size: 12px;">By Jeremy Swan, Head of Policy and Advocacy, Graduate Futures Institute</span></p></mj-text>
+          </mj-column>
+        </mj-section>
+      
+
+        <mj-section padding="0px 0px 0px 0px">
+          <mj-column>
+            <mj-divider 
+              border-color="#ff0000"
+              border-width="2px"
+              border-style="solid"
+              padding="0px 0px 0px 0px"
+            />
+          </mj-column>
+        </mj-section>
+      
+
+        <mj-section padding="0px 0px 0px 0px">
+          <mj-column>
+            <mj-text 
+              font-family="'Lato', sans-serif"
+              color="#333333"
+              line-height="1.5"
+              padding="10px 20px 0px 20px"
+            ><h1><span style="font-family: Lato, sans-serif; font-size: 24px;">Shaping the future of our sector, together</span></h1></mj-text>
+          </mj-column>
+        </mj-section>
+      
+
+        <mj-section padding="0px 0px 0px 0px">
+          <mj-column>
+            <mj-text 
+              font-family="'Lato', sans-serif"
+              color="#333333"
+              line-height="1.75"
+              padding="10px 20px 10px 20px"
+            ><p><span style="font-family: Lato, sans-serif; font-size: 16px;">Welcome to the very first issue of <strong>The Fast Track</strong> from the Graduate Futures Institute.</span></p><p><span style="font-family: Lato, sans-serif; font-size: 16px;">Each week, we'll bring you the key insights and opportunities you need to know, so you can stay ahead and act fast. Whatever your role in careers and employability around higher education, we're here to help you do your best work.</span></p><p><span style="color: rgb(255, 0, 0); font-family: Lato, sans-serif; font-size: 16px;"><strong>Money worries</strong></span><span style="font-size: 16px;"><br></span><span style="font-family: Lato, sans-serif; font-size: 16px;">A report from the Institute of Fiscal Studies (IFS) shows that total public spending on education in the UK has <u>fallen by 10%</u> since 2010-11, with drop mostly due to shifting the cost of higher education from the taxpayer onto graduates. When you look at public spending on education as a share of national income, we're now at historic lows last seen in the late 1990s.</span></p><p><span style="font-family: Lato, sans-serif; font-size: 16px;">Meanwhile, research published by the Office for Students (OfS) shows that <u>many students are aware of cost-cutting measures</u> at their universities. Around half of the c.1,200 students polled said they had noticed changes, with one-fifth (20%) specifically highlighting careers and employability services. Interestingly though, when asked about the changes to student support services overall (which includes careers), students were more likely to report positive changes (37% positive, 34% negative, 27% no change, 2% don't know).</span></p><p><span style="font-family: Lato, sans-serif; font-size: 16px;">Students are feeling the pinch too, with many taking on paid work to ease financial pressure. A new article on HEPI highlights that <u>academic performance declines once working hours exceed 10 per week</u>, while job quality also has a big impact on academic results. The authors call for careers services to be 'rebalanced' and links with local employers strengthened to help students find good work that will help the local economy while preparing them for graduate roles.</span></p><p><span style="color: rgb(255, 0, 0); font-family: Lato, sans-serif; font-size: 16px;"><strong>Championing university careers services</strong></span><span style="font-size: 16px;"><br></span><span style="font-family: Lato, sans-serif; font-size: 16px;">Careers and employability services do outstanding work across the sector, but too often it goes unseen by policy makers and the publi
+index-2StO03Ya.js:3755 [EmailBuilder] === MJML DEBUG END ===
+index-2StO03Ya.js:3755 [EmailBuilder] === HTML DEBUG START ===
+index-2StO03Ya.js:3755 <!doctype html>
+<html lang="und" dir="auto" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+  <head>
+    <title></title>
+    <!--[if !mso]><!-->
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <!--<![endif]-->
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style type="text/css">
+      #outlook a { padding:0; }
+      body { margin:0;padding:0;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%; }
+      table, td { border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt; }
+      img { border:0;height:auto;line-height:100%; outline:none;text-decoration:none;-ms-interpolation-mode:bicubic; }
+      p { display:block;margin:13px 0; }
+    </style>
+    <!--[if mso]>
+    <noscript>
+    <xml>
+    <o:OfficeDocumentSettings>
+      <o:AllowPNG/>
+      <o:PixelsPerInch>96</o:PixelsPerInch>
+    </o:OfficeDocumentSettings>
+    </xml>
+    </noscript>
+    <![endif]-->
+    <!--[if lte mso 11]>
+    <style type="text/css">
+      .mj-outlook-group-fix { width:100% !important; }
+    </style>
+    <![endif]-->
+    
+      <!--[if !mso]><!-->
+        <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap" rel="stylesheet" type="text/css">
+        <style type="text/css">
+          @import url(https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap);
+        </style>
+      <!--<![endif]-->
+
+    
+    
+    <style type="text/css">
+      @media only screen and (min-width:480px) {
+        .mj-column-per-100 { width:100% !important; max-width: 100%; }
+.mj-column-per-60 { width:60% !important; max-width: 60%; }
+.mj-column-per-40 { width:40% !important; max-width: 40%; }
+      }
+    </style>
+    <style media="screen and (min-width:480px)">
+      .moz-text-html .mj-column-per-100 { width:100% !important; max-width: 100%; }
+.moz-text-html .mj-column-per-60 { width:60% !important; max-width: 60%; }
+.moz-text-html .mj-column-per-40 { width:40% !important; max-width: 40%; }
+    </style>
+    
+    
+  
+    
+    <style type="text/css">
+
+    @media only screen and (max-width:479px) {
+      table.mj-full-width-mobile { width: 100% !important; }
+      td.mj-full-width-mobile { width: auto !important; }
+    }
+  
+    </style>
+     
+    <style type="text/css">
+h1, h2, h3, h4, h5, h6 { margin: 0; }
+          p { margin: 0 0 1em 0; }
+          p:last-child { margin-bottom: 0; }
+          .tenant-email-footer img { max-width: 100% !important; height: auto !important; }
+          .tenant-email-footer table { max-width: 100% !important; }
+    </style>
+    
+  </head>
+  <body style="word-spacing:normal;background-color:#ffffff;">
+    
+    
+      <div
+         aria-roledescription="email" style="background-color:#ffffff;" role="article" lang="und" dir="auto"
+      >
+        
+      
+      <!--[if mso | IE]><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:700px;" width="700" bgcolor="#ffffff" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="background:#ffffff;background-color:#ffffff;margin:0px auto;max-width:700px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background:#ffffff;background-color:#ffffff;width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:0px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" width="700px" ><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:700px;" width="700" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="margin:0px auto;max-width:700px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:0px 0px 0px 0px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" style="vertical-align:top;width:700px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-100 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="vertical-align:top;" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   align="left" style="font-size:0px;padding:10px 20px 10px 20px;word-break:break-word;"
+                >
+                  
+      <div
+         style="font-family:'Lato', sans-serif;font-size:13px;line-height:1.5;text-align:left;color:#333333;"
+      ><p><span style="font-family: Lato, sans-serif;"><strong>2 February 2026</strong></span><br><span style="color: rgb(255, 0, 0); font-family: Lato, sans-serif; font-size: 12px;">By Jeremy Swan, Head of Policy and Advocacy, Graduate Futures Institute</span></p></div>
+    
+                </td>
+              </tr>
+            
+        </tbody>
+      </table>
+    
+      </div>
+    
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        
+      </div>
+    
+      
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class="" width="700px" ><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:700px;" width="700" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="margin:0px auto;max-width:700px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:0px 0px 0px 0px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" style="vertical-align:top;width:700px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-100 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="vertical-align:top;" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   align="center" style="font-size:0px;padding:0px 0px 0px 0px;word-break:break-word;"
+                >
+                  
+      <p
+         style="border-top:solid 2px #ff0000;font-size:1px;margin:0px auto;width:100%;"
+      >
+      </p>
+      
+      <!--[if mso | IE]><table align="center" border="0" cellpadding="0" cellspacing="0" style="border-top:solid 2px #ff0000;font-size:1px;margin:0px auto;width:700px;" role="presentation" width="700px" ><tr><td style="height:0;line-height:0;"> &nbsp;
+</td></tr></table><![endif]-->
+    
+    
+                </td>
+              </tr>
+            
+        </tbody>
+      </table>
+    
+      </div>
+    
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        
+      </div>
+    
+      
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class="" width="700px" ><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:700px;" width="700" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="margin:0px auto;max-width:700px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:0px 0px 0px 0px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" style="vertical-align:top;width:700px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-100 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="vertical-align:top;" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   align="left" style="font-size:0px;padding:10px 20px 0px 20px;word-break:break-word;"
+                >
+                  
+      <div
+         style="font-family:'Lato', sans-serif;font-size:13px;line-height:1.5;text-align:left;color:#333333;"
+      ><h1><span style="font-family: Lato, sans-serif; font-size: 24px;">Shaping the future of our sector, together</span></h1></div>
+    
+                </td>
+              </tr>
+            
+        </tbody>
+      </table>
+    
+      </div>
+    
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        
+      </div>
+    
+      
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class="" width="700px" ><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:700px;" width="700" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="margin:0px auto;max-width:700px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:0px 0px 0px 0px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" style="vertical-align:top;width:700px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-100 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="vertical-align:top;" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   align="left" style="font-size:0px;padding:10px 20px 10px 20px;word-break:break-word;"
+                >
+                  
+      <div
+         style="font-family:'Lato', sans-serif;font-size:13px;line-height:1.75;text-align:left;color:#333333;"
+      ><p><span style="font-family: Lato, sans-serif; font-size: 16px;">Welcome to the very first issue of <strong>The Fast Track</strong> from the Graduate Futures Institute.</span></p><p><span style="font-family: Lato, sans-serif; font-size: 16px;">Each week, we'll bring you the key insights and opportunities you need to know, so you can stay ahead and act fast. Whatever your role in careers and employability around higher education, we're here to help you do your best work.</span></p><p><span style="color: rgb(255, 0, 0); font-family: Lato, sans-serif; font-size: 16px;"><strong>Money worries</strong></span><span style="font-size: 16px;"><br></span><span style="font-family: Lato, sans-serif; font-size: 16px;">A report from the Institute of Fiscal Studies (IFS) shows that total public spending on education in the UK has <u>fallen by 10%</u> since 2010-11, with drop mostly due to shifting the cost of higher education from the taxpayer onto graduates. When you look at public spending on education as a share of national income, we're now at historic lows last seen in the late 1990s.</span></p><p><span style="font-family: Lato, sans-serif; font-size: 16px;">Meanwhile, research published by the Office for Students (OfS) shows that <u>many students are aware of cost-cutting measures</u> at their universities. Around half of the c.1,200 students polled said they had noticed changes, with one-fifth (20%) specifically highlighting careers and employability services. Interestingly though, when asked about the changes to student support services overall (which includes careers), students were more likely to report positive changes (37% positive, 34% negative, 27% no change, 2% don't know).</span></p><p><span style="font-family: Lato, sans-serif; font-size: 16px;">Students are feeling the pinch too, with many taking on paid work to ease financial pressure. A new article on HEPI highlights that <u>academic performance declines once working hours exceed 10 per week</u>, while job quality also has a big impact on academic results. The authors call for careers services to be 'rebalanced' and links with local employers strengthened to help students find good work that will help the local economy while preparing them for graduate roles.</span></p><p><span style="color: rgb(255, 0, 0); font-family: Lato, sans-serif; font-size: 16px;"><strong>Championing university careers services</strong></span><span style="font-size: 16px;"><br></span><span style="font-family: Lato, sans-serif; font-size: 16px;">Careers and employability services do outstanding work across the sector, but too often it goes unseen by policy makers and the public. That’s why we launched the Quarterly Data Barometer last month: to build a credible evidence base that shows the impact of our community. The first results are already cutting through, helping us secure coverage in Times Higher Education and informing a letter we wrote to skills minister Jacqui Smith last week.</span></p><p><span style="font-family: Lato, sans-serif; font-size: 16px;">Now we need your help to keep the momentum.</span></p><p><span style="font-family: Lato, sans-serif; font-size: 16px;">We’re collecting responses to our Q2 survey on work-based learning and the findings will be used in a public campaign to celebrate university careers services later this spring (more on this coming soon...). The more responses we receive, the more robust (and useful) the data will be — helping us represent the scale and impact of your work with employers, and make the strongest possible case in that campaign. We’ve sent the survey link to all heads of careers, and we’d really appreciate your help to make sure it’s completed by 13 February. If you're able to fill this out on behalf of your institution, email </span><a target="_blank" rel="noopener noreferrer" href="mailto:hello@graduatefutures.org"><span style="font-family: Lato, sans-serif; font-size: 16px;">hello@graduatefutures.org</span></a><span style="font-family: Lato, sans-serif; font-size: 16px;"> and we'll resend a copy of the survey to you, copied to your head of careers.</span></p></div>
+    
+                </td>
+              </tr>
+            
+        </tbody>
+      </table>
+    
+      </div>
+    
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        
+      </div>
+    
+      
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class="" width="700px" ><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:700px;" width="700" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="margin:0px auto;max-width:700px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:0;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" style="vertical-align:top;width:700px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-100 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="vertical-align:top;" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   style="font-size:0px;word-break:break-word;"
+                >
+                  
+      <div
+         style="height:10px;line-height:10px;"
+      >&#8202;</div>
+    
+                </td>
+              </tr>
+            
+        </tbody>
+      </table>
+    
+      </div>
+    
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        
+      </div>
+    
+      
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class="" width="700px" ><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:700px;" width="700" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="margin:0px auto;max-width:700px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:0px 0px 0px 0px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" style="vertical-align:top;width:700px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-100 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="vertical-align:top;" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   align="center" style="font-size:0px;padding:0px 0px 0px 0px;word-break:break-word;"
+                >
+                  
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="border-collapse:collapse;border-spacing:0px;"
+      >
+        <tbody>
+          <tr>
+            <td  style="width:700px;">
+              
+        <a
+           href="https://www.graduatefutures.org/EventDetails?id=1e0f9e59-2bb1-4b70-9e99-81e8ed7018bb" target="_blank"
+        >
+          
+      <img
+         alt="Image" src="https://vault.iconn.app/storage/v1/object/public/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d/uploads/1770898612918-w05dyac-248430000000595536_zc_v1_1768911277925_group_work.png" style="border:0;display:block;outline:none;text-decoration:none;height:auto;width:100%;font-size:13px;" width="700" height="auto"
+      />
+    
+        </a>
+      
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    
+                </td>
+              </tr>
+            
+        </tbody>
+      </table>
+    
+      </div>
+    
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        
+      </div>
+    
+      
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class="" width="700px" ><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:700px;" width="700" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="margin:0px auto;max-width:700px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:0;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" style="vertical-align:top;width:700px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-100 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="vertical-align:top;" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   style="font-size:0px;word-break:break-word;"
+                >
+                  
+      <div
+         style="height:10px;line-height:10px;"
+      >&#8202;</div>
+    
+                </td>
+              </tr>
+            
+        </tbody>
+      </table>
+    
+      </div>
+    
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        
+      </div>
+    
+      
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class="" width="700px" ><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:700px;" width="700" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="margin:0px auto;max-width:700px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:0px 0px 0px 0px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" style="vertical-align:top;width:700px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-100 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="vertical-align:top;" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   align="center" style="font-size:0px;padding:0px 0px 0px 0px;word-break:break-word;"
+                >
+                  
+      <p
+         style="border-top:solid 2px #ff0000;font-size:1px;margin:0px auto;width:100%;"
+      >
+      </p>
+      
+      <!--[if mso | IE]><table align="center" border="0" cellpadding="0" cellspacing="0" style="border-top:solid 2px #ff0000;font-size:1px;margin:0px auto;width:700px;" role="presentation" width="700px" ><tr><td style="height:0;line-height:0;"> &nbsp;
+</td></tr></table><![endif]-->
+    
+    
+                </td>
+              </tr>
+            
+        </tbody>
+      </table>
+    
+      </div>
+    
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        
+      </div>
+    
+      
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class="" width="700px" ><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:700px;" width="700" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="margin:0px auto;max-width:700px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:0px 0px 0px 0px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" style="vertical-align:top;width:700px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-100 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="vertical-align:top;" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   align="left" style="font-size:0px;padding:10px 20px 0px 20px;word-break:break-word;"
+                >
+                  
+      <div
+         style="font-family:Arial, sans-serif;font-size:13px;line-height:1.5;text-align:left;color:#333333;"
+      ><h1><span style="font-family: Lato, sans-serif; font-size: 24px;">Worth reading</span></h1></div>
+    
+                </td>
+              </tr>
+            
+        </tbody>
+      </table>
+    
+      </div>
+    
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        
+      </div>
+    
+      
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class="" width="700px" ><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:700px;" width="700" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="margin:0px auto;max-width:700px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:0px 0px 0px 0px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" style="vertical-align:top;width:700px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-100 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="vertical-align:top;" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   align="left" style="font-size:0px;padding:10px 20px 10px 20px;word-break:break-word;"
+                >
+                  
+      <div
+         style="font-family:'Lato', sans-serif;font-size:13px;line-height:1.75;text-align:left;color:#333333;"
+      ><p><span style="color: rgb(255, 0, 0); font-family: Lato, sans-serif; font-size: 16px;"><strong>Preparing one billion people for tomorrow's economy (<u>World Economic Forum</u>)</strong></span><span style="font-family: Lato, sans-serif; font-size: 16px;"><br>If you’re keeping an eye on how large scale skills and employability work is evolving, this is a useful read.</span></p><p><span style="color: rgb(255, 0, 0); font-family: Lato, sans-serif; font-size: 16px;"><strong>Looking at the campaign on student loan interest (<u>HEPI</u>)</strong></span><span style="font-size: 16px;"><strong><br></strong></span><span style="font-family: Lato, sans-serif; font-size: 16px;">Nick Hillman argues that the current campaign against student loan interest payments is aiming at the wrong target. Extra interest is deliberately the most progressive part of England's student loan system, making higher-earning graduates pay more and helping to fund debt write-offs for those who earn less.</span></p><p><span style="color: rgb(255, 0, 0); font-family: Lato, sans-serif; font-size: 16px;"><strong>Retail sales bulletin latest (<u>ONS</u>)</strong></span><span style="font-size: 16px;"><br></span><span style="font-family: Lato, sans-serif; font-size: 16px;">Latest figures show retail sales fell 0.3% in the three months to December 2025, indicating falling consumer demand and difficult economic conditions.</span></p><p><span style="color: rgb(255, 0, 0); font-family: Lato, sans-serif; font-size: 16px;"><strong>High Fliers report on the graduate labour market (<u>High Fliers</u>)</strong></span><span style="font-size: 16px;"><br></span><span style="font-family: Lato, sans-serif; font-size: 16px;">The report suggests the UK graduate jobs squeeze is persisting: the top 100 employers cut hires again in 2025 (-5.1%) and are planning a further dip in 2026 (-0.5%), taking vacancies to their lowest level since 2012. Yet competition is intensifying as applications rise a further 23% year-on-year (now doubled since 2023). Starting pay for leading employers is flattening at a £35,000 median (with big premiums in investment banking, law and consulting), while employers continue to narrow on-campus targeting to an average of 23 universities.</span></p><p><span style="color: rgb(255, 0, 0); font-family: Lato, sans-serif; font-size: 16px;"><strong>Vice-Chancellor from London South Bank University to chair the Academic Employability Awards 2026 (<u>Graduate Futures</u>)</strong></span><span style="font-size: 16px;"><br></span><span style="font-family: Lato, sans-serif; font-size: 16px;">Paul Kett has been unveiled as the head judge for this year's awards, which are accepting entries until Monday 16 February.</span></p></div>
+    
+                </td>
+              </tr>
+            
+        </tbody>
+      </table>
+    
+      </div>
+    
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        
+      </div>
+    
+      
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class="" width="700px" ><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:700px;" width="700" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="margin:0px auto;max-width:700px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:0px 0px 0px 0px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" style="vertical-align:top;width:700px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-100 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="vertical-align:top;" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   align="center" style="font-size:0px;padding:20px 0px 0px 0px;word-break:break-word;"
+                >
+                  
+      <p
+         style="border-top:solid 2px #ff0000;font-size:1px;margin:0px auto;width:100%;"
+      >
+      </p>
+      
+      <!--[if mso | IE]><table align="center" border="0" cellpadding="0" cellspacing="0" style="border-top:solid 2px #ff0000;font-size:1px;margin:0px auto;width:700px;" role="presentation" width="700px" ><tr><td style="height:0;line-height:0;"> &nbsp;
+</td></tr></table><![endif]-->
+    
+    
+                </td>
+              </tr>
+            
+        </tbody>
+      </table>
+    
+      </div>
+    
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        
+      </div>
+    
+      
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class="" width="700px" ><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:700px;" width="700" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="margin:0px auto;max-width:700px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:0px 0px 0px 0px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" style="vertical-align:top;width:700px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-100 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="vertical-align:top;" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   align="left" style="font-size:0px;padding:10px 20px 0px 20px;word-break:break-word;"
+                >
+                  
+      <div
+         style="font-family:'Lato', sans-serif;font-size:13px;line-height:1.5;text-align:left;color:#333333;"
+      ><h1><span style="font-family: Lato, sans-serif; font-size: 24px;">Signals</span></h1></div>
+    
+                </td>
+              </tr>
+            
+        </tbody>
+      </table>
+    
+      </div>
+    
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        
+      </div>
+    
+      
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class="" width="700px" ><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:700px;" width="700" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="margin:0px auto;max-width:700px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:0px 0px 0px 0px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" style="vertical-align:top;width:700px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-100 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="vertical-align:top;" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   align="left" style="font-size:0px;padding:10px 20px 10px 20px;word-break:break-word;"
+                >
+                  
+      <div
+         style="font-family:'Lato', sans-serif;font-size:13px;line-height:1.75;text-align:left;color:#333333;"
+      ><p><span style="color: rgb(255, 0, 0); font-family: Lato, sans-serif; font-size: 16px;"><strong>950,000</strong></span><br><span style="font-family: Lato, sans-serif; font-size: 16px;">The number of students who accessed online careers resources provided by their university in 2024/25. (</span><a target="_blank" rel="noopener noreferrer" href="https://zkvgzcruhniduuswbfyh.supabase.co/storage/v1/object/public/file-repository/uploads/1767775006307-3j1bjeh-QDB_Q1_2526.pdf"><span style="font-family: Lato, sans-serif; font-size: 16px;">QDB, Q1</span></a><span style="font-family: Lato, sans-serif; font-size: 16px;">)</span></p><p><span style="color: rgb(255, 0, 0); font-family: Lato, sans-serif; font-size: 16px;"><strong>215,000</strong></span><br><span style="font-family: Lato, sans-serif; font-size: 16px;">University students attended a one-to-one careers guidance appointment in 2024/25. (QDB, Q1)</span></p><p><span style="color: rgb(255, 0, 0); font-family: Lato, sans-serif; font-size: 16px;"><strong>20,640</strong></span><br><span style="font-family: Lato, sans-serif; font-size: 16px;">Careers events took place in universities during 2024/25. (QDB, Q1)</span></p></div>
+    
+                </td>
+              </tr>
+            
+        </tbody>
+      </table>
+    
+      </div>
+    
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        
+      </div>
+    
+      
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class="" width="700px" ><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:700px;" width="700" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="margin:0px auto;max-width:700px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:0px 0px 0px 0px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" style="vertical-align:top;width:700px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-100 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="vertical-align:top;" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   align="center" style="font-size:0px;padding:20px 0px 0px 0px;word-break:break-word;"
+                >
+                  
+      <p
+         style="border-top:solid 2px #ff0000;font-size:1px;margin:0px auto;width:100%;"
+      >
+      </p>
+      
+      <!--[if mso | IE]><table align="center" border="0" cellpadding="0" cellspacing="0" style="border-top:solid 2px #ff0000;font-size:1px;margin:0px auto;width:700px;" role="presentation" width="700px" ><tr><td style="height:0;line-height:0;"> &nbsp;
+</td></tr></table><![endif]-->
+    
+    
+                </td>
+              </tr>
+            
+        </tbody>
+      </table>
+    
+      </div>
+    
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        
+      </div>
+    
+      
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class="" width="700px" ><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:700px;" width="700" bgcolor="#f4f4f4" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="background:#f4f4f4;background-color:#f4f4f4;margin:0px auto;max-width:700px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background:#f4f4f4;background-color:#f4f4f4;width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:0px 0px 0px 0px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" style="vertical-align:top;width:700px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-100 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="vertical-align:top;" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   align="left" style="font-size:0px;padding:10px 20px 0px 20px;word-break:break-word;"
+                >
+                  
+      <div
+         style="font-family:'Lato', sans-serif;font-size:13px;line-height:1.5;text-align:left;color:#333333;"
+      ><h1><span style="font-family: Lato, sans-serif; font-size: 24px;">On the Graduate Futures Blog</span></h1></div>
+    
+                </td>
+              </tr>
+            
+        </tbody>
+      </table>
+    
+      </div>
+    
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        
+      </div>
+    
+      
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class="" width="700px" ><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:700px;" width="700" bgcolor="#f4f4f4" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="background:#f4f4f4;background-color:#f4f4f4;margin:0px auto;max-width:700px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background:#f4f4f4;background-color:#f4f4f4;width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:0px 0px 10px 0px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" style="vertical-align:top;width:420px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-60 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" width="100%"
+      >
+        <tbody>
+          <tr>
+            <td  style="vertical-align:top;padding-right:0px;padding-left:0px;">
+              
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   align="left" style="font-size:0px;padding:10px 20px 0px 20px;word-break:break-word;"
+                >
+                  
+      <div
+         style="font-family:'Lato', sans-serif;font-size:13px;line-height:1.5;text-align:left;color:#333333;"
+      ><p><span style="font-size: 18px;"><strong>Road trip: University of Edinburgh</strong></span></p></div>
+    
+                </td>
+              </tr>
+            
+              <tr>
+                <td
+                   align="left" style="font-size:0px;padding:0px 20px 10px 20px;word-break:break-word;"
+                >
+                  
+      <div
+         style="font-family:'Lato', sans-serif;font-size:13px;line-height:1.75;text-align:left;color:#333333;"
+      ><p><span style="font-family: Lato, sans-serif; font-size: 16px;">How do you deliver personalised careers support at scale without stretching resources to breaking point? Edinburgh’s approach blends early engagement, data-led targeting, and alumni-powered programmes.</span></p></div>
+    
+                </td>
+              </tr>
+            
+              <tr>
+                <td
+                   align="left" style="font-size:0px;padding:0px 20px 10px 20px;word-break:break-word;"
+                >
+                  
+      <div
+         style="font-family:Arial, sans-serif;font-size:13px;line-height:1;text-align:left;color:#000000;"
+      ><a href="https://www.graduatefutures.org/blogs/lara-king/road-trip-university-of-edinburgh" target="_blank" style="display:inline-block;background-color:#ff0000;color:#ffffff;font-size:16px;font-weight:bold;border-radius:8px;padding:12px 24px 12px 24px;text-decoration:none;mso-padding-alt:0;text-align:center;"><!--[if mso]><i style="mso-font-width:300%;mso-text-raise:30" hidden>&emsp;</i><![endif]--><span style="mso-text-raise:15px;">Read blog</span><!--[if mso]><i style="mso-font-width:300%;" hidden>&emsp;&#8203;</i><![endif]--></a></div>
+    
+                </td>
+              </tr>
+            
+        </tbody>
+      </table>
+    
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    
+      </div>
+    
+          <!--[if mso | IE]></td><td class="" style="vertical-align:top;width:280px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-40 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" width="100%"
+      >
+        <tbody>
+          <tr>
+            <td  style="vertical-align:top;padding-right:0px;padding-left:0px;">
+              
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   align="center" style="font-size:0px;padding:0px 20px 0px 0px;word-break:break-word;"
+                >
+                  
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="border-collapse:collapse;border-spacing:0px;"
+      >
+        <tbody>
+          <tr>
+            <td  style="width:260px;">
+              
+      <img
+         alt="Image" src="https://vault.iconn.app/storage/v1/object/public/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d/uploads/1770900515544-wse58fy-248430000000595536_zc_v1_1766006975185_1765810359750_qsa85vx_careers_team.jpg" style="border:0;display:block;outline:none;text-decoration:none;height:auto;width:100%;font-size:13px;" width="260" height="auto"
+      />
+    
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    
+                </td>
+              </tr>
+            
+        </tbody>
+      </table>
+    
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    
+      </div>
+    
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        
+      </div>
+    
+      
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class="" width="700px" ><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:700px;" width="700" bgcolor="#f5f5f5" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="background:#f5f5f5;background-color:#f5f5f5;margin:0px auto;max-width:700px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background:#f5f5f5;background-color:#f5f5f5;width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:0px 20px 20px 10px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" style="vertical-align:top;width:670px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-100 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="vertical-align:top;" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   align="left" style="font-size:0px;padding:0px 20px 0px 20px;word-break:break-word;"
+                >
+                  
+      <div
+         style="font-family:'Lato', sans-serif;font-size:13px;line-height:1.5;text-align:left;color:#333333;"
+      ><p><span style="font-family: Lato, sans-serif; font-size: 24px;"><strong>Something to say? We’d love to publish it.</strong></span></p></div>
+    
+                </td>
+              </tr>
+            
+              <tr>
+                <td
+                   align="left" style="font-size:0px;padding:10px 20px 10px 20px;word-break:break-word;"
+                >
+                  
+      <div
+         style="font-family:'Lato', sans-serif;font-size:13px;line-height:1.75;text-align:left;color:#333333;"
+      ><p><span style="font-family: Lato, sans-serif; font-size: 16px;">Have an opinion, a practical how-to, a case study from your institution, or a new angle we should all be debating? If it helps move the conversation on (and helps students and graduates succeed), we want to hear it. Simply pitch your idea to </span><a target="_blank" rel="noopener noreferrer" href="mailto:media@graduatefutures.org"><span style="font-family: Lato, sans-serif; font-size: 16px;">media@graduatefutures.org</span></a></p></div>
+    
+                </td>
+              </tr>
+            
+        </tbody>
+      </table>
+    
+      </div>
+    
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        
+      </div>
+    
+      
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class="" width="700px" ><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:700px;" width="700" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="margin:0px auto;max-width:700px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:0px 0px 0px 0px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" style="vertical-align:top;width:700px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-100 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="vertical-align:top;" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   align="center" style="font-size:0px;padding:20px 0px 20px 0px;word-break:break-word;"
+                >
+                  
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="border-collapse:collapse;border-spacing:0px;"
+      >
+        <tbody>
+          <tr>
+            <td  style="width:700px;">
+              
+        <a
+           href="https://www.graduatefutures.org/academic-employability-awards-2026" target="_blank"
+        >
+          
+      <img
+         alt="Image" src="https://vault.iconn.app/storage/v1/object/public/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d/uploads/1770901098675-3djd5kv-248430000000595536_zc_v1_1768908564374_aea_2026.png" style="border:0;display:block;outline:none;text-decoration:none;height:auto;width:100%;font-size:13px;" width="700" height="auto"
+      />
+    
+        </a>
+      
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    
+                </td>
+              </tr>
+            
+        </tbody>
+      </table>
+    
+      </div>
+    
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        
+      </div>
+    
+      
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class="" width="700px" ><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:700px;" width="700" bgcolor="#f5f5f5" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="background:#f5f5f5;background-color:#f5f5f5;margin:0px auto;max-width:700px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background:#f5f5f5;background-color:#f5f5f5;width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:20px 20px 20px 20px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" style="vertical-align:top;width:660px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-100 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="vertical-align:top;" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   align="left" style="font-size:0px;padding:0px 20px 0px 10px;word-break:break-word;"
+                >
+                  
+      <div
+         style="font-family:'Lato', sans-serif;font-size:13px;line-height:1.5;text-align:left;color:#333333;"
+      ><p><span style="font-family: Lato, sans-serif; font-size: 24px;"><strong>Recent vacancies</strong></span></p></div>
+    
+                </td>
+              </tr>
+            
+              <tr>
+                <td
+                   align="left" style="font-size:0px;padding:10px 20px 10px 10px;word-break:break-word;"
+                >
+                  
+      <div
+         style="font-family:'Lato', sans-serif;font-size:13px;line-height:1.75;text-align:left;color:#333333;"
+      ><ul><li><p><a target="_blank" rel="noopener noreferrer" href="https://www.graduatefutures.org/JobDetails?id=cbcb1246-009b-45e5-b85a-1e694675d2e1"><span style="font-family: Lato, sans-serif; font-size: 16px;"><strong>Careers Consultant (0.8 FTE)</strong></span></a><span style="font-family: Lato, sans-serif; font-size: 16px;"><strong>, Imperial College London</strong><br>£57,785 - £69,365 (Actual 0.8 salary £46,228)</span><br><br></p></li><li><p><a target="_blank" rel="noopener noreferrer" href="https://www.graduatefutures.org/JobDetails?id=b7ca1804-05c0-4d18-b5d5-ac20a167444e"><span style="font-family: Lato, sans-serif; font-size: 16px;"><strong>Head of Careers and Employability</strong></span></a><span style="font-family: Lato, sans-serif; font-size: 16px;"><strong>, University of Huddersfield</strong><br>£60,521 - £70,130</span></p></li></ul></div>
+    
+                </td>
+              </tr>
+            
+        </tbody>
+      </table>
+    
+      </div>
+    
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        
+      </div>
+    
+      
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class="" width="700px" ><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:700px;" width="700" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="margin:0px auto;max-width:700px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:0px 0px 0px 0px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" style="vertical-align:top;width:700px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-100 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="vertical-align:top;" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   align="center" style="font-size:0px;padding:20px 0px 20px 0px;word-break:break-word;"
+                >
+                  
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="border-collapse:collapse;border-spacing:0px;"
+      >
+        <tbody>
+          <tr>
+            <td  style="width:700px;">
+              
+        <a
+           href="https://www.graduatefutures.org/academic-employability-awards-2026" target="_blank"
+        >
+          
+      <img
+         alt="Image" src="https://vault.iconn.app/storage/v1/object/public/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d/uploads/1770901399966-zm352to-248430000000595536_zc_v1_1769703953757_phoenix_papers_1_.png" style="border:0;display:block;outline:none;text-decoration:none;height:auto;width:100%;font-size:13px;" width="700" height="auto"
+      />
+    
+        </a>
+      
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    
+                </td>
+              </tr>
+            
+        </tbody>
+      </table>
+    
+      </div>
+    
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        
+      </div>
+    
+      
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class="" width="700px" ><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:700px;" width="700" bgcolor="#ff0000" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="background:#ff0000;background-color:#ff0000;margin:0px auto;max-width:700px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background:#ff0000;background-color:#ff0000;width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:20px 20px 20px 20px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" style="vertical-align:top;width:660px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-100 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="vertical-align:top;" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   align="left" style="font-size:0px;padding:10px 20px 10px 20px;word-break:break-word;"
+                >
+                  
+      <div
+         style="font-family:Arial, sans-serif;font-size:13px;line-height:1.5;text-align:left;color:#333333;"
+      ><p style="text-align: center;"><span style="color: rgb(255, 255, 255); font-family: Lato, sans-serif; font-size: 16px;"><strong>Connect with us</strong></span></p></div>
+    
+                </td>
+              </tr>
+            
+              <tr>
+                <td
+                   align="left" style="font-size:0px;padding:10px 20px 10px 20px;word-break:break-word;"
+                >
+                  
+      <div
+         style="font-family:Arial, sans-serif;font-size:13px;line-height:1;text-align:left;color:#000000;"
+      ><table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto;"><tr><td style="vertical-align:middle;text-align:center;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;"><tr><td style="text-align:center;"><a href="https://linkedin.com/" target="_blank" style="text-decoration:none;display:inline-block;"><span style="display:inline-block;width:40px;height:40px;border:2px solid #ffffff;border-radius:20px;text-align:center;line-height:40px;vertical-align:middle;"><img src="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20width%3D%2222%22%20height%3D%2222%22%20fill%3D%22%23ffffff%22%3E%3Cpath%20d%3D%22M20.447%2020.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853%200-2.136%201.445-2.136%202.939v5.667H9.351V9h3.414v1.561h.046c.477-.9%201.637-1.85%203.37-1.85%203.601%200%204.267%202.37%204.267%205.455v6.286zM5.337%207.433a2.062%202.062%200%2001-2.063-2.065%202.064%202.064%200%20112.063%202.065zm1.782%2013.019H3.555V9h3.564v11.452zM22.225%200H1.771C.792%200%200%20.774%200%201.729v20.542C0%2023.227.792%2024%201.771%2024h20.451C23.2%2024%2024%2023.227%2024%2022.271V1.729C24%20.774%2023.2%200%2022.222%200h.003z%22%2F%3E%3C%2Fsvg%3E" width="22" height="22" alt="LinkedIn" style="display:inline-block;vertical-align:middle;border:0;outline:none;" /></span></a></td></tr><tr><td style="text-align:center;padding-top:2px;color:#ffffff;font-family:&#039;Lato&#039;, sans-serif;font-size:14px;"><span style="font-size:14px;color:#ffffff;font-family:&#039;Lato&#039;, sans-serif;line-height:1.2;white-space:nowrap;">LinkedIn</span></td></tr></table>
+      </td><td style="padding-left:16px;vertical-align:middle;text-align:center;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;"><tr><td style="text-align:center;"><a href="https://youtube.com/" target="_blank" style="text-decoration:none;display:inline-block;"><span style="display:inline-block;width:40px;height:40px;border:2px solid #ffffff;border-radius:20px;text-align:center;line-height:40px;vertical-align:middle;"><img src="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20width%3D%2222%22%20height%3D%2222%22%20fill%3D%22%23ffffff%22%3E%3Cpath%20d%3D%22M23.498%206.186a3.016%203.016%200%2000-2.122-2.136C19.505%203.545%2012%203.545%2012%203.545s-7.505%200-9.377.505A3.017%203.017%200%2000.502%206.186C0%208.07%200%2012%200%2012s0%203.93.502%205.814a3.016%203.016%200%20002.122%202.136c1.871.505%209.376.505%209.376.505s7.505%200%209.377-.505a3.015%203.015%200%20002.122-2.136C24%2015.93%2024%2012%2024%2012s0-3.93-.502-5.814zM9.545%2015.568V8.432L15.818%2012l-6.273%203.568z%22%2F%3E%3C%2Fsvg%3E" width="22" height="22" alt="YouTube" style="display:inline-block;vertical-align:middle;border:0;outline:none;" /></span></a></td></tr><tr><td style="text-align:center;padding-top:2px;color:#ffffff;font-family:&#039;Lato&#039;, sans-serif;font-size:14px;"><span style="font-size:14px;color:#ffffff;font-family:&#039;Lato&#039;, sans-serif;line-height:1.2;white-space:nowrap;">YouTube</span></td></tr></table>
+      </td><td style="padding-left:16px;vertical-align:middle;text-align:center;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;"><tr><td style="text-align:center;"><a href="mailto:" target="_blank" style="text-decoration:none;display:inline-block;"><span style="display:inline-block;width:40px;height:40px;border:2px solid #ffffff;border-radius:20px;text-align:center;line-height:40px;vertical-align:middle;"><img src="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20width%3D%2222%22%20height%3D%2222%22%20fill%3D%22%23ffffff%22%3E%3Cpath%20d%3D%22M20%204H4c-1.1%200-1.99.9-1.99%202L2%2018c0%201.1.9%202%202%202h16c1.1%200%202-.9%202-2V6c0-1.1-.9-2-2-2zm0%204l-8%205-8-5V6l8%205%208-5v2z%22%2F%3E%3C%2Fsvg%3E" width="22" height="22" alt="Email" style="display:inline-block;vertical-align:middle;border:0;outline:none;" /></span></a></td></tr><tr><td style="text-align:center;padding-top:2px;color:#ffffff;font-family:&#039;Lato&#039;, sans-serif;font-size:14px;"><span style="font-size:14px;color:#ffffff;font-family:&#039;Lato&#039;, sans-serif;line-height:1.2;white-space:nowrap;">Email</span></td></tr></table>
+      </td></tr></table></div>
+    
+                </td>
+              </tr>
+            
+              <tr>
+                <td
+                   align="left" style="font-size:0px;padding:10px 20px 0px 20px;word-break:break-word;"
+                >
+                  
+      <div
+         style="font-family:Arial, sans-serif;font-size:13px;line-height:1;text-align:left;color:#333333;"
+      ><p style="text-align: center;"><span style="color: rgb(255, 255, 255); font-family: Lato, sans-serif; font-size: 16px;"><strong>You are receiving this email as you signed up for our newsletters.</strong></span></p><p style="text-align: center;"><span style="color: rgb(255, 255, 255); font-family: Lato, sans-serif; font-size: 16px;"><strong>&nbsp;Want to change how you receive these emails?</strong></span></p></div>
+    
+                </td>
+              </tr>
+            
+              <tr>
+                <td
+                   align="center" style="font-size:0px;padding:10px 20px 20px 20px;word-break:break-word;"
+                >
+                  
+      <div
+         style="font-family:'Lato', sans-serif;font-size:16px;line-height:1;text-align:center;color:#ffffff;"
+      ><a href="{{unsubscribe_url}}" style="color: #ffffff; text-decoration: underline;">Update your preferences</a></div>
+    
+                </td>
+              </tr>
+            
+        </tbody>
+      </table>
+    
+      </div>
+    
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        
+      </div>
+    
+      
+      <!--[if mso | IE]></td></tr></table></td></tr><tr><td class="tenant-email-footer-outlook" width="700px" ><table align="center" border="0" cellpadding="0" cellspacing="0" class="tenant-email-footer-outlook" role="presentation" style="width:700px;" width="700" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  class="tenant-email-footer" style="margin:0px auto;max-width:700px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:12px 0 12px 0;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" style="vertical-align:top;width:700px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-100 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="vertical-align:top;" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   align="left" style="font-size:0px;padding:0;word-break:break-word;"
+                >
+                  
+      <div
+         style="font-family:Arial, sans-serif;font-size:12px;line-height:1.5;text-align:left;color:#666666;"
+      ><!-- Email Footer - GFI Branded -->
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top: 40px;">
+  <!-- Gradient Bar -->
+  <tr>
+    <td style="height: 5px; background: linear-gradient(to right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000);"></td>
+  </tr>
+  <!-- Main Footer Content -->
+  <tr>
+    <td style="background-color: #000000; padding: 40px 30px; text-align: center;">
+      <!-- Logo -->
+      <table align="center" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 24px;">
+        <tr>
+          <td>
+            <a href="https://graduatefutures.org"><img width="1000" src="https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d%2Fuploads%2F1767106645198-si4l7l5-Graduate_Futures_Institute_-_Shaping_futures_together.jpg"/></a>
+          </td>
+        </tr>
+      </table>
+      
+   
+      
+      <!-- Divider Line -->
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 20px;">
+        <tr>
+          <td style="height: 1px; background-color: rgba(255,255,255,0.3);"></td>
+        </tr>
+      </table>
+      
+      <!-- Registration Details -->
+      <table align="center" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td style="text-align: center;">
+            <p style="color: #ffffff; font-family: 'Poppins', Arial, sans-serif; font-size: 12px; line-height: 1.6; margin: 0;">
+              The Association of Graduate Careers Advisory Services (Graduate Futures Institute) is a registered charity in England and Wales (1078508) and Scotland (SC038805) Company No. 03884685.
+            </p>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table></div>
+    
+                </td>
+              </tr>
+            
+        </tbody>
+      </table>
+    
+      </div>
+    
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        
+      </div>
+    
+      
+      <!--[if mso | IE]></td></tr></table></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        
+      </div>
+    
+      
+      <!--[if mso | IE]></td></tr></table><![endif]-->
+    
+    
+      </div>
+    
+  </body>
+</html>
+  
+index-2StO03Ya.js:3755 [EmailBuilder] === HTML DEBUG END ===

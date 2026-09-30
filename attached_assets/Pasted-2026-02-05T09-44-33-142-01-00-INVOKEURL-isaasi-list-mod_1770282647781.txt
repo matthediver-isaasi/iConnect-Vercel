@@ -1,0 +1,62 @@
+2026-02-05T09:44:33.142+01:00 INVOKEURL isaasi_list_module_fields:9 - GET 200 https://www.zohoapis.eu/crm/v3/settings/fields rt_ms=238
+2026-02-05T09:44:33.387+01:00 INFO isaasi_list_module_fields:21 - LABEL: Organisation Owner  |  API: Owner  |  TYPE: ownerlookup
+2026-02-05T09:44:33.387+01:00 INFO isaasi_list_module_fields:21 - LABEL: Organisation Name  |  API: Account_Name  |  TYPE: text
+2026-02-05T09:44:33.387+01:00 INFO isaasi_list_module_fields:21 - LABEL: Website  |  API: Website  |  TYPE: website
+2026-02-05T09:44:33.387+01:00 INFO isaasi_list_module_fields:21 - LABEL: Organisation Type  |  API: Account_Type  |  TYPE: picklist
+2026-02-05T09:44:33.387+01:00 INFO isaasi_list_module_fields:21 - LABEL: Created By  |  API: Created_By  |  TYPE: ownerlookup
+2026-02-05T09:44:33.387+01:00 INFO isaasi_list_module_fields:21 - LABEL: Modified By  |  API: Modified_By  |  TYPE: ownerlookup
+2026-02-05T09:44:33.387+01:00 INFO isaasi_list_module_fields:21 - LABEL: Created Time  |  API: Created_Time  |  TYPE: datetime
+2026-02-05T09:44:33.387+01:00 INFO isaasi_list_module_fields:21 - LABEL: Modified Time  |  API: Modified_Time  |  TYPE: datetime
+2026-02-05T09:44:33.388+01:00 INFO isaasi_list_module_fields:21 - LABEL: Last Activity Time  |  API: Last_Activity_Time  |  TYPE: datetime
+2026-02-05T09:44:33.388+01:00 INFO isaasi_list_module_fields:21 - LABEL: Layout  |  API: Layout  |  TYPE: bigint
+2026-02-05T09:44:33.388+01:00 INFO isaasi_list_module_fields:21 - LABEL: Tag  |  API: Tag  |  TYPE: text
+2026-02-05T09:44:33.388+01:00 INFO isaasi_list_module_fields:21 - LABEL: Organisation Image  |  API: Record_Image  |  TYPE: profileimage
+2026-02-05T09:44:33.388+01:00 INFO isaasi_list_module_fields:21 - LABEL: Change Log Time  |  API: Change_Log_Time__s  |  TYPE: datetime
+2026-02-05T09:44:33.388+01:00 INFO isaasi_list_module_fields:21 - LABEL: Locked  |  API: Locked__s  |  TYPE: boolean
+2026-02-05T09:44:33.388+01:00 INFO isaasi_list_module_fields:21 - LABEL: Last Enriched Time  |  API: Last_Enriched_Time__s  |  TYPE: datetime
+2026-02-05T09:44:33.388+01:00 INFO isaasi_list_module_fields:21 - LABEL: Enrich Status  |  API: Enrich_Status__s  |  TYPE: picklist
+2026-02-05T09:44:33.388+01:00 INFO isaasi_list_module_fields:21 - LABEL: Countries of Operation  |  API: Countries_of_Operation  |  TYPE: multiselectpicklist
+2026-02-05T09:44:33.388+01:00 INFO isaasi_list_module_fields:21 - LABEL: LinkedIn  |  API: LinkedIn_URL  |  TYPE: website
+2026-02-05T09:44:33.389+01:00 INFO isaasi_list_module_fields:21 - LABEL: Twitter / X  |  API: Twitter_X  |  TYPE: website
+2026-02-05T09:44:33.389+01:00 INFO isaasi_list_module_fields:21 - LABEL: Type of Organisation  |  API: Type_of_Organisation  |  TYPE: picklist
+2026-02-05T09:44:33.389+01:00 INFO isaasi_list_module_fields:21 - LABEL: Account ID Number  |  API: Account_ID_Number  |  TYPE: autonumber
+2026-02-05T09:44:33.389+01:00 INFO isaasi_list_module_fields:21 - LABEL: Lifecycle Status  |  API: Lifecycle_Status  |  TYPE: picklist
+2026-02-05T09:44:33.389+01:00 INFO isaasi_list_module_fields:21 - LABEL: Location of HQ (Country)  |  API: Location_of_HQ_Country  |  TYPE: picklist
+2026-02-05T09:44:33.389+01:00 INFO isaasi_list_module_fields:21 - LABEL: Countries  |  API: Countries1  |  TYPE: subform
+2026-02-05T09:44:33.389+01:00 INFO isaasi_list_module_fields:21 - LABEL: What services do you provide to the organisations  |  API: What_services_do_you_provide_to_the_organisations  |  TYPE: multiselectpicklist
+2026-02-05T09:44:33.389+01:00 INFO isaasi_list_module_fields:21 - LABEL: What type of funder and services  |  API: What_type_of_funder_best_describes_your_organisati  |  TYPE: multiselectpicklist
+2026-02-05T09:44:33.389+01:00 INFO isaasi_list_module_fields:21 - LABEL: Please select the category that best describes you  |  API: Please_select_the_category_that_best_describes_you  |  TYPE: picklist
+2026-02-05T09:44:33.389+01:00 INFO isaasi_list_module_fields:21 - LABEL: What year was your organisation established  |  API: What_year_was_your_organisation_established  |  TYPE: text
+2026-02-05T09:44:33.390+01:00 INFO isaasi_list_module_fields:21 - LABEL: Member Type Sub-category  |  API: Member_Type_Sub_category  |  TYPE: multiselectpicklist
+2026-02-05T09:44:33.390+01:00 INFO isaasi_list_module_fields:21 - LABEL: First Name  |  API: First_Name  |  TYPE: text
+2026-02-05T09:44:33.390+01:00 INFO isaasi_list_module_fields:21 - LABEL: Last Name  |  API: Last_Name  |  TYPE: text
+2026-02-05T09:44:33.390+01:00 INFO isaasi_list_module_fields:21 - LABEL: Job Title  |  API: Job_Title  |  TYPE: text
+2026-02-05T09:44:33.390+01:00 INFO isaasi_list_module_fields:21 - LABEL: Email  |  API: Email  |  TYPE: email
+2026-02-05T09:44:33.390+01:00 INFO isaasi_list_module_fields:21 - LABEL: Email of point of contact  |  API: Email_of_point_of_contact  |  TYPE: email
+2026-02-05T09:44:33.390+01:00 INFO isaasi_list_module_fields:21 - LABEL: Education levels  |  API: Education_levels  |  TYPE: multiselectpicklist
+2026-02-05T09:44:33.390+01:00 INFO isaasi_list_module_fields:21 - LABEL: Services provided to partner schools?  |  API: Services_provided_to_partner_schools  |  TYPE: multiselectpicklist
+2026-02-05T09:44:33.390+01:00 INFO isaasi_list_module_fields:21 - LABEL: POC - First Name  |  API: POC_First_Name  |  TYPE: text
+2026-02-05T09:44:33.390+01:00 INFO isaasi_list_module_fields:21 - LABEL: Organisation's mission  |  API: Organisation_s_mission  |  TYPE: textarea
+2026-02-05T09:44:33.390+01:00 INFO isaasi_list_module_fields:21 - LABEL: CEO - First Name  |  API: CEO_First_Name  |  TYPE: text
+2026-02-05T09:44:33.391+01:00 INFO isaasi_list_module_fields:21 - LABEL: Organisation's vision  |  API: Organisation_s_vision  |  TYPE: textarea
+2026-02-05T09:44:33.391+01:00 INFO isaasi_list_module_fields:21 - LABEL: POC - Last Name  |  API: POC_Last_Name  |  TYPE: text
+2026-02-05T09:44:33.391+01:00 INFO isaasi_list_module_fields:21 - LABEL: What level of schooling do your programs support?  |  API: What_level_of_schooling_do_your_programs_support  |  TYPE: multiselectpicklist
+2026-02-05T09:44:33.391+01:00 INFO isaasi_list_module_fields:21 - LABEL: CEO - Last Name  |  API: CEO_Last_Name  |  TYPE: text
+2026-02-05T09:44:33.391+01:00 INFO isaasi_list_module_fields:21 - LABEL: Describe your core program(s)  |  API: Describe_your_core_program_s  |  TYPE: textarea
+2026-02-05T09:44:33.391+01:00 INFO isaasi_list_module_fields:21 - LABEL: Job title (point of contact)  |  API: Job_title_point_of_contact  |  TYPE: text
+2026-02-05T09:44:33.391+01:00 INFO isaasi_list_module_fields:21 - LABEL: Email of CEO  |  API: Email_of_CEO  |  TYPE: email
+2026-02-05T09:44:33.391+01:00 INFO isaasi_list_module_fields:21 - LABEL: Country  |  API: Country  |  TYPE: picklist
+2026-02-05T09:44:33.391+01:00 INFO isaasi_list_module_fields:21 - LABEL: Organisation logo  |  API: Organisation_logo  |  TYPE: imageupload
+2026-02-05T09:44:33.392+01:00 INFO isaasi_list_module_fields:21 - LABEL: Do programs focus on key emerging/existing themes?  |  API: Do_programs_focus_on_key_emerging_existing_themes  |  TYPE: multiselectpicklist
+2026-02-05T09:44:33.392+01:00 INFO isaasi_list_module_fields:21 - LABEL: What percent of students impacted are girls?  |  API: What_percent_of_students_impacted_are_girls  |  TYPE: double
+2026-02-05T09:44:33.392+01:00 INFO isaasi_list_module_fields:21 - LABEL: How many schools do you work with?  |  API: How_many_schools_do_you_work_with  |  TYPE: integer
+2026-02-05T09:44:33.392+01:00 INFO isaasi_list_module_fields:21 - LABEL: Cumulative number of students impacted?  |  API: Cumulative_number_of_students_impacted_through_you  |  TYPE: integer
+2026-02-05T09:44:33.392+01:00 INFO isaasi_list_module_fields:21 - LABEL: Current No of students impacted?  |  API: Current_No_of_students_impacted  |  TYPE: integer
+2026-02-05T09:44:33.392+01:00 INFO isaasi_list_module_fields:21 - LABEL: Do you work in partnership with government?  |  API: Do_you_work_in_partnership_with_government  |  TYPE: picklist
+2026-02-05T09:44:33.393+01:00 INFO isaasi_list_module_fields:21 - LABEL: Org logo URL  |  API: Org_logo_URL  |  TYPE: website
+2026-02-05T09:44:33.393+01:00 INFO isaasi_list_module_fields:21 - LABEL: Name  |  API: Name1  |  TYPE: text
+2026-02-05T09:44:33.393+01:00 INFO isaasi_list_module_fields:21 - LABEL: If other, specify services provided to school?  |  API: If_other_specify_services_provided_to_school  |  TYPE: text
+2026-02-05T09:44:33.393+01:00 INFO isaasi_list_module_fields:21 - LABEL: Briefly describe the impact of your work  |  API: Briefly_describe_the_impact_of_your_work  |  TYPE: textarea
+2026-02-05T09:44:33.393+01:00 INFO isaasi_list_module_fields:21 - LABEL: If other, please describe your organisation  |  API: If_other_please_describe_your_organisation  |  TYPE: text
+2026-02-05T09:44:33.393+01:00 INFO isaasi_list_module_fields:21 - LABEL: Contact  |  API: Contact  |  TYPE: lookup
+2026-02-05T09:44:33.393+01:00 INFO isaasi_list_module_fields:21 - LABEL: isaasi Logo Upload  |  API: isaasi_Logo_Upload  |  TYPE: fileupload

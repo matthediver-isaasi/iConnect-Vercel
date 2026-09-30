@@ -1,0 +1,75 @@
+Renewal Simulation Results
+Mode: scheduled | Organisation: Graduate Futures Institute | Year: 2026/2027
+
+Start
+Simulating "scheduled" renewal for organisation ccbbbd4d-12e8-4e9e-b49e-cd29979623ae
+
+Cron Job Check
+Membership renewal cron is configured (schedule: 0 * * * * — daily at 06:00 UTC)
+
+Lookup Organisation
+Found: Graduate Futures Institute
+
+Check Invoicing Settings
+Saved mode: "scheduled", scheduled date: 2026-05-13 (for 2026/2027)
+
+Fetch Tier Config
+Active config: "01/08/2026-31/07/2027", currency: GBP, start: month 8 day 1, incentive: 30 percent, rollover: yes (resolved as of 2026-08-01)
+
+Config Resolution
+Scoped config matched — field "Organisation Type" = "University" (organisation value: "University")
+
+Calculate Membership Year
+Current year: 2025/2026, Next year: 2026/2027
+
+Go-Live Date
+2025-10-14 → membership year 2. Second year - free period spillover may apply
+
+Check Existing Record
+A membership record for 2026/2027 already exists (final cost: 9.52). Renewal would be blocked.
+
+Fetch Tier Bands
+Found 15 band(s)
+
+Get Organisation Field Value
+Current students: 10
+
+Match Tier Band
+Matched: "Tier 1" (range: 0-1000, annual cost: 952.25)
+
+Custom Discounts
+No matching discount rules for this organisation
+
+Apply Override
+Discount override: 99% off, discount amount: 942.73, net cost: 9.52 (note: Renewals testing)
+
+Year 2
+Full annual cost applies. Final cost: 9.52
+
+Calculate Final Cost
+Annual: 9.52 (after custom discounts: 942.73), Free discount: 0.00, Final: 9.52 GBP
+
+Xero Settings
+Account code: 4000, Invoice status: AUTHORISED, VAT: 20% (VAT on Income) (OUTPUT2), Rate: 20%, VAT Amount: 1.90, Total incl VAT: 11.42
+
+Mode: Scheduled
+Renewal happens at schedule start, invoicing on a separate scheduled date
+
+Step 1 - Renew (1 August 2026 at 00:00)
+Create membership history record for 2026/2027 with final cost 9.52 GBP
+
+Step 2 - Invoice (13 May 2026 at 00:00)
+Generate and send invoice for 9.52 GBP via Xero on 13 May 2026 at 00:00
+
+Step 3 - Note (1 August 2026 at 00:00)
+Add organisation note documenting the renewal and scheduled invoice date
+
+Would Be Blocked
+A record for 2026/2027 already exists (final cost: 9.52). Real renewal would be rejected.
+
+Dry Run Complete
+No records were created or modified
+
+Final Cost
+£9.52
+Override was applied to this calculation

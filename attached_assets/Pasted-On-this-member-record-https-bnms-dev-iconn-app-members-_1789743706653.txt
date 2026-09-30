@@ -1,0 +1,81 @@
+On this member record:
+
+`https://bnms.dev.iconn.app/members/646fd80b-ecdf-439d-809c-10ef2cc8a5d6?tab=membership`
+
+the member has paid for their membership via **GoCardless**.
+
+The membership currently shows a **Current Term End** date and a **12-month billing period**. I want to confirm that the existence of a billing period does **not automatically mean that GoCardless collections stop at the end of that period**, as that is not necessarily the intended behaviour.
+
+We need the Direct Debit setup on each membership structure to explicitly define both:
+
+* whether collections stop or continue at the end of the billing period; and
+* whether the monthly collection amount remains fixed or follows the currently active membership structure pricing.
+
+This should give us four possible behaviours:
+
+### A. Fixed amount, collections stop at term end
+
+* Stamp the monthly amount when the membership starts.
+* Continue collecting that same agreed monthly amount throughout the billing period.
+* Ignore subsequent membership structure price changes for that term.
+* Stop collections when the billing period ends.
+* The member must then renew before further collections can take place.
+
+### B. Dynamic amount, collections stop at term end
+
+* Collections run only until the end of the billing period.
+* At each monthly collection, consult the membership structure that is active at that point.
+* Use the current monthly price from that structure.
+* Any pricing change to the active membership structure therefore intentionally affects subsequent collections.
+* Stop collections when the billing period ends.
+
+### C. Fixed amount per term, collections continue
+
+* Stamp the monthly amount when the membership starts.
+* Use that fixed amount for the duration of the current billing period.
+* At the end of the billing period, do **not** stop the Direct Debit collections.
+* Start a new membership term and restamp the monthly amount using the membership structure/pricing active at that point.
+* Continue using the newly stamped amount for the next billing period.
+
+This effectively allows pricing to change at renewal, but not part-way through a membership term.
+
+### D. Dynamic amount, collections continue
+
+* Collections continue beyond the end of the billing period.
+* The billing period still defines the membership term/renewal cycle, but it does not terminate the Direct Debit.
+* At every monthly collection, consult the membership structure that is active at the time of collection.
+* Collect the monthly price currently defined by that structure.
+* Therefore, a price change to the active membership structure can intentionally change the member's next collection amount.
+
+### Admin configuration
+
+Please add the necessary configuration to the **Direct Debit / GoCardless setup on the membership structure** so that the administrator can explicitly choose which of these four behaviours applies.
+
+Ideally, do not present this simply as four opaque options if the existing UI supports a clearer approach. It may be better represented as two separate settings:
+
+**At the end of the billing period**
+
+* Stop collections.
+* Continue collections.
+
+**Monthly collection amount**
+
+* Fixed/stamped for the membership term.
+* Use the current active membership structure price.
+
+The combination of those two settings produces the four behaviours above.
+
+### Member record
+
+Whatever behaviour has been configured must also be clearly and accurately shown on the member's **Current Membership Commitment** section.
+
+For example, the member/admin view should make it obvious:
+
+* Current billing period.
+* Current term end.
+* Whether collections stop or continue at the end of the term.
+* Whether the monthly amount is fixed for the term or dynamically follows the active membership structure.
+* Current monthly collection amount.
+* Where applicable, whether the amount will be restamped at the next renewal.
+
+The important distinction is that **membership term end and Direct Debit collection end are not necessarily the same thing**. The system must treat them separately and report the configured behaviour clearly.

@@ -1,0 +1,53 @@
+Create a welcoming visual introduction to nuclear medicine for the existing BNMS Patients and Carers page.
+
+Use the supplied reference page as strong visual inspiration for:
+
+* Overall composition
+* Visual hierarchy
+* Typography scale
+* Use of whitespace
+* Layering and overlap
+* Image and illustration treatment
+* Section transitions
+* Visual storytelling
+
+Do not copy the reference page’s wording, branding, imagery or exact layout. Interpret its design principles creatively and apply them using the existing BNMS branding, including the approved BNMS fonts, colours, button styles and tone of voice.
+
+This new section will sit within the existing Patients and Carers page. Review the content and design immediately before and after the insertion point so that the section complements the page without repeating its existing heading or introduction.
+
+The audience is patients, parents, carers and members of the public who may be unfamiliar with nuclear medicine or anxious about an upcoming appointment.
+
+Create a visually compelling introduction that explains, in accessible language, that nuclear medicine can help healthcare professionals understand how parts of the body are functioning and may also be used in some treatments.
+
+The section should:
+
+* Feel calm, modern, human and authoritative
+* Reduce uncertainty without making promises
+* Avoid providing individual medical advice
+* Use a strong original illustration or infographic concept
+* Use real HTML text rather than placing essential wording inside an image
+* Include a clear onward action inviting the visitor to learn what happens during a nuclear medicine appointment
+* Match the available width and position within the existing Canvas page
+* Create distinct desktop, tablet and mobile layouts
+
+The design must feel deliberately composed by a professional designer rather than assembled from standard website blocks.
+
+Avoid:
+
+* A conventional three-card layout
+* Equal-width feature boxes
+* Repetitive rectangular cards
+* Small generic icons
+* A heading followed by a paragraph and ordinary button
+* Excessive medical imagery
+* Frightening or overly clinical imagery
+* Copying the reference page exactly
+
+Use asymmetric composition, confident typography, meaningful illustration, visual movement and generous whitespace where appropriate.
+
+The section must explain general principles only. Where information may vary by patient, procedure or hospital, make that clear and direct the visitor to the instructions supplied by their nuclear medicine department.
+
+Before presenting the result, review the desktop, tablet and mobile versions for visual balance, text collisions, excessive empty space, weak hierarchy and poor image cropping.
+
+Reference page:
+https://bnms.dev.iconn.app/patients-carers/v2-test

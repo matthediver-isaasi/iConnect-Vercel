@@ -1,0 +1,570 @@
+index-2StO03Ya.js:3755 [EmailBuilder] === MJML DEBUG START ===
+index-2StO03Ya.js:3755 
+    <mjml>
+      <mj-head>
+        <mj-font name="Lato" href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap" />
+        <mj-attributes>
+          <mj-all font-family="Arial, sans-serif" />
+          <mj-body background-color="#ffffff" />
+        </mj-attributes>
+        <mj-style>
+          h1, h2, h3, h4, h5, h6 { margin: 0; }
+          p { margin: 0 0 1em 0; }
+          p:last-child { margin-bottom: 0; }
+          .tenant-email-footer img { max-width: 100% !important; height: auto !important; }
+          .tenant-email-footer table { max-width: 100% !important; }
+        </mj-style>
+      </mj-head>
+      <mj-body background-color="#ffffff" width="700px">
+        <mj-wrapper background-color="#ffffff" padding="0px">
+          
+        <mj-section padding="0px 0px 0px 0px">
+          <mj-column>
+            <mj-text 
+              font-family="'Lato', sans-serif"
+              color="#333333"
+              line-height="1.5"
+              padding="10px 20px 10px 20px"
+            ><p><span style="font-family: Lato, sans-serif;"><strong>2 February 2026</strong></span><br><span style="color: rgb(255, 0, 0); font-family: Lato, sans-serif; font-size: 12px;">By Jeremy Swan, Head of Policy and Advocacy, Graduate Futures Institute</span></p></mj-text>
+          </mj-column>
+        </mj-section>
+      
+
+        <mj-section padding="0px 0px 0px 0px">
+          <mj-column>
+            <mj-divider 
+              border-color="#ff0000"
+              border-width="2px"
+              border-style="solid"
+              padding="0px 0px 0px 0px"
+            />
+          </mj-column>
+        </mj-section>
+      
+
+        <mj-section padding="0px 0px 0px 0px">
+          <mj-column>
+            <mj-text 
+              font-family="'Lato', sans-serif"
+              color="#333333"
+              line-height="1.5"
+              padding="10px 20px 0px 20px"
+            ><h1><span style="font-family: Lato, sans-serif; font-size: 24px;">Shaping the future of our sector, together</span></h1></mj-text>
+          </mj-column>
+        </mj-section>
+      
+
+        <mj-section padding="0px 0px 0px 0px">
+          <mj-column>
+            <mj-text 
+              font-family="'Lato', sans-serif"
+              color="#333333"
+              line-height="1.75"
+              padding="10px 20px 10px 20px"
+            ><p><span style="font-family: Lato, sans-serif; font-size: 16px;">Welcome to the very first issue of <strong>The Fast Track</strong> from the Graduate Futures Institute.</span></p><p><span style="font-family: Lato, sans-serif; font-size: 16px;">Each week, we'll bring you the key insights and opportunities you need to know, so you can stay ahead and act fast. Whatever your role in careers and employability around higher education, we're here to help you do your best work.</span></p><p><span style="color: rgb(255, 0, 0); font-family: Lato, sans-serif; font-size: 16px;"><strong>Money worries</strong></span><span style="font-size: 16px;"><br></span><span style="font-family: Lato, sans-serif; font-size: 16px;">A report from the Institute of Fiscal Studies (IFS) shows that total public spending on education in the UK has <u>fallen by 10%</u> since 2010-11, with drop mostly due to shifting the cost of higher education from the taxpayer onto graduates. When you look at public spending on education as a share of national income, we're now at historic lows last seen in the late 1990s.</span></p><p><span style="font-family: Lato, sans-serif; font-size: 16px;">Meanwhile, research published by the Office for Students (OfS) shows that <u>many students are aware of cost-cutting measures</u> at their universities. Around half of the c.1,200 students polled said they had noticed changes, with one-fifth (20%) specifically highlighting careers and employability services. Interestingly though, when asked about the changes to student support services overall (which includes careers), students were more likely to report positive changes (37% positive, 34% negative, 27% no change, 2% don't know).</span></p><p><span style="font-family: Lato, sans-serif; font-size: 16px;">Students are feeling the pinch too, with many taking on paid work to ease financial pressure. A new article on HEPI highlights that <u>academic performance declines once working hours exceed 10 per week</u>, while job quality also has a big impact on academic results. The authors call for careers services to be 'rebalanced' and links with local employers strengthened to help students find good work that will help the local economy while preparing them for graduate roles.</span></p><p><span style="color: rgb(255, 0, 0); font-family: Lato, sans-serif; font-size: 16px;"><strong>Championing university careers services</strong></span><span style="font-size: 16px;"><br></span><span style="font-family: Lato, sans-serif; font-size: 16px;">Careers and employability services do outstanding work across the sector, but too often it goes unseen by policy makers and the publi
+index-2StO03Ya.js:3755 [EmailBuilder] === MJML DEBUG END ===
+index-2StO03Ya.js:3755 [EmailBuilder] === HTML DEBUG START ===
+index-2StO03Ya.js:3755 <!doctype html>
+<html lang="und" dir="auto" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+  <head>
+    <title></title>
+    <!--[if !mso]><!-->
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <!--<![endif]-->
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style type="text/css">
+      #outlook a { padding:0; }
+      body { margin:0;padding:0;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%; }
+      table, td { border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt; }
+      img { border:0;height:auto;line-height:100%; outline:none;text-decoration:none;-ms-interpolation-mode:bicubic; }
+      p { display:block;margin:13px 0; }
+    </style>
+    <!--[if mso]>
+    <noscript>
+    <xml>
+    <o:OfficeDocumentSettings>
+      <o:AllowPNG/>
+      <o:PixelsPerInch>96</o:PixelsPerInch>
+    </o:OfficeDocumentSettings>
+    </xml>
+    </noscript>
+    <![endif]-->
+    <!--[if lte mso 11]>
+    <style type="text/css">
+      .mj-outlook-group-fix { width:100% !important; }
+    </style>
+    <![endif]-->
+    
+      <!--[if !mso]><!-->
+        <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap" rel="stylesheet" type="text/css">
+        <style type="text/css">
+          @import url(https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap);
+        </style>
+      <!--<![endif]-->
+
+    
+    
+    <style type="text/css">
+      @media only screen and (min-width:480px) {
+        .mj-column-per-100 { width:100% !important; max-width: 100%; }
+.mj-column-per-60 { width:60% !important; max-width: 60%; }
+.mj-column-per-40 { width:40% !important; max-width: 40%; }
+      }
+    </style>
+    <style media="screen and (min-width:480px)">
+      .moz-text-html .mj-column-per-100 { width:100% !important; max-width: 100%; }
+.moz-text-html .mj-column-per-60 { width:60% !important; max-width: 60%; }
+.moz-text-html .mj-column-per-40 { width:40% !important; max-width: 40%; }
+    </style>
+    
+    
+  
+    
+    <style type="text/css">
+
+    @media only screen and (max-width:479px) {
+      table.mj-full-width-mobile { width: 100% !important; }
+      td.mj-full-width-mobile { width: auto !important; }
+    }
+  
+    </style>
+     
+    <style type="text/css">
+h1, h2, h3, h4, h5, h6 { margin: 0; }
+          p { margin: 0 0 1em 0; }
+          p:last-child { margin-bottom: 0; }
+          .tenant-email-footer img { max-width: 100% !important; height: auto !important; }
+          .tenant-email-footer table { max-width: 100% !important; }
+    </style>
+    
+  </head>
+  <body style="word-spacing:normal;background-color:#ffffff;">
+    
+    
+      <div
+         aria-roledescription="email" style="background-color:#ffffff;" role="article" lang="und" dir="auto"
+      >
+        
+      
+      <!--[if mso | IE]><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:700px;" width="700" bgcolor="#ffffff" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="background:#ffffff;background-color:#ffffff;margin:0px auto;max-width:700px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background:#ffffff;background-color:#ffffff;width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:0px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" width="700px" ><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:700px;" width="700" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="margin:0px auto;max-width:700px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:0px 0px 0px 0px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" style="vertical-align:top;width:700px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-100 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="vertical-align:top;" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   align="left" style="font-size:0px;padding
+index-2StO03Ya.js:3755 [EmailBuilder] === HTML DEBUG END ===
+index-2StO03Ya.js:3755 [EmailBuilder] === MJML DEBUG START ===
+index-2StO03Ya.js:3755 
+    <mjml>
+      <mj-head>
+        <mj-font name="Lato" href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap" />
+        <mj-attributes>
+          <mj-all font-family="Arial, sans-serif" />
+          <mj-body background-color="#ffffff" />
+        </mj-attributes>
+        <mj-style>
+          h1, h2, h3, h4, h5, h6 { margin: 0; }
+          p { margin: 0 0 1em 0; }
+          p:last-child { margin-bottom: 0; }
+          .tenant-email-footer img { max-width: 100% !important; height: auto !important; }
+          .tenant-email-footer table { max-width: 100% !important; }
+        </mj-style>
+      </mj-head>
+      <mj-body background-color="#ffffff" width="700px">
+        <mj-wrapper background-color="#ffffff" padding="0px">
+          
+        <mj-section padding="0px 0px 0px 0px">
+          <mj-column>
+            <mj-text 
+              font-family="'Lato', sans-serif"
+              color="#333333"
+              line-height="1.5"
+              padding="10px 20px 10px 20px"
+            ><p><span style="font-family: Lato, sans-serif;"><strong>2 February 2026</strong></span><br><span style="color: rgb(255, 0, 0); font-family: Lato, sans-serif; font-size: 12px;">By Jeremy Swan, Head of Policy and Advocacy, Graduate Futures Institute</span></p></mj-text>
+          </mj-column>
+        </mj-section>
+      
+
+        <mj-section padding="0px 0px 0px 0px">
+          <mj-column>
+            <mj-divider 
+              border-color="#ff0000"
+              border-width="2px"
+              border-style="solid"
+              padding="0px 0px 0px 0px"
+            />
+          </mj-column>
+        </mj-section>
+      
+
+        <mj-section padding="0px 0px 0px 0px">
+          <mj-column>
+            <mj-text 
+              font-family="'Lato', sans-serif"
+              color="#333333"
+              line-height="1.5"
+              padding="10px 20px 0px 20px"
+            ><h1><span style="font-family: Lato, sans-serif; font-size: 24px;">Shaping the future of our sector, together</span></h1></mj-text>
+          </mj-column>
+        </mj-section>
+      
+
+        <mj-section padding="0px 0px 0px 0px">
+          <mj-column>
+            <mj-text 
+              font-family="'Lato', sans-serif"
+              color="#333333"
+              line-height="1.75"
+              padding="10px 20px 10px 20px"
+            ><p><span style="font-family: Lato, sans-serif; font-size: 16px;">Welcome to the very first issue of <strong>The Fast Track</strong> from the Graduate Futures Institute.</span></p><p><span style="font-family: Lato, sans-serif; font-size: 16px;">Each week, we'll bring you the key insights and opportunities you need to know, so you can stay ahead and act fast. Whatever your role in careers and employability around higher education, we're here to help you do your best work.</span></p><p><span style="color: rgb(255, 0, 0); font-family: Lato, sans-serif; font-size: 16px;"><strong>Money worries</strong></span><span style="font-size: 16px;"><br></span><span style="font-family: Lato, sans-serif; font-size: 16px;">A report from the Institute of Fiscal Studies (IFS) shows that total public spending on education in the UK has <u>fallen by 10%</u> since 2010-11, with drop mostly due to shifting the cost of higher education from the taxpayer onto graduates. When you look at public spending on education as a share of national income, we're now at historic lows last seen in the late 1990s.</span></p><p><span style="font-family: Lato, sans-serif; font-size: 16px;">Meanwhile, research published by the Office for Students (OfS) shows that <u>many students are aware of cost-cutting measures</u> at their universities. Around half of the c.1,200 students polled said they had noticed changes, with one-fifth (20%) specifically highlighting careers and employability services. Interestingly though, when asked about the changes to student support services overall (which includes careers), students were more likely to report positive changes (37% positive, 34% negative, 27% no change, 2% don't know).</span></p><p><span style="font-family: Lato, sans-serif; font-size: 16px;">Students are feeling the pinch too, with many taking on paid work to ease financial pressure. A new article on HEPI highlights that <u>academic performance declines once working hours exceed 10 per week</u>, while job quality also has a big impact on academic results. The authors call for careers services to be 'rebalanced' and links with local employers strengthened to help students find good work that will help the local economy while preparing them for graduate roles.</span></p><p><span style="color: rgb(255, 0, 0); font-family: Lato, sans-serif; font-size: 16px;"><strong>Championing university careers services</strong></span><span style="font-size: 16px;"><br></span><span style="font-family: Lato, sans-serif; font-size: 16px;">Careers and employability services do outstanding work across the sector, but too often it goes unseen by policy makers and the publi
+index-2StO03Ya.js:3755 [EmailBuilder] === MJML DEBUG END ===
+index-2StO03Ya.js:3755 [EmailBuilder] === HTML DEBUG START ===
+index-2StO03Ya.js:3755 <!doctype html>
+<html lang="und" dir="auto" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+  <head>
+    <title></title>
+    <!--[if !mso]><!-->
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <!--<![endif]-->
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style type="text/css">
+      #outlook a { padding:0; }
+      body { margin:0;padding:0;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%; }
+      table, td { border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt; }
+      img { border:0;height:auto;line-height:100%; outline:none;text-decoration:none;-ms-interpolation-mode:bicubic; }
+      p { display:block;margin:13px 0; }
+    </style>
+    <!--[if mso]>
+    <noscript>
+    <xml>
+    <o:OfficeDocumentSettings>
+      <o:AllowPNG/>
+      <o:PixelsPerInch>96</o:PixelsPerInch>
+    </o:OfficeDocumentSettings>
+    </xml>
+    </noscript>
+    <![endif]-->
+    <!--[if lte mso 11]>
+    <style type="text/css">
+      .mj-outlook-group-fix { width:100% !important; }
+    </style>
+    <![endif]-->
+    
+      <!--[if !mso]><!-->
+        <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap" rel="stylesheet" type="text/css">
+        <style type="text/css">
+          @import url(https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap);
+        </style>
+      <!--<![endif]-->
+
+    
+    
+    <style type="text/css">
+      @media only screen and (min-width:480px) {
+        .mj-column-per-100 { width:100% !important; max-width: 100%; }
+.mj-column-per-60 { width:60% !important; max-width: 60%; }
+.mj-column-per-40 { width:40% !important; max-width: 40%; }
+      }
+    </style>
+    <style media="screen and (min-width:480px)">
+      .moz-text-html .mj-column-per-100 { width:100% !important; max-width: 100%; }
+.moz-text-html .mj-column-per-60 { width:60% !important; max-width: 60%; }
+.moz-text-html .mj-column-per-40 { width:40% !important; max-width: 40%; }
+    </style>
+    
+    
+  
+    
+    <style type="text/css">
+
+    @media only screen and (max-width:479px) {
+      table.mj-full-width-mobile { width: 100% !important; }
+      td.mj-full-width-mobile { width: auto !important; }
+    }
+  
+    </style>
+     
+    <style type="text/css">
+h1, h2, h3, h4, h5, h6 { margin: 0; }
+          p { margin: 0 0 1em 0; }
+          p:last-child { margin-bottom: 0; }
+          .tenant-email-footer img { max-width: 100% !important; height: auto !important; }
+          .tenant-email-footer table { max-width: 100% !important; }
+    </style>
+    
+  </head>
+  <body style="word-spacing:normal;background-color:#ffffff;">
+    
+    
+      <div
+         aria-roledescription="email" style="background-color:#ffffff;" role="article" lang="und" dir="auto"
+      >
+        
+      
+      <!--[if mso | IE]><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:700px;" width="700" bgcolor="#ffffff" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="background:#ffffff;background-color:#ffffff;margin:0px auto;max-width:700px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background:#ffffff;background-color:#ffffff;width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:0px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" width="700px" ><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:700px;" width="700" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="margin:0px auto;max-width:700px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:0px 0px 0px 0px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" style="vertical-align:top;width:700px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-100 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="vertical-align:top;" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   align="left" style="font-size:0px;padding
+index-2StO03Ya.js:3755 [EmailBuilder] === HTML DEBUG END ===
+index-2StO03Ya.js:3755 [EmailBuilder] === MJML DEBUG START ===
+index-2StO03Ya.js:3755 
+    <mjml>
+      <mj-head>
+        <mj-font name="Lato" href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap" />
+        <mj-attributes>
+          <mj-all font-family="Arial, sans-serif" />
+          <mj-body background-color="#ffffff" />
+        </mj-attributes>
+        <mj-style>
+          h1, h2, h3, h4, h5, h6 { margin: 0; }
+          p { margin: 0 0 1em 0; }
+          p:last-child { margin-bottom: 0; }
+          .tenant-email-footer img { max-width: 100% !important; height: auto !important; }
+          .tenant-email-footer table { max-width: 100% !important; }
+        </mj-style>
+      </mj-head>
+      <mj-body background-color="#ffffff" width="700px">
+        <mj-wrapper background-color="#ffffff" padding="0px">
+          
+        <mj-section padding="0px 0px 0px 0px">
+          <mj-column>
+            <mj-text 
+              font-family="'Lato', sans-serif"
+              color="#333333"
+              line-height="1.5"
+              padding="10px 20px 10px 20px"
+            ><p><span style="font-family: Lato, sans-serif;"><strong>2 February 2026</strong></span><br><span style="color: rgb(255, 0, 0); font-family: Lato, sans-serif; font-size: 12px;">By Jeremy Swan, Head of Policy and Advocacy, Graduate Futures Institute</span></p></mj-text>
+          </mj-column>
+        </mj-section>
+      
+
+        <mj-section padding="0px 0px 0px 0px">
+          <mj-column>
+            <mj-divider 
+              border-color="#ff0000"
+              border-width="2px"
+              border-style="solid"
+              padding="0px 0px 0px 0px"
+            />
+          </mj-column>
+        </mj-section>
+      
+
+        <mj-section padding="0px 0px 0px 0px">
+          <mj-column>
+            <mj-text 
+              font-family="'Lato', sans-serif"
+              color="#333333"
+              line-height="1.5"
+              padding="10px 20px 0px 20px"
+            ><h1><span style="font-family: Lato, sans-serif; font-size: 24px;">Shaping the future of our sector, together</span></h1></mj-text>
+          </mj-column>
+        </mj-section>
+      
+
+        <mj-section padding="0px 0px 0px 0px">
+          <mj-column>
+            <mj-text 
+              font-family="'Lato', sans-serif"
+              color="#333333"
+              line-height="1.75"
+              padding="10px 20px 10px 20px"
+            ><p><span style="font-family: Lato, sans-serif; font-size: 16px;">Welcome to the very first issue of <strong>The Fast Track</strong> from the Graduate Futures Institute.</span></p><p><span style="font-family: Lato, sans-serif; font-size: 16px;">Each week, we'll bring you the key insights and opportunities you need to know, so you can stay ahead and act fast. Whatever your role in careers and employability around higher education, we're here to help you do your best work.</span></p><p><span style="color: rgb(255, 0, 0); font-family: Lato, sans-serif; font-size: 16px;"><strong>Money worries</strong></span><span style="font-size: 16px;"><br></span><span style="font-family: Lato, sans-serif; font-size: 16px;">A report from the Institute of Fiscal Studies (IFS) shows that total public spending on education in the UK has <u>fallen by 10%</u> since 2010-11, with drop mostly due to shifting the cost of higher education from the taxpayer onto graduates. When you look at public spending on education as a share of national income, we're now at historic lows last seen in the late 1990s.</span></p><p><span style="font-family: Lato, sans-serif; font-size: 16px;">Meanwhile, research published by the Office for Students (OfS) shows that <u>many students are aware of cost-cutting measures</u> at their universities. Around half of the c.1,200 students polled said they had noticed changes, with one-fifth (20%) specifically highlighting careers and employability services. Interestingly though, when asked about the changes to student support services overall (which includes careers), students were more likely to report positive changes (37% positive, 34% negative, 27% no change, 2% don't know).</span></p><p><span style="font-family: Lato, sans-serif; font-size: 16px;">Students are feeling the pinch too, with many taking on paid work to ease financial pressure. A new article on HEPI highlights that <u>academic performance declines once working hours exceed 10 per week</u>, while job quality also has a big impact on academic results. The authors call for careers services to be 'rebalanced' and links with local employers strengthened to help students find good work that will help the local economy while preparing them for graduate roles.</span></p><p><span style="color: rgb(255, 0, 0); font-family: Lato, sans-serif; font-size: 16px;"><strong>Championing university careers services</strong></span><span style="font-size: 16px;"><br></span><span style="font-family: Lato, sans-serif; font-size: 16px;">Careers and employability services do outstanding work across the sector, but too often it goes unseen by policy makers and the publi
+index-2StO03Ya.js:3755 [EmailBuilder] === MJML DEBUG END ===
+index-2StO03Ya.js:3755 [EmailBuilder] === HTML DEBUG START ===
+index-2StO03Ya.js:3755 <!doctype html>
+<html lang="und" dir="auto" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+  <head>
+    <title></title>
+    <!--[if !mso]><!-->
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <!--<![endif]-->
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style type="text/css">
+      #outlook a { padding:0; }
+      body { margin:0;padding:0;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%; }
+      table, td { border-collapse:collapse;mso-table-lspace:0pt;mso-table-rspace:0pt; }
+      img { border:0;height:auto;line-height:100%; outline:none;text-decoration:none;-ms-interpolation-mode:bicubic; }
+      p { display:block;margin:13px 0; }
+    </style>
+    <!--[if mso]>
+    <noscript>
+    <xml>
+    <o:OfficeDocumentSettings>
+      <o:AllowPNG/>
+      <o:PixelsPerInch>96</o:PixelsPerInch>
+    </o:OfficeDocumentSettings>
+    </xml>
+    </noscript>
+    <![endif]-->
+    <!--[if lte mso 11]>
+    <style type="text/css">
+      .mj-outlook-group-fix { width:100% !important; }
+    </style>
+    <![endif]-->
+    
+      <!--[if !mso]><!-->
+        <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap" rel="stylesheet" type="text/css">
+        <style type="text/css">
+          @import url(https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap);
+        </style>
+      <!--<![endif]-->
+
+    
+    
+    <style type="text/css">
+      @media only screen and (min-width:480px) {
+        .mj-column-per-100 { width:100% !important; max-width: 100%; }
+.mj-column-per-60 { width:60% !important; max-width: 60%; }
+.mj-column-per-40 { width:40% !important; max-width: 40%; }
+      }
+    </style>
+    <style media="screen and (min-width:480px)">
+      .moz-text-html .mj-column-per-100 { width:100% !important; max-width: 100%; }
+.moz-text-html .mj-column-per-60 { width:60% !important; max-width: 60%; }
+.moz-text-html .mj-column-per-40 { width:40% !important; max-width: 40%; }
+    </style>
+    
+    
+  
+    
+    <style type="text/css">
+
+    @media only screen and (max-width:479px) {
+      table.mj-full-width-mobile { width: 100% !important; }
+      td.mj-full-width-mobile { width: auto !important; }
+    }
+  
+    </style>
+     
+    <style type="text/css">
+h1, h2, h3, h4, h5, h6 { margin: 0; }
+          p { margin: 0 0 1em 0; }
+          p:last-child { margin-bottom: 0; }
+          .tenant-email-footer img { max-width: 100% !important; height: auto !important; }
+          .tenant-email-footer table { max-width: 100% !important; }
+    </style>
+    
+  </head>
+  <body style="word-spacing:normal;background-color:#ffffff;">
+    
+    
+      <div
+         aria-roledescription="email" style="background-color:#ffffff;" role="article" lang="und" dir="auto"
+      >
+        
+      
+      <!--[if mso | IE]><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:700px;" width="700" bgcolor="#ffffff" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="background:#ffffff;background-color:#ffffff;margin:0px auto;max-width:700px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background:#ffffff;background-color:#ffffff;width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:0px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" width="700px" ><table align="center" border="0" cellpadding="0" cellspacing="0" class="" role="presentation" style="width:700px;" width="700" ><tr><td style="line-height:0px;font-size:0px;mso-line-height-rule:exactly;"><![endif]-->
+    
+      
+      <div  style="margin:0px auto;max-width:700px;">
+        
+        <table
+           align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="width:100%;"
+        >
+          <tbody>
+            <tr>
+              <td
+                 style="direction:ltr;font-size:0px;padding:0px 0px 0px 0px;text-align:center;"
+              >
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" style="vertical-align:top;width:700px;" ><![endif]-->
+            
+      <div
+         class="mj-column-per-100 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;"
+      >
+        
+      <table
+         border="0" cellpadding="0" cellspacing="0" role="presentation" style="vertical-align:top;" width="100%"
+      >
+        <tbody>
+          
+              <tr>
+                <td
+                   align="left" style="font-size:0px;padding
+index-2StO03Ya.js:3755 [EmailBuilder] === HTML DEBUG END ===

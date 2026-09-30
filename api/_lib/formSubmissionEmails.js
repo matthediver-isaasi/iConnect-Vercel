@@ -1,0 +1,1232 @@
+// Shared form submission-email sender (Task #3190).
+//
+// Historically the configured `submission_emails` on a form were only sent
+// when the BROWSER made a follow-up call to /api/forms/send-submission-email
+// after submitting. If that call was lost (redirect, ad-blocker, embed, JS
+// error) no email was sent and nothing recorded the failure. This module is
+// the single implementation used by:
+//   - api/public/form-submission.js  (server-side send at submission creation)
+//   - api/forms/send-submission-email.js  (retained legacy client call)
+//   - api/entities/[entity]/index.js  (generic entity-API FormSubmission insert)
+//
+// Exactly-once: the sender CLAIMS the submission row first via an atomic
+// compare-and-set on the new `form_submission.submission_email_state` jsonb
+// column (update ... where submission_email_state is null). Whichever path
+// claims first sends; every other path sees the existing state and skips.
+// The final outcome (sent / skipped / failed, per configured email) is then
+// persisted into the same column so admins can diagnose "no email" cases on
+// the Form Submissions page instead of them being silent.
+
+import { sendEmail } from './emailService.js';
+import { isPreferencePlaceholder } from './transactionalPreferences.js';
+import { randomUUID } from 'node:crypto';
+import { getAccountingProvider } from './accountingProvider.js';
+import { generatePasswordSetupUrl } from './passwordSetupUrl.js';
+import {
+  collectRelationshipRecordIds,
+  formatRelationshipAnswerDisplayValue,
+  getSubmissionRelationshipValue,
+  isRelationshipDropdownField,
+  loadTenantRelationshipDisplayLabels,
+} from './relationshipDisplayLabels.js';
+import { resolveFormNotListedDisplayValue } from '../../shared/formNotListedChoice.js';
+import {
+  collectRepeatableRelationshipRecordIds,
+  collectRepeatableOrganisationIds,
+  formatRepeatableCellValue,
+  formatRepeatableRowsText,
+  isRepeatableRowsField,
+  resolveRepeatableOrganisationLabel,
+} from '../../shared/repeatableFormRowsFormat.js';
+import {
+  computeAuthoritativeHiddenFieldIds,
+  computeHiddenFieldIds,
+  resolveRepeatableFirstColumnAvailability,
+} from './formFieldVisibility.js';
+import { effectiveRepeatableRowSubmissionData } from './formRepeatableRowValidation.js';
+import {
+  isRepeatableRowField,
+  normalizeRepeatableRowField,
+  repeatableRowChildren,
+} from '../../shared/formRepeatableRows.js';
+
+const isMissingColumnError = (err) =>
+  err && (err.code === '42703' || /submission_email_state/.test(err.message || ''));
+
+/**
+ * Atomically claim the right to send this submission's emails.
+ * Returns:
+ *   { claimed: true }                       — caller must send + record outcome
+ *   { claimed: false, existingState }       — another path already claimed/sent
+ *   { claimed: false, guardUnavailable }    — column missing (stale dev DB);
+ *                                             caller decides (we send WITHOUT a
+ *                                             guard only from the legacy client
+ *                                             endpoint to preserve old behaviour).
+ */
+export async function claimSubmissionEmailSend(supabase, submissionId, trigger, diagnostics = null) {
+  if (!supabase || !submissionId) {
+    return { claimed: false, guardUnavailable: true };
+  }
+  const claimId = randomUUID();
+  const claimState = {
+    status: 'processing',
+    trigger: trigger || 'unknown',
+    claim_id: claimId,
+    claimed_at: new Date().toISOString(),
+    ...(diagnostics ? { request_context: diagnostics } : {}),
+  };
+  const { data, error } = await supabase
+    .from('form_submission')
+    .update({ submission_email_state: claimState })
+    .eq('id', submissionId)
+    // New public submissions are queued as "pending" and promoted to "ready"
+    // only after record processing completes. Null remains claimable for
+    // legacy rows and for other server-owned submission paths.
+    .or('submission_email_state.is.null,submission_email_state->>status.eq.ready')
+    .select('id');
+
+  if (error) {
+    if (isMissingColumnError(error)) {
+      // Pre-migration environment: the column genuinely doesn't exist.
+      console.warn('[SubmissionEmails] submission_email_state column missing — idempotency guard unavailable');
+      return { claimed: false, guardUnavailable: true };
+    }
+    // Any OTHER claim error (transient DB failure, permissions, network) is
+    // NOT the same as "guard missing": the server-side path may already have
+    // sent, so sending here could double-send. Fail closed.
+    console.error('[SubmissionEmails] Claim update failed:', error);
+    return { claimed: false, claimError: error.message || 'Claim update failed' };
+  }
+
+  if (data && data.length > 0) {
+    return { claimed: true, claimId };
+  }
+
+  // No row matched: either already claimed or the id doesn't exist.
+  const { data: row, error: readErr } = await supabase
+    .from('form_submission')
+    .select('id, submission_email_state')
+    .eq('id', submissionId)
+    .maybeSingle();
+  if (readErr) {
+    // The claim UPDATE succeeded but matched no row, and we can't read back
+    // why. Either the row vanished or the read transiently failed — in both
+    // cases sending would risk a duplicate, so fail closed.
+    console.error('[SubmissionEmails] Claim read-back failed:', readErr);
+    return { claimed: false, claimError: readErr.message || 'Claim read-back failed' };
+  }
+  if (!row) {
+    // Submission id does not exist — nothing to guard against, nothing to send for.
+    return { claimed: false, claimError: 'Submission row not found' };
+  }
+  return { claimed: false, existingState: row.submission_email_state || null };
+}
+
+/**
+ * Task #3194: atomically re-claim an ALREADY-PROCESSED submission for a
+ * deliberate admin resend. Unlike claimSubmissionEmailSend this matches rows
+ * whose state exists, but refuses to steal a claim that is still
+ * 'processing' (a concurrent send in flight). The prior outcome is preserved
+ * by appending it to a `history` array carried on the new state, so
+ * exactly-once diagnostics survive resends.
+ * Returns { claimed: true, history } or { claimed: false, reason }.
+ */
+export async function claimSubmissionEmailResend(supabase, submissionId, trigger, existingState) {
+  if (!supabase || !submissionId) {
+    return { claimed: false, reason: 'No submission to claim' };
+  }
+  const prior = existingState && typeof existingState === 'object'
+    ? (() => { const { history, ...rest } = existingState; return rest; })()
+    : null;
+  // Bounded: keep only the most recent prior outcomes so repeated resends
+  // can't grow the jsonb state without limit.
+  const HISTORY_LIMIT = 10;
+  const history = [
+    ...(Array.isArray(existingState?.history) ? existingState.history : []),
+    ...(prior ? [prior] : []),
+  ].slice(-HISTORY_LIMIT);
+  const claimId = randomUUID();
+  const claimState = {
+    status: 'processing',
+    trigger: trigger || 'unknown',
+    claim_id: claimId,
+    resend: true,
+    claimed_at: new Date().toISOString(),
+    history,
+  };
+  const { data, error } = await supabase
+    .from('form_submission')
+    .update({ submission_email_state: claimState })
+    .eq('id', submissionId)
+    .neq('submission_email_state->>status', 'processing')
+    .select('id');
+  if (error) {
+    console.error('[SubmissionEmails] Resend claim failed:', error);
+    return { claimed: false, reason: error.message || 'Resend claim failed' };
+  }
+  if (!data || data.length === 0) {
+    return { claimed: false, reason: 'A send is already in progress for this submission' };
+  }
+  return { claimed: true, history, claimId };
+}
+
+async function recordOutcome(supabase, submissionId, state, claimId = state?.claim_id || null) {
+  if (!supabase || !submissionId) return false;
+  let query = supabase
+    .from('form_submission')
+    .update({ submission_email_state: state })
+    .eq('id', submissionId);
+  // A late worker must never overwrite a newer claim's send result.  Every
+  // guarded sender owns a UUID; without it we fail closed rather than
+  // pretending a generic outcome belongs to whichever worker is current.
+  if (claimId) {
+    query = query
+      .eq('submission_email_state->>status', 'processing')
+      .eq('submission_email_state->>claim_id', claimId);
+  }
+  const { data, error } = await query.select('id');
+  if (error && !isMissingColumnError(error)) {
+    console.error('[SubmissionEmails] Failed to record email outcome:', error);
+  }
+  // PostgREST treats a conditional update that matches no rows as a successful
+  // request.  That is not a durable email outcome: a newer claim owns the row.
+  return !error && Array.isArray(data) && data.length > 0;
+}
+
+/**
+ * Promote a newly-persisted public submission after all configured record and
+ * communication processing has completed. Duplicate requests must not send
+ * while this state is still "pending".
+ */
+export async function markSubmissionEmailReady(supabase, submissionId, diagnostics = null) {
+  if (!supabase || !submissionId) return { ready: false, reason: 'No submission to mark ready' };
+  const readyState = {
+    status: 'ready',
+    trigger: 'server',
+    ready_at: new Date().toISOString(),
+    ...(diagnostics ? { request_context: diagnostics } : {}),
+  };
+  try {
+    const { data, error } = await supabase
+      .from('form_submission')
+      .update({ submission_email_state: readyState })
+      .eq('id', submissionId)
+      .eq('submission_email_state->>status', 'pending')
+      .select('id');
+    if (error) {
+      console.error('[SubmissionEmails] Failed to mark submission email ready:', error);
+      return { ready: false, reason: error.message || 'Ready-state update failed' };
+    }
+    if (data?.length > 0) return { ready: true, state: readyState };
+
+    const { data: row, error: readError } = await supabase
+      .from('form_submission')
+      .select('submission_email_state')
+      .eq('id', submissionId)
+      .maybeSingle();
+    if (readError || !row) {
+      return { ready: false, reason: readError?.message || 'Submission row not found' };
+    }
+    const existingState = row.submission_email_state || null;
+    // Legacy/null rows remain claimable, while a terminal state means another
+    // safe path already completed the email.
+    if (!existingState || ['ready', 'sent', 'skipped', 'failed'].includes(existingState.status)) {
+      return { ready: true, state: existingState };
+    }
+    return {
+      ready: false,
+      reason: existingState.status === 'processing'
+        ? 'Submission email processing is already in progress'
+        : 'Submission post-processing is not complete',
+      state: existingState,
+    };
+  } catch (error) {
+    console.error('[SubmissionEmails] Ready-state transition failed:', error);
+    return { ready: false, reason: error.message || 'Ready-state transition failed' };
+  }
+}
+
+/**
+ * Record that member/organisation actions have finished. A duplicate request
+ * may promote a pending email only after this checkpoint exists; this prevents
+ * a retry racing the original entity pipeline.
+ */
+export async function markSubmissionEmailPostProcessingComplete(
+  supabase,
+  submissionId,
+  diagnostics = null,
+) {
+  if (!supabase || !submissionId) {
+    return { completed: false, reason: 'No submission to checkpoint' };
+  }
+  try {
+    const { data: row, error: readError } = await supabase
+      .from('form_submission')
+      .select('submission_email_state')
+      .eq('id', submissionId)
+      .maybeSingle();
+    if (readError || !row) {
+      return { completed: false, reason: readError?.message || 'Submission row not found' };
+    }
+    const state = row.submission_email_state || null;
+    if (state?.status !== 'pending') {
+      return {
+        completed: ['ready', 'processing', 'sent', 'skipped', 'failed'].includes(state?.status),
+        state,
+        reason: state ? null : 'Submission email checkpoint is unavailable',
+      };
+    }
+    if (state.post_processing_completed_at) {
+      return { completed: true, state };
+    }
+    const checkpointState = {
+      ...state,
+      post_processing_completed_at: new Date().toISOString(),
+      ...(diagnostics ? { request_context: diagnostics } : {}),
+    };
+    const { data, error } = await supabase
+      .from('form_submission')
+      .update({ submission_email_state: checkpointState })
+      .eq('id', submissionId)
+      .eq('submission_email_state->>status', 'pending')
+      .select('id');
+    if (error || !data?.length) {
+      return {
+        completed: false,
+        reason: error?.message || 'Submission checkpoint update did not match',
+      };
+    }
+    return { completed: true, state: checkpointState };
+  } catch (error) {
+    console.error('[SubmissionEmails] Post-processing checkpoint failed:', error);
+    return { completed: false, reason: error.message || 'Post-processing checkpoint failed' };
+  }
+}
+
+/**
+ * Last-resort durable diagnostic for a caller-level failure around the guarded
+ * sender. The normal sender records every configured-email outcome itself, but
+ * this closes the gap when invocation fails before that internal outcome block
+ * can run (for example, a bad caller argument expression or future refactor).
+ *
+ * It never overwrites a terminal state. A processing state is completed only
+ * when it belongs to the same trigger; otherwise a null state is atomically
+ * claimed before the failure is recorded.
+ */
+export async function recordSubmissionEmailInvocationFailure({
+  supabase,
+  submissionId,
+  trigger = 'unknown',
+  reason,
+  diagnostics = null,
+}) {
+  if (!supabase || !submissionId) return false;
+  const failedState = {
+    status: 'failed',
+    trigger,
+    processed_at: new Date().toISOString(),
+    reason: reason || 'Submission email invocation failed',
+    emails: [],
+    ...(diagnostics ? { request_context: diagnostics } : {}),
+  };
+
+  try {
+    const { data: completedProcessing, error: processingError } = await supabase
+      .from('form_submission')
+      .update({ submission_email_state: failedState })
+      .eq('id', submissionId)
+       .eq('submission_email_state->>status', 'pending')
+      .eq('submission_email_state->>trigger', trigger)
+      .select('id');
+    if (processingError && !isMissingColumnError(processingError)) {
+      console.error('[SubmissionEmails] Failed to complete invocation diagnostic:', processingError);
+    }
+    if (completedProcessing?.length > 0) return true;
+
+    const claim = await claimSubmissionEmailSend(supabase, submissionId, trigger, diagnostics);
+    if (!claim.claimed) return false;
+    await recordOutcome(supabase, submissionId, {
+      ...failedState,
+      claim_id: claim.claimId,
+    }, claim.claimId);
+    return true;
+  } catch (error) {
+    console.error('[SubmissionEmails] Failed to persist invocation diagnostic:', error);
+    return false;
+  }
+}
+
+/**
+ * Resolve the list of configured submission emails for a form.
+ * Supports the new `submission_emails` array with fallback to the legacy
+ * single-email fields.
+ */
+export function resolveConfiguredEmails(form) {
+  if (form.submission_emails && Array.isArray(form.submission_emails) && form.submission_emails.length > 0) {
+    return form.submission_emails.filter((e) => e.template_id && e.recipient);
+  }
+  if (form.submission_email_template_id && form.submission_email_recipient) {
+    return [{
+      id: 'legacy',
+      template_id: form.submission_email_template_id,
+      recipient: form.submission_email_recipient,
+      cc: form.submission_email_cc || '',
+      bcc: form.submission_email_bcc || '',
+      field_mapping: form.submission_email_field_mapping || {},
+    }];
+  }
+  return [];
+}
+
+function flattenFormFields(form) {
+  const result = Array.isArray(form?.fields) ? [...form.fields] : [];
+  for (const page of (Array.isArray(form?.pages) ? form.pages : [])) {
+    if (Array.isArray(page?.fields)) result.push(...page.fields);
+  }
+  return result.filter((field) => field && (field.id != null || field.name != null));
+}
+
+/**
+ * Resolve repeatable containers that are hidden specifically because their
+ * first column has no authoritative choices.
+ *
+ * `computeAuthoritativeHiddenFieldIds` intentionally returns the union of
+ * ordinary visibility and availability visibility. Email delivery needs the
+ * narrower set: ordinary hidden answers retain their existing email
+ * semantics, while an auto-hidden repeatable answer must not influence a
+ * recipient, condition, placeholder, relationship lookup, or attachment.
+ *
+ * The second availability check is only needed when ordinary visibility
+ * already hid the container. In that case the union cannot tell us whether
+ * the empty-availability rule also matched. A failed check is unresolved and
+ * therefore leaves the answer available (fail closed).
+ */
+export async function resolveAutoHiddenRepeatableContainerIds({
+  db,
+  tenantId,
+  form,
+  formValues = {},
+} = {}) {
+  const fields = flattenFormFields(form);
+  const candidates = fields.filter((field) => (
+    isRepeatableRowField(field)
+    && normalizeRepeatableRowField(field).hide_when_first_column_empty === true
+  ));
+  if (candidates.length === 0) return new Set();
+
+  const ordinaryHiddenIds = computeHiddenFieldIds(form, formValues);
+  const authoritativeHiddenIds = await computeAuthoritativeHiddenFieldIds({
+    db,
+    tenantId,
+    form,
+    formValues,
+  });
+  const autoHiddenIds = new Set();
+
+  for (const field of candidates) {
+    const fieldId = String(field.id);
+    if (!authoritativeHiddenIds.has(field.id)
+        && !authoritativeHiddenIds.has(fieldId)) continue;
+    if (!ordinaryHiddenIds.has(field.id) && !ordinaryHiddenIds.has(fieldId)) {
+      autoHiddenIds.add(fieldId);
+      continue;
+    }
+    try {
+      const availability = await resolveRepeatableFirstColumnAvailability({
+        db,
+        tenantId,
+        form,
+        field,
+        formValues,
+      });
+      if (availability.status === 'empty') autoHiddenIds.add(fieldId);
+    } catch {
+      // An unavailable authority must never suppress a retained answer.
+    }
+  }
+  return autoHiddenIds;
+}
+
+/**
+ * Build the answer view used by submission-email side effects without
+ * mutating the persisted submission payload. Only repeatable answers hidden
+ * by the opt-in empty-first-column rule are removed; all other answers remain
+ * available for the established email behavior.
+ */
+export function filterAutoHiddenRepeatableSubmissionData({
+  form,
+  formValues = {},
+  containerIds = new Set(),
+} = {}) {
+  if (!formValues || typeof formValues !== 'object' || Array.isArray(formValues)) {
+    return formValues;
+  }
+  const hiddenIds = containerIds instanceof Set
+    ? containerIds
+    : new Set(Array.isArray(containerIds) ? containerIds.map(String) : []);
+  if (hiddenIds.size === 0) return formValues;
+
+  const fields = flattenFormFields(form);
+  const filtered = { ...formValues };
+  for (const field of fields) {
+    if (!isRepeatableRowField(field) || !hiddenIds.has(String(field.id))) continue;
+    if (field.id != null) delete filtered[field.id];
+    if (field.name != null) delete filtered[field.name];
+    // Child ids can be referenced by an email condition even though their
+    // values normally live inside the container's row objects.
+    repeatableRowChildren(field).forEach((child) => {
+      if (child?.id != null) delete filtered[child.id];
+      if (child?.name != null) delete filtered[child.name];
+    });
+  }
+  return filtered;
+}
+
+export function resolveSubmissionEmailFieldDisplayValue({
+  fields,
+  fieldKey,
+  rawValue,
+  persistedSubmissionData,
+  relationshipLabelsByRecordId,
+  organisationNamesById,
+}) {
+  const field = (fields || []).find((candidate) => candidate?.id === fieldKey)
+    || (fields || []).find((candidate) => candidate?.name === fieldKey);
+  const persistedValue = field ? getSubmissionRelationshipValue(persistedSubmissionData, field) : rawValue;
+  const displayValue = resolveFormNotListedDisplayValue(field, persistedValue ?? rawValue, persistedSubmissionData);
+  if (isRepeatableRowsField(field)) {
+    return formatRepeatableRowsText(field, persistedValue ?? rawValue, {
+      submissionData: persistedSubmissionData,
+      formatCell: (cellValue, child, row) => child?.type === 'relationship_dropdown'
+        ? formatRelationshipAnswerDisplayValue(
+          child,
+          cellValue,
+          relationshipLabelsByRecordId,
+          persistedSubmissionData,
+          { parentField: field, row },
+        )
+        : child?.type === 'organisation_dropdown'
+          ? resolveRepeatableOrganisationLabel(cellValue, organisationNamesById)
+        : formatRepeatableCellValue(cellValue, child),
+    });
+  }
+  if (isRelationshipDropdownField(field)) {
+    return formatRelationshipAnswerDisplayValue(
+      field,
+      persistedValue ?? rawValue,
+      relationshipLabelsByRecordId,
+      persistedSubmissionData,
+    );
+  }
+  if (displayValue !== (persistedValue ?? rawValue)) {
+    return Array.isArray(displayValue) ? displayValue.join(', ') : displayValue;
+  }
+  return Array.isArray(rawValue) ? rawValue.join(', ') : (rawValue || '');
+}
+
+/**
+ * Send the configured submission emails for a form submission.
+ * This is the full extraction of the logic that previously lived only in
+ * api/forms/send-submission-email.js (multi-email format, conditions,
+ * field-reference recipients, placeholder replacement, invoice attachment).
+ *
+ * Does NOT itself claim — callers use sendSubmissionEmailsGuarded (below) or
+ * pre-claim explicitly. Returns { success, skipped?, reason?, emails }.
+ */
+export async function sendSubmissionEmails({
+  supabase,
+  form,               // full form row (or at least email config + fields + tenant_id + name)
+  formValues,         // submission values keyed by field id
+  fields,             // form field definitions (fallback: form.fields)
+  submissionId = null,
+  createdMemberId = null,
+  createdOrganizationId = null,
+  baseUrl = '',
+  deadlineAt = null,
+}) {
+  let form_values = formValues || {};
+  // The form is loaded server-side by every sender. Do not let the legacy
+  // endpoint's caller-provided `fields` array redefine relationship fields.
+  const authoritativeFields = flattenFormFields(form);
+  const effectiveFields = authoritativeFields;
+  const relationshipFields = authoritativeFields.filter(isRelationshipDropdownField);
+  const tenantId = form.tenant_id;
+
+  const emailsToSend = resolveConfiguredEmails(form);
+  if (emailsToSend.length === 0) {
+    return { success: true, skipped: true, reason: 'No emails configured', emails: [] };
+  }
+
+  // Resolve member / organization context. Priority: explicit ids passed by
+  // the caller, then the submission row's own columns.
+  let memberIdToUse = createdMemberId;
+  let organizationIdToUse = createdOrganizationId;
+  let persistedSubmissionData = null;
+
+  if (submissionId) {
+    const { data: submission, error: submissionError } = await supabase
+      .from('form_submission')
+      .select('created_member_id, created_organization_id, organization_id, submission_data')
+      .eq('id', submissionId)
+      .eq('tenant_id', tenantId)
+      .eq('form_id', form.id)
+      .single();
+    if (submissionError || !submission) {
+      const databaseReason = submissionError
+        ? [submissionError.code, submissionError.message].filter(Boolean).join(': ')
+        : 'submission row was not returned';
+      const reason = `Persisted submission could not be verified: ${databaseReason}`;
+      console.error('[SubmissionEmails] Persisted submission verification failed', {
+        submission_id: submissionId,
+        form_id: form.id,
+        tenant_id: tenantId,
+        database_code: submissionError?.code || null,
+        database_message: submissionError?.message || null,
+      });
+      return {
+        success: false,
+        error: reason,
+        reason,
+        emails: [],
+      };
+    }
+    if (submission) {
+      persistedSubmissionData = submission.submission_data || {};
+      form_values = persistedSubmissionData;
+      if (!memberIdToUse) {
+        memberIdToUse = submission.created_member_id;
+      }
+      if (!organizationIdToUse) {
+        organizationIdToUse = submission.created_organization_id || submission.organization_id;
+      }
+    }
+  }
+
+  // Keep the raw object untouched for the submission record. The email sender
+  // gets a side-effect view that omits only repeatable containers authoritatively
+  // hidden by the empty-first-column rule. This is deliberately done after the
+  // persisted row has been verified, so a caller cannot substitute an answer
+  // for the value used by recipient/condition/placeholder resolution.
+  const rawSubmissionData = persistedSubmissionData || form_values;
+  let autoHiddenRepeatableContainerIds = new Set();
+  try {
+    autoHiddenRepeatableContainerIds = await resolveAutoHiddenRepeatableContainerIds({
+      db: supabase,
+      tenantId,
+      form,
+      formValues: rawSubmissionData,
+    });
+  } catch (error) {
+    // Availability lookup errors are non-authoritative. Keep the answer view
+    // intact rather than turning a failed lookup into a hidden answer.
+    console.warn('[SubmissionEmails] Could not resolve repeatable email visibility:', error?.message || error);
+  }
+  const availabilityFilteredSubmissionData = filterAutoHiddenRepeatableSubmissionData({
+    form,
+    formValues: rawSubmissionData,
+    containerIds: autoHiddenRepeatableContainerIds,
+  });
+  // Conditions were resolved from rawSubmissionData above. Project once after
+  // that evaluation so recipients, placeholders and row formatting cannot
+  // expose or act on a row-local hidden cell.
+  const sideEffectSubmissionData = effectiveRepeatableRowSubmissionData(
+    form,
+    availabilityFilteredSubmissionData,
+    { hiddenFieldIds: computeHiddenFieldIds(form, rawSubmissionData) },
+  );
+  form_values = sideEffectSubmissionData;
+  if (persistedSubmissionData) persistedSubmissionData = sideEffectSubmissionData;
+
+  const relationshipRecordIds = persistedSubmissionData
+    ? [
+      ...collectRelationshipRecordIds(relationshipFields, persistedSubmissionData),
+      ...collectRepeatableRelationshipRecordIds(authoritativeFields, persistedSubmissionData),
+    ]
+    : [];
+  const relationshipLabelsByRecordId = relationshipRecordIds.length > 0
+    ? await loadTenantRelationshipDisplayLabels(supabase, tenantId, relationshipRecordIds)
+    : {};
+  const repeatableOrganisationIds = persistedSubmissionData
+    ? collectRepeatableOrganisationIds(authoritativeFields, persistedSubmissionData) : [];
+  const organisationNamesById = {};
+  if (repeatableOrganisationIds.length) {
+    const { data: organisations } = await supabase.from('organization').select('id, name')
+      .eq('tenant_id', tenantId).in('id', repeatableOrganisationIds);
+    (organisations || []).forEach((organisation) => {
+      if (organisation?.id) organisationNamesById[organisation.id] = organisation.name;
+    });
+  }
+
+  let memberData = null;
+  let organizationData = null;
+
+  if (memberIdToUse) {
+    // Retry logic to handle race condition where member was just created
+    let retries = 3;
+    let delay = 500;
+    while (retries > 0 && !memberData) {
+      const { data, error } = await supabase
+        .from('member')
+        .select('id, first_name, last_name, email, organization_id')
+        .eq('id', memberIdToUse)
+        .eq('tenant_id', tenantId)
+        .single();
+      if (error) {
+        console.error('[SubmissionEmails] Error fetching member:', error.message, 'code:', error.code);
+      }
+      if (data) {
+        memberData = data;
+      } else if (retries > 1) {
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        delay *= 2;
+      }
+      retries--;
+    }
+    if (!organizationIdToUse && memberData?.organization_id) {
+      organizationIdToUse = memberData.organization_id;
+    }
+  }
+
+  if (organizationIdToUse) {
+    const { data } = await supabase
+      .from('organization')
+      .select('id, name, invoicing_email, phone')
+      .eq('id', organizationIdToUse)
+      .eq('tenant_id', tenantId)
+      .single();
+    organizationData = data;
+  }
+
+  const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  // Resolve an email address from a {{field_id}} reference or static value.
+  const resolveEmailAddress = (value) => {
+    if (!value) return '';
+    if (value.startsWith('{{') && value.endsWith('}}')) {
+      const fieldId = value.slice(2, -2);
+      const fieldValue = form_values?.[fieldId];
+      console.log('[SubmissionEmails] Resolved field reference', fieldId, 'to:', fieldValue);
+      return fieldValue || '';
+    }
+    return value;
+  };
+
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const orgNameCache = {};
+  const resolveOrgName = async (uuid) => {
+    if (!uuid || !supabase || !uuidRegex.test(uuid)) return uuid;
+    if (uuid in orgNameCache) return orgNameCache[uuid];
+    try {
+      const { data: org } = await supabase
+        .from('organization')
+        .select('name')
+        .eq('id', uuid)
+        .single();
+      orgNameCache[uuid] = org?.name || uuid;
+      return orgNameCache[uuid];
+    } catch {}
+    orgNameCache[uuid] = uuid;
+    return uuid;
+  };
+  const orgGroupNameCache = {};
+  const resolveOrgGroupName = async (uuid) => {
+    if (!uuid || !supabase || !uuidRegex.test(uuid)) return uuid;
+    if (uuid in orgGroupNameCache) return orgGroupNameCache[uuid];
+    try {
+      const { data: group } = await supabase
+        .from('organization_group')
+        .select('name')
+        .eq('id', uuid)
+        .eq('tenant_id', form?.tenant_id)
+        .maybeSingle();
+      orgGroupNameCache[uuid] = group?.name || 'Unavailable organisation group';
+      return orgGroupNameCache[uuid];
+    } catch {}
+    orgGroupNameCache[uuid] = 'Unavailable organisation group';
+    return orgGroupNameCache[uuid];
+  };
+
+  const orgDropdownFieldIds = new Set(
+    (effectiveFields || []).filter((f) => f.type === 'organisation_dropdown').map((f) => f.id)
+  );
+  const orgGroupDropdownFieldIds = new Set(
+    (effectiveFields || []).filter((f) => f.type === 'organisation_group_dropdown').map((f) => f.id)
+  );
+
+  const resolveFieldValue = async (fieldId, rawValue) => {
+    const syntheticDisplayValue = resolveSubmissionEmailFieldDisplayValue({
+      fields: effectiveFields,
+      fieldKey: fieldId,
+      rawValue,
+      persistedSubmissionData,
+      relationshipLabelsByRecordId,
+      organisationNamesById,
+    });
+    if (syntheticDisplayValue !== rawValue) return syntheticDisplayValue;
+    if (orgDropdownFieldIds.has(fieldId) && rawValue) {
+      if (typeof rawValue === 'string') {
+        return await resolveOrgName(rawValue);
+      }
+    }
+    if (orgGroupDropdownFieldIds.has(fieldId) && typeof rawValue === 'string') {
+      return await resolveOrgGroupName(rawValue);
+    }
+    return resolveSubmissionEmailFieldDisplayValue({
+      fields: effectiveFields,
+      fieldKey: fieldId,
+      rawValue,
+      persistedSubmissionData,
+      relationshipLabelsByRecordId,
+      organisationNamesById,
+    });
+  };
+
+  const replacePlaceholders = async (text, emailConfig) => {
+    if (!text) return '';
+    let result = text;
+    const fieldMapping = emailConfig.field_mapping || {};
+
+    for (const [placeholder, fieldId] of Object.entries(fieldMapping)) {
+      if (isPreferencePlaceholder(placeholder)) continue;
+      if (fieldId && form_values) {
+        const fieldValue = form_values[fieldId];
+        const displayValue = await resolveFieldValue(fieldId, fieldValue);
+        const placeholderPattern = `{{${placeholder}}}`;
+        result = result.replace(new RegExp(escapeRegex(placeholderPattern), 'g'), displayValue);
+      }
+    }
+
+    if (form_values && effectiveFields) {
+      for (const field of effectiveFields) {
+        const fieldValue = form_values[field.id];
+        const placeholder = `{{${field.id}}}`;
+        const labelPlaceholder = field.label ? `{{${field.label}}}` : null;
+        const displayValue = await resolveFieldValue(field.id, fieldValue);
+        if (!isPreferencePlaceholder(field.id)) {
+          result = result.replace(new RegExp(escapeRegex(placeholder), 'g'), displayValue);
+        }
+        if (labelPlaceholder && !isPreferencePlaceholder(field.label)) {
+          result = result.replace(new RegExp(escapeRegex(labelPlaceholder), 'g'), displayValue);
+        }
+      }
+    }
+
+    const dbPlaceholders = {
+      'member.id': memberData?.id || '',
+      'member.first_name': memberData?.first_name || '',
+      'member.last_name': memberData?.last_name || '',
+      'member.full_name': `${memberData?.first_name || ''} ${memberData?.last_name || ''}`.trim(),
+      'member.email': memberData?.email || '',
+      'organization.id': organizationData?.id || '',
+      'organization.name': organizationData?.name || '',
+      'organization.invoicing_email': organizationData?.invoicing_email || '',
+      'organization.phone': organizationData?.phone || '',
+    };
+    for (const [key, value] of Object.entries(dbPlaceholders)) {
+      result = result.replace(new RegExp(escapeRegex(`[[${key}]]`), 'g'), value);
+    }
+
+    const systemPlaceholders = {
+      'form.name': form.name || '',
+      'submission.date': new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' }),
+      ...dbPlaceholders,
+    };
+    for (const [key, value] of Object.entries(systemPlaceholders)) {
+      if (isPreferencePlaceholder(key)) continue;
+      result = result.replace(new RegExp(escapeRegex(`{{${key}}}`), 'g'), value);
+    }
+
+    // {{set_password_url}} — generate password setup URL for the member.
+    const hasSetPasswordPlaceholder = /\{\{\s*set_password_url\s*\}\}/i.test(result);
+    if (hasSetPasswordPlaceholder && memberData?.id && memberData?.email && baseUrl) {
+      const passwordUrl = await generatePasswordSetupUrl(memberData.id, memberData.email, baseUrl);
+      if (passwordUrl) {
+        const passwordLink = `<a href="${passwordUrl}" style="color: #0066cc; text-decoration: underline;">Set your password</a>`;
+        result = result.replace(/\{\{\s*set_password_url\s*\}\}/gi, passwordLink);
+      } else {
+        console.warn('[SubmissionEmails] Failed to generate password setup URL');
+      }
+    } else if (hasSetPasswordPlaceholder) {
+      console.warn('[SubmissionEmails] {{set_password_url}} placeholder found but missing member data or baseUrl');
+    }
+
+    return result;
+  };
+
+  const evaluateCondition = (condition) => {
+    if (!condition || !condition.field_id) return true;
+    const fieldValue = form_values?.[condition.field_id];
+    const conditionValue = condition.value ?? '';
+    const operator = condition.operator || 'equals';
+    const normalizedFieldValue = (Array.isArray(fieldValue)
+      ? fieldValue.join(', ')
+      : (fieldValue ?? '')).toString().trim();
+    const normalizedConditionValue = conditionValue.toString().trim();
+    switch (operator) {
+      case 'equals':
+        return normalizedFieldValue.toLowerCase() === normalizedConditionValue.toLowerCase();
+      case 'not_equals':
+        return normalizedFieldValue.toLowerCase() !== normalizedConditionValue.toLowerCase();
+      case 'contains':
+        return normalizedFieldValue.toLowerCase().includes(normalizedConditionValue.toLowerCase());
+      case 'not_contains':
+        return !normalizedFieldValue.toLowerCase().includes(normalizedConditionValue.toLowerCase());
+      case 'is_empty':
+        return !normalizedFieldValue || normalizedFieldValue.length === 0;
+      case 'is_not_empty':
+        return normalizedFieldValue && normalizedFieldValue.length > 0;
+      default:
+        return true;
+    }
+  };
+
+  const results = [];
+
+  for (const emailConfig of emailsToSend) {
+    if (deadlineAt && deadlineAt - Date.now() < 16_000) {
+      return {
+        success: false,
+        reason: 'Worker deadline exhausted before email delivery',
+        emails: results,
+      };
+    }
+    console.log('[SubmissionEmails] Processing email:', emailConfig.id, 'template:', emailConfig.template_id);
+
+    if (emailConfig.condition && !evaluateCondition(emailConfig.condition)) {
+      results.push({ id: emailConfig.id, success: true, skipped: true, reason: 'Condition not met' });
+      continue;
+    }
+
+    const { data: template, error: templateError } = await supabase
+      .from('email_template')
+      .select('*')
+      .eq('id', emailConfig.template_id)
+      .single();
+
+    if (templateError || !template) {
+      console.log('[SubmissionEmails] Email template not found:', emailConfig.template_id, templateError);
+      results.push({ id: emailConfig.id, success: false, error: 'Template not found' });
+      continue;
+    }
+
+    const toEmail = resolveEmailAddress(emailConfig.recipient);
+    const ccEmail = emailConfig.cc ? resolveEmailAddress(emailConfig.cc) : '';
+    const bccEmail = emailConfig.bcc ? resolveEmailAddress(emailConfig.bcc) : '';
+
+    if (!toEmail) {
+      console.log('[SubmissionEmails] No valid recipient email resolved');
+      results.push({ id: emailConfig.id, success: false, error: 'No valid recipient email' });
+      continue;
+    }
+
+    const emailSubject = await replacePlaceholders(template.subject || 'Form Submission', emailConfig);
+    const emailBody = await replacePlaceholders(template.body || '', emailConfig);
+
+    let emailAttachments = null;
+    if (emailConfig.attach_invoice && supabase) {
+      try {
+        const paymentField = (effectiveFields || []).find((f) => f.type === 'membership_payment');
+        const paymentValue = paymentField ? form_values?.[paymentField.id] : null;
+        const paymentIntentId = paymentValue?.paymentIntentId;
+
+        let invoiceRecord = null;
+        if (paymentIntentId) {
+          const { data: memberHistory } = await supabase
+            .from('member_membership_history')
+            .select('xero_invoice_id, xero_invoice_number')
+            .eq('stripe_payment_intent_id', paymentIntentId)
+            .eq('tenant_id', tenantId)
+            .not('xero_invoice_id', 'is', null)
+            .maybeSingle();
+          if (memberHistory) invoiceRecord = memberHistory;
+
+          if (!invoiceRecord) {
+            const { data: orgHistory } = await supabase
+              .from('organisation_membership_history')
+              .select('xero_invoice_id, xero_invoice_number')
+              .eq('stripe_payment_intent_id', paymentIntentId)
+              .eq('tenant_id', tenantId)
+              .not('xero_invoice_id', 'is', null)
+              .maybeSingle();
+            if (orgHistory) invoiceRecord = orgHistory;
+          }
+        } else {
+          if (memberIdToUse) {
+            const { data: memberHistory } = await supabase
+              .from('member_membership_history')
+              .select('xero_invoice_id, xero_invoice_number')
+              .eq('member_id', memberIdToUse)
+              .eq('tenant_id', tenantId)
+              .not('xero_invoice_id', 'is', null)
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            if (memberHistory) invoiceRecord = memberHistory;
+          }
+          if (!invoiceRecord && organizationIdToUse) {
+            const { data: orgHistory } = await supabase
+              .from('organisation_membership_history')
+              .select('xero_invoice_id, xero_invoice_number')
+              .eq('organization_id', organizationIdToUse)
+              .eq('tenant_id', tenantId)
+              .not('xero_invoice_id', 'is', null)
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            if (orgHistory) invoiceRecord = orgHistory;
+          }
+        }
+
+        if (invoiceRecord?.xero_invoice_id) {
+          const _provider = await getAccountingProvider(tenantId);
+          const pdfBuffer = await _provider.fetchInvoicePdf(invoiceRecord.accounting_invoice_id || invoiceRecord.xero_invoice_id, tenantId);
+          emailAttachments = [{
+            filename: `Invoice-${invoiceRecord.xero_invoice_number || 'document'}.pdf`,
+            data: pdfBuffer,
+            contentType: 'application/pdf',
+          }];
+        }
+      } catch (attachErr) {
+        console.warn('[SubmissionEmails] Failed to attach invoice PDF (non-fatal):', attachErr.message);
+      }
+    }
+
+    console.log('[SubmissionEmails] Sending email to:', toEmail, 'subject:', emailSubject);
+    const emailResult = await sendEmail({
+      to: toEmail,
+      subject: emailSubject,
+      html: emailBody,
+      cc: ccEmail || undefined,
+      bcc: bccEmail || undefined,
+      tenantId,
+      attachments: emailAttachments,
+      deadlineAt,
+    });
+
+    results.push({
+      id: emailConfig.id,
+      success: emailResult.success,
+      messageId: emailResult.messageId,
+      to: toEmail,
+      error: emailResult.error,
+      ambiguousEffect: emailResult.ambiguousEffect === true,
+    });
+  }
+
+  return {
+    success: results.every((r) => r.success),
+    emails: results,
+    ambiguousEffect: results.some((result) => result.ambiguousEffect === true),
+  };
+}
+
+/**
+ * Claim + send + durably record the outcome for one submission.
+ *
+ * trigger: 'server' | 'client' | 'entity-api' (recorded for diagnosis).
+ *
+ * If another path already claimed the submission, returns
+ * { success: true, skipped: true, alreadyProcessed: true, state } without
+ * sending anything (exactly-once).
+ *
+ * If the idempotency column is unavailable (stale dev DB), sends WITHOUT a
+ * guard only when allowUnguarded=true (legacy client endpoint keeps its old
+ * behaviour there); server-side paths skip instead so they can never cause a
+ * double send in a mis-migrated environment.
+ */
+export async function sendSubmissionEmailsGuarded(options) {
+  const {
+    supabase, submissionId, trigger = 'unknown', allowUnguarded = false,
+    diagnostics = null,
+    // Task #3194: deliberate admin resend — bypasses the already-processed
+    // skip via an atomic re-claim that preserves prior outcomes in `history`.
+    // Callers MUST gate this server-side (tenant admin only).
+    forceResend = false,
+  } = options;
+
+  // Task #3202: harden against partial form selects. If the caller passed a
+  // form object that lacks the `submission_emails` key entirely (a partial
+  // SELECT that never included the email-config columns), re-fetch just the
+  // email columns so a future partial select degrades to a correct send
+  // instead of a durable "No emails configured" skip.
+  let form = options.form;
+  if (form && form.id && !('submission_emails' in form)) {
+    console.warn('[SubmissionEmails] form object missing submission_emails key (partial select?) — re-fetching email config for form', form.id);
+    const { data: emailCols, error: emailColsError } = await supabase
+      .from('form')
+      .select('submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping')
+      .eq('id', form.id)
+      .single();
+    if (!emailColsError && emailCols) {
+      form = { ...form, ...emailCols };
+      options = { ...options, form };
+    } else if (emailColsError) {
+      console.error('[SubmissionEmails] Failed to re-fetch email config for form', form.id, '-', emailColsError.message);
+    }
+  }
+
+  // Fast path: nothing configured → record a durable 'skipped' outcome so the
+  // admin view can show WHY no email exists, then return.
+  const configured = resolveConfiguredEmails(form);
+
+  // When set, the outcome recorded at the end carries the resend marker and
+  // the preserved history of previous sends.
+  let resendState = null;
+  let claimId = null;
+
+  const claim = await claimSubmissionEmailSend(supabase, submissionId, trigger, diagnostics);
+  if (!claim.claimed) {
+    if (claim.claimError) {
+      // Operational DB error while claiming (NOT a missing column): the
+      // server path may already have sent, so never send here regardless of
+      // allowUnguarded — that would break exactly-once. Surface a
+      // deterministic failure so callers/logs can diagnose it.
+      console.error('[SubmissionEmails] Claim failed — refusing to send (trigger:', trigger + '):', claim.claimError);
+      return {
+        success: false,
+        skipped: true,
+        reason: `Idempotency claim failed: ${claim.claimError}`,
+        error: claim.claimError,
+        emails: [],
+        durable: false,
+      };
+    }
+    if (claim.guardUnavailable) {
+      // Guard genuinely unavailable: column missing (pre-migration DB) or
+      // caller supplied no submission id to claim against. Only the legacy
+      // client endpoint is allowed to proceed unguarded here.
+      if (!allowUnguarded) {
+        console.warn('[SubmissionEmails] Guard unavailable and unguarded send not allowed — skipping (trigger:', trigger + ')');
+        return {
+          success: false,
+          skipped: true,
+          reason: 'Idempotency guard unavailable',
+          emails: [],
+          durable: false,
+        };
+      }
+      // Legacy behaviour: send without guard (pre-migration environments).
+    } else if (forceResend) {
+      // Task #3194: admin-requested resend of an already-processed
+      // submission. Re-claim atomically (refuses if a send is in flight)
+      // and carry the prior outcome forward as history.
+      const reclaim = await claimSubmissionEmailResend(supabase, submissionId, trigger, claim.existingState);
+      if (!reclaim.claimed) {
+        console.warn('[SubmissionEmails] Resend re-claim refused for', submissionId, '—', reclaim.reason);
+        return {
+          success: false,
+          skipped: true,
+          alreadyProcessed: true,
+          reason: reclaim.reason || 'Resend claim failed',
+          error: reclaim.reason || 'Resend claim failed',
+          state: claim.existingState || null,
+          emails: claim.existingState?.emails || [],
+        };
+      }
+      console.log('[SubmissionEmails] Resend claimed for submission', submissionId, '(trigger:', trigger + ')');
+      resendState = { resend: true, history: reclaim.history };
+      claimId = reclaim.claimId;
+    } else {
+      const inProgress = claim.existingState?.status === 'processing'
+        || claim.existingState?.status === 'pending'
+        || claim.existingState?.status === 'ready';
+      // Persisted attention is terminal evidence of an ambiguous send, even
+      // when the watchdog's original write was observed by an earlier worker.
+      // Never report that state as a successful already-processed send.
+      let attentionRequired = claim.existingState?.status === 'attention';
+      let state = claim.existingState || null;
+      // A Mailgun response lost after its request was accepted cannot be
+      // safely stale-reclaimed: Mailgun's send endpoint provides neither an
+      // idempotency key nor a per-message status lookup usable here. Persist a
+      // visible terminal attention state rather than silently resending.
+      if (claim.existingState?.status === 'processing') {
+        const claimedAt = new Date(claim.existingState.claimed_at || 0).getTime();
+        if (Number.isFinite(claimedAt) && Date.now() - claimedAt > 10 * 60 * 1000) {
+          try {
+            const { data, error } = await supabase.rpc('mark_stale_submission_email_attention', {
+              p_submission_id: submissionId,
+              p_claim_id: claim.existingState.claim_id || null,
+            });
+            if (!error && data && typeof data === 'object') {
+              state = data;
+              attentionRequired = data.status === 'attention';
+            }
+          } catch {
+            // Keep the conservative in-progress response if the watchdog
+            // write is temporarily unavailable.  Never resend on this path.
+          }
+        }
+      }
+      console.log('[SubmissionEmails] Submission', submissionId, 'already claimed — skipping (trigger:', trigger + ')');
+      return {
+        success: !inProgress && !attentionRequired,
+        skipped: true,
+        alreadyProcessed: !inProgress && !attentionRequired,
+        inProgress: inProgress && !attentionRequired,
+        requiresAttention: attentionRequired,
+        durable: !inProgress || attentionRequired,
+        reason: attentionRequired
+          ? 'Submission email delivery outcome is ambiguous and requires administrator review'
+          : (inProgress
+          ? 'Submission email processing is still in progress'
+          : 'Emails already processed for this submission'),
+        state,
+        emails: state?.emails || [],
+      };
+    }
+  } else {
+    claimId = claim.claimId;
+  }
+
+  const finishedAt = () => new Date().toISOString();
+  const baseState = {
+    trigger,
+    ...(claimId ? { claim_id: claimId } : {}),
+    processed_at: finishedAt(),
+    ...(diagnostics ? { request_context: diagnostics } : {}),
+    ...(resendState || {}),
+  };
+
+  if (configured.length === 0) {
+    // Task #3202: about to durably record "No emails configured" — log the
+    // form's email-related keys so a partial-select regression is diagnosable.
+    console.warn('[SubmissionEmails] No emails configured for form', form?.id, '— email config keys:', JSON.stringify({
+      has_submission_emails_key: !!form && ('submission_emails' in form),
+      submission_emails_count: Array.isArray(form?.submission_emails) ? form.submission_emails.length : null,
+      legacy_template_id: form?.submission_email_template_id || null,
+      legacy_recipient: form?.submission_email_recipient || null,
+    }));
+    const state = { ...baseState, status: 'skipped', reason: 'No emails configured', emails: [] };
+    const durable = await recordOutcome(supabase, submissionId, state);
+    return { success: true, skipped: true, reason: 'No emails configured', emails: [], durable };
+  }
+
+  try {
+    const result = await sendSubmissionEmails(options);
+    const anySent = (result.emails || []).some((e) => e.success && !e.skipped);
+    const allOk = result.success;
+    const state = {
+      ...baseState,
+      processed_at: finishedAt(),
+        status: result.ambiguousEffect
+          ? 'attention'
+          : (result.skipped ? 'skipped' : (allOk ? (anySent ? 'sent' : 'skipped') : 'failed')),
+      reason: result.reason
+        || result.error
+        || (allOk && !anySent ? 'All emails skipped by conditions' : 'Submission email processing failed'),
+      emails: result.emails || [],
+    };
+    const durable = await recordOutcome(supabase, submissionId, state);
+    return { ...result, durable };
+  } catch (err) {
+    console.error('[SubmissionEmails] Send failed:', err);
+    const state = { ...baseState, processed_at: finishedAt(), status: 'failed', reason: err.message || 'Unknown error', emails: [] };
+    const durable = await recordOutcome(supabase, submissionId, state);
+    return {
+      success: false,
+      error: err.message || 'Failed to send submission emails',
+      emails: [],
+      durable,
+    };
+  }
+}

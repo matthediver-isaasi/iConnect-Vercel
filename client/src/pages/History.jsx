@@ -1,27 +1,140 @@
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Ticket, ShoppingCart, Calendar, ArrowUpCircle, ArrowDownCircle, FileText, Download, X, Loader2 } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Ticket, ShoppingCart, Calendar, ArrowUpCircle, ArrowDownCircle, FileText, Download, Eye, Loader2, CreditCard, User, Wallet, Gift, Search, ChevronLeft, ChevronRight, ArrowUpDown, X, Crown } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import PageTour from "../components/tour/PageTour";
 import TourButton from "../components/tour/TourButton";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { getMembershipHistorySchedule } from "@/components/membership/historySchedule";
+import HistoricalDdPayments from "@/components/membership/HistoricalDdPayments";
+import MembershipPricingDisplay from "@/components/membership/MembershipPricingDisplay";
+import { getMembershipPricingPresentation } from "@/components/membership/membershipPricingPresentation";
 
-export default function HistoryPage() {
+const ITEMS_PER_PAGE = 10;
+
+/**
+ * The history endpoint returns records from both membership ledgers. Keep the
+ * source on every row (including older responses which pre-date the source
+ * field) so rows from the same membership year never collide.
+ */
+export function getMembershipSource(record) {
+  if (record?.membership_source === 'personal') return 'personal';
+  if (record?.membership_source === 'organisation' || record?.membership_source === 'organization') {
+    return 'organisation';
+  }
+  return record?.organization_id ? 'organisation' : 'personal';
+}
+
+export function membershipRecordKey(record) {
+  return `${getMembershipSource(record)}:${record?.id || 'unknown'}`;
+}
+
+export function getAccountingInvoiceId(record) {
+  return record?.accounting_invoice_id || record?.xero_invoice_id || null;
+}
+
+export function getAccountingInvoiceNumber(record) {
+  return record?.accounting_invoice_number || record?.xero_invoice_number || null;
+}
+
+export function membershipInvoiceFilename(contentDisposition, invoiceNumber, recordId) {
+  const clean = (value) => String(value)
+    .replace(/[/\\?%*:|"<>]/g, "-")
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .trim();
+  const fallback = clean(`membership-invoice-${invoiceNumber || recordId || 'download'}.pdf`);
+  const encoded = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(contentDisposition || '')?.[1];
+  const quoted = /filename\s*=\s*"([^"]+)"/i.exec(contentDisposition || '')?.[1];
+  const unquoted = /filename\s*=\s*([^;\s]+)/i.exec(contentDisposition || '')?.[1];
+  let candidate = encoded || quoted || unquoted || fallback;
+  if (encoded) {
+    try {
+      candidate = decodeURIComponent(encoded);
+    } catch {
+      candidate = fallback;
+    }
+  }
+  candidate = clean(candidate);
+  if (!candidate || candidate === '.' || candidate === '..') candidate = fallback;
+  return candidate.toLowerCase().endsWith('.pdf') ? candidate : `${candidate}.pdf`;
+}
+
+export function normalizeMembershipHistory(payload) {
+  if (!Array.isArray(payload)) {
+    throw new Error('Invalid membership history response');
+  }
+
+  return payload.map((record) => {
+    const source = getMembershipSource(record);
+    return {
+      ...record,
+      membership_source: source,
+      membership_source_label: membershipSourceLabel(source),
+    };
+  });
+}
+
+function membershipSourceLabel(source) {
+  return source === 'organisation' ? 'Organisation membership' : 'Personal membership';
+}
+
+export default function HistoryPage({ hasBanner }) {
   const { memberInfo, organizationInfo, memberRole, isFeatureExcluded, reloadMemberInfo, refreshOrganizationInfo } = useMemberAccess();
-  const [selectedProgram, setSelectedProgram] = useState(null);
+  
+  const canAccessInvoices = !isFeatureExcluded('commerce.history.access-invoices');
+  
   const [downloadingInvoice, setDownloadingInvoice] = useState(null);
+  const [loadingBookingInvoice, setLoadingBookingInvoice] = useState(null);
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
   const [currentInvoiceUrl, setCurrentInvoiceUrl] = useState(null);
   const [currentInvoiceNumber, setCurrentInvoiceNumber] = useState(null);
+  const [currentInvoiceFilename, setCurrentInvoiceFilename] = useState(null);
+  const [membershipInvoiceError, setMembershipInvoiceError] = useState(null);
+  const currentInvoiceObjectUrlRef = useRef(null);
+  const mountedRef = useRef(false);
+  const membershipInvoiceControllersRef = useRef(new Set());
+  // These states must be declared before the member/organisation loading
+  // returns below. Keeping them here avoids changing hook order when context
+  // resolves from null to an authenticated member.
+  const [loadingMembershipInvoice, setLoadingMembershipInvoice] = useState(null);
+  const [loadingPurchaseInvoice, setLoadingPurchaseInvoice] = useState(null);
   const [showTour, setShowTour] = useState(false);
   const [tourAutoShow, setTourAutoShow] = useState(false);
+  const [activeTab, setActiveTab] = useState("all");
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      membershipInvoiceControllersRef.current.forEach((controller) => controller.abort());
+      membershipInvoiceControllersRef.current.clear();
+      if (currentInvoiceObjectUrlRef.current) {
+        URL.revokeObjectURL(currentInvoiceObjectUrlRef.current);
+        currentInvoiceObjectUrlRef.current = null;
+      }
+    };
+  }, []);
+
+  // Search, filter, sort, and pagination state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortOrder, setSortOrder] = useState("newest");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, sortOrder, typeFilter, activeTab]);
 
   // Determine if tours should be shown for this user
   const shouldShowTours = memberRole?.show_tours !== false;
@@ -37,7 +150,7 @@ export default function HistoryPage() {
     }
   }, [shouldShowTours, hasSeenTour, memberInfo]);
 
-  const { data: transactions = [], isLoading } = useQuery({
+  const programQuery = useQuery({
     queryKey: ['program-transactions', organizationInfo?.id],
     queryFn: async () => {
       if (!organizationInfo?.id) return [];
@@ -49,26 +162,377 @@ export default function HistoryPage() {
     refetchOnMount: true,
   });
 
-  if (!memberInfo || !organizationInfo) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
-        <div className="animate-pulse text-slate-600">Loading...</div>
-      </div>);
+  const { data: transactions = [], isLoading: transactionsLoading } = programQuery;
+  const hasOrg = !!organizationInfo?.id;
 
+  // Fetch one-off event bookings for the organization or member
+  const bookingsQuery = useQuery({
+    queryKey: ['event-bookings', hasOrg ? organizationInfo.id : memberInfo?.id],
+    queryFn: async () => {
+      const filterKey = hasOrg ? { organization_id: organizationInfo.id } : { member_id: memberInfo.id };
+      const allBookings = await base44.entities.Booking.filter(filterKey);
+      return allBookings
+        .filter(b => b.is_one_off_event === true)
+        .sort((a, b) => new Date(b.created_date) - new Date(a.created_date));
+    },
+    enabled: !!memberInfo?.id,
+    staleTime: 0,
+    refetchOnMount: true,
+  });
+
+  const { data: bookings = [], isLoading: bookingsLoading } = bookingsQuery;
+
+  // Fetch events for display info
+  const { data: events = [] } = useQuery({
+    queryKey: ['events'],
+    queryFn: () => base44.entities.Event.list(),
+    staleTime: 60000,
+  });
+
+  // Fetch training fund transactions for the organization
+  const trainingFundQuery = useQuery({
+    queryKey: ['training-fund-transactions', organizationInfo?.id],
+    queryFn: async () => {
+      if (!organizationInfo?.id) return [];
+      const allTransactions = await base44.entities.TrainingFundTransaction.list();
+      return allTransactions
+        .filter(t => t.organization_id === organizationInfo.id)
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    },
+    enabled: !!organizationInfo?.id,
+    staleTime: 0,
+  });
+
+  const { data: trainingFundTransactions = [], isLoading: trainingFundLoading } = trainingFundQuery;
+
+  // Fetch training fund purchases (top-ups) for the organization
+  const trainingFundPurchasesQuery = useQuery({
+    queryKey: ['training-fund-purchases', organizationInfo?.id],
+    queryFn: async () => {
+      if (!organizationInfo?.id) return [];
+      const allPurchases = await base44.entities.TrainingFundPurchase.list();
+      return allPurchases
+        .filter(p => p.organization_id === organizationInfo.id && p.status !== 'cancelled')
+        .sort((a, b) => new Date(b.created_date) - new Date(a.created_date));
+    },
+    enabled: !!organizationInfo?.id,
+    staleTime: 0,
+  });
+
+  const { data: trainingFundPurchases = [], isLoading: trainingFundPurchasesLoading } = trainingFundPurchasesQuery;
+
+  // Fetch voucher transactions for the organization
+  const vouchersQuery = useQuery({
+    queryKey: ['voucher-transactions-org', organizationInfo?.id],
+    queryFn: async () => {
+      if (!organizationInfo?.id) return [];
+      const allTransactions = await base44.entities.VoucherTransaction.list();
+      return allTransactions
+        .filter(t => t.organization_id === organizationInfo.id)
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    },
+    enabled: !!organizationInfo?.id,
+    staleTime: 0,
+  });
+
+  const { data: voucherTransactions = [], isLoading: voucherTransactionsLoading } = vouchersQuery;
+
+  const membershipQuery = useQuery({
+    queryKey: [
+      'membership-history',
+      memberInfo?.tenant_id || memberInfo?.tenantId || null,
+      memberInfo?.id || null,
+      organizationInfo?.id || null,
+    ],
+    queryFn: async () => {
+      const response = await fetch('/api/membership/member-history', { credentials: 'include' });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to fetch membership history');
+      }
+      return normalizeMembershipHistory(await response.json());
+    },
+    // Wait for the organisation context when the member is linked. This
+    // prevents a transient null-organisation cache entry from racing the
+    // combined personal+organisation request.
+    enabled: !!memberInfo?.id && (!memberInfo?.organization_id || !!organizationInfo?.id),
+    staleTime: 0,
+    refetchOnMount: true,
+    retry: false,
+  });
+  const {
+    data: membershipHistory = [],
+    isLoading: membershipHistoryLoading,
+    isError: membershipHistoryFailed,
+    refetch: retryMembershipHistory,
+  } = membershipQuery;
+
+  // Group bookings by booking_group_reference for display
+  const bookingGroups = useMemo(() => {
+    const groups = {};
+    bookings.forEach(booking => {
+      const ref = booking.booking_group_reference || booking.booking_reference || booking.id;
+      if (!groups[ref]) {
+        groups[ref] = [];
+      }
+      groups[ref].push(booking);
+    });
+    // Convert to array and sort by first booking's created_date or created_at (handle null dates)
+    return Object.entries(groups)
+      .map(([ref, items]) => ({
+        reference: ref,
+        bookings: items,
+        firstBooking: items[0],
+        created_date: items[0].created_date || items[0].created_at,
+        event: events.find(e => e.id === items[0].event_id)
+      }))
+      .sort((a, b) => {
+        const dateA = a.created_date ? new Date(a.created_date).getTime() : 0;
+        const dateB = b.created_date ? new Date(b.created_date).getTime() : 0;
+        return dateB - dateA;
+      });
+  }, [bookings, events]);
+
+  // Filter and sort functions
+  const filterAndSortData = (data, searchFields, dateField = 'created_date') => {
+    let filtered = data;
+
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = data.filter(item => {
+        return searchFields.some(field => {
+          const value = field.split('.').reduce((obj, key) => obj?.[key], item);
+          return value && String(value).toLowerCase().includes(query);
+        });
+      });
+    }
+
+    // Apply sort
+    const sorted = [...filtered].sort((a, b) => {
+      const dateA = new Date(a[dateField] || a.created_at || 0).getTime();
+      const dateB = new Date(b[dateField] || b.created_at || 0).getTime();
+      return sortOrder === 'newest' ? dateB - dateA : dateA - dateB;
+    });
+
+    return sorted;
+  };
+
+  // Filter booking groups
+  const filteredBookingGroups = useMemo(() => {
+    let filtered = bookingGroups;
+
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = bookingGroups.filter(group => {
+        const eventTitle = group.event?.title || group.firstBooking.event_name || '';
+        const reference = group.reference || '';
+        const invoiceNumber = group.firstBooking.xero_invoice_number || '';
+        const poNumber = group.firstBooking.purchase_order_number || '';
+        const attendees = group.bookings.map(b => 
+          `${b.attendee_first_name || ''} ${b.attendee_last_name || ''} ${b.attendee_email || ''}`
+        ).join(' ');
+        
+        return eventTitle.toLowerCase().includes(query) ||
+               reference.toLowerCase().includes(query) ||
+               invoiceNumber.toLowerCase().includes(query) ||
+               poNumber.toLowerCase().includes(query) ||
+               attendees.toLowerCase().includes(query);
+      });
+    }
+
+    // Apply sort
+    const sorted = [...filtered].sort((a, b) => {
+      const dateA = new Date(a.created_date || 0).getTime();
+      const dateB = new Date(b.created_date || 0).getTime();
+      return sortOrder === 'newest' ? dateB - dateA : dateA - dateB;
+    });
+
+    return sorted;
+  }, [bookingGroups, searchQuery, sortOrder]);
+
+  // Filter program transactions
+  const filteredTransactions = useMemo(() => {
+    let filtered = transactions;
+
+    if (typeFilter !== 'all') {
+      filtered = transactions.filter(t => t.transaction_type === typeFilter);
+    }
+
+    return filterAndSortData(
+      filtered, 
+      ['program_name', 'event_name', 'booking_reference', 'purchase_order_number', 'xero_invoice_number']
+    );
+  }, [transactions, searchQuery, sortOrder, typeFilter]);
+
+  // Hide ledger credit rows that are already represented by a purchase card,
+  // so a paid top-up doesn't show twice in the Training Fund history.
+  const purchaseLedgerTransactionIds = useMemo(() => {
+    return new Set(trainingFundPurchases.map(p => p.transaction_id).filter(Boolean));
+  }, [trainingFundPurchases]);
+
+  const dedupedTrainingFundTransactions = useMemo(() => {
+    return trainingFundTransactions.filter(t => !purchaseLedgerTransactionIds.has(t.id));
+  }, [trainingFundTransactions, purchaseLedgerTransactionIds]);
+
+  // Navigation is based on eligible, unfiltered rows, never search results or
+  // the current page. Both Training Fund sources must confirm emptiness.
+  const historyCategories = [
+    { key: 'tickets', label: 'Standard Tickets', count: bookingGroups.length, eligible: true, queries: [bookingsQuery] },
+    { key: 'program', label: 'Program Tickets', count: transactions.length, eligible: hasOrg, queries: [programQuery] },
+    { key: 'training-fund', label: 'Training Fund', count: dedupedTrainingFundTransactions.length + trainingFundPurchases.length, eligible: hasOrg, queries: [trainingFundQuery, trainingFundPurchasesQuery] },
+    { key: 'vouchers', label: 'Vouchers', count: voucherTransactions.length, eligible: hasOrg, queries: [vouchersQuery] },
+    { key: 'membership', label: 'Membership', count: membershipHistory.length, eligible: true, queries: [membershipQuery] },
+  ].map(category => ({
+    ...category,
+    confirmedEmpty: category.count === 0 && category.queries.every(query => query.isSuccess && !query.isFetching),
+  }));
+  const visibleCategories = historyCategories.filter(category => category.eligible && !category.confirmedEmpty);
+  const selectedCategoryUnavailable = activeTab !== 'all'
+    && !visibleCategories.some(category => category.key === activeTab);
+  const historyErrors = historyCategories.filter(category => category.eligible && category.queries.some(query => query.isError));
+
+  useEffect(() => {
+    if (selectedCategoryUnavailable) {
+      setActiveTab('all');
+      setSearchQuery('');
+      setTypeFilter('all');
+      setCurrentPage(1);
+    }
+  }, [selectedCategoryUnavailable]);
+
+  // Filter training fund purchases (top-ups are always credits)
+  const filteredTrainingFundPurchases = useMemo(() => {
+    if (typeFilter === 'debit') return [];
+    return filterAndSortData(
+      trainingFundPurchases,
+      ['purchase_order_number', 'xero_invoice_number', 'accounting_invoice_number', 'status', 'payment_method']
+    );
+  }, [trainingFundPurchases, searchQuery, sortOrder, typeFilter]);
+
+  // Filter training fund transactions
+  const filteredTrainingFundTransactions = useMemo(() => {
+    let filtered = dedupedTrainingFundTransactions;
+
+    if (typeFilter !== 'all') {
+      filtered = dedupedTrainingFundTransactions.filter(t => {
+        if (typeFilter === 'credit') return t.type === 'add' || t.type === 'credit' || t.type === 'credit_adjustment';
+        if (typeFilter === 'debit') return t.type === 'deduct' || t.type === 'debit_adjustment' || t.type === 'usage' || t.type === 'booking_usage';
+        return true;
+      });
+    }
+
+    return filterAndSortData(
+      filtered, 
+      ['reason', 'event_title', 'booking_reference'],
+      'created_at'
+    );
+  }, [dedupedTrainingFundTransactions, searchQuery, sortOrder, typeFilter]);
+
+  // Filter voucher transactions
+  const filteredVoucherTransactions = useMemo(() => {
+    let filtered = voucherTransactions;
+
+    if (typeFilter !== 'all') {
+      filtered = voucherTransactions.filter(t => {
+        if (typeFilter === 'credit') return t.type === 'credit_adjustment';
+        if (typeFilter === 'debit') return t.type === 'debit_adjustment' || t.type === 'booking_usage';
+        return true;
+      });
+    }
+
+    return filterAndSortData(
+      filtered, 
+      ['event_title', 'booking_reference'],
+      'created_at'
+    );
+  }, [voucherTransactions, searchQuery, sortOrder, typeFilter]);
+
+  const filteredMembershipHistory = useMemo(() => {
+    return filterAndSortData(
+      membershipHistory,
+      [
+        'membership_year',
+        'tier_label',
+        'band_label',
+        'membership_source',
+        'membership_source_label',
+        'accounting_invoice_id',
+        'accounting_invoice_number',
+        'xero_invoice_id',
+        'xero_invoice_number',
+        'purchase_order_number',
+      ],
+      'created_at'
+    );
+  }, [membershipHistory, searchQuery, sortOrder]);
+
+  // Pagination helper
+  const paginateData = (data) => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    const endIndex = startIndex + ITEMS_PER_PAGE;
+    return {
+      items: data.slice(startIndex, endIndex),
+      totalItems: data.length,
+      totalPages: Math.ceil(data.length / ITEMS_PER_PAGE),
+      startIndex: startIndex + 1,
+      endIndex: Math.min(endIndex, data.length)
+    };
+  };
+
+  // Get current tab's data length for filter options
+  const getTypeFilterOptions = () => {
+    switch (activeTab) {
+      case 'program':
+        return [
+          { value: 'all', label: 'All Types' },
+          { value: 'purchase', label: 'Purchases' },
+          { value: 'usage', label: 'Usage' },
+          { value: 'refund', label: 'Returns' }
+        ];
+      case 'training-fund':
+      case 'vouchers':
+        return [
+          { value: 'all', label: 'All Types' },
+          { value: 'credit', label: 'Credits' },
+          { value: 'debit', label: 'Debits' }
+        ];
+      default:
+        return [];
+    }
+  };
+
+  const isLoading = bookingsLoading || membershipHistoryLoading || (hasOrg && (transactionsLoading || trainingFundLoading || trainingFundPurchasesLoading || voucherTransactionsLoading));
+  const hasNonMembershipHistory = bookingGroups.length > 0
+    || (hasOrg && (
+      transactions.length > 0
+      || trainingFundTransactions.length > 0
+      || trainingFundPurchases.length > 0
+      || voucherTransactions.length > 0
+    ));
+  const hasAnyHistory = hasNonMembershipHistory || membershipHistory.length > 0;
+
+  if (!memberInfo) {
+    return (
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
+        <div className="animate-pulse text-slate-600">Loading...</div>
+      </div>
+    );
   }
 
-  const balances = organizationInfo.program_ticket_balances || {};
-  const programs = Object.keys(balances).sort();
+  if (memberInfo.organization_id && !organizationInfo) {
+    return (
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
+        <div className="animate-pulse text-slate-600">Loading...</div>
+      </div>
+    );
+  }
 
-  // If a program is selected, filter transactions for that program
-  const displayTransactions = selectedProgram ?
-  transactions.filter((t) => t.program_name === selectedProgram) :
-  transactions;
-
+  
   const updateMemberTourStatus = async (tourKey) => {
     if (memberInfo && !memberInfo.is_team_member) {
       try {
-        const allMembers = await base44.entities.Member.list();
+        const allMembers = await base44.entities.Member.listAll();
         const currentMember = allMembers.find((m) => m.email === memberInfo.email);
 
         if (currentMember) {
@@ -78,7 +542,7 @@ export default function HistoryPage() {
           });
 
           const updatedMemberInfo = { ...memberInfo, page_tours_seen: updatedTours };
-          sessionStorage.setItem('agcas_member', JSON.stringify(updatedMemberInfo));
+          localStorage.setItem('agcas_member', JSON.stringify(updatedMemberInfo));
           
           // Notify Layout to reload memberInfo
           if (reloadMemberInfo) {
@@ -112,6 +576,13 @@ export default function HistoryPage() {
     }, 10);
   };
 
+  const trackInvoiceObjectUrl = (objectUrl) => {
+    if (currentInvoiceObjectUrlRef.current) {
+      URL.revokeObjectURL(currentInvoiceObjectUrlRef.current);
+    }
+    currentInvoiceObjectUrlRef.current = objectUrl;
+  };
+
   const handleViewInvoice = async (transaction) => {
     if (!transaction.xero_invoice_pdf_uri) {
       toast.error('Invoice not available');
@@ -137,6 +608,7 @@ export default function HistoryPage() {
 
         // Create a blob URL for inline viewing
         const blobUrl = URL.createObjectURL(pdfBlob);
+        trackInvoiceObjectUrl(blobUrl);
 
         // Add parameters to hide navigation panes and fit to page
         const pdfUrl = `${blobUrl}#view=Fit&navpanes=0&toolbar=0`;
@@ -160,27 +632,1069 @@ export default function HistoryPage() {
 
     const link = document.createElement('a');
     link.href = currentInvoiceUrl;
-    link.download = `invoice-${currentInvoiceNumber || 'download'}.pdf`;
+    link.download = currentInvoiceFilename
+      || membershipInvoiceFilename(null, currentInvoiceNumber, 'download');
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     toast.success('Downloading invoice...');
   };
 
+  // Handle viewing invoice for standard ticket bookings (uses API endpoint)
+  const handleViewBookingInvoice = async (bookingGroupRef, invoiceNumber) => {
+    setLoadingBookingInvoice(bookingGroupRef);
+    
+    try {
+      const response = await fetch(`/api/booking-invoice/${encodeURIComponent(bookingGroupRef)}?inline=true`, {
+        credentials: 'include'
+      });
+      
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: 'Failed to load invoice' }));
+        throw new Error(error.error || 'Failed to load invoice');
+      }
+      
+      const pdfBlob = await response.blob();
+      const blobUrl = URL.createObjectURL(pdfBlob);
+      trackInvoiceObjectUrl(blobUrl);
+      const pdfUrl = `${blobUrl}#view=Fit&navpanes=0&toolbar=0`;
+      
+      setCurrentInvoiceUrl(pdfUrl);
+      setCurrentInvoiceNumber(invoiceNumber);
+      setInvoiceModalOpen(true);
+    } catch (error) {
+      console.error('Error loading invoice:', error);
+      toast.error(error.message || 'Failed to load invoice');
+    } finally {
+      setLoadingBookingInvoice(null);
+    }
+  };
+
+  const handleDownloadBookingInvoice = async (bookingGroupRef, invoiceNumber) => {
+    setLoadingBookingInvoice(bookingGroupRef);
+    
+    try {
+      const response = await fetch(`/api/booking-invoice/${encodeURIComponent(bookingGroupRef)}`, {
+        credentials: 'include'
+      });
+      
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: 'Failed to download invoice' }));
+        throw new Error(error.error || 'Failed to download invoice');
+      }
+      
+      const pdfBlob = await response.blob();
+      const blobUrl = URL.createObjectURL(pdfBlob);
+      
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = `invoice-${invoiceNumber || bookingGroupRef}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
+      toast.success('Downloading invoice...');
+    } catch (error) {
+      console.error('Error downloading invoice:', error);
+      toast.error(error.message || 'Failed to download invoice');
+    } finally {
+      setLoadingBookingInvoice(null);
+    }
+  };
+
+  const handleViewPurchaseInvoice = async (purchaseId, invoiceNumber) => {
+    setLoadingPurchaseInvoice(purchaseId);
+
+    try {
+      const response = await fetch(`/api/training-fund-invoice/${encodeURIComponent(purchaseId)}?inline=true`, {
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: 'Failed to load invoice' }));
+        throw new Error(error.error || 'Failed to load invoice');
+      }
+
+      const pdfBlob = await response.blob();
+      const blobUrl = URL.createObjectURL(pdfBlob);
+      trackInvoiceObjectUrl(blobUrl);
+      const pdfUrl = `${blobUrl}#view=Fit&navpanes=0&toolbar=0`;
+
+      setCurrentInvoiceUrl(pdfUrl);
+      setCurrentInvoiceNumber(invoiceNumber);
+      setInvoiceModalOpen(true);
+    } catch (error) {
+      console.error('Error loading training fund invoice:', error);
+      toast.error(error.message || 'Failed to load invoice');
+    } finally {
+      setLoadingPurchaseInvoice(null);
+    }
+  };
+
+  const handleDownloadPurchaseInvoice = async (purchaseId, invoiceNumber) => {
+    setLoadingPurchaseInvoice(purchaseId);
+
+    try {
+      const response = await fetch(`/api/training-fund-invoice/${encodeURIComponent(purchaseId)}`, {
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: 'Failed to download invoice' }));
+        throw new Error(error.error || 'Failed to download invoice');
+      }
+
+      const pdfBlob = await response.blob();
+      const blobUrl = URL.createObjectURL(pdfBlob);
+
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = `training-fund-invoice-${invoiceNumber || purchaseId}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
+      toast.success('Downloading invoice...');
+    } catch (error) {
+      console.error('Error downloading training fund invoice:', error);
+      toast.error(error.message || 'Failed to download invoice');
+    } finally {
+      setLoadingPurchaseInvoice(null);
+    }
+  };
+
+  const handleViewMembershipInvoice = async (record, invoiceNumber) => {
+    const recordId = record?.id || record;
+    const source = getMembershipSource(record);
+    const actionKey = membershipRecordKey(record);
+    const controller = new AbortController();
+    membershipInvoiceControllersRef.current.add(controller);
+    setMembershipInvoiceError(null);
+    setLoadingMembershipInvoice(actionKey);
+    
+    try {
+      const params = new URLSearchParams({ inline: 'true', source });
+      const response = await fetch(`/api/membership-invoice/${encodeURIComponent(recordId)}?${params.toString()}`, {
+        credentials: 'include',
+        signal: controller.signal,
+      });
+      
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: 'Failed to load invoice' }));
+        throw new Error(error.error || 'Failed to load invoice');
+      }
+      
+      const pdfBlob = await response.blob();
+      if (!mountedRef.current || controller.signal.aborted) return;
+      const blobUrl = URL.createObjectURL(pdfBlob);
+      if (!mountedRef.current || controller.signal.aborted) {
+        URL.revokeObjectURL(blobUrl);
+        return;
+      }
+      trackInvoiceObjectUrl(blobUrl);
+      const pdfUrl = `${blobUrl}#view=Fit&navpanes=0&toolbar=0`;
+      setCurrentInvoiceUrl(pdfUrl);
+      setCurrentInvoiceNumber(invoiceNumber);
+      setCurrentInvoiceFilename(membershipInvoiceFilename(
+        response.headers?.get?.('content-disposition'),
+        invoiceNumber,
+        recordId,
+      ));
+      setInvoiceModalOpen(true);
+    } catch (error) {
+      if (error?.name !== 'AbortError' && mountedRef.current) {
+        console.error('Error loading membership invoice:', error);
+        const message = error.message || 'Failed to load invoice';
+        setMembershipInvoiceError({ key: actionKey, action: 'view', message });
+        toast.error(message);
+      }
+    } finally {
+      membershipInvoiceControllersRef.current.delete(controller);
+      if (mountedRef.current) setLoadingMembershipInvoice(null);
+    }
+  };
+
+  const handleDownloadMembershipInvoice = async (record, invoiceNumber) => {
+    const recordId = record?.id || record;
+    const source = getMembershipSource(record);
+    const actionKey = membershipRecordKey(record);
+    const controller = new AbortController();
+    membershipInvoiceControllersRef.current.add(controller);
+    setMembershipInvoiceError(null);
+    setLoadingMembershipInvoice(actionKey);
+    
+    try {
+      const params = new URLSearchParams({ source });
+      const response = await fetch(`/api/membership-invoice/${encodeURIComponent(recordId)}?${params.toString()}`, {
+        credentials: 'include',
+        signal: controller.signal,
+      });
+      
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: 'Failed to download invoice' }));
+        throw new Error(error.error || 'Failed to download invoice');
+      }
+      
+      const pdfBlob = await response.blob();
+      if (!mountedRef.current || controller.signal.aborted) return;
+      const blobUrl = URL.createObjectURL(pdfBlob);
+      if (!mountedRef.current || controller.signal.aborted) {
+        URL.revokeObjectURL(blobUrl);
+        return;
+      }
+      
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = membershipInvoiceFilename(
+        response.headers?.get?.('content-disposition'),
+        invoiceNumber,
+        recordId,
+      );
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
+      toast.success('Downloading invoice...');
+    } catch (error) {
+      if (error?.name !== 'AbortError' && mountedRef.current) {
+        console.error('Error downloading membership invoice:', error);
+        const message = error.message || 'Failed to download invoice';
+        setMembershipInvoiceError({ key: actionKey, action: 'download', message });
+        toast.error(message);
+      }
+    } finally {
+      membershipInvoiceControllersRef.current.delete(controller);
+      if (mountedRef.current) setLoadingMembershipInvoice(null);
+    }
+  };
+
   // Cleanup blob URL when modal closes
   const handleModalClose = (open) => {
-    if (!open && currentInvoiceUrl) {
-      // Remove any URL parameters before revoking
-      const baseBlobUrl = currentInvoiceUrl.split('#')[0];
-      URL.revokeObjectURL(baseBlobUrl);
+    if (!open) {
+      if (currentInvoiceObjectUrlRef.current) {
+        URL.revokeObjectURL(currentInvoiceObjectUrlRef.current);
+        currentInvoiceObjectUrlRef.current = null;
+      }
       setCurrentInvoiceUrl(null);
       setCurrentInvoiceNumber(null);
+      setCurrentInvoiceFilename(null);
     }
     setInvoiceModalOpen(open);
   };
 
+  // Clear filters
+  const clearFilters = () => {
+    setSearchQuery("");
+    setTypeFilter("all");
+    setSortOrder("newest");
+    setCurrentPage(1);
+  };
+
+  const hasActiveFilters = searchQuery.trim() || typeFilter !== 'all' || sortOrder !== 'newest';
+
+  // Pagination Controls Component
+  const PaginationControls = ({ pagination }) => {
+    if (pagination.totalPages <= 1) return null;
+
+    return (
+      <div className="flex items-center justify-between pt-4 border-t border-slate-200 mt-4">
+        <p className="text-sm text-slate-600">
+          Showing {pagination.startIndex}-{pagination.endIndex} of {pagination.totalItems}
+        </p>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+            disabled={currentPage === 1}
+            data-testid="button-prev-page"
+          >
+            <ChevronLeft className="w-4 h-4" />
+            Previous
+          </Button>
+          <div className="flex items-center gap-1">
+            {Array.from({ length: Math.min(5, pagination.totalPages) }, (_, i) => {
+              let pageNum;
+              if (pagination.totalPages <= 5) {
+                pageNum = i + 1;
+              } else if (currentPage <= 3) {
+                pageNum = i + 1;
+              } else if (currentPage >= pagination.totalPages - 2) {
+                pageNum = pagination.totalPages - 4 + i;
+              } else {
+                pageNum = currentPage - 2 + i;
+              }
+              
+              return (
+                <Button
+                  key={pageNum}
+                  variant={currentPage === pageNum ? "default" : "outline"}
+                  size="sm"
+                  className="w-8 h-8 p-0"
+                  onClick={() => setCurrentPage(pageNum)}
+                  data-testid={`button-page-${pageNum}`}
+                >
+                  {pageNum}
+                </Button>
+              );
+            })}
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setCurrentPage(p => Math.min(pagination.totalPages, p + 1))}
+            disabled={currentPage === pagination.totalPages}
+            data-testid="button-next-page"
+          >
+            Next
+            <ChevronRight className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
+    );
+  };
+
+  // Shared date presentation: stacked fixed-width column on desktop, hidden on mobile
+  const TransactionDateColumn = ({ date }) => (
+    <div className="hidden sm:block w-20 shrink-0 text-center">
+      {date ? (
+        <div className="flex flex-col">
+          <span className="text-lg font-bold text-slate-900">{format(date, 'd')}</span>
+          <span className="text-xs text-slate-600 uppercase">{format(date, 'MMM yyyy')}</span>
+          <span className="text-xs text-slate-500">{format(date, 'h:mm a')}</span>
+        </div>
+      ) : (
+        <span className="text-xs text-slate-400">No date</span>
+      )}
+    </div>
+  );
+
+  // Shared date presentation: compact inline line on mobile, hidden on desktop
+  const TransactionDateInline = ({ date }) => (
+    <div className="sm:hidden text-xs text-slate-500 mb-1">
+      {date ? format(date, 'd MMM yyyy • h:mm a') : 'No date'}
+    </div>
+  );
+
+  // Component for standard ticket booking group with date column
+  const BookingGroupCard = ({ group, loadingBookingInvoice, handleViewBookingInvoice, handleDownloadBookingInvoice, canAccessInvoices }) => {
+    const { reference, bookings, firstBooking, event } = group;
+    const eventTitle = event?.title || firstBooking.event_name || 'Event';
+    const totalCost = bookings.reduce((sum, b) => sum + (b.total_cost || 0), 0);
+    const attendeeCount = bookings.length;
+    // Check both xero_invoice_number and xero_invoice_id for invoice availability (matching Bookings page logic)
+    const hasInvoice = !!(firstBooking.xero_invoice_number || firstBooking.xero_invoice_id);
+    const dateValue = firstBooking.created_date || firstBooking.created_at;
+    const transactionDate = dateValue ? new Date(dateValue) : null;
+
+    return (
+      <div className="flex flex-col gap-3 p-4 bg-slate-50 rounded-lg border border-slate-200">
+        <div className="flex items-start gap-3 sm:gap-4">
+          {/* Date Column (desktop) */}
+          <TransactionDateColumn date={transactionDate} />
+          
+          <div className="p-2 sm:p-3 rounded-lg bg-blue-100 text-blue-600 shrink-0">
+            <CreditCard className="w-4 h-4 sm:w-5 sm:h-5" />
+          </div>
+          
+          <div className="flex-1 min-w-0">
+            <TransactionDateInline date={transactionDate} />
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
+              <h3 className="font-semibold text-slate-900">{eventTitle}</h3>
+              <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200">
+                One-off Event
+              </Badge>
+            </div>
+            
+            <div className="space-y-1">
+              <p className="text-sm text-slate-600">
+                {attendeeCount} attendee{attendeeCount > 1 ? 's' : ''} • £{totalCost.toFixed(2)}
+              </p>
+              <p className="text-xs text-slate-500">
+                Ref: {reference}
+              </p>
+              {firstBooking.purchase_order_number && (
+                <p className="text-xs text-slate-500">
+                  PO: {firstBooking.purchase_order_number}
+                </p>
+              )}
+              {hasInvoice && firstBooking.xero_invoice_number && (
+                <p className="text-xs text-slate-500">
+                  Invoice: {firstBooking.xero_invoice_number}
+                </p>
+              )}
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="font-semibold text-blue-600">
+              £{totalCost.toFixed(2)}
+            </span>
+          </div>
+        </div>
+        
+        {/* Attendees list */}
+        <div className="pl-0 sm:pl-24">
+          <div className="text-xs text-slate-500 mb-2">Attendees:</div>
+          <div className="flex flex-wrap gap-2">
+            {bookings.slice(0, 5).map((booking, idx) => (
+              <Badge key={idx} variant="secondary" className="text-xs">
+                <User className="w-3 h-3 mr-1" />
+                {booking.attendee_first_name && booking.attendee_last_name 
+                  ? `${booking.attendee_first_name} ${booking.attendee_last_name}`
+                  : booking.attendee_email || 'Pending'}
+              </Badge>
+            ))}
+            {bookings.length > 5 && (
+              <Badge variant="secondary" className="text-xs">
+                +{bookings.length - 5} more
+              </Badge>
+            )}
+          </div>
+        </div>
+        
+        {/* Invoice buttons */}
+        {canAccessInvoices && hasInvoice && (
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleViewBookingInvoice(reference, firstBooking.xero_invoice_number || reference)}
+              disabled={loadingBookingInvoice === reference}
+              data-testid={`button-view-invoice-${reference}`}
+            >
+              {loadingBookingInvoice === reference ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <>
+                  <Eye className="w-4 h-4 mr-1" />
+                  View Invoice
+                </>
+              )}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleDownloadBookingInvoice(reference, firstBooking.xero_invoice_number || reference)}
+              disabled={loadingBookingInvoice === reference}
+              data-testid={`button-download-invoice-${reference}`}
+            >
+              {loadingBookingInvoice === reference ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <>
+                  <Download className="w-4 h-4 mr-1" />
+                  Download
+                </>
+              )}
+            </Button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Component for program ticket transaction with date column
+  const ProgramTransactionCard = ({ transaction, downloadingInvoice, handleViewInvoice, canAccessInvoices }) => {
+    let icon, colorClass, label;
+    if (transaction.transaction_type === 'purchase') {
+      icon = ShoppingCart;
+      colorClass = 'bg-green-100 text-green-600';
+      label = 'Purchase';
+    } else if (transaction.transaction_type === 'refund') {
+      icon = ArrowUpCircle;
+      colorClass = 'bg-blue-100 text-blue-600';
+      label = 'Return to balance';
+    } else {
+      icon = Calendar;
+      colorClass = 'bg-purple-100 text-purple-600';
+      label = 'Used for Event';
+    }
+
+    const Icon = icon;
+    const transactionDate = transaction.created_date ? new Date(transaction.created_date) : null;
+
+    return (
+      <div className="flex items-start sm:items-center gap-3 sm:gap-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
+        {/* Date Column (desktop) */}
+        <TransactionDateColumn date={transactionDate} />
+        
+        <div className={`p-2 sm:p-3 rounded-lg shrink-0 ${colorClass}`}>
+          <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
+        </div>
+        
+        <div className="flex-1 min-w-0">
+          <TransactionDateInline date={transactionDate} />
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <h3 className="font-semibold text-slate-900">{label}</h3>
+            <Badge variant="outline" className="text-xs">
+              {transaction.program_name}
+            </Badge>
+          </div>
+          
+          {transaction.transaction_type === 'purchase' ? (
+            <div className="space-y-1">
+              <p className="text-sm text-slate-600">
+                {transaction.purchase_order_number && `PO: ${transaction.purchase_order_number} • `}
+                {transaction.quantity} ticket{transaction.quantity > 1 ? 's' : ''}
+              </p>
+              {transaction.xero_invoice_number && (
+                <p className="text-xs text-slate-500">
+                  Invoice: {transaction.xero_invoice_number}
+                </p>
+              )}
+            </div>
+          ) : transaction.transaction_type === 'refund' ? (
+            <p className="text-sm text-slate-600">
+              {transaction.event_name} • {transaction.quantity} ticket{transaction.quantity > 1 ? 's' : ''} returned
+              {transaction.booking_reference && ` • ${transaction.booking_reference}`}
+            </p>
+          ) : (
+            <p className="text-sm text-slate-600">
+              {transaction.event_name} • {transaction.quantity} ticket{transaction.quantity > 1 ? 's' : ''}
+              {transaction.booking_reference && ` • ${transaction.booking_reference}`}
+            </p>
+          )}
+        </div>
+        
+        <div className="flex items-center gap-3">
+          <div className={`flex items-center gap-1 font-semibold ${
+            transaction.transaction_type === 'purchase' ? 'text-green-600' :
+            transaction.transaction_type === 'refund' ? 'text-blue-600' :
+            'text-purple-600'
+          }`}>
+            {transaction.transaction_type === 'purchase' ? (
+              <ArrowUpCircle className="w-4 h-4" />
+            ) : transaction.transaction_type === 'refund' ? (
+              <ArrowUpCircle className="w-4 h-4" />
+            ) : (
+              <ArrowDownCircle className="w-4 h-4" />
+            )}
+            <span>
+              {transaction.transaction_type === 'usage' ? '-' : '+'}
+              {transaction.quantity}
+            </span>
+          </div>
+
+          {canAccessInvoices && transaction.xero_invoice_pdf_uri && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleViewInvoice(transaction)}
+              disabled={downloadingInvoice === transaction.id}
+              className="shrink-0"
+              data-testid={`button-invoice-${transaction.id}`}
+            >
+              {downloadingInvoice === transaction.id ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <>
+                  <FileText className="w-4 h-4 mr-1" />
+                  Invoice
+                </>
+              )}
+            </Button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // Component for training fund transaction with date column
+  const TrainingFundTransactionCard = ({ transaction }) => {
+    const isCredit = transaction.type === 'add' || transaction.type === 'credit' || transaction.type === 'credit_adjustment';
+    
+    const getTypeInfo = () => {
+      switch (transaction.type) {
+        case 'add':
+        case 'credit':
+        case 'credit_adjustment':
+          return { label: 'Credit', color: 'bg-green-100 text-green-600' };
+        case 'deduct':
+        case 'debit_adjustment':
+          return { label: 'Debit', color: 'bg-warning/10 text-warning' };
+        case 'usage':
+        case 'booking_usage':
+          return { label: 'Booking', color: 'bg-blue-100 text-blue-600' };
+        default:
+          return { label: transaction.type || 'Usage', color: 'bg-slate-100 text-slate-600' };
+      }
+    };
+    
+    const typeInfo = getTypeInfo();
+    const transactionDate = transaction.created_at || transaction.created_date 
+      ? new Date(transaction.created_at || transaction.created_date) 
+      : null;
+
+    return (
+      <div className="flex items-start sm:items-center gap-3 sm:gap-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
+        {/* Date Column (desktop) */}
+        <TransactionDateColumn date={transactionDate} />
+        
+        <div className={`p-2 sm:p-3 rounded-lg shrink-0 ${typeInfo.color}`}>
+          <Wallet className="w-4 h-4 sm:w-5 sm:h-5" />
+        </div>
+        
+        <div className="flex-1 min-w-0">
+          <TransactionDateInline date={transactionDate} />
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <h3 className="font-semibold text-slate-900">Training Fund</h3>
+            <Badge variant="outline" className={`text-xs ${typeInfo.color}`}>
+              {typeInfo.label}
+            </Badge>
+          </div>
+          
+          {transaction.reason && (
+            <p className="text-sm text-slate-600">{transaction.reason}</p>
+          )}
+          {transaction.event_title && (
+            <p className="text-sm text-slate-600">Event: {transaction.event_title}</p>
+          )}
+          {transaction.booking_reference && (
+            <p className="text-xs text-slate-500">Ref: {transaction.booking_reference}</p>
+          )}
+          
+          <div className="flex items-center gap-4 text-xs text-slate-500 mt-1">
+            <span>Before: £{(transaction.balance_before || 0).toFixed(2)}</span>
+            <span>→</span>
+            <span>After: £{(transaction.balance_after || 0).toFixed(2)}</span>
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-1">
+          <span className={`text-lg font-semibold ${isCredit ? 'text-green-600' : 'text-red-600'}`}>
+            {isCredit ? '+' : '-'}£{(transaction.amount || 0).toFixed(2)}
+          </span>
+        </div>
+      </div>
+    );
+  };
+
+  // Component for a training fund top-up purchase (card or invoice)
+  const TrainingFundPurchaseCard = ({ purchase }) => {
+    const isAwaitingPayment = purchase.status === 'pending' && purchase.payment_method === 'invoice';
+    const isPaid = purchase.status === 'paid';
+    const invoiceNumber = purchase.accounting_invoice_number || purchase.xero_invoice_number;
+    const hasInvoice = !!(purchase.accounting_invoice_id || purchase.xero_invoice_id);
+    const purchaseDate = purchase.created_date ? new Date(purchase.created_date) : null;
+
+    return (
+      <div className="flex flex-col gap-3 p-4 bg-slate-50 rounded-lg border border-slate-200">
+        <div className="flex items-start sm:items-center gap-3 sm:gap-4">
+          <TransactionDateColumn date={purchaseDate} />
+
+          <div className="p-2 sm:p-3 rounded-lg bg-green-100 text-green-600 shrink-0">
+            <Wallet className="w-4 h-4 sm:w-5 sm:h-5" />
+          </div>
+
+          <div className="flex-1 min-w-0">
+            <TransactionDateInline date={purchaseDate} />
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
+              <h3 className="font-semibold text-slate-900">Training Fund Top-up</h3>
+              {isAwaitingPayment ? (
+                <Badge variant="warning" className="text-xs" data-testid={`badge-purchase-status-${purchase.id}`}>
+                  Awaiting payment
+                </Badge>
+              ) : isPaid ? (
+                <Badge variant="outline" className="text-xs bg-green-100 text-green-600" data-testid={`badge-purchase-status-${purchase.id}`}>
+                  Paid
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="text-xs" data-testid={`badge-purchase-status-${purchase.id}`}>
+                  {purchase.status || 'Pending'}
+                </Badge>
+              )}
+              <Badge variant="outline" className="text-xs">
+                {purchase.payment_method === 'invoice' ? 'Invoiced' : 'Card Payment'}
+              </Badge>
+            </div>
+
+            <div className="space-y-1">
+              {isPaid && purchase.paid_at && (
+                <p className="text-sm text-slate-600">Paid on {format(new Date(purchase.paid_at), 'd MMM yyyy')}</p>
+              )}
+              {isAwaitingPayment && !purchase.purchase_order_number && purchase.po_to_follow && (
+                <p className="text-sm text-slate-600">Purchase order to follow</p>
+              )}
+              {purchase.purchase_order_number && (
+                <p className="text-xs text-slate-500">PO: {purchase.purchase_order_number}</p>
+              )}
+              {invoiceNumber && (
+                <p className="text-xs text-slate-500">Invoice: {invoiceNumber}</p>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1 shrink-0">
+            <span className="text-lg font-semibold text-green-600" data-testid={`text-purchase-amount-${purchase.id}`}>
+              +£{(parseFloat(purchase.amount) || 0).toFixed(2)}
+            </span>
+          </div>
+        </div>
+
+        {canAccessInvoices && hasInvoice && (
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleViewPurchaseInvoice(purchase.id, invoiceNumber || purchase.id)}
+              disabled={loadingPurchaseInvoice === purchase.id}
+              data-testid={`button-view-purchase-invoice-${purchase.id}`}
+            >
+              {loadingPurchaseInvoice === purchase.id ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <>
+                  <Eye className="w-4 h-4 mr-1" />
+                  View Invoice
+                </>
+              )}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleDownloadPurchaseInvoice(purchase.id, invoiceNumber || purchase.id)}
+              disabled={loadingPurchaseInvoice === purchase.id}
+              data-testid={`button-download-purchase-invoice-${purchase.id}`}
+            >
+              {loadingPurchaseInvoice === purchase.id ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <>
+                  <Download className="w-4 h-4 mr-1" />
+                  Download
+                </>
+              )}
+            </Button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Component for voucher transaction with date column
+  const VoucherTransactionCard = ({ transaction }) => {
+    const isCredit = transaction.type === 'credit_adjustment';
+    
+    const getTypeInfo = () => {
+      switch (transaction.type) {
+        case 'credit_adjustment':
+          return { label: 'Credit', color: 'bg-green-100 text-green-600' };
+        case 'debit_adjustment':
+          return { label: 'Debit', color: 'bg-warning/10 text-warning' };
+        case 'booking_usage':
+          return { label: 'Booking', color: 'bg-blue-100 text-blue-600' };
+        default:
+          return { label: transaction.type || 'Usage', color: 'bg-slate-100 text-slate-600' };
+      }
+    };
+    
+    const typeInfo = getTypeInfo();
+    const transactionDate = transaction.created_at ? new Date(transaction.created_at) : null;
+
+    return (
+      <div className="flex items-start sm:items-center gap-3 sm:gap-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
+        {/* Date Column (desktop) */}
+        <TransactionDateColumn date={transactionDate} />
+        
+        <div className={`p-2 sm:p-3 rounded-lg shrink-0 ${typeInfo.color}`}>
+          <Gift className="w-4 h-4 sm:w-5 sm:h-5" />
+        </div>
+        
+        <div className="flex-1 min-w-0">
+          <TransactionDateInline date={transactionDate} />
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <h3 className="font-semibold text-slate-900">Training Voucher</h3>
+            <Badge variant="outline" className={`text-xs ${typeInfo.color}`}>
+              {typeInfo.label}
+            </Badge>
+          </div>
+          
+          {transaction.event_title && (
+            <p className="text-sm text-slate-600">Event: {transaction.event_title}</p>
+          )}
+          {transaction.booking_reference && (
+            <p className="text-xs text-slate-500">Ref: {transaction.booking_reference}</p>
+          )}
+          
+          <div className="flex items-center gap-4 text-xs text-slate-500 mt-1">
+            <span>Before: £{(transaction.balance_before || 0).toFixed(2)}</span>
+            <span>→</span>
+            <span>After: £{(transaction.balance_after || 0).toFixed(2)}</span>
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-1">
+          <span className={`text-lg font-semibold ${isCredit ? 'text-green-600' : 'text-red-600'}`}>
+            {isCredit ? '+' : '-'}£{(transaction.amount || 0).toFixed(2)}
+          </span>
+        </div>
+      </div>
+    );
+  };
+
+  const MembershipHistoryCard = ({ record }) => {
+    const presentation = getMembershipHistorySchedule(record);
+    const membershipSource = getMembershipSource(record);
+    const invoiceId = getAccountingInvoiceId(record);
+    const invoiceNumber = getAccountingInvoiceNumber(record);
+    // A number alone is informational; only a provider invoice ID can be
+    // passed through to the PDF endpoint.
+    const hasInvoice = !!invoiceId;
+    const invoiceActionKey = membershipRecordKey(record);
+    const createdDate = record.created_at ? new Date(record.created_at) : null;
+    const transactionDate = createdDate && Number.isFinite(createdDate.getTime()) ? createdDate : null;
+    const pricing = getMembershipPricingPresentation(record);
+
+    return (
+      <div
+        className="flex flex-col gap-3 p-4 bg-slate-50 rounded-lg border border-slate-200"
+        data-testid={`membership-history-card-${membershipSource}-${record.id}`}
+        data-membership-source={membershipSource}
+      >
+        <div className="flex items-start gap-3 sm:gap-4">
+          <TransactionDateColumn date={transactionDate} />
+          
+          <div className="p-2 sm:p-3 rounded-lg bg-indigo-100 text-indigo-600 shrink-0">
+            <Crown className="w-4 h-4 sm:w-5 sm:h-5" />
+          </div>
+          
+          <div className="flex-1 min-w-0">
+            <TransactionDateInline date={transactionDate} />
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
+              <h3 className="font-semibold text-slate-900">{record.membershipRecognition ? 'Current membership' : presentation.heading}</h3>
+              {record.membershipRecognition && <Badge variant="secondary">Current membership</Badge>}
+              {record.status && (
+                <Badge variant={record.status === 'active' ? 'secondary' : 'outline'} className="capitalize">
+                  {String(record.status).replaceAll('_', ' ')}
+                </Badge>
+              )}
+              {record.payment_status && (
+                <Badge variant={record.payment_status === 'paid' ? 'secondary' : 'outline'} className="capitalize">
+                  {String(record.payment_status).replaceAll('_', ' ')}
+                </Badge>
+              )}
+              <Badge variant="outline" className="text-xs bg-indigo-50 text-indigo-700 border-indigo-200">
+                {membershipSourceLabel(membershipSource)}
+              </Badge>
+              {(presentation.paymentLabel || record.payment_method) && (
+                <Badge variant="outline" className="text-xs">
+                  {presentation.paymentLabel || record.payment_method}
+                </Badge>
+              )}
+            </div>
+            
+            <div className="space-y-1">
+              {record.membershipRecognition && (
+                <p className="text-sm text-slate-600">
+                  Membership recognised from {record.membershipRecognition.effective_from}.
+                  Billing dates and payment status are unchanged; recognition does not release collections.
+                </p>
+              )}
+              {presentation.schedule && (
+                <p className="text-sm text-slate-600">Schedule: {presentation.schedule}</p>
+              )}
+              {presentation.renewalDate && (
+                <p className="text-sm text-slate-600">Renewal date: {presentation.renewalDate}</p>
+              )}
+              {presentation.endDate && (
+                <p className="text-sm text-slate-600">End date: {presentation.endDate}</p>
+              )}
+              {record.tier_label && (
+                <p className="text-sm text-slate-600">
+                  {record.tier_label}{record.band_label ? ` - ${record.band_label}` : ''}
+                </p>
+              )}
+              <p className="text-sm text-slate-600">
+                Net: {pricing.net.text}
+                {pricing.vat.amount !== null && ` + VAT: ${pricing.vat.text}`}
+              </p>
+              <MembershipPricingDisplay
+                record={record}
+                className="text-sm text-slate-600"
+              />
+              {record.purchase_order_number && (
+                <p className="text-xs text-slate-500">
+                  PO: {record.purchase_order_number}
+                </p>
+              )}
+              {invoiceNumber && (
+                <p className="text-xs text-slate-500">
+                  Invoice: {invoiceNumber}
+                </p>
+              )}
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="font-semibold text-indigo-600">
+              {pricing.gross.text}
+            </span>
+          </div>
+        </div>
+        
+        {canAccessInvoices && (
+          <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-200">
+            {!hasInvoice && (
+              <span
+                className="text-xs text-slate-500"
+                data-testid={`membership-invoice-unavailable-${membershipSource}-${record.id}`}
+              >
+                Invoice unavailable
+              </span>
+            )}
+            {hasInvoice && (
+              <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleViewMembershipInvoice(record, invoiceNumber || record.id)}
+              disabled={loadingMembershipInvoice === invoiceActionKey}
+              data-testid={`button-view-membership-invoice-${membershipSource}-${record.id}`}
+            >
+              {loadingMembershipInvoice === invoiceActionKey ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <>
+                  <Eye className="w-4 h-4 mr-1" />
+                  View Invoice
+                </>
+              )}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleDownloadMembershipInvoice(record, invoiceNumber || record.id)}
+              disabled={loadingMembershipInvoice === invoiceActionKey}
+              data-testid={`button-download-membership-invoice-${membershipSource}-${record.id}`}
+            >
+              {loadingMembershipInvoice === invoiceActionKey ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <>
+                  <Download className="w-4 h-4 mr-1" />
+                  Download
+                </>
+              )}
+            </Button>
+              </>
+            )}
+            {membershipInvoiceError?.key === invoiceActionKey && (
+              <div
+                className="flex flex-wrap items-center gap-2 text-xs text-red-600"
+                role="alert"
+                data-testid={`membership-invoice-error-${membershipSource}-${record.id}`}
+              >
+                <span>{membershipInvoiceError.message}</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7"
+                  disabled={loadingMembershipInvoice === invoiceActionKey}
+                  data-testid={`button-retry-membership-invoice-${membershipSource}-${record.id}`}
+                  onClick={() => membershipInvoiceError.action === 'view'
+                    ? handleViewMembershipInvoice(record, invoiceNumber || record.id)
+                    : handleDownloadMembershipInvoice(record, invoiceNumber || record.id)}
+                >
+                  Retry
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Search and Filter Bar Component
+  const SearchFilterBar = () => {
+    const typeFilterOptions = getTypeFilterOptions();
+    const showTypeFilter = typeFilterOptions.length > 0;
+
+    return (
+      <div className="flex flex-col sm:flex-row gap-3 mb-4">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <Input
+            placeholder="Search transactions..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9"
+            data-testid="input-search"
+          />
+        </div>
+        
+        <div className="flex gap-2">
+          {showTypeFilter && (
+            <Select value={typeFilter} onValueChange={setTypeFilter}>
+              <SelectTrigger className="w-[140px]" data-testid="select-type-filter">
+                <SelectValue placeholder="Filter by type" />
+              </SelectTrigger>
+              <SelectContent>
+                {typeFilterOptions.map(option => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          
+          <Select value={sortOrder} onValueChange={setSortOrder}>
+            <SelectTrigger className="w-[140px]" data-testid="select-sort-order">
+              <ArrowUpDown className="w-4 h-4 mr-2" />
+              <SelectValue placeholder="Sort by" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="newest">Newest First</SelectItem>
+              <SelectItem value="oldest">Oldest First</SelectItem>
+            </SelectContent>
+          </Select>
+          
+          {hasActiveFilters && (
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={clearFilters}
+              title="Clear filters"
+              data-testid="button-clear-filters"
+            >
+              <X className="w-4 h-4" />
+            </Button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const MembershipHistoryErrorCard = ({ location }) => (
+    <div
+      className="text-center py-8 px-4 border border-red-200 bg-red-50 rounded-lg"
+      role="alert"
+      data-testid={`membership-history-error-${location}`}
+    >
+      <Crown className="w-12 h-12 text-red-300 mx-auto mb-3" />
+      <p className="font-medium text-red-900">Membership history could not be loaded</p>
+      <p className="text-sm text-red-700 mt-1">
+        Other transaction types remain available when present. Please try again.
+      </p>
+      <Button
+        variant="outline"
+        size="sm"
+        className="mt-4"
+        onClick={() => retryMembershipHistory()}
+        data-testid={`button-retry-membership-history-${location}`}
+      >
+        Retry
+      </Button>
+    </div>
+  );
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       {showTour && shouldShowTours &&
       <PageTour
         tourGroupName="History"
@@ -192,216 +1706,428 @@ export default function HistoryPage() {
       }
 
       <div className="max-w-7xl mx-auto">
-        <div className="mb-8">
-          <div className="flex items-center justify-between mb-2">
-            <h1 className="text-3xl md:text-4xl font-bold text-slate-900" id="history-page-title">
-              History
-            </h1>
-            {shouldShowTours &&
-            <TourButton onClick={handleStartTour} />
-            }
-          </div>
-          <p className="text-slate-600">View your organisation's program ticket balances and transaction history
-
-          </p>
-        </div>
-
-        {/* Program Balance Cards */}
-        {programs.length > 0 ?
-        <>
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8" id="program-balance-cards">
-              {programs.map((program) =>
-            <button
-              key={program}
-              onClick={() => setSelectedProgram(selectedProgram === program ? null : program)}
-              className="text-left">
-
-                  <Card className={`border-2 transition-all hover:shadow-lg cursor-pointer ${
-              selectedProgram === program ?
-              'border-purple-600 bg-purple-50' :
-              'border-slate-200 hover:border-slate-300'}`
-              }>
-                    <CardHeader>
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-center gap-2">
-                          <Ticket className={`w-5 h-5 ${
-                      selectedProgram === program ? 'text-purple-600' : 'text-slate-400'}`
-                      } />
-                          <CardTitle className="text-lg">{program}</CardTitle>
-                        </div>
-                        {selectedProgram === program &&
-                    <Badge className="bg-purple-600">Selected</Badge>
-                    }
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-3xl font-bold text-purple-600">
-                          {balances[program]}
-                        </span>
-                        <span className="text-slate-600">tickets</span>
-                      </div>
-                      <p className="text-xs text-slate-500 mt-2">
-                        Click to view transactions
-                      </p>
-                    </CardContent>
-                  </Card>
-                </button>
-            )}
-            </div>
-
-            {/* Transaction History */}
-            <Card className="border-slate-200 shadow-sm" id="transaction-history-card">
-              <CardHeader className="border-b border-slate-200">
-                <CardTitle className="flex items-center gap-2">
-                  {selectedProgram ?
-                <>
-                      Transaction History: {selectedProgram}
-                      <button
-                    onClick={() => setSelectedProgram(null)}
-                    className="ml-auto text-sm text-blue-600 hover:text-blue-700">
-
-                        View All
-                      </button>
-                    </> :
-
-                'All Transactions'
-                }
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-6">
-                {isLoading ?
-              <div className="text-center py-8 text-slate-600">Loading transactions...</div> :
-              displayTransactions.length === 0 ?
-              <div className="text-center py-8">
-                    <Ticket className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                    <p className="text-slate-600">No transactions yet</p>
-                  </div> :
-
-              <div className="space-y-3">
-                    {displayTransactions.map((transaction) => {
-                  // Determine icon and color based on transaction type
-                  let icon, colorClass, label;
-                  if (transaction.transaction_type === 'purchase') {
-                    icon = ShoppingCart;
-                    colorClass = 'bg-green-100 text-green-600';
-                    label = 'Purchase';
-                  } else if (transaction.transaction_type === 'refund') {
-                    icon = ArrowUpCircle;
-                    colorClass = 'bg-blue-100 text-blue-600';
-                    label = 'Return to balance';
-                  } else {// 'usage'
-                    icon = Calendar;
-                    colorClass = 'bg-purple-100 text-purple-600';
-                    label = 'Used for Event';
-                  }
-
-                  const Icon = icon;
-
-                  return (
-                    <div
-                      key={transaction.id}
-                      className="flex items-center gap-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
-
-                          <div className={`p-3 rounded-lg ${colorClass}`}>
-                            <Icon className="w-5 h-5" />
-                          </div>
-                          
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-1">
-                              <h3 className="font-semibold text-slate-900">{label}</h3>
-                              <Badge variant="outline" className="text-xs">
-                                {transaction.program_name}
-                              </Badge>
-                            </div>
-                            
-                            {transaction.transaction_type === 'purchase' ?
-                        <div className="space-y-1">
-                                <p className="text-sm text-slate-600">
-                                  PO: {transaction.purchase_order_number} • {transaction.quantity} ticket{transaction.quantity > 1 ? 's' : ''}
-                                </p>
-                                {transaction.xero_invoice_number &&
-                          <p className="text-xs text-slate-500">
-                                    Invoice: {transaction.xero_invoice_number}
-                                  </p>
-                          }
-                              </div> :
-                        transaction.transaction_type === 'refund' ?
-                        <p className="text-sm text-slate-600">
-                                {transaction.event_name} • {transaction.quantity} ticket{transaction.quantity > 1 ? 's' : ''} returned
-                                {transaction.booking_reference && ` • ${transaction.booking_reference}`}
-                              </p> :
-                        // 'usage'
-                        <p className="text-sm text-slate-600">
-                                {transaction.event_name} • {transaction.quantity} ticket{transaction.quantity > 1 ? 's' : ''}
-                                {transaction.booking_reference && ` • ${transaction.booking_reference}`}
-                              </p>
-                        }
-                            
-                            <p className="text-xs text-slate-500 mt-1">
-                              {format(new Date(transaction.created_date), 'MMM d, yyyy • h:mm a')}
-                            </p>
-                          </div>
-                          
-                          <div className="flex items-center gap-3">
-                            <div className={`flex items-center gap-1 font-semibold ${
-                        transaction.transaction_type === 'purchase' ? 'text-green-600' :
-                        transaction.transaction_type === 'refund' ? 'text-blue-600' :
-                        'text-purple-600'}`
-                        }>
-                              {transaction.transaction_type === 'purchase' ?
-                          <ArrowUpCircle className="w-4 h-4" /> :
-                          transaction.transaction_type === 'refund' ?
-                          <ArrowUpCircle className="w-4 h-4" /> :
-                          // 'usage'
-                          <ArrowDownCircle className="w-4 h-4" />
-                          }
-                              <span>
-                                {transaction.transaction_type === 'usage' ? '-' : '+'}
-                                {transaction.quantity}
-                              </span>
-                            </div>
-
-                            {transaction.xero_invoice_pdf_uri &&
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleViewInvoice(transaction)}
-                          disabled={downloadingInvoice === transaction.id}
-                          className="shrink-0">
-
-                                {downloadingInvoice === transaction.id ?
-                          <Loader2 className="w-4 h-4 animate-spin" /> :
-
-                          <>
-                                    <FileText className="w-4 h-4 mr-1" />
-                                    Invoice
-                                  </>
-                          }
-                              </Button>
-                        }
-                          </div>
-                        </div>);
-
-                })}
-                  </div>
+        {/* Header - hidden when custom banner is present */}
+        {!hasBanner && (
+          <div className="mb-8">
+            <div className="flex items-center justify-between mb-2">
+              <h1 className="text-3xl md:text-4xl font-bold text-slate-900" id="history-page-title">
+                History
+              </h1>
+              {shouldShowTours &&
+              <TourButton onClick={handleStartTour} />
               }
-              </CardContent>
-            </Card>
-          </> :
+            </div>
+            <p className="text-slate-600">View your transaction and membership history
+            </p>
+          </div>
+        )}
 
-        <Card className="border-slate-200 shadow-sm">
-            <CardContent className="p-12 text-center">
-              <Ticket className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-slate-900 mb-2">
-                No Program Tickets Yet
-              </h3>
-              <p className="text-slate-600">
-                Purchase program tickets to get started
-              </p>
-            </CardContent>
-          </Card>
-        }
+        {/* Transaction History with Tabs */}
+        <Card className="border-slate-200 shadow-sm" id="transaction-history-card">
+          <CardHeader className="border-b border-slate-200">
+            <CardTitle>Transaction History</CardTitle>
+          </CardHeader>
+          <CardContent className="pt-6">
+            {isLoading ? (
+              <div className="text-center py-8 text-slate-600">Loading transactions...</div>
+            ) : (!hasAnyHistory && visibleCategories.length === 0) ? (
+              <div className="text-center py-8">
+                <Ticket className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                <p className="text-slate-600">No transactions yet</p>
+              </div>
+            ) : (
+              <Tabs value={activeTab} onValueChange={setActiveTab}>
+                <TabsList className="mb-4 flex flex-wrap h-auto gap-1">
+                  <TabsTrigger value="all" data-testid="tab-all">All</TabsTrigger>
+                  {visibleCategories.map(category => (
+                    <TabsTrigger key={category.key} value={category.key} data-testid={`tab-${category.key}`}>
+                      {category.label} ({category.count})
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+
+                {historyErrors.filter(category => category.key !== 'membership').map(category => (
+                  <div key={category.key} role="alert" data-testid={`history-error-${category.key}`} className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4 text-red-900">
+                    <p>{category.label} history could not be loaded. Please try again.</p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-2"
+                      disabled={category.queries.some(query => query.isFetching)}
+                      onClick={() => category.queries.forEach(query => query.refetch())}
+                    >
+                      Retry
+                    </Button>
+                  </div>
+                ))}
+
+                {/* Search and Filter Bar */}
+                <SearchFilterBar />
+
+                {/* All Transactions Tab */}
+                <TabsContent value="all" className="space-y-6">
+                  {membershipHistoryFailed && (
+                    <MembershipHistoryErrorCard location="overview" />
+                  )}
+
+                  {/* Standard Ticket Purchases Section */}
+                  {filteredBookingGroups.length > 0 && (
+                    <div className="space-y-3">
+                      <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                        <CreditCard className="w-4 h-4" />
+                        Standard Ticket Purchases ({filteredBookingGroups.length})
+                      </h3>
+                      {filteredBookingGroups.slice(0, 5).map((group) => (
+                        <BookingGroupCard
+                          key={group.reference}
+                          group={group}
+                          loadingBookingInvoice={loadingBookingInvoice}
+                          handleViewBookingInvoice={handleViewBookingInvoice}
+                          handleDownloadBookingInvoice={handleDownloadBookingInvoice}
+                          canAccessInvoices={canAccessInvoices}
+                        />
+                      ))}
+                      {filteredBookingGroups.length > 5 && (
+                        <Button 
+                          variant="link" 
+                          onClick={() => setActiveTab('tickets')}
+                          className="text-sm"
+                        >
+                          View all {filteredBookingGroups.length} standard ticket transactions
+                        </Button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Program Ticket Transactions Section (org-only) */}
+                  {hasOrg && filteredTransactions.length > 0 && (
+                    <div className="space-y-3">
+                      <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                        <Ticket className="w-4 h-4" />
+                        Program Ticket Transactions ({filteredTransactions.length})
+                      </h3>
+                      {filteredTransactions.slice(0, 5).map((transaction) => (
+                        <ProgramTransactionCard
+                          key={transaction.id}
+                          transaction={transaction}
+                          downloadingInvoice={downloadingInvoice}
+                          handleViewInvoice={handleViewInvoice}
+                          canAccessInvoices={canAccessInvoices}
+                        />
+                      ))}
+                      {filteredTransactions.length > 5 && (
+                        <Button 
+                          variant="link" 
+                          onClick={() => setActiveTab('program')}
+                          className="text-sm"
+                        >
+                          View all {filteredTransactions.length} program ticket transactions
+                        </Button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Training Fund Top-up Purchases Section (org-only) */}
+                  {hasOrg && filteredTrainingFundPurchases.length > 0 && (
+                    <div className="space-y-3">
+                      <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                        <Wallet className="w-4 h-4" />
+                        Training Fund Top-ups ({filteredTrainingFundPurchases.length})
+                      </h3>
+                      {filteredTrainingFundPurchases.slice(0, 5).map((purchase) => (
+                        <TrainingFundPurchaseCard
+                          key={purchase.id}
+                          purchase={purchase}
+                        />
+                      ))}
+                      {filteredTrainingFundPurchases.length > 5 && (
+                        <Button 
+                          variant="link" 
+                          onClick={() => setActiveTab('training-fund')}
+                          className="text-sm"
+                        >
+                          View all {filteredTrainingFundPurchases.length} training fund top-ups
+                        </Button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Training Fund Transactions Section (org-only) */}
+                  {hasOrg && filteredTrainingFundTransactions.length > 0 && (
+                    <div className="space-y-3">
+                      <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                        <Wallet className="w-4 h-4" />
+                        Training Fund Transactions ({filteredTrainingFundTransactions.length})
+                      </h3>
+                      {filteredTrainingFundTransactions.slice(0, 5).map((transaction) => (
+                        <TrainingFundTransactionCard
+                          key={transaction.id}
+                          transaction={transaction}
+                        />
+                      ))}
+                      {filteredTrainingFundTransactions.length > 5 && (
+                        <Button 
+                          variant="link" 
+                          onClick={() => setActiveTab('training-fund')}
+                          className="text-sm"
+                        >
+                          View all {filteredTrainingFundTransactions.length} training fund transactions
+                        </Button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Voucher Transactions Section (org-only) */}
+                  {hasOrg && filteredVoucherTransactions.length > 0 && (
+                    <div className="space-y-3">
+                      <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                        <Gift className="w-4 h-4" />
+                        Training Voucher Transactions ({filteredVoucherTransactions.length})
+                      </h3>
+                      {filteredVoucherTransactions.slice(0, 5).map((transaction) => (
+                        <VoucherTransactionCard
+                          key={transaction.id}
+                          transaction={transaction}
+                        />
+                      ))}
+                      {filteredVoucherTransactions.length > 5 && (
+                        <Button 
+                          variant="link" 
+                          onClick={() => setActiveTab('vouchers')}
+                          className="text-sm"
+                        >
+                          View all {filteredVoucherTransactions.length} voucher transactions
+                        </Button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Membership History Section */}
+                  <HistoricalDdPayments
+                    memberId={memberInfo?.id}
+                    activeTenantId={memberInfo?.tenant_id || memberInfo?.tenantId || null}
+                  />
+                  {filteredMembershipHistory.length > 0 && (
+                    <div className="space-y-3">
+                      <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                        <Crown className="w-4 h-4" />
+                        Membership ({filteredMembershipHistory.length})
+                      </h3>
+                      {filteredMembershipHistory.slice(0, 5).map((record) => (
+                        <MembershipHistoryCard
+                          key={membershipRecordKey(record)}
+                          record={record}
+                        />
+                      ))}
+                      {filteredMembershipHistory.length > 5 && (
+                        <Button 
+                          variant="link" 
+                          onClick={() => setActiveTab('membership')}
+                          className="text-sm"
+                        >
+                          View all {filteredMembershipHistory.length} membership records
+                        </Button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* No results message */}
+                  {filteredBookingGroups.length === 0 && 
+                   filteredMembershipHistory.length === 0 &&
+                   (!hasOrg || (filteredTransactions.length === 0 && filteredTrainingFundTransactions.length === 0 && filteredTrainingFundPurchases.length === 0 && filteredVoucherTransactions.length === 0)) &&
+                   historyErrors.length === 0 &&
+                   searchQuery.trim() && (
+                    <div className="text-center py-8">
+                      <Search className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                      <p className="text-slate-600">No transactions match your search</p>
+                      <Button variant="link" onClick={clearFilters} className="mt-2">
+                        Clear filters
+                      </Button>
+                    </div>
+                  )}
+                </TabsContent>
+
+                {/* Standard Tickets Tab */}
+                <TabsContent value="tickets" className="space-y-3">
+                  {(() => {
+                    const pagination = paginateData(filteredBookingGroups);
+                    return filteredBookingGroups.length === 0 ? (
+                      <div className="text-center py-8">
+                        <CreditCard className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                        <p className="text-slate-600">
+                          {searchQuery.trim() ? 'No matching standard ticket purchases' : 'No standard ticket purchases'}
+                        </p>
+                        {searchQuery.trim() && (
+                          <Button variant="link" onClick={clearFilters} className="mt-2">
+                            Clear filters
+                          </Button>
+                        )}
+                      </div>
+                    ) : (
+                      <>
+                        {pagination.items.map((group) => (
+                          <BookingGroupCard
+                            key={group.reference}
+                            group={group}
+                            loadingBookingInvoice={loadingBookingInvoice}
+                            handleViewBookingInvoice={handleViewBookingInvoice}
+                            handleDownloadBookingInvoice={handleDownloadBookingInvoice}
+                            canAccessInvoices={canAccessInvoices}
+                          />
+                        ))}
+                        <PaginationControls pagination={pagination} />
+                      </>
+                    );
+                  })()}
+                </TabsContent>
+
+                {/* Program Tickets Tab */}
+                <TabsContent value="program" className="space-y-3">
+                  {(() => {
+                    const pagination = paginateData(filteredTransactions);
+                    return filteredTransactions.length === 0 ? (
+                      <div className="text-center py-8">
+                        <Ticket className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                        <p className="text-slate-600">
+                          {searchQuery.trim() || typeFilter !== 'all' ? 'No matching program ticket transactions' : 'No program ticket transactions'}
+                        </p>
+                        {(searchQuery.trim() || typeFilter !== 'all') && (
+                          <Button variant="link" onClick={clearFilters} className="mt-2">
+                            Clear filters
+                          </Button>
+                        )}
+                      </div>
+                    ) : (
+                      <>
+                        {pagination.items.map((transaction) => (
+                          <ProgramTransactionCard
+                            key={transaction.id}
+                            transaction={transaction}
+                            downloadingInvoice={downloadingInvoice}
+                            handleViewInvoice={handleViewInvoice}
+                            canAccessInvoices={canAccessInvoices}
+                          />
+                        ))}
+                        <PaginationControls pagination={pagination} />
+                      </>
+                    );
+                  })()}
+                </TabsContent>
+
+                {/* Training Fund Tab */}
+                <TabsContent value="training-fund" className="space-y-3">
+                  {filteredTrainingFundPurchases.length > 0 && (
+                    <div className="space-y-3 mb-6">
+                      <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                        <Wallet className="w-4 h-4" />
+                        Top-ups ({filteredTrainingFundPurchases.length})
+                      </h3>
+                      {filteredTrainingFundPurchases.map((purchase) => (
+                        <TrainingFundPurchaseCard
+                          key={purchase.id}
+                          purchase={purchase}
+                        />
+                      ))}
+                    </div>
+                  )}
+                  {(() => {
+                    const pagination = paginateData(filteredTrainingFundTransactions);
+                    return filteredTrainingFundTransactions.length === 0 && filteredTrainingFundPurchases.length === 0 ? (
+                      <div className="text-center py-8">
+                        <Wallet className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                        <p className="text-slate-600">
+                          {searchQuery.trim() || typeFilter !== 'all' ? 'No matching training fund transactions' : 'No training fund transactions'}
+                        </p>
+                        {(searchQuery.trim() || typeFilter !== 'all') && (
+                          <Button variant="link" onClick={clearFilters} className="mt-2">
+                            Clear filters
+                          </Button>
+                        )}
+                      </div>
+                    ) : (
+                      <>
+                        {pagination.items.map((transaction) => (
+                          <TrainingFundTransactionCard
+                            key={transaction.id}
+                            transaction={transaction}
+                          />
+                        ))}
+                        <PaginationControls pagination={pagination} />
+                      </>
+                    );
+                  })()}
+                </TabsContent>
+
+                {/* Vouchers Tab */}
+                <TabsContent value="vouchers" className="space-y-3">
+                  {(() => {
+                    const pagination = paginateData(filteredVoucherTransactions);
+                    return filteredVoucherTransactions.length === 0 ? (
+                      <div className="text-center py-8">
+                        <Gift className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                        <p className="text-slate-600">
+                          {searchQuery.trim() || typeFilter !== 'all' ? 'No matching voucher transactions' : 'No voucher transactions'}
+                        </p>
+                        {(searchQuery.trim() || typeFilter !== 'all') && (
+                          <Button variant="link" onClick={clearFilters} className="mt-2">
+                            Clear filters
+                          </Button>
+                        )}
+                      </div>
+                    ) : (
+                      <>
+                        {pagination.items.map((transaction) => (
+                          <VoucherTransactionCard
+                            key={transaction.id}
+                            transaction={transaction}
+                          />
+                        ))}
+                        <PaginationControls pagination={pagination} />
+                      </>
+                    );
+                  })()}
+                </TabsContent>
+
+                {/* Membership Tab */}
+                <TabsContent value="membership" className="space-y-3">
+                  <HistoricalDdPayments
+                    memberId={memberInfo?.id}
+                    activeTenantId={memberInfo?.tenant_id || memberInfo?.tenantId || null}
+                  />
+                  {(() => {
+                    const pagination = paginateData(filteredMembershipHistory);
+                    if (membershipHistoryFailed) {
+                      return <MembershipHistoryErrorCard location="tab" />;
+                    }
+                    return filteredMembershipHistory.length === 0 ? (
+                      <div className="text-center py-8">
+                        <Crown className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                        <p className="text-slate-600">
+                          {searchQuery.trim() ? 'No matching membership records' : 'No membership records'}
+                        </p>
+                        {searchQuery.trim() && (
+                          <Button variant="link" onClick={clearFilters} className="mt-2">
+                            Clear filters
+                          </Button>
+                        )}
+                      </div>
+                    ) : (
+                      <>
+                        {pagination.items.map((record) => (
+                          <MembershipHistoryCard
+                            key={membershipRecordKey(record)}
+                            record={record}
+                          />
+                        ))}
+                        <PaginationControls pagination={pagination} />
+                      </>
+                    );
+                  })()}
+                </TabsContent>
+              </Tabs>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       {/* Invoice Viewer Modal */}

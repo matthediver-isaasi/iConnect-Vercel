@@ -8,7 +8,15 @@
       },
       "description": {
         "type": "string",
-        "description": "Description of the group"
+        "description": "Purpose of the group"
+      },
+      "who_is_it_for": {
+        "type": "string",
+        "description": "Who the group is for (optional rich text)"
+      },
+      "about_the_group": {
+        "type": "string",
+        "description": "About the group (optional rich text)"
       },
       "roles": {
         "type": "array",
@@ -22,6 +30,129 @@
         "type": "boolean",
         "default": true,
         "description": "Whether this group is currently active"
+      },
+      "header_image_url": {
+        "type": "string",
+        "description": "Optional header image URL displayed on the self-join browse page"
+      },
+      "allow_self_join": {
+        "type": "boolean",
+        "default": false,
+        "description": "Whether members can join this group themselves from the Member Groups page"
+      },
+      "default_self_join_role": {
+        "type": "string",
+        "description": "Role assigned automatically when a member self-joins this group"
+      },
+      "classification_id": {
+        "type": "string",
+        "description": "Optional MemberGroupClassification this group belongs to (organisational label only, no behaviour)"
+      },
+      "linkedin_url": {
+        "type": "string",
+        "description": "Optional LinkedIn profile URL for this group, shown as a link on the Member Group Detail page"
+      },
+      "terms_of_reference": {
+        "type": "string",
+        "description": "Optional multi-line terms of reference shown to members when self-joining; the member must agree before the join completes"
+      },
+      "role_terms_of_reference": {
+        "type": "object",
+        "default": {},
+        "description": "Deprecated. Previously held per-role terms-of-reference HTML, keyed by role name. Superseded by role_terms_url; retained for legacy data only."
+      },
+      "role_terms_url": {
+        "type": "object",
+        "default": {},
+        "description": "Optional per-role terms-of-reference URL, keyed by role name. Used by role invitations: the invite email and public invite page link to this URL. Roles without a URL show no terms link."
+      },
+      "role_badge_ids": {
+        "type": "object",
+        "default": {},
+        "description": "Optional per-role badge link, keyed by role name: badge id from the Badges module (badge table). Members currently holding the role see the badge in the Membership Badges section of /about-me; display is derived from current assignments, no member_badge rows are written."
+      },
+      "role_term_definitions": {
+        "type": "object",
+        "default": {},
+        "description": "Optional per-role term definition, keyed by role name: { term_value: number, term_unit: 'months'|'years', max_terms: number }. Surfaced (read-only) on vacancy postings and snapshotted onto assignments at award/invite-accept time."
+      },
+      "events_enabled": {
+        "type": "boolean",
+        "default": false,
+        "description": "Whether Group Admins of this group can create simple (single) events scoped to the group"
+      },
+      "complex_events_enabled": {
+        "type": "boolean",
+        "default": false,
+        "description": "Whether Group Admins of this group can create complex (multi-session) events scoped to the group"
+      },
+      "resource_subcategories": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "default": [],
+        "description": "Resource subcategory names linked to this group. The group's Resources card surfaces tenant resources tagged with any of these subcategories; group-created resources are auto-tagged with them; and such auto-tagged group resources become visible tenant-wide on /Resources under the matching filter."
+      },
+      "self_join_closed": {
+        "type": "boolean",
+        "default": false,
+        "description": "When true, the group remains visible on the Member Groups page but new self-join registrations are blocked. Use self_join_closed_label to customise the button text shown to members."
+      },
+      "self_join_closed_label": {
+        "type": "string",
+        "description": "Custom label shown on the disabled CTA button when self_join_closed is true. Defaults to 'Registrations closed' if left blank."
+      },
+      "group_admins_can_edit_content": {
+        "type": "boolean",
+        "default": false,
+        "description": "When true, Group Admins of this group may edit the header image and the description text fields (description, who_is_it_for, about_the_group) from the group detail page. Never grants name editing; enforced server-side on the generic entity PATCH."
+      },
+      "automatic_membership_enabled": {
+        "type": "boolean",
+        "default": false,
+        "description": "When true, members matching automatic_membership_filter_groups are automatically added to this group with the role automatic_membership_role."
+      },
+      "automatic_membership_role": {
+        "type": "string",
+        "description": "Role assigned to members added by automatic membership. Must be a value in the group's roles array. Required when automatic_membership_enabled is true."
+      },
+      "automatic_membership_filter_groups": {
+        "type": "array",
+        "default": [],
+        "description": "Filter groups (OR between groups, AND within each group) that define which members are automatically added. Each group has a conditions array."
+      },
+      "allow_members_to_leave": {
+        "type": "boolean",
+        "default": true,
+        "description": "When false, non-admin members may not self-remove from this group (enforced server-side on generic assignment DELETE)."
+      },
+      "automatic_membership_sync_status": {
+        "type": "string",
+        "default": "idle",
+        "description": "Current sync state: idle | queued | running | error"
+      },
+      "automatic_membership_last_synced_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "Timestamp of last completed automatic membership sync."
+      },
+      "automatic_membership_match_count": {
+        "type": "number",
+        "description": "Number of members matched by the filter on the last completed sync."
+      },
+      "automatic_membership_sync_error": {
+        "type": "string",
+        "description": "Error message from the last failed sync, if any."
+      },
+      "automatic_membership_cursor": {
+        "type": "string",
+        "description": "Pagination cursor for resumable batch processing (null when idle/complete)."
+      },
+      "automatic_membership_generation": {
+        "type": "integer",
+        "default": 0,
+        "description": "Monotonically-increasing generation counter incremented by a DB trigger whenever automatic_membership_enabled, automatic_membership_role, or automatic_membership_filter_groups changes. Used for stale-worker fencing in the reconcile RPC: a worker that reads a generation and later calls the RPC with that value will be rejected if the config has since changed."
       }
     },
     "required": [

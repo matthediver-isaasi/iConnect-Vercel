@@ -8,7 +8,7 @@ import { Check } from "lucide-react";
 import AGCASButton from "../ui/AGCASButton";
 import AGCASSquareButton from "../ui/AGCASSquareButton";
 import { Button } from "@/components/ui/button";
-import { ArrowUpRight, Download, ExternalLink, PlayCircle, Eye, FileText, Mail, Plus } from "lucide-react";
+import { ArrowUpRight, Download, ExternalLink, PlayCircle, Eye, FileText, ClipboardList, Mail, Plus } from "lucide-react";
 
 const iconMap = {
   ArrowUpRight,
@@ -17,6 +17,7 @@ const iconMap = {
   PlayCircle,
   Eye,
   FileText,
+  ClipboardList,
   Mail,
   Plus,
 };
@@ -31,7 +32,7 @@ export default function ButtonStyleSelector({
   const { data: buttonStyles = [], isLoading } = useQuery({
     queryKey: ['activeButtonStyles'],
     queryFn: async () => {
-      const styles = await base44.entities.ButtonStyle.list('-created_date');
+      const styles = await base44.entities.ButtonStyle.list('-created_at');
       return styles.filter(s => s.is_active);
     }
   });

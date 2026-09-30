@@ -1,0 +1,151 @@
+index-ViwNVq-T.js:1061 [publicClient] Detected tenant from subdomain: gsf
+index-ViwNVq-T.js:1146 GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.84.0) 2026-01-24T08:32:34.068Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+Yg @ index-ViwNVq-T.js:1146
+bce @ index-ViwNVq-T.js:1147
+_initSupabaseAuthClient @ index-ViwNVq-T.js:1147
+vce @ index-ViwNVq-T.js:1147
+xB @ index-ViwNVq-T.js:1147
+(anonymous) @ index-ViwNVq-T.js:2129
+(anonymous) @ index-ViwNVq-T.js:1
+(anonymous) @ index-ViwNVq-T.js:2544
+index-ViwNVq-T.js:1450 [usePendingPurchaseOrders] memberInfo: null
+index-ViwNVq-T.js:1450 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-ViwNVq-T.js:1450 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-ViwNVq-T.js:1450 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-ViwNVq-T.js:1450 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-ViwNVq-T.js:1450 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-ViwNVq-T.js:1450 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-ViwNVq-T.js:1450 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-ViwNVq-T.js:1450 [usePendingPurchaseOrders] Query running, memberInfo.id: b24e022f-adcc-4930-8952-63a34cc16925
+index-ViwNVq-T.js:1450 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-ViwNVq-T.js:1450 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-ViwNVq-T.js:1450 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-ViwNVq-T.js:1450 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-ViwNVq-T.js:1450 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-ViwNVq-T.js:1450 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-ViwNVq-T.js:1450 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-ViwNVq-T.js:1450 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-ViwNVq-T.js:1450 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-ViwNVq-T.js:1450 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-ViwNVq-T.js:1450 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-ViwNVq-T.js:1450 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-ViwNVq-T.js:1450 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-ViwNVq-T.js:1450 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-ViwNVq-T.js:1450 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-ViwNVq-T.js:1450 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-ViwNVq-T.js:1416 Error loading member record: {code: 'PGRST116', details: 'Results contain 3 rows, application/vnd.pgrst.object+json requires 1 row', hint: null, message: 'JSON object requested, multiple (or no) rows returned'}
+queryFn @ index-ViwNVq-T.js:1416
+await in queryFn
+i @ index-ViwNVq-T.js:1061
+b @ index-ViwNVq-T.js:1061
+start @ index-ViwNVq-T.js:1061
+fetch @ index-ViwNVq-T.js:1061
+Gf @ index-ViwNVq-T.js:1061
+onSubscribe @ index-ViwNVq-T.js:1061
+subscribe @ index-ViwNVq-T.js:1061
+(anonymous) @ index-ViwNVq-T.js:1061
+F$ @ index-ViwNVq-T.js:38
+Xy @ index-ViwNVq-T.js:40
+dx @ index-ViwNVq-T.js:40
+ZX @ index-ViwNVq-T.js:40
+em @ index-ViwNVq-T.js:40
+gF @ index-ViwNVq-T.js:40
+Tu @ index-ViwNVq-T.js:38
+(anonymous) @ index-ViwNVq-T.js:40
+setTimeout
+r @ index-ViwNVq-T.js:1061
+l @ index-ViwNVq-T.js:1061
+batch @ index-ViwNVq-T.js:1061
+Fc @ index-ViwNVq-T.js:1061
+setData @ index-ViwNVq-T.js:1061
+onSuccess @ index-ViwNVq-T.js:1061
+m @ index-ViwNVq-T.js:1061
+Promise.then
+b @ index-ViwNVq-T.js:1061
+start @ index-ViwNVq-T.js:1061
+fetch @ index-ViwNVq-T.js:1061
+Gf @ index-ViwNVq-T.js:1061
+onSubscribe @ index-ViwNVq-T.js:1061
+subscribe @ index-ViwNVq-T.js:1061
+(anonymous) @ index-ViwNVq-T.js:1061
+F$ @ index-ViwNVq-T.js:38
+Xy @ index-ViwNVq-T.js:40
+dx @ index-ViwNVq-T.js:40
+(anonymous) @ index-ViwNVq-T.js:40
+N @ index-ViwNVq-T.js:25
+E @ index-ViwNVq-T.js:25
+index-ViwNVq-T.js:1450 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-ViwNVq-T.js:1450 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-ViwNVq-T.js:1450 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-ViwNVq-T.js:1450 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-ViwNVq-T.js:1450 [usePendingPurchaseOrders] Fetched bookings count: 0
+index-ViwNVq-T.js:1450 [usePendingPurchaseOrders] Pending PO bookings: 0
+index-ViwNVq-T.js:1450 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-ViwNVq-T.js:1450 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-ViwNVq-T.js:1450 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-ViwNVq-T.js:1450 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-ViwNVq-T.js:1450 [Layout] Server session found: mat.the.diver@googlemail.com
+index-ViwNVq-T.js:1450 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-ViwNVq-T.js:1450 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-ViwNVq-T.js:1450 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-ViwNVq-T.js:1450 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-ViwNVq-T.js:1450 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-ViwNVq-T.js:1450 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-ViwNVq-T.js:1450 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-ViwNVq-T.js:1450 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-ViwNVq-T.js:1450 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-ViwNVq-T.js:1450 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-ViwNVq-T.js:1450 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-ViwNVq-T.js:1450 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-ViwNVq-T.js:1450 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-ViwNVq-T.js:1450 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-ViwNVq-T.js:1450 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-ViwNVq-T.js:1450 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-ViwNVq-T.js:1450 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-ViwNVq-T.js:1450 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-ViwNVq-T.js:1450 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-ViwNVq-T.js:1450 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-ViwNVq-T.js:40 ReferenceError: AlertCircle is not defined
+    at DG (index-ViwNVq-T.js:2436:261814)
+    at i4 (index-ViwNVq-T.js:38:17018)
+    at oC (index-ViwNVq-T.js:40:3139)
+    at xI (index-ViwNVq-T.js:40:44833)
+    at uI (index-ViwNVq-T.js:40:39790)
+    at QX (index-ViwNVq-T.js:40:39718)
+    at Fj (index-ViwNVq-T.js:40:39570)
+    at vC (index-ViwNVq-T.js:40:35934)
+    at oI (index-ViwNVq-T.js:40:34883)
+    at N (index-ViwNVq-T.js:25:1543)
+lC @ index-ViwNVq-T.js:40
+W$.a.callback @ index-ViwNVq-T.js:40
+X5 @ index-ViwNVq-T.js:38
+xF @ index-ViwNVq-T.js:40
+lI @ index-ViwNVq-T.js:40
+GX @ index-ViwNVq-T.js:40
+ZX @ index-ViwNVq-T.js:40
+em @ index-ViwNVq-T.js:40
+oI @ index-ViwNVq-T.js:40
+N @ index-ViwNVq-T.js:25
+E @ index-ViwNVq-T.js:25
+index-ViwNVq-T.js:2436 Uncaught ReferenceError: AlertCircle is not defined
+    at DG (index-ViwNVq-T.js:2436:261814)
+    at i4 (index-ViwNVq-T.js:38:17018)
+    at oC (index-ViwNVq-T.js:40:3139)
+    at xI (index-ViwNVq-T.js:40:44833)
+    at uI (index-ViwNVq-T.js:40:39790)
+    at QX (index-ViwNVq-T.js:40:39718)
+    at Fj (index-ViwNVq-T.js:40:39570)
+    at vC (index-ViwNVq-T.js:40:35934)
+    at oI (index-ViwNVq-T.js:40:34883)
+    at N (index-ViwNVq-T.js:25:1543)
+DG @ index-ViwNVq-T.js:2436
+i4 @ index-ViwNVq-T.js:38
+oC @ index-ViwNVq-T.js:40
+xI @ index-ViwNVq-T.js:40
+uI @ index-ViwNVq-T.js:40
+QX @ index-ViwNVq-T.js:40
+Fj @ index-ViwNVq-T.js:40
+vC @ index-ViwNVq-T.js:40
+oI @ index-ViwNVq-T.js:40
+N @ index-ViwNVq-T.js:25
+E @ index-ViwNVq-T.js:25

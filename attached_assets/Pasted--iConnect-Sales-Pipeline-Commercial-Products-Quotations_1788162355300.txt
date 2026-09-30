@@ -1,0 +1,2690 @@
+# iConnect Sales Pipeline, Commercial Products, Quotations & Event Ticket Allocations
+
+## Replit Build Scope
+
+# 1. Objective
+
+Introduce a new **Sales** module into iConnect focused on organisation-to-organisation commercial activity, particularly:
+
+* Sponsorship packages
+* Partnership packages
+* Exhibition space
+* Advertising
+* Speaker/session opportunities
+* Event-related commercial packages
+* Corporate ticket purchases
+* Other commercial products and services
+
+The module should manage the commercial journey from:
+
+**Organisation → Opportunity → Quote → Sale → Invoice**
+
+while reusing iConnect's existing:
+
+* Organisation CRM
+* Member/contact records
+* Events
+* Event ticket types
+* Event registration engine
+* Authentication
+* Permissions
+* Notification systems
+* Document/file storage
+* Xero integration where already available
+
+The module must **not** become an accounting system or create a second event registration system.
+
+Xero/QuickBooks remain responsible for accounting.
+
+The existing iConnect Event Registration engine remains responsible for named delegate registration.
+
+---
+
+# 2. Critical Architecture Principles
+
+## 2.1 Organisation remains the master customer record
+
+Do not create a separate Sales customer database.
+
+All Sales Opportunities must link back to an existing Organisation record.
+
+Reuse existing Organisation data including, where applicable:
+
+* Organisation name
+* Address
+* Billing address
+* Contacts
+* Members
+* Custom fields
+* Website/domain
+* Telephone
+* Existing notes
+* Existing external accounting references
+
+Commercial activity should ultimately become part of the Organisation's CRM history.
+
+---
+
+## 2.2 Opportunity and Quote are separate entities
+
+Do not use a Quote as the Sales Opportunity.
+
+The relationship should conceptually be:
+
+**Organisation**
+
+→ **Opportunity**
+
+→ **Quote**
+
+→ **Quote Version**
+
+→ **Quote Lines**
+
+→ **Sale**
+
+→ **External Accounting Invoice**
+
+One Opportunity may therefore have:
+
+* Multiple discussions
+* Multiple quote versions
+* Different package combinations
+* Price negotiations
+* Different customer contacts
+
+before becoming a completed sale.
+
+---
+
+## 2.3 Event ticket allocation and delegate registration are separate
+
+This is a critical requirement.
+
+A commercial sale may include Event Tickets even though delegate information is not known at the time of sale.
+
+Therefore:
+
+**Ticket Allocation = ownership of event capacity**
+
+**Registration = named attendee**
+
+These must remain separate concepts.
+
+Commercially purchased capacity must reduce event availability when the sale is confirmed.
+
+Named delegates may then register later using the existing Event Registration engine.
+
+Do not build a second commercial event registration engine.
+
+---
+
+# 3. Discovery / Existing Architecture Review
+
+Before implementation, inspect the current iConnect architecture.
+
+In particular review:
+
+### Organisations
+
+* Organisation tables
+* Organisation/member relationships
+* Organisation custom fields
+* Existing Organisation CRM UI
+* Notes/activity mechanisms if they already exist
+
+### Members / Contacts
+
+* Member records
+* Organisation relationships
+* Internal admin/user relationships
+* Authentication model
+
+### Events
+
+Inspect:
+
+* Event tables
+* Ticket type tables
+* Ticket capacities
+* Group ticket implementation
+* Registration records
+* Registration checkout
+* Payment flow
+* Event form questions
+* Complex event registration logic
+* Session/workshop selection
+* Event invitations
+* Event cancellation
+* Refund logic
+* QR check-in
+* Badges
+* CPD/certificates
+* Event reporting
+
+### Accounting
+
+Inspect:
+
+* Current Xero integration
+* Existing OAuth/account configuration
+* Existing customer/contact mapping
+* Existing invoice capabilities if present
+
+Determine whether QuickBooks integration already exists.
+
+Do not duplicate existing services where reusable architecture already exists.
+
+---
+
+# 4. Navigation
+
+Add a new top-level administration area:
+
+# Sales
+
+Suggested child navigation:
+
+* Dashboard
+* Pipeline
+* Opportunities
+* Quotes
+* Products
+* Bundles
+* Tasks
+* Reports
+* Settings
+
+Suggested routes can follow existing iConnect naming conventions rather than being hardcoded to the examples above.
+
+---
+
+# 5. Commercial Product Catalogue
+
+Create a reusable Sales Product catalogue.
+
+Products may represent items such as:
+
+* 2m × 2m exhibition space
+* 4m × 2m exhibition space
+* Headline sponsorship
+* Session sponsorship
+* Speaker slot
+* Website advertising
+* Newsletter advertising
+* Dinner sponsorship
+* Delegate ticket
+* Webinar sponsorship
+* Annual partnership
+
+Products should support:
+
+* Name
+* Product code/SKU
+* Category
+* Internal description
+* Customer-facing description
+* Standard price
+* Currency
+* Tax/VAT treatment
+* Optional cost price
+* Active/inactive
+* Price override permitted
+* Optional minimum selling price
+* Optional availability dates
+* Optional related Event
+* Optional capacity/quantity limitations
+
+Products must be tenant scoped.
+
+---
+
+# 6. Product Categories
+
+Provide configurable Sales Product Categories.
+
+Example defaults:
+
+* Sponsorship
+* Exhibition
+* Advertising
+* Partnership
+* Speaking Opportunities
+* Digital
+* Hospitality
+* Event Tickets
+* Other
+
+Administrators must be able to:
+
+* Create
+* Rename
+* Reorder
+* Deactivate
+
+categories.
+
+Do not hardcode these categories into application logic.
+
+---
+
+# 7. Event Ticket Products
+
+A commercial Product must be capable of referencing an existing iConnect Event Ticket Type.
+
+Do not create a duplicate ticket type inside Sales.
+
+Example:
+
+Sales Product:
+
+**Annual Conference Standard Delegate Ticket**
+
+Linked Event:
+
+Annual Conference 2027
+
+Linked Ticket Type:
+
+Standard Delegate
+
+This allows Event Tickets to be sold:
+
+* Individually
+* In quantities
+* As part of Bundles
+
+---
+
+# 8. Group Ticket Capacity
+
+Inspect the existing handling of Group Tickets.
+
+Commercial ticket allocation must support cases such as:
+
+**1 × Group Ticket**
+
+where:
+
+**1 Group Ticket = 10 delegate places**
+
+Event capacity calculations must use the underlying number of delegate places and not simply the number of commercial quote lines.
+
+Conceptually each Ticket Type needs to expose or derive:
+
+**delegateCapacityPerTicket**
+
+Example:
+
+Standard Ticket:
+
+1 ticket = 1 delegate
+
+Group Ticket:
+
+1 ticket = 10 delegates
+
+If an equivalent mechanism already exists, reuse it.
+
+---
+
+# 9. Bundles / Commercial Packages
+
+Create reusable Bundles assembled from Products.
+
+Example:
+
+## Gold Sponsor
+
+Includes:
+
+* 1 × 4m × 2m Exhibition Space
+* 1 × Speaker Session
+* 1 × Website Sponsorship
+* 6 × Standard Event Tickets
+
+Bundle fields:
+
+* Name
+* Code
+* Description
+* Customer-facing description
+* Active/inactive
+* Standard bundle price
+* Currency
+* Tax treatment
+* Optional Event
+* Availability dates
+
+Bundle items should contain:
+
+* Product
+* Quantity
+* Optional customer-facing description override
+* Sort order
+
+The Bundle price does not need to equal the combined Product prices.
+
+Example:
+
+Component value:
+£9,000
+
+Bundle selling price:
+£7,500
+
+The quote must preserve the bundle price used at the time of quoting.
+
+Future product price changes must not alter historic quotes.
+
+---
+
+# 10. Bundle Presentation
+
+Support appropriate quote presentation for Bundles.
+
+At minimum allow:
+
+### Package only
+
+Gold Sponsorship Package — £7,500
+
+### Package with included items
+
+Gold Sponsorship Package — £7,500
+
+Includes:
+
+* Exhibition Space
+* Speaker Session
+* Website Sponsorship
+* 6 Standard Delegate Tickets
+
+Individual component prices do not necessarily need to be displayed.
+
+Design the data model so more detailed presentation options can be added later.
+
+---
+
+# 11. Sales Opportunities
+
+Create an Opportunity entity representing a potential commercial sale.
+
+Fields should include:
+
+* Tenant
+* Opportunity ID/reference
+* Title
+* Organisation
+* Primary customer contact
+* Additional contacts
+* Billing contact
+* Sales owner
+* Optional account manager
+* Related Event
+* Optional Campaign/reference
+* Description
+* Estimated value
+* Currency
+* Pipeline stage
+* Probability
+* Priority
+* Source
+* Expected close date
+* Created date
+* Updated date
+* Last activity date
+* Won date
+* Lost date
+* Lost reason
+* Status
+
+Use existing Organisation and Member records rather than copying contact details unnecessarily.
+
+---
+
+# 12. Sales Ownership
+
+Internal authorised users should be assignable as:
+
+* Sales Owner
+* Account Manager
+* Collaborator
+
+Sales users should be able to filter the pipeline by owner.
+
+Provide a simple:
+
+**My Opportunities**
+
+filter/view.
+
+---
+
+# 13. Pipeline Configuration
+
+Create configurable Sales Stages.
+
+Suggested seed stages:
+
+1. Lead
+2. Qualified
+3. Contacted
+4. Meeting / Discussion
+5. Proposal Required
+6. Quote Sent
+7. Negotiation
+8. Verbal Agreement
+9. Won
+10. Lost
+
+Stage configuration should support:
+
+* Name
+* Sort order
+* Colour
+* Default probability
+* Active/inactive
+* Is Won
+* Is Lost
+
+Do not rely on specific stage names in business logic.
+
+Use flags such as `isWon` and `isLost`.
+
+---
+
+# 14. Pipeline View
+
+Create a Kanban-style Pipeline.
+
+Each column represents a configured stage.
+
+Cards should show useful information including:
+
+* Opportunity title
+* Organisation
+* Value
+* Event if applicable
+* Sales owner
+* Expected close date
+* Time since last activity
+
+Allow dragging an Opportunity between stages.
+
+Stage change must update:
+
+* Current stage
+* Probability where stage default is used
+* Updated timestamp
+* Stage history
+* Activity timeline
+
+Permissions must be checked server-side.
+
+---
+
+# 15. Opportunity Detail Screen
+
+Suggested tabs:
+
+### Overview
+
+* Organisation
+* Contact
+* Sales owner
+* Stage
+* Value
+* Expected close
+* Related Event
+* Summary
+
+### Quotes
+
+* Current quote
+* Historic versions
+* Status
+* Value
+
+### Activity
+
+Chronological activity timeline.
+
+### Notes
+
+Internal notes.
+
+### Tasks
+
+Follow-up tasks.
+
+### Documents
+
+Uploaded files.
+
+### Event Allocations
+
+Where applicable show purchased Event Tickets and allocation usage.
+
+---
+
+# 16. Activity Timeline
+
+Create or reuse the existing activity mechanism.
+
+Record events such as:
+
+* Opportunity created
+* Stage changed
+* Value changed
+* Owner changed
+* Contact changed
+* Note created
+* Task created/completed
+* Quote created
+* Quote revised
+* Quote sent
+* Quote viewed
+* Quote accepted
+* Quote declined
+* Opportunity won
+* Opportunity lost
+* Allocation created
+* Delegate allocation consumed
+* Ticket allocation released
+* Invoice created
+
+Each item should contain:
+
+* Timestamp
+* User
+* Activity type
+* Human-readable description
+* Related entity/reference where relevant
+
+System-generated activity should be immutable.
+
+---
+
+# 17. Opportunity Notes
+
+Support internal notes.
+
+Fields:
+
+* Opportunity
+* Author
+* Note content
+* Created date
+* Updated date
+* Optional pinned status
+
+Notes are internal and should never automatically appear on Quotes.
+
+If iConnect already has a rich-text editor suitable for this, reuse it.
+
+---
+
+# 18. Tasks / Follow-ups
+
+Create lightweight Sales Tasks.
+
+Fields:
+
+* Opportunity
+* Organisation
+* Assigned user
+* Description
+* Due date/time
+* Status
+* Completed date
+* Created by
+* Created date
+
+Statuses can initially be:
+
+* Open
+* Complete
+
+Surface:
+
+* Overdue tasks
+* Tasks due today
+* Upcoming tasks
+
+Do not turn this into a general project-management module.
+
+---
+
+# 19. Quote Creation
+
+Allow authorised users to create a Quote from an Opportunity.
+
+Quote lines may be added from:
+
+* Product
+* Bundle
+* Free-text line
+
+A Quote must always remain associated with the Opportunity.
+
+---
+
+# 20. Quote Header
+
+Quote fields should include:
+
+* Quote reference/number
+* Organisation
+* Customer contact
+* Billing address snapshot
+* Opportunity
+* Related Event
+* Quote date
+* Expiry date
+* Currency
+* Salesperson
+* Customer PO/reference
+* Customer-facing notes
+* Internal notes
+* Status
+* Current version
+
+Important:
+
+Organisation/contact information displayed on the Quote should be snapshotted where appropriate so historic Quotes do not change when the Organisation address is later edited.
+
+---
+
+# 21. Quote Lines
+
+Each Quote Line should support:
+
+* Type:
+
+  * Product
+  * Bundle
+  * Free Text
+* Source Product/Bundle ID where applicable
+* Description snapshot
+* Quantity
+* Unit price
+* Discount
+* Tax rate/treatment
+* Net amount
+* Tax
+* Gross amount
+* Sort order
+* Optional related Event Ticket reference
+
+Never calculate historic quote values from the current Product table.
+
+All relevant commercial values must be snapshotted into the Quote Version.
+
+---
+
+# 22. Free-Text Quote Items
+
+Allow users to add arbitrary quote lines.
+
+Example:
+
+**Additional bespoke promotional package**
+
+Quantity:
+1
+
+Price:
+£1,250
+
+These lines do not require a Product catalogue entry.
+
+---
+
+# 23. Quote Calculations
+
+Calculate:
+
+* Gross line value
+* Discounts
+* Net subtotal
+* Tax
+* Quote total
+
+Use decimal-safe financial calculations.
+
+Do not rely on JavaScript floating point arithmetic without appropriate decimal handling.
+
+---
+
+# 24. Price Overrides
+
+Users with appropriate permission should be able to alter:
+
+* Unit price
+* Discount
+
+Preserve:
+
+* Standard catalogue price
+* Actual quoted price
+
+for reporting.
+
+The initial release does not need sophisticated approval workflows, but structure permissions so discount approval rules can be added later.
+
+---
+
+# 25. Quote Versioning
+
+Quotes must be versioned.
+
+Never overwrite the accepted/sent version.
+
+Example:
+
+Q-2027-0142
+
+Versions:
+
+* v1
+* v2
+* v3
+
+Each version should snapshot:
+
+* Header
+* Customer information
+* Line items
+* Prices
+* Taxes
+* Terms
+* Total
+* Date
+* User
+
+Previous versions must remain accessible internally.
+
+---
+
+# 26. Quote Status
+
+Suggested statuses:
+
+* Draft
+* Sent
+* Viewed
+* Accepted
+* Declined
+* Expired
+* Superseded
+* Converted
+
+Keep status implementation extensible.
+
+---
+
+# 27. Quote PDF
+
+Generate a professional branded Quote PDF.
+
+Reuse tenant branding where available:
+
+* Tenant logo
+* Brand colours
+* Business details
+* Address
+* VAT number
+* Contact details
+
+Include:
+
+* Quote number
+* Quote date
+* Expiry
+* Customer
+* Customer address
+* Sales contact
+* Line items
+* Subtotal
+* Tax
+* Total
+* Notes
+* Terms
+
+PDF must be generated from a fixed Quote Version.
+
+---
+
+# 28. Quote Sending
+
+Allow users to send the Quote to the selected customer contact using iConnect's existing email infrastructure where suitable.
+
+Record:
+
+* Recipient
+* Sent timestamp
+* Quote Version
+* User
+
+Add this to the Opportunity Activity Timeline.
+
+Provide the PDF and/or secure online quote URL depending on the implemented approach.
+
+---
+
+# 29. Secure Online Quote
+
+Preferably provide a secure customer-facing Quote page.
+
+The page should support:
+
+* Tenant branding
+* Quote contents
+* Quote total
+* Expiry
+* Terms
+* PDF download
+
+The architecture should support:
+
+* Accepted
+* Declined
+* Viewed
+
+even if some customer actions are phased.
+
+Use secure tokens rather than exposing sequential internal IDs.
+
+---
+
+# 30. Quote Acceptance
+
+Include basic online Quote Acceptance if it fits cleanly with the existing authentication architecture.
+
+Capture:
+
+* Name
+* Role/job title
+* Date/time
+* Accepted Quote Version
+* Optional PO number
+* Relevant audit metadata
+
+Once accepted:
+
+* Quote status becomes Accepted
+* Opportunity can move to configured Won stage
+* Commercial Event Ticket allocations are created
+* Activity Timeline is updated
+
+Do not allow subsequent editing of the accepted Quote Version.
+
+---
+
+# 31. Won Opportunities
+
+An Opportunity should only be treated as Won once the sale is confirmed according to the tenant's process.
+
+At Won:
+
+* Won date is recorded
+* Final sale value is recorded
+* Accepted/current Quote identified
+* Commercial ticket allocation creation is triggered where required
+
+Ticket allocation must be idempotent.
+
+Repeated API requests or page refreshes must not create duplicate allocations.
+
+---
+
+# 32. Lost Opportunities
+
+When moving an Opportunity to a Lost stage, capture a Lost Reason.
+
+Configurable reasons could include:
+
+* Price
+* No budget
+* Competitor
+* Timing
+* No response
+* Package unsuitable
+* Event cancelled
+* Other
+
+Support optional free-text comments.
+
+---
+
+# 33. Event Ticket Allocation Entity
+
+Introduce an Event Ticket Allocation concept.
+
+This represents capacity purchased commercially but not necessarily assigned to named delegates.
+
+Conceptual fields:
+
+* Allocation ID
+* Tenant
+* Organisation
+* Opportunity
+* Quote
+* Quote Version
+* Quote Line
+* Event
+* Ticket Type
+* Quantity of commercial tickets purchased
+* Delegate capacity per ticket
+* Total delegate allocation
+* Registered delegate count
+* Reserved/invited count if required
+* Remaining delegate capacity
+* Status
+* Allocation manager contact
+* Confirmed date
+* Released quantity
+* Created date
+* Updated date
+
+Do not store remaining capacity as an independent uncontrolled value if it can safely be calculated.
+
+---
+
+# 34. Allocation Status
+
+Suggested states:
+
+* Reserved
+* Confirmed
+* Partially Registered
+* Fully Registered
+* Released
+* Cancelled
+* Expired
+
+Initial behaviour should particularly support:
+
+* Confirmed
+* Partially Registered
+* Fully Registered
+* Released
+* Cancelled
+
+---
+
+# 35. Event Inventory Rules
+
+Event availability must incorporate commercial allocations.
+
+Conceptually:
+
+**Available Delegate Capacity**
+
+=
+
+**Event/Ticket Capacity**
+
+minus
+
+**existing direct booked capacity**
+
+minus
+
+**confirmed commercial allocated capacity not already represented by those direct bookings**
+
+minus
+
+**other valid holds/reservations**
+
+The exact calculation must be adapted to the existing iConnect Event architecture.
+
+Do not simply add another independent counter if that introduces the possibility of double counting.
+
+---
+
+# 36. No Double Consumption
+
+This is critical.
+
+If 6 Event Ticket places were consumed when the commercial sale was completed:
+
+Capacity must **not decrease again** when the six named delegates subsequently register.
+
+The Registration must consume the Organisation's allocation rather than general inventory.
+
+This behaviour should be transactionally safe.
+
+---
+
+# 37. Capacity Transaction Safety
+
+The sale of the final available Event places must be concurrency safe.
+
+Example:
+
+Event has 4 remaining places.
+
+Salesperson A tries to sell:
+4 places
+
+At the same time Salesperson B tries to sell:
+4 places
+
+Only one transaction must succeed.
+
+Use database transactions/locking or the appropriate Supabase/Postgres mechanism.
+
+Never trust capacity calculations performed only client-side.
+
+---
+
+# 38. Quote Stage vs Inventory
+
+Do not consume Event inventory merely because a Quote is:
+
+* Draft
+* Sent
+* Viewed
+
+Inventory is consumed when the commercial sale becomes confirmed.
+
+Optional temporary reservations may be introduced separately.
+
+---
+
+# 39. Future Commercial Reservations
+
+Structure the architecture to allow temporary inventory reservations.
+
+Example:
+
+10 Standard Tickets
+
+Reserved for:
+Organisation A
+
+Expires:
+14 September
+
+Expired reservations automatically return capacity.
+
+This does not need to be fully implemented in the first pass unless straightforward within the existing ticket architecture.
+
+---
+
+# 40. Allocation Manager
+
+An Event Ticket Allocation should optionally nominate an Organisation contact as:
+
+**Allocation Manager**
+
+The Allocation Manager manages named delegates after the commercial purchase.
+
+Example:
+
+Sarah Jones
+Events Manager
+Acme Ltd
+
+The allocation manager should be able to access the organisation's purchased ticket allocation through an appropriate secure mechanism.
+
+---
+
+# 41. Organisation Allocation View
+
+Add an appropriate Event Allocation interface accessible either:
+
+* within the Organisation portal, if one already exists,
+* or via a secure allocation management URL.
+
+Display:
+
+Event:
+Annual Conference 2027
+
+Ticket:
+Standard Delegate
+
+Purchased:
+6
+
+Registered:
+3
+
+Remaining:
+3
+
+Suggested actions:
+
+* Register Delegate
+* Invite Delegate
+* View Registered Delegates
+
+The final UX should reuse existing iConnect patterns.
+
+---
+
+# 42. Delegate Registration from Allocation
+
+When registering against a commercial allocation:
+
+The user/delegate must enter the existing Event Registration workflow.
+
+Do not create a simplified duplicate form.
+
+The system should pass context identifying:
+
+* Event
+* Ticket Type
+* Allocation
+* Organisation
+* Paid/allocated ticket entitlement
+
+The Event Registration engine then continues normally.
+
+---
+
+# 43. Simple Event Flow
+
+Example:
+
+Allocation:
+
+6 × Standard Tickets
+
+Allocation Manager selects:
+
+**Register Delegate**
+
+↓
+
+Existing Event Registration form opens.
+
+↓
+
+Ticket Type is pre-selected/locked as Standard Ticket.
+
+↓
+
+Registrant enters normal details.
+
+↓
+
+No charge is applied for the included base ticket.
+
+↓
+
+Registration is created normally.
+
+↓
+
+Registration references the Allocation.
+
+↓
+
+Allocation remaining count becomes 5.
+
+---
+
+# 44. Complex Event Flow
+
+The same approach must work for Events containing:
+
+* Registration forms
+* Custom questions
+* Dietary requirements
+* Accessibility questions
+* Sessions
+* Workshops
+* Breakouts
+* Dinner choices
+* Optional extras
+* Additional chargeable items
+* Consents
+
+Example:
+
+Base Standard Ticket:
+£450
+
+Covered by commercial allocation:
+£450
+
+Optional Workshop:
+£75
+
+Awards Dinner:
+£100
+
+Amount payable during registration:
+
+£175
+
+Do not bypass existing Event checkout when additional payment is required.
+
+---
+
+# 45. Registration Source
+
+Normal Event Registration records should gain a suitable link/reference such as:
+
+* Registration source = Commercial Allocation
+* Allocation ID
+
+Do not create separate commercial registration tables unless technically necessary.
+
+The resulting registration should behave like any other Event Registration.
+
+---
+
+# 46. Existing Event Features Must Continue
+
+A delegate registered through a commercial allocation must continue to work with existing functionality including:
+
+* Event attendee lists
+* QR check-in
+* Badges
+* Sessions
+* Workshops
+* Emails
+* Event notifications
+* CPD
+* Certificates
+* Reporting
+* Event exports
+* Any existing attendee portal functionality
+
+The commercial source should not require special versions of these systems.
+
+---
+
+# 47. Delegate Invitations
+
+Allow the Allocation Manager to invite delegates to register themselves where practical.
+
+Capture:
+
+* Email
+* Optional name
+* Allocation
+* Ticket Type
+* Invitation status
+* Sent date
+* Accepted/used date
+
+Send a secure registration link.
+
+An invitation should not permit more registrations than the remaining allocation.
+
+Replit should determine whether an invited place needs to be temporarily reserved based on existing event/invitation behaviour.
+
+---
+
+# 48. Group Tickets
+
+Example commercial sale:
+
+1 × Group Ticket
+
+Delegate capacity:
+10
+
+Allocation created:
+
+Commercial quantity:
+1
+
+Delegate allocation:
+10
+
+The Organisation can register up to 10 named delegates.
+
+Each completed delegate consumes one place from the Allocation.
+
+Do not require all 10 names at once.
+
+---
+
+# 49. Releasing Unused Allocation
+
+Administrators should be able to release unused commercial capacity.
+
+Example:
+
+Purchased:
+10
+
+Registered:
+7
+
+Remaining:
+3
+
+Admin selects:
+
+**Release 3 Places**
+
+Those places return to the general Event capacity.
+
+The original commercial sale/Quote must remain historically unchanged.
+
+Record:
+
+* Number released
+* User
+* Timestamp
+* Reason if required
+
+---
+
+# 50. Cancellation Behaviour
+
+Do not hard-delete Allocations.
+
+If the commercial sale is cancelled:
+
+* Allocation status changes
+* Unused capacity may be released
+* Existing registered delegates must not be destructively deleted automatically
+
+If delegates already exist, surface an administrator workflow because they may already have:
+
+* Session selections
+* Additional purchases
+* Communications
+* Check-in data
+
+Reuse existing event cancellation/refund mechanisms wherever possible.
+
+---
+
+# 51. Sales Opportunity Allocation Visibility
+
+Opportunity detail should show Event Ticket usage.
+
+Example:
+
+## Included Event Tickets
+
+Annual Conference 2027
+
+Standard Delegate
+
+Allocated:
+6
+
+Registered:
+4
+
+Remaining:
+2
+
+This allows the salesperson to follow up with sponsors who have unused places.
+
+---
+
+# 52. Event Admin Allocation Visibility
+
+Update Event administration/reporting to distinguish:
+
+* Direct registrations
+* Commercially allocated capacity
+* Named delegates using commercial allocations
+* Remaining unused allocations
+* True remaining availability
+
+Example:
+
+Capacity:
+1,000
+
+Direct bookings:
+700
+
+Commercial allocation:
+200
+
+Named commercial delegates:
+130
+
+Unused commercial allocation:
+70
+
+General availability:
+100
+
+Current named delegates:
+830
+
+---
+
+# 53. Organisation CRM Commercial Section
+
+Add a Sales/Commercial view to the Organisation record.
+
+Display:
+
+### Open Opportunities
+
+* Opportunity
+* Stage
+* Value
+* Event
+* Owner
+
+### Won Opportunities
+
+Historical commercial sales.
+
+### Quotes
+
+Recent Quotes and statuses.
+
+### Event Allocations
+
+Purchased Event Ticket allocations.
+
+### Commercial Summary
+
+Potential metrics:
+
+* Open pipeline
+* Lifetime won value
+* Current-year sales
+* Last commercial purchase
+
+Do not duplicate Organisation data.
+
+---
+
+# 54. Contact-Level Commercial Visibility
+
+Where appropriate, Member/contact records should show commercial relationships such as:
+
+* Primary contact for Opportunity
+* Allocation Manager
+* Billing contact
+* Quote recipient
+
+Keep this lightweight and reuse current Member UI conventions.
+
+---
+
+# 55. Documents
+
+Allow files to be attached to an Opportunity.
+
+Examples:
+
+* Purchase orders
+* Signed agreements
+* Contracts
+* Sponsorship prospectus
+* Artwork
+* Exhibition plans
+* Supporting documents
+
+Reuse existing iConnect file storage architecture.
+
+Fields should at minimum capture:
+
+* Opportunity
+* File
+* Uploaded by
+* Date
+* Description/type if applicable
+
+---
+
+# 56. External Accounting Integration
+
+The Sales module must support conversion of a completed commercial sale to an accounting invoice.
+
+Target platforms:
+
+* Xero
+* QuickBooks
+
+Inspect existing integration infrastructure first.
+
+If Xero already exists, extend rather than rebuild.
+
+---
+
+# 57. Organisation Accounting Mapping
+
+Store external accounting customer/contact IDs against the Organisation using integration-specific references.
+
+Example:
+
+Organisation:
+
+Acme Ltd
+
+Integrations:
+
+Xero Contact ID:
+xxxxx
+
+QuickBooks Customer ID:
+yyyyy
+
+Do not rely purely on Organisation name matching every time.
+
+---
+
+# 58. Accounting Customer Matching
+
+When creating an invoice:
+
+1. Check stored accounting customer ID.
+2. If absent, search the connected accounting platform.
+3. Present/use a strong matching result where safe.
+4. Allow creation of a new accounting customer when no match exists.
+5. Save the resulting integration ID against the Organisation.
+
+Avoid silently linking questionable fuzzy matches.
+
+---
+
+# 59. Create Accounting Invoice
+
+From a Won Opportunity / accepted Quote provide:
+
+**Create Invoice**
+
+The platform used depends upon tenant integration configuration.
+
+Pass:
+
+* Customer
+* Billing details
+* Quote line descriptions
+* Quantities
+* Prices
+* Tax
+* Currency
+* PO/reference
+* Quote reference
+* Opportunity reference
+
+Use the accepted Quote Version as the source of truth.
+
+---
+
+# 60. Accounting Invoice Result
+
+Store:
+
+* Accounting provider
+* External invoice ID
+* External invoice number
+* Created timestamp
+* Created by
+* Initial status
+* External URL where supported
+
+Prevent accidental duplicate invoice creation.
+
+If an invoice already exists, show it rather than presenting the default Create action again.
+
+---
+
+# 61. Invoice Status
+
+Where supported by provider APIs, display lightweight invoice status such as:
+
+* Draft
+* Awaiting payment
+* Part paid
+* Paid
+* Voided
+
+iConnect is not responsible for maintaining the ledger.
+
+Provider data remains authoritative.
+
+---
+
+# 62. Sales Dashboard
+
+Create a Sales Dashboard.
+
+Suggested cards:
+
+* Open pipeline value
+* Weighted pipeline value
+* Won this month
+* Won this year
+* Quotes awaiting response
+* Overdue follow-ups
+* Opportunities expected to close this month
+
+Suggested additional views:
+
+* Pipeline by stage
+* Recent activity
+* My tasks
+* Recent wins
+
+Ensure dashboard queries are tenant scoped and performant.
+
+---
+
+# 63. Weighted Pipeline
+
+Calculate:
+
+**Opportunity Value × Probability**
+
+Example:
+
+Opportunity:
+£20,000
+
+Probability:
+60%
+
+Weighted value:
+£12,000
+
+Allow stage probability to provide the default but support an Opportunity-specific override if appropriate.
+
+---
+
+# 64. Sales Reporting
+
+Provide reporting for:
+
+### Opportunity
+
+* Open Opportunities
+* Won Opportunities
+* Lost Opportunities
+* Pipeline by stage
+* Pipeline by Sales Owner
+* Expected close date
+* No recent activity
+
+### Commercial Performance
+
+* Sales by month
+* Sales by year
+* Sales by Organisation
+* Sales by salesperson
+* Sales by Event
+* Sales by Product
+* Sales by Bundle
+* Sales by Category
+
+### Conversion
+
+* Opportunities created
+* Quotes sent
+* Quotes accepted
+* Win rate
+* Loss reasons
+* Average deal size
+* Average sales cycle
+
+Build on existing iConnect reporting/chart patterns if available.
+
+---
+
+# 65. Event Commercial Reporting
+
+Events should gain commercial reporting.
+
+Example:
+
+## Annual Conference 2027
+
+Pipeline:
+£210,000
+
+Weighted Pipeline:
+£145,000
+
+Won:
+£82,000
+
+Breakdown:
+
+* Sponsorship
+* Exhibition
+* Tickets
+* Advertising
+* Speaker opportunities
+* Other
+
+Also report Event Ticket allocation.
+
+---
+
+# 66. Search / Filters
+
+Opportunities should be filterable by:
+
+* Organisation
+* Contact
+* Sales Owner
+* Pipeline Stage
+* Event
+* Product
+* Bundle
+* Expected close date
+* Opportunity value
+* Created date
+* Won/lost
+* Quote status
+
+Use server-side filtering where dataset size warrants it.
+
+---
+
+# 67. Permissions
+
+Integrate with iConnect's existing role/permission system.
+
+Suggested permission concepts:
+
+### Sales View
+
+View Sales module.
+
+### Sales Opportunities Manage
+
+Create/update Opportunities.
+
+### Sales All Opportunities
+
+View Opportunities owned by other users.
+
+### Sales Quotes Manage
+
+Create/edit/send Quotes.
+
+### Sales Price Override
+
+Override catalogue pricing.
+
+### Sales Products Manage
+
+Configure Products/Bundles.
+
+### Sales Reports
+
+View commercial reporting.
+
+### Sales Accounting
+
+Create accounting invoices.
+
+### Sales Allocation Manage
+
+Manage/release commercial Event allocations.
+
+Do not rely solely on UI visibility.
+
+Enforce permissions at API/server/database layer.
+
+---
+
+# 68. Tenant Isolation
+
+Every Sales entity must observe iConnect multi-tenant isolation.
+
+Including:
+
+* Products
+* Categories
+* Bundles
+* Opportunities
+* Quotes
+* Quote Versions
+* Quote Lines
+* Tasks
+* Notes
+* Activities
+* Allocations
+* Documents
+* Accounting mappings
+
+Follow existing tenant/RLS architecture.
+
+---
+
+# 69. Audit Trail
+
+Maintain audit history for important commercial actions.
+
+Examples:
+
+* Opportunity created
+* Stage moved
+* Sales Owner changed
+* Value changed
+* Quote revised
+* Quote sent
+* Quote accepted
+* Price overridden
+* Allocation created
+* Allocation released
+* Invoice created
+
+Record:
+
+* User
+* Date/time
+* Action
+* Previous value where appropriate
+* New value where appropriate
+
+---
+
+# 70. Notifications
+
+Reuse iConnect notification infrastructure.
+
+Suggested notifications:
+
+* Opportunity assigned
+* Task due
+* Task overdue
+* Quote accepted
+* Quote declined
+* Quote approaching expiry
+* Allocation running close to Event date with unused places
+
+Avoid excessive default notifications.
+
+Make notification configuration extensible.
+
+---
+
+# 71. Database / Data Model
+
+Do not treat these table names as mandatory if equivalent existing structures are better.
+
+Likely conceptual entities include:
+
+### sales_product_categories
+
+### sales_products
+
+### sales_bundles
+
+### sales_bundle_items
+
+### sales_pipeline_stages
+
+### sales_opportunities
+
+### sales_opportunity_contacts
+
+### sales_opportunity_collaborators
+
+### sales_opportunity_notes
+
+### sales_tasks
+
+### sales_activity
+
+### sales_quotes
+
+### sales_quote_versions
+
+### sales_quote_lines
+
+### sales_documents
+
+### event_ticket_allocations
+
+### event_ticket_allocation_registrations / linkage
+
+Potentially avoid a separate linkage table if Registration can safely reference Allocation directly.
+
+### external_accounting_links
+
+or extend an existing integrations mapping structure.
+
+Use UUIDs and existing conventions.
+
+---
+
+# 72. Database Integrity
+
+Use appropriate:
+
+* Foreign keys
+* Unique constraints
+* Check constraints
+* Indexes
+* Tenant scoping
+* RLS
+
+Examples of important protections:
+
+* Quote Version cannot belong to another tenant's Opportunity.
+* Allocation cannot reference another tenant's Event.
+* Registration cannot consume more allocation than remains.
+* Accepted Quote Version cannot be edited.
+* A quote line linked to an Event Ticket must reference the correct tenant/Event.
+* External invoice conversion should be idempotent.
+
+---
+
+# 73. Financial Snapshot Integrity
+
+Historic commercial records must remain stable.
+
+Changing:
+
+* Product price
+* Product description
+* Bundle contents
+* Organisation address
+* VAT settings
+
+must not alter already issued Quote Versions.
+
+Snapshot all required Quote data when a version is created/finalised.
+
+---
+
+# 74. Event Ticket Snapshot vs Reference
+
+The commercial Quote should preserve what was sold while the Allocation should still reference the real Event/Ticket Type.
+
+Therefore retain both:
+
+* Ticket Type reference
+* Relevant quote-time snapshot description/price/capacity
+
+Be careful if an Event administrator later edits or removes a Ticket Type.
+
+Do not allow historic allocations to become orphaned or lose meaning.
+
+---
+
+# 75. API / Service Layer
+
+Keep core commercial logic out of React components.
+
+Create appropriate services/server actions/API endpoints for:
+
+* Opportunity creation/update
+* Pipeline movement
+* Quote calculations
+* Quote version creation
+* Quote acceptance
+* Won conversion
+* Event allocation creation
+* Allocation consumption
+* Allocation release
+* Xero invoice creation
+* QuickBooks invoice creation
+
+Centralise these operations to protect consistency.
+
+---
+
+# 76. Transaction Boundaries
+
+Use database transactions for operations involving multiple related records.
+
+Particularly:
+
+### Quote Acceptance / Sale Confirmation
+
+Potentially:
+
+1. Lock relevant capacity.
+2. Validate Event availability.
+3. Accept Quote.
+4. Mark Opportunity Won.
+5. Create Event allocations.
+6. Record activity.
+7. Commit.
+
+If insufficient Event capacity exists, do not partially complete the sale.
+
+Return a meaningful error to the user.
+
+---
+
+# 77. Capacity Conflict Handling
+
+If a Quote contains Event Tickets and there is no longer sufficient availability at acceptance time:
+
+Do not oversell.
+
+Tell the salesperson/customer that availability has changed.
+
+Require intervention before confirming the sale.
+
+This is particularly important because Quotes may remain open for weeks.
+
+---
+
+# 78. Quote Validation Before Acceptance
+
+At acceptance, revalidate any scarce inventory including:
+
+* Event Tickets
+* Future exhibition stand inventory if implemented
+* Limited sponsorship opportunities
+
+Do not assume capacity available when the Quote was created remains available indefinitely.
+
+---
+
+# 79. Product Availability Foundation
+
+Although full inventory is outside the first release, design Product architecture to eventually support items such as:
+
+Headline Sponsor
+
+Capacity:
+1
+
+Speaker Session
+
+Capacity:
+6
+
+Exhibition Stand A14
+
+Capacity:
+1
+
+Do not over-engineer this in Phase 1, but avoid a schema that makes it impossible later.
+
+---
+
+# 80. UI / UX Principles
+
+Match existing iConnect visual components and patterns.
+
+Do not introduce a visually disconnected CRM application.
+
+Reuse:
+
+* Tables
+* Cards
+* Dialogs
+* Buttons
+* Form controls
+* Tabs
+* Notifications
+* Filters
+* Rich-text editor
+* Date pickers
+
+where already available.
+
+All views should be responsive.
+
+---
+
+# 81. Empty States
+
+Provide useful empty states.
+
+Examples:
+
+### No Opportunities
+
+"Create your first sales opportunity."
+
+### No Products
+
+"Add commercial products to start building sponsorship and partner packages."
+
+### No Quotes
+
+"No quotes have been created for this opportunity."
+
+### No Event Allocations
+
+"No event ticket allocations are associated with this organisation."
+
+---
+
+# 82. Error Handling
+
+Commercial actions must provide clear errors.
+
+Examples:
+
+* Insufficient Event capacity
+* Quote already accepted
+* Quote expired
+* Invoice already created
+* Accounting connection unavailable
+* Accounting customer cannot be matched
+* Allocation fully consumed
+* User lacks permission
+
+Never silently fail.
+
+---
+
+# 83. Phase 1 Priority
+
+The first production release should concentrate on the complete usable workflow.
+
+## Must Have
+
+### Catalogue
+
+* Product Categories
+* Products
+* Event Ticket Products
+* Bundles
+
+### CRM
+
+* Opportunities
+* Organisation relationship
+* Contacts
+* Sales ownership
+* Pipeline
+* Notes
+* Activity
+* Tasks
+
+### Quoting
+
+* Quote builder
+* Product lines
+* Bundle lines
+* Free-text lines
+* Quote calculations
+* Quote versions
+* Quote PDF
+* Quote sending
+* Quote statuses
+
+### Sale
+
+* Won/Lost
+* Lost reason
+* Event Ticket allocation creation
+
+### Event Integration
+
+* Commercial capacity included in availability
+* Allocation management
+* Post-purchase named delegate registration
+* Simple Event support
+* Complex Event support
+* Group Ticket support
+* No double capacity consumption
+* Allocation release
+* Event reporting
+
+### Accounting
+
+* Xero invoice conversion
+* QuickBooks invoice conversion
+* Organisation/accounting mapping
+* External invoice status/reference
+
+### Reporting
+
+* Basic Sales Dashboard
+* Pipeline reporting
+* Sales reporting
+* Event commercial reporting
+
+---
+
+# 84. Phase 2 / Future Enhancements
+
+Structure Phase 1 so these can be introduced later without redesign:
+
+* Time-limited commercial reservations
+* Discount approval workflows
+* Sales targets
+* Event commercial targets
+* Advanced forecasting
+* Automated quote reminders
+* Full customer quote messaging
+* Electronic signatures
+* Automatic renewal opportunities
+* Advanced sales email integration
+* Commercial asset inventory
+* Exhibition stand allocation
+* Sponsor asset fulfilment
+* Contract generation
+* Automated unused-ticket reminders
+* Customer self-service allocation transfers
+
+Do not build these unless required for Phase 1 foundations.
+
+---
+
+# 85. Acceptance Test Scenario 1 — Standard Sponsorship Sale
+
+Create:
+
+Product:
+2m × 2m Exhibition Stand — £2,500
+
+Product:
+Speaker Session — £2,000
+
+Bundle:
+Silver Sponsor — £4,000
+
+Create Organisation Opportunity.
+
+Add Silver Sponsor to Quote.
+
+Send Quote.
+
+Create revised Quote Version.
+
+Accept revised Quote.
+
+Opportunity becomes Won.
+
+Commercial history appears against Organisation.
+
+Create Xero/QuickBooks invoice.
+
+External Invoice reference appears against Opportunity.
+
+PASS if complete without duplicating Organisation/accounting records.
+
+---
+
+# 86. Acceptance Test Scenario 2 — Sponsorship with Event Tickets
+
+Bundle:
+
+Gold Sponsor — £10,000
+
+Contains:
+
+* Exhibition Stand
+* Speaker Session
+* 6 × Standard Conference Tickets
+
+Conference has:
+
+100 total places
+
+Existing direct registrations:
+80
+
+Available before sale:
+20
+
+Gold Sponsor Quote is accepted.
+
+Expected:
+
+Commercial allocation:
+6
+
+General Event availability:
+14
+
+Named delegates:
+0
+
+Organisation then registers 3 delegates.
+
+Expected:
+
+Commercial allocation:
+6
+
+Registered from allocation:
+3
+
+Remaining allocation:
+3
+
+General Event availability remains:
+14
+
+PASS if registration does not reduce capacity twice.
+
+---
+
+# 87. Acceptance Test Scenario 3 — Group Ticket
+
+Group Ticket:
+
+1 ticket = 10 delegate places
+
+Available Event capacity:
+25
+
+Commercial Quote includes:
+
+1 × Group Ticket
+
+Quote accepted.
+
+Expected:
+
+Available capacity:
+15
+
+Allocation:
+
+Commercial tickets:
+1
+
+Delegate capacity:
+10
+
+Organisation registers delegates individually.
+
+After 7 registrations:
+
+Registered:
+7
+
+Remaining allocation:
+3
+
+General Event availability:
+15
+
+PASS.
+
+---
+
+# 88. Acceptance Test Scenario 4 — Complex Event
+
+Sponsor allocation contains:
+
+1 × Standard Ticket
+
+Delegate registers.
+
+Existing Event flow asks:
+
+* Custom questions
+* Dietary requirements
+* Workshop selection
+* Awards Dinner
+
+Base ticket:
+Covered by allocation
+
+Workshop:
+£75
+
+Dinner:
+£100
+
+Expected checkout:
+£175
+
+Registration becomes normal Event Registration.
+
+QR check-in, badge generation and Event reporting work normally.
+
+PASS.
+
+---
+
+# 89. Acceptance Test Scenario 5 — Capacity Conflict
+
+Event has:
+
+5 places remaining
+
+Two commercial Quotes both contain:
+
+5 tickets
+
+Quote A is accepted first.
+
+Expected:
+
+Quote A succeeds.
+
+Capacity becomes:
+0
+
+Quote B subsequently attempts acceptance.
+
+Expected:
+
+Acceptance is blocked.
+
+No negative capacity.
+
+No partial allocation.
+
+Clear availability warning displayed.
+
+PASS.
+
+---
+
+# 90. Acceptance Test Scenario 6 — Allocation Release
+
+Organisation allocation:
+
+10 tickets
+
+Registered:
+7
+
+Remaining:
+3
+
+Admin releases:
+3
+
+Expected:
+
+Allocation reflects release.
+
+Event availability increases by:
+3
+
+Seven existing registrations remain intact.
+
+Commercial Quote remains historically unchanged.
+
+Audit log records release.
+
+PASS.
+
+---
+
+# 91. Acceptance Test Scenario 7 — Historic Quote Integrity
+
+Create Quote:
+
+Product:
+Gold Sponsorship
+
+Price:
+£7,500
+
+Send Quote.
+
+Later change Product catalogue price to:
+
+£8,500
+
+Expected:
+
+Historic Quote remains:
+£7,500
+
+New Quote defaults to:
+£8,500
+
+PASS.
+
+---
+
+# 92. Acceptance Test Scenario 8 — Accounting Idempotency
+
+Accepted Quote is converted to Xero.
+
+Invoice created:
+
+INV-12345
+
+User refreshes page and clicks around the Opportunity.
+
+Expected:
+
+No second invoice is generated.
+
+Existing Xero invoice is shown.
+
+PASS.
+
+---
+
+# 93. Non-Regression Requirement
+
+This feature must not adversely affect existing iConnect Event registration.
+
+Before release, test existing flows where no Sales Allocation exists.
+
+At minimum:
+
+* Normal paid Event registration
+* Free Event registration
+* Group Ticket registration
+* Complex Event registration
+* Session selections
+* Event checkout
+* Existing payment flows
+* QR check-in
+* Event reporting
+* Cancellation/refund where applicable
+
+For registrations not using a commercial Allocation, behaviour must remain unchanged.
+
+---
+
+# 94. Development Approach
+
+Do not attempt to build the entire module as one uncontrolled change.
+
+Recommended implementation order:
+
+## Stage 1
+
+Architecture review and migrations.
+
+## Stage 2
+
+Product catalogue and Bundles.
+
+## Stage 3
+
+Opportunities and Pipeline.
+
+## Stage 4
+
+Notes, Activity and Tasks.
+
+## Stage 5
+
+Quote builder and versioning.
+
+## Stage 6
+
+PDF and Quote sending.
+
+## Stage 7
+
+Event Ticket Product integration.
+
+## Stage 8
+
+Commercial Ticket Allocation engine.
+
+## Stage 9
+
+Post-purchase delegate registration through existing Event Registration.
+
+## Stage 10
+
+Organisation/Event commercial views.
+
+## Stage 11
+
+Xero integration.
+
+## Stage 12
+
+QuickBooks integration.
+
+## Stage 13
+
+Dashboard/reporting.
+
+## Stage 14
+
+Full regression testing and hardening.
+
+Use small migrations and incremental commits.
+
+---
+
+# 95. Replit Agent Instruction
+
+Before coding the Event Allocation element, inspect the existing Event architecture and document internally how:
+
+* Event capacity is currently calculated
+* Group Tickets currently consume capacity
+* Registration records are created
+* Payments are calculated
+* Ticket Types are selected
+* Complex Event registration operates
+* Invitations work
+* Sessions/workshops are allocated
+* Cancellations restore capacity
+
+Then introduce Commercial Ticket Allocations as an additional legitimate source of capacity ownership.
+
+Do not redesign existing Event Registration simply to accommodate Sales.
+
+The intended model is:
+
+**Commercial Sales acquires the entitlement.**
+
+**Existing Event Registration converts that entitlement into named attendees.**
+
+---
+
+# 96. Definition of Success
+
+The feature is successful when an iConnect tenant can:
+
+1. Create commercial Products.
+2. Build sponsorship/partner Bundles.
+3. Include Event Tickets within those Products/Bundles.
+4. Create a Sales Opportunity against an existing Organisation.
+5. Assign a salesperson and contacts.
+6. Build a Quote from Products, Bundles and free-text lines.
+7. Revise and send the Quote.
+8. Mark/accept the sale.
+9. Immediately consume any included Event Ticket capacity.
+10. Allow the Organisation to supply delegate information later.
+11. Register those delegates through the existing Event Registration engine.
+12. Prevent Event overselling.
+13. Track the commercial relationship against the Organisation.
+14. Convert the completed sale to Xero or QuickBooks.
+15. Report on pipeline, won revenue, Event commercial performance and Event Ticket allocations.
+
+The finished capability should feel like a natural extension of iConnect's existing Organisation and Event functionality rather than a separate CRM product bolted onto the platform.

@@ -1,0 +1,138 @@
+2025-12-28 13:09:36.018 [info] [AppProcessor] Entity pipelines - members: 2 organisations: 1
+2025-12-28 13:09:36.019 [info] [AppProcessor] Entity actions - member: upsert organization: upsert
+2025-12-28 13:09:36.019 [info] [AppProcessor] Received role_id: null type: object
+2025-12-28 13:09:36.364 [info] [AppProcessor] Using field_mappings: 3 mappings
+2025-12-28 13:09:36.364 [info] [AppProcessor] Processing member from entity_pipelines (new format): Primary Member mappings: 4
+2025-12-28 13:09:36.364 [info] [AppProcessor] Processing organization from entity_pipelines (new format): Primary Organisation mappings: 6
+2025-12-28 13:09:36.366 [info] [AppProcessor] Extracted data: {
+  memberData: {
+    email: 'agcastesting1@outlook.com',
+    first_name: 'HOS fist',
+    last_name: 'HOS last',
+    role_id: 'c94cdcfd-d0f0-497a-ab5e-c742baacf049'
+  },
+  orgData: {
+    name: 'Testing org again',
+    invoicing_address: 'Finance address 1\nFinance address 2\nCounty\nCountry\nPOstcode'
+  },
+  memberCustomFields: 0,
+  orgCustomFields: 4,
+  orgCustomFieldsDetail: [
+    {
+      field_id: '1dfed5fd-64bb-4462-96c7-145daf1bedc2',
+      value: '["Onine provision"]'
+    },
+    {
+      field_id: '6a137764-59a2-437c-a110-54701cc41bfe',
+      value: '["Mission+","Guild HE"]'
+    },
+    {
+      field_id: '1c395ccf-7df2-4818-917d-1cd672216f71',
+      value: 'Full application received'
+    },
+    {
+      field_id: 'e5ac547d-edb1-4ff1-83ab-fc82c1813065',
+      value: 'University'
+    }
+  ]
+}
+2025-12-28 13:09:36.366 [info] [AppProcessor] Org processing enabled. Action: upsert OrgData: {
+  name: 'Testing org again',
+  invoicing_address: 'Finance address 1\nFinance address 2\nCounty\nCountry\nPOstcode'
+} PrefillOrgId: 8a7e31aa-1070-46ab-a8ce-45e7fd746ae2
+2025-12-28 13:09:36.504 [info] [AppProcessor] Found org by prefill ID: 8a7e31aa-1070-46ab-a8ce-45e7fd746ae2
+2025-12-28 13:09:36.620 [info] [AppProcessor] Updated organization: 8a7e31aa-1070-46ab-a8ce-45e7fd746ae2
+2025-12-28 13:09:37.613 [info] [AppProcessor] Member processing enabled. Action: upsert MemberData: {
+  email: 'agcastesting1@outlook.com',
+  first_name: 'HOS fist',
+  last_name: 'HOS last',
+  role_id: 'c94cdcfd-d0f0-497a-ab5e-c742baacf049'
+} PrefillMemberId: undefined
+2025-12-28 13:09:37.742 [info] [AppProcessor] Found member by email: undefined
+2025-12-28 13:09:37.742 [info] [AppProcessor] Adding role_id to member insert: null
+2025-12-28 13:09:37.742 [info] [AppProcessor] Final memberInsertData: {"email":"agcastesting1@outlook.com","first_name":"HOS fist","last_name":"HOS last","organization_id":"8a7e31aa-1070-46ab-a8ce-45e7fd746ae2","login_enabled":true,"role_id":null}
+2025-12-28 13:09:37.891 [info] [AppProcessor] Created member: 20243afe-7902-45b1-ad28-aef78096e85a
+2025-12-28 13:09:38.407 [error] [AppProcessor] Failed to create credentials: {
+  code: '23505',
+  details: 'Key (email)=(agcastesting1@outlook.com) already exists.',
+  hint: null,
+  message: 'duplicate key value violates unique constraint "member_credentials_email_key"'
+}
+2025-12-28 13:09:38.407 [info] [AppProcessor] Tracking primary member email: agcastesting1@outlook.com -> 20243afe-7902-45b1-ad28-aef78096e85a
+2025-12-28 13:09:38.407 [info] [AppProcessor] Using entity_pipelines.members: 1 non-primary entries
+2025-12-28 13:09:38.407 [info] [AppProcessor] Processing member creations: 1
+2025-12-28 13:09:38.528 [info] [AppProcessor] ======= Processing member config 1/1: "HoS" =======
+2025-12-28 13:09:38.528 [info] [AppProcessor] Config mappings: [
+  {
+    "id": "mapping_1765927581994",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "email",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765654363656"
+  },
+  {
+    "id": "mapping_1765927599676",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "first_name",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765654276539"
+  },
+  {
+    "id": "mapping_1765927610109",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "last_name",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765654323522"
+  },
+  {
+    "id": "mapping_1765927618626",
+    "source_type": "field",
+    "target_type": "core",
+    "static_value": "",
+    "target_field": "job_title",
+    "target_entity": "member",
+    "transformation": "none",
+    "source_field_id": "field_1765919899063"
+  }
+]
+2025-12-28 13:09:38.528 [info] [AppProcessor] Built data for "HoS": {
+  email: 'agcastesting2@outlook.com',
+  additionalMemberData: {
+    first_name: 'HOS fist',
+    last_name: 'HOS last',
+    job_title: 'HOS job title'
+  },
+  customFieldCount: 0
+}
+2025-12-28 13:09:38.528 [info] [AppProcessor] Processing additional member: HoS email: agcastesting2@outlook.com data: {
+  first_name: 'HOS fist',
+  last_name: 'HOS last',
+  job_title: 'HOS job title',
+  role_id: '561682bb-57f2-4a61-89aa-c3c201692923'
+} clearFields: []
+2025-12-28 13:09:38.655 [info] [AppProcessor] Creating new additional member: HoS {
+  email: 'agcastesting2@outlook.com',
+  login_enabled: true,
+  organization_id: '8a7e31aa-1070-46ab-a8ce-45e7fd746ae2',
+  first_name: 'HOS fist',
+  last_name: 'HOS last',
+  job_title: 'HOS job title',
+  role_id: '561682bb-57f2-4a61-89aa-c3c201692923'
+}
+2025-12-28 13:09:38.780 [info] [AppProcessor] Created additional member: 6da3abaa-8748-4cf5-9286-6c444dd37cef
+2025-12-28 13:09:39.565 [info] [Email Service] Email footer loaded successfully
+2025-12-28 13:09:39.689 [info] [Email Service] Email footer appended
+2025-12-28 13:09:39.689 [info] [Email Service] Sending email to: agcastesting2@outlook.com
+2025-12-28 13:09:39.689 [info] [Email Service] Subject: Welcome to ICONN - Your Login Details
+2025-12-28 13:09:40.001 [info] [Email Service] Email sent successfully. Message ID: <20251228130939.8bea37c4d88e8f96@agcas.isaasi.co.uk>
+2025-12-28 13:09:40.001 [info] [AppProcessor] Welcome email sent to additional member: agcastesting2@outlook.com
+2025-12-28 13:09:40.001 [info] [AppProcessor] Additional members processed: 1

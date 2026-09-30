@@ -1,0 +1,83 @@
+import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
+import { supabase } from '../_lib/database.js';
+import { getTargetRecipients } from '../_lib/campaignService.js';
+
+export default async function handler(req, res, dependencies = {}) {
+  const getRequestTenantContext = dependencies.getTenantContext || getTenantContext;
+  const requestHasAdminAccess = dependencies.hasAdminAccess || hasAdminAccess;
+  const database = dependencies.supabase || supabase;
+  const resolveTargetRecipients = dependencies.getTargetRecipients || getTargetRecipients;
+
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const tenantContext = await getRequestTenantContext(req);
+  if (!tenantContext.isAuthenticated || !tenantContext.tenantId) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  if (!(await requestHasAdminAccess(tenantContext))) {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+
+  const { tenantId } = tenantContext;
+  const { listId } = req.body || {};
+
+  if (!listId) {
+    return res.status(400).json({ error: 'listId is required' });
+  }
+
+  try {
+    const { data: list, error } = await database
+      .from('audience_list')
+      .select('id, name, target_audiences, ignore_opt_outs')
+      .eq('id', listId)
+      .eq('tenant_id', tenantId)
+      .single();
+
+    if (error || !list) {
+      return res.status(404).json({ error: 'Audience list not found' });
+    }
+
+    const fakeCampaign = {
+      target_audiences: [{ type: 'audience_list', ids: [list.id] }],
+    };
+
+    const result = await resolveTargetRecipients(fakeCampaign, tenantId, false, false);
+
+    if (!result.success) {
+      return res.status(500).json({ error: result.error });
+    }
+
+    const seen = new Set();
+    const uniqueRecipients = [];
+    for (const r of result.recipients) {
+      if (!r.email) continue;
+      const key = r.email.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        uniqueRecipients.push({
+          email: r.email,
+          first_name: r.first_name || '',
+          last_name: r.last_name || ''
+        });
+      }
+    }
+
+    uniqueRecipients.sort((a, b) => {
+      const nameA = `${a.last_name} ${a.first_name}`.toLowerCase();
+      const nameB = `${b.last_name} ${b.first_name}`.toLowerCase();
+      return nameA.localeCompare(nameB);
+    });
+
+    return res.json({
+      success: true,
+      listName: list.name,
+      totalCount: uniqueRecipients.length,
+      recipients: uniqueRecipients
+    });
+  } catch (err) {
+    console.error('[AudienceListPreview] Error:', err);
+    return res.status(500).json({ error: err.message });
+  }
+}

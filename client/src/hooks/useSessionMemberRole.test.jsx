@@ -1,0 +1,386 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import React, { act } from 'react';
+import { createRoot } from 'react-dom/client';
+import { JSDOM } from 'jsdom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { LayoutProvider, useLayoutContext } from '../contexts/LayoutContext.jsx';
+import { base44 } from '../api/base44Client.js';
+import { useMemberAccess } from './useMemberAccess.js';
+
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+globalThis.React = React;
+const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://example.test' });
+globalThis.window = dom.window;
+globalThis.document = dom.window.document;
+globalThis.localStorage = dom.window.localStorage;
+
+test('verified role bypasses Role GET, invalidation refreshes it, and missing fails closed', async () => {
+  let context;
+  let access;
+  function Reader() {
+    context = useLayoutContext();
+    access = useMemberAccess();
+    return <span>{access.memberRole?.name || access.roleStatus}</span>;
+  }
+
+  const roleProxy = base44.entities.Role;
+  const originalGet = roleProxy.get;
+  let gets = 0;
+  roleProxy.get = async () => {
+    gets += 1;
+    return { id: 'r1', tenant_id: 't1', name: 'Refreshed', excluded_features: ['admin.role-management'] };
+  };
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const container = document.createElement('div');
+  const root = createRoot(container);
+  const member = { id: 'm1', tenant_id: 't1', role_id: 'r1' };
+
+  try {
+    await act(async () => root.render(
+      <QueryClientProvider client={queryClient}>
+        <LayoutProvider><Reader /></LayoutProvider>
+      </QueryClientProvider>,
+    ));
+    await act(async () => {
+      context.setMemberInfo(member);
+      context.setSessionRoleSnapshot({
+        status: 'ready',
+        member_id: 'm1',
+        tenant_id: 't1',
+        role_id: 'r1',
+        session_key: 'fresh-session',
+        role: { id: 'r1', tenant_id: 't1', name: 'Verified', excluded_features: [] },
+      });
+      context.setSessionValidated(true);
+      context.setAuthResolved(true);
+    });
+    assert.equal(gets, 0, 'fresh verified snapshot must not issue Role GET');
+    assert.equal(access.memberRole.name, 'Verified');
+    assert.equal(access.isFeatureExcluded('admin.role-management'), false);
+
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ['memberRole'] });
+      // React Query batches observer notifications after the refetch promise.
+      await new Promise(resolve => setTimeout(resolve, 20));
+    });
+    assert.equal(gets, 1);
+    assert.equal(access.memberRole.name, 'Refreshed');
+    assert.equal(access.isFeatureExcluded('admin.role-management'), true);
+
+    await act(async () => context.setSessionRoleSnapshot({
+      status: 'missing',
+      member_id: 'm1',
+      tenant_id: 't1',
+      role_id: 'r1',
+      session_key: 'fresh-session',
+    }));
+    assert.equal(access.isAccessReady, true, 'terminal failures do not leave access spinners running');
+    assert.equal(access.isFeatureExcluded('admin.role-management'), true);
+  } finally {
+    roleProxy.get = originalGet;
+    await act(async () => root.unmount());
+    queryClient.clear();
+  }
+});
+
+test('a second legacy observer does not restart role loading within the validated session', async () => {
+  let context;
+  const observed = [];
+  function Reader({ captureContext = false }) {
+    if (captureContext) context = useLayoutContext();
+    const access = useMemberAccess();
+    observed.push(access.roleStatus);
+    return <span>{access.roleStatus}</span>;
+  }
+
+  const roleProxy = base44.entities.Role;
+  const originalGet = roleProxy.get;
+  let gets = 0;
+  roleProxy.get = async () => {
+    gets += 1;
+    return { id: 'r1', tenant_id: 't1', name: 'Legacy role', excluded_features: [] };
+  };
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const container = document.createElement('div');
+  const root = createRoot(container);
+  const render = second => (
+    <QueryClientProvider client={queryClient}>
+      <LayoutProvider>
+        <Reader captureContext />
+        {second ? <Reader /> : null}
+      </LayoutProvider>
+    </QueryClientProvider>
+  );
+
+  try {
+    await act(async () => root.render(render(false)));
+    await act(async () => {
+      context.setMemberInfo({ id: 'm1', tenant_id: 't1', role_id: 'r1' });
+      context.setSessionRoleSnapshot({
+        status: 'legacy',
+        member_id: 'm1',
+        tenant_id: 't1',
+        role_id: 'r1',
+        session_key: 'legacy-session',
+      });
+      context.setSessionValidated(true);
+      context.setAuthResolved(true);
+    });
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 20));
+    });
+    assert.equal(gets, 1);
+    assert.match(container.textContent, /ready/);
+
+    observed.length = 0;
+    await act(async () => {
+      root.render(render(true));
+      await new Promise(resolve => setTimeout(resolve, 20));
+    });
+    assert.equal(gets, 1, 'mounting another observer must reuse the session-scoped legacy result');
+    assert.equal(observed.includes('loading'), false, 'the settled role must not flash back to loading');
+    assert.equal(container.textContent, 'readyready');
+  } finally {
+    roleProxy.get = originalGet;
+    await act(async () => root.unmount());
+    queryClient.clear();
+  }
+});
+
+test('slow role invalidation denies access, failure is recoverable, and an old account response cannot grant access', async () => {
+  let context;
+  let access;
+  function Reader() {
+    context = useLayoutContext();
+    access = useMemberAccess();
+    return <span>{access.roleStatus}</span>;
+  }
+  const roleProxy = base44.entities.Role;
+  const originalGet = roleProxy.get;
+  const requests = [];
+  roleProxy.get = () => new Promise((resolve, reject) => requests.push({ resolve, reject }));
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const container = document.createElement('div');
+  const root = createRoot(container);
+  const settle = () => new Promise(resolve => setTimeout(resolve, 20));
+  async function authenticate(id, sessionKey) {
+    await act(async () => {
+      context.setMemberInfo({ id, tenant_id: 't1', role_id: 'r1' });
+      context.setSessionRoleSnapshot({
+        status: 'ready', member_id: id, tenant_id: 't1', role_id: 'r1',
+        session_key: sessionKey,
+        role: { id: 'r1', tenant_id: 't1', name: id, excluded_features: [] },
+      });
+      context.setSessionValidated(true);
+      context.setAuthResolved(true);
+    });
+  }
+  try {
+    await act(async () => root.render(
+      <QueryClientProvider client={queryClient}>
+        <LayoutProvider><Reader /></LayoutProvider>
+      </QueryClientProvider>,
+    ));
+    await authenticate('m1', 'epoch-1');
+    await act(async () => {
+      void queryClient.invalidateQueries({ queryKey: ['memberRole'] });
+      await settle();
+    });
+    assert.equal(access.roleStatus, 'loading');
+    assert.equal(access.isFeatureExcluded('admin.role-management'), true);
+    await act(async () => {
+      requests[0].reject(new Error('Role service unavailable'));
+      await settle();
+    });
+    assert.equal(access.roleStatus, 'error');
+    assert.equal(access.isFeatureExcluded('admin.role-management'), true);
+    await act(async () => {
+      void access.retryRole();
+      await settle();
+    });
+    await act(async () => {
+      requests[1].resolve({ id: 'r1', tenant_id: 't1', name: 'Recovered', excluded_features: [] });
+      await settle();
+    });
+    assert.equal(access.roleStatus, 'ready');
+    await act(async () => {
+      void queryClient.invalidateQueries({ queryKey: ['memberRole'] });
+      await settle();
+    });
+    await authenticate('m2', 'epoch-2');
+    await act(async () => {
+      requests[2].resolve({ id: 'r1', tenant_id: 't1', name: 'Old account', excluded_features: [] });
+      await settle();
+    });
+    assert.equal(access.memberRole.name, 'm2');
+    await act(async () => context.setSessionValidated(false));
+    assert.equal(access.isFeatureExcluded('admin.role-management'), true);
+    assert.equal(access.memberRole, null);
+  } finally {
+    roleProxy.get = originalGet;
+    await act(async () => root.unmount());
+    queryClient.clear();
+  }
+});
+
+test('authoritative refresh of the same role applies revoked features without loading or a Role GET', async () => {
+  let context;
+  const accessByReader = new Map();
+  const observations = [];
+  function Reader({ id, captureContext = false }) {
+    if (captureContext) context = useLayoutContext();
+    const access = useMemberAccess();
+    accessByReader.set(id, access);
+    observations.push({
+      id,
+      roleStatus: access.roleStatus,
+      roleName: access.memberRole?.name || null,
+      excluded: access.isFeatureExcluded('admin.role-management'),
+    });
+    return <span data-reader={id}>{access.memberRole?.name || access.roleStatus}</span>;
+  }
+
+  const roleProxy = base44.entities.Role;
+  const originalGet = roleProxy.get;
+  let gets = 0;
+  roleProxy.get = async () => {
+    gets += 1;
+    throw new Error('A trusted session snapshot must not fetch Role');
+  };
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const container = document.createElement('div');
+  const root = createRoot(container);
+  const render = second => (
+    <QueryClientProvider client={queryClient}>
+      <LayoutProvider>
+        <Reader id="first" captureContext />
+        {second ? <Reader id="late" /> : null}
+      </LayoutProvider>
+    </QueryClientProvider>
+  );
+
+  try {
+    await act(async () => root.render(render(false)));
+    await act(async () => {
+      context.setMemberInfo({ id: 'm1', tenant_id: 't1', role_id: 'r1' });
+      context.setSessionRoleSnapshot({
+        status: 'ready',
+        member_id: 'm1',
+        tenant_id: 't1',
+        role_id: 'r1',
+        session_key: 'session-before-refresh',
+        role: { id: 'r1', tenant_id: 't1', name: 'Allowed', excluded_features: [] },
+      });
+      context.setSessionValidated(true);
+      context.setAuthResolved(true);
+    });
+    assert.equal(accessByReader.get('first').roleStatus, 'ready');
+    assert.equal(accessByReader.get('first').isFeatureExcluded('admin.role-management'), false);
+
+    observations.length = 0;
+    await act(async () => context.setSessionRoleSnapshot({
+      status: 'ready',
+      member_id: 'm1',
+      tenant_id: 't1',
+      role_id: 'r1',
+      session_key: 'session-after-refresh',
+      role: {
+        id: 'r1',
+        tenant_id: 't1',
+        name: 'Revoked',
+        excluded_features: ['admin.role-management'],
+      },
+    }));
+
+    assert.equal(gets, 0);
+    assert.equal(accessByReader.get('first').roleStatus, 'ready');
+    assert.equal(accessByReader.get('first').memberRole.name, 'Revoked');
+    assert.equal(accessByReader.get('first').isFeatureExcluded('admin.role-management'), true);
+    assert.equal(
+      observations.some(({ roleStatus, roleName, excluded }) => (
+        roleStatus === 'ready' && roleName === 'Allowed' && !excluded
+      )),
+      false,
+      'the refreshed session must not render the superseded permission decision',
+    );
+
+    observations.length = 0;
+    await act(async () => root.render(render(true)));
+    assert.equal(gets, 0, 'a late observer must consume the refreshed authoritative snapshot');
+    assert.equal(
+      observations.filter(({ id }) => id === 'late').some(({ roleStatus }) => roleStatus === 'loading'),
+      false,
+    );
+    assert.equal(accessByReader.get('late').memberRole.name, 'Revoked');
+    assert.equal(accessByReader.get('late').isFeatureExcluded('admin.role-management'), true);
+  } finally {
+    roleProxy.get = originalGet;
+    await act(async () => root.unmount());
+    queryClient.clear();
+  }
+});
+
+test('changed or missing role snapshots fail closed for the mounted member', async () => {
+  let context;
+  let access;
+  function Reader() {
+    context = useLayoutContext();
+    access = useMemberAccess();
+    return <span>{access.roleStatus}</span>;
+  }
+
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const container = document.createElement('div');
+  const root = createRoot(container);
+
+  try {
+    await act(async () => root.render(
+      <QueryClientProvider client={queryClient}>
+        <LayoutProvider><Reader /></LayoutProvider>
+      </QueryClientProvider>,
+    ));
+    await act(async () => {
+      context.setMemberInfo({ id: 'm1', tenant_id: 't1', role_id: 'r1' });
+      context.setSessionRoleSnapshot({
+        status: 'ready',
+        member_id: 'm1',
+        tenant_id: 't1',
+        role_id: 'r1',
+        session_key: 'session-1',
+        role: { id: 'r1', tenant_id: 't1', name: 'Allowed', excluded_features: [] },
+      });
+      context.setSessionValidated(true);
+      context.setAuthResolved(true);
+    });
+    assert.equal(access.roleStatus, 'ready');
+    assert.equal(access.isFeatureExcluded('admin.role-management'), false);
+
+    await act(async () => context.setSessionRoleSnapshot({
+      status: 'ready',
+      member_id: 'm1',
+      tenant_id: 't1',
+      role_id: 'r2',
+      session_key: 'session-role-changed',
+      role: { id: 'r2', tenant_id: 't1', name: 'Different role', excluded_features: [] },
+    }));
+    assert.equal(access.roleStatus, 'error');
+    assert.equal(access.memberRole, null);
+    assert.equal(access.isFeatureExcluded('admin.role-management'), true);
+
+    await act(async () => context.setSessionRoleSnapshot({
+      status: 'missing',
+      member_id: 'm1',
+      tenant_id: 't1',
+      role_id: 'r1',
+      session_key: 'session-role-missing',
+    }));
+    assert.equal(access.roleStatus, 'missing');
+    assert.equal(access.memberRole, null);
+    assert.equal(access.isFeatureExcluded('admin.role-management'), true);
+    assert.equal(access.isAccessReady, true);
+  } finally {
+    await act(async () => root.unmount());
+    queryClient.clear();
+  }
+});

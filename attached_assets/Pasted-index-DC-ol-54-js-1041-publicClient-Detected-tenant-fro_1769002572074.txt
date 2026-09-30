@@ -1,0 +1,189 @@
+index-DC_ol-54.js:1041 [publicClient] Detected tenant from subdomain: gsf
+index-DC_ol-54.js:1126 GoTrueClient@sb-lvmzliemqnieeoruhkik-auth-token:1 (2.84.0) 2026-01-21T13:34:26.746Z Multiple GoTrueClient instances detected in the same browser context. It is not an error, but this should be avoided as it may produce undefined behavior when used concurrently under the same storage key.
+Vg @ index-DC_ol-54.js:1126
+zoe @ index-DC_ol-54.js:1127
+_initSupabaseAuthClient @ index-DC_ol-54.js:1127
+Boe @ index-DC_ol-54.js:1127
+Hz @ index-DC_ol-54.js:1127
+(anonymous) @ index-DC_ol-54.js:2109
+(anonymous) @ index-DC_ol-54.js:1
+(anonymous) @ index-DC_ol-54.js:2524
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] memberInfo: null
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DC_ol-54.js:1430 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DC_ol-54.js:1430 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DC_ol-54.js:1430 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DC_ol-54.js:1430 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] Query running, memberInfo.id: b24e022f-adcc-4930-8952-63a34cc16925
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DC_ol-54.js:1430 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DC_ol-54.js:1430 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DC_ol-54.js:1430 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DC_ol-54.js:1430 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DC_ol-54.js:1430 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DC_ol-54.js:1430 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DC_ol-54.js:1430 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DC_ol-54.js:1430 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DC_ol-54.js:1430 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DC_ol-54.js:1430 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-DC_ol-54.js:1396 Error loading member record: {code: 'PGRST116', details: 'Results contain 3 rows, application/vnd.pgrst.object+json requires 1 row', hint: null, message: 'JSON object requested, multiple (or no) rows returned'}
+queryFn @ index-DC_ol-54.js:1396
+await in queryFn
+i @ index-DC_ol-54.js:1041
+v @ index-DC_ol-54.js:1041
+start @ index-DC_ol-54.js:1041
+fetch @ index-DC_ol-54.js:1041
+Bf @ index-DC_ol-54.js:1041
+onSubscribe @ index-DC_ol-54.js:1041
+subscribe @ index-DC_ol-54.js:1041
+(anonymous) @ index-DC_ol-54.js:1041
+d$ @ index-DC_ol-54.js:38
+Uy @ index-DC_ol-54.js:40
+ex @ index-DC_ol-54.js:40
+NX @ index-DC_ol-54.js:40
+Gu @ index-DC_ol-54.js:40
+iF @ index-DC_ol-54.js:40
+ku @ index-DC_ol-54.js:38
+(anonymous) @ index-DC_ol-54.js:40
+setTimeout
+r @ index-DC_ol-54.js:1041
+l @ index-DC_ol-54.js:1041
+batch @ index-DC_ol-54.js:1041
+Cc @ index-DC_ol-54.js:1041
+setData @ index-DC_ol-54.js:1041
+onSuccess @ index-DC_ol-54.js:1041
+h @ index-DC_ol-54.js:1041
+Promise.then
+v @ index-DC_ol-54.js:1041
+start @ index-DC_ol-54.js:1041
+fetch @ index-DC_ol-54.js:1041
+Bf @ index-DC_ol-54.js:1041
+onSubscribe @ index-DC_ol-54.js:1041
+subscribe @ index-DC_ol-54.js:1041
+(anonymous) @ index-DC_ol-54.js:1041
+d$ @ index-DC_ol-54.js:38
+Uy @ index-DC_ol-54.js:40
+ex @ index-DC_ol-54.js:40
+(anonymous) @ index-DC_ol-54.js:40
+N @ index-DC_ol-54.js:25
+P @ index-DC_ol-54.js:25
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DC_ol-54.js:1430 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DC_ol-54.js:1430 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DC_ol-54.js:1430 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DC_ol-54.js:1430 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-DC_ol-54.js:1430 [Layout] Server session found: mat.the.diver@googlemail.com
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DC_ol-54.js:1430 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DC_ol-54.js:1430 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DC_ol-54.js:1430 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DC_ol-54.js:1430 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: true
+index-DC_ol-54.js:1430 [Layout] hasPendingPOs: false count: 0 isLoading: true
+index-DC_ol-54.js:1430 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] Fetched bookings count: 0
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] Pending PO bookings: 0
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DC_ol-54.js:1430 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DC_ol-54.js:1430 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DC_ol-54.js:1430 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DC_ol-54.js:1430 [Layout] currentPageName: _DynamicPage currentPortalPageId: null
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DC_ol-54.js:1430 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DC_ol-54.js:1430 [Layout] currentPageName: FormManagement currentPortalPageId: null
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DC_ol-54.js:1430 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DC_ol-54.js:1430 [Layout] currentPageName: FormManagement currentPortalPageId: null
+index-DC_ol-54.js:1430 [Layout] Server session found: mat.the.diver@googlemail.com
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DC_ol-54.js:1430 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DC_ol-54.js:1430 [Layout] currentPageName: FormManagement currentPortalPageId: null
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DC_ol-54.js:1430 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DC_ol-54.js:1430 [Layout] currentPageName: FormManagement currentPortalPageId: null
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DC_ol-54.js:1430 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DC_ol-54.js:1430 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DC_ol-54.js:1430 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DC_ol-54.js:1430 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-DC_ol-54.js:1430 [Layout] Server session found: mat.the.diver@googlemail.com
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DC_ol-54.js:1430 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DC_ol-54.js:1430 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] memberInfo: {id: 'b24e022f-adcc-4930-8952-63a34cc16925', email: 'mat.the.diver@googlemail.com'}
+index-DC_ol-54.js:1430 [usePendingPurchaseOrders] hasPendingPOs: false count: 0 isLoading: false
+index-DC_ol-54.js:1430 [Layout] hasPendingPOs: false count: 0 isLoading: false
+index-DC_ol-54.js:1430 [Layout] currentPageName: FormBuilder currentPortalPageId: null
+index-DC_ol-54.js:40 Error: A <Select.Item /> must have a value prop that is not an empty string. This is because the Select value can be set to an empty string to clear the selection and show the placeholder.
+    at index-DC_ol-54.js:1396:129799
+    at Yk (index-DC_ol-54.js:38:17018)
+    at Y5 (index-DC_ol-54.js:40:1571)
+    at G$ (index-DC_ol-54.js:40:46033)
+    at H$ (index-DC_ol-54.js:40:39790)
+    at yX (index-DC_ol-54.js:40:39718)
+    at Cj (index-DC_ol-54.js:40:39570)
+    at cC (index-DC_ol-54.js:40:35934)
+    at iF (index-DC_ol-54.js:40:36738)
+    at ku (index-DC_ol-54.js:38:3279)
+Q2 @ index-DC_ol-54.js:40
+S$.a.callback @ index-DC_ol-54.js:40
+B5 @ index-DC_ol-54.js:38
+aF @ index-DC_ol-54.js:40
+B$ @ index-DC_ol-54.js:40
+bX @ index-DC_ol-54.js:40
+NX @ index-DC_ol-54.js:40
+Gu @ index-DC_ol-54.js:40
+iF @ index-DC_ol-54.js:40
+ku @ index-DC_ol-54.js:38
+(anonymous) @ index-DC_ol-54.js:40
+index-DC_ol-54.js:1396 Uncaught Error: A <Select.Item /> must have a value prop that is not an empty string. This is because the Select value can be set to an empty string to clear the selection and show the placeholder.
+    at index-DC_ol-54.js:1396:129799
+    at Yk (index-DC_ol-54.js:38:17018)
+    at Y5 (index-DC_ol-54.js:40:1571)
+    at G$ (index-DC_ol-54.js:40:46033)
+    at H$ (index-DC_ol-54.js:40:39790)
+    at yX (index-DC_ol-54.js:40:39718)
+    at Cj (index-DC_ol-54.js:40:39570)
+    at cC (index-DC_ol-54.js:40:35934)
+    at iF (index-DC_ol-54.js:40:36738)
+    at ku (index-DC_ol-54.js:38:3279)
+(anonymous) @ index-DC_ol-54.js:1396
+Yk @ index-DC_ol-54.js:38
+Y5 @ index-DC_ol-54.js:40
+G$ @ index-DC_ol-54.js:40
+H$ @ index-DC_ol-54.js:40
+yX @ index-DC_ol-54.js:40
+Cj @ index-DC_ol-54.js:40
+cC @ index-DC_ol-54.js:40
+iF @ index-DC_ol-54.js:40
+ku @ index-DC_ol-54.js:38
+(anonymous) @ index-DC_ol-54.js:40

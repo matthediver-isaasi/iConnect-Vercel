@@ -1,0 +1,39 @@
+2026-09-08 09:40:35.592 [info] [Public Form Submission] === ENDPOINT CALLED ===
+2026-09-08 09:40:35.593 [info] [Public Form Submission] form_id: 7a173155-7932-4f80-bac3-12644920b9a0 form_name: Student join brief_id: none vacancy_id: none
+2026-09-08 09:40:35.593 [info] [TenantResolver] resolveTenantFromRequest called
+2026-09-08 09:40:35.593 [info] [TenantResolver] Params - tenant: bnms domain: undefined
+2026-09-08 09:40:35.593 [info] [TenantResolver] Trying tenant param lookup: bnms
+2026-09-08 09:40:35.721 [info] [TenantResolver] Found by slug param: bnms
+2026-09-08 09:40:35.871 [info] [Session] getSession: Looking up session: 69841936 (cookie)
+2026-09-08 09:40:35.981 [info] [Session] getSession: Session found, userType: member
+2026-09-08 09:40:35.981 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"69841936","userType":"member","memberId":"3d291826-13d8-4fc1-9221-7627fc45830a"}
+2026-09-08 09:40:36.094 [info] [TenantResolver] resolveTenantFromRequest called
+2026-09-08 09:40:36.094 [info] [TenantResolver] Params - tenant: bnms domain: undefined
+2026-09-08 09:40:36.094 [info] [TenantResolver] Trying tenant param lookup: bnms
+2026-09-08 09:40:36.205 [info] [TenantResolver] Found by slug param: bnms
+2026-09-08 09:40:36.206 [info] [Session] getSession: Looking up session: 69841936 (cookie)
+2026-09-08 09:40:36.319 [info] [Session] getSession: Session found, userType: member
+2026-09-08 09:40:36.319 [info] [TenantContext] About to call getSessionTenantUser
+2026-09-08 09:40:36.319 [info] [Session] getSession: Looking up session: 69841936 (cookie)
+2026-09-08 09:40:36.429 [info] [Session] getSession: Session found, userType: member
+2026-09-08 09:40:36.429 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"69841936","userType":"member","memberId":"3d291826-13d8-4fc1-9221-7627fc45830a","identityId":"dc156a30-ae8d-4aee-b965-b54fe4b17105","tenantId":"ff2df806-b321-4254-b651-3af11fccf1db"}
+2026-09-08 09:40:36.429 [info] [Session] Found member session with identityId, attempting promotion
+2026-09-08 09:40:36.647 [info] [Session] No tenant_user record found for identity promotion
+2026-09-08 09:40:36.647 [info] [Session] Member session promotion failed
+2026-09-08 09:40:36.647 [info] [TenantContext] getSessionTenantUser returned: null
+2026-09-08 09:40:36.647 [info] [TenantContext] Checking for member session...
+2026-09-08 09:40:36.647 [info] [Session] getSession: Looking up session: 69841936 (cookie)
+2026-09-08 09:40:36.760 [info] [Session] getSession: Session found, userType: member
+2026-09-08 09:40:36.760 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"69841936","userType":"member","memberId":"3d291826-13d8-4fc1-9221-7627fc45830a"}
+2026-09-08 09:40:36.874 [info] [TenantContext] Member found: {
+  memberId: '3d291826-13d8-4fc1-9221-7627fc45830a',
+  organizationId: 'efa4d302-9ceb-4085-9e38-8510c16d8206'
+}
+2026-09-08 09:40:36.874 [info] [TenantContext] Tenant from member: ff2df806-b321-4254-b651-3af11fccf1db
+2026-09-08 09:40:37.328 [info] [Public Form Submission] Submission created successfully: 7b7e5a83-5b74-4272-9510-d9ffb67f5326
+2026-09-08 09:40:37.328 [info] [Public Form Submission] Processing entity pipelines for tenant: ff2df806-b321-4254-b651-3af11fccf1db
+2026-09-08 09:40:38.779 [info] [Public Form Submission] Rolling back submission due to pipeline failure: 7b7e5a83-5b74-4272-9510-d9ffb67f5326
+2026-09-08 09:40:38.893 [error] [Public Form Submission] Entity pipeline processing failed: {
+  error: 'Organisation name is required. Please map a form field to "Organisation Name" in the Submission Settings.',
+  code: 'MISSING_ORG_NAME'
+}

@@ -1,0 +1,68 @@
+<table align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="width:100%;">
+          <tbody>
+            <tr>
+              <td style="direction:ltr;font-size:0px;padding:12px 16px 12px 16px;text-align:center;">
+                <!--[if mso | IE]><table role="presentation" border="0" cellpadding="0" cellspacing="0"><tr><td class="" style="vertical-align:top;width:568px;" ><![endif]-->
+            
+      <div class="mj-column-per-100 mj-outlook-group-fix" style="font-size:0px;text-align:left;direction:ltr;display:inline-block;vertical-align:top;width:100%;">
+        
+      <table border="0" cellpadding="0" cellspacing="0" role="presentation" style="vertical-align:top;" width="100%">
+        <tbody>
+          
+              <tr>
+                <td align="left" style="font-size:0px;padding:10px 25px;word-break:break-word;">
+                  
+      <div style="font-family:Arial, sans-serif;font-size:12px;line-height:1.5;text-align:left;color:#666666;"><!-- Email Footer - GFI Branded -->
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top: 40px;">
+  <!-- Gradient Bar -->
+  <tbody><tr>
+    <td style="height: 5px; background: linear-gradient(to right, #5C0085, #BA0087, #EE00C3, #FF4229, #FFB000);"></td>
+  </tr>
+  <!-- Main Footer Content -->
+  <tr>
+    <td style="background-color: #000000; padding: 40px 30px; text-align: center;">
+      <!-- Logo -->
+      <table align="center" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 24px;">
+        <tbody><tr>
+          <td>
+            <a href="https://graduatefutures.org"><img width="1000" src="https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d%2Fuploads%2F1767106645198-si4l7l5-Graduate_Futures_Institute_-_Shaping_futures_together.jpg"></a>
+          </td>
+        </tr>
+      </tbody></table>
+      
+   
+      
+      <!-- Divider Line -->
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 20px;">
+        <tbody><tr>
+          <td style="height: 1px; background-color: rgba(255,255,255,0.3);"></td>
+        </tr>
+      </tbody></table>
+      
+      <!-- Registration Details -->
+      <table align="center" cellpadding="0" cellspacing="0" border="0">
+        <tbody><tr>
+          <td style="text-align: center;">
+            <p style="color: #ffffff; font-family: 'Poppins', Arial, sans-serif; font-size: 12px; line-height: 1.6; margin: 0;">
+              The Association of Graduate Careers Advisory Services (Graduate Futures Institute) is a registered charity in England and Wales (1078508) and Scotland (SC038805) Company No. 03884685.
+            </p>
+          </td>
+        </tr>
+      </tbody></table>
+    </td>
+  </tr>
+</tbody></table></div>
+    
+                </td>
+              </tr>
+            
+        </tbody>
+      </table>
+    
+      </div>
+    
+          <!--[if mso | IE]></td></tr></table><![endif]-->
+              </td>
+            </tr>
+          </tbody>
+        </table>

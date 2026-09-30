@@ -1,0 +1,28 @@
+2026-02-10 19:46:56.106 [info] [TenantResolver] resolveTenantFromRequest called
+2026-02-10 19:46:56.106 [info] [TenantResolver] Params - tenant: undefined domain: undefined
+2026-02-10 19:46:56.106 [info] [TenantResolver] Falling back to host-based resolution, hostname: gfi.dev.iconn.app
+2026-02-10 19:46:56.106 [info] [TenantResolver] resolveTenantFromHost called with: gfi.dev.iconn.app
+2026-02-10 19:46:56.106 [info] [TenantResolver] Cache hit for: gfi.dev.iconn.app
+2026-02-10 19:46:56.106 [info] [TenantContext] About to call getSessionTenantUser
+2026-02-10 19:46:56.106 [info] [Session] getSession: Looking up session: cfe20588
+2026-02-10 19:46:56.234 [info] [Session] getSession: Session found, userType: member
+2026-02-10 19:46:56.234 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"cfe20588","userType":"member","memberId":"9ac39222-22b8-457e-a5df-dfca45a99eb6","identityId":"dc156a30-ae8d-4aee-b965-b54fe4b17105","tenantId":"fd82da65-aab7-4a5c-85b8-b2febeb2003d"}
+2026-02-10 19:46:56.234 [info] [Session] Found member session with identityId, attempting promotion
+2026-02-10 19:46:56.474 [info] [Session] No tenant_user record found for identity promotion
+2026-02-10 19:46:56.474 [info] [Session] Member session promotion failed
+2026-02-10 19:46:56.474 [info] [TenantContext] getSessionTenantUser returned: null
+2026-02-10 19:46:56.474 [info] [TenantContext] Checking for member session...
+2026-02-10 19:46:56.474 [info] [Session] getSession: Looking up session: cfe20588
+2026-02-10 19:46:56.592 [info] [Session] getSession: Session found, userType: member
+2026-02-10 19:46:56.592 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"cfe20588","userType":"member","memberId":"9ac39222-22b8-457e-a5df-dfca45a99eb6"}
+2026-02-10 19:46:56.726 [info] [TenantContext] Member found: {
+  memberId: '9ac39222-22b8-457e-a5df-dfca45a99eb6',
+  organizationId: 'ccbbbd4d-12e8-4e9e-b49e-cd29979623ae'
+}
+2026-02-10 19:46:56.726 [info] [TenantContext] Tenant from member: fd82da65-aab7-4a5c-85b8-b2febeb2003d
+2026-02-10 19:46:57.097 [error] [Membership Tiers] Error fetching discounts: {
+  code: 'PGRST205',
+  details: null,
+  hint: "Perhaps you meant the table 'public.membership_tier_band'",
+  message: "Could not find the table 'public.membership_tier_discount' in the schema cache"
+}

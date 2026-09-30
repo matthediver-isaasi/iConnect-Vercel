@@ -1,0 +1,39 @@
+Can you first confirm my understanding of the current member-facing functionality?
+
+At present, I believe a standard member has no way to view the details of their own membership setup or membership transactions.
+
+The tenant-admin membership view is available here:
+
+`/members/9d71ce1f-0fff-4c0a-91c7-f59efc3bcae4?tab=membership`
+
+However, this appears to be RBAC-gated to tenant administrators and is therefore not available to the member themselves.
+
+Members do have access to `/History`, but this currently appears to show event-related transactions only. There is also a **Membership** tab within `/History`.
+
+Please investigate and confirm:
+
+* What the Membership tab on `/History` is currently intended to display.
+* Whether any membership transactions, payments, invoices or membership records are currently configured to appear there.
+* Whether standard members currently have any other route where they can view their own membership details, renewal dates, payment history or invoices.
+
+If my understanding is correct and the Membership tab is currently unused or incomplete, we should use this area as the member-facing membership account view.
+
+The intention would be for the **Membership** tab within `/History` to provide the member with a similar view of their own membership information to that available to a tenant administrator, but restricted entirely to the logged-in member's own records.
+
+This should include, where available:
+
+* Current membership type/class.
+* Membership status.
+* Membership start date.
+* Renewal/expiry date.
+* Billing period.
+* Payment method.
+* Membership transaction history.
+* Payment status.
+* Membership invoices.
+* Links to view or download invoices where supported.
+* Any relevant renewal information.
+
+The member should only ever be able to see their own membership and financial records.
+
+Please first report back on the existing implementation and purpose of the `/History` Membership tab before making changes. If it is suitable for this purpose, then propose how we can extend it to provide the member-facing equivalent of the existing tenant-admin membership view without duplicating unnecessary functionality.

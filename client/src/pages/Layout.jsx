@@ -1,8 +1,43 @@
+import { refreshRoleSettingsQueries, subscribeRoleSettingsCopy } from "@/lib/roleSettingsCopy";
 
-import React, { useEffect, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import React, { useEffect, useLayoutEffect, useState, useRef, useMemo } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { createPageUrl } from "@/utils";
-import { Calendar, User, CreditCard, LogOut, Ticket, Wallet, Shield, Users, Settings, Sparkles, ShoppingCart, History, BarChart3, Briefcase, FileEdit, Image, FileText, AtSign, FolderTree, Square, Trophy, BookOpen, Mail, MousePointer2, Building, Download, HelpCircle, Menu, ChevronRight } from "lucide-react";
+import { Calendar, User, CreditCard, LogOut, Ticket, Wallet, Shield, Users, Settings, Sparkles, ShoppingCart, History, BarChart3, Briefcase, FileEdit, Image, FileText, AtSign, FolderTree, Square, Trophy, BookOpen, Mail, MousePointer2, Building, Download, Upload, HelpCircle, Menu, ChevronRight, ChevronLeft, Video, Bell, Newspaper, PenLine, Home, Globe, Folder, MessageSquare, Star, Heart, Eye, Link as LinkIcon, ExternalLink, Tag, Award, Bookmark, Clock, Search, Phone, MapPin, Music, Camera, Mic, Headphones, Tv, Radio, Rss, Share2, Gift, Zap, Target, Flag, Layers, Grid, List, Layout as LayoutIcon, Monitor, Smartphone, Tablet, Laptop, Server, Database, Cloud, Lock, Key, UserCheck, UserPlus, UserMinus, Users2, MessageCircle, Send, Inbox, Archive, Navigation, UserCog, Activity, XCircle, Handshake, Accessibility, QrCode } from "lucide-react";
+import { useLayoutContext } from "@/contexts/LayoutContext";
+import { useTenantAiAssistant } from "@/hooks/useTenantAiAssistant";
+import { createViewerRequestLease } from "@/lib/canvasViewerValues";
+import {
+  acquireViewerSessionRequest,
+  getViewerSessionScope,
+  invalidateViewerSessionRequest,
+  useViewerSessionPreload,
+} from "@/lib/viewerSessionPreload";
+import {
+  resolveRoutineSessionRole,
+  useViewerSessionRevalidation,
+} from "@/lib/viewerSessionLifecycle";
+import { useArticleUrl } from "@/contexts/ArticleUrlContext";
+import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
+import { BUILTIN_MEMBER_ALIASES } from "@shared/memberAliases.js";
+import { useTenantBranding } from "@/contexts/TenantBrandingContext";
+import { isResourceExcluded, setDbRoleAccessOverlay } from "@/lib/roleVisibility";
+import { migrateLegacyFeatureId } from "@/lib/roleAccessMap";
+import { buildPortalNavBackgroundStyle } from "@/lib/canvasBackground";
+import { SALES_DESTINATIONS } from "@/lib/salesNavigation";
+import { InstalledFontsLoader } from "@/lib/installedFonts";
+import PortalNavLink from "@/components/navigation/PortalNavLink";
+import {
+  getCustomObjectIdFromPortalListUrl,
+  getCustomObjectIdFromPortalPath,
+  getCustomObjectIdFromPortalRoleAccessId,
+  getCustomObjectPortalRoleAccessId,
+  getPortalMenuFallbackFeatureId,
+  isPortalMenuDestinationActive,
+  loadViewableCustomObjectPortalDestinations,
+  resolvePortalMenuDestination,
+} from "@/lib/portalMenuLinks";
+import { publicClient } from "@/api/publicClient";
 import {
   Sidebar,
   SidebarContent,
@@ -19,22 +54,59 @@ import {
   SidebarFooter,
   SidebarProvider,
   SidebarTrigger,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import RoleBadge from "@/components/RoleBadge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetClose } from "@/components/ui/sheet";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import PublicLayout from "@/components/layouts/PublicLayout";
 import BarePublicLayout from "@/components/layouts/BarePublicLayout";
+import PortalReadiness from "@/components/layouts/PortalReadiness";
 import FloaterDisplay from "@/components/floaters/FloaterDisplay";
 import NewsTickerBar from "@/components/news/NewsTickerBar";
+import PortalHeroBanner from "@/components/banners/PortalHeroBanner";
+import PageBannerDisplay from "@/components/banners/PageBannerDisplay";
+import NextEventCountdown from "@/components/navigation/NextEventCountdown";
+import NavigationRoleState from "@/components/navigation/NavigationRoleState";
+import SubmissionStatsBar from "@/components/navigation/SubmissionStatsBar";
+import { BannerProvider } from "@/contexts/BannerContext";
+import { usePendingPurchaseOrders } from "@/hooks/usePendingPurchaseOrders";
+import { useInboxUnreadSummary } from "@/hooks/useInbox";
+import { SiGoogle } from "react-icons/si";
+import BookmarkDrawer from "@/components/bookmarks/BookmarkDrawer";
+import InboxUnreadPopup from "@/components/inbox/InboxUnreadPopup";
+import MemberAiAssistant from "@/components/ai/MemberAiAssistant";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import dougalAvatar from "@assets/ChatGPT_Image_Jul_4,_2026,_06_26_22_PM_1783182456658.png";
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from "@/api/base44Client";
+import { useSessionMemberRole } from "@/hooks/useSessionMemberRole";
+import {
+  createSessionRoleKey,
+  normalizeSessionRoleSnapshot,
+  stripTrustedMemberProjections,
+} from "@/lib/memberSessionRole";
 
 
 
 
 const navigationItems = [
+  {
+    title: "Sales",
+    icon: Handshake,
+    featureId: "sales.view",
+    subItems: SALES_DESTINATIONS.map(({ label, path, permissionId }) => ({
+      title: label,
+      url: path,
+      featureId: permissionId,
+    })),
+  },
   {
     title: "Buy Tickets",
     url: createPageUrl("BuyProgramTickets"),
@@ -72,6 +144,18 @@ const navigationItems = [
     featureId: "page_History"
   },
   {
+    title: "My CPD points",
+    url: "/cpdpoints",
+    icon: Trophy,
+    featureId: "cpd.member_cpd"
+  },
+  {
+    title: "CPD Certificate Templates",
+    url: createPageUrl("CPDCertificateTemplates"),
+    icon: FileText,
+    featureId: "cpd.certificate-templates"
+  },
+  {
     title: "Team",
     url: createPageUrl("Team"),
     icon: Users,
@@ -97,26 +181,16 @@ const navigationItems = [
   },
   {
     title: "Articles",
+    url: createPageUrl("Articles"),
     icon: FileText,
-    featureId: "page_ArticlesSection",
-    subItems: [
-      {
-        title: "My Articles",
-        url: createPageUrl("MyArticles"),
-        featureId: "page_MyArticles"
-      },
-      {
-        title: "Articles",
-        url: createPageUrl("Articles"),
-        featureId: "page_Articles"
-      }
-    ]
+    featureId: "page_Articles",
+    isDynamicArticles: true
   },
   {
     title: "News",
     url: createPageUrl("News"),
     icon: FileText,
-    featureId: "page_News"
+    featureId: "page_user_News"
   },
   {
     title: "My Job Postings",
@@ -125,16 +199,40 @@ const navigationItems = [
     featureId: "page_MyJobPostings"
   },
   {
-    title: "Preferences",
-    url: createPageUrl("Preferences"),
+    title: "Volunteer Board",
+    url: createPageUrl("VolunteerBoard"),
+    icon: UserPlus,
+    featureId: "jobs.volunteer-board"
+  },
+  {
+    title: "Forum",
+    url: createPageUrl("Forum"),
+    icon: MessageSquare,
+    featureId: "page_Forum"
+  },
+  {
+    title: "Inbox",
+    url: createPageUrl("Inbox"),
+    icon: Inbox,
+    featureId: "communication.inbox"
+  },
+  {
+    title: "About Me",
+    url: "/about-me",
     icon: Settings,
-    featureId: "page_Preferences"
+    featureId: "user.about-me"
   },
   {
     title: "Support",
     url: createPageUrl("Support"),
     icon: HelpCircle,
     featureId: "page_Support"
+  },
+  {
+    title: "Help Center",
+    url: createPageUrl("Help"),
+    icon: BookOpen,
+    featureId: "page_Help"
   },
   ];
 
@@ -144,11 +242,6 @@ const adminNavigationItems = [
     icon: FileText,
     featureId: "page_NewsAdmin",
     subItems: [
-      {
-        title: "News Management",
-        url: createPageUrl("MyNews"),
-        featureId: "page_MyNews"
-      },
       {
         title: "Settings",
         url: createPageUrl("NewsSettings"),
@@ -160,12 +253,8 @@ const adminNavigationItems = [
     title: "Articles",
     icon: FileText,
     featureId: "page_ArticlesAdmin",
+    isDynamicArticleSection: true,
     subItems: [
-      {
-        title: "All Articles",
-        url: createPageUrl("ArticleManagement"),
-        featureId: "page_ArticleManagement"
-      },
       {
         title: "Settings",
         url: createPageUrl("ArticlesSettings"),
@@ -174,10 +263,74 @@ const adminNavigationItems = [
     ]
   },
   {
+    title: "Article Briefs",
+    icon: FileText,
+    featureId: "content.briefs",
+    subItems: [
+      {
+        title: "Manage Briefs",
+        url: createPageUrl("BriefManagement"),
+        featureId: "page_BriefManagement"
+      },
+      {
+        title: "Brief Settings",
+        url: createPageUrl("BriefSettings"),
+        featureId: "page_BriefSettings"
+      }
+    ]
+  },
+  {
+    title: "Photo Galleries",
+    icon: Image,
+    featureId: "content.gallery",
+    subItems: [
+      {
+        title: "Manage Galleries",
+        url: createPageUrl("PhotoGalleries"),
+        featureId: "page_PhotoGalleries"
+      }
+    ]
+  },
+  {
     title: "Role Management",
-    url: createPageUrl("RoleManagement"),
     icon: Shield,
-    featureId: "page_RoleManagement"
+    featureId: "page_RoleManagement",
+    subItems: [
+      {
+        title: "Manage Roles",
+        url: createPageUrl("RoleManagement"),
+        featureId: "page_RoleManagement"
+      },
+      {
+        title: "Access Configuration",
+        url: createPageUrl("RoleAccessConfigManagement"),
+        featureId: "page_RoleAccessConfigManagement"
+      }
+    ]
+  },
+  {
+    title: "Organisation Preferences",
+    url: createPageUrl("OrganisationPreferences"),
+    icon: Building,
+    featureId: "page_admin_OrganisationPreferences"
+  },
+  {
+    title: "Data Studio",
+    icon: Database,
+    featureId: "admin.data-studio",
+    subItems: [
+      {
+        title: "Custom Objects",
+        url: createPageUrl("CustomObjectsAdmin"),
+        featureId: "admin.data-studio"
+      }
+    ]
+  },
+  {
+    title: "Member Preferences",
+    url: createPageUrl("MemberPreferences"),
+    icon: UserCog,
+    featureId: "page_admin_MemberPreferences"
   },
   {
     title: "Assign Member Roles",
@@ -204,6 +357,24 @@ const adminNavigationItems = [
     featureId: "page_MemberDirectorySettings"
   },
   {
+    title: "Member Group Settings",
+    url: createPageUrl("MemberGroupSettings"),
+    icon: Users,
+    featureId: "membership.member-group-settings"
+  },
+  {
+    title: "Member Group Invite Report",
+    url: createPageUrl("MemberGroupInviteReport"),
+    icon: Mail,
+    featureId: "membership.member-groups-invite-report"
+  },
+  {
+    title: "Group Classification Report",
+    url: createPageUrl("MemberGroupClassificationReport"),
+    icon: FileText,
+    featureId: "membership.member-group-classification-report"
+  },
+  {
     title: "Discount Codes",
     url: createPageUrl("DiscountCodeManagement"),
     icon: Ticket,
@@ -216,16 +387,106 @@ const adminNavigationItems = [
     featureId: "page_EventSettings"
   },
   {
+    title: "Sponsor Management",
+    url: createPageUrl("SponsorManagement"),
+    icon: Handshake,
+    featureId: "page_SponsorManagement"
+  },
+  {
+    title: "Cancellation Requests",
+    url: createPageUrl("CancellationRequests"),
+    icon: XCircle,
+    featureId: "page_CancellationRequests"
+  },
+  {
     title: "Ticket Sales Analytics",
     url: createPageUrl("TicketSalesAnalytics"),
     icon: BarChart3,
     featureId: "page_TicketSalesAnalytics"
   },
   {
+    title: "Pending Purchase Orders",
+    url: createPageUrl("PendingPurchaseOrdersReport"),
+    icon: FileText,
+    featureId: "page_PendingPurchaseOrdersReport"
+  },
+  {
+    title: "Monthly Finance Report",
+    url: createPageUrl("MonthlyFinanceReport"),
+    icon: FileText,
+    featureId: "page_MonthlyFinanceReport"
+  },
+  {
+    title: "Individual Membership Payment Report",
+    url: createPageUrl("MembershipPaymentReport"),
+    icon: CreditCard,
+    featureId: "page_MembershipPaymentReport"
+  },
+  {
+    title: "Registration Report",
+    url: createPageUrl("EventRegistrationReport"),
+    icon: FileText,
+    featureId: "page_EventRegistrationReport"
+  },
+  {
+    title: "Event Budget Report",
+    url: createPageUrl("EventBudgetReport"),
+    icon: FileText,
+    featureId: "page_EventBudgetReport"
+  },
+  {
+    title: "Survey Reports",
+    url: createPageUrl("SurveyReports"),
+    icon: FileText,
+    featureId: "forms.survey-reports"
+  },
+  {
+    title: "Event Check-In",
+    url: createPageUrl("EventCheckInDashboard"),
+    icon: QrCode,
+    featureId: "page_EventCheckInDashboard"
+  },
+  {
+    title: "AI Report Generator",
+    url: createPageUrl("AIReports"),
+    icon: Sparkles,
+    featureId: "page_AIReports"
+  },
+  {
+    title: "Accessibility Audits",
+    url: createPageUrl("AccessibilityAudits"),
+    icon: Accessibility,
+    featureId: "page_AccessibilityAudits"
+  },
+  {
+    title: "Engagement Report",
+    url: createPageUrl("OrganisationEngagementReport"),
+    icon: Activity,
+    featureId: "reports.org-engagement"
+  },
+  {
+    title: "Membership Tiers",
+    url: createPageUrl("MembershipTierManagement"),
+    icon: Layers,
+    featureId: "page_MembershipTierManagement"
+  },
+  {
+    title: "Membership Settings",
+    url: createPageUrl("MembershipSettings"),
+    icon: Settings,
+    featureId: "page_MembershipSettings"
+  },
+  {
     title: "Award Management",
     url: createPageUrl("AwardManagement"),
     icon: Trophy,
     featureId: "page_AwardManagement"
+  },
+  {
+    title: "Badge Management",
+    url: createPageUrl("BadgeManagement"),
+    icon: Award,
+    featureId: "admin.badges"
   },
   {
     title: "Category Management",
@@ -238,6 +499,12 @@ const adminNavigationItems = [
     url: createPageUrl("ResourceSettings"),
     icon: FolderTree,
     featureId: "page_ResourceSettings"
+  },
+  {
+    title: "Forum Management",
+    url: createPageUrl("ForumManagement"),
+    icon: MessageSquare,
+    featureId: "page_ForumManagement"
   },
   {
     title: "Resource Management",
@@ -294,6 +561,11 @@ const adminNavigationItems = [
         featureId: "page_IEditPageManagement"
       },
       {
+        title: "Canvas Links Manager",
+        url: createPageUrl("CanvasLinksManager"),
+        featureId: "page_admin_CanvasLinksManager"
+      },
+      {
         title: "Element Templates",
         url: createPageUrl("IEditTemplateManagement"),
         featureId: "page_IEditTemplateManagement"
@@ -307,6 +579,11 @@ const adminNavigationItems = [
         title: "Navigation Items",
         url: createPageUrl("NavigationManagement"),
         featureId: "page_NavigationManagement"
+      },
+      {
+        title: "Microsites",
+        url: createPageUrl("MicrositeManagement"),
+        featureId: "page_MicrositeManagement"
       },
       {
         title: "Buttons",
@@ -327,6 +604,11 @@ const adminNavigationItems = [
         title: "Installed Fonts",
         url: createPageUrl("InstalledFonts"),
         featureId: "page_InstalledFonts"
+      },
+      {
+        title: "Page Visibility",
+        url: createPageUrl("PageVisibilitySettings"),
+        featureId: "page_PageVisibilitySettings"
       }
     ]
   },
@@ -360,10 +642,22 @@ const adminNavigationItems = [
     featureId: "page_TeamInviteSettings"
   },
   {
+    title: "Email Placeholders",
+    url: createPageUrl("EmailPlaceholders"),
+    icon: Mail,
+    featureId: "page_EmailPlaceholders"
+  },
+  {
     title: "Data Export",
     url: createPageUrl("DataExport"),
     icon: Download,
     featureId: "page_DataExport"
+  },
+  {
+    title: "Import Manager",
+    url: createPageUrl("ImportManager"),
+    icon: Upload,
+    featureId: "page_ImportManager"
   },
   {
     title: "Site Map",
@@ -389,48 +683,572 @@ const adminNavigationItems = [
     icon: Sparkles,
     featureId: "page_TourManagement"
   },
+  {
+    title: "Zoom Webinars",
+    url: createPageUrl("ZoomWebinarProvisioning"),
+    icon: Video,
+    featureId: "page_ZoomWebinarProvisioning"
+  },
   ];
 
+// Circular toggle button on sidebar edge
+function SidebarEdgeToggle() {
+  const { state, toggleSidebar } = useSidebar();
+  const isCollapsed = state === 'collapsed';
+  
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild onFocus={(e) => e.preventDefault()}>
+        <button
+          onClick={toggleSidebar}
+          className="w-6 h-6 bg-white border border-slate-200 rounded-full shadow-sm flex items-center justify-center hover:bg-slate-50 transition-colors cursor-pointer"
+          data-testid="button-sidebar-toggle"
+        >
+          {isCollapsed ? (
+            <ChevronRight className="w-4 h-4 text-slate-600" />
+          ) : (
+            <ChevronLeft className="w-4 h-4 text-slate-600" />
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">
+        {isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
 
+// Separate component for sidebar footer content to use useSidebar hook
+function SidebarFooterContent({ memberInfo, memberRole, handleLogout, portalNav }) {
+  const { state } = useSidebar();
+  const isCollapsed = state === 'collapsed';
+
+  const userCard = portalNav?.userCard;
+  const userCardBgStyle = userCard?.background ? buildPortalNavBackgroundStyle(userCard.background) : null;
+  const hasUserCardBg = !!(userCardBgStyle && Object.keys(userCardBgStyle).length);
+  const userCardTextStyle = userCard?.textColor ? { color: userCard.textColor } : undefined;
+
+  if (!memberInfo) return null;
+  
+  if (isCollapsed) {
+    // Show only icons when collapsed
+    return (
+      <div className="flex flex-col items-center gap-2 py-2">
+        <Tooltip>
+          <TooltipTrigger asChild onFocus={(e) => e.preventDefault()}>
+            <div className="flex items-center justify-center">
+              {memberInfo.google_id ? (
+                <SiGoogle className="w-5 h-5 text-[#4285F4]" />
+              ) : (
+                <User className="w-5 h-5 text-slate-500" />
+              )}
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            {memberInfo.first_name} {memberInfo.last_name}
+          </TooltipContent>
+        </Tooltip>
+        {memberInfo.hasTenantUserLink && (
+          <Tooltip>
+            <TooltipTrigger asChild onFocus={(e) => e.preventDefault()}>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  window.location.href = 'https://iconn.app/admin/dashboard';
+                }}
+              >
+                <ExternalLink className="w-4 h-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Admin Dashboard</TooltipContent>
+          </Tooltip>
+        )}
+        <Tooltip>
+          <TooltipTrigger asChild onFocus={(e) => e.preventDefault()}>
+            <Button
+              variant="ghost"
+              size="icon"
+              style={portalNavItemStyle(portalNav, false)}
+              className="nav-item-themed hover:bg-blue-50 hover:text-blue-700 transition-colors"
+              onClick={handleLogout}
+            >
+              <LogOut className="w-4 h-4" style={portalNavIconStyle(portalNav, false)} />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="right">Sign Out</TooltipContent>
+        </Tooltip>
+      </div>
+    );
+  }
+  
+  // Full content when expanded
+  return (
+    <div className="space-y-3">
+      <div
+        className={`px-3 py-2 rounded-lg${hasUserCardBg ? '' : ' bg-slate-50'}`}
+        style={hasUserCardBg ? userCardBgStyle : undefined}
+      >
+        <div className="flex items-center gap-2 mb-1">
+          {memberInfo.google_id ? (
+            <SiGoogle className="w-4 h-4 text-[#4285F4]" />
+          ) : (
+            <User className="w-4 h-4 text-slate-500" style={userCardTextStyle} />
+          )}
+          <span className="text-sm font-medium text-slate-900" style={userCardTextStyle}>
+            {memberInfo.first_name} {memberInfo.last_name}
+          </span>
+        </div>
+        <p className="text-xs text-slate-500 pl-6 truncate" title={memberInfo.email} style={userCardTextStyle}>{memberInfo.email}</p>
+        {memberRole && (
+          <div className="pl-6 mt-2">
+            <RoleBadge role={memberRole} className="text-xs" />
+          </div>
+        )}
+      </div>
+      {memberInfo.hasTenantUserLink && (
+        <Button
+          variant="ghost"
+          className="w-full justify-start text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+          onClick={() => {
+            window.location.href = 'https://iconn.app/admin/dashboard';
+          }}
+        >
+          <ExternalLink className="w-4 h-4 mr-2" />
+          Admin Dashboard
+        </Button>
+      )}
+      <Button
+        variant="ghost"
+        style={portalNavItemStyle(portalNav, false)}
+        className="nav-item-themed w-full justify-start hover:bg-blue-50 hover:text-blue-700 transition-colors rounded-lg"
+        onClick={handleLogout}
+      >
+        <LogOut className="w-4 h-4 mr-2 shrink-0" style={portalNavIconStyle(portalNav, false)} />
+        <span>Sign Out</span>
+      </Button>
+    </div>
+  );
+}
+
+// Per-tenant portal sidebar nav-item branding. Returns undefined when the
+// tenant has no portalNav config so the default Tailwind classes apply (no
+// visual regression); otherwise returns inline styles that override them.
+function portalNavItemStyle(navTheme, isActive) {
+  if (!navTheme) return undefined;
+  if (isActive) {
+    const style = {};
+    if (navTheme.activeBackgroundColor) style.backgroundColor = navTheme.activeBackgroundColor;
+    const color = navTheme.activeTextColor || navTheme.textColor;
+    if (color) style.color = color;
+    return Object.keys(style).length ? style : undefined;
+  }
+  return navTheme.textColor ? { color: navTheme.textColor } : undefined;
+}
+
+function portalNavIconStyle(navTheme, isActive) {
+  if (!navTheme) return undefined;
+  const color = isActive
+    ? (navTheme.activeIconColor || navTheme.activeTextColor || navTheme.iconColor || navTheme.textColor)
+    : (navTheme.iconColor || navTheme.textColor);
+  return color ? { color } : undefined;
+}
+
+// Drives the colour of the structural (non-clickable) text in the portal nav
+// pane — section headings ("Your Account"/"Navigation"/"Administration"), the
+// "Organisation" label + org name, and the "Vouchers" label/amount. Returns the
+// configured portalNav text colour so these stay legible against a custom nav
+// background; returns undefined when unset so the existing slate/blue Tailwind
+// classes apply unchanged (no visual regression for unbranded tenants).
+function portalNavLabelStyle(navTheme) {
+  if (!navTheme) return undefined;
+  return navTheme.textColor ? { color: navTheme.textColor } : undefined;
+}
+
+// Navigation item component that handles both expanded (collapsible) and collapsed (popover) states
+function CollapsibleNavItem({ item, location, variant = 'user', hasPendingPOs = false, navTheme = null }) {
+  const { state } = useSidebar();
+  const isCollapsed = state === 'collapsed';
+  const [popoverOpen, setPopoverOpen] = useState(false);
+  const Icon = item.icon;
+  const isActive = isPortalMenuDestinationActive(item, location.pathname)
+    || (item.subItems && item.subItems.some(sub => isPortalMenuDestinationActive(sub, location.pathname)));
+  
+  // Variant-specific colors
+  const colors = variant === 'admin' 
+    ? { hover: 'hover:bg-warning/10 hover:text-warning', active: 'bg-warning/10 text-warning' }
+    : { hover: 'hover:bg-blue-50 hover:text-blue-700', active: 'bg-blue-50 text-blue-700' };
+
+  // Per-tenant portal-nav branding: inline styles override the Tailwind
+  // colour classes when set, and stay undefined (no regression) when unset.
+  const itemStyle = portalNavItemStyle(navTheme, isActive);
+  const iconStyle = portalNavIconStyle(navTheme, isActive);
+  const subItemStyle = (active) => portalNavItemStyle(navTheme, active);
+  
+  // When collapsed, show popover with submenu
+  if (isCollapsed) {
+    return (
+      <SidebarMenuItem>
+        <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
+          <PopoverTrigger asChild>
+            <SidebarMenuButton 
+              tooltip={popoverOpen ? undefined : item.title}
+              isActive={isActive}
+              style={itemStyle}
+              className={`nav-item-themed ${colors.hover} transition-colors rounded-lg mb-1 ${
+                isActive ? `${colors.active} font-medium` : ''
+              }`}
+              data-testid={`button-nav-parent-${item.title.toLowerCase().replace(/\s+/g, '-')}`}
+            >
+              <Icon className="w-4 h-4 shrink-0" style={iconStyle} />
+              <span className="group-data-[collapsible=icon]:hidden">{item.title}</span>
+              <ChevronRight className="ml-auto w-4 h-4 group-data-[collapsible=icon]:hidden" />
+            </SidebarMenuButton>
+          </PopoverTrigger>
+          <PopoverContent 
+            side="right" 
+            align="start" 
+            sideOffset={8}
+            className="w-48 p-1"
+            data-testid={`popover-submenu-${item.title.toLowerCase().replace(/\s+/g, '-')}`}
+          >
+            <div className="space-y-1">
+              {item.subItems.map(subItem => {
+                const isSubItemActive = isPortalMenuDestinationActive(subItem, location.pathname);
+                const isBookingsPage = subItem.url?.toLowerCase() === '/bookings';
+                const showSubPendingPOWarning = hasPendingPOs && isBookingsPage && variant === 'user';
+                return (
+                  <PortalNavLink
+                    key={subItem.title}
+                    destination={subItem}
+                    onClick={() => setPopoverOpen(false)}
+                    style={subItemStyle(isSubItemActive)}
+                    className={`nav-item-themed flex items-center gap-2 px-2 py-1.5 rounded-md text-sm ${
+                      isSubItemActive ? `${colors.active} font-medium` : `${colors.hover}`
+                    }`}
+                    data-testid={`link-submenu-${subItem.title.toLowerCase().replace(/\s+/g, '-')}`}
+                  >
+                    <span className="flex-1">{subItem.title}</span>
+                    {showSubPendingPOWarning && (
+                      <Bell className="w-3 h-3 text-warning animate-pulse" />
+                    )}
+                  </PortalNavLink>
+                );
+              })}
+            </div>
+          </PopoverContent>
+        </Popover>
+      </SidebarMenuItem>
+    );
+  }
+  
+  // When expanded, use standard collapsible
+  return (
+    <Collapsible defaultOpen={isActive}>
+      <SidebarMenuItem>
+        <CollapsibleTrigger asChild>
+          <SidebarMenuButton 
+            tooltip={item.title}
+            isActive={isActive}
+            style={itemStyle}
+            className={`nav-item-themed items-start h-auto min-h-8 group-data-[collapsible=icon]:items-center ${colors.hover} transition-colors rounded-lg mb-1 ${
+              isActive ? `${colors.active} font-medium` : ''
+            }`}
+          >
+            <Icon className="w-4 h-4 shrink-0 mt-0.5 group-data-[collapsible=icon]:mt-0" style={iconStyle} />
+            <span className="group-data-[collapsible=icon]:hidden">{item.title}</span>
+            <ChevronRight className="ml-auto w-4 h-4 mt-0.5 transition-transform group-data-[state=open]/collapsible:rotate-90 group-data-[collapsible=icon]:hidden" />
+          </SidebarMenuButton>
+        </CollapsibleTrigger>
+      </SidebarMenuItem>
+      <CollapsibleContent>
+        <SidebarMenuSub>
+          {item.subItems.map(subItem => {
+            const isSubItemActive = isPortalMenuDestinationActive(subItem, location.pathname);
+            const isBookingsPage = subItem.url?.toLowerCase() === '/bookings';
+            const showSubPendingPOWarning = hasPendingPOs && isBookingsPage && variant === 'user';
+            return (
+              <SidebarMenuSubItem key={subItem.title}>
+                <PortalNavLink
+                  destination={subItem}
+                  style={subItemStyle(isSubItemActive)}
+                  className={`nav-item-themed flex items-start gap-3 px-3 py-2.5 rounded-lg text-sm ${
+                    isSubItemActive ? `${colors.active} font-medium` : colors.hover
+                  }`}
+                >
+                  <span className="flex-1">{subItem.title}</span>
+                  {showSubPendingPOWarning && (
+                    <Bell className="w-4 h-4 text-warning animate-pulse" data-testid="pending-po-warning-bell-sub" />
+                  )}
+                </PortalNavLink>
+              </SidebarMenuSubItem>
+            );
+          })}
+        </SidebarMenuSub>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+// Clears the per-session "already surfaced the inbox popup" watermarks. Called
+// on logout / session invalidation so that logging back in (even in the same
+// browser tab) can show the popup again for still-unread messages. The
+// persistent "don't remind me" watermark (localStorage) is intentionally left
+// untouched.
+function clearInboxPopupSessionFlags() {
+  try {
+    const keys = [];
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const key = sessionStorage.key(i);
+      if (key && key.startsWith('inbox_popup_seen_')) keys.push(key);
+    }
+    keys.forEach((key) => sessionStorage.removeItem(key));
+  } catch {
+    // Storage can throw in private mode; nothing to clear then.
+  }
+}
 
 export default function Layout({ children, currentPageName }) {
+  const isCanvasEditor = currentPageName === 'CanvasPageEditor';
   const location = useLocation();
+  const navigate = useNavigate();
+  const { getArticleListUrl, getMyArticlesUrl, articleDisplayName, isCustomSlug, urlSlug, publicSlug, viewSlug, editorSlug, mySlug } = useArticleUrl();
+  const { memberLabelPlural, isCustomSlug: isCustomMemberTerm, getMemberListUrl } = useMemberTerminology();
+  // Task #939: BNMS tenant gets Urbanist + extra Poppins weights (admin shell, for InstalledFonts previews).
+  const tenantBranding = useTenantBranding();
+  const isBnmsTenant = tenantBranding?.branding?.id === 'ff2df806-b321-4254-b651-3af11fccf1db';
+
+  // Per-tenant authenticated-portal sidebar branding (Task #1826). Unset =>
+  // null/'' so all surfaces fall back to the existing defaults (no regression).
+  const portalNav = tenantBranding?.branding?.brandingConfig?.portalNav || null;
+  const basePortalFont = tenantBranding?.branding?.brandingConfig?.basePortalFont || '';
+  const portalNavBgStyle = portalNav?.background ? buildPortalNavBackgroundStyle(portalNav.background) : {};
+  const hasPortalNavBg = Object.keys(portalNavBgStyle).length > 0;
+  // Tenant-controllable background for the authenticated portal main content
+  // area (Task #1841). When no config is stored we fall back to the default
+  // slate→blue gradient Tailwind classes so existing tenants see no change.
+  const portalPageBgStyle = portalNav?.pageBackground ? buildPortalNavBackgroundStyle(portalNav.pageBackground) : {};
+  const hasPortalPageBg = Object.keys(portalPageBgStyle).length > 0;
+  // Current-user card branding (signed-in member box at the bottom of the nav).
+  const userCardBgStyle = portalNav?.userCard?.background ? buildPortalNavBackgroundStyle(portalNav.userCard.background) : null;
+  const hasUserCardBg = !!(userCardBgStyle && Object.keys(userCardBgStyle).length);
+  const userCardTextStyle = portalNav?.userCard?.textColor ? { color: portalNav.userCard.textColor } : undefined;
+  // Shadcn's <Sidebar> paints its visible surface on an inner
+  // [data-sidebar="sidebar"] div whose `bg-sidebar` background-color covers any
+  // background-image set on the outer wrapper's `style` prop. So gradient/image
+  // backgrounds must be applied directly to that inner div via a scoped CSS
+  // rule (Task #1829), not through the outer style prop.
+  const portalNavBgCss = hasPortalNavBg
+    ? Object.entries(portalNavBgStyle)
+        .map(([prop, value]) => `${prop.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`)}: ${value};`)
+        .join(' ')
+    : '';
+  // Per-tenant hover colour for nav items (Task #1832). When set, scoped CSS
+  // overrides the hardcoded blue/amber Tailwind hover classes on every element
+  // tagged `.nav-item-themed` (sidebar buttons, collapsible triggers, popover
+  // sub-links, and the mobile sheet). `!important` is required to beat both the
+  // Tailwind hover utilities AND any inline non-hover colour set from textColor.
+  const portalNavHoverBg = portalNav?.hoverBackgroundColor || '';
+  const portalNavHoverText = portalNav?.hoverTextColor || '';
+  const portalNavHoverCss = (portalNavHoverBg || portalNavHoverText)
+    ? `.nav-item-themed:hover { ${portalNavHoverBg ? `background-color: ${portalNavHoverBg} !important;` : ''} ${portalNavHoverText ? `color: ${portalNavHoverText} !important;` : ''} }
+       ${portalNavHoverText ? `.nav-item-themed:hover svg { color: ${portalNavHoverText} !important; }` : ''}`
+    : '';
+  const portalRootFont = basePortalFont
+    ? `${basePortalFont}, Poppins, sans-serif`
+    : 'Poppins, sans-serif';
+  // Pull a Google font when a non-system base font is selected (skip the
+  // already-imported Poppins and the locally-hosted Degular).
+  const portalFontImportName = basePortalFont && !/poppins|degular/i.test(basePortalFont)
+    ? basePortalFont.split(',')[0].trim().replace(/['"]/g, '')
+    : '';
+
+  const {
+    setHasBanner,
+    setPortalBanner,
+    setMemberInfo: setContextMemberInfo,
+    setOrganizationInfo: setContextOrganizationInfo,
+    setMemberRole: setContextMemberRole,
+    setIsFeatureExcluded: setContextIsFeatureExcluded,
+    setRefreshOrganizationInfo: setContextRefreshOrganizationInfo,
+    setReloadMemberInfo: setContextReloadMemberInfo,
+    setSessionValidated,
+    setAuthResolved,
+    setCanvasMemberSnapshot,
+    sessionRoleSnapshot,
+    setSessionRoleSnapshot,
+    setRetrySessionRole: setContextRetrySessionRole,
+    forcePublicLayout,
+    forceBlankLayout,
+    chromeReady,
+    pageOwned,
+    authResolved,
+    sessionValidated,
+    confirmPortalShell,
+  } = useLayoutContext();
+  
   // Initialize from sessionStorage immediately to prevent flicker
   const [memberInfo, setMemberInfo] = useState(() => {
-    const stored = sessionStorage.getItem('agcas_member');
-    return stored ? JSON.parse(stored) : null;
+    const stored = localStorage.getItem('agcas_member');
+    if (!stored) return null;
+    try {
+      const parsed = stripTrustedMemberProjections(JSON.parse(stored));
+      localStorage.setItem('agcas_member', JSON.stringify(parsed));
+      return parsed;
+    } catch {
+      localStorage.removeItem('agcas_member');
+      return null;
+    }
   });
   const [organizationInfo, setOrganizationInfo] = useState(() => {
-    const stored = sessionStorage.getItem('agcas_organization');
+    const stored = localStorage.getItem('agcas_organization');
     return stored ? JSON.parse(stored) : null;
   });
+  const authGenerationRef = useRef(0);
+  const [authRevision, setAuthRevision] = useState(0);
+  const [sessionError, setSessionError] = useState(null);
+  const [sessionValidatedAt, setSessionValidatedAt] = useState(0);
+  const routineRevalidationRef = useRef(false);
+  const routineRevalidationInFlightRef = useRef(false);
+  const viewerSessionScope = getViewerSessionScope({
+    tenantSlug: publicClient.getTenantSlug(),
+    hostname: window.location.hostname,
+    authRevision,
+  });
+  useViewerSessionPreload(viewerSessionScope);
+  const { memberRole, roleStatus, roleError, retryRole } = useSessionMemberRole();
+
+  const retrySessionRoleValidation = React.useCallback(() => {
+    routineRevalidationRef.current = false;
+    routineRevalidationInFlightRef.current = false;
+    authGenerationRef.current += 1;
+    invalidateViewerSessionRequest(viewerSessionScope);
+    setSessionValidated(false);
+    setAuthResolved(false);
+    setSessionValidatedAt(0);
+    setAuthRevision(value => value + 1);
+  }, [viewerSessionScope, setSessionValidated, setAuthResolved]);
+
+  const revalidateViewerSession = React.useCallback(() => {
+    // A routine check is not an authentication boundary. Keep the currently
+    // verified, identity-matched portal and role mounted while the bounded
+    // request is in flight; its authoritative outcome is committed below.
+    if (routineRevalidationInFlightRef.current) return;
+    routineRevalidationRef.current = true;
+    routineRevalidationInFlightRef.current = true;
+    authGenerationRef.current += 1;
+    invalidateViewerSessionRequest(viewerSessionScope);
+    setAuthRevision(value => value + 1);
+  }, [viewerSessionScope]);
+
+  const queryClient = useQueryClient();
+  useEffect(() => subscribeRoleSettingsCopy(() => {
+    // Access lives both in React Query and in the trusted /auth/me projection.
+    // Broad invalidation includes dynamic field-permission/category query keys.
+    retrySessionRoleValidation();
+    void refreshRoleSettingsQueries(queryClient);
+  }), [queryClient, retrySessionRoleValidation]);
+
+  useEffect(() => {
+    setContextRetrySessionRole(() => retrySessionRoleValidation());
+    return () => setContextRetrySessionRole(null);
+  }, [retrySessionRoleValidation, setContextRetrySessionRole]);
+
+  const [aiAssistantOpen, setAiAssistantOpen] = useState(false);
 
   const mainContentRef = React.useRef(null);
   const sidebarContentRef = React.useRef(null);
   const lastActivityUpdateRef = React.useRef(null);
+  
+  // Mobile navigation menu state
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  // Bookmarks drawer state
+  const [bookmarkDrawerOpen, setBookmarkDrawerOpen] = useState(false);
 
+  const { hasPendingPOs, pendingPOCount, isLoading: pendingPOsLoading } = usePendingPurchaseOrders();
+  
+  console.log('[Layout] hasPendingPOs:', hasPendingPOs, 'count:', pendingPOCount, 'isLoading:', pendingPOsLoading);
 
-
-  // Fetch global border radius setting
+  // Fetch global border radius setting - use public API for all users (it's public-safe)
   const DEFAULT_BORDER_RADIUS = '8px';
 
 const { data: borderRadiusSetting = DEFAULT_BORDER_RADIUS } = useQuery({
   queryKey: ['borderRadiusSetting'],
   queryFn: async () => {
     try {
-      const data = await base44.entities.SystemSettings.list({ 
-        filter: { setting_key: 'global_border_radius' } 
-      });
-      if (data && data.length > 0 && data[0].setting_value) {
-        return String(data[0].setting_value);
+      const setting = await publicClient.getSystemSetting('global_border_radius');
+      if (setting && setting.setting_value) {
+        return String(setting.setting_value);
       }
       return DEFAULT_BORDER_RADIUS;
     } catch (error) {
-      console.error('Error loading SystemSettings:', error);
+      console.error('Error loading border radius setting:', error);
       return DEFAULT_BORDER_RADIUS;
     }
   }
 });
+
+// Fetch portal logo settings including home page slug and favicon (tenant-scoped with fallback)
+const { data: portalLogoSettings, isSuccess: portalLogoResolved } = useQuery({
+  queryKey: ['portal-logo-settings'],
+  queryFn: async () => {
+    try {
+      const data = await publicClient.getPortalBranding();
+      return { 
+        logoUrl: data.logoUrl || '', 
+        logoHeight: data.logoHeight || 'medium', 
+        logoLink: data.logoLink || '', 
+        homePageSlug: data.homePageSlug || '', 
+        faviconUrl: data.faviconUrl || '',
+        tenantName: data.tenantName || ''
+      };
+    } catch (error) {
+      console.error('Error loading portal logo settings:', error);
+      return { logoUrl: '', logoHeight: 'medium', logoLink: '', homePageSlug: '', faviconUrl: '', tenantName: '' };
+    }
+  }
+});
+
+// Dynamically update favicon when setting changes
+useEffect(() => {
+  if (!portalLogoSettings) return;
+  const faviconUrl = portalLogoSettings.faviconUrl;
+  if (!faviconUrl) return;
+  const iconLinks = document.querySelectorAll("link[rel~='icon']");
+  if (iconLinks.length > 0) {
+    iconLinks.forEach((link) => {
+      if (link.href !== faviconUrl) {
+        link.href = faviconUrl;
+      }
+    });
+  } else {
+    const newLink = document.createElement('link');
+    newLink.rel = 'icon';
+    newLink.href = faviconUrl;
+    document.head.appendChild(newLink);
+  }
+}, [portalLogoSettings?.faviconUrl, portalLogoSettings]);
+
+// Compute logo height in pixels
+const logoHeightPx = useMemo(() => {
+  const height = portalLogoSettings?.logoHeight || 'medium';
+  switch (height) {
+    case 'small': return 40;
+    case 'large': return 80;
+    default: return 60;
+  }
+}, [portalLogoSettings?.logoHeight]);
+
+// Compute default logo link - use explicit link, then home page slug, then Events
+const defaultLogoHref = useMemo(() => {
+  if (portalLogoSettings?.logoLink) {
+    return portalLogoSettings.logoLink;
+  }
+  if (portalLogoSettings?.homePageSlug) {
+    return `/${portalLogoSettings.homePageSlug}`;
+  }
+  return createPageUrl('Events');
+}, [portalLogoSettings?.logoLink, portalLogoSettings?.homePageSlug]);
 
 
   // Fetch member record for profile photo
@@ -451,27 +1269,94 @@ const { data: memberRecord } = useQuery({
   },
 });
 
-// Fetch member role
-const { data: memberRole } = useQuery({
-  queryKey: ['memberRole', memberInfo && memberInfo.role_id],
-  enabled: !!(memberInfo && memberInfo.role_id),
-  refetchOnMount: false,
+const { config: aiPersona, identityKey: aiIdentityKey } = useTenantAiAssistant({
+  memberId: memberInfo?.id,
+  memberTenantId: memberInfo?.tenant_id,
+  sessionValidated: authResolved && sessionValidated,
+  sessionScope: viewerSessionScope,
+});
+const aiEnabled = aiPersona?.enabled === true;
+useEffect(() => {
+  if (!aiEnabled) setAiAssistantOpen(false);
+}, [aiEnabled]);
+const aiPersonaName = (aiPersona?.name || "Dougal").trim() || "Dougal";
+const aiPersonaAvatarUrl = aiPersona?.avatarUrl || dougalAvatar;
+const aiPersonaInitial = aiPersonaName.charAt(0).toUpperCase();
+const aiLauncherStyle = (() => {
+  const color = aiPersona?.backgroundColor?.trim();
+  if (!color || !/^#[\da-f]{6}$/i.test(color)) return undefined;
+  const channels = [1, 3, 5].map((index) => parseInt(color.slice(index, index + 2), 16) / 255);
+  const luminance = channels.map((v) => v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)
+    .reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i], 0);
+  const light = luminance > 0.179;
+  const hoverColor = `#${channels.map((v) => {
+    const original = Math.round(v * 255);
+    return Math.round(original * 0.88 + (light ? 0 : 255 * 0.12)).toString(16).padStart(2, "0");
+  }).join("")}`;
+  return { "--ai-bg": color, color: light ? "#111827" : "#ffffff", "--ai-hover": hoverColor };
+})();
+
+// Task #3349: fetch the role_access_item DB tree so exclusion matching can
+// resolve an item's parent page/module as the Role Management UI displays it
+// (union with the hardcoded map — see roleVisibility.setDbRoleAccessOverlay).
+// Same query key as RoleManagement so react-query dedupes the fetch.
+const { data: roleAccessItemsForOverlay } = useQuery({
+  queryKey: ['role-access-items'],
+  enabled: !!memberInfo,
+  staleTime: 60000,
   queryFn: async () => {
-    if (!memberInfo || !memberInfo.role_id) return null;
     try {
-      const data = await base44.entities.Role.get(memberInfo.role_id);
-      return data || null;
+      return await base44.entities.RoleAccessItem.list();
     } catch (error) {
-      console.error('Error loading memberRole:', error);
-      return null;
+      console.error('Error loading role access items for nav overlay:', error);
+      return [];
     }
   },
 });
 
-// Fetch dynamic navigation items from database
+// Install the overlay synchronously during render so nav filtering below in
+// this same render pass already sees the DB placement (no post-effect flash).
+useMemo(() => {
+  if (roleAccessItemsForOverlay !== undefined) {
+    setDbRoleAccessOverlay(roleAccessItemsForOverlay);
+  }
+}, [roleAccessItemsForOverlay]);
+
+// Fetch the current member's group assignments to determine whether they are a
+// group admin of at least one (non-expired) group. Group admins get an
+// additional grant path to the Support page even when their role excludes it.
+const { data: myGroupAssignments = [], isFetched: groupAssignmentsFetched } = useQuery({
+  queryKey: ['member-group-assignments-self', memberInfo && memberInfo.id],
+  enabled: !!(memberInfo && memberInfo.id),
+  queryFn: async () => {
+    if (!memberInfo || !memberInfo.id) return [];
+    try {
+      return await base44.entities.MemberGroupAssignment.filter({ member_id: memberInfo.id });
+    } catch (error) {
+      console.error('Error loading member group assignments:', error);
+      return [];
+    }
+  },
+});
+
+// True when the current member has at least one MemberGroupAssignment with
+// is_group_admin === true and no expiry (or an expiry in the future). Expiry is
+// evaluated the same way as the existing group-admin checks (MemberGroupDetail).
+const isCurrentMemberGroupAdmin = useMemo(() => {
+  const nowIso = new Date().toISOString();
+  return (myGroupAssignments || []).some((a) => {
+    if (a.is_group_admin !== true) return false;
+    if (!a.expires_at) return true;
+    return new Date(a.expires_at).toISOString() > nowIso;
+  });
+}, [myGroupAssignments]);
+
+// Fetch dynamic navigation items from database - only for authenticated users
+// Unauthenticated users use public navigation items instead
 const { data: dynamicNavItems = [] } = useQuery({
-  queryKey: ['portal-menu'],
+  queryKey: ['portal-menu', !!memberInfo],
   refetchOnMount: false,
+  enabled: !!memberInfo,
   queryFn: async () => {
     try {
       const data = await base44.entities.PortalMenu.list({ 
@@ -485,37 +1370,381 @@ const { data: dynamicNavItems = [] } = useQuery({
   },
 });
 
+// Resolve object-scoped menu visibility through the same catalogue grant used
+// by direct Custom Object routes. Fail closed while loading or on an error.
+const {
+  data: viewableCustomObjects = [],
+  isFetched: viewableCustomObjectsFetched,
+} = useQuery({
+  queryKey: ['custom-objects-for-portal-navigation', memberInfo?.id],
+  enabled: !!memberInfo,
+  retry: false,
+  queryFn: () => loadViewableCustomObjectPortalDestinations(),
+});
+const viewableCustomObjectIds = useMemo(
+  () => new Set(viewableCustomObjects.map(object => object.objectId)),
+  [viewableCustomObjects],
+);
 
-  const publicPages = ["Home", "AdminSetup", "VerifyMagicLink", "TestLogin", "UnpackedInternationalEmployability", "PublicEvents", "PublicAbout", "PublicContact", "PublicResources", "PublicArticles", "PublicNews", "JobBoard", "JobDetails", "JobPostSuccess", "sharon", "content"];
+// Fetch page visibility settings from public system_settings API
+const { data: pageVisibilitySettings = {}, isFetched: visibilitySettingsFetched, error: visibilitySettingsError, refetch: retryVisibilitySettings } = useQuery({
+  queryKey: ['page-visibility-settings', viewerSessionScope.split(':')[0]],
+  refetchOnMount: false,
+  staleTime: 60000,
+  queryFn: async () => {
+    try {
+      const setting = await publicClient.getSystemSetting('page_visibility_settings');
+      if (setting?.setting_value) {
+        try {
+          const parsed = JSON.parse(setting.setting_value);
+          if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+            && Object.values(parsed).every(value => ['public', 'hybrid', 'portal'].includes(value))) {
+            return parsed;
+          }
+          throw new Error('Page visibility settings are invalid.');
+        } catch (parseError) {
+          throw parseError;
+        }
+      }
+      return {};
+    } catch (error) {
+      console.error('Error loading page visibility settings:', error);
+      throw error;
+    }
+  },
+});
+
+// Helper to get page visibility from dynamic settings or fallback to default
+const getPageVisibility = (pageName) => {
+  // First check dynamic settings
+  if (pageVisibilitySettings[pageName]) {
+    return pageVisibilitySettings[pageName];
+  }
+  // Fallback to default behavior based on hardcoded arrays
+  if (publicPages.includes(pageName)) return 'public';
+  if (hybridPages.includes(pageName)) return 'hybrid';
+  return 'portal';
+};
+
+// Map page names to portal page identifiers for banner matching
+// These identifiers must match the PORTAL_PAGES values in PageBannerManagement.jsx
+const pageToPortalPageMap = {
+  'Events': 'portal_events',
+  'Bookings': 'portal_bookings',
+  'MyTickets': 'portal_my_tickets',
+  'BuyProgramTickets': 'portal_buy_tickets',
+  'MemberDirectory': 'portal_member_directory',
+  'OrganisationDirectory': 'portal_org_directory',
+  'MemberGroups': 'portal_member_groups',
+  'Resources': 'portal_resources',
+  'Articles': 'portal_articles',
+  'Team': 'portal_team',
+  'Balances': 'portal_balances',
+  'History': 'portal_history',
+  'Profile': 'portal_profile',
+  'MyOrganisation': 'portal_my_organisation',
+  'JobBoard': 'portal_job_board',
+  'News': 'portal_news',
+  'NewsView': 'portal_news_view',
+  'MyJobPostings': 'portal_my_job_postings',
+  'Preferences': 'portal_about_me',
+  'about-me': 'portal_about_me',
+  'Support': 'portal_support',
+  'Dashboard': 'portal_dashboard',
+  'Forum': 'portal_forum',
+  'ForumThread': 'portal_forum'
+};
+
+// Get the portal page identifier for the current page
+// Handle dynamic article routes (e.g., /blogs when display name is "Blogs")
+const getPortalPageId = () => {
+  // First check if there's a direct mapping
+  if (pageToPortalPageMap[currentPageName]) {
+    return pageToPortalPageMap[currentPageName];
+  }
+  
+  // If currentPageName is "_DynamicPage", check if the path matches a custom article route
+  if (currentPageName === '_DynamicPage' && isCustomSlug && urlSlug) {
+    const pathname = location.pathname.toLowerCase();
+    
+    // Check if the path matches the custom article slug patterns
+    if (pathname === `/${urlSlug}`) {
+      return 'portal_articles';
+    }
+    if (pathname === `/my${urlSlug}`) {
+      return 'portal_my_articles';
+    }
+  }
+  
+  return null;
+};
+
+const currentPortalPageId = getPortalPageId();
+
+// Debug logging for banner matching
+console.log('[Layout] currentPageName:', currentPageName, 'currentPortalPageId:', currentPortalPageId);
+
+// Fetch ALL portal banners for the current page (authenticated users only)
+// PublicLayout handles banners for unauthenticated users via publicClient.listBanners()
+const { data: portalBanners = [] } = useQuery({
+  queryKey: ['portal-banners', currentPortalPageId, !!memberInfo],
+  enabled: !!currentPortalPageId && !!memberInfo,
+  refetchOnMount: false,
+  queryFn: async () => {
+    try {
+      const banners = await base44.entities.PageBanner.list({
+        filter: { is_active: true },
+        sort: { display_order: 'asc' }
+      });
+      
+      if (currentPageName === 'MyOrganisation' || currentPageName === 'JobBoard') {
+        console.log('[Layout] DEBUG - looking for:', currentPortalPageId);
+        console.log('[Layout] All banners:', banners?.length);
+        banners?.forEach(b => {
+          console.log('[Layout] Banner:', b.name, 'type:', b.banner_type, 'position:', b.page_position, 'associated_pages:', b.associated_pages);
+        });
+      }
+      
+      const matchingBanners = banners?.filter(banner => 
+        banner.associated_pages && 
+        Array.isArray(banner.associated_pages) && 
+        banner.associated_pages.includes(currentPortalPageId)
+      ) || [];
+      
+      console.log('[Layout] Matched banners for', currentPageName, ':', matchingBanners.length);
+      return matchingBanners;
+    } catch (error) {
+      console.error('Error loading portal banners:', error);
+      return [];
+    }
+  },
+});
+
+// Split banners by page_position
+const topBanners = useMemo(() => 
+  portalBanners.filter(b => !b.page_position || b.page_position === 'top'),
+  [portalBanners]
+);
+
+const belowFirstElementBanners = useMemo(() => 
+  portalBanners.filter(b => b.page_position === 'below_first_element'),
+  [portalBanners]
+);
+
+// For backward compatibility - check if any banner exists for hasBanner state
+const portalBanner = topBanners[0] || null;
+
+// Get the layout context to update banner status and share member/org info
+// Note: isAdmin removed - access control now uses isFeatureExcluded() exclusively
+// Update the context whenever the portal banner changes
+useEffect(() => {
+  setHasBanner(!!portalBanner);
+  setPortalBanner(portalBanner || null);
+}, [portalBanner, setHasBanner, setPortalBanner]);
+
+// Update the context with member and organization info for child pages
+useEffect(() => {
+  setContextMemberInfo(memberInfo);
+}, [memberInfo, setContextMemberInfo]);
+
+useEffect(() => {
+  setContextOrganizationInfo(organizationInfo);
+}, [organizationInfo, setContextOrganizationInfo]);
+
+useEffect(() => {
+  setContextMemberRole(memberRole);
+}, [memberRole, setContextMemberRole]);
+
+  const publicPages = ["Home", "Login", "ResetPassword", "UnpackedInternationalEmployability", "PublicEvents", "PublicComplexEvents", "PublicAbout", "PublicContact", "PublicResources", "PublicArticles", "PublicNews", "sharon", "content", "Search", "search", "SearchResults"];
   
   // Hybrid pages that work both as public (for non-members) and portal (for members)
-  const hybridPages = ["PostJob", "ArticleView", "NewsView", "icontent", "ViewPage", "OrganisationDirectory"];
+  // "_DynamicPage" is a special marker for CMS pages (e.g. /homely) that handle their own auth
+  // "HomePageRedirect" handles the root path "/" and can show either a public IEdit page or Events
+  // Hosted provider callbacks are hybrid: guests need the public tenant shell
+  // without a login redirect, while authenticated members retain portal chrome.
+  const hybridPages = ["PostJob", "ArticleView", "GalleryDirectory", "GalleryView", "NewsView", "icontent", "ViewPage", "OrganisationDirectory", "JobBoard", "JobDetails", "JobPostSuccess", "DirectDebitReturn", "MonthlyCardReturn", "_DynamicPage", "HomePageRedirect", "Events", "EventDetails", "ComplexEventDetail", "FormView", "Resources"];
   
-  const adminPages = ["RoleManagement", "MemberRoleAssignment", "TeamMemberManagement", "DiscountCodeManagement", "EventSettings", "TicketSalesAnalytics", "ResourceSettings", "ResourceManagement", "TagManagement", "ResourceAuthorSettings", "TourManagement", "FileManagement", "JobPostingManagement", "JobBoardSettings", "IEditPageManagement", "IEditTemplateManagement", "PageBannerManagement", "NavigationManagement", "MemberHandleManagement", "ButtonElements", "ButtonStyleManagement", "AwardManagement", "WallOfFameManagement", "TeamInviteSettings", "FormManagement", "FormSubmissions", "FloaterManagement", "MemberDirectorySettings", "SupportManagement"];
+  const adminPages = ["AdminSetup", "RoleManagement", "RoleAccessConfigManagement", "MemberRoleAssignment", "TeamMemberManagement", "CustomObjectsAdmin", "DiscountCodeManagement", "EventSettings", "CancellationRequests", "TicketSalesAnalytics", "PendingPurchaseOrdersReport", "MonthlyFinanceReport", "MembershipPaymentReport", "EventRegistrationReport", "EventBudgetReport", "SurveyReports", "AIReports", "AccessibilityAudits", "MembershipTierManagement", "MembershipSettings", "ResourceSettings", "ResourceManagement", "TagManagement", "ResourceAuthorSettings", "TourManagement", "FileManagement", "JobPostingManagement", "JobBoardSettings", "IEditPageManagement", "IEditTemplateManagement", "PageBannerManagement", "NavigationManagement", "MemberHandleManagement", "ButtonElements", "ButtonStyleManagement", "AwardManagement", "WallOfFameManagement", "TeamInviteSettings", "FormManagement", "FormSubmissions", "FloaterManagement", "MemberDirectorySettings", "SupportManagement", "PageVisibilitySettings", "CreateComplexEvent", "PhotoGalleries", "EventCheckIn", "EventCheckInDashboard", "CanvasLinksManager"];
 
   // Pages that should use the bare layout (no new header/footer)
-  const bareLayoutPages = ["Home", "AdminSetup", "VerifyMagicLink", "TestLogin"];
+  const bareLayoutPages = [];
 
-  // Helper function to check if current user is an admin
-  const isAdmin = () => {
-    return memberRole?.is_admin === true;
-  };
+  // Note: hasAdminNavAccess() removed - admin navigation visibility is now determined
+  // purely by whether any admin items remain after feature exclusion filtering.
+  // The admin section will show if filteredAdminNavigationItems.length > 0
 
   // Helper function to check if a feature is excluded for the current member
-  const isFeatureExcluded = (featureId) => {
+  // Uses the new hierarchical role visibility system
+  const isFeatureExcluded = React.useCallback((featureId) => {
     if (!memberInfo || !featureId) return false;
-    
+    if (roleStatus !== 'ready') return true;
+    const customObjectId = getCustomObjectIdFromPortalRoleAccessId(featureId);
+    if (customObjectId) return !viewableCustomObjectIds.has(customObjectId);
+
+    // Group-admin grant path: members who admin at least one (non-expired) group
+    // can always reach the Support page even when their role/member settings
+    // exclude it. Scoped narrowly to the Support feature so nothing else changes.
+    if (isCurrentMemberGroupAdmin && migrateLegacyFeatureId(featureId) === 'support.help') {
+      return false;
+    }
+
     // Combine role-level exclusions with member-specific exclusions
     const roleExclusions = memberRole?.excluded_features || [];
     const memberExclusions = memberInfo.member_excluded_features || [];
     const allExclusions = [...new Set([...roleExclusions, ...memberExclusions])];
     
-    return allExclusions.includes(featureId);
+    // Use the new hierarchical checking that handles legacy IDs and module/page/feature hierarchy
+    return isResourceExcluded(allExclusions, featureId);
+  }, [memberInfo, roleStatus, viewableCustomObjectIds, isCurrentMemberGroupAdmin, memberRole]);
+
+  // Unread inbox summary for the nav bell badge AND the login popup. Only
+  // fetched for members who can reach the inbox, so excluded members never hit a
+  // 403.
+  const hasInboxAccess = !!memberInfo && !isFeatureExcluded("communication.inbox");
+  const inboxUnreadSummary = useInboxUnreadSummary({ enabled: hasInboxAccess });
+  const inboxUnreadCount = inboxUnreadSummary.unreadCount;
+
+  // One-time "you have unread messages" popup shown after login. State lives
+  // here; the trigger effect runs later, after `authResolved` is in scope.
+  const [inboxPopupOpen, setInboxPopupOpen] = useState(false);
+  const inboxPopupHandledRef = useRef(false);
+
+  const handleInboxPopupViewMessages = () => {
+    setInboxPopupOpen(false);
+    navigate("/inbox");
+  };
+
+  const handleInboxPopupDontRemind = () => {
+    setInboxPopupOpen(false);
+    const memberId = memberInfo?.id;
+    const latestSentAt = inboxUnreadSummary?.latestSentAt;
+    if (memberId && latestSentAt) {
+      try {
+        localStorage.setItem(`inbox_popup_dismissed_${memberId}`, latestSentAt);
+      } catch {
+        // ignore storage failures
+      }
+    }
+  };
+
+  // Written only when the popup is actually displayed (via InboxUnreadPopup's
+  // onShown). Marking a message as "seen this session" here — rather than in the
+  // trigger effect — means a member is never silently suppressed on a layout
+  // branch (hybrid/public) that didn't mount the popup.
+  const handleInboxPopupShown = () => {
+    const memberId = memberInfo?.id;
+    const latestSentAt = inboxUnreadSummary?.latestSentAt;
+    if (memberId && latestSentAt) {
+      try {
+        sessionStorage.setItem(`inbox_popup_seen_${memberId}`, latestSentAt);
+      } catch {
+        // ignore storage failures
+      }
+    }
+  };
+
+  // Mapping of page names to their correct feature IDs
+  // This maps currentPageName to the feature ID used in AVAILABLE_FEATURES
+  const pageToFeatureIdMap = {
+    // User navigation pages use page_user_* pattern
+    'BuyProgramTickets': 'page_user_BuyProgramTickets',
+    'Events': 'page_user_Events',
+    'Bookings': 'page_user_Bookings',
+    'MyTickets': 'page_user_MyTickets',
+    'Balances': 'page_user_Balances',
+    'History': 'page_user_History',
+    'CpdPoints': 'cpd.member_cpd',
+    'Team': 'page_user_Team',
+    'MemberDirectory': 'page_user_MemberDirectory',
+    'OrganisationDirectory': 'page_user_OrganisationDirectory',
+    'MyOrganisation': 'page_user_MyOrganisation',
+    'Resources': 'page_user_Resources',
+    'Articles': 'page_user_Articles',
+    'News': 'page_user_News',
+    'MyJobPostings': 'page_user_MyJobPostings',
+    'Preferences': 'page_user_Preferences',
+    'about-me': 'user.about-me',
+    'Support': 'page_user_Support',
+    'SalesDashboard': 'sales.dashboard',
+    'SalesPipeline': 'sales.pipeline',
+    'SalesOpportunities': 'sales.opportunities',
+    'SalesQuotes': 'sales.quotes',
+    'SalesProducts': 'sales.products',
+    'SalesBundles': 'sales.bundles',
+    'SalesTasks': 'sales.tasks',
+    'SalesReports': 'sales.reports',
+    'SalesSettings': 'sales.settings',
+    // Admin navigation pages use page_admin_* pattern  
+    'AdminSetup': 'page_admin_AdminSetup',
+    'NewsSettings': 'page_admin_NewsSettings',
+    'ArticlesSettings': 'page_admin_ArticlesSettings',
+    'RoleManagement': 'page_admin_RoleManagement',
+    'RoleAccessConfigManagement': 'page_admin_RoleAccessConfigManagement',
+    'MemberRoleAssignment': 'page_admin_MemberRoleAssignment',
+    'TeamMemberManagement': 'page_admin_TeamMemberManagement',
+    'MemberHandleManagement': 'page_admin_MemberHandleManagement',
+    'CustomObjectsAdmin': 'admin.data-studio',
+    'MemberDirectorySettings': 'page_admin_MemberDirectorySettings',
+    'DiscountCodeManagement': 'page_admin_DiscountCodeManagement',
+    'EventSettings': 'page_admin_EventSettings',
+    'CancellationRequests': 'page_admin_CancellationRequests',
+    'TicketSalesAnalytics': 'page_admin_TicketSalesAnalytics',
+    'PendingPurchaseOrdersReport': 'page_admin_PendingPurchaseOrdersReport',
+    'MonthlyFinanceReport': 'page_admin_MonthlyFinanceReport',
+    'MembershipPaymentReport': 'page_admin_MembershipPaymentReport',
+    'EventRegistrationReport': 'page_admin_EventRegistrationReport',
+    'EventBudgetReport': 'page_admin_EventBudgetReport',
+    'SurveyReports': 'page_admin_SurveyReports',
+    'OrganisationEngagementReport': 'reports.org-engagement',
+    'AIReports': 'page_admin_AIReports',
+    'AccessibilityAudits': 'page_admin_AccessibilityAudits',
+    'CanvasLinksManager': 'page_admin_CanvasLinksManager',
+    'EventCheckInDashboard': 'page_admin_EventCheckInDashboard',
+    'MembershipTierManagement': 'page_admin_MembershipTierManagement',
+    'MembershipSettings': 'page_MembershipSettings',
+    'AwardManagement': 'page_admin_AwardManagement',
+    'CategoryManagement': 'page_admin_CategoryManagement',
+    'ResourceSettings': 'page_admin_ResourceSettings',
+    'ResourceManagement': 'page_admin_ResourceManagement',
+    'TagManagement': 'page_admin_TagManagement',
+    'FileManagement': 'page_admin_FileManagement',
+    'JobPostingManagement': 'page_admin_JobPostingManagement',
+    'JobBoardSettings': 'page_admin_JobBoardSettings',
+    'IEditPageManagement': 'page_admin_IEditPageManagement',
+    'IEditTemplateManagement': 'page_admin_IEditTemplateManagement',
+    'PageBannerManagement': 'page_admin_PageBannerManagement',
+    'NavigationManagement': 'page_admin_NavigationManagement',
+    'ButtonElements': 'page_admin_ButtonElements',
+    'ButtonStyleManagement': 'page_admin_ButtonStyleManagement',
+    'WallOfFameManagement': 'page_admin_WallOfFameManagement',
+    'InstalledFonts': 'page_admin_InstalledFonts',
+    'FormManagement': 'page_admin_FormManagement',
+    'FormSubmissions': 'page_admin_FormSubmissions',
+    'FloaterManagement': 'page_admin_FloaterManagement',
+    'TeamInviteSettings': 'page_admin_TeamInviteSettings',
+    'DataExport': 'page_admin_DataExport',
+    'ImportManager': 'page_admin_ImportManager',
+    'SiteMap': 'page_admin_SiteMap',
+    'SupportManagement': 'page_admin_SupportManagement',
+    'PortalNavigationManagement': 'page_admin_PortalNavigationManagement',
+    'PortalMenuManagement': 'page_admin_PortalMenuManagement',
+    'TourManagement': 'page_admin_TourManagement',
+    'MemberGroupManagement': 'page_admin_MemberGroupManagement',
+    'PageVisibilitySettings': 'page_admin_PageVisibilitySettings',
+    'Forum': 'page_user_Forum',
+    'ForumThread': 'page_user_Forum',
+    'ForumManagement': 'page_admin_ForumManagement',
+    'CreateComplexEvent': 'page_admin_ComplexEvents',
+    'PhotoGalleries': 'page_admin_PhotoGalleries',
+    'GalleryDirectory': 'content.gallery.directory',
   };
 
   // Helper function to check if current page is excluded
   const isCurrentPageExcluded = () => {
-    const pageFeatureId = `page_${currentPageName}`;
+    const customObjectId = getCustomObjectIdFromPortalPath(location.pathname);
+    if (customObjectId) return !viewableCustomObjectIds.has(customObjectId);
+    // Use the mapped feature ID if available, otherwise fall back to legacy pattern
+    const pageFeatureId = pageToFeatureIdMap[currentPageName] || `page_${currentPageName}`;
     return isFeatureExcluded(pageFeatureId);
   };
 
@@ -526,9 +1755,17 @@ const { data: dynamicNavItems = [] } = useQuery({
 
   // Function to reload member info from sessionStorage
   const reloadMemberInfo = () => {
-    const storedMember = sessionStorage.getItem('agcas_member');
+    // Storage remains useful for the legacy UI, but never authorises Canvas
+    // values. Revalidate after profile/account changes.
+    authGenerationRef.current += 1;
+    invalidateViewerSessionRequest(viewerSessionScope);
+    setSessionValidated(false);
+    setAuthResolved(false);
+    setSessionValidatedAt(0);
+    setAuthRevision(value => value + 1);
+    const storedMember = localStorage.getItem('agcas_member');
     if (storedMember) {
-      const member = JSON.parse(storedMember);
+      const member = stripTrustedMemberProjections(JSON.parse(storedMember));
       setMemberInfo(member);
       
 
@@ -537,32 +1774,42 @@ const { data: dynamicNavItems = [] } = useQuery({
     }
   };
 
-  const fetchOrganizationInfo = async (orgId) => {
+  const fetchOrganizationInfo = async (orgId, forceRefresh = false) => {
     if (!orgId) return;
-    if (organizationInfo) return;
-
-    const cachedOrg = sessionStorage.getItem('agcas_organization');
-    if (cachedOrg) {
-      try {
-        const parsed = JSON.parse(cachedOrg);
-        setOrganizationInfo(parsed);
-        return;
-      } catch (e) {
-        console.warn('Failed to parse cached organization, ignoring cache:', e);
+    
+    // Check if cached organization matches the requested orgId (skip if force refresh)
+    if (!forceRefresh) {
+      const cachedOrg = localStorage.getItem('agcas_organization');
+      if (cachedOrg) {
+        try {
+          const parsed = JSON.parse(cachedOrg);
+          // Validate that cached org matches the member's organization
+          if (parsed.id === orgId) {
+            if (!organizationInfo || organizationInfo.id !== parsed.id) {
+              setOrganizationInfo(parsed);
+            }
+            return;
+          } else {
+            // Cached org doesn't match member's org - clear it
+            console.log('[Layout] Cached organization mismatch, clearing cache');
+            localStorage.removeItem('agcas_organization');
+          }
+        } catch (e) {
+          console.warn('Failed to parse cached organization, ignoring cache:', e);
+          localStorage.removeItem('agcas_organization');
+        }
       }
     }
 
     try {
-      const allOrgs = await base44.entities.Organization.list();
-      const org = allOrgs.find(o => 
-        o.id === orgId || 
-        o.base44_id === orgId || 
-        o.zoho_account_id === orgId
-      );
+      console.log('[Layout] Fetching organization from API (forceRefresh:', forceRefresh, ')');
+      const orgs = await base44.entities.Organization.list({ filter: { id: orgId } });
+      const org = orgs && orgs.length > 0 ? orgs[0] : null;
 
       if (org) {
-        sessionStorage.setItem('agcas_organization', JSON.stringify(org));
+        localStorage.setItem('agcas_organization', JSON.stringify(org));
         setOrganizationInfo(org);
+        console.log('[Layout] Fetched and cached organization:', org.name, 'balances:', org.program_ticket_balances);
       } else {
         console.warn('Organization not found for id:', orgId);
       }
@@ -570,65 +1817,315 @@ const { data: dynamicNavItems = [] } = useQuery({
       console.error('Unexpected error fetching organization:', error);
     }
   };
-  
 
+  // isAdmin context update removed - access control now uses isFeatureExcluded() exclusively
 
+  // Update context with isFeatureExcluded function when memberInfo or memberRole changes
+  // Uses the new hierarchical role visibility system
+  useEffect(() => {
+    const isFeatureExcludedFn = (featureId) => {
+      if (!memberInfo || !featureId) return false;
+      if (roleStatus !== 'ready') return true;
+      // Group admins always get Support access (see local isFeatureExcluded).
+      if (isCurrentMemberGroupAdmin && migrateLegacyFeatureId(featureId) === 'support.help') {
+        return false;
+      }
+      const roleExclusions = memberRole?.excluded_features || [];
+      const memberExclusions = memberInfo.member_excluded_features || [];
+      const allExclusions = [...new Set([...roleExclusions, ...memberExclusions])];
+      return isResourceExcluded(allExclusions, featureId);
+    };
+    setContextIsFeatureExcluded(isFeatureExcludedFn);
+  }, [memberInfo, memberRole, roleStatus, isCurrentMemberGroupAdmin, setContextIsFeatureExcluded]);
+
+  // Update context with reloadMemberInfo function
+  useEffect(() => {
+    const reloadFn = () => {
+      authGenerationRef.current += 1;
+      invalidateViewerSessionRequest(viewerSessionScope);
+      setSessionValidated(false);
+      setAuthResolved(false);
+      setSessionValidatedAt(0);
+      setAuthRevision(value => value + 1);
+      const storedMember = localStorage.getItem('agcas_member');
+      if (storedMember) {
+        const member = stripTrustedMemberProjections(JSON.parse(storedMember));
+        setMemberInfo(member);
+        console.log('[Layout] memberInfo reloaded from sessionStorage via context');
+      }
+    };
+    setContextReloadMemberInfo(reloadFn);
+  }, [setContextReloadMemberInfo, setSessionValidated, setAuthResolved, viewerSessionScope]);
+
+  // Update context with refreshOrganizationInfo function
+  useEffect(() => {
+    const refreshFn = () => {
+      if (memberInfo && !memberInfo.is_team_member) {
+        // Force refresh to bypass cache and get latest data from API
+        fetchOrganizationInfo(memberInfo.organization_id, true);
+      }
+    };
+    setContextRefreshOrganizationInfo(refreshFn);
+  }, [memberInfo, setContextRefreshOrganizationInfo]);
+
+  useEffect(() => {
+    // Reset the per-session guard whenever the signed-in member changes so a new
+    // login (or account switch) can show the popup again.
+    inboxPopupHandledRef.current = false;
+    setInboxPopupOpen(false);
+  }, [memberInfo?.id]);
+
+  useEffect(() => {
+    // Wait until auth is resolved and the member can actually reach the inbox.
+    if (!authResolved || !hasInboxAccess) return;
+    const memberId = memberInfo?.id;
+    if (!memberId) return;
+    // Show once per session; navigating around must not re-trigger it.
+    if (inboxPopupHandledRef.current) return;
+
+    const { unreadCount, latestSentAt } = inboxUnreadSummary;
+    if (!unreadCount || !latestSentAt) return;
+
+    try {
+      // Persistent "don't remind me about these" watermark (per member).
+      const dontRemind = localStorage.getItem(`inbox_popup_dismissed_${memberId}`);
+      // Session-scoped watermark for the message already surfaced this session.
+      const seenThisSession = sessionStorage.getItem(`inbox_popup_seen_${memberId}`);
+
+      const newerThanDontRemind = !dontRemind || latestSentAt > dontRemind;
+      const newerThanSession = !seenThisSession || latestSentAt > seenThisSession;
+
+      if (newerThanDontRemind && newerThanSession) {
+        inboxPopupHandledRef.current = true;
+        // The "seen this session" watermark is written by handleInboxPopupShown
+        // when the popup is actually displayed, so a member who lands on a layout
+        // branch that mounts the popup (portal or hybrid/public) is never
+        // silently suppressed.
+        setInboxPopupOpen(true);
+      }
+    } catch {
+      // Storage can throw in private mode; fail closed (no popup).
+    }
+  }, [authResolved, hasInboxAccess, memberInfo?.id, inboxUnreadSummary]);
 
   // Check if page is truly public (not hybrid with member logged in)
   const isPublicPage = () => {
-    if (publicPages.includes(currentPageName)) {
+    // If a dynamic page signals it should use public layout, respect that
+    if (forcePublicLayout) {
+      return true;
+    }
+    
+    // Get dynamic visibility for the current page
+    const visibility = getPageVisibility(currentPageName);
+    
+    if (visibility === 'public') {
       return true;
     }
     
     // For hybrid pages, check if member is logged in
-    if (hybridPages.includes(currentPageName)) {
-      const storedMember = sessionStorage.getItem('agcas_member');
+    if (visibility === 'hybrid') {
+      const storedMember = localStorage.getItem('agcas_member');
       return !storedMember; // Public if no member logged in
     }
     
     return false;
   };
 
+  // Account switches/logout in another tab invalidate the in-memory projection
+  // immediately, even if an earlier /auth/me response has not settled yet.
   useEffect(() => {
-    // Handle truly public pages
-    if (publicPages.includes(currentPageName)) {
-      return;
-    }
-
-    // Handle hybrid pages
-    if (hybridPages.includes(currentPageName)) {
-      const storedMember = sessionStorage.getItem('agcas_member');
-      if (!storedMember) {
-        // No member logged in, treat as public
-        return;
+    const onStorage = (event) => {
+      if (event.key !== null && event.key !== 'agcas_member') return;
+      if (event.key === 'agcas_member' && event.oldValue && event.newValue) {
+        try {
+          const previous = JSON.parse(event.oldValue);
+          const next = JSON.parse(event.newValue);
+          if (previous.id === next.id && previous.tenant_id === next.tenant_id
+            && previous.organization_id === next.organization_id) return;
+        } catch { /* Malformed storage cannot retain a validated viewer. */ }
       }
-      // Member is logged in, continue to load member info below
-    }
+      authGenerationRef.current += 1;
+      invalidateViewerSessionRequest(viewerSessionScope);
+      setSessionValidated(false);
+      setAuthResolved(false);
+      setSessionValidatedAt(0);
+      setAuthRevision(value => value + 1);
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [setSessionValidated, setAuthResolved, viewerSessionScope]);
 
-    const storedMember = sessionStorage.getItem('agcas_member');
-    if (!storedMember) {
-      window.location.href = createPageUrl('Home');
-      return;
-    }
+  useEffect(() => {
+    const lease = createViewerRequestLease(authGenerationRef);
+    const isCancelled = () => !lease.isCurrent();
+    const sessionRequest = acquireViewerSessionRequest(viewerSessionScope);
+    const isRoutineRevalidation = routineRevalidationRef.current;
+    routineRevalidationRef.current = false;
+    const validationStartedAt = Date.now();
 
-    const member = JSON.parse(storedMember);
+    // Check server session first for multi-tab persistence
+    const checkServerSession = async () => {
+      let timeout;
+      try {
+        const { response, member } = await Promise.race([
+          sessionRequest.promise,
+          new Promise((_, reject) => {
+            timeout = setTimeout(() => reject(new Error('Session validation timed out.')), 10000);
+          }),
+        ]);
+        if (isCancelled()) return { valid: false, serverResponded: false, cancelled: true };
+        if (response.ok) {
+          // API returns member directly (not wrapped in data.member)
+          if (member && member.id) {
+            console.log('[Layout] Server session found:', member.email);
+            // Sync server session to sessionStorage for backwards compatibility
+            const sessionExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+            const memberData = {
+              ...stripTrustedMemberProjections(member),
+              sessionExpiry,
+            };
+            const refreshedSessionRole = isRoutineRevalidation
+              ? await resolveRoutineSessionRole(
+                member,
+                roleId => base44.entities.Role.get(roleId),
+                10000 - (Date.now() - validationStartedAt),
+              )
+              : member.sessionRole;
+            if (isCancelled()) return { valid: false, serverResponded: false, cancelled: true };
+            localStorage.setItem('agcas_member', JSON.stringify(memberData));
+            const comparableMember = { ...memberData };
+            const comparableCurrentMember = memberInfo ? { ...memberInfo } : null;
+            delete comparableMember.sessionExpiry;
+            if (comparableCurrentMember) delete comparableCurrentMember.sessionExpiry;
+            const unchangedMember = isRoutineRevalidation
+              && JSON.stringify(comparableCurrentMember) === JSON.stringify(comparableMember);
+            // Publishing a fresh but identical member object repaints page-owned
+            // Canvas content and discards live input state. Authoritative member
+            // changes still commit normally.
+            if (!unchangedMember) {
+              setMemberInfo(memberData);
+              setContextMemberInfo(memberData);
+            }
+            const nextCanvasSnapshot = member.canvasMemberSnapshot || null;
+            setCanvasMemberSnapshot(current => (
+              isRoutineRevalidation
+                && JSON.stringify(current) === JSON.stringify(nextCanvasSnapshot)
+                ? current
+                : nextCanvasSnapshot
+            ));
+            const nextRoleSnapshot = normalizeSessionRoleSnapshot(
+              refreshedSessionRole,
+              memberData,
+              createSessionRoleKey(viewerSessionScope),
+            );
+            const comparableRoleSnapshot = snapshot => {
+              if (!snapshot) return null;
+              const { session_key: _sessionKey, ...projection } = snapshot;
+              return projection;
+            };
+            const unchangedRole = isRoutineRevalidation
+              && sessionRoleSnapshot?.status === 'ready'
+              && nextRoleSnapshot?.status === 'ready'
+              && JSON.stringify(comparableRoleSnapshot(sessionRoleSnapshot))
+                === JSON.stringify(comparableRoleSnapshot(nextRoleSnapshot));
+            if (!unchangedRole) setSessionRoleSnapshot(nextRoleSnapshot);
+            // SECURITY: Mark session as validated - this enables authenticated API access
+            setSessionValidated(true);
+            setSessionValidatedAt(Date.now());
+            
+            // Fetch organization info for regular members
+            if (member.organization_id && !member.is_team_member) {
+              fetchOrganizationInfo(member.organization_id);
+            } else {
+              localStorage.removeItem('agcas_organization');
+              setOrganizationInfo(null);
+            }
+            return { valid: true, serverResponded: true }; // Session is valid
+          } else {
+            // Server explicitly returned null - member no longer exists or is disabled
+            // This is different from a network error - the server is telling us the session is invalid
+            console.log('[Layout] Server returned null for /api/auth/me - member deleted or disabled');
+            return { valid: false, serverResponded: true };
+          }
+        }
+        // SECURITY: 401/403 means server said session is invalid - treat as serverResponded: true
+        // This ensures stale localStorage data gets cleared for unauthorized sessions
+        if (response.status === 401 || response.status === 403) {
+          console.log('[Layout] Server returned', response.status, '- session is invalid');
+          return { valid: false, serverResponded: true };
+        }
+        return { valid: false, serverResponded: false }; // Other server errors (500, network issues)
+      } catch (error) {
+        if (isCancelled()) return { valid: false, serverResponded: false, cancelled: true };
+        console.error('[Layout] Server session could not be verified:', error);
+        return { valid: false, serverResponded: false };
+      } finally {
+        clearTimeout(timeout);
+      }
+    };
 
-    if (member.sessionExpiry && new Date(member.sessionExpiry) < new Date()) {
-      sessionStorage.removeItem('agcas_member');
-      window.location.href = createPageUrl('Home');
-      return;
-    }
+    const handleAuth = async () => {
+      // Every layout needs validated viewer state for audience-targeted content.
+      // Cold checks and explicit invalidations block immediately. A routine
+      // bounded refresh retains the last verified identity and permissions
+      // until the server provides an authoritative outcome.
+      if (!isRoutineRevalidation) {
+        setAuthResolved(false);
+        setSessionValidated(false);
+      }
+      setSessionError(null);
 
-    // Only update memberInfo if it's actually different (prevent unnecessary re-renders)
-    if (!memberInfo || JSON.stringify(memberInfo) !== JSON.stringify(member)) {
-      setMemberInfo(member);
-    }
+      // Try server session first (for password-based auth with cross-tab persistence)
+      const sessionResult = await checkServerSession();
+      if (isCancelled() || sessionResult.cancelled) return;
+      // Session validation is independent of route metadata. Redirect decisions
+      // below are made by a separate effect only after visibility has resolved.
+      setSessionError(!sessionResult.valid && !sessionResult.serverResponded
+        ? new Error('Unable to verify your session. Please try again.')
+        : null);
+      if (!sessionResult.valid) {
+        // A transport failure is not proof of logout, but cached authorization
+        // may not be extended indefinitely. Close readiness after the bounded
+        // attempt while retaining identity data so retry remains recoverable.
+        if (sessionResult.serverResponded || !isRoutineRevalidation) {
+          setMemberInfo(null);
+          setOrganizationInfo(null);
+          setContextMemberInfo(null);
+        }
+        setSessionValidated(false);
+        if (sessionResult.serverResponded) {
+          localStorage.removeItem('agcas_member');
+          localStorage.removeItem('agcas_organization');
+          clearInboxPopupSessionFlags();
+        }
+      }
+      setAuthResolved(true);
+      routineRevalidationInFlightRef.current = false;
+    };
 
-    // Only fetch organization info for regular members (not team members)
-    if (member.organization_id && !member.is_team_member) {
-      fetchOrganizationInfo(member.organization_id);
+    handleAuth();
+    return () => {
+      lease.cancel();
+      sessionRequest.cancel();
+    };
+  }, [authRevision, viewerSessionScope]); // Routes and visibility metadata are not session boundaries.
+
+  useViewerSessionRevalidation({
+    enabled: authResolved && sessionValidated,
+    validatedAt: sessionValidatedAt,
+    onRevalidate: revalidateViewerSession,
+  });
+
+  useEffect(() => {
+    if (!authResolved || sessionValidated || sessionError
+      || !visibilitySettingsFetched || visibilitySettingsError) return;
+    const visibility = getPageVisibility(currentPageName);
+    if (visibility !== 'hybrid' && visibility !== 'public') {
+      window.location.href = `/login?returnTo=${encodeURIComponent(location.pathname)}`;
     }
-  }, []); // Only run once on mount
+  }, [authResolved, sessionValidated, sessionError, visibilitySettingsFetched,
+    visibilitySettingsError, pageVisibilitySettings, location.pathname, currentPageName]);
+
 
   // Update last_activity on navigation (throttled to once every 10 minutes)
   useEffect(() => {
@@ -668,21 +2165,49 @@ const { data: dynamicNavItems = [] } = useQuery({
     updateLastActivity();
   }, [location.pathname, memberInfo?.email]);
 
-  // Check if current page is excluded or admin-only and redirect if needed
+  // Check if current page is excluded and redirect if needed
+  // Note: Admin page access is now controlled via feature exclusions in isCurrentPageExcluded()
+  // Each admin page has a mapped featureId (e.g., page_admin_RoleManagement) that is checked
   useEffect(() => {
     if (!isPublicPage() && memberInfo && memberRole) {
-      // Check if page is excluded by role/member settings
-      if (isCurrentPageExcluded()) {
-        window.location.href = createPageUrl('Events');
+      // Use role's default landing page or fallback to Preferences
+      const fallbackPage = memberRole?.default_landing_page || 'Preferences';
+      
+      // Prevent redirect loop: don't redirect if we're already on the fallback page
+      if (currentPageName === fallbackPage) {
+        return;
+      }
+
+      // The Support page has a group-admin grant path (isCurrentMemberGroupAdmin).
+      // That status comes from an async query; until it has resolved, don't
+      // redirect away from the Support page or we'd bounce a valid group admin
+      // before their assignments load. Wait for the query to settle first.
+      const currentPageFeatureId =
+        pageToFeatureIdMap[currentPageName] || `page_${currentPageName}`;
+      const isSupportPage = migrateLegacyFeatureId(currentPageFeatureId) === 'support.help';
+      if (isSupportPage && memberInfo.id && !groupAssignmentsFetched) {
+        return;
+      }
+      const customObjectId = getCustomObjectIdFromPortalPath(location.pathname);
+      if (customObjectId && !viewableCustomObjectsFetched) {
         return;
       }
       
-      // Check if page requires admin access
-      if (isCurrentPageAdminOnly() && !isAdmin()) {
-        window.location.href = createPageUrl('Events');
+      // Check if page is excluded by role/member settings (covers both user and admin pages)
+      if (isCurrentPageExcluded()) {
+        window.location.href = createPageUrl(fallbackPage);
       }
     }
-  }, [currentPageName, memberInfo, memberRole]);
+  }, [
+    currentPageName,
+    memberInfo,
+    memberRole,
+    isCurrentMemberGroupAdmin,
+    groupAssignmentsFetched,
+    location.pathname,
+    viewableCustomObjectsFetched,
+    viewableCustomObjectIds,
+  ]);
 
   // Save sidebar scroll position to sessionStorage on scroll
   React.useEffect(() => {
@@ -700,7 +2225,7 @@ const { data: dynamicNavItems = [] } = useQuery({
     }
   }, []);
 
-  // Restore scroll position after SidebarContent mounts
+  // Restore scroll position after SidebarContent mounts (only once on initial mount)
   React.useEffect(() => {
     const sidebar = sidebarContentRef.current;
     if (sidebar) {
@@ -712,7 +2237,7 @@ const { data: dynamicNavItems = [] } = useQuery({
         }, 0);
       }
     }
-  });
+  }, []);
 
   // Scroll main content to top on navigation only
   useEffect(() => {
@@ -721,33 +2246,105 @@ const { data: dynamicNavItems = [] } = useQuery({
     }
   }, [location.pathname]);
 
-  const handleLogout = () => {
-    sessionStorage.removeItem('agcas_member');
-    sessionStorage.removeItem('agcas_organization');
+  const handleLogout = async () => {
+    authGenerationRef.current += 1;
+    invalidateViewerSessionRequest(viewerSessionScope);
+    setSessionValidated(false);
+    setAuthResolved(false);
+    setSessionValidatedAt(0);
+    try {
+      // Clear server session first
+      await fetch('/api/auth/logout', { 
+        method: 'POST', 
+        credentials: 'include' 
+      });
+    } catch (error) {
+      console.log('[Layout] Server logout error (may not have server session):', error);
+    }
+    // Always clear local storage
+    localStorage.removeItem('agcas_member');
+    localStorage.removeItem('agcas_organization');
+    clearInboxPopupSessionFlags();
     window.location.href = createPageUrl('Home');
   };
 
-  // Render public layout for truly public pages
-  if (isPublicPage()) {
-    // Use BarePublicLayout for specific pages (like Home)
-    if (bareLayoutPages.includes(currentPageName)) {
-      return <BarePublicLayout>{children}</BarePublicLayout>;
-    }
-    // Use the new PublicLayout for other public pages
-    return <PublicLayout currentPageName={currentPageName}>{children}</PublicLayout>;
-  }
-
-  // Icon mapping object
+  // Icon mapping object - must be defined before useMemo hooks that depend on it
   const iconMap = {
     Menu, Calendar, CreditCard, Ticket, Wallet, ShoppingCart, History, Sparkles, FileText, 
     Briefcase, Settings, BookOpen, Building, HelpCircle, Users, Shield, BarChart3, FileEdit, 
-    AtSign, FolderTree, Trophy, MousePointer2, Mail, Download
+    AtSign, FolderTree, Trophy, MousePointer2, Mail, Download, Newspaper, PenLine, Home, Globe, 
+    Folder, Image, MessageSquare, Bell, Star, Heart, Eye, Link: LinkIcon, ExternalLink, Tag, Award, 
+    Bookmark, Clock, Search, Phone, MapPin, Video, Music, Camera, Mic, Headphones, Tv, Radio, Rss, 
+    Share2, Gift, Zap, Target, Flag, Layers, Grid, List, Layout: LayoutIcon, Monitor, Smartphone, 
+    Tablet, Laptop, Server, Database, Cloud, Lock, Key, UserCheck, UserPlus, UserMinus, Users2, 
+    MessageCircle, Send, Inbox, Archive, Navigation
   };
 
   // Build navigation structure from dynamic items
+  // Defined as a stable function for use in useMemo
   const buildNavigationFromDB = (section) => {
     const items = dynamicNavItems.filter(item => item.is_active && item.section === section);
     const topLevelItems = items.filter(item => !item.parent_id);
+    
+    // Helper to detect article-related URLs
+    const isArticleUrl = (url) => {
+      if (!url) return false;
+      const lower = url.toLowerCase();
+      return lower === 'articles' || lower === 'myarticles' || 
+             lower.includes('article') || lower.includes('blog');
+    };
+    
+    // Helper to detect the members-list URL (so tenant terminology can rename it)
+    const isMembersListUrl = (url) => {
+      if (!url) return false;
+      const lower = url.toLowerCase().replace(/^\//, '');
+      return lower === 'members' || lower === 'memberslist';
+    };
+    
+    // Helper to get or generate feature_id for a menu item
+    // This ensures filtering works even if feature_id wasn't set in the database
+    const getFeatureId = (item, itemSection) => {
+      const customObjectId = item.link_type !== 'external'
+        ? getCustomObjectIdFromPortalListUrl(item.url)
+        : null;
+      if (customObjectId) {
+        return getCustomObjectPortalRoleAccessId(customObjectId);
+      }
+      // CPD points has a canonical permission. Apply it to legacy and newly
+      // saved menu records even when they still contain an old page_* ID.
+      const normalizedUrl = String(item.url || '').replace(/^\/+|\/+$/g, '').toLowerCase();
+      if (item.link_type !== 'external' && normalizedUrl === 'cpdpoints') {
+        return 'cpd.member_cpd';
+      }
+      // This report contains tenant-wide member activity. Its destination
+      // permission is mandatory even when a customised menu record carries a
+      // stale or unrelated feature_id.
+      if (item.link_type !== 'external' && normalizedUrl === 'organisationengagementreport') {
+        return 'reports.org-engagement';
+      }
+      // If feature_id is already set, use it
+      if (item.feature_id) {
+        return item.feature_id;
+      }
+      if (item.link_type === 'external') {
+        return getPortalMenuFallbackFeatureId({ ...item, section: itemSection });
+      }
+      // Generate feature_id from URL or title
+      if (item.url) {
+        // For admin section, use page_admin_* pattern; for user, use page_* pattern
+        return itemSection === 'admin' 
+          ? `page_admin_${item.url}` 
+          : `page_${item.url}`;
+      }
+      // For parent menus without URL, use title
+      if (item.title) {
+        const titleKey = item.title.replace(/\s+/g, '');
+        return itemSection === 'admin'
+          ? `page_admin_${titleKey}`
+          : `page_${titleKey}`;
+      }
+      return null;
+    };
     
     return topLevelItems.sort((a, b) => a.display_order - b.display_order).map(parent => {
       // Find children - look in ALL items, not just section-filtered ones
@@ -756,32 +2353,177 @@ const { data: dynamicNavItems = [] } = useQuery({
       );
       
       const IconComponent = iconMap[parent.icon] || Menu;
+      // Only mark parent as article section if the PARENT ITSELF has an article URL
+      // Children having article URLs should NOT cause the parent title to be renamed
+      const parentDestination = resolvePortalMenuDestination(parent, createPageUrl);
+      const isArticleSection = !parentDestination.isExternal && isArticleUrl(parent.url);
       
       if (children.length > 0) {
         return {
           title: parent.title,
           icon: IconComponent,
-          featureId: parent.feature_id,
-          subItems: children.sort((a, b) => a.display_order - b.display_order).map(child => ({
-            title: child.title,
-            url: child.url ? createPageUrl(child.url) : '',
-            featureId: child.feature_id
-          }))
+          featureId: getFeatureId(parent, section),
+          isDynamicArticleSection: isArticleSection,
+          subItems: children.sort((a, b) => a.display_order - b.display_order).map(child => {
+            const childDestination = resolvePortalMenuDestination(child, createPageUrl);
+            return {
+              title: child.title,
+              ...childDestination,
+              featureId: getFeatureId(child, section),
+              isDynamicMyArticles: !childDestination.isExternal && child.url?.toLowerCase() === 'myarticles',
+              isDynamicArticles: !childDestination.isExternal && child.url?.toLowerCase() === 'articles',
+              isDynamicMembersList: !childDestination.isExternal && isMembersListUrl(child.url)
+            };
+          })
         };
       } else {
         return {
           title: parent.title,
-          url: parent.url ? createPageUrl(parent.url) : '',
+          ...parentDestination,
           icon: IconComponent,
-          featureId: parent.feature_id
+          featureId: getFeatureId(parent, section),
+          isDynamicArticles: !parentDestination.isExternal && parent.url?.toLowerCase() === 'articles',
+          isDynamicMyArticles: !parentDestination.isExternal && parent.url?.toLowerCase() === 'myarticles',
+          isDynamicMembersList: !parentDestination.isExternal && isMembersListUrl(parent.url)
         };
       }
     });
   };
 
-  // Use dynamic navigation or fallback to hardcoded
-  const navigationItemsSource = dynamicNavItems.length > 0 ? buildNavigationFromDB('user') : navigationItems;
-  const adminNavigationItemsSource = dynamicNavItems.length > 0 ? buildNavigationFromDB('admin') : adminNavigationItems;
+  // Apply tenant member terminology to nav items pointing at the members list
+  // (title + URL). No-op for default tenants (isCustomMemberTerm === false).
+  const applyMemberTerminology = (items) => {
+    if (!isCustomMemberTerm) return items;
+    return items.map(item => {
+      const processedItem = { ...item };
+      if (item.isDynamicMembersList) {
+        processedItem.url = getMemberListUrl();
+        if (item.title === 'Members') processedItem.title = memberLabelPlural;
+      }
+      if (item.subItems) {
+        processedItem.subItems = item.subItems.map(subItem => {
+          if (!subItem.isDynamicMembersList) return subItem;
+          return {
+            ...subItem,
+            url: getMemberListUrl(),
+            title: subItem.title === 'Members' ? memberLabelPlural : subItem.title
+          };
+        });
+      }
+      return processedItem;
+    });
+  };
+
+  // Memoized navigation items with dynamic article URLs applied
+  // CRITICAL: Must deep clone AND apply URL transformations in the SAME memoization
+  // This prevents any mutation of cached clones when isCustomSlug changes
+  const navigationItemsSource = useMemo(() => {
+    // Get base items (from DB or hardcoded)
+    const baseItems = dynamicNavItems.length > 0 
+      ? buildNavigationFromDB('user')
+      : navigationItems;
+    
+    // Deep clone with icons preserved - NEVER mutate originals
+    const clonedItems = applyMemberTerminology(baseItems.map(item => ({
+      ...item,
+      icon: item.icon,
+      subItems: item.subItems ? item.subItems.map(sub => ({ ...sub })) : undefined
+    })));
+    
+    // When NOT using custom slug, return cloned items with original createPageUrl() URLs
+    if (!isCustomSlug) {
+      return clonedItems;
+    }
+    
+    // Apply dynamic URLs only when custom slug is confirmed
+    return clonedItems.map(item => {
+      const processedItem = { ...item };
+      
+      if (item.isDynamicArticleSection && articleDisplayName) {
+        processedItem.title = articleDisplayName;
+      }
+      
+      if (item.isDynamicArticles) {
+        processedItem.url = getArticleListUrl();
+        if (articleDisplayName) processedItem.title = articleDisplayName;
+      }
+      if (item.isDynamicMyArticles) {
+        processedItem.url = getMyArticlesUrl();
+        if (articleDisplayName) processedItem.title = `My ${articleDisplayName}`;
+      }
+      
+      if (item.subItems) {
+        processedItem.subItems = item.subItems.map(subItem => {
+          const processedSubItem = { ...subItem };
+          if (subItem.isDynamicMyArticles) {
+            processedSubItem.url = getMyArticlesUrl();
+            if (articleDisplayName) processedSubItem.title = `My ${articleDisplayName}`;
+          }
+          if (subItem.isDynamicArticles) {
+            processedSubItem.url = getArticleListUrl();
+            if (articleDisplayName) processedSubItem.title = articleDisplayName;
+          }
+          return processedSubItem;
+        });
+      }
+      
+      return processedItem;
+    });
+  }, [dynamicNavItems, isCustomSlug, articleDisplayName, urlSlug, getArticleListUrl, getMyArticlesUrl, isCustomMemberTerm, memberLabelPlural, getMemberListUrl]);
+  
+  const adminNavigationItemsSource = useMemo(() => {
+    // Get base items (from DB or hardcoded)
+    const baseItems = dynamicNavItems.length > 0 
+      ? buildNavigationFromDB('admin')
+      : adminNavigationItems;
+    
+    // Deep clone with icons preserved - NEVER mutate originals
+    const clonedItems = applyMemberTerminology(baseItems.map(item => ({
+      ...item,
+      icon: item.icon,
+      subItems: item.subItems ? item.subItems.map(sub => ({ ...sub })) : undefined
+    })));
+    
+    // When NOT using custom slug, return cloned items with original createPageUrl() URLs
+    if (!isCustomSlug) {
+      return clonedItems;
+    }
+    
+    // Apply dynamic URLs only when custom slug is confirmed
+    return clonedItems.map(item => {
+      const processedItem = { ...item };
+      
+      if (item.isDynamicArticleSection && articleDisplayName) {
+        processedItem.title = articleDisplayName;
+      }
+      
+      if (item.isDynamicArticles) {
+        processedItem.url = getArticleListUrl();
+        if (articleDisplayName) processedItem.title = articleDisplayName;
+      }
+      if (item.isDynamicMyArticles) {
+        processedItem.url = getMyArticlesUrl();
+        if (articleDisplayName) processedItem.title = `My ${articleDisplayName}`;
+      }
+      
+      if (item.subItems) {
+        processedItem.subItems = item.subItems.map(subItem => {
+          const processedSubItem = { ...subItem };
+          if (subItem.isDynamicMyArticles) {
+            processedSubItem.url = getMyArticlesUrl();
+            if (articleDisplayName) processedSubItem.title = `My ${articleDisplayName}`;
+          }
+          if (subItem.isDynamicArticles) {
+            processedSubItem.url = getArticleListUrl();
+            if (articleDisplayName) processedSubItem.title = articleDisplayName;
+          }
+          return processedSubItem;
+        });
+      }
+      
+      return processedItem;
+    });
+  }, [dynamicNavItems, isCustomSlug, articleDisplayName, urlSlug, getArticleListUrl, getMyArticlesUrl, isCustomMemberTerm, memberLabelPlural, getMemberListUrl]);
 
   // Filter navigation items based on member's excluded features
   const filteredNavigationItems = navigationItemsSource
@@ -801,53 +2543,188 @@ const { data: dynamicNavItems = [] } = useQuery({
     })
     .filter(Boolean);
 
-  // Filter admin navigation items (only show if user is admin)
-  const filteredAdminNavigationItems = isAdmin()
-    ? adminNavigationItemsSource
-        .map(item => {
-          if (item.subItems) {
-            // If it has sub-items, filter them individually
-            const filteredSubItems = item.subItems.filter(subItem => !isFeatureExcluded(subItem.featureId));
-            // Only include the parent if it's not excluded and has at least one filtered sub-item
-            if (filteredSubItems.length > 0 && !isFeatureExcluded(item.featureId)) {
-              return { ...item, subItems: filteredSubItems };
-            }
-            return null; // Exclude parent if no sub-items left or parent is excluded
-          } else {
-            // Regular item, filter if its own featureId is not excluded
-            return !isFeatureExcluded(item.featureId) ? item : null;
-          }
-        })
-        .filter(Boolean) // Remove any null entries
-    : [];
+  // Filter admin navigation items based purely on feature exclusions
+  // Admin section will render if any items remain after filtering (checked in JSX: filteredAdminNavigationItems.length > 0)
+  const filteredAdminNavigationItems = adminNavigationItemsSource
+    .map(item => {
+      if (item.subItems) {
+        // If it has sub-items, filter them individually
+        const filteredSubItems = item.subItems.filter(subItem => !isFeatureExcluded(subItem.featureId));
+        // Only include the parent if it's not excluded and has at least one filtered sub-item
+        if (filteredSubItems.length > 0 && !isFeatureExcluded(item.featureId)) {
+          return { ...item, subItems: filteredSubItems };
+        }
+        return null; // Exclude parent if no sub-items left or parent is excluded
+      } else {
+        // Regular item, filter if its own featureId is not excluded
+        return !isFeatureExcluded(item.featureId) ? item : null;
+      }
+    })
+    .filter(Boolean); // Remove any null entries
 
-  const childrenWithProps = React.Children.map(children, child => {
-    if (React.isValidElement(child)) {
-      return React.cloneElement(child, { 
-        memberInfo, 
-        organizationInfo,
-        memberRole,
-        isAdmin: isAdmin(),
-        refreshOrganizationInfo: () => { // Conditionally refresh org info for non-team members
-          if (memberInfo && !memberInfo.is_team_member) {
-            fetchOrganizationInfo(memberInfo.organization_id);
-          }
-        },
-        isFeatureExcluded,
-        reloadMemberInfo // Add the new function to props
-      });
+  // Reuse the exact child element across routine validation bookkeeping. This
+  // prevents page-owned renderers from repainting unchanged content after a
+  // successful idle check while still updating for authoritative data changes.
+  const childrenWithProps = useMemo(() => React.Children.map(children, child => {
+    if (!React.isValidElement(child)) return child;
+    return React.cloneElement(child, {
+      memberInfo,
+      organizationInfo,
+      memberRole,
+      // isAdmin removed - access control now uses isFeatureExcluded() exclusively
+      refreshOrganizationInfo: () => {
+        if (memberInfo && !memberInfo.is_team_member) {
+          fetchOrganizationInfo(memberInfo.organization_id);
+        }
+      },
+      isFeatureExcluded,
+      reloadMemberInfo,
+      hasBanner: !!portalBanner,
+    });
+  }), [children, memberInfo, organizationInfo, memberRole, isFeatureExcluded, portalBanner]);
+
+  const rendersPublicShell = isPublicPage();
+  useLayoutEffect(() => {
+    if (visibilitySettingsFetched && !visibilitySettingsError && chromeReady
+      && authResolved && sessionValidated && roleStatus === 'ready') {
+      confirmPortalShell?.(!rendersPublicShell && !forceBlankLayout);
     }
-    return child;
-  });
+  }, [confirmPortalShell, chromeReady, authResolved, sessionValidated, roleStatus,
+    rendersPublicShell, forceBlankLayout, visibilitySettingsFetched, visibilitySettingsError]);
 
+  // EARLY RETURNS - must come AFTER all hooks to avoid React error #310
+  // Wait for visibility settings to load before rendering layout
+  if (!visibilitySettingsFetched && !pageOwned) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="animate-pulse text-slate-400">Loading...</div>
+      </div>
+    );
+  }
 
+  // Resolve effective page name for dynamic article routes and public page variants
+  // When _DynamicPage is rendering a public page, pass the canonical component name
+  // Also handles mapping portal pages to their public equivalents for unauthenticated users
+  const getEffectivePageName = () => {
+    const isAuthenticated = !!memberInfo;
+    
+    // Map portal pages to their public equivalents for unauthenticated visitors
+    // This ensures public visitors see PublicResources instead of Resources, etc.
+    const portalToPublicMap = {
+      'Articles': 'PublicArticles', 
+      'News': 'PublicNews',
+      'Events': 'PublicEvents',
+    };
+    
+    // If user is not authenticated and we're on a page with a public equivalent
+    if (!isAuthenticated && portalToPublicMap[currentPageName]) {
+      console.log('[Layout] getEffectivePageName: Mapping', currentPageName, 'to', portalToPublicMap[currentPageName], 'for unauthenticated user');
+      return portalToPublicMap[currentPageName];
+    }
+    
+    if (currentPageName !== '_DynamicPage') {
+      return currentPageName;
+    }
+    
+    // Check if this is a dynamic article route
+    if (isCustomSlug && urlSlug) {
+      const pathname = location.pathname.toLowerCase();
+      const slug = pathname.replace(/^\//, ''); // Remove leading slash
+      
+      if (slug === publicSlug?.toLowerCase()) {
+        return 'PublicArticles';
+      }
+      if (slug === urlSlug?.toLowerCase()) {
+        return isAuthenticated ? 'Articles' : 'PublicArticles';
+      }
+      if (slug === viewSlug?.toLowerCase()) {
+        return 'ArticleView';
+      }
+      if (slug === mySlug?.toLowerCase()) {
+        return 'Articles'; // MyArticles is now integrated into Articles page
+      }
+      if (slug === editorSlug?.toLowerCase()) {
+        return 'ArticleEditor';
+      }
+    }
+    
+    return currentPageName;
+  };
+
+  // Shared inbox popup element. Rendered in BOTH the portal and hybrid/public
+  // layout branches so a logged-in member who lands directly on a hybrid page
+  // (Events, Resources, a CMS page, etc.) after login still sees the popup. The
+  // Dialog uses a portal, so it can be appended as a sibling of the layout
+  // children regardless of chrome. Gated on inbox access; `open` is only ever
+  // true for members with access, so guests never see it.
+  const inboxUnreadPopupElement = hasInboxAccess ? (
+    <InboxUnreadPopup
+      open={inboxPopupOpen}
+      unreadCount={inboxUnreadSummary.unreadCount}
+      latestSubject={inboxUnreadSummary.latestSubject}
+      onViewMessages={handleInboxPopupViewMessages}
+      onDontRemind={handleInboxPopupDontRemind}
+      onSoftClose={() => setInboxPopupOpen(false)}
+      onShown={handleInboxPopupShown}
+    />
+  ) : null;
+
+  // Render blank layout when forced (e.g., form with blank_layout option)
+  if (forceBlankLayout && !pageOwned) {
+    return <>{children}</>;
+  }
+
+  // Render public layout for truly public pages
+  if (isPublicPage()) {
+    const effectivePageName = getEffectivePageName();
+    // Keep the public layout and the child position stable while DynamicPage
+    // resolves page chrome. Toggling between a hidden div and PublicLayout
+    // remounted the form subtree when chromeReady changed, which could reset
+    // an iframe/return screen even though the route had not changed.
+    const publicVisibility = {};
+    if (bareLayoutPages.includes(currentPageName)) {
+      return (
+        <div style={publicVisibility}>
+          <PortalReadiness ready={!visibilitySettingsError} error={visibilitySettingsError} onRetry={retryVisibilitySettings}>
+          <BarePublicLayout>
+            {children}
+            {chromeReady && !forceBlankLayout ? inboxUnreadPopupElement : null}
+          </BarePublicLayout>
+          </PortalReadiness>
+        </div>
+      );
+    }
+    return (
+      <div style={publicVisibility}>
+        <PortalReadiness ready={!visibilitySettingsError} error={visibilitySettingsError} onRetry={retryVisibilitySettings}>
+        <PublicLayout currentPageName={effectivePageName}>
+          {children}
+          {chromeReady && !forceBlankLayout ? inboxUnreadPopupElement : null}
+        </PublicLayout>
+        </PortalReadiness>
+      </div>
+    );
+  }
 
   return (
-    <div style={{ fontFamily: 'Poppins, sans-serif' }}>
-      {/* Google Fonts - Poppins */}
+    <PortalReadiness
+      ready={!visibilitySettingsError && authResolved && sessionValidated}
+      error={visibilitySettingsError || sessionError}
+      onRetry={visibilitySettingsError ? retryVisibilitySettings : retrySessionRoleValidation}
+      retryLabel="Retry"
+    >
+    <div style={{
+      fontFamily: portalRootFont,
+    }}>
+      {/* Base font (Poppins) always loaded below; the tenant's installed google
+          fonts are loaded dynamically (Task #2549), falling back to the curated
+          set when no tenant resolves. */}
+      <InstalledFontsLoader />
       <style>
         {`
           @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap');
+          ${isBnmsTenant ? `@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Urbanist:wght@500;600;700;800&display=swap');` : ''}
+          ${portalFontImportName ? `@import url('https://fonts.googleapis.com/css2?family=${encodeURIComponent(portalFontImportName).replace(/%20/g, '+')}:wght@400;500;600;700&display=swap');` : ''}
 
           @font-face {
             font-family: 'Degular Medium';
@@ -866,70 +2743,123 @@ const { data: dynamicNavItems = [] } = useQuery({
             font-family: 'Degular Medium', 'Poppins', sans-serif;
           }
           
-          /* Apply border radius globally to common UI elements */
-          .Card, [class*="Card"], 
-          .card, [class*="card"],
-          button:not(.unstyled),
-          input:not([type="checkbox"]):not([type="radio"]),
-          textarea,
-          select,
-          [role="dialog"],
-          [role="menu"],
-          [role="listbox"],
-          .shadow, .shadow-sm, .shadow-md, .shadow-lg {
+          /* Apply border radius globally to common UI elements.
+             Canvas block content (anything inside a [data-cb] block wrapper in
+             the CanvasBuilder editor) is excluded via :not([data-cb] *) so the
+             block's own author-configured inline radius survives — the global
+             !important rule would otherwise clamp canvas inputs/buttons to
+             --border-radius. Public/SSR canvas pages render outside this scope
+             and are unaffected. */
+          .Card:not([data-cb] *), [class*="Card"]:not([data-cb] *), 
+          .card:not([data-cb] *), [class*="card"]:not([data-cb] *),
+          button:not(.unstyled):not([data-cb] *),
+          input:not([type="checkbox"]):not([type="radio"]):not([data-cb] *),
+          textarea:not([data-cb] *),
+          select:not([data-cb] *),
+          [role="dialog"]:not([data-cb] *),
+          [role="menu"]:not([data-cb] *),
+          [role="listbox"]:not([data-cb] *),
+          .shadow:not([data-cb] *), .shadow-sm:not([data-cb] *), .shadow-md:not([data-cb] *), .shadow-lg:not([data-cb] *) {
             border-radius: var(--border-radius) !important;
           }
+
+          ${portalNavBgCss ? `[data-sidebar="sidebar"] { ${portalNavBgCss} }` : ''}
+          ${portalNavHoverCss}
         `}
       </style>
 
-      <SidebarProvider key="main-sidebar-provider" style={{ height: '100vh', overflow: 'hidden' }}>
-        <Sidebar className="border-r border-slate-200 bg-white" style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-            <SidebarHeader className="border-b border-slate-200 p-6">
-              <Link to={createPageUrl('Events')} className="flex items-center gap-3 hover:opacity-80 transition-opacity">
-                <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-md border border-slate-200 overflow-hidden">
-                  {memberRecord?.profile_photo_url ? (
+      <SidebarProvider key="main-sidebar-provider">
+        <div className="flex h-screen w-full overflow-hidden">
+        <Sidebar collapsible="icon" className={`border-r border-slate-200 flex-shrink-0 ${hasPortalNavBg ? '' : 'bg-white'}`} style={hasPortalNavBg ? portalNavBgStyle : undefined}>
+            <SidebarHeader className="relative border-b border-slate-200 p-4">
+              {/* Edge toggle positioned at sidebar boundary */}
+              <div className="absolute top-1/2 -right-3 z-50" style={{ transform: 'translateY(-50%)' }}>
+                <SidebarEdgeToggle />
+              </div>
+              {portalLogoSettings?.logoUrl ? (
+                // Custom portal logo
+                <a 
+                  href={defaultLogoHref} 
+                  className="block hover:opacity-80 transition-opacity"
+                  style={{ height: `${logoHeightPx}px` }}
+                >
+                  <img 
+                    src={portalLogoSettings.logoUrl} 
+                    alt="Portal Logo" 
+                    className="h-full w-full object-contain object-left"
+                  />
+                </a>
+              ) : !portalLogoResolved ? (
+                // Branding still loading: reserve logo-area height, no platform flash
+                <div style={{ height: `${logoHeightPx}px` }} aria-hidden="true" />
+              ) : (
+                // Fallback branding with isaasi logo and tenant name
+                <Link to={defaultLogoHref} className="flex items-center gap-3 hover:opacity-80 transition-opacity">
+                  <div className="w-10 h-10 flex items-center justify-center">
                     <img 
-                      src={memberRecord.profile_photo_url} 
-                      alt="Profile" 
-                      className="w-full h-full object-cover"
+                      src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68efc20f3e0a30fafad6dde7/fe03f7c5e_linked-aa.png"
+                      alt="isaasi"
+                      className="w-10 h-10 object-contain"
                     />
-                  ) : (
-                    <User className="w-6 h-6 text-slate-400" />
-                  )}
-                </div>
-                <div>
-                  <h2 className="font-bold text-slate-900">AGCAS Events</h2>
-                  <p className="text-xs text-slate-500">Member Portal</p>
-                </div>
-              </Link>
+                  </div>
+                  <div>
+                    <h2 className="font-bold text-slate-900">{portalLogoSettings?.tenantName || 'Member Portal'}</h2>
+                    <p className="text-xs text-slate-500">Member Portal</p>
+                  </div>
+                </Link>
+              )}
             </SidebarHeader>
             
-            <SidebarContent ref={sidebarContentRef} className="p-3">
-              {/* Only render navigation once role data is loaded */}
-              {!memberRole ? (
-                <div className="flex items-center justify-center py-8">
-                  <div className="w-5 h-5 border-2 border-slate-300 border-t-blue-600 rounded-full animate-spin" />
+            <SidebarContent ref={sidebarContentRef} className="p-3 group-data-[collapsible=icon]:px-1">
+              {/* Form Submission Stats Bar - shows for users with FormSubmissions access */}
+              <SubmissionStatsBar />
+
+              {/* Task #2363: Member AI Knowledge Assistant launcher, pinned at top of nav */}
+              {memberInfo && aiEnabled && !isFeatureExcluded('support.member-ai') && (
+                <div className="mb-2 group-data-[collapsible=icon]:px-0">
+                  <Button
+                    type="button"
+                    onClick={() => setAiAssistantOpen(true)}
+                    className={`w-full justify-start gap-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0 ${aiLauncherStyle ? "bg-[var(--ai-bg)] hover:bg-[var(--ai-hover)] focus-visible:bg-[var(--ai-hover)]" : ""}`}
+                    style={aiLauncherStyle}
+                    aria-label={`Ask ${aiPersonaName}`}
+                    title={`Ask ${aiPersonaName}`}
+                    data-testid="button-ask-ai"
+                  >
+                    <Avatar className="h-5 w-5 shrink-0">
+                      <AvatarImage src={aiPersonaAvatarUrl} alt={aiPersonaName} />
+                      <AvatarFallback className="text-[10px]">{aiPersonaInitial}</AvatarFallback>
+                    </Avatar>
+                    <span className="group-data-[collapsible=icon]:hidden">
+                      {`Ask ${aiPersonaName}`}
+                    </span>
+                  </Button>
                 </div>
+              )}
+              
+              {/* Only render navigation once role data is loaded */}
+              {roleStatus !== 'ready' ? (
+                <NavigationRoleState status={roleStatus} error={roleError} onRetry={retryRole} />
               ) : (
                 <>
-              {/* Only show organization info for regular members */}
+              {/* Only show organization info for regular members - hidden when sidebar is collapsed */}
               {memberInfo && !memberInfo.is_team_member && organizationInfo && (
-                <SidebarGroup>
-                  <SidebarGroupLabel className="text-xs font-medium text-slate-500 uppercase tracking-wider px-3 py-2">
+                <SidebarGroup className="group-data-[collapsible=icon]:hidden">
+                  <SidebarGroupLabel className="text-xs font-medium text-slate-500 uppercase tracking-wider px-3 py-2" style={portalNavLabelStyle(portalNav)}>
                     Your Account
                   </SidebarGroupLabel>
                   <SidebarGroupContent>
                     <div className="px-3 py-2 space-y-3">
                       {organizationInfo.name && (
                         <div className="text-sm">
-                          <span className="text-slate-600 block mb-1">Organisation</span>
-                          <span className="font-medium text-slate-900">{organizationInfo.name}</span>
+                          <span className="text-slate-600 block mb-1" style={portalNavLabelStyle(portalNav)}>Organisation</span>
+                          <span className="font-medium text-slate-900" style={portalNavLabelStyle(portalNav)}>{organizationInfo.name}</span>
                         </div>
                       )}
                       {organizationInfo.voucher_balance > 0 && (
                         <div className="flex items-center justify-between text-sm">
-                          <span className="text-slate-600">Vouchers</span>
-                          <span className="font-semibold text-blue-600">£{organizationInfo.voucher_balance}</span>
+                          <span className="text-slate-600" style={portalNavLabelStyle(portalNav)}>Vouchers</span>
+                          <span className="font-semibold text-blue-600" style={portalNavLabelStyle(portalNav)}>£{organizationInfo.voucher_balance}</span>
                         </div>
                       )}
                     </div>
@@ -937,8 +2867,13 @@ const { data: dynamicNavItems = [] } = useQuery({
                 </SidebarGroup>
               )}
 
-              <SidebarGroup className={memberInfo && !memberInfo.is_team_member && organizationInfo ? "mt-4" : ""}>
-                <SidebarGroupLabel className="text-xs font-medium text-slate-500 uppercase tracking-wider px-3 py-2">
+              {/* Next Event Countdown - show for members with bookings */}
+              {memberInfo && !memberInfo.is_team_member && (
+                <NextEventCountdown memberEmail={memberInfo.email} />
+              )}
+
+              <SidebarGroup className={memberInfo && !memberInfo.is_team_member && organizationInfo ? "mt-4 group-data-[collapsible=icon]:mt-0" : ""}>
+                <SidebarGroupLabel className="text-xs font-medium text-slate-500 uppercase tracking-wider px-3 py-2 group-data-[collapsible=icon]:hidden" style={portalNavLabelStyle(portalNav)}>
                   Navigation
                 </SidebarGroupLabel>
                 <SidebarGroupContent>
@@ -946,62 +2881,52 @@ const { data: dynamicNavItems = [] } = useQuery({
                     {filteredNavigationItems.map((item) => {
                       const Icon = item.icon;
                       // Determine if the current item (or any of its sub-items) is active
-                      const isActive = item.url === location.pathname || 
-                                       (item.subItems && item.subItems.some(sub => sub.url === location.pathname));
+                      const isActive = isPortalMenuDestinationActive(item, location.pathname)
+                        || (item.subItems && item.subItems.some(sub => isPortalMenuDestinationActive(sub, location.pathname)));
 
                       if (item.subItems) {
                         return (
-                          <Collapsible key={item.title} defaultOpen={isActive}>
-                            <SidebarMenuItem>
-                                <CollapsibleTrigger asChild>
-                                  <SidebarMenuButton 
-                                    className={`hover:bg-blue-50 hover:text-blue-700 transition-colors rounded-lg mb-1 flex items-center gap-3 px-3 py-2.5 group ${
-                                      isActive ? 'bg-blue-50 text-blue-700 font-medium' : ''
-                                    }`}
-                                  >
-                                    <Icon className="w-4 h-4" />
-                                    <span className="flex-1">{item.title}</span>
-                                    <ChevronRight className="w-4 h-4 transition-transform group-data-[state=open]:rotate-90" />
-                                  </SidebarMenuButton>
-                                </CollapsibleTrigger>
-                            </SidebarMenuItem>
-                            <CollapsibleContent>
-                              <SidebarMenuSub>
-                                {item.subItems.map(subItem => {
-                                  const isSubItemActive = subItem.url === location.pathname;
-                                  return (
-                                    <SidebarMenuSubItem key={subItem.title}>
-                                      <Link
-                                        to={subItem.url}
-                                        className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm ${
-                                          isSubItemActive ? 'bg-blue-50 text-blue-700 font-medium' : 'hover:bg-blue-50 hover:text-blue-700'
-                                        }`}
-                                      >
-                                        <span>{subItem.title}</span>
-                                      </Link>
-                                    </SidebarMenuSubItem>
-                                  );
-                                })}
-                              </SidebarMenuSub>
-                            </CollapsibleContent>
-                          </Collapsible>
+                          <CollapsibleNavItem 
+                            key={item.title} 
+                            item={item} 
+                            location={location} 
+                            variant="user"
+                            hasPendingPOs={hasPendingPOs}
+                            navTheme={portalNav}
+                          />
                         );
                       } else {
+                        // Show pending PO bell only on the Bookings page link
+                        const isBookingsPage = item.url?.toLowerCase() === '/bookings';
+                        const showPendingPOWarning = hasPendingPOs && isBookingsPage;
+                        const isInboxPage = item.url?.toLowerCase() === '/inbox';
+                        const showInboxBadge = isInboxPage && inboxUnreadCount > 0;
                         return (
                           <SidebarMenuItem 
                             key={item.title}
                             id={item.title === "Buy Tickets" ? "buy-tickets-menu-item" : undefined}
                           >
                             <SidebarMenuButton 
-                              asChild 
-                              className={`hover:bg-blue-50 hover:text-blue-700 transition-colors rounded-lg mb-1 ${
+                              asChild
+                              tooltip={item.title}
+                              isActive={isActive}
+                              style={portalNavItemStyle(portalNav, isActive)}
+                              className={`nav-item-themed items-start h-auto min-h-8 group-data-[collapsible=icon]:items-center hover:bg-blue-50 hover:text-blue-700 transition-colors rounded-lg mb-1 ${
                                 isActive ? 'bg-blue-50 text-blue-700 font-medium' : ''
                               }`}
                             >
-                              <Link to={item.url} className="flex items-center gap-3 px-3 py-2.5">
-                                <Icon className="w-4 h-4" />
-                                <span>{item.title}</span>
-                              </Link>
+                              <PortalNavLink destination={item}>
+                                <Icon className="w-4 h-4 shrink-0 mt-0.5 group-data-[collapsible=icon]:mt-0" style={portalNavIconStyle(portalNav, isActive)} />
+                                <span className="group-data-[collapsible=icon]:hidden">{item.title}</span>
+                                {showPendingPOWarning && (
+                                  <Bell className="w-4 h-4 text-warning animate-pulse group-data-[collapsible=icon]:hidden" data-testid="pending-po-warning-bell" />
+                                )}
+                                {showInboxBadge && (
+                                  <Badge variant="secondary" className="ml-auto group-data-[collapsible=icon]:hidden" data-testid="badge-inbox-unread">
+                                    {inboxUnreadCount}
+                                  </Badge>
+                                )}
+                              </PortalNavLink>
                             </SidebarMenuButton>
                           </SidebarMenuItem>
                         );
@@ -1013,8 +2938,8 @@ const { data: dynamicNavItems = [] } = useQuery({
 
               {/* Admin Section */}
               {filteredAdminNavigationItems.length > 0 && (
-                <SidebarGroup className="mt-4">
-                  <SidebarGroupLabel className="text-xs font-medium text-amber-600 uppercase tracking-wider px-3 py-2">
+                <SidebarGroup className="mt-4 group-data-[collapsible=icon]:mt-0">
+                  <SidebarGroupLabel className="text-xs font-medium text-warning uppercase tracking-wider px-3 py-2 group-data-[collapsible=icon]:hidden" style={portalNavLabelStyle(portalNav)}>
                     Administration
                   </SidebarGroupLabel>
                   <SidebarGroupContent>
@@ -1022,59 +2947,35 @@ const { data: dynamicNavItems = [] } = useQuery({
                       {filteredAdminNavigationItems.map((item) => {
                         const Icon = item.icon;
                         // Determine if the current item (or any of its sub-items) is active
-                        const isActive = item.url === location.pathname || 
-                                         (item.subItems && item.subItems.some(sub => sub.url === location.pathname));
+                        const isActive = isPortalMenuDestinationActive(item, location.pathname)
+                          || (item.subItems && item.subItems.some(sub => isPortalMenuDestinationActive(sub, location.pathname)));
 
                         if (item.subItems) {
                           return (
-                            <Collapsible key={item.title} defaultOpen={isActive}>
-                              <SidebarMenuItem>
-                                <CollapsibleTrigger asChild>
-                                  <SidebarMenuButton 
-                                    className={`hover:bg-amber-50 hover:text-amber-700 transition-colors rounded-lg mb-1 flex items-center gap-3 px-3 py-2.5 group ${
-                                      isActive ? 'bg-amber-50 text-amber-700 font-medium' : ''
-                                    }`}
-                                  >
-                                    <Icon className="w-4 h-4" />
-                                    <span className="flex-1">{item.title}</span>
-                                    <ChevronRight className="w-4 h-4 transition-transform group-data-[state=open]:rotate-90" />
-                                  </SidebarMenuButton>
-                                </CollapsibleTrigger>
-                              </SidebarMenuItem>
-                              <CollapsibleContent>
-                                <SidebarMenuSub>
-                                  {item.subItems.map(subItem => {
-                                    const isSubItemActive = subItem.url === location.pathname;
-                                    return (
-                                      <SidebarMenuSubItem key={subItem.title}>
-                                        <Link
-                                          to={subItem.url}
-                                          className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm ${
-                                            isSubItemActive ? 'bg-amber-50 text-amber-700 font-medium' : 'hover:bg-amber-50 hover:text-amber-700'
-                                          }`}
-                                        >
-                                          <span>{subItem.title}</span>
-                                        </Link>
-                                      </SidebarMenuSubItem>
-                                    );
-                                  })}
-                                </SidebarMenuSub>
-                              </CollapsibleContent>
-                            </Collapsible>
+                            <CollapsibleNavItem 
+                              key={item.title} 
+                              item={item} 
+                              location={location} 
+                              variant="admin"
+                              navTheme={portalNav}
+                            />
                           );
                         } else {
                           return (
                             <SidebarMenuItem key={item.title}>
                                 <SidebarMenuButton 
-                                  asChild 
-                                  className={`hover:bg-amber-50 hover:text-amber-700 transition-colors rounded-lg mb-1 ${
-                                    isActive ? 'bg-amber-50 text-amber-700 font-medium' : ''
+                                  asChild
+                                  tooltip={item.title}
+                                  isActive={isActive}
+                                  style={portalNavItemStyle(portalNav, isActive)}
+                                  className={`nav-item-themed items-start h-auto min-h-8 group-data-[collapsible=icon]:items-center hover:bg-warning/10 hover:text-warning transition-colors rounded-lg mb-1 ${
+                                    isActive ? 'bg-warning/10 text-warning font-medium' : ''
                                   }`}
                                 >
-                                  <Link to={item.url} className="flex items-center gap-3 px-3 py-2.5">
-                                  <Icon className="w-4 h-4" />
-                                  <span>{item.title}</span>
-                                </Link>
+                                  <PortalNavLink destination={item}>
+                                    <Icon className="w-4 h-4 shrink-0 mt-0.5 group-data-[collapsible=icon]:mt-0" style={portalNavIconStyle(portalNav, isActive)} />
+                                    <span className="group-data-[collapsible=icon]:hidden">{item.title}</span>
+                                  </PortalNavLink>
                               </SidebarMenuButton>
                             </SidebarMenuItem>
                           );
@@ -1082,6 +2983,17 @@ const { data: dynamicNavItems = [] } = useQuery({
                       })}
                     </SidebarMenu>
                   </SidebarGroupContent>
+                  {/* Deployed build version (admins only). Vercel exposes the
+                      commit SHA to Vite builds as VITE_VERCEL_GIT_COMMIT_SHA
+                      when "Automatically expose System Environment Variables"
+                      is enabled; VITE_GIT_COMMIT_SHA is a manual override.
+                      Locally neither is set, so it reads "build: dev". */}
+                  <p
+                    className="px-3 pt-2 pb-1 text-[10px] text-slate-400 group-data-[collapsible=icon]:hidden"
+                    data-testid="text-build-version"
+                  >
+                    build: {String(import.meta.env.VITE_VERCEL_GIT_COMMIT_SHA || import.meta.env.VITE_GIT_COMMIT_SHA || 'dev').slice(0, 7)}
+                  </p>
                 </SidebarGroup>
               )}
               </>
@@ -1089,55 +3001,428 @@ const { data: dynamicNavItems = [] } = useQuery({
             </SidebarContent>
 
             <SidebarFooter className="border-t border-slate-200 p-4">
-              {memberInfo && (
-                <div className="space-y-3">
-                  <div className="px-3 py-2 bg-slate-50 rounded-lg">
-                    <div className="flex items-center gap-2 mb-1">
-                      <User className="w-4 h-4 text-slate-500" />
-                      <span className="text-sm font-medium text-slate-900">
-                        {memberInfo.first_name} {memberInfo.last_name}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-500 pl-6">{memberInfo.email}</p>
-                    {memberRole && (
-                      <div className="pl-6 mt-2">
-                        <Badge className="bg-blue-100 text-blue-700 text-xs">
-                          {memberRole.name}
-                        </Badge>
-                      </div>
-                    )}
-                  </div>
-                  <Button
-                    variant="ghost"
-                    className="w-full justify-start text-slate-600 hover:text-slate-900 hover:bg-slate-50"
-                    onClick={handleLogout}
-                  >
-                    <LogOut className="w-4 h-4 mr-2" />
-                    Sign Out
-                  </Button>
-                </div>
-              )}
+              <SidebarFooterContent 
+                memberInfo={memberInfo} 
+                memberRole={memberRole} 
+                handleLogout={handleLogout}
+                portalNav={portalNav}
+              />
             </SidebarFooter>
           </Sidebar>
 
-          <div className="flex-1 flex flex-col min-h-screen max-h-screen overflow-hidden">
+          {memberInfo && aiEnabled && !isFeatureExcluded('support.member-ai') && (
+            <MemberAiAssistant key={aiIdentityKey} identityKey={aiIdentityKey} config={aiPersona} open={aiAssistantOpen} onOpenChange={setAiAssistantOpen} />
+          )}
+
+          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+            {/* Mobile Header - only visible on small screens */}
+            <header className="md:hidden flex-shrink-0 flex items-center justify-between p-4 border-b border-slate-200 bg-white z-50">
+              {portalLogoSettings?.logoUrl ? (
+                // Custom portal logo for mobile
+                <a 
+                  href={defaultLogoHref} 
+                  className="flex items-center hover:opacity-80 transition-opacity"
+                  style={{ height: `${Math.min(logoHeightPx, 40)}px` }}
+                >
+                  <img 
+                    src={portalLogoSettings.logoUrl} 
+                    alt="Portal Logo" 
+                    className="h-full max-w-[180px] object-contain object-left"
+                  />
+                </a>
+              ) : !portalLogoResolved ? (
+                // Branding still loading: reserve logo-area height, no platform flash
+                <div style={{ height: `${Math.min(logoHeightPx, 40)}px` }} aria-hidden="true" />
+              ) : (
+                // Fallback branding for mobile with isaasi logo and tenant name
+                <Link to={defaultLogoHref} className="flex items-center gap-2">
+                  <div className="w-8 h-8 flex items-center justify-center">
+                    <img 
+                      src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68efc20f3e0a30fafad6dde7/fe03f7c5e_linked-aa.png"
+                      alt="isaasi"
+                      className="w-8 h-8 object-contain"
+                    />
+                  </div>
+                  <div>
+                    <h2 className="font-bold text-slate-900 text-sm">{portalLogoSettings?.tenantName || 'Member Portal'}</h2>
+                  </div>
+                </Link>
+              )}
+              <Button 
+                variant="ghost" 
+                size="icon"
+                onClick={() => setMobileMenuOpen(true)}
+                data-testid="button-mobile-menu"
+              >
+                <Menu className="w-6 h-6" />
+              </Button>
+            </header>
+
+            {/* Mobile Navigation Sheet */}
+            <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+              <SheetContent side="left" className="w-[300px] p-0 flex flex-col" style={hasPortalNavBg ? portalNavBgStyle : undefined}>
+                <SheetHeader className="border-b border-slate-200 p-4">
+                  {portalLogoSettings?.logoUrl ? (
+                    // Custom portal logo in mobile sheet
+                    <a 
+                      href={defaultLogoHref} 
+                      className="block hover:opacity-80 transition-opacity"
+                      style={{ height: `${logoHeightPx}px` }}
+                      onClick={() => setMobileMenuOpen(false)}
+                    >
+                      <img 
+                        src={portalLogoSettings.logoUrl} 
+                        alt="Portal Logo" 
+                        className="h-full w-full object-contain object-left"
+                      />
+                    </a>
+                  ) : !portalLogoResolved ? (
+                    // Branding still loading: reserve logo-area height, no platform flash
+                    <div style={{ height: `${logoHeightPx}px` }} aria-hidden="true" />
+                  ) : (
+                    // Fallback branding in mobile sheet with isaasi logo and tenant name
+                    <SheetTitle className="flex items-center gap-3">
+                      <div className="w-10 h-10 flex items-center justify-center">
+                        <img 
+                          src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68efc20f3e0a30fafad6dde7/fe03f7c5e_linked-aa.png"
+                          alt="isaasi"
+                          className="w-10 h-10 object-contain"
+                        />
+                      </div>
+                      <div className="text-left">
+                        <div className="font-bold text-slate-900">{portalLogoSettings?.tenantName || 'Member Portal'}</div>
+                        <div className="text-xs text-slate-500 font-normal">Member Portal</div>
+                      </div>
+                    </SheetTitle>
+                  )}
+                </SheetHeader>
+                
+                <ScrollArea className="flex-1 p-3">
+                  {/* Member Info Section */}
+                  {memberInfo && !memberInfo.is_team_member && organizationInfo && (
+                    <div className="mb-4">
+                      <div className="text-xs font-medium text-slate-500 uppercase tracking-wider px-3 py-2" style={portalNavLabelStyle(portalNav)}>
+                        Your Account
+                      </div>
+                      <div className="px-3 py-2 space-y-3">
+                        {organizationInfo.name && (
+                          <div className="text-sm">
+                            <span className="text-slate-600 block mb-1" style={portalNavLabelStyle(portalNav)}>Organisation</span>
+                            <span className="font-medium text-slate-900" style={portalNavLabelStyle(portalNav)}>{organizationInfo.name}</span>
+                          </div>
+                        )}
+                        {organizationInfo.voucher_balance > 0 && (
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-slate-600" style={portalNavLabelStyle(portalNav)}>Vouchers</span>
+                            <span className="font-semibold text-blue-600" style={portalNavLabelStyle(portalNav)}>£{organizationInfo.voucher_balance}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {roleStatus !== 'ready' ? (
+                    <NavigationRoleState status={roleStatus} error={roleError} onRetry={retryRole} />
+                  ) : (
+                    <>
+                  {/* Navigation Section */}
+                  <div className="mb-4">
+                    <div className="text-xs font-medium text-slate-500 uppercase tracking-wider px-3 py-2" style={portalNavLabelStyle(portalNav)}>
+                      Navigation
+                    </div>
+                    <nav className="space-y-1">
+                      {filteredNavigationItems.map((item) => {
+                        const Icon = item.icon;
+                        const isActive = isPortalMenuDestinationActive(item, location.pathname)
+                          || (item.subItems && item.subItems.some(sub => isPortalMenuDestinationActive(sub, location.pathname)));
+                        const isBookingsPage = item.url?.toLowerCase() === '/bookings';
+                        const showPendingPOWarning = hasPendingPOs && isBookingsPage;
+                        const isInboxPage = item.url?.toLowerCase() === '/inbox';
+                        const showInboxBadge = isInboxPage && inboxUnreadCount > 0;
+
+                        if (item.subItems) {
+                          return (
+                            <Collapsible key={item.title} defaultOpen={isActive}>
+                              <CollapsibleTrigger style={portalNavItemStyle(portalNav, isActive)} className={`nav-item-themed w-full flex items-start gap-3 px-3 py-2.5 rounded-lg text-sm ${
+                                isActive ? 'bg-blue-50 text-blue-700 font-medium' : 'hover:bg-blue-50 hover:text-blue-700'
+                              }`}>
+                                <Icon className="w-4 h-4 shrink-0 mt-0.5" style={portalNavIconStyle(portalNav, isActive)} />
+                                <span className="flex-1 text-left">{item.title}</span>
+                                <ChevronRight className="w-4 h-4 shrink-0 mt-0.5 transition-transform group-data-[state=open]:rotate-90" />
+                              </CollapsibleTrigger>
+                              <CollapsibleContent>
+                                <div className="pl-7 space-y-1 mt-1">
+                                  {item.subItems.map(subItem => {
+                                    const isSubItemActive = isPortalMenuDestinationActive(subItem, location.pathname);
+                                    return (
+                                      <PortalNavLink
+                                        key={subItem.title}
+                                        destination={subItem}
+                                        onClick={() => setMobileMenuOpen(false)}
+                                        style={portalNavItemStyle(portalNav, isSubItemActive)}
+                                        className={`nav-item-themed block px-3 py-2 rounded-lg text-sm ${
+                                          isSubItemActive ? 'bg-blue-50 text-blue-700 font-medium' : 'hover:bg-blue-50 hover:text-blue-700'
+                                        }`}
+                                      >
+                                        {subItem.title}
+                                      </PortalNavLink>
+                                    );
+                                  })}
+                                </div>
+                              </CollapsibleContent>
+                            </Collapsible>
+                          );
+                        } else {
+                          return (
+                            <PortalNavLink
+                              key={item.title}
+                              destination={item}
+                              onClick={() => setMobileMenuOpen(false)}
+                              style={portalNavItemStyle(portalNav, isActive)}
+                              className={`nav-item-themed flex items-start gap-3 px-3 py-2.5 rounded-lg text-sm ${
+                                isActive ? 'bg-blue-50 text-blue-700 font-medium' : 'hover:bg-blue-50 hover:text-blue-700'
+                              }`}
+                            >
+                              <Icon className="w-4 h-4 shrink-0 mt-0.5" style={portalNavIconStyle(portalNav, isActive)} />
+                              <span className="flex-1">{item.title}</span>
+                              {showPendingPOWarning && (
+                                <Bell className="w-4 h-4 text-warning animate-pulse" data-testid="pending-po-warning-bell-mobile" />
+                              )}
+                              {showInboxBadge && (
+                                <Badge variant="secondary" data-testid="badge-inbox-unread-mobile">
+                                  {inboxUnreadCount}
+                                </Badge>
+                              )}
+                            </PortalNavLink>
+                          );
+                        }
+                      })}
+                    </nav>
+                  </div>
+
+                  {/* Admin Section */}
+                  {filteredAdminNavigationItems.length > 0 && (
+                    <div className="mb-4">
+                      <div className="text-xs font-medium text-warning uppercase tracking-wider px-3 py-2" style={portalNavLabelStyle(portalNav)}>
+                        Administration
+                      </div>
+                      <nav className="space-y-1">
+                        {filteredAdminNavigationItems.map((item) => {
+                          const Icon = item.icon;
+                          const isActive = isPortalMenuDestinationActive(item, location.pathname)
+                            || (item.subItems && item.subItems.some(sub => isPortalMenuDestinationActive(sub, location.pathname)));
+
+                          if (item.subItems) {
+                            return (
+                              <Collapsible key={item.title} defaultOpen={isActive}>
+                                <CollapsibleTrigger style={portalNavItemStyle(portalNav, isActive)} className={`nav-item-themed w-full flex items-start gap-3 px-3 py-2.5 rounded-lg text-sm ${
+                                  isActive ? 'bg-warning/10 text-warning font-medium' : 'hover:bg-warning/10 hover:text-warning'
+                                }`}>
+                                  <Icon className="w-4 h-4 shrink-0 mt-0.5" style={portalNavIconStyle(portalNav, isActive)} />
+                                  <span className="flex-1 text-left">{item.title}</span>
+                                  <ChevronRight className="w-4 h-4 shrink-0 mt-0.5 transition-transform group-data-[state=open]:rotate-90" />
+                                </CollapsibleTrigger>
+                                <CollapsibleContent>
+                                  <div className="pl-7 space-y-1 mt-1">
+                                    {item.subItems.map(subItem => {
+                                      const isSubItemActive = isPortalMenuDestinationActive(subItem, location.pathname);
+                                      return (
+                                        <PortalNavLink
+                                          key={subItem.title}
+                                          destination={subItem}
+                                          onClick={() => setMobileMenuOpen(false)}
+                                          style={portalNavItemStyle(portalNav, isSubItemActive)}
+                                          className={`nav-item-themed block px-3 py-2 rounded-lg text-sm ${
+                                            isSubItemActive ? 'bg-warning/10 text-warning font-medium' : 'hover:bg-warning/10 hover:text-warning'
+                                          }`}
+                                        >
+                                          {subItem.title}
+                                        </PortalNavLink>
+                                      );
+                                    })}
+                                  </div>
+                                </CollapsibleContent>
+                              </Collapsible>
+                            );
+                          } else {
+                            return (
+                              <PortalNavLink
+                                key={item.title}
+                                destination={item}
+                                onClick={() => setMobileMenuOpen(false)}
+                                style={portalNavItemStyle(portalNav, isActive)}
+                                className={`nav-item-themed flex items-start gap-3 px-3 py-2.5 rounded-lg text-sm ${
+                                  isActive ? 'bg-warning/10 text-warning font-medium' : 'hover:bg-warning/10 hover:text-warning'
+                                }`}
+                              >
+                                <Icon className="w-4 h-4 shrink-0 mt-0.5" style={portalNavIconStyle(portalNav, isActive)} />
+                                <span>{item.title}</span>
+                              </PortalNavLink>
+                            );
+                          }
+                        })}
+                      </nav>
+                    </div>
+                  )}
+                    </>
+                  )}
+                </ScrollArea>
+
+                {/* Footer with user info and logout */}
+                <div className="border-t border-slate-200 p-4">
+                  {memberInfo && (
+                    <div className="space-y-3">
+                      <div
+                        className={`px-3 py-2 rounded-lg${hasUserCardBg ? '' : ' bg-slate-50'}`}
+                        style={hasUserCardBg ? userCardBgStyle : undefined}
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          {memberInfo.google_id ? (
+                            <SiGoogle className="w-4 h-4 text-[#4285F4]" />
+                          ) : (
+                            <User className="w-4 h-4 text-slate-500" style={userCardTextStyle} />
+                          )}
+                          <span className="text-sm font-medium text-slate-900" style={userCardTextStyle}>
+                            {memberInfo.first_name} {memberInfo.last_name}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500 pl-6 truncate" title={memberInfo.email} style={userCardTextStyle}>{memberInfo.email}</p>
+                        {memberRole && (
+                          <div className="pl-6 mt-2">
+                            <RoleBadge role={memberRole} className="text-xs" />
+                          </div>
+                        )}
+                      </div>
+                      {memberInfo.hasTenantUserLink && (
+                        <Button
+                          variant="ghost"
+                          className="w-full justify-start text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+                          onClick={() => {
+                            setMobileMenuOpen(false);
+                            // Tenant owners manage all tenants from iconn.app root domain
+                            // Portal subdomains are for members only
+                            window.location.href = 'https://iconn.app/admin/dashboard';
+                          }}
+                        >
+                          <ExternalLink className="w-4 h-4 mr-2" />
+                          Admin Dashboard
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        style={portalNavItemStyle(portalNav, false)}
+                        className="nav-item-themed w-full justify-start hover:bg-blue-50 hover:text-blue-700 transition-colors rounded-lg"
+                        onClick={() => {
+                          setMobileMenuOpen(false);
+                          handleLogout();
+                        }}
+                      >
+                        <LogOut className="w-4 h-4 mr-2 shrink-0" style={portalNavIconStyle(portalNav, false)} />
+                        <span>Sign Out</span>
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </SheetContent>
+            </Sheet>
+
             {!isFeatureExcluded('element_NewsTickerBar') && <NewsTickerBar />}
-            <main ref={mainContentRef} className="flex-1 overflow-y-auto overflow-x-hidden">
-              {childrenWithProps}
+            {memberInfo?.isMasquerading && (
+              <div className="bg-warning text-warning-foreground px-4 py-2 flex items-center justify-between gap-4 flex-shrink-0 z-50" data-testid="banner-masquerade">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Eye className="w-4 h-4" />
+                  <span>You are viewing as <strong>{memberInfo.first_name} {memberInfo.last_name}</strong></span>
+                  {memberInfo.masqueradeAdminName && (
+                    <span className="opacity-80">— logged in by {memberInfo.masqueradeAdminName}</span>
+                  )}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="bg-white/20 border-white/40 text-white"
+                  onClick={async () => {
+                    authGenerationRef.current += 1;
+                    invalidateViewerSessionRequest(viewerSessionScope);
+                    setSessionValidated(false);
+                    setAuthResolved(false);
+                    setSessionValidatedAt(0);
+                    try {
+                      const response = await fetch('/api/auth/end-masquerade', {
+                        method: 'POST',
+                        credentials: 'include',
+                        headers: { 'Content-Type': 'application/json' },
+                      });
+                      if (response.ok) {
+                        const data = await response.json();
+                        localStorage.removeItem('agcas_member');
+                        localStorage.removeItem('agcas_organization');
+                        window.location.href = data.returnUrl || '/members';
+                      } else {
+                        setAuthRevision(value => value + 1);
+                      }
+                    } catch (error) {
+                      console.error('Failed to end masquerade:', error);
+                      setAuthRevision(value => value + 1);
+                    }
+                  }}
+                  data-testid="button-end-masquerade"
+                >
+                  <LogOut className="w-4 h-4 mr-1" />
+                  Return to Admin
+                </Button>
+              </div>
+            )}
+            <a
+              href="#main-content"
+              className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[1000] focus:px-3 focus:py-2 focus:bg-white focus:text-slate-900 focus:rounded focus:shadow"
+              data-testid="link-skip-to-content"
+            >
+              Skip to main content
+            </a>
+            <main id="main-content" tabIndex={-1} ref={mainContentRef} className={`flex-1 ${isCanvasEditor ? 'flex flex-col overflow-hidden' : 'overflow-y-auto overflow-x-hidden'} min-h-0 overscroll-contain focus:outline-none${hasPortalPageBg ? '' : ' bg-gradient-to-br from-slate-50 to-blue-50'}`} style={hasPortalPageBg ? portalPageBgStyle : undefined}>
+              {pageOwned && !chromeReady && (
+                <div role="status" aria-live="polite" className="p-6 text-sm text-muted-foreground">
+                  Loading page…
+                </div>
+              )}
+              {/* Render ALL top banners with appropriate component based on banner_type */}
+              {topBanners.length > 0 && (
+                <div className="w-full shrink-0">
+                  {topBanners.map((banner) => (
+                    banner.banner_type === 'image'
+                      ? <PageBannerDisplay key={banner.id} banner={banner} />
+                      : <PortalHeroBanner key={banner.id} banner={banner} />
+                  ))}
+                </div>
+              )}
+              {/* Wrap children in BannerProvider for below-first-element banners */}
+              {(pageOwned && !chromeReady)
+                || (authResolved && sessionValidated && roleStatus === 'ready') ? (
+                  <div
+                    // Keep a definite remaining height without overriding `hidden` with a display utility.
+                    className={isCanvasEditor ? 'flex-1 min-h-0 overflow-hidden' : undefined}
+                    hidden={!chromeReady || roleStatus !== 'ready'}
+                    aria-hidden={!chromeReady || roleStatus !== 'ready' || undefined}
+                  >
+                    <BannerProvider belowFirstElementBanners={belowFirstElementBanners}>
+                      {childrenWithProps}
+                    </BannerProvider>
+                  </div>
+                ) : null}
             </main>
 
-            <footer className="bg-white border-t border-slate-200 py-6">
+            <footer className="flex-shrink-0 flex-grow-0 bg-white border-t border-slate-200 py-2">
               <div className="max-w-7xl mx-auto px-4 text-center">
                 <a 
                   href="https://isaasi.co.uk" 
                   target="_blank" 
                   rel="noopener noreferrer"
-                  className="inline-block mb-3 hover:opacity-80 transition-opacity"
+                  className="inline-block mb-1 hover:opacity-80 transition-opacity"
                 >
                   <img 
                     src="https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/68efc20f3e0a30fafad6dde7/fe03f7c5e_linked-aa.png" 
                     alt="isaasi"
-                    className="w-[50px] mx-auto"
+                    className="w-[32px] mx-auto"
                   />
                 </a>
                 <p className="text-sm text-slate-600">
@@ -1159,9 +3444,35 @@ const { data: dynamicNavItems = [] } = useQuery({
           
           {/* Floater Display for Portal Pages */}
           {!isFeatureExcluded('element_FloatersDisplay') && (
-            <FloaterDisplay location="portal" memberInfo={memberInfo} organizationInfo={organizationInfo} />
+            <FloaterDisplay
+              location="portal"
+              memberInfo={memberInfo}
+              organizationInfo={organizationInfo}
+              authResolved={authResolved}
+              sessionValidated={sessionValidated}
+            />
           )}
+        </div>
       </SidebarProvider>
+      
+      {memberInfo && memberRole?.show_bookmarks !== false && (
+        <>
+          <Button
+            variant="default"
+            size="icon"
+            onClick={() => setBookmarkDrawerOpen(true)}
+            className="fixed right-0 top-24 z-40 !rounded-none"
+            data-testid="button-bookmarks-tab"
+            aria-label="Open bookmarks"
+          >
+            <Bookmark className="w-4 h-4" />
+          </Button>
+          <BookmarkDrawer open={bookmarkDrawerOpen} onOpenChange={setBookmarkDrawerOpen} />
+        </>
+      )}
+
+      {chromeReady && authResolved && sessionValidated && roleStatus === 'ready' && !forceBlankLayout ? inboxUnreadPopupElement : null}
     </div>
+    </PortalReadiness>
   );
 }

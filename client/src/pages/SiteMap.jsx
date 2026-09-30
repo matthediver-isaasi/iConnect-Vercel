@@ -8,21 +8,23 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 
 export default function SiteMapPage() {
-  const { isAdmin, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { getArticleViewUrlFromArticle, getPublicArticlesUrl } = useArticleUrl();
   const [accessChecked, setAccessChecked] = useState(false);
   const appBaseUrl = window.location.origin;
 
   useEffect(() => {
     if (isAccessReady) {
-      if (!isAdmin) {
+      if (isFeatureExcluded('system.site-map')) {
         window.location.href = createPageUrl('Events');
       } else {
         setAccessChecked(true);
       }
     }
-  }, [isAdmin, isAccessReady]);
+  }, [isFeatureExcluded, isAccessReady]);
 
   const { data: articles = [] } = useQuery({
     queryKey: ['published-articles'],
@@ -59,7 +61,7 @@ export default function SiteMapPage() {
   const staticPublicPages = [
     { name: 'Home', url: createPageUrl('Home'), icon: ExternalLink },
     { name: 'Public Events', url: createPageUrl('PublicEvents'), icon: ExternalLink },
-    { name: 'Public Articles', url: createPageUrl('PublicArticles'), icon: FileText },
+    { name: 'Public Articles', url: getPublicArticlesUrl(), icon: FileText },
     { name: 'Public News', url: createPageUrl('PublicNews'), icon: Newspaper },
     { name: 'Public Resources', url: createPageUrl('PublicResources'), icon: Sparkles },
     { name: 'Job Board', url: createPageUrl('JobBoard'), icon: Briefcase },
@@ -68,14 +70,17 @@ export default function SiteMapPage() {
   ];
 
   const articleUrls = useMemo(() => {
-    return articles.map(article => ({
-      title: article.title,
-      url: `${createPageUrl('ArticleView')}?slug=${article.slug}`,
-      fullUrl: `${appBaseUrl}${createPageUrl('ArticleView')}?slug=${article.slug}`,
-      author: article.author_name,
-      date: article.published_date
-    }));
-  }, [articles, appBaseUrl]);
+    return articles.map(article => {
+      const articleUrl = getArticleViewUrlFromArticle(article);
+      return {
+        title: article.title,
+        url: articleUrl,
+        fullUrl: `${appBaseUrl}${articleUrl}`,
+        author: article.author_name,
+        date: article.published_date
+      };
+    });
+  }, [articles, appBaseUrl, getArticleViewUrlFromArticle]);
 
   const newsUrls = useMemo(() => {
     return news.map(post => ({
@@ -113,7 +118,7 @@ export default function SiteMapPage() {
 
   if (!accessChecked) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
         <Card>
           <CardContent className="p-8 text-center">
             <p className="text-slate-600">Loading...</p>
@@ -124,15 +129,47 @@ export default function SiteMapPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
         <div className="mb-8">
           <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2">
             Public Site Map
           </h1>
-          <p className="text-slate-600">
+          <p className="text-slate-600 mb-4">
             All public-facing URLs on your platform
           </p>
+          <div className="flex flex-wrap gap-3">
+            <a 
+              href="/sitemap.xml" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+              data-testid="link-sitemap-xml"
+            >
+              <ExternalLink className="w-4 h-4" />
+              View XML Sitemap
+            </a>
+            <a 
+              href="/robots.txt" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition-colors text-sm font-medium"
+              data-testid="link-robots-txt"
+            >
+              <FileText className="w-4 h-4" />
+              View robots.txt
+            </a>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => copyToClipboard(`${appBaseUrl}/sitemap.xml`)}
+              className="gap-2"
+              data-testid="button-copy-sitemap-url"
+            >
+              <Copy className="w-4 h-4" />
+              Copy Sitemap URL
+            </Button>
+          </div>
         </div>
 
         <div className="grid gap-6">

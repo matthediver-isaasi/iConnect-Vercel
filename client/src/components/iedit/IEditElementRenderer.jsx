@@ -14,8 +14,21 @@ import { IEditShowcaseElementRenderer } from "./elements/IEditShowcaseElement";
 import { IEditResourcesShowcaseElementRenderer } from "./elements/IEditResourcesShowcaseElement";
 import IEditButtonBlockElement from "./elements/IEditButtonBlockElement";
 import IEditPageHeaderHeroElement from "./elements/IEditPageHeaderHeroElement";
+import { IEditOrganisationDirectoryElementRenderer } from "./elements/IEditOrganisationDirectoryElement";
+import IEditFeaturedJobElement from "./elements/IEditFeaturedJobElement";
+import IEditImagePanelElement from "./elements/IEditImagePanelElement";
+import { IEditAccordionElementRenderer } from "./elements/IEditAccordionElement";
+import IEditQuoteElement from "./elements/IEditQuoteElement";
+import IEditFiftyFiftyElement from "./elements/IEditFiftyFiftyElement";
+import { IEditCardDeckElementRenderer } from "./elements/IEditCardDeckElement";
+import { IEditLogoGridElementRenderer } from "./elements/IEditLogoGridElement";
+import IEditEventSpotlightElement from "./elements/IEditEventSpotlightElement";
+import { IEditVideoElementRenderer } from "./elements/IEditVideoElement";
+import { IEditTimelineElementRenderer } from "./elements/IEditTimelineElement";
+import { IEditHeroCarouselElementRenderer } from "./elements/IEditHeroCarouselElement";
+import { IEditGalleryElementRenderer } from "./elements/IEditGalleryElement";
 
-export default function IEditElementRenderer({ element, memberInfo, organizationInfo, isFirst }) {
+export default function IEditElementRenderer({ element, memberInfo, organizationInfo, isFirst, previewViewport }) {
   // Map element types to their corresponding components
   const elementComponents = {
     'hero': IEditHeroElement,
@@ -33,15 +46,27 @@ export default function IEditElementRenderer({ element, memberInfo, organization
     'resources_showcase': IEditResourcesShowcaseElementRenderer,
     'button_block': IEditButtonBlockElement,
     'page_header_hero': IEditPageHeaderHeroElement,
+    'organisation_directory': IEditOrganisationDirectoryElementRenderer,
+    'featured_job': IEditFeaturedJobElement,
+    'image_panel': IEditImagePanelElement,
+    'accordion': IEditAccordionElementRenderer,
+    'quote': IEditQuoteElement,
+    'fifty_fifty': IEditFiftyFiftyElement,
+    'card_deck': IEditCardDeckElementRenderer,
+    'logo_grid': IEditLogoGridElementRenderer,
+    'event_spotlight': IEditEventSpotlightElement,
+    'video': IEditVideoElementRenderer,
+    'timeline': IEditTimelineElementRenderer,
+    'hero_carousel': IEditHeroCarouselElementRenderer,
+    'gallery': (props) => <IEditGalleryElementRenderer {...props} memberInfo={memberInfo} />,
   };
 
   const Component = elementComponents[element.element_type];
 
   if (!Component) {
-    // Fallback for unknown element types
     return (
-      <div className="bg-amber-50 border border-amber-200 p-4 my-4">
-        <p className="text-sm text-amber-900">
+      <div className="bg-warning/10 border border-warning/30 p-4 my-4">
+        <p className="text-sm text-warning">
           Unknown element type: <code>{element.element_type}</code>
         </p>
       </div>
@@ -62,16 +87,18 @@ export default function IEditElementRenderer({ element, memberInfo, organization
   
   const fullWidth = element.settings?.fullWidth;
 
-  // For full-width elements, render without any container or padding constraints
+  // For full-width elements, apply padding but no max-width container
+  // The element itself handles the full-width breakout
   if (fullWidth) {
     return (
-      <div className="w-full">
+      <div style={paddingStyle} className="w-full overflow-hidden">
         <Component 
           element={element}
           content={element.content} 
           variant={element.style_variant}
           settings={element.settings}
           isFirst={isFirst}
+          previewViewport={previewViewport}
         />
       </div>
     );
@@ -87,6 +114,7 @@ export default function IEditElementRenderer({ element, memberInfo, organization
           variant={element.style_variant}
           settings={element.settings}
           isFirst={isFirst}
+          previewViewport={previewViewport}
         />
       </div>
     </div>

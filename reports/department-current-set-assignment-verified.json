@@ -1,0 +1,149 @@
+{
+  "review_version": 1,
+  "generated_at": "2026-09-17T17:36:08.183Z",
+  "tenantId": "ff2df806-b321-4254-b651-3af11fccf1db",
+  "formId": "8b6f44d3-83f8-449e-9496-b10b1dc28e5f",
+  "dryRun": true,
+  "configTable": "department_current_set_config",
+  "schemaReady": true,
+  "rolloutReadiness": "staged: publish and verify the new API/client Department picker and authentication-reset changes before reviewed configuration apply",
+  "preflightFingerprint": "76b6a7f47730b344965113f92cb91c10194a2565294034fe8eefa374fc128520",
+  "desiredConfigFingerprint": "a38064909cd1e7925e9f14db5ed9fb8f00f505777fd16533884f22cc23aeebff",
+  "rowCounts": {
+    "activeDepartments": 326,
+    "activeWorkforceRows": 8,
+    "activeEquipment": 823,
+    "maximumWorkforceRowsForOneDepartment": 4,
+    "maximumEquipmentRowsForOneDepartment": 36,
+    "workforceRowsWithoutExactlyOneDepartment": 0,
+    "equipmentWithoutExactlyOneDepartment": 0,
+    "equipmentWithoutExactlyOneType": 0,
+    "equipmentWithMultipleModels": 0,
+    "equipmentModelTypeMismatches": 0,
+    "existingEquipmentBlankSerial": 823,
+    "existingEquipmentMissingInstallationYear": 45,
+    "respondentAssignments": {
+      "departmentsWithExactlyOneAssignedRespondent": 176,
+      "departmentsWithoutAssignedRespondent": 142,
+      "departmentsWithMultipleAssignedRespondents": 8,
+      "assignedRespondentEdges": 192,
+      "assignedRespondentsUnavailableOrLoginIneligible": 0
+    }
+  },
+  "form": {
+    "wasAuthenticationRequired": true,
+    "authenticationWillBeRequired": true,
+    "authenticationChange": {
+      "approved": true,
+      "from": true,
+      "to": true,
+      "disclosure": "This currently public form will require sign-in; only an assigned Department Survey respondent can use current-set operations."
+    },
+    "workforceMaximumRowsBefore": 100,
+    "workforceMaximumRowsAfter": 100,
+    "workforceDropdownOptionChanges": [],
+    "workforceDropdownOptionsSynchronizedToCanonicalValues": true,
+    "equipmentMaximumRowsBefore": 100,
+    "equipmentMaximumRowsAfter": 100,
+    "datesVerifiedYearOnly": true,
+    "formFieldIdsPreserved": true,
+    "repeatableContainerConstraints": [
+      {
+        "containerId": "field_1788530969408",
+        "min_rows": 0,
+        "first_row_required": null,
+        "required": false,
+        "requiredChildHeaders": []
+      },
+      {
+        "containerId": "field_1789479861104",
+        "min_rows": 0,
+        "first_row_required": null,
+        "required": false,
+        "requiredChildHeaders": [
+          {
+            "id": "row_field_1789639793360_0h7t0",
+            "label": "Serial number or unique identifier",
+            "type": "text"
+          },
+          {
+            "id": "row_field_1789483471565_28vfi",
+            "label": "Installation date",
+            "type": "date"
+          }
+        ]
+      }
+    ],
+    "deliberateEmptyWorkforceAndEquipmentAllowed": true
+  },
+  "directWorkforce": {
+    "relationshipId": "a422da51-6005-4831-a69e-bf284ff6f124",
+    "relationshipKey": "workforce_survey_row_department",
+    "rowNameFieldRequired": false,
+    "importCapacity": {
+      "sourceSha256": "b0c618501cf5af9073d074d6e0474cd772b0978437b3fdab55ff1a66390bf746",
+      "sourceRows": 1242,
+      "sourceDepartments": 136,
+      "maximumSourceRowsForOneDepartment": 58,
+      "maximumExistingRowsForOneDepartment": 4,
+      "maximumProjectedRowsForOneDepartment": 58
+    }
+  },
+  "respondentAssignmentSuitability": {
+    "relationshipId": "0fdede92-efa2-4d84-9b16-df1a88069486",
+    "relationshipFieldKey": "survey_respondent",
+    "departmentsWithExactlyOneAssignedRespondent": 176,
+    "departmentsWithoutAssignedRespondent": 142,
+    "departmentsWithMultipleAssignedRespondents": 8,
+    "assignedRespondentEdges": 192,
+    "assignedRespondentsUnavailableOrLoginIneligible": 0,
+    "handling": "Captured for reviewer action; rollout does not create, remove, or alter Department respondent assignments."
+  },
+  "departmentOrganisationSuitability": {
+    "strictOrganisationParentDefinitions": 1,
+    "strictOrganisationParentDefinitionId": "30ad9dde-4b4e-4991-a7a4-8ef2b6b5138e",
+    "departmentsWithExactlyOneValidOrganisationParent": 324,
+    "departmentsWithoutExactlyOneValidOrganisationParent": 2,
+    "departmentsWithExactlyOneRespondentInSameOrganisation": 158,
+    "departmentsWithOneRespondentUnavailableOrOtherOrganisation": 18,
+    "handling": "Informational only, not an access restriction: explicit Department respondent assignment permits cross-organisation access. Rollout does not alter organisation or respondent assignments."
+  },
+  "dropdownCanonicalCompatibility": {
+    "checked": [
+      "staff_group",
+      "grade",
+      "still_in_service"
+    ],
+    "exactCanonicalOptionSets": true
+  },
+  "existingConfig": "already-configured",
+  "legacyGraphObservations": {
+    "equipmentWithoutExactlyOneDepartment": 0,
+    "equipmentWithoutExactlyOneType": 0,
+    "equipmentWithMultipleModels": 0,
+    "equipmentModelTypeMismatches": 0,
+    "handling": "Reported only: rollout does not infer, repair, archive, or omit legacy records."
+  },
+  "rollout": {
+    "dataRecordsChanged": false,
+    "preparedWorkforceImportChanged": false,
+    "applyRequiresReviewedFingerprint": true,
+    "backupBeforeWrite": true,
+    "configWrittenOnlyWhenAbsentAndExact": true,
+    "guardedFormAndConfigTransaction": true,
+    "authenticatedWrappersRequiredBeforeConfig": true,
+    "stagedAfterApplicationDeployment": true,
+    "applicationPublishedAcknowledgementRequired": true,
+    "applicationPublishedAcknowledged": false,
+    "applicationPublishScope": "New API/client Department picker and authentication-reset changes must be published and verified before config activation.",
+    "preservesDraftAndPublicationState": true,
+    "automaticPublish": false,
+    "postcheckRequired": true
+  },
+  "outstanding": [
+    "Schema-only migration installation is separate from form/configuration activation. Publish and verify the new API/client Department picker and authentication-reset changes before any --apply --application-published configuration command.",
+    "The separately prepared BNMS workforce CSV import was not read, changed, or executed.",
+    "Because this rollout changes related form/configuration metadata, repeat that import package’s required full destination re-audit and final approval review before any separate import execution.",
+    "Run a signed-in live verification for a respondent flagged true for one Department and false/absent for another after code, migration, and this configuration rollout are deployed."
+  ]
+}
