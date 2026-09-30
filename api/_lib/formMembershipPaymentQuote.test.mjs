@@ -9,6 +9,50 @@ import {
 import { quoteFromSimulationResult } from './membershipQuote.js';
 import { commitmentFromQuote } from './rollingMembershipCommitment.js';
 import { calculateOriginalIncentiveRollover } from './membershipSimulationCore.js';
+import { incentiveFieldsFromSavedQuote } from './membershipIncentiveSnapshot.js';
+
+test('legacy frozen quote maps only recognizable incentive-only evidence without mutation or repricing', () => {
+  const evidence = { config: { id: 'original', start_mode: 'fixed_date', currency: 'GBP',
+    free_period_amount: 40, free_period_unit: 'percent', rollover_enabled: true }, amounts: { annual_cost: 1000 } };
+  const sim = { ...simulation(), config: { ...evidence.config, free_period_amount: 99 },
+    yearNumber: 1, annualCost: 1000, freeDiscount: 100, commitment_snapshot: evidence };
+  const original = structuredClone(sim);
+  const history = historyFromFormPaymentSnapshot({ simResult: sim });
+  assert.deepEqual(sim, original);
+  assert.deepEqual(history.incentive_snapshot, evidence);
+  assert.equal(history.commitment_snapshot, undefined);
+  assert.equal(calculateOriginalIncentiveRollover({ history, annualCost: 2000 }).appliedDiscount, 300);
+  for (const changed of [
+    { commitment_snapshot: { config: evidence.config } },
+    { commitment_snapshot: { ...evidence, unexpected: true } },
+    { commitment_snapshot: { ...evidence, start_mode: 'immediate' } },
+    { config_id: 'different' }, { annualCost: 999 }, { currency: 'EUR' },
+    { term_key: 'rolling:2026-09-15' }, { term_start_date: '2026-09-15' },
+    { incentive_snapshot: { ...evidence, amounts: { annual_cost: 999 } } },
+    { commitment: { term_key: 'rolling:2026-09-15' } },
+  ]) assert.throws(() => incentiveFieldsFromSavedQuote({ ...sim, ...changed }), /review required/);
+});
+
+test('complete dated snapshots are not reclassified as incentive evidence', () => {
+  const complete = snapshotFormMembershipPayment(simulation()).simResult.commitment;
+  assert.deepEqual(incentiveFieldsFromSavedQuote(complete), { commitment_snapshot: complete.commitment_snapshot });
+  const dd = structuredClone(complete);
+  dd.term_key = dd.term_key.replace('rolling:', 'fixed:');
+  dd.commitment_snapshot.start_mode = 'fixed_date';
+  dd.commitment_snapshot.payment_method = 'direct_debit';
+  assert.deepEqual(incentiveFieldsFromSavedQuote(dd), { commitment_snapshot: dd.commitment_snapshot });
+});
+
+test('ambiguous frozen reservation stops before any provider create/retrieve or binding write', async () => {
+  const forbidden = () => { assert.fail('No payment or write is allowed'); };
+  const reservation = { id: 'quote', created_at: new Date().toISOString(),
+    quote: { simResult: { commitment_snapshot: { config: { id: 'bad' } } }, paymentIntentParams: {} } };
+  for (const stripe_payment_intent_id of [null, 'existing']) {
+    await assert.rejects(createReservedFormMembershipIntent({ rpc: forbidden },
+      { paymentIntents: { create: forbidden, retrieve: forbidden } },
+      { ...reservation, stripe_payment_intent_id }), /review required/);
+  }
+});
 
 test('fixed-cycle organisation payment quote survives config edits before settlement and Year 2', () => {
   const sim = { ...simulation(), yearNumber: 1, annualCost: 1000, freeDiscount: 100,
@@ -19,11 +63,11 @@ test('fixed-cycle organisation payment quote survives config edits before settle
   sim.config.rollover_enabled = false;
   sim.annualCost = 2000;
   const history = historyFromFormPaymentSnapshot(JSON.parse(JSON.stringify(saved)));
-  assert.equal(history.commitment_snapshot.config.free_period_amount, 40);
+  assert.equal(history.incentive_snapshot.config.free_period_amount, 40);
   assert.equal(history.annual_cost, 1000);
   assert.equal(history.free_period_discount, 100);
   const rollover = calculateOriginalIncentiveRollover({ history, originalConfig: sim.config, annualCost: 2000 });
-  assert.equal(rollover.source, 'commitment_snapshot');
+  assert.equal(rollover.source, 'incentive_snapshot');
   assert.equal(rollover.originalEntitlement, 400);
   assert.equal(rollover.appliedDiscount, 300);
 });

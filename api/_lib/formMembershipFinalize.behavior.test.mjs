@@ -12,12 +12,17 @@ const TENANT_ID = 'tenant-1';
 const SUBMISSION_ID = 'submission-1';
 const PAYMENT_REFERENCE = 'pi_form_1';
 
-test('delayed organisation form finalization preserves joining incentive despite later config changes', async () => {
+for (const legacy of [false, true]) {
+test(`delayed organisation form finalization preserves ${legacy ? 'legacy' : 'dedicated'} joining incentive despite later config changes`, async () => {
   const config = { id: 'joining', start_mode: 'fixed_date', billing_period: 'annual', currency: 'GBP',
     free_period_amount: 40, free_period_unit: 'percent', rollover_enabled: true };
   const acceptedQuote = quoteFromSimulationResult({ config, yearNumber: 1, annualCost: 1000,
     freeDiscount: 100, finalCost: 100, totalWithVat: 100, currency: 'GBP',
     membershipYear: { label: '2027', start: '2027-01-01', end: '2027-12-31' } }, 'organization');
+  if (legacy) {
+    acceptedQuote.commitment_snapshot = acceptedQuote.incentive_snapshot;
+    delete acceptedQuote.incentive_snapshot;
+  }
   const initial = fixture({ quoteOverrides: acceptedQuote });
   initial.submission.organization_id = 'org-1';
   initial.organizations = [{ id: 'org-1', tenant_id: TENANT_ID, name: 'Organisation' }];
@@ -32,11 +37,24 @@ test('delayed organisation form finalization preserves joining incentive despite
   });
   assert.equal(result.created, true, JSON.stringify(result));
   const history = db.historyRows('organisation_membership_history')[0];
-  assert.equal(history.commitment_snapshot.config.free_period_amount, 40);
+  assert.equal(history.incentive_snapshot.config.free_period_amount, 40);
   assert.equal(history.free_period_discount, 100);
   const rollover = calculateOriginalIncentiveRollover({ history, originalConfig: config, annualCost: 2000 });
   assert.equal(rollover.originalEntitlement, 400);
   assert.equal(rollover.appliedDiscount, 300);
+});
+}
+
+test('ambiguous pending membership quote stops finalization before invoices or settlement', async () => {
+  const initial = fixture({ quoteOverrides: { commitment_snapshot: { config: { id: 'bad' } } } });
+  const db = makeDb(initial);
+  const provider = makeProvider('xero');
+  await assert.rejects(finalizeFormMembership({ supabase: db, submission: db.getSubmission() }, {
+    getAccountingProvider: async () => provider,
+  }), /review required/);
+  assert.equal(provider.calls.create.length, 0);
+  assert.equal(provider.calls.settle.length, 0);
+  assert.equal(db.historyRows('member_membership_history').length, 0);
 });
 
 const clone = (value) => (value === undefined ? undefined : structuredClone(value));

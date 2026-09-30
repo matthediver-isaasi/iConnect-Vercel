@@ -9,6 +9,17 @@ An unused new-member incentive is an original entitlement less historical usage,
 
 **How to apply:** Prefer the joining commitment snapshot and saved usage. Without a snapshot, require evidence that the history-linked configuration existed unchanged when the original term was recorded. Ambiguous evidence must stop billing for review rather than silently assume zero credit. Duration incentives retain their original daily valuation; do not transfer nominal credit across currencies. No historical repair or migration is implied by changing the calculation.
 
+Year 1 incentive evidence belongs in a dedicated `incentive_snapshot`, not a
+partial `commitment_snapshot`. The latter is reserved for complete dated
+rolling/Direct Debit commitments: even a fixed-date row with only partial
+commitment JSON violates the completeness constraint. Prefer dedicated evidence
+for rollover, retain legacy historical reads, and preserve exact original
+evidence at frozen-quote settlement boundaries rather than reconstructing it
+from current configuration. Generic CRUD must not write the evidence and DB
+updates must leave it immutable, including legacy NULL values; normal invoice
+and status updates remain allowed. Rollout requires the additive history-column
+migration before code deployment, not a historical backfill or workflow replay.
+
 Organisation tab estimates may project an unrecorded current Year 1 into Year 2, but must remain distinct from historical entitlement evidence.
 
 **Why:** Requiring historical configuration timestamps for an explicitly prospective estimate hides valid new-organisation projections, especially banded pricing and year-scoped overrides. Conversely, unpaid recorded commitments already provide authoritative evidence and must never be replaced by speculative projections.

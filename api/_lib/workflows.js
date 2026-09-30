@@ -2305,6 +2305,7 @@ async function executeCreateMemberMembership(action, workflow, memberId) {
     const { data: record, error: insertError } = await supabase
       .from('member_membership_history')
       .insert({
+        ...membershipIncentiveSnapshot(simResult),
         tenant_id: tenantId,
         member_id: memberId,
         membership_year: targetYearLabel,

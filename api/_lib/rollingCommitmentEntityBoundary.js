@@ -8,7 +8,7 @@ const TABLES = new Set([
 const FIELDS = new Set([
   'term_key', 'membership_renewal_date',
   'term_duration_months', 'term_anchor_date', 'previous_term_id',
-  'commitment_snapshot',
+  'commitment_snapshot', 'incentive_snapshot',
 ]);
 
 export function isCommitmentTable(table) {

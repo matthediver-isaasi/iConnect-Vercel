@@ -25,7 +25,7 @@ import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { getSessionMember } from '../_lib/session.js';
 import { simulateMembershipForOrg } from '../_lib/membershipSimulation.js';
-import { membershipIncentiveSnapshot } from '../_lib/membershipIncentiveSnapshot.js';
+import { membershipIncentiveSnapshot, incentiveFieldsFromSavedQuote } from '../_lib/membershipIncentiveSnapshot.js';
 import { gocardlessForTenant, buildIdempotencyKey } from '../_lib/gocardless.js';
 import { getGocardlessCredentials } from '../_lib/gocardlessCredentials.js';
 import {
@@ -341,6 +341,7 @@ async function handleStart(req, res, resolvedTenantId) {
     field_value: simResult.fieldValue ?? null,
   };
 
+  const savedIncentiveFields = incentiveFieldsFromSavedQuote(snapshot);
   const scheduleError = newDdConsentScheduleError(snapshot);
   if (scheduleError) return res.status(400).json(scheduleError);
   const agreementInsert = {
@@ -432,7 +433,7 @@ async function handleStart(req, res, resolvedTenantId) {
   // Pending membership-history row linked to the agreement.
   if (!existingHistory) {
     const { error: histErr } = await supabase.from('organisation_membership_history').insert({
-      ...(snapshot.commitment_snapshot ? { commitment_snapshot: structuredClone(snapshot.commitment_snapshot) } : {}),
+      ...savedIncentiveFields,
       ...(snapshot.commitment || {}),
       tenant_id: tenantId,
       organization_id: org.id,

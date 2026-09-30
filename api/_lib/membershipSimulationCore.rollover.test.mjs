@@ -218,6 +218,18 @@ test('cross-currency renewals require review rather than transferring nominal cr
   assert.equal(result.code, 'new_member_incentive_review_required');
 });
 
+test('dedicated incentive snapshots retain currency and fail closed on corrupt evidence', async () => {
+  const history = [{ ...year1, commitment_snapshot: null, incentive_snapshot: { config: original } }];
+  const mismatch = await simulate({ history, config: { ...original, currency: 'EUR' } });
+  assert.equal(mismatch.success, false);
+  assert.equal(mismatch.code, 'new_member_incentive_review_required');
+  for (const incentive_snapshot of [{}, [], 'invalid', { config: { ...original, rollover_enabled: undefined } }]) {
+    const result = await simulate({ history: [{ ...year1, incentive_snapshot }] });
+    assert.equal(result.success, false, JSON.stringify(incentive_snapshot));
+    assert.equal(result.code, 'new_member_incentive_review_required');
+  }
+});
+
 test('Year 1 structure override freezes effective incentive policy for Year 2 despite later edits', async () => {
   const baseConfig = { ...original, free_period_amount: 5, rollover_enabled: false };
   const effectiveConfig = { ...original, id: 'override-structure', pricing_model: 'banded', free_period_amount: 30 };
@@ -233,8 +245,8 @@ test('Year 1 structure override freezes effective incentive policy for Year 2 de
   assert.equal(first.freePeriodAmount, 30);
   assert.equal(first.freeDiscount, 477.71);
   const snapshot = membershipIncentiveSnapshot(first);
-  assert.equal(snapshot.commitment_snapshot.config.id, effectiveConfig.id);
-  assert.equal(snapshot.commitment_snapshot.config.rollover_enabled, true);
+  assert.equal(snapshot.incentive_snapshot.config.id, effectiveConfig.id);
+  assert.equal(snapshot.incentive_snapshot.config.rollover_enabled, true);
   // Mutate the same live object to additionally verify snapshot deep-copying.
   effectiveConfig.free_period_amount = 90;
   effectiveConfig.rollover_enabled = false;

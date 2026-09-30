@@ -28,7 +28,7 @@ test('detached new-organisation quote freezes original entitlement before entity
   config.flat_cost = 2000;
   config.rollover_enabled = false;
   assert.equal(persisted.target, 'organization');
-  assert.equal(persisted.commitment_snapshot.config.free_period_amount, 40);
+  assert.equal(persisted.incentive_snapshot.config.free_period_amount, 40);
   const rollover = calculateOriginalIncentiveRollover({ history: persisted, originalConfig: config, annualCost: 2000 });
   assert.equal(rollover.originalEntitlement, 400);
   assert.equal(rollover.appliedDiscount, Math.round((400 - persisted.free_period_discount) * 100) / 100);

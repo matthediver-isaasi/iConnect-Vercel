@@ -56,4 +56,44 @@ The rejected row payload is not retained in workflow_log. Historical prices/sett
 
 The existing admin invoice-retry route cannot repair this case because it requires an existing history record ID. For other cases it checks admin/tenant access, existing invoice links, monthly-instalment suppression and Stripe provenance, but it is not a generally safe blind replay: it has no atomic invoice-creation claim, does not require failed sync status despite its comment, uses stored net fee with current nominal-code resolution/provider VAT defaults, and does not include the original add-on/email flow. An unlinked provider invoice must be excluded before any use. Likewise, a normal create-membership replay skips an existing year rather than repairing its missing invoice.
 
-**Migration status:** none applied to DEST, SOURCE or any other database. No data changes, invoice creation, payment collection, email delivery or workflow replay were performed. No missing migration was established as the cause. The recommended dedicated incentive-snapshot fix would need a new migration, designed and approved as separate work; no migration has been prepared or applied here.
+**Migration status at the original investigation:** none applied to DEST, SOURCE or any other database. No data changes, invoice creation, payment collection, email delivery or workflow replay were performed. No missing migration was established as the cause. The recommended dedicated incentive-snapshot fix would need a new migration, designed and approved as separate work; no migration had been prepared or applied at that stage.
+
+## Subsequent authorised fix and schema rollout
+
+The fix is now implemented locally: Year 1 incentive evidence uses a dedicated
+`incentive_snapshot`, separate from complete rolling/Direct Debit commitments.
+Rollover retains legacy evidence reads; narrowly recognized frozen legacy quotes
+are translated only at the history-insert boundary without repricing or rewriting
+saved quotes. Generic writes are guarded and the proposed migration makes the
+dedicated evidence immutable after insertion. Manual and Specify date invoice
+schedules are unchanged.
+
+The additive migration was **applied and verified on DEST** on 2026-09-30
+(verification completed by 18:55 UTC), using the pinned project
+`lvmzliemqnieeoruhkik` and certificate-verified TLS. The first read-only preflight
+identified Supabase default function grants; the separately authorised narrow
+amendment explicitly revokes EXECUTE from PUBLIC, anon, authenticated and
+service_role. No default privileges, table grants or RLS policies were changed.
+
+- Migration: `supabase/migrations/20261116_membership_incentive_snapshot.sql`.
+- Reviewed/applied runner SHA256:
+  `8661a9d9be0947a60384552a66fc63635c316bef57b5fe16a655470f4f4dd4ee`.
+- Both history columns verified nullable JSONB with no default; both immutable
+  UPDATE triggers installed. Trigger function is invoker-security with pinned
+  search_path and no direct EXECUTE access for PUBLIC or the three API roles.
+  Disposable PostgreSQL tests prove that authenticated unchanged-snapshot
+  financial updates still work without direct function execution privilege.
+- All 19 existing history constraints remained validated and unchanged, including
+  rolling completeness and overlap constraints. Existing triggers, table grants
+  and RLS fingerprints were unchanged.
+- Before/after full-row digests and counts were unchanged for member history
+  (964), organisation history (363), billing agreements (391), payment plans
+  (378), GoCardless reservations (1) and payments (6). No backfill or row updates
+  were performed. The test organisation still has **zero** history rows.
+
+The schema prerequisite is complete. The corrected application code still needs
+the normal deployment/release process; schema application is not evidence that
+the application fix has been deployed.
+
+The original failed test membership has **not been recovered**. No invoices,
+payments, emails, workflow replay or deployment were performed as part of the fix.

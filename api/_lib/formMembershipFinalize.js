@@ -1,3 +1,4 @@
+import { incentiveFieldsFromSavedQuote } from './membershipIncentiveSnapshot.js';
 /**
  * Membership creation for form payments (Task #3489).
  *
@@ -102,6 +103,7 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
   const membership = meta.membership;
   const quote = membership?.quote;
   if (!quote || !quote.config_id || !quote.membership_year) return { created: false, skipped: true };
+  const savedIncentiveFields = incentiveFieldsFromSavedQuote(quote);
 
   const tenantId = submission.tenant_id;
   const isMemberScoped = quote.target === 'member';
@@ -648,7 +650,7 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
     // ── Insert the paid history row. ─────────────────────────────────────
     const paidAtIso = new Date().toISOString();
     const insertData = {
-      ...(quote.commitment_snapshot ? { commitment_snapshot: structuredClone(quote.commitment_snapshot) } : {}),
+      ...savedIncentiveFields,
       ...commitmentFromQuote(quote),
       tenant_id: tenantId,
       [historyIdCol]: entityId,

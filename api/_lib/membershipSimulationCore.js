@@ -14,7 +14,14 @@ export function calculateOriginalIncentiveRollover({ history = null, originalCon
     error.code = 'new_member_incentive_review_required';
     throw error;
   };
-  const snapshotConfig = history?.commitment_snapshot?.config;
+  const incentiveSnapshot = history?.incentive_snapshot;
+  if (incentiveSnapshot != null && (typeof incentiveSnapshot !== 'object'
+      || Array.isArray(incentiveSnapshot) || !incentiveSnapshot.config
+      || typeof incentiveSnapshot.config !== 'object' || Array.isArray(incentiveSnapshot.config))) {
+    review('the saved incentive snapshot is invalid.');
+  }
+  const snapshotConfig = incentiveSnapshot?.config || history?.commitment_snapshot?.config;
+  const snapshotSource = incentiveSnapshot != null ? 'incentive_snapshot' : 'commitment_snapshot';
   const original = snapshotConfig || originalConfig;
   if (!original) review('the original joining configuration is unavailable.');
   if (typeof original.rollover_enabled !== 'boolean') review('the original rollover policy is missing.');
@@ -28,12 +35,12 @@ export function calculateOriginalIncentiveRollover({ history = null, originalCon
       review('no snapshot or demonstrably unchanged, history-linked joining configuration is available.');
     }
   }
-  const originalAnnual = history?.annual_cost ?? history?.commitment_snapshot?.amounts?.annual_cost ?? projectedAnnualCost;
+  const originalAnnual = history?.annual_cost ?? incentiveSnapshot?.amounts?.annual_cost ?? history?.commitment_snapshot?.amounts?.annual_cost ?? projectedAnnualCost;
   const usedDiscount = history ? history.free_period_discount : projectedDiscount;
   if (!original.rollover_enabled || !original.free_period_amount || !original.free_period_unit) {
     return calculateIncentiveRolloverAmounts({
       original, goLiveDate, annualCost, originalAnnual, usedDiscount, usedDays: 0,
-      source: snapshotConfig ? 'commitment_snapshot' : history ? 'unchanged_history_config' : 'unchanged_joining_config',
+      source: snapshotConfig ? snapshotSource : history ? 'unchanged_history_config' : 'unchanged_joining_config',
       year1HistoryId: history?.id || null, originalConfigId: original.id || history?.config_id || null, review,
     });
   }
@@ -41,7 +48,7 @@ export function calculateOriginalIncentiveRollover({ history = null, originalCon
   if (!validNumber(original.free_period_amount)) review('the original incentive amount is invalid.');
   if (!validNumber(originalAnnual) || !validNumber(usedDiscount)) review('original net annual price and Year 1 incentive usage must both be recorded.');
   if (history?.override_type === 'price') return {
-    source: snapshotConfig ? 'commitment_snapshot' : 'unchanged_history_config',
+    source: snapshotConfig ? snapshotSource : 'unchanged_history_config',
     originalConfigId: original.id || history.config_id || null, year1HistoryId: history.id || null,
     unit: original.free_period_unit || null,
     originalEntitlement: 0, usedInYear1: 0, remainingEntitlement: 0,
@@ -52,7 +59,7 @@ export function calculateOriginalIncentiveRollover({ history = null, originalCon
   return calculateIncentiveRolloverAmounts({
     original, goLiveDate, annualCost, originalAnnual, usedDiscount,
     usedDays: history ? history.free_period_days_applied : projectedDays,
-    source: snapshotConfig ? 'commitment_snapshot' : history ? 'unchanged_history_config' : 'unchanged_joining_config',
+    source: snapshotConfig ? snapshotSource : history ? 'unchanged_history_config' : 'unchanged_joining_config',
     year1HistoryId: history?.id || null,
     originalConfigId: original.id || history?.config_id || null,
     review,
@@ -691,7 +698,7 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
       if (!firstYear && activeHistory.some(row => row.membership_year !== membershipYear.label)) {
         throw new Error('Historical records do not identify original Year 1 incentive usage.');
       }
-      const originalConfig = prospectiveProjection?.incentiveConfig || firstYear?.commitment_snapshot?.config || (firstYear?.config_id
+      const originalConfig = prospectiveProjection?.incentiveConfig || firstYear?.incentive_snapshot?.config || firstYear?.commitment_snapshot?.config || (firstYear?.config_id
         ? await getConfigById(firstYear.config_id, tenantId)
         : await getConfigForOrganisation(tenantId, organizationId, {}, goLiveDate));
       if (originalConfig && (prospectiveProjection?.currency || firstYear?.currency || originalConfig.currency || 'GBP') !== (config.currency || 'GBP')) {

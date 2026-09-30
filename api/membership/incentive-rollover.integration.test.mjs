@@ -14,7 +14,7 @@ const forbidden = () => { throw new Error('Unexpected database/provider side eff
 
 // A read-only simulator boundary: the actual simulator must not turn a
 // prospective tab estimate into evidence for a renewal/payment writer.
-function simulatorFixture(history = [], overrides = []) {
+function simulatorFixture(history = [], overrides = [], configOverrides = {}) {
   const config = {
     id: 'joining', tenant_id: 'tenant', name: 'Annual', pricing_model: 'flat',
     start_mode: 'fixed_date', flat_cost: 1833.47, currency: 'GBP',
@@ -22,6 +22,7 @@ function simulatorFixture(history = [], overrides = []) {
     prorata_enabled: true, free_period_amount: 30, free_period_unit: 'percent',
     rollover_enabled: true, created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
+    ...configOverrides,
   };
   const tables = {
     organization: [{ id: 'org', name: 'Organisation', tenant_id: 'tenant' }],
@@ -53,6 +54,28 @@ function simulatorFixture(history = [], overrides = []) {
   } };
   return createMembershipSimulator(db, () => new Date('2026-09-24T00:00:00Z'));
 }
+
+test('workflow simulator price override bypasses pro-rata and preserves £1 net plus £0.20 VAT', async () => {
+  const simulator = simulatorFixture([], [{
+    tenant_id: 'tenant', organization_id: 'org', membership_year: '2026/2027',
+    override_type: 'price', manual_price: 1,
+  }], {
+    flat_cost: 950, free_period_amount: 0, rollover_enabled: false,
+    flat_vat_rate: JSON.stringify({ taxType: 'OUTPUT2', name: '20% VAT' }),
+  });
+  const result = await simulator.simulateMembershipForOrg('tenant', 'org', {
+    source: 'workflow', targetYear: '2026/2027',
+  });
+  assert.equal(result.success, true, result.error);
+  assert.equal(result.overrideType, 'price');
+  assert.equal(result.annualCost, 1);
+  assert.equal(result.finalCost, 1);
+  assert.equal(result.vatAmount, .2);
+  assert.equal(result.totalWithVat, 1.2);
+  assert.equal(result.freeDiscount, 0);
+  assert.equal(result.membershipYear.label, '2026/2027');
+  assert.equal(membershipIncentiveSnapshot(result).commitment_snapshot, undefined);
+});
 
 test('actual financial simulator does not consume a tab estimate as purchased Year 1 evidence', async () => {
   const simulator = simulatorFixture();
@@ -92,13 +115,14 @@ test('paid and unpaid Year 1 snapshots remain authoritative for tab and financia
     membership_start_month: 8, membership_start_day: 1,
     prorata_enabled: true, free_period_amount: 30, free_period_unit: 'percent', rollover_enabled: true,
   };
+  for (const snapshotField of ['commitment_snapshot', 'incentive_snapshot']) {
   for (const status of ['paid', 'unpaid']) {
     const history = [{
       id: `y1-${status}`, tenant_id: 'tenant', organization_id: 'org',
       membership_year: '2026/2027', config_id: config.id, year_number: 1,
       status: 'active', payment_status: status, annual_cost: 1833.47,
       currency: 'GBP', free_period_discount: 477.71, free_period_days_applied: 0,
-      commitment_snapshot: { config }, created_at: '2026-09-18T00:00:00Z',
+      [snapshotField]: { config }, created_at: '2026-09-18T00:00:00Z',
     }];
     const simulator = simulatorFixture(history);
     for (const source of ['tab', 'member-portal', 'manual']) {
@@ -107,9 +131,10 @@ test('paid and unpaid Year 1 snapshots remain authoritative for tab and financia
       });
       assert.equal(result.success, true, `${status}/${source}: ${result.error}`);
       assert.notEqual(result.previewOnly, true);
-      assert.equal(result.incentiveRollover.source, 'commitment_snapshot');
+      assert.equal(result.incentiveRollover.source, snapshotField);
       assert.equal(result.rolloverDiscount, 72.33);
     }
+  }
   }
 });
 
@@ -190,8 +215,8 @@ test('joining schedule snapshot is immutable and renewals never overwrite origin
   const sim = { yearNumber: 1, annualCost: 1000, config: { id: 'joining', free_period_amount: 40, free_period_unit: 'percent', rollover_enabled: true } };
   const saved = membershipIncentiveSnapshot(sim);
   sim.config.free_period_amount = 90;
-  assert.equal(saved.commitment_snapshot.config.free_period_amount, 40);
-  assert.equal(saved.commitment_snapshot.amounts.annual_cost, 1000);
+  assert.equal(saved.incentive_snapshot.config.free_period_amount, 40);
+  assert.equal(saved.incentive_snapshot.amounts.annual_cost, 1000);
   assert.deepEqual(membershipIncentiveSnapshot({ ...sim, yearNumber: 2 }), {});
 });
 
@@ -219,7 +244,7 @@ test('annual insertion persists original config plus separate discounts', async 
     now: new Date('2026-01-01'), simulator: { simulateMembershipForOrg: async () => sim },
     effects: { perform: async op => { operation = op; } } });
   assert.equal(operation.type, 'owner.annual_history_insert');
-  assert.deepEqual(operation.payload.values.commitment_snapshot.config, sim.config);
+  assert.deepEqual(operation.payload.values.incentive_snapshot.config, sim.config);
   assert.equal(operation.payload.values.free_period_discount, 400);
   assert.equal(operation.payload.values.rollover_discount, 0);
 });

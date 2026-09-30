@@ -146,7 +146,7 @@ for (const ordinaryFee of [false, true]) test(`organisation public payment creat
   const result = await s.request('POST', { action: 'confirm_payment', paymentIntentId: 'pi_test' });
   assert.equal(result.code, 200, JSON.stringify(result.body));
   const history = s.tables[s.historyTable][0];
-  assert.equal(history.commitment_snapshot.config.free_period_amount, 40);
+  assert.equal(history.incentive_snapshot.config.free_period_amount, 40);
   assert.equal(history.free_period_discount, 100);
   assert.equal(history.year_number, 1);
   const rollover = calculateOriginalIncentiveRollover({ history, originalConfig: joining, annualCost: 2000 });

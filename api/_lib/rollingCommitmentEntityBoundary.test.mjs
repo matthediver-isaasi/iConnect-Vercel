@@ -7,7 +7,8 @@ import {
 test('generic creation cannot seed commitment fields, including nested bulk payloads', () => {
   for (const table of ['member_membership_history', 'organisation_membership_history', 'membership_billing_agreements']) {
     for (const payload of [
-      { term_key: null }, { commitment_snapshot: {} },
+      { term_key: null }, { commitment_snapshot: {} }, { incentive_snapshot: null },
+      { data: [{ incentive_snapshot: { config: {} } }] },
       [{ membership_renewal_date: '2027-09-15' }],
       { rows: [{ data: [{ term_duration_months: 12 }] }] },
       { metadata: { card: { commitment: { term_key: 'rolling:2026-09-15' } } } },
