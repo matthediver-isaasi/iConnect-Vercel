@@ -17,7 +17,8 @@ import {
 import { scoreSubmission, redactIdentityAnswers, anonymizeSubmissionRecord, activeVersionNumber } from '../_lib/surveyScoring.js';
 import { createHmac } from 'node:crypto';
 import { assignmentSubmissionRejection, respondentKeyInput, requiresAssignmentLink } from '../_lib/surveyAssignment.js';
-import { resolveCertificateSurveyGrant, certificateSurveyTokenHash } from '../_lib/certificateSurveyGrants.js';
+import { resolveCertificateSurveyGrant, resolveCertificateSurveyGrantState, certificateSurveyTokenHash } from '../_lib/certificateSurveyGrants.js';
+import { acceptAnonymousSurveyCompletion } from '../_lib/anonymousSurveyCompletion.js';
 import { isSurveyInvitationConflict, surveySubmissionDiagnostic } from '../_lib/surveySubmissionErrors.js';
 import { resolveSubmitControl } from '../_lib/formSubmitControl.js';
 import { rulesUseLmicOperators } from '../_lib/formLmicConditions.js';
@@ -65,6 +66,8 @@ import {
   loadDepartmentCurrentSet,
 } from '../_lib/departmentCurrentSet.js';
 import { departmentCurrentSetValidationOptions } from '../_lib/departmentCurrentSetValidation.js';
+import { publishedAnonymousCompletion, anonymousCompletionRequestError, enhancedAnonymousAnswers, enhancedRequiredAnswerErrors } from '../_lib/surveyCompletionBoundary.js';
+import { isEnhancedAnonymousSurvey, validateAnonymousCompletionConfiguration } from '../../shared/surveyCompletionPolicy.js';
 
 function idempotencyAnswerValues(values) {
   if (!values || typeof values !== 'object' || Array.isArray(values)) return values || {};
@@ -154,7 +157,6 @@ export default async function handler(req, res, dependencies = {}) {
 
   const { form_id, form_name, answers, submission_data, source, tenant, prefill_organization_id: requestedPrefillOrganizationId, contract_instance_id, role_id: clientRoleId, brief_id, vacancy_id, submitterCopyRequested, submitterCopyEmail, idempotency_key, assignment_token, certificate_survey_grant } = req.body;
   let prefill_organization_id = normalizeFormPrefillOrganizationId(requestedPrefillOrganizationId);
-  console.log('[Public Form Submission] form_id:', form_id, 'form_name:', form_name, 'brief_id:', brief_id || 'none', 'vacancy_id:', vacancy_id || 'none');
 
   if (!form_id) {
     return res.status(400).json({ error: 'Form ID is required' });
@@ -290,6 +292,20 @@ export default async function handler(req, res, dependencies = {}) {
         }
       }
     }
+    const enhancedAnonymousCompletion = await publishedAnonymousCompletion(supabase, form);
+    if (enhancedAnonymousCompletion) {
+      const requestError = anonymousCompletionRequestError(req.body);
+      const configurationErrors = validateAnonymousCompletionConfiguration({
+        ...form,
+        survey_settings: { ...form.survey_settings, anonymous_completion_version: 1, response_identity: 'anonymous' },
+      });
+      if (requestError || configurationErrors.length) {
+        return res.status(400).json({
+          error: requestError || configurationErrors.join(' '),
+          code: 'ANONYMOUS_COMPLETION_INCOMPATIBLE',
+        });
+      }
+    }
     const admission = await authorizeApplicantAdmission({
       db: supabase, form, token: req.body.applicant_continuation_token,
       resumeToken: req.body.resume_token, requestedOrganizationId: prefill_organization_id,
@@ -339,7 +355,7 @@ export default async function handler(req, res, dependencies = {}) {
       if (invitationError || !invitationAssignment) {
         return res.status(403).json({ error: 'Survey invitation unavailable' });
       }
-      certificateInvitation = await resolveCertificateSurveyGrant(
+      certificateInvitation = await (enhancedAnonymousCompletion ? resolveCertificateSurveyGrantState : resolveCertificateSurveyGrant)(
         supabase, tenantData.id, invitationAssignment, certificate_survey_grant,
       );
       const existingSession = await (dependencies.getSession || getSession)(req);
@@ -437,7 +453,7 @@ export default async function handler(req, res, dependencies = {}) {
       : null;
     let existingIdempotentSubmission = null;
     let anonymousSurveyIdempotency = false;
-    if (idemKey) {
+    if (idemKey && !enhancedAnonymousCompletion) {
       const { data: existing, error: idemErr } = await supabase
         .from('form_submission')
         .select('id, created_member_id, created_organization_id, organization_id, submission_data, submission_email_state, communication_finalization_state, processing_notes, is_anonymous, survey_version_id')
@@ -498,6 +514,24 @@ export default async function handler(req, res, dependencies = {}) {
         return res.status(403).json({ error: 'This survey is not accepting responses' });
       }
       surveyVersion = versionRow;
+      if (enhancedAnonymousCompletion !== isEnhancedAnonymousSurvey({
+        ...form, survey_settings: surveyVersion.survey_settings,
+      })) {
+        return res.status(409).json({
+          error: 'The published survey privacy policy changed. Reload the survey before submitting.',
+          code: 'SURVEY_POLICY_CHANGED',
+        });
+      }
+      if (enhancedAnonymousCompletion) {
+        authoritativeSurveyData = enhancedAnonymousAnswers(surveyVersion.fields || [], authoritativeSurveyData);
+        const snapshotErrors = validateAnonymousCompletionConfiguration({
+          ...form, fields: surveyVersion.fields, visibility_rules: surveyVersion.visibility_rules,
+          survey_settings: surveyVersion.survey_settings,
+        });
+        if (snapshotErrors.length) {
+          return res.status(400).json({ error: snapshotErrors.join(' '), code: 'ANONYMOUS_COMPLETION_INCOMPATIBLE' });
+        }
+      }
       if (certificateInvitation) {
         // The invitation's booking is the identity authority. Submitted
         // identity fields cannot switch the attributed respondent.
@@ -677,6 +711,14 @@ export default async function handler(req, res, dependencies = {}) {
       formValues: submission_data || {},
       visibilityOptions: submissionVisibilityOptions,
     });
+    if (enhancedAnonymousCompletion) {
+      const requiredErrors = enhancedRequiredAnswerErrors(
+        surveyVersion.fields, authoritativeSurveyData, hiddenRelationshipFieldIds,
+      );
+      if (requiredErrors.length) {
+        return res.status(400).json({ error: 'Complete the required survey questions.', errors: requiredErrors });
+      }
+    }
     // Only a durable record created by this *same* idempotent submission can
     // be replayed without a session. A draft/resume token is never consulted.
     const signupCreatedRecords = isPublicMemberSignup(form) && existingIdempotentSubmission
@@ -879,11 +921,18 @@ export default async function handler(req, res, dependencies = {}) {
       : surveySettings;
     const surveyIdentityMode = isSurvey ? (snapshotSettings.response_identity || 'identified') : null;
     const surveyIsAnonymous = isSurvey && surveyIdentityMode !== 'identified';
+    if (enhancedAnonymousCompletion && !certificateInvitation && !sessionMemberId
+        && (surveyIdentityMode === 'anonymous_dedupe' || snapshotSettings.one_submission_per_respondent === true)) {
+      return res.status(401).json({
+        error: 'Sign in or use your verified survey invitation to submit this survey once. A typed email cannot verify completion.',
+        code: 'RESPONDENT_IDENTITY_REQUIRED',
+      });
+    }
     // Duplicate recovery closures execute before the new-row path reaches
     // submission construction, so derive this gate alongside survey identity.
     const usesSubmissionEmailLifecycle = !surveyIsAnonymous && !isSurvey;
     let surveyRespondentKey = null;
-    if (isSurvey && !existingIdempotentSubmission) {
+    if (isSurvey && !enhancedAnonymousCompletion && !existingIdempotentSubmission) {
       const respondentIdentity = certificateInvitation?.grant.recipient_email || sessionMemberEmail || canonicalSubmitterEmail || null;
       const wantsDedupe = !!certificateInvitation || surveyIdentityMode === 'anonymous_dedupe' ||
         (snapshotSettings.one_submission_per_respondent === true && surveyIdentityMode !== 'anonymous');
@@ -1274,7 +1323,7 @@ export default async function handler(req, res, dependencies = {}) {
     // Run idempotency recovery before enforcing the form's one-per-email
     // policy. A retry of the original request must be allowed to finish its
     // durable email state rather than being rejected as a new duplicate.
-    if (!hasCurrentSetProcessing && form.prevent_duplicate_email_submission && canonicalSubmitterEmail) {
+    if (!enhancedAnonymousCompletion && !hasCurrentSetProcessing && form.prevent_duplicate_email_submission && canonicalSubmitterEmail) {
       const { data: candidates, error: dupErr } = await supabase
         .from('form_submission')
         .select('id')
@@ -1301,7 +1350,7 @@ export default async function handler(req, res, dependencies = {}) {
     //    in production. Legitimate repeat submissions minutes apart are
     //    unaffected. Anonymous submissions with no email AND no organisation
     //    can't be matched and are allowed through unchanged.
-    if (!hasCurrentSetProcessing && !idemKey && (canonicalSubmitterEmail || prefill_organization_id)) {
+    if (!enhancedAnonymousCompletion && !hasCurrentSetProcessing && !idemKey && (canonicalSubmitterEmail || prefill_organization_id)) {
       try {
         const windowStart = new Date(Date.now() - 10 * 1000).toISOString();
         let windowQuery = supabase
@@ -1484,6 +1533,48 @@ export default async function handler(req, res, dependencies = {}) {
     const finalSubmissionRecord = surveyIsAnonymous
       ? anonymizeSubmissionRecord(submissionRecord)
       : submissionRecord;
+
+    if (enhancedAnonymousCompletion) {
+      // The completion transaction accepts only answer-side attributes.
+      // Neither retry keys nor participant identifiers are written on answers.
+      const allowed = [
+        'tenant_id', 'form_id', 'form_name', 'survey_version_id', 'survey_assignment_id',
+        'event_id', 'complex_event_id', 'submission_data', 'survey_score_weighted',
+        'survey_score_unweighted', 'is_anonymous', 'status', 'source',
+      ];
+      const anonymousRecord = Object.fromEntries(allowed
+        .filter(key => finalSubmissionRecord[key] !== undefined)
+        .map(key => [key, finalSubmissionRecord[key]]));
+      anonymousRecord.submission_data = authoritativeSurveyData;
+      anonymousRecord.form_name = form.name;
+      anonymousRecord.source = 'anonymous_survey';
+      try {
+        const outcome = await acceptAnonymousSurveyCompletion({
+          db: supabase, tenantId: tenantData.id, formId: form.id,
+          versionId: surveyVersion.id, assignmentId: surveyAssignment?.id || null,
+          memberId: certificateInvitation ? null : sessionMemberId,
+          invitationToken: certificateInvitation ? certificate_survey_grant : null,
+          idempotencyKey: idemKey, submission: anonymousRecord,
+          answers: surveyScoring.answers.map(answer => ({ ...answer,
+            tenant_id: tenantData.id, form_id: form.id, survey_version_id: surveyVersion.id })),
+        });
+        if (outcome?.accepted !== true) throw new Error('Survey acceptance was not confirmed');
+        // Never expose a response ID that a caller could attach to a member.
+        return res.status(200).json({ success: true, accepted: true,
+          completion_recorded: !!(sessionMemberId || certificateInvitation),
+          replayed: outcome.replayed === true });
+      } catch (error) {
+        if (error.code === '23505') {
+          return res.status(409).json({ error: 'This survey has already been completed.', code: 'DUPLICATE_SURVEY_RESPONSE' });
+        }
+        if (error.code === 'SURVEY_RETRY_KEY_REQUIRED') {
+          return res.status(400).json({ error: error.message, code: error.code });
+        }
+        // Do not log answer payloads, request credentials, or participant IDs.
+        console.error('[Anonymous survey] Acceptance failed', { code: error.code || 'unknown' });
+        return res.status(500).json({ error: 'Failed to save survey response. Please try again.', code: 'SURVEY_SUBMISSION_FAILED' });
+      }
+    }
 
     // Surveys write the submission row and normalised answer rows in ONE DB
     // transaction (RPC) — the answers ARE the survey result, so no

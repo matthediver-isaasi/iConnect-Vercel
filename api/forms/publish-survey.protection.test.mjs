@@ -1,3 +1,27 @@
+test('enhanced anonymous publish rejects incompatible saved configuration before RPC', async () => {
+  const form = {
+    id: 'enhanced', tenant_id: 'tenant', form_type: 'survey',
+    survey_settings: { response_identity: 'anonymous', anonymous_completion_version: 1 },
+    allow_save_continue_later: false, is_contract: true, fields: [],
+  };
+  let rpcCalled = false;
+  const db = {
+    from() { return {
+      select() { return this; }, eq() { return this; },
+      async single() { return { data: form }; },
+    }; },
+    async rpc() { rpcCalled = true; },
+  };
+  const { response, res } = responseRecorder();
+  await handlePublishSurvey({ method: 'POST', headers: {}, body: { form_id: form.id } }, res, {
+    supabase: db,
+    getTenantContext: async () => ({ isAuthenticated: true, tenantId: 'tenant' }),
+    hasAdminAccess: async () => true, env: {},
+  });
+  assert.equal(response.statusCode, 400);
+  assert.match(response.body.error, /Remove application/);
+  assert.equal(rpcCalled, false);
+});
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { handlePublishSurvey } from './publish-survey.js';
@@ -75,6 +99,7 @@ test('publish-survey remains unchanged for unrelated forms', async () => {
       const query = {
         select() { return this; },
         eq() { return this; },
+        async limit() { return { data: [], error: null }; },
         async single() { queries.push(['read', table]); return { data: form, error: null }; },
         async maybeSingle() { return { data: null, error: null }; },
       };
@@ -133,6 +158,7 @@ test('publishing pins invitation mappings and source from saved form, never requ
     from() {
       return {
         select() { return this; }, eq() { return this; },
+        async limit() { return { data: [], error: null }; },
         async single() { return { data: form, error: null }; },
       };
     },

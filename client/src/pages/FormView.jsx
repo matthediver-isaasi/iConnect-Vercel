@@ -1,6 +1,8 @@
 import { applySurveyPresentation, surveySuccessMessage, surveyIntroText, showSurveyProgress, surveyProgress } from '@/lib/surveyPresentation';
 import { evaluateScoreCondition } from '@/lib/surveyConditions';
 import { mergeSurveyInvitationPrefill } from '../../../shared/surveyInvitationPrefill.js';
+import { isEnhancedAnonymousSurvey } from '../../../shared/surveyCompletionPolicy.js';
+import { anonymousSurveySubmissionPayload } from '@/lib/anonymousSurveySubmission';
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
@@ -568,6 +570,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // Save draft mutation
   const saveDraftMutation = useMutation({
     mutationFn: async () => {
+      if (isEnhancedAnonymousSurvey(form)) throw new Error('Drafts are not available for anonymous completion surveys.');
       if (departmentCurrentSet?.active
           && (!departmentCurrentSet.baselineReady || departmentCurrentSet.error)) {
         throw new Error(departmentCurrentSet.error?.message
@@ -1398,7 +1401,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       // cookies for current-set authorization, it resolves custom-domain
       // tenants consistently with EmbedForm and the canvas form surface.
       const result = await publicClient.submitForm({
-        ...submissionData,
+        ...anonymousSurveySubmissionPayload(form, submissionData),
         ...(assignmentToken
           && String(form?.id || '') === String(loadedForm?.id || '')
           && { assignment_token: assignmentToken }),
@@ -1419,7 +1422,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       // key so a legitimate NEW submission from this page load isn't
       // collapsed into this one, then show success/redirect.
       const finalize = () => {
-        if (certificateGrant && submissionId) {
+        if (certificateGrant && (submissionId || submissionResult?.completion_recorded)) {
           try {
             window.sessionStorage.removeItem(`certificate-survey:${window.location.pathname}`);
             window.sessionStorage.setItem(`certificate-survey-completed:${window.location.pathname}`, '1');
@@ -1454,6 +1457,10 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
         return;
       }
 
+      if (isEnhancedAnonymousSurvey(form)) {
+        finalize();
+        return;
+      }
       const runSideEffects = async () => {
       let createdMemberId = submissionResult?.created_member_id || null;
       let createdOrganizationId = submissionResult?.created_organization_id || null;
@@ -3216,7 +3223,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
               
               <div className="flex gap-2">
                 {/* Save & Continue Later button - only show when allowed (default on) */}
-                {form?.allow_save_continue_later !== false && (
+                {!isEnhancedAnonymousSurvey(form) && form?.allow_save_continue_later !== false && (
                   <Button
                     variant="outline"
                     onClick={() => saveDraftMutation.mutate()}
@@ -3736,7 +3743,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
 
                 <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:flex-wrap sm:justify-end">
                 {/* Save & Continue Later button - only show when allowed (default on) */}
-                {form?.allow_save_continue_later !== false && (
+                {!isEnhancedAnonymousSurvey(form) && form?.allow_save_continue_later !== false && (
                   <Button
                     variant="outline"
                     onClick={() => saveDraftMutation.mutate()}

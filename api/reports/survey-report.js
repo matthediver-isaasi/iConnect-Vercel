@@ -34,6 +34,7 @@ import {
 import { escapeCsvCell, CSV_BOM, CSV_ROW_SEPARATOR } from '../_lib/csvCell.js';
 import { isScoreField, getScoreRange, IDENTITY_FIELD_TYPES } from '../_lib/surveyScoring.js';
 import { computeSetAnonymity } from '../_lib/surveyReportAnonymity.js';
+import { surveyAnswerDisplayDate } from '../_lib/surveyCompletionOutputs.js';
 
 const PAGE_SIZE = 1000;
 const MAX_TOTAL_ROWS = 50000;
@@ -710,7 +711,7 @@ export default async function handler(req, res) {
           comments.push({
             reference: responseRef(row.id),
             submissionId: rowAnon ? null : row.id,
-            date: row.created_date,
+            date: surveyAnswerDisplayDate(row.created_date, ctx.versions.find(v => v.id === sub.survey_version_id)?.survey_settings),
             eventTitle: a?.event_title || null,
             question: textMeta.get(fid).label,
             fieldId: fid,
@@ -851,7 +852,9 @@ export default async function handler(req, res) {
                 const text = typeof value === 'string' ? value.trim() : '';
                 if (!text) continue;
                 const a = row.survey_assignment_id ? loaded.assignmentById.get(row.survey_assignment_id) : null;
-                commentRows.push([responseRef(row.id), row.created_date || '', a?.event_title || '', textMeta.get(fid).label, text]);
+                const submission = exportable.find(p => p.submission.id === row.id)?.submission;
+                const settings = ctx.versions.find(v => v.id === submission?.survey_version_id)?.survey_settings;
+                commentRows.push([responseRef(row.id), surveyAnswerDisplayDate(row.created_date, settings) || '', a?.event_title || '', textMeta.get(fid).label, text]);
               }
             }
           }
@@ -890,7 +893,7 @@ function buildResponseRow(p, ctx, assignmentById, rowAnonymous) {
     respondentName: rowAnonymous ? null : (s.submitted_by_name || null),
     respondentEmail: rowAnonymous ? null : (s.submitted_by_email || null),
     eventTitle: a?.event_title || null,
-    date: s.created_date || null,
+    date: surveyAnswerDisplayDate(s.created_date, v?.survey_settings),
     versionNumber: v?.version_number ?? null,
     complete: p.complete,
     weightedScore: s.survey_score_weighted !== null && s.survey_score_weighted !== undefined ? round(Number(s.survey_score_weighted)) : null,

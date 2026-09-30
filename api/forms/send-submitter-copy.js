@@ -14,6 +14,7 @@
 // returned result object. The caller MUST NOT let an email failure block
 // the form submission itself (per task spec).
 import { createClient } from '@supabase/supabase-js';
+import { submissionUsesAnonymousCompletion } from '../_lib/surveyCompletionBoundary.js';
 import { Packer } from 'docx';
 import {
   buildSubmissionsDocument,
@@ -235,6 +236,9 @@ export async function sendSubmitterCopyEmail({ form, submission, recipientEmail,
   }
   if (!form || !submission) {
     return { success: false, error: 'Missing form or submission' };
+  }
+  if (await submissionUsesAnonymousCompletion(supabase, form, submission.id)) {
+    return { success: false, error: 'Anonymous completion responses cannot be emailed to a respondent' };
   }
   if (!recipientEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipientEmail)) {
     return { success: false, error: 'Invalid recipient email' };

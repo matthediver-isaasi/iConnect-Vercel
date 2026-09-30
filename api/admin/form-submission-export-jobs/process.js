@@ -292,9 +292,13 @@ async function runLoadingPhase(jobId, job) {
   const submissionRows = await fetchByIds(
     'form_submission',
     submissionIds,
-    'id, form_id, form_name, submitted_by_name, submitted_by_email, submission_data, created_date, status, tenant_id'
+    'id, form_id, form_name, submitted_by_name, submitted_by_email, submission_data, created_date, status, tenant_id, survey_version_id'
   );
   const tenantSubmissions = submissionRows.filter(s => s.tenant_id === tenantId);
+  const { withoutEnhancedSurveyAnswers } = await import('../../_lib/surveyCompletionOutputs.js');
+  if ((await withoutEnhancedSurveyAnswers(supabase, tenantId, tenantSubmissions)).length !== tenantSubmissions.length) {
+    throw new Error('Export enhanced anonymous survey answers through threshold-protected Survey Reports');
+  }
 
   const formIds = Array.from(new Set(tenantSubmissions.map(s => s.form_id).filter(Boolean)));
   const formRows = await fetchByIds(

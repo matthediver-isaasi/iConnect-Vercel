@@ -1,4 +1,7 @@
 const SERVER_OWNED_ENTITY_NAMES = new Set([
+  'surveycompletion',
+  'surveycompletionreceipt',
+  'surveycompletionretry',
   'formsubmissionpipelineentity',
   // Due-diligence stage mappings carry action-level target and form/stage
   // ownership invariants. They must only be written through

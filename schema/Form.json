@@ -481,7 +481,7 @@
     },
     "survey_settings": {
       "type": "object",
-      "description": "Survey-only settings: status (draft/published/archived, separate from is_active), intro_text, thank_you_message, response_identity (identified/anonymous/anonymous_dedupe), one_submission_per_respondent, show_progress, show_question_numbers, score_display (weighted/unweighted), reporting_scale, anonymity_threshold (default 3), current_version, parent_form_id."
+      "description": "Survey-only settings: status (draft/published/archived, separate from is_active), intro_text, thank_you_message, response_identity (identified/anonymous/anonymous_dedupe), anonymous_completion_version (explicit numeric 1 opts anonymous survey versions into separate answer-unlinked named completion; absent retains legacy behavior), one_submission_per_respondent, show_progress, show_question_numbers, score_display (weighted/unweighted), reporting_scale, anonymity_threshold (default 3), current_version, parent_form_id. Enhanced anonymous surveys require Save & Continue Later off and disallow identity-dependent fields, prefill, CRM/actions, payments, applications and emails. Response policy and form type are immutable after responses exist."
     },
     "survey_audit_log": {
       "type": "array",

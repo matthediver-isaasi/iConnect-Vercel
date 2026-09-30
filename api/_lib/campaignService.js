@@ -20,6 +20,7 @@ import {
   mergeExternalCategorySubscribers,
 } from '../../shared/communicationCategoryMembership.js';
 import crypto from 'crypto';
+import { loadSurveyCompletionEmails } from './surveyCompletionTargeting.js';
 
 const APP_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
 const BATCH_SIZE = 100;
@@ -1813,12 +1814,17 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
     const formId = targetIds[0];
     const received = segmentData ? segmentData.received === true : true;
 
-    const { data: form } = await supabase
+    const { data: form, error: formLookupError } = await supabase
       .from('form')
-      .select('id, name, tenant_id, is_event_related, related_event_id, fields')
+      .select('id, name, tenant_id, is_event_related, related_event_id, fields, form_type, survey_settings')
       .eq('id', formId)
       .eq('tenant_id', tenantId)
       .maybeSingle();
+
+    if (formLookupError) throw new Error('Form targeting policy could not be verified');
+    const completionEmails = form ? await loadSurveyCompletionEmails(supabase, {
+      tenantId, form, assignmentId: segmentData?.assignment_id || null,
+    }) : null;
 
     if (form && form.is_event_related && form.related_event_id) {
       const eventId = form.related_event_id;
@@ -1839,8 +1845,10 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
             .eq('tenant_id', tenantId)
             .eq('status', 'confirmed')
             .eq('event_id', eventId)
+            .order('id', { ascending: true })
             .range(offset, offset + pageSize - 1);
           if (error) {
+            if (completionEmails) throw new Error('Survey attendee audience could not be loaded');
             console.error(`[EventForm] ${table} query error:`, error);
             break;
           }
@@ -1886,12 +1894,13 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
       const idBatchSize = 500;
       for (let i = 0; i < fallbackIdArr.length; i += idBatchSize) {
         const batch = fallbackIdArr.slice(i, i + idBatchSize);
-        const { data: members } = await supabase
+        const { data: members, error: memberLookupError } = await supabase
           .from('member')
           .select('id, email, first_name, last_name, communications_opted_out_all')
           .eq('tenant_id', tenantId)
           .in('id', batch)
           .not('email', 'ilike', 'deleted_%@deleted.local');
+        if (memberLookupError && completionEmails) throw new Error('Survey attendee identities could not be loaded');
         if (members) fallbackMembers.push(...members);
       }
       const fallbackMemberByEmail = new Map();
@@ -1932,11 +1941,11 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
         return null;
       };
 
-      const submittedEmails = new Set();
+      const submittedEmails = completionEmails || new Set();
       let subOffset = 0;
       const subPageSize = 1000;
       let hasMoreSubs = true;
-      while (hasMoreSubs) {
+      while (!completionEmails && hasMoreSubs) {
         const { data: subs, error: subError } = await supabase
           .from('form_submission')
           .select('id, submitted_by_email, submission_data')
@@ -1972,11 +1981,12 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
       const emailBatchSize = 200;
       for (let i = 0; i < keptEmailArr.length; i += emailBatchSize) {
         const batch = keptEmailArr.slice(i, i + emailBatchSize);
-        const { data: members } = await supabase
+        const { data: members, error: memberLookupError } = await supabase
           .from('member')
           .select('id, email, first_name, last_name, communications_opted_out_all')
           .eq('tenant_id', tenantId)
           .or(buildEmailCaseInsensitiveOr(batch));
+        if (memberLookupError && completionEmails) throw new Error('Survey recipient communication preferences could not be verified');
         if (members) {
           for (const m of members) {
             if (!m.email) continue;

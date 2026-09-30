@@ -158,6 +158,7 @@ import {
   validateRepeatableRowVisibilityConfiguration,
 } from "../../../shared/formRepeatableRows.js";
 import { tomorrowUtcDate } from "../../../shared/formFutureDates.js";
+import { isEnhancedAnonymousSettings, validateAnonymousCompletionConfiguration } from "../../../shared/surveyCompletionPolicy.js";
 import { repeatableDateHelp } from "../../../shared/formRepeatableDates.js";
 import { normalizeFormWidth } from "../../../shared/formWidth.js";
 import {
@@ -11506,6 +11507,8 @@ export default function FormBuilderPage() {
 
   const createFormMutation = useMutation({
     mutationFn: async (data) => {
+      const privacyErrors = validateAnonymousCompletionConfiguration(data);
+      if (privacyErrors.length) throw new Error(privacyErrors.join(' '));
       console.log('[FormBuilder] Creating form with data:', JSON.stringify(data, null, 2));
       return await base44.entities.Form.create(data);
     },
@@ -11528,6 +11531,8 @@ export default function FormBuilderPage() {
 
   const updateFormMutation = useMutation({
     mutationFn: async ({ id, data, headers }) => {
+      const privacyErrors = validateAnonymousCompletionConfiguration({ ...formData, ...data });
+      if (privacyErrors.length) throw new Error(privacyErrors.join(' '));
       console.log('[FormBuilder] Updating form', id, 'with data:', JSON.stringify(data, null, 2));
       return await base44.entities.Form.update(id, data, { headers });
     },
@@ -11856,11 +11861,17 @@ export default function FormBuilderPage() {
 
   const surveyValidation = useMemo(() => {
     if (formData.form_type !== 'survey') return null;
-    return validateSurveyForPublish(formData.fields || [], formData.survey_settings || {});
-  }, [formData.form_type, formData.fields, formData.survey_settings]);
+    const validation = validateSurveyForPublish(formData.fields || [], formData.survey_settings || {});
+    return {
+      ...validation,
+      errors: [...validation.errors, ...validateAnonymousCompletionConfiguration(formData).map(message => ({ message }))],
+    };
+  }, [formData]);
 
   const publishSurveyMutation = useMutation({
     mutationFn: async ({ protectionPassword } = {}) => {
+      const privacyErrors = validateAnonymousCompletionConfiguration(formData);
+      if (privacyErrors.length) throw new Error(privacyErrors.join(' '));
       const protectionHeaders = protectionPassword
         ? protectedFormUpdateHeaders(protectionPassword)
         : {};
@@ -14940,17 +14951,39 @@ export default function FormBuilderPage() {
                     <div className="space-y-2">
                       <Label>Response Identity</Label>
                       <Select
-                        value={formData.survey_settings?.response_identity || 'identified'}
-                        onValueChange={(value) => updateSurveySetting('response_identity', value)}
+                        value={`${isEnhancedAnonymousSettings(formData.survey_settings) ? 'enhanced_' : ''}${formData.survey_settings?.response_identity || 'identified'}`}
+                        onValueChange={(value) => setFormData(prev => {
+                          const enhanced = value.startsWith('enhanced_');
+                          const settings = { ...prev.survey_settings, response_identity: value.replace(/^enhanced_/, '') };
+                          if (enhanced) settings.anonymous_completion_version = 1;
+                          else delete settings.anonymous_completion_version;
+                          return { ...prev, survey_settings: settings };
+                        })}
                         disabled={hasResponses}
                       >
                         <SelectTrigger data-testid="select-survey-identity"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="identified">Identified</SelectItem>
-                          <SelectItem value="anonymous">Anonymous</SelectItem>
-                          <SelectItem value="anonymous_dedupe">Anonymous (prevent duplicates)</SelectItem>
+                          <SelectItem value="enhanced_anonymous">Anonymous answers with separate completion</SelectItem>
+                          <SelectItem value="enhanced_anonymous_dedupe">Anonymous answers with separate completion (prevent duplicates)</SelectItem>
+                          {!isEnhancedAnonymousSettings(formData.survey_settings) && formData.survey_settings?.response_identity === 'anonymous' && (
+                            <SelectItem value="anonymous">Anonymous (legacy policy — unchanged)</SelectItem>
+                          )}
+                          {!isEnhancedAnonymousSettings(formData.survey_settings) && formData.survey_settings?.response_identity === 'anonymous_dedupe' && (
+                            <SelectItem value="anonymous_dedupe">Anonymous, prevent duplicates (legacy policy — unchanged)</SelectItem>
+                          )}
                         </SelectContent>
                       </Select>
+                      {isEnhancedAnonymousSettings(formData.survey_settings) && (
+                        <p className="text-xs text-slate-500" data-testid="anonymous-completion-explanation">
+                          Staff can see who completed the survey, but cannot link a member to their answers.
+                          Named completion requires signing in or a verified recipient invitation; typing an email does not count.
+                          Public visitors can answer where access permits, without named completion.
+                          This is application-level separation, not protection against self-identifying text, small-cohort inference or infrastructure operators.
+                          Disable Save &amp; Continue Later and remove identity-dependent fields, prefill, actions and emails before saving.
+                          Existing responses and invitation records are never converted.
+                        </p>
+                      )}
                     </div>
                     <div className="space-y-2">
                       <Label>Score Display</Label>
@@ -14995,6 +15028,7 @@ export default function FormBuilderPage() {
                       <div className="flex items-center gap-2">
                         <Switch
                           checked={formData.survey_settings?.one_submission_per_respondent === true}
+                          disabled={hasResponses}
                           onCheckedChange={(checked) => updateSurveySetting('one_submission_per_respondent', checked)}
                           data-testid="switch-survey-one-submission"
                         />

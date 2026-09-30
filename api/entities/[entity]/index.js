@@ -1,4 +1,6 @@
 import { sendEmail, replacePlaceholders } from '../../_lib/emailService.js';
+import { withoutEnhancedSurveyAnswers } from '../../_lib/surveyCompletionOutputs.js';
+import { validateAnonymousCompletionConfiguration } from '../../../shared/surveyCompletionPolicy.js';
 import { generatePasswordSetupUrl, hasSetPasswordToken, replaceSetPasswordToken } from '../../_lib/passwordSetupUrl.js';
 import { triggerWorkflows, triggerPreferenceWorkflows, recheckRecordCreateWorkflows } from '../../_lib/workflows.js';
 import { triggerZohoCrmSync, awaitZohoCrmSyncForResponse } from '../../_lib/zohoCrmSync.js';
@@ -806,7 +808,7 @@ export default async function handler(req, res) {
       const wantsCount = req.query.count === 'exact';
       let query = supabase
         .from(tableName)
-        .select(entityNorm === 'memberresourcecategory' ? MEMBER_RESOURCE_CATEGORY_SELECT : expand || '*', wantsCount ? { count: 'exact' } : undefined);
+        .select(entityNorm === 'memberresourcecategory' ? MEMBER_RESOURCE_CATEGORY_SELECT : ['formsubmission', 'surveyanswer'].includes(entityNorm) && expand ? `${expand},survey_version_id` : expand || '*', wantsCount ? { count: 'exact' } : undefined);
 
       if (entityNorm === 'resource') {
         res.setHeader('Cache-Control', 'private, no-store');
@@ -1511,10 +1513,12 @@ export default async function handler(req, res) {
         }
       }
 
+      if (entityNorm === 'formsubmission' || entityNorm === 'surveyanswer') {
+        data = await withoutEnhancedSurveyAnswers(supabase, tenantCtx.tenantId, data || []);
+      }
       if (wantsCount) {
         return res.json({ data: data || [], count: count ?? 0 });
       }
-
       return res.json(data || []);
 
     } else if (req.method === 'POST') {
@@ -1839,6 +1843,10 @@ export default async function handler(req, res) {
         }
       }
 
+      if (entityNorm === 'form') {
+        const errors = validateAnonymousCompletionConfiguration(sanitizedBody);
+        if (errors.length) return res.status(400).json({ error: errors.join(' '), details: errors });
+      }
       // SECURITY (Task #3330): surveys are created draft-only — 'published'
       // status exists ONLY via the publish endpoint (which snapshots a
       // version). A directly-created "published" survey would serve publicly

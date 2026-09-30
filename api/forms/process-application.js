@@ -1,4 +1,5 @@
 import { loadLegacyApplicationScope } from '../_lib/formLegacyApplication.js';
+import { publishedAnonymousCompletion } from '../_lib/surveyCompletionBoundary.js';
 import { createClient } from '@supabase/supabase-js';
 import { requiresApplicantContinuation, loadSubmissionApplicantContinuation, loadApplicantMemberScope, FormApplicantContinuationError } from '../_lib/formApplicantContinuation.js';
 import { preflightApplicantTargets, preflightPublicMemberSignup, isPublicMemberSignup, FormMemberOwnerError } from '../_lib/formApplicantPreflight.js';
@@ -919,7 +920,7 @@ export default async function handler(req, res, {
       verifiedAdminAccess: verified_admin_access,
     });
     const [{ data: persistedSubmission, error: persistedSubmissionError }, { data: persistedForm, error: persistedFormError }] = await Promise.all([
-      supabase.from('form_submission').select('id, form_id, tenant_id, submission_data, submitted_by_email, organization_id, created_member_id, created_organization_id, payment_reference, payment_provider, payment_status, payment_meta, processing_notes, legacy_application_scope')
+      supabase.from('form_submission').select('id, form_id, tenant_id, survey_version_id, submission_data, submitted_by_email, organization_id, created_member_id, created_organization_id, payment_reference, payment_provider, payment_status, payment_meta, processing_notes, legacy_application_scope')
         .eq('id', submission_id).eq('form_id', form_id).eq('tenant_id', effectiveEntityTenantId).maybeSingle(),
       supabase.from('form').select('*')
         .eq('id', form_id).eq('tenant_id', effectiveEntityTenantId).maybeSingle(),
@@ -939,6 +940,9 @@ export default async function handler(req, res, {
       currentSetConfiguration = currentSetConfig?.config || null;
     }
     const hasCurrentSetProcessing = !!currentSetConfiguration;
+    if (await publishedAnonymousCompletion(supabase, persistedForm, persistedSubmission.survey_version_id)) {
+      return res.status(403).json({ error: 'Anonymous survey responses cannot perform linked record actions.', code: 'ANONYMOUS_COMPLETION_PROCESSING_DISABLED' });
+    }
     const persistedProcessingNotes = Array.isArray(persistedSubmission.processing_notes)
       ? persistedSubmission.processing_notes
       : [];

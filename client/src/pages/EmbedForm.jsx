@@ -1,5 +1,6 @@
 import { applySurveyPresentation, surveySuccessMessage, surveyIntroText, showSurveyProgress, surveyProgress } from '@/lib/surveyPresentation';
 import { evaluateScoreCondition } from '@/lib/surveyConditions';
+import { anonymousSurveySubmissionPayload } from '@/lib/anonymousSurveySubmission';
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useParams, useSearchParams } from "react-router-dom";
@@ -959,10 +960,12 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
   const submitFormMutation = useMutation({
     mutationFn: async (submissionData) => {
       const result = await publicClient.submitForm({
-        ...submissionData,
+        ...anonymousSurveySubmissionPayload(form, {
+          ...submissionData,
+          // Ordinary embeds retain their explicit-URL-only mapping.
+          prefill_organization_id: urlPrefillOrgId || null,
+        }),
         idempotency_key: getIdempotencyKey(),
-        // Preserve the existing explicit-URL-only prefill mapping.
-        prefill_organization_id: urlPrefillOrgId || null
       });
       if (departmentCurrentSet.active && !currentSetCommitConfirmed(result)) {
         throw new Error('Current Department data has not been confirmed as saved. Retry or reload and review it before continuing.');

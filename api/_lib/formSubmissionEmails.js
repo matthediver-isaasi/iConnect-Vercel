@@ -18,6 +18,7 @@
 // the Form Submissions page instead of them being silent.
 
 import { sendEmail } from './emailService.js';
+import { submissionUsesAnonymousCompletion } from './surveyCompletionBoundary.js';
 import { isPreferencePlaceholder } from './transactionalPreferences.js';
 import { randomUUID } from 'node:crypto';
 import { getAccountingProvider } from './accountingProvider.js';
@@ -544,6 +545,9 @@ export async function sendSubmissionEmails({
   baseUrl = '',
   deadlineAt = null,
 }) {
+  if (await submissionUsesAnonymousCompletion(supabase, form, submissionId)) {
+    return { success: true, skipped: true, reason: 'Anonymous completion survey', emails: [] };
+  }
   let form_values = formValues || {};
   // The form is loaded server-side by every sender. Do not let the legacy
   // endpoint's caller-provided `fields` array redefine relationship fields.
@@ -1050,11 +1054,11 @@ export async function sendSubmissionEmailsGuarded(options) {
   // email columns so a future partial select degrades to a correct send
   // instead of a durable "No emails configured" skip.
   let form = options.form;
-  if (form && form.id && !('submission_emails' in form)) {
+  if (form && form.id && (!('submission_emails' in form) || !('form_type' in form))) {
     console.warn('[SubmissionEmails] form object missing submission_emails key (partial select?) — re-fetching email config for form', form.id);
     const { data: emailCols, error: emailColsError } = await supabase
       .from('form')
-      .select('submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping')
+      .select('form_type, tenant_id, survey_settings, submission_emails, submission_email_template_id, submission_email_recipient, submission_email_cc, submission_email_bcc, submission_email_field_mapping')
       .eq('id', form.id)
       .single();
     if (!emailColsError && emailCols) {
@@ -1065,6 +1069,9 @@ export async function sendSubmissionEmailsGuarded(options) {
     }
   }
 
+  if (await submissionUsesAnonymousCompletion(supabase, form, submissionId)) {
+    return { success: true, skipped: true, reason: 'Anonymous completion survey', emails: [] };
+  }
   // Fast path: nothing configured → record a durable 'skipped' outcome so the
   // admin view can show WHY no email exists, then return.
   const configured = resolveConfiguredEmails(form);

@@ -1,3 +1,4 @@
+import { validateSurveyCompletionUpdate } from '../../_lib/surveyCompletionConfiguration.js';
 import { triggerWorkflows, triggerPreferenceWorkflows } from '../../_lib/workflows.js';
 import { triggerZohoCrmSync, awaitZohoCrmSyncForResponse } from '../../_lib/zohoCrmSync.js';
 import {
@@ -62,6 +63,7 @@ import {
 
 // Entity name to Supabase table mapping (singular names for Base44 compatibility)
 import { anonymizeMember } from '../../_lib/memberAnonymize.js';
+import { withoutEnhancedSurveyAnswers } from '../../_lib/surveyCompletionOutputs.js';
 import { isReservedPageSlug, reservedPageSlugMessage } from '../../../shared/memberAliases.js';
 import { validatePortalMenuRecord } from '../../../shared/portalMenuLinks.js';
 import { hasManagedJobProvenance, stripManagedJobProvenance } from '../../_lib/jobFeedOwnership.js';
@@ -722,7 +724,7 @@ export default async function handler(req, res, dependencies = {}) {
       const { expand } = req.query;
       let query = supabase
         .from(tableName)
-        .select(entityNorm === 'memberresourcecategory' ? MEMBER_RESOURCE_CATEGORY_SELECT : expand || '*')
+        .select(entityNorm === 'memberresourcecategory' ? MEMBER_RESOURCE_CATEGORY_SELECT : ['formsubmission', 'surveyanswer'].includes(entityNorm) && expand ? `${expand},survey_version_id` : expand || '*')
         .eq('id', id);
 
       if (entityNorm === 'resource') {
@@ -955,6 +957,10 @@ export default async function handler(req, res, dependencies = {}) {
           }
           throw departmentError;
         }
+      }
+      if (['formsubmission', 'surveyanswer'].includes(entityNorm)
+        && !(await withoutEnhancedSurveyAnswers(supabase, tenantCtx.tenantId, [data])).length) {
+        return res.status(403).json({ error: 'Anonymous survey answers are available only through threshold-protected Survey Reports' });
       }
       return res.json(data);
 
@@ -1522,6 +1528,13 @@ export default async function handler(req, res, dependencies = {}) {
       // client-supplied survey_audit_log on ANY Form PATCH (an audit-only
       // payload could otherwise erase/fabricate lifecycle history).
       if (entityNormalized === 'form') {
+        const { data: policyForm, error: policyError } = await supabase.from('form').select('*')
+          .eq('id', id).eq('tenant_id', tenantCtx.tenantId).maybeSingle();
+        if (policyError || !policyForm) {
+          return res.status(503).json({ error: 'Could not verify survey configuration before saving.' });
+        }
+        const policyErrors = await validateSurveyCompletionUpdate(supabase, policyForm, { ...policyForm, ...sanitizedBody });
+        if (policyErrors.length) return res.status(400).json({ error: policyErrors.join(' '), details: policyErrors });
         const hadAuditKey = Object.prototype.hasOwnProperty.call(sanitizedBody, 'survey_audit_log');
         delete sanitizedBody.survey_audit_log;
         if (hadAuditKey && Object.keys(sanitizedBody).length === 0) {

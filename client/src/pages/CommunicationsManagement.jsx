@@ -93,6 +93,12 @@ export default function CommunicationsManagementPage() {
   const [eventFormSearchInput, setEventFormSearchInput] = useState('');
   const [selectedEventForm, setSelectedEventForm] = useState(null);
   const [addListEventFormReceived, setAddListEventFormReceived] = useState(true);
+  const [eventFormAssignmentId, setEventFormAssignmentId] = useState('');
+  const { data: eventFormAssignments = [], isLoading: eventFormAssignmentsLoading, error: eventFormAssignmentsError } = useQuery({
+    queryKey: ['campaign-form-assignments', selectedEventForm?.id],
+    enabled: selectedEventForm?.form_type === 'survey',
+    queryFn: () => base44.entities.EventSurveyAssignment.filter({ form_id: selectedEventForm.id }),
+  });
   const [fieldFilterGroups, setFieldFilterGroups] = useState([{ conditions: [{ entity_scope: 'member', field_key: '', field_type: '', data_type: '', operator: '', value: '', field_label: '' }] }]);
   const [eventFilterSearches, setEventFilterSearches] = useState({});
 
@@ -3409,6 +3415,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                 className="flex items-center gap-2 p-1.5 rounded cursor-pointer hover-elevate text-sm"
                                 onClick={() => {
                                   setSelectedEventForm(f);
+                                  setEventFormAssignmentId('');
                                   setEventFormSearchInput('');
                                 }}
                                 data-testid={`event-form-result-${f.id}`}
@@ -3443,6 +3450,22 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                 <X className="w-3 h-3" />
                               </Button>
                             </div>
+                            {selectedEventForm.form_type === 'survey' && (
+                              <div className="space-y-1">
+                                <Label>Survey assignment</Label>
+                                <Select value={eventFormAssignmentId} onValueChange={setEventFormAssignmentId}>
+                                  <SelectTrigger><SelectValue placeholder="Select the event survey assignment" /></SelectTrigger>
+                                  <SelectContent>
+                                    {eventFormAssignments.filter(a => (a.event_id || a.complex_event_id) === selectedEventForm.related_event_id).map(a => (
+                                      <SelectItem key={a.id} value={a.id}>{a.event_title || a.id} ({a.status})</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                {eventFormAssignmentsLoading && <p className="text-xs">Loading assignments…</p>}
+                                {eventFormAssignmentsError && <p role="alert" className="text-xs text-red-600">Assignments could not be loaded. Try again before targeting this survey.</p>}
+                                <p className="text-xs text-muted-foreground">Anonymous completion uses verified participation, not email addresses typed into answers. Select an assignment when the survey uses event links.</p>
+                              </div>
+                            )}
                             <div className="flex items-center gap-2">
                               <Button
                                 type="button"
@@ -4067,6 +4090,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                 type: 'event_form',
                                 ids: [selectedEventForm.id],
                                 received: addListEventFormReceived,
+                                ...(eventFormAssignmentId ? { assignment_id: eventFormAssignmentId } : {}),
                                 names: { [selectedEventForm.id]: selectedEventForm.name },
                               },
                             ]);

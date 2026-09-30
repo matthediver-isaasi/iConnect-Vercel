@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { validateSurveyForPublish } from '../_lib/surveyScoring.js';
+import { validateSurveyCompletionPublish } from '../_lib/surveyCompletionConfiguration.js';
 import {
   authorizeProtectedFormMutation,
   clearProtectedFormPasswordFailures,
@@ -78,7 +79,7 @@ export async function handlePublishSurvey(req, res, dependencies = {}) {
 
     const { data: form, error: formError } = await db
       .from('form')
-      .select('id, tenant_id, form_type, fields, pages, visibility_rules, survey_settings, survey_audit_log, prefill_source')
+      .select('*')
       .eq('id', form_id)
       .eq('tenant_id', tenantCtx.tenantId)
       .single();
@@ -90,6 +91,10 @@ export async function handlePublishSurvey(req, res, dependencies = {}) {
     }
 
     // Server-side validation gate — publishing is blocked until it passes.
+    const completionErrors = await validateSurveyCompletionPublish(db, form);
+    if (completionErrors.length) {
+      return res.status(400).json({ error: completionErrors.join(' '), details: completionErrors });
+    }
     const validation = validateSurveyForPublish(form.fields || [], form.survey_settings || {});
     if (validation.errors.length > 0) {
       return res.status(400).json({

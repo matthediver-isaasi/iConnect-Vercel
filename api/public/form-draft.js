@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 import { verifyApplicantContinuation, bindApplicantDraft, FormApplicantContinuationError } from '../_lib/formApplicantContinuation.js';
 import { isLegacyPublicApplication } from '../_lib/formLegacyApplication.js';
+import { publishedAnonymousCompletion } from '../_lib/surveyCompletionBoundary.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { resolveFormAccess, sendFormAccessDenied } from '../_lib/formAccessPolicy.js';
 import { isFormScheduleAvailable } from '../_lib/formAvailability.js';
@@ -158,6 +159,9 @@ export default async function handler(req, res, dependencies = {}) {
         supabase, req, tenantId: tenantData.id, policy: form.access_policy,
       });
       if (!access.allowed) return sendFormAccessDenied(res, access);
+      if (await publishedAnonymousCompletion(supabase, form)) {
+        return res.status(403).json({ error: 'Drafts are not available for anonymous completion surveys.', code: 'ANONYMOUS_COMPLETION_DRAFT_DISABLED' });
+      }
       const safeDraftData = stripFormNoRelationshipValues(draft_data, form.fields);
       let currentSetDraft;
       try {
@@ -339,6 +343,9 @@ export default async function handler(req, res, dependencies = {}) {
         throw error;
       }
 
+      if (await publishedAnonymousCompletion(supabase, form)) {
+        return res.status(403).json({ error: 'Drafts are not available for anonymous completion surveys.', code: 'ANONYMOUS_COMPLETION_DRAFT_DISABLED' });
+      }
       // Schema drift detection is not currently supported (form table lacks updated_at column)
       const schemaChanged = false;
       const applicantGrant = !isLegacyPublicApplication(form) && draft.applicant_continuation_id

@@ -67,6 +67,92 @@ function certificateSurveyFixture() {
   return { token, form, assignment, grant, certificateSurvey, version };
 }
 
+test('enhanced anonymous acceptance sends only answer attributes and trusted participation to its RPC', async () => {
+  const settings = { status: 'published', current_version: 1,
+    response_identity: 'anonymous', anonymous_completion_version: 1 };
+  const form = { id: 'anonymous-form', tenant_id: 'tenant-1', name: 'Anonymous feedback',
+    form_type: 'survey', is_active: true, allow_save_continue_later: false,
+    fields: [{ id: 'rating', type: 'score', score_min: 1, score_max: 5, required: true },
+      { id: 'feedback', type: 'text' }], survey_settings: settings };
+  const version = { id: 'version-1', fields: form.fields, survey_settings: settings };
+  const run = async ({ body = {}, member = null, rpcError = null } = {}) => {
+    const db = makePublicSubmissionBoundaryDb(form, {
+      surveyVersion: version, certificateSurveyRpcError: rpcError,
+    });
+    const { response, res } = makeResponseRecorder();
+    await handler({ method: 'POST', headers: { host: 'survey.test' },
+      body: { form_id: form.id, idempotency_key: 'retry-key-4864',
+        source: 'private-member-id', form_name: 'private-name',
+        submission_data: { rating: { score: 4, member_id: 'forged' },
+          feedback: 'Helpful', unknown_attribute: 'private-value', email: 'forged@example.test' },
+        ...body },
+    }, res, { supabase: db.client, tenantData: { id: form.tenant_id, slug: 'survey', domain: 'survey.test' },
+      getSessionMember: async () => member,
+      fetchImpl: async () => { throw new Error('No effects allowed'); },
+      sendSubmissionEmailsGuarded: async () => { throw new Error('No emails allowed'); },
+    });
+    return { db, response };
+  };
+  const accepted = await run({ member: { id: 'trusted-member', tenant_id: form.tenant_id, email: 'member@example.test' } });
+  assert.equal(accepted.response.statusCode, 200);
+  assert.equal(accepted.response.body.id, undefined);
+  assert.equal(accepted.response.body.completion_recorded, true);
+  const [rpc] = accepted.db.certificateSubmissionRpcs;
+  assert.equal(rpc.p_member_id, 'trusted-member');
+  assert.deepEqual(rpc.p_submission.submission_data, { rating: { score: 4 }, feedback: 'Helpful' });
+  assert.equal(rpc.p_submission.idempotency_key, undefined);
+  assert.equal(rpc.p_submission.survey_respondent_key, undefined);
+  assert.doesNotMatch(JSON.stringify(rpc.p_submission), /trusted-member|member@example|private-|forged/);
+  assert.equal(accepted.db.insertedSubmissions.length, 0);
+  const publicResponse = await run({ member: { id: 'other-tenant', tenant_id: 'wrong', email: 'forged@example.test' } });
+  assert.equal(publicResponse.response.statusCode, 200);
+  assert.equal(publicResponse.db.certificateSubmissionRpcs[0].p_member_id, null);
+  assert.equal(publicResponse.response.body.completion_recorded, false);
+  for (const body of [{ member_id: 'forged' }, { prefill_organization_id: 'forged' },
+    { submitterCopyRequested: true }, { resume_token: 'draft' }]) {
+    const rejected = await run({ body });
+    assert.equal(rejected.response.statusCode, 400);
+    assert.equal(rejected.db.certificateSubmissionRpcs.length, 0);
+  }
+  const invalid = await run({ body: { submission_data: { rating: { score: 99 } } } });
+  assert.equal(invalid.response.statusCode, 400);
+  assert.equal(invalid.db.certificateSubmissionRpcs.length, 0);
+  const failed = await run({ rpcError: { code: 'XX000', message: 'Rollback fixture' } });
+  assert.equal(failed.response.statusCode, 500);
+  assert.equal(failed.response.body.completion_recorded, undefined);
+  const duplicate = await run({ rpcError: { code: '23505' } });
+  assert.equal(duplicate.response.statusCode, 409);
+});
+
+test('enhanced verified invitations use completion transaction even on a completed entitlement retry', async () => {
+  const fixture = certificateSurveyFixture();
+  fixture.form.allow_save_continue_later = false;
+  fixture.form.fields = fixture.form.fields.filter(field => ['feedback', 'rating'].includes(field.id));
+  fixture.form.survey_settings = { ...fixture.form.survey_settings,
+    anonymous_completion_version: 1, response_identity: 'anonymous' };
+  fixture.version.fields = fixture.form.fields;
+  fixture.version.survey_settings = fixture.form.survey_settings;
+  fixture.grant.completed_at = '2026-09-01T00:00:00Z';
+  const db = makePublicSubmissionBoundaryDb(fixture.form, {
+    certificateSurvey: fixture.certificateSurvey, surveyVersion: fixture.version,
+  });
+  const { response, res } = makeResponseRecorder();
+  await handler({ method: 'POST', headers: { host: 'survey.test' }, body: {
+    form_id: fixture.form.id, assignment_token: fixture.assignment.token,
+    certificate_survey_grant: fixture.token, idempotency_key: 'completed-retry-4864',
+    submission_data: { feedback: 'Useful', rating: { score: 4 } },
+  } }, res, { supabase: db.client,
+    tenantData: { id: fixture.form.tenant_id, slug: 'survey', domain: 'survey.test' },
+    getSessionMember: async () => null, getSession: async () => null });
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.completion_recorded, true);
+  assert.equal(response.body.id, undefined);
+  const [rpc] = db.certificateSubmissionRpcs;
+  assert.equal(rpc.p_token_hash, certificateSurveyTokenHash(fixture.token));
+  assert.equal(rpc.p_member_id, null);
+  assert.doesNotMatch(JSON.stringify(rpc.p_submission), /booking@example|entitlement-1|booking-1/);
+});
+
 test('guest invitation submission cannot run member pipelines and persists booking identity, never forged email', async () => {
   const { token, form, assignment, grant, certificateSurvey, version } = certificateSurveyFixture();
   const run = async () => {
@@ -495,6 +581,10 @@ function makePublicSubmissionBoundaryDb(
     client: {
       from(table) { return new Query(table); },
       async rpc(name, parameters) {
+        if (name === 'accept_anonymous_survey_completion') {
+          certificateSubmissionRpcs.push(structuredClone(parameters));
+          return { data: { accepted: true, replayed: false }, error: certificateSurveyRpcError };
+        }
         if (name === 'create_certificate_survey_submission' && certificateSurvey) {
           certificateSubmissionRpcs.push(structuredClone(parameters));
           if (certificateSurveyRpcError) {
