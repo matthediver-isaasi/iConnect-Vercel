@@ -18,6 +18,7 @@ import { stripProtectedOrgBalanceFields } from '../../_lib/protectedOrgFields.js
 import { stripMemberPauseFields } from '../../_lib/memberPause.js';
 import { hasGenericCommitmentFields, constrainGenericCommitmentMutation } from '../../_lib/rollingCommitmentEntityBoundary.js';
 import { isAdminOnlyEntity } from '../../_lib/adminOnlyEntities.js';
+import { updateFormArchive } from '../../_lib/formArchive.js';
 import { rejectGenericCpdPointsEntity } from '../../_lib/cpdPointsEntityBoundary.js';
 import {
   rejectGenericServerOwnedEntity,
@@ -379,6 +380,24 @@ export default async function handler(req, res, dependencies = {}) {
   }
 
   const tenantScope = getEntityTenantScope(entity);
+
+  if (entityNorm === 'form' && ['PATCH', 'PUT'].includes(req.method)
+    && Object.prototype.hasOwnProperty.call(req.body || {}, 'archived_at')
+    && Object.keys(req.body).length === 1) {
+    if (isProtectedDepartmentForm(id)) {
+      return res.status(409).json({ error: 'Protected forms cannot be archived. Use the protected deactivation action instead.' });
+    }
+    const result = await updateFormArchive({
+      db: requestDatabase, context: tenantCtx, id, body: req.body,
+      hasAdminAccess: dependencies.hasAdminAccess || hasAdminAccess,
+    });
+    return res.status(result.status).json(result.body);
+  }
+  // Full editor saves may round-trip archive metadata. Only the dedicated,
+  // single-field admin action above may change it.
+  if (entityNorm === 'form' && ['PATCH', 'PUT'].includes(req.method) && req.body) {
+    delete req.body.archived_at;
+  }
   
   // Determine if tenant filtering should be applied
   const shouldApplyTenantFilter = tenantScope !== TENANT_SCOPE.GLOBAL;
@@ -3480,6 +3499,9 @@ export default async function handler(req, res, dependencies = {}) {
 
       if (error) {
         console.error(`[Entity DELETE] Error deleting ${tableName} id=${id}:`, error.message, error.details, error.hint, error.code);
+        if (entityNorm === 'form' && error.code === '23503') {
+          return res.status(409).json({ error: 'This form has submissions or other linked records. Archive it to stop new submissions while keeping its history.', code: 'FORM_HAS_LINKED_RECORDS' });
+        }
         return res.status(500).json({ error: error.message });
       }
 

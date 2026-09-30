@@ -4,6 +4,7 @@
  * the historical active behavior.
  */
 export function isFormScheduleAvailable(form, now = Date.now()) {
+  if (form?.archived_at) return false;
   if (!form?.deactivate_at) return true;
   const deactivateTime = new Date(form.deactivate_at).getTime();
   return !Number.isFinite(deactivateTime) || deactivateTime > Number(now);

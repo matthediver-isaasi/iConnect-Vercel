@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  Loader2, Plus, Pencil, Trash2, Eye, EyeOff, FileText, BarChart3, Copy,
+  Loader2, Plus, Pencil, Archive, ArchiveRestore, Eye, EyeOff, FileText, BarChart3, Copy,
   FileSignature, Building2, Clock, Send, FilePlus, Search, X, ChevronLeft, ChevronRight,
   LayoutGrid, List, ArrowUpDown, Pin, PinOff,
 } from "lucide-react";
@@ -87,9 +87,10 @@ function FilterBar({ filters, setFilters, isContract, testIdPrefix, organization
           <SelectValue placeholder="Status" />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="all">All statuses</SelectItem>
+          <SelectItem value="all">All current forms</SelectItem>
           <SelectItem value="active">Active</SelectItem>
           <SelectItem value="inactive">Inactive</SelectItem>
+          <SelectItem value="archived">Archived</SelectItem>
         </SelectContent>
       </Select>
       <Select value={filters.auth} onValueChange={(v) => setFilters({ ...filters, auth: v })}>
@@ -375,17 +376,17 @@ export default function FormManagementPage() {
   });
 
   const deleteFormMutation = useMutation({
-    mutationFn: async (id) => {
-      return await base44.entities.Form.delete(id);
+    mutationFn: async (form) => {
+      return await base44.entities.Form.update(form.id, { archived_at: form.archived_at ? null : new Date().toISOString() });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['forms'] });
-      toast.success('Form deleted successfully');
+      toast.success(deletingForm?.archived_at ? 'Form restored as inactive. Activate it when ready.' : 'Form archived. Submissions have been kept.');
       setDeleteDialogOpen(false);
       setDeletingForm(null);
     },
     onError: (error) => {
-      toast.error('Failed to delete form');
+      toast.error(`Unable to archive or restore form: ${error?.message || 'Please try again'}`);
     }
   });
 
@@ -405,7 +406,7 @@ export default function FormManagementPage() {
 
   const duplicateFormMutation = useMutation({
     mutationFn: async (form) => {
-      const { id, created_date, updated_date, created_by, submission_count, ...formData } = form;
+      const { id, created_date, updated_date, created_by, submission_count, archived_at, ...formData } = form;
 
       const newForm = {
         ...formData,
@@ -439,7 +440,7 @@ export default function FormManagementPage() {
       }
       return;
     }
-    deleteFormMutation.mutate(deletingForm.id);
+    deleteFormMutation.mutate(deletingForm);
   };
 
   const handleDuplicate = (form) => {
@@ -458,8 +459,9 @@ export default function FormManagementPage() {
   };
 
   const applyCommonFilters = (form, filters) => {
+    if (Boolean(form.archived_at) !== (filters.status === 'archived')) return false;
     if (!matchesSearch(form, filters.search)) return false;
-    if (filters.status !== 'all') {
+    if (filters.status !== 'all' && filters.status !== 'archived') {
       const wantActive = filters.status === 'active';
       if (Boolean(form.is_active) !== wantActive) return false;
     }
@@ -607,7 +609,7 @@ export default function FormManagementPage() {
                 ) : (
                   <>
                     <EyeOff className="w-3 h-3 mr-1" />
-                    Inactive
+                    {form.archived_at ? 'Archived' : 'Inactive'}
                   </>
                 )}
               </Badge>
@@ -682,6 +684,7 @@ export default function FormManagementPage() {
               setManualSubmissionOpen(true);
             }}
             title="Add manual submission"
+            disabled={!!form.archived_at}
             data-testid={`button-manual-submission-${form.id}`}
           >
             <FilePlus className="w-3 h-3" />
@@ -708,9 +711,10 @@ export default function FormManagementPage() {
               setDeletingForm(form);
               setDeleteDialogOpen(true);
             }}
-            data-testid={`button-delete-${form.id}`}
+            title={form.archived_at ? 'Restore form (keeps it inactive)' : 'Archive form'}
+            data-testid={`button-${form.archived_at ? 'restore' : 'archive'}-${form.id}`}
           >
-            <Trash2 className="w-3 h-3" />
+            {form.archived_at ? <ArchiveRestore className="w-3 h-3" /> : <Archive className="w-3 h-3" />}
           </Button>
         </div>
       </CardContent>
@@ -733,6 +737,7 @@ export default function FormManagementPage() {
           setManualSubmissionOpen(true);
         }}
         title="Add manual submission"
+        disabled={!!form.archived_at}
         data-testid={`button-manual-submission-${form.id}`}
       >
         <FilePlus className="w-3 h-3" />
@@ -760,9 +765,10 @@ export default function FormManagementPage() {
           setDeleteDialogOpen(true);
         }}
         title="Delete form"
-        data-testid={`button-delete-${form.id}`}
+        title={form.archived_at ? 'Restore form (keeps it inactive)' : 'Archive form'}
+        data-testid={`button-${form.archived_at ? 'restore' : 'archive'}-${form.id}`}
       >
-        <Trash2 className="w-3 h-3" />
+        {form.archived_at ? <ArchiveRestore className="w-3 h-3" /> : <Archive className="w-3 h-3" />}
       </Button>
     </>
   );
@@ -811,7 +817,7 @@ export default function FormManagementPage() {
               ) : (
                 <>
                   <EyeOff className="w-3 h-3 mr-1" />
-                  Inactive
+                  {form.archived_at ? 'Archived' : 'Inactive'}
                 </>
               )}
             </Badge>
@@ -1004,12 +1010,14 @@ export default function FormManagementPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {isProtectedDepartmentForm(deletingForm) ? 'Protected form' : 'Are you sure?'}
+              {isProtectedDepartmentForm(deletingForm) ? 'Protected form' : deletingForm?.archived_at ? 'Restore form?' : 'Archive form?'}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {isProtectedDepartmentForm(deletingForm)
                 ? PROTECTED_FORM_HELPER_MESSAGE
-                : `This will permanently delete the form "${deletingForm?.name}" and all its submissions. This action cannot be undone.`}
+                : deletingForm?.archived_at
+                  ? `Restore "${deletingForm?.name}" to the working list? It will remain inactive until you activate it.`
+                  : `Archive "${deletingForm?.name}"? This stops new submissions and removes it from the working list. All existing submissions and form details are kept. You can restore it from the Archived filter.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1019,10 +1027,10 @@ export default function FormManagementPage() {
             {(!isProtectedDepartmentForm(deletingForm) || deletingForm?.is_active !== false) && (
               <AlertDialogAction
                 onClick={handleDelete}
-                className={isProtectedDepartmentForm(deletingForm) ? '' : 'bg-red-600 hover:bg-red-700'}
+                disabled={deleteFormMutation.isPending}
                 data-testid={isProtectedDepartmentForm(deletingForm) ? 'button-offer-deactivate-protected-form' : undefined}
               >
-                {isProtectedDepartmentForm(deletingForm) ? 'Deactivate Form' : 'Delete'}
+                {isProtectedDepartmentForm(deletingForm) ? 'Deactivate Form' : deletingForm?.archived_at ? 'Restore' : 'Archive'}
               </AlertDialogAction>
             )}
           </AlertDialogFooter>

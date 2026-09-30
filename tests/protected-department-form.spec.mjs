@@ -107,7 +107,7 @@ async function installFixtures(page) {
     if (pathname === '/api/entities/Form' && method === 'GET') {
       return json(route, state.forms);
     }
-    if (pathname === '/api/entities/FormSubmission' && method === 'GET') return json(route, []);
+    if (pathname === '/api/entities/FormSubmission' && method === 'GET') return json(route, [{ id: 'historical-submission', form_id: OTHER_FORM_ID, submission_data: { answer: 'Preserved answer' } }]);
     if (pathname === '/api/bookmarks' && method === 'GET') return json(route, { bookmarks: [] });
     if (pathname === '/api/admin/integrations' && method === 'GET') {
       return json(route, { integrations: [] });
@@ -143,6 +143,12 @@ async function installFixtures(page) {
     }
 
     const otherItemPath = `/api/entities/Form/${OTHER_FORM_ID}`;
+    if (pathname === otherItemPath && method === 'PATCH') {
+      const patch = request.postDataJSON();
+      state.patches.push({ id: OTHER_FORM_ID, patch });
+      state.forms[1] = { ...state.forms[1], ...patch, is_active: false };
+      return json(route, state.forms[1]);
+    }
     if (pathname === otherItemPath && method === 'DELETE') {
       state.deletes.push(OTHER_FORM_ID);
       return json(route, { success: true });
@@ -191,12 +197,12 @@ test('builder protected save supports cancel, wrong password, and correct passwo
   expect(state.unexpectedWrites).toEqual([]);
 });
 
-test('management protected deletion becomes double-confirmed deactivation; ordinary deletion is unchanged', async ({ page }) => {
+test('management preserves protected deactivation and archives/restores ordinary forms with history', async ({ page }) => {
   const state = await installFixtures(page);
   await page.goto('/FormManagement', { waitUntil: 'domcontentloaded' });
   await expect(page.getByText('Protected Department Form', { exact: true })).toBeVisible();
 
-  await page.getByTestId(`button-delete-${PROTECTED_FORM_ID}`).click();
+  await page.getByTestId(`button-archive-${PROTECTED_FORM_ID}`).click();
   await expect(page.getByText(HELPER_MESSAGE, { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Deactivate Form' }).click();
 
@@ -211,7 +217,7 @@ test('management protected deletion becomes double-confirmed deactivation; ordin
   await page.getByRole('button', { name: 'Cancel' }).click();
   expect(state.patches).toHaveLength(0);
 
-  await page.getByTestId(`button-delete-${PROTECTED_FORM_ID}`).click();
+  await page.getByTestId(`button-archive-${PROTECTED_FORM_ID}`).click();
   await page.getByRole('button', { name: 'Deactivate Form' }).click();
   await page.getByTestId('input-form-protection-password').fill(TEST_SECRET);
   await page.getByRole('button', { name: 'Validate password' }).click();
@@ -222,10 +228,30 @@ test('management protected deletion becomes double-confirmed deactivation; ordin
   expect(state.patches[0].headers['x-form-deactivation-confirmed']).toBe('true');
   expect(state.deletes).not.toContain(PROTECTED_FORM_ID);
 
-  await page.getByTestId(`button-delete-${OTHER_FORM_ID}`).click();
-  await expect(page.getByText(/permanently delete the form "Ordinary Form"/)).toBeVisible();
-  await page.getByRole('button', { name: 'Delete', exact: true }).click();
-  await expect.poll(() => state.deletes).toContain(OTHER_FORM_ID);
+  await page.getByTestId(`button-archive-${OTHER_FORM_ID}`).click();
+  await expect(page.getByText(/All existing submissions and form details are kept/)).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(state.forms[1].archived_at).toBeUndefined();
+  await page.getByTestId(`button-archive-${OTHER_FORM_ID}`).click();
+  await page.getByRole('button', { name: 'Archive', exact: true }).click();
+  await expect(page.getByTestId(`form-card-${OTHER_FORM_ID}`)).toBeHidden();
+  expect(state.forms[1].archived_at).toBeTruthy();
+  expect(state.forms[1].is_active).toBe(false);
+  await page.getByTestId('standard-select-status').click();
+  await page.getByRole('option', { name: 'Archived', exact: true }).click();
+  await expect(page.getByTestId(`form-card-${OTHER_FORM_ID}`)).toBeVisible();
+  await expect(page.getByTestId(`form-card-${OTHER_FORM_ID}`)).toContainText('1');
+  await page.screenshot({ path: 'screenshots/form-archive.jpg' });
+  await page.getByTestId(`button-restore-${OTHER_FORM_ID}`).click();
+  await expect(page.getByText(/It will remain inactive until you activate it/)).toBeVisible();
+  await page.getByRole('button', { name: 'Restore', exact: true }).click();
+  await expect(page.getByTestId(`form-card-${OTHER_FORM_ID}`)).toBeHidden();
+  await page.getByTestId('standard-select-status').click();
+  await page.getByRole('option', { name: 'All current forms', exact: true }).click();
+  await expect(page.getByTestId(`form-card-${OTHER_FORM_ID}`)).toContainText('Inactive');
+  expect(state.forms[1].archived_at).toBeNull();
+  expect(state.forms[1].is_active).toBe(false);
+  expect(state.deletes).toEqual([]);
   expect(state.pageErrors).toEqual([]);
   expect(state.unexpectedWrites).toEqual([]);
 });
