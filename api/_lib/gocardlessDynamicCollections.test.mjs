@@ -86,6 +86,15 @@ test('dynamic price follows active flat price, never the consent-time initial am
   assert.equal((await resolveDynamicCollectionPrice(f.agreement, '2027-04-02', f)).monthly_amount_minor, 1900);
 });
 
+test('overlapping workers retain one reservation and identical provider idempotency identity', async () => {
+  const f = fixture();
+  await Promise.all([collectDynamicPlan(f.plan, f), collectDynamicPlan(f.plan, f)]);
+  assert.equal(f.rows.gocardless_collection_reservations.length, 1);
+  assert.ok(f.calls.length > 0);
+  for (const request of f.calls) assert.deepEqual(request, f.calls[0]);
+  assert.ok(f.calls[0].idempotencyKey);
+});
+
 function pilotFixture(providerDate = '2026-10-07') {
   const f = fixture({ amount: 13, firstDate: '2026-10-01', providerDate, end: '2027-09-30' });
   const tenant = 'ff2df806-b321-4254-b651-3af11fccf1db';

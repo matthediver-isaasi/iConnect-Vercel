@@ -38,11 +38,24 @@ monitor still uses the old cadence, align it separately with the every-minute
 cadence and suggested 10-minute grace period; this documentation change does not
 update any live monitor.
 
+GoCardless reconciliation now has a five-minute UTC schedule to drain bounded
+batches; its existing execution budgets and one-hour per-row retry backoff are
+unchanged. Align its live heartbeat monitor separately (suggested grace: 15
+minutes). This source change does not deploy the schedule or update the monitor.
+For the BNMS October 2026 processing gate, `2026-09-30T23:00:00Z` is
+**October 1, 00:00 BST** (Europe/London). The first scheduled eligible tick is
+therefore **September 30, 23:00 UTC**, then 23:05 UTC—not October 1, 00:00 UTC
+(01:00 BST). Actual invocation may be delayed; neither cadence nor that tick
+authorizes held/unreleased cohorts. Reviewed release, database
+`processing_not_before`, consent and fresh provider evidence still apply.
+Monitor partial/error details and remaining due rows; frequency is not a
+guarantee that the whole cohort drains in one invocation.
+
 | # | Better Stack monitor | Cron endpoint | Vercel schedule (UTC) | Expected cadence | Suggested grace | Production variable |
 |---:|---|---|---|---|---|---|
 | 1 | Membership renewals | `/api/cron/process-membership-renewals` | `0 * * * *` | Hourly | 90 minutes | `BETTERSTACK_HEARTBEAT_MEMBERSHIP_RENEWALS_URL` |
 | 2 | Membership invoice-payment reconciliation | `/api/cron/reconcile-membership-invoice-payments` | `0 */3 * * *` | Every 3 hours | 4 hours | `BETTERSTACK_HEARTBEAT_MEMBERSHIP_PAYMENT_RECONCILIATION_URL` |
-| 3 | GoCardless reconciliation | `/api/cron/reconcile-gocardless` | `15 */6 * * *` | Every 6 hours | 8 hours | `BETTERSTACK_HEARTBEAT_GOCARDLESS_RECONCILIATION_URL` |
+| 3 | GoCardless reconciliation | `/api/cron/reconcile-gocardless` | `*/5 * * * *` | Every 5 minutes | 15 minutes | `BETTERSTACK_HEARTBEAT_GOCARDLESS_RECONCILIATION_URL` |
 | 4 | Stripe card-plan reconciliation | `/api/cron/reconcile-stripe-card-plans` | `25 */6 * * *` | Every 6 hours | 8 hours | `BETTERSTACK_HEARTBEAT_STRIPE_CARD_PLAN_RECONCILIATION_URL` |
 | 5 | Scheduled workflows | `/api/cron/run-scheduled-workflows` | `0 * * * *` | Hourly | 90 minutes | `BETTERSTACK_HEARTBEAT_SCHEDULED_WORKFLOWS_URL` |
 | 6 | Scheduled campaigns | `/api/email-campaigns/process-scheduled` | `* * * * *` | Every minute | 10 minutes | `BETTERSTACK_HEARTBEAT_SCHEDULED_CAMPAIGNS_URL` |
@@ -182,7 +195,7 @@ monitored under the current plan.
 | 25 | `/api/cron/process-voucher-expiries` | `30 1 * * *` | Not individually monitored |
 | 26 | `/api/cron/support-auto-close` | `0 4 * * *` | Not individually monitored |
 | 27 | `/api/cron/close-voucher-month` | `15 2 1-3 * *` | Not individually monitored |
-| 28 | `/api/cron/reconcile-gocardless` | `15 */6 * * *` | **Covered — GoCardless reconciliation** |
+| 28 | `/api/cron/reconcile-gocardless` | `*/5 * * * *` | **Covered — GoCardless reconciliation** |
 | 29 | `/api/cron/gocardless-arrears` | `45 */6 * * *` | Not individually monitored |
 | 30 | `/api/cron/gocardless-auto-retries` | `*/15 * * * *` | Not individually monitored |
 | 31 | `/api/cron/reconcile-stripe-card-plans` | `25 */6 * * *` | **Covered — Stripe card-plan reconciliation** |

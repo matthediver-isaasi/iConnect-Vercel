@@ -122,7 +122,11 @@ export async function reconcileDynamicTermCompletions({
   db = supabase, limit = 20, budgetMs = 5000, clock = Date.now, now = () => new Date(), ...deps
 } = {}) {
   const started = clock();
-  const result = { completed: 0, notified: 0, errors: 0 };
+  const result = { completed: 0, notified: 0, errors: 0, details: [] };
+  const recordError = (scope, id, cause) => {
+    result.errors++;
+    result.details.push({ stage: scope, id, error: cause.message });
+  };
   if (budgetMs <= 0) return result;
   // Give the committed outbox a share before scanning uncompleted terms:
   // long-lived active plans must not starve recovery of an already-expired one.
@@ -133,11 +137,12 @@ export async function reconcileDynamicTermCompletions({
       if ((await runDynamicNotification({ db, plan: { id: completion.plan_id, tenant_id: completion.tenant_id },
         now: now(), effects: createLiveDynamicCompletionEffects({ ...deps, db, now }) })).sent) result.notified++;
     } catch (cause) {
-      result.errors++;
-      checked(await db.from(COMPLETIONS).update({
+      recordError('completion-notification', completion.plan_id, cause);
+      try { checked(await db.from(COMPLETIONS).update({
         notification_error: cause.message,
         notification_next_check_at: new Date(now().getTime() + 60 * 60 * 1000).toISOString(),
-      }).eq('plan_id', completion.plan_id).eq('tenant_id', completion.tenant_id), 'Record completion notification error');
+      }).eq('plan_id', completion.plan_id).eq('tenant_id', completion.tenant_id), 'Record completion notification error'); }
+      catch (writeError) { recordError('completion-notification-outcome', completion.plan_id, writeError); }
     }
   }
   if (clock() - started >= budgetMs) return result;
@@ -151,12 +156,13 @@ export async function reconcileDynamicTermCompletions({
       if (settled.completed) result.completed++;
     } catch (cause) {
       error = cause.message;
-      result.errors++;
+      recordError('completion', plan.id, cause);
     }
-    checked(await db.from('membership_payment_plans').update({
+    try { checked(await db.from('membership_payment_plans').update({
       dynamic_completion_next_check_at: new Date(now().getTime() + 60 * 60 * 1000).toISOString(),
       dynamic_completion_error: error,
-    }).eq('id', plan.id).eq('tenant_id', plan.tenant_id), 'Record completion recovery outcome');
+    }).eq('id', plan.id).eq('tenant_id', plan.tenant_id), 'Record completion recovery outcome'); }
+    catch (writeError) { recordError('completion-outcome', plan.id, writeError); }
   }
   return result;
 }

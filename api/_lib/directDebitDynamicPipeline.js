@@ -241,12 +241,20 @@ export function selectDynamicCompletions(db, now, limit = 20) {
   return db.from('membership_payment_plans').select('*')
     .eq('provider', 'gocardless').eq('metadata->>collection_mode', 'dynamic')
     .is('completed_at', null).neq('status', 'payment_plan_cancelled')
+    .is('collection_stopped_at', null)
+    .or('metadata->>bnms_release_required.is.null,metadata->>bnms_release_required.eq.false')
     .or(`dynamic_completion_next_check_at.is.null,dynamic_completion_next_check_at.lte.${now.toISOString()}`)
     .order('dynamic_completion_next_check_at', { ascending: true, nullsFirst: true }).limit(Math.min(limit, 100));
 }
 
 export async function processDynamicCompletion({ plan, effects }) {
   if (plan?.metadata?.collection_mode !== 'dynamic') return { completed: false };
+  // Selection is an efficiency gate, never release authority. Keep the database
+  // hold/consent/payment-evidence guards intact for races and direct callers.
+  if (plan.collection_stopped_at != null ||
+      ![undefined, null, false, 'false'].includes(plan.metadata.bnms_release_required)) {
+    return { completed: false, reason: 'collection stopped or reviewed release required' };
+  }
   return effects.perform({
     type: 'dynamic.complete_term',
     description: 'Ask the atomic completion transaction to check all reserved payments and settle the term if eligible. Membership settlement and the completion email outbox depend on its result; no completion is assumed.',
@@ -261,7 +269,7 @@ export async function runDynamicCompletion({ db, plan, now = new Date(), effects
     trace({ stage: 'dynamic-completion', status: 'skipped', reason: 'Plan is not in the dynamic completion batch (provider, mode, completion, cancellation or next-check gate).' });
     return { completed: false };
   }
-  return processDynamicCompletion({ plan, effects });
+  return processDynamicCompletion({ plan: selected[0], effects });
 }
 
 export function selectDynamicNotifications(db, now, limit = 20) {

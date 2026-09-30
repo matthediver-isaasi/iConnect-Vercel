@@ -21,9 +21,19 @@ function fixture() {
   const copy = data => ({ data: structuredClone(data), error: null });
   f.db = {
     from(table) {
-      let filters = [], patch, single = false;
+      let filters = [], patch, single = false, rowLimit = Infinity;
       const q = {
-        select() { return this; }, order() { return this; }, limit() { return this; }, or() { return this; },
+        select() { return this; }, order() { return this; },
+        limit(value) { rowLimit = value; return this; },
+        or(expression) {
+          if (expression.startsWith('metadata->>bnms_release_required')) {
+            filters.push(row => [undefined, null, false, 'false'].includes(row.metadata?.bnms_release_required));
+          } else if (expression.startsWith('dynamic_completion_next_check_at')) {
+            const due = expression.split('.lte.')[1];
+            filters.push(row => !row.dynamic_completion_next_check_at || row.dynamic_completion_next_check_at <= due);
+          } else throw new Error(`Unimplemented filter ${expression}`);
+          return this;
+        },
         eq(key, value) { filters.push(row => key.includes('->>') ? row.metadata.collection_mode === value : row[key] === value); return this; },
         neq(key, value) { filters.push(row => row[key] !== value); return this; },
         is(key, value) { filters.push(row => (row[key] ?? null) === value); return this; },
@@ -31,7 +41,10 @@ function fixture() {
         update(value) { patch = value; return this; },
         single() { single = true; return this; },
         then(resolve, reject) {
-          const matched = (rows[table] || []).filter(row => filters.every(fn => fn(row)));
+          const matched = (rows[table] || []).filter(row => filters.every(fn => fn(row))).slice(0, rowLimit);
+          if (patch && f.failWrite?.(table, matched)) {
+            return Promise.resolve({ error: { message: 'Beta collection requires reviewed release' } }).then(resolve, reject);
+          }
           if (patch) matched.forEach(row => Object.assign(row, patch));
           return Promise.resolve(copy(single ? matched[0] : matched)).then(resolve, reject);
         },
@@ -161,4 +174,73 @@ test('incomplete and failed evidence produce no notice; recovery is bounded and 
   let ticks = 0;
   const result = await reconcileDynamicTermCompletions({ ...f, clock: () => ticks++ * 10000 });
   assert.equal(result.completed, 0);
+});
+
+test('held beta rows are excluded before the limit; no completion, activation, email or bookkeeping for holds', async () => {
+  const f = fixture();
+  f.rows.gocardless_dynamic_term_completions = [];
+  const held = Array.from({ length: 30 }, (_, i) => ({
+    ...structuredClone(f.plan), id: `held-${i}`,
+    collection_stopped_at: i % 2 ? null : '2026-09-01T00:00:00Z',
+    metadata: { collection_mode: 'dynamic', bnms_release_required: i % 2 ? true : undefined },
+  }));
+  const before = structuredClone(held);
+  f.rows.membership_payment_plans.unshift(...held);
+  const result = await reconcileDynamicTermCompletions({ ...f, limit: 1 });
+  assert.equal(result.completed, 1);
+  assert.equal(result.errors, 0);
+  assert.deepEqual(held, before);
+  assert.equal(f.calls.filter(name => name === 'complete_gocardless_dynamic_term').length, 1);
+  for (const plan of held) assert.equal((await completeDynamicTerm(plan, f)).completed, false);
+  assert.equal(f.calls.filter(name => name === 'complete_gocardless_dynamic_term').length, 1);
+});
+
+test('RPC and outcome-write failures remain visible without blocking later rows; failed writes stay retryable', async () => {
+  const f = fixture();
+  f.rows.gocardless_dynamic_term_completions = [];
+  const bad = { ...structuredClone(f.plan), id: 'failed-row' };
+  f.rows.membership_payment_plans.unshift(bad);
+  const rpc = f.db.rpc;
+  let attempts = 0;
+  f.db.rpc = async (name, params) => {
+    if (params.p_plan_id === bad.id) {
+      attempts++;
+      return { error: { message: 'consent evidence unavailable' } };
+    }
+    return rpc(name, params);
+  };
+  f.failWrite = (table, matched) => table === 'membership_payment_plans' && matched.includes(bad);
+  const result = await reconcileDynamicTermCompletions(f);
+  assert.equal(result.completed, 1);
+  assert.equal(result.errors, 2);
+  assert.match(result.details[0].error, /consent evidence/);
+  assert.match(result.details[1].error, /Record completion recovery outcome: Beta/);
+  assert.equal(bad.dynamic_completion_next_check_at, undefined);
+  await reconcileDynamicTermCompletions(f);
+  assert.equal(attempts, 2);
+  f.failWrite = null;
+  const retry = await reconcileDynamicTermCompletions(f);
+  assert.equal(retry.errors, 1);
+  assert.equal(bad.dynamic_completion_next_check_at, '2027-01-02T13:00:00.000Z');
+  assert.match(bad.dynamic_completion_error, /consent evidence/);
+  await reconcileDynamicTermCompletions(f);
+  assert.equal(attempts, 3, 'persisted retry backoff prevents immediate repeated attempts');
+  f.now = () => new Date('2027-01-02T14:00:00Z');
+  await reconcileDynamicTermCompletions(f);
+  assert.equal(attempts, 4);
+});
+
+test('notification error persistence failure does not starve completion recovery', async () => {
+  const f = fixture();
+  // Outbox read succeeds, but rendering and recording its failure both fail.
+  f.emailLifecycle = async () => { throw new Error('notification rendering failed'); };
+  f.failWrite = table => table === 'gocardless_dynamic_term_completions';
+  f.paid = false;
+  const result = await reconcileDynamicTermCompletions(f);
+  assert.equal(result.errors, 2);
+  assert.match(result.details[0].error, /notification rendering failed/);
+  assert.match(result.details[1].error, /Record completion notification error/);
+  assert.ok(f.calls.includes('complete_gocardless_dynamic_term'));
+  assert.equal(f.plan.dynamic_completion_next_check_at, '2027-01-02T13:00:00.000Z');
+  assert.equal(f.messages.length, 0);
 });

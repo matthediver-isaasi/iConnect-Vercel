@@ -79,6 +79,38 @@ export async function reconcileStalePayments(results, deps = {}) {
   return runLiveStage(results, reconciliationStages.find(stage => stage.id === 'stale-payments'), deps);
 }
 
+export async function runReconciliationPhases(results, {
+  complete = () => reconcileDynamicTermCompletions({ db: supabase, limit: 10, budgetMs: 5000 }),
+  collect = () => reconcileDynamicCollections({ db: supabase, clientForTenant: gcFor, budgetMs: 35000 }),
+  stages = reconciliationStages,
+  runStage = stage => runLiveStage(results, stage),
+} = {}) {
+  // Independent phases must still run after selection/RPC/outcome-write errors.
+  // Preserve failure reporting: a partial run must never send a success heartbeat.
+  const phases = [
+    ['dynamic-completion', async () => {
+      const completion = await complete();
+      results.repaired += completion.completed + completion.notified;
+      results.errors += completion.errors;
+      results.details.push(...(completion.details || []));
+    }],
+    ['dynamic-collections', async () => {
+      const dynamic = await collect();
+      results.repaired += dynamic.processed;
+      results.flagged += dynamic.blocked;
+    }],
+    ...stages.map(stage => [stage.id, () => runStage(stage)]),
+  ];
+  for (const [stage, run] of phases) {
+    try { await run(); }
+    catch (error) {
+      results.errors++;
+      results.details.push({ stage, error: error.message });
+      console.error('[cron/reconcile-gocardless] phase failed:', stage, error.message);
+    }
+  }
+}
+
 async function executeReconciliation(_req, res) {
   const reportHeartbeat = createHeartbeatReporter({ envVar: HEARTBEAT_ENV_VARS.gocardlessReconciliation });
   if (!supabase) {
@@ -88,19 +120,7 @@ async function executeReconciliation(_req, res) {
   clientCache.clear();
   const startTime = Date.now();
   const results = { repaired: 0, flagged: 0, skipped: 0, errors: 0, details: [] };
-  try {
-    const completion = await reconcileDynamicTermCompletions({ db: supabase, limit: 10, budgetMs: 5000 });
-    results.repaired += completion.completed + completion.notified;
-    results.errors += completion.errors;
-    const dynamic = await reconcileDynamicCollections({ db: supabase, clientForTenant: gcFor, budgetMs: 35000 });
-    results.repaired += dynamic.processed;
-    results.flagged += dynamic.blocked;
-    for (const stage of reconciliationStages) await runLiveStage(results, stage);
-  } catch (error) {
-    results.errors++;
-    results.details.push({ error: error.message });
-    console.error('[cron/reconcile-gocardless] fatal:', error);
-  }
+  await runReconciliationPhases(results);
   const duration = Date.now() - startTime;
   try {
     const { error } = await supabase.from('scheduled_task_log').insert({
@@ -111,7 +131,7 @@ async function executeReconciliation(_req, res) {
     if (error) console.error('[cron/reconcile-gocardless] failed to log run:', error.message);
   } catch (error) { console.error('[cron/reconcile-gocardless] failed to log run:', error.message); }
   await reportHeartbeat(results.errors === 0);
-  return res.status(200).json({ ok: true, duration_ms: duration, ...results });
+  return res.status(200).json({ ok: results.errors === 0, duration_ms: duration, ...results });
 }
 
 export function createReconcileGocardlessHandler({ execute = executeReconciliation } = {}) {

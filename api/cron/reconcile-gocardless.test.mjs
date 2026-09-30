@@ -1,10 +1,56 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import {
   createReconcileGocardlessHandler,
   reconcileStalePayments,
+  runReconciliationPhases,
 } from './reconcile-gocardless.js';
+
+test('reconciliation runs every five UTC minutes, including the London-midnight BNMS gate', () => {
+  const config = JSON.parse(readFileSync(new URL('../../vercel.json', import.meta.url), 'utf8'));
+  const entries = config.crons.filter(cron => cron.path === '/api/cron/reconcile-gocardless');
+  assert.deepEqual(entries.map(cron => cron.schedule), ['*/5 * * * *']);
+  const gate = new Date('2026-09-30T23:00:00Z');
+  assert.equal(gate.getUTCMinutes() % 5, 0);
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(gate).map(part => [part.type, part.value]));
+  assert.equal(`${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`, '2026-10-01 00:00');
+});
+
+test('failed completion and failed reconciliation stage cannot abort eligible collections or later stages', async () => {
+  const results = { repaired: 0, flagged: 0, skipped: 0, errors: 0, details: [] };
+  const visited = [];
+  await runReconciliationPhases(results, {
+    complete: async () => { throw new Error('Record completion recovery outcome: Beta collection requires reviewed release'); },
+    collect: async () => { visited.push('eligible-collections'); return { processed: 2, blocked: 0 }; },
+    stages: [{ id: 'failed' }, { id: 'eligible' }],
+    runStage: async stage => {
+      visited.push(stage.id);
+      if (stage.id === 'failed') throw new Error('selection unavailable');
+    },
+  });
+  assert.deepEqual(visited, ['eligible-collections', 'failed', 'eligible']);
+  assert.equal(results.errors, 2);
+  assert.equal(results.repaired, 2);
+  assert.deepEqual(results.details.map(d => d.stage), ['dynamic-completion', 'failed']);
+});
+
+test('row-level completion errors and details are retained in the cron aggregate', async () => {
+  const results = { repaired: 0, flagged: 0, skipped: 0, errors: 0, details: [] };
+  await runReconciliationPhases(results, {
+    complete: async () => ({ completed: 1, notified: 0, errors: 1,
+      details: [{ id: 'held-race', error: 'release guard rejected outcome write' }] }),
+    collect: async () => ({ processed: 1, blocked: 0 }),
+    stages: [],
+  });
+  assert.equal(results.errors, 1);
+  assert.equal(results.repaired, 2);
+  assert.match(results.details[0].error, /release guard/);
+});
 
 function responseRecorder() {
   return {

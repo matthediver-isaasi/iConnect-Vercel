@@ -155,7 +155,7 @@
     },
     {
       "path": "/api/cron/reconcile-gocardless",
-      "schedule": "15 */6 * * *"
+      "schedule": "*/5 * * * *"
     },
     {
       "path": "/api/cron/gocardless-arrears",
