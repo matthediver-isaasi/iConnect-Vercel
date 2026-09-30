@@ -175,6 +175,43 @@ async function claimFanout(event) {
   return Boolean(data);
 }
 
+// A completed durable claim is the only evidence that the trigger finished
+// its whole action batch. Individual successful action logs are not proof.
+async function reconcileCompletedFanout(event) {
+  const targetEntity = event.target_entity || 'organization';
+  const targetId = targetEntity === 'member' ? event.member_id : event.organization_id;
+  if (!event.id || !event.event_key || !event.tenant_id || !targetId) return false;
+  const { data: claim, error } = await supabase
+    .from('workflow_delivery_claim')
+    .select('delivery_key,tenant_id,entity_type,entity_id,status,completed_at')
+    .eq('delivery_key', `dd-field-mapping:${event.id}`)
+    .eq('tenant_id', event.tenant_id)
+    .eq('entity_type', targetEntity)
+    .eq('entity_id', targetId)
+    .eq('status', 'completed')
+    .maybeSingle();
+  if (error) throw knownQueryFailure('Could not verify completed field-mapping workflow delivery', error);
+  if (!claim || claim.delivery_key !== `dd-field-mapping:${event.id}`
+    || claim.tenant_id !== event.tenant_id || claim.entity_type !== targetEntity
+    || claim.entity_id !== targetId || claim.status !== 'completed' || !claim.completed_at) return false;
+  const { data, error: updateError } = await supabase
+    .from(OUTBOX_TABLE)
+    .update({ status: 'completed', completed_at: new Date().toISOString(), last_error: null, updated_at: new Date().toISOString() })
+    .eq('id', event.id)
+    .eq('event_key', event.event_key)
+    .eq('tenant_id', event.tenant_id)
+    .eq('form_submission_due_diligence_id', event.form_submission_due_diligence_id)
+    .eq('target_entity', targetEntity)
+    .eq(targetEntity === 'member' ? 'member_id' : 'organization_id', targetId)
+    .in('status', ['processing', 'requires_attention'])
+    .select('id')
+    .maybeSingle();
+  if (updateError) throw ambiguousFanoutFailure('Could not reconcile completed field-mapping workflow delivery', updateError);
+  if (!data) throw ambiguousFanoutFailure('Field-mapping workflow outbox changed during reconciliation');
+  event.status = 'completed';
+  return true;
+}
+
 async function dispatchPreferenceFanout(event, baseUrl, dependencies) {
   const deliveryKey = `dd-field-mapping:${event.id}`;
   const targetEntity = event.target_entity || 'organization';
@@ -296,6 +333,8 @@ export async function dispatchFieldMappingWorkflowFanouts({
 
   for (const event of events) {
     try {
+      if (['processing', 'requires_attention'].includes(event.status)
+        && await reconcileCompletedFanout(event)) continue;
       if (event.status === 'requires_attention') {
         throw ambiguousFanoutFailure(
           'A field-mapping workflow delivery requires attention and will not be replayed',

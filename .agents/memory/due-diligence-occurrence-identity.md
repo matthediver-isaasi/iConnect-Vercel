@@ -20,3 +20,9 @@ Treat synchronous field-mapping fanout as part of the stage request's execution 
 **Why:** A gateway timeout can terminate delivery after successful workflow effects but before completion is recorded. Later attention errors identify the blocker, not the original interruption.
 
 **How to apply:** Correlate the original request's status and duration with durable evidence. Reduce repeated condition reads only within an evaluation, invalidate after actions, and retain conservative no-replay behavior even when increasing the endpoint budget.
+
+Incident reconciliation may acknowledge already-satisfied static database assignments, but must not pretend the interrupted execution completed.
+
+**Why:** Successful action logs alone cannot establish a complete batch. A narrowly reviewed incident can nevertheless have every possible direct and nested outcome already satisfied without any external effects being required.
+
+**How to apply:** Fence the exact event cohort, current stage occurrence, workflow configuration, claim ownership and current values in one transaction. Preserve an explicit reconciliation audit reason. Never generalize this exception to email/provider actions or use a lack of logs as proof of no effects.

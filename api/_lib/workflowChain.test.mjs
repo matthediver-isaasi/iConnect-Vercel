@@ -4,7 +4,7 @@
 // downstream evaluation; trigger paths skip workflows already in `visited`.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { extendWorkflowChain } from './workflows.js';
+import { buildChainedWorkflowContext, extendWorkflowChain } from './workflows.js';
 
 const wf = (id) => ({ id, name: `wf-${id}` });
 
@@ -50,4 +50,20 @@ test('extending does not mutate the parent chain (branches stay independent)', (
   const snapshot = [...c1.visited];
   extendWorkflowChain({ chain: c1 }, wf('b'));
   assert.deepEqual(c1.visited, snapshot);
+});
+
+test('a chained field update cannot reuse its parent durable delivery identity', () => {
+  const child = buildChainedWorkflowContext({
+    deliveryKey: 'dd-field-mapping:event-1',
+    attendance: { transitionId: 'transition-1' },
+    actionEntityId: 'other',
+    triggerData: { parent: true },
+    chain: { depth: 1, visited: ['parent'] },
+  }, { systemInitiated: true });
+  assert.equal(child.deliveryKey, undefined);
+  assert.equal(child.attendance, undefined);
+  assert.equal(child.actionEntityId, undefined);
+  assert.equal(child.triggerData, undefined);
+  assert.equal(child.systemInitiated, true);
+  assert.deepEqual(child.chain.visited, ['parent']);
 });

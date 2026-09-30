@@ -625,6 +625,7 @@ export const workflowLog = pgTable("workflow_log", {
   workflow_id: varchar("workflow_id").notNull(),
   entity_type: text("entity_type").notNull(),
   entity_id: text("entity_id").notNull(),
+  delivery_key: text("delivery_key"),
   trigger_data: jsonb("trigger_data"), // { before, after, changed_fields }
   actions_executed: jsonb("actions_executed"), // [{ action_type, status, result, error }]
   status: text("status").notNull(), // 'success', 'partial', 'failed'

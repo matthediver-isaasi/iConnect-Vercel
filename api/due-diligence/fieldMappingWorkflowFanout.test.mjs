@@ -62,7 +62,10 @@ function createFieldMappingClient(state) {
         if (table === 'tenant') return { data: { slug: 'tenant' }, error: null };
         if (table === 'form') return { data: { fields: [] }, error: null };
         if (table === 'workflow') return { data: state.workflows || [], error: null };
-        if (table === 'workflow_log') return { data: null, error: null };
+        if (table === 'workflow_log') {
+          if (operation === 'insert') (state.workflowLogs ||= []).push(mutation);
+          return { data: null, error: null };
+        }
         if (table === 'workflow_delivery_claim') {
           state.workflowClaims ||= [];
           if (operation === 'insert') {
@@ -81,7 +84,7 @@ function createFieldMappingClient(state) {
             return { data: selected && claim ? { delivery_key: claim.delivery_key } : null, error: null };
           }
           return {
-            data: state.workflowClaims.find((row) => row.delivery_key === filters.delivery_key) || null,
+            data: state.workflowClaims.find((row) => Object.entries(filters).every(([key, value]) => row[key] === value)) || null,
             error: null,
           };
         }
@@ -112,9 +115,13 @@ function createFieldMappingClient(state) {
               item.id === filters.id
               && item.tenant_id === filters.tenant_id
               && item.form_submission_due_diligence_id === filters.form_submission_due_diligence_id
+              && (!filters.event_key || item.event_key === filters.event_key)
+              && (!filters.target_entity || item.target_entity === filters.target_entity)
+              && (!filters.member_id || item.member_id === filters.member_id)
+              && (!filters.organization_id || item.organization_id === filters.organization_id)
             ));
             if (selected && filters.status === 'pending') state.onClaim?.(row);
-            if (!row || (filters.status && row.status !== filters.status)) {
+            if (!row || (filters.status && !(Array.isArray(filters.status) ? filters.status.includes(row.status) : row.status === filters.status))) {
               return { data: null, error: null };
             }
             Object.assign(row, mutation);
@@ -301,6 +308,88 @@ test('processing rows are blocked without reclaiming, replaying, or rewriting th
     assert.deepEqual(row, original);
     assert.equal(calls, 0);
   }
+});
+
+test('completed claim reconciles stranded outbox without replay, for core and member preference', async () => {
+  for (const status of ['processing', 'requires_attention']) {
+    for (const target of ['organization', 'member']) {
+      const row = fanoutRow({
+        status, last_error: 'prior uncertainty',
+        ...(target === 'member' ? { target_entity: 'member', member_id: 'member', organization_id: null,
+          event_type: 'preference', payload: { field_id: 'field', new_value: 'new' } } : {}),
+      });
+      const state = { outbox: [row], workflowClaims: [{
+        delivery_key: `dd-field-mapping:${row.id}`, tenant_id: row.tenant_id,
+        entity_type: target, entity_id: target === 'member' ? row.member_id : row.organization_id,
+        status: 'completed', completed_at: '2026-01-01T00:00:00Z',
+      }] };
+      await withFieldMappingClient(state, async () => {
+        await dispatchFieldMappingWorkflowFanouts(dispatchOptions({
+          triggerWorkflows: () => { throw Error('replayed'); },
+          triggerPreferenceWorkflows: () => { throw Error('replayed'); },
+        }));
+      });
+      assert.equal(row.status, 'completed');
+      assert.equal(row.last_error, null);
+      assert.ok(row.completed_at);
+    }
+  }
+});
+
+test('incomplete or mismatched claim cannot reconcile or replay stranded outbox', async () => {
+  const row = fanoutRow({ status: 'processing', last_error: 'original reason' });
+  for (const patch of [
+    { status: 'processing' }, { status: 'failed' }, { completed_at: null },
+    { tenant_id: 'other' }, { entity_type: 'member' }, { entity_id: 'other' },
+    { delivery_key: 'dd-field-mapping:other' },
+  ]) {
+    const state = { outbox: [row], workflowClaims: [{
+      delivery_key: `dd-field-mapping:${row.id}`, tenant_id: row.tenant_id,
+      entity_type: 'organization', entity_id: row.organization_id,
+      status: 'completed', completed_at: '2026-01-01T00:00:00Z', ...patch,
+    }] };
+    const original = structuredClone(row);
+    await withFieldMappingClient(state, async () => {
+      await assert.rejects(dispatchFieldMappingWorkflowFanouts(dispatchOptions({
+        triggerWorkflows: () => { throw Error('replayed'); },
+      })), (error) => assertFanoutError(error, row, 'processing'));
+    });
+    assert.deepEqual(row, original);
+  }
+});
+
+test('durable core success and skipped workflow logs carry the claim delivery key', async () => {
+  const state = {
+    organization: { id: 'organization', tenant_id: 'tenant', name: 'After' },
+    outbox: [fanoutRow()],
+    workflows: [
+      { id: 'run', tenant_id: 'tenant', name: 'run', trigger_type: 'record_update',
+        trigger_mode: 'every_time', actions: [], conditions: [] },
+      { id: 'skip', tenant_id: 'tenant', name: 'skip', trigger_type: 'record_update',
+        trigger_mode: 'every_time', actions: [], conditions: [
+          { field_id: 'name', field_type: 'core', operator: 'equals', value: 'Not After' },
+        ] },
+    ],
+  };
+  await withFieldMappingClient(state, () => dispatchFieldMappingWorkflowFanouts(dispatchOptions()));
+  assert.deepEqual(state.workflowLogs.map((log) => [log.workflow_id, log.delivery_key]),
+    [['run', 'dd-field-mapping:event-1'], ['skip', 'dd-field-mapping:event-1']]);
+  assert.equal(state.workflowClaims[0].status, 'completed');
+});
+
+test('durable preference workflow execution log carries its own claim delivery key', async () => {
+  const row = fanoutRow({ event_type: 'preference',
+    payload: { field_id: 'field', new_value: 'approved', previous_value: 'pending' } });
+  const state = {
+    organization: { id: 'organization', tenant_id: 'tenant', name: 'After' },
+    outbox: [row],
+    workflows: [{ id: 'pref', tenant_id: 'tenant', name: 'pref', trigger_type: 'field_change',
+      trigger_config: { field_type: 'custom', field_id: 'field', operator: 'equals', value: 'approved' },
+      trigger_mode: 'every_time', actions: [], conditions: [] }],
+  };
+  await withFieldMappingClient(state, () => dispatchFieldMappingWorkflowFanouts(dispatchOptions()));
+  assert.deepEqual(state.workflowLogs.map((log) => log.delivery_key), ['dd-field-mapping:event-1']);
+  assert.equal(state.workflowClaims[0].status, 'completed');
 });
 
 test('a concurrent claim blocks dispatch without modifying or replaying the owned row', async () => {

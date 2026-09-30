@@ -1010,13 +1010,14 @@ export function attendanceWorkflowDeliveryKey({
 
 // Log a skipped run when the chain guard stops a downstream workflow, so the
 // admin can see WHY it didn't fire instead of the skip living only in logs.
-async function logChainGuardSkip(workflow, entityType, entityId, reason, chain) {
+async function logChainGuardSkip(workflow, entityType, entityId, reason, chain, deliveryKey = null) {
   try {
     await supabase.from('workflow_log').insert({
       tenant_id: workflow.tenant_id,
       workflow_id: workflow.id,
       entity_type: entityType,
       entity_id: entityId,
+      delivery_key: deliveryKey,
       trigger_data: {
         trigger_type: 'field_change',
         reason,
@@ -1115,7 +1116,7 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
           const chain = extendWorkflowChain(context, workflow);
           if (!chain) {
             console.warn(`[Workflows] Chain depth cap (${MAX_WORKFLOW_CHAIN_DEPTH}) reached after "${workflow.name}" - not evaluating downstream workflows for ${table}.${action.config.field_id}`);
-            await logChainGuardSkip(workflow, entityType, entityId, 'chain_depth_cap', context?.chain);
+            await logChainGuardSkip(workflow, entityType, entityId, 'chain_depth_cap', context?.chain, context.deliveryKey);
           } else {
             try {
               const afterRow = { ...(beforeRow || {}), id: entityId, [action.config.field_id]: resolvedValue };
@@ -1236,16 +1237,15 @@ async function executeWorkflowActions(workflow, entityType, entityId, entityData
           const chain = extendWorkflowChain(context, workflow);
           if (!chain) {
             console.warn(`[Workflows] Chain depth cap (${MAX_WORKFLOW_CHAIN_DEPTH}) reached after "${workflow.name}" - not evaluating downstream workflows for custom field ${fieldId}`);
-            await logChainGuardSkip(workflow, entityType, entityId, 'chain_depth_cap', context?.chain);
+            await logChainGuardSkip(workflow, entityType, entityId, 'chain_depth_cap', context?.chain, context.deliveryKey);
           } else if (entityType === 'member' || entityType === 'organization') {
             try {
-              await triggerPreferenceWorkflows(entityType, entityId, fieldId, String(resolvedValue ?? ''), baseUrl, previousValue, {
-                ...context,
+              await triggerPreferenceWorkflows(entityType, entityId, fieldId, String(resolvedValue ?? ''), baseUrl, previousValue, buildChainedWorkflowContext(context, {
                 systemInitiated: true,
                 // Task #3235: name the initiating workflow in trigger_data.
                 triggeredByWorkflow: { id: workflow.id, name: workflow.name },
                 chain,
-              });
+              }));
             } catch (chainErr) {
               console.error(`[Workflows] Downstream evaluation after update_field (custom) failed:`, chainErr.message);
             }
@@ -2881,7 +2881,7 @@ async function checkOncePerRecord(workflow, entityType, entityId) {
   return existingLogs && existingLogs.length > 0;
 }
 
-async function logWorkflowExecution(workflow, entityType, entityId, triggerData, results) {
+async function logWorkflowExecution(workflow, entityType, entityId, triggerData, results, deliveryKey = null) {
   // Task #3244 — don't log an unqualified "success" when actions were
   // skipped or failed. NOTE: status 'skipped' is reserved for
   // conditions-not-met runs (checkOncePerRecord relies on that), so runs
@@ -2903,6 +2903,7 @@ async function logWorkflowExecution(workflow, entityType, entityId, triggerData,
     workflow_id: workflow.id,
     entity_type: entityType,
     entity_id: entityId,
+    delivery_key: deliveryKey,
     trigger_data: triggerData,
     actions_executed: results,
     status,
@@ -3145,6 +3146,12 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
     }
     
     console.log(`[Workflows] Evaluating ${workflows.length} workflows for ${entityType}:${entityId} (tenant: ${tenantId})`);
+    const keyForWorkflow = (workflow) => usesPerWorkflowDelivery
+      ? attendanceWorkflowDeliveryKey({
+        tenantId, workflowId: workflow.id, entityId,
+        triggerMode: workflow.trigger_mode, transitionDeliveryKey: context.deliveryKey,
+      })
+      : context.deliveryKey || null;
 
     // Task 3197: re-check path restricts evaluation to an explicit workflow
     // id set (workflows whose record_create run was skipped on conditions).
@@ -3205,7 +3212,7 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
       // already in this chain must not run again (A -> B -> A / self-trigger).
       if (Array.isArray(context.chain?.visited) && context.chain.visited.includes(workflow.id)) {
         console.log(`[Workflows] Chain loop guard: "${workflow.name}" already ran in this chain - skipping`);
-        await logChainGuardSkip(workflow, entityType, entityId, 'chain_loop_guard', context.chain);
+        await logChainGuardSkip(workflow, entityType, entityId, 'chain_loop_guard', context.chain, keyForWorkflow(workflow));
         continue;
       }
 
@@ -3382,6 +3389,7 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
             workflow_id: workflow.id,
             entity_type: entityType,
             entity_id: entityId,
+            delivery_key: keyForWorkflow(workflow),
             trigger_data: {
               trigger_type: triggerType,
               condition_results: conditionResults,
@@ -3444,15 +3452,7 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
       const actionEntityId = context.attendance && context.actionEntityId
         ? context.actionEntityId
         : entityId;
-      const workflowDeliveryKey = usesPerWorkflowDelivery
-        ? attendanceWorkflowDeliveryKey({
-          tenantId,
-          workflowId: workflow.id,
-          entityId,
-          triggerMode: workflow.trigger_mode,
-          transitionDeliveryKey: context.deliveryKey,
-        })
-        : context.deliveryKey;
+      const workflowDeliveryKey = keyForWorkflow(workflow);
       let workflowDeliveryClaim = null;
       if (usesPerWorkflowDelivery) {
         workflowDeliveryClaim = await claimWorkflowDelivery({
@@ -3474,6 +3474,7 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
             workflow_id: workflow.id,
             entity_type: entityType,
             entity_id: entityId,
+            delivery_key: workflowDeliveryKey,
             trigger_data: {
               trigger_type: triggerType,
               ...(context.triggerData || {}),
@@ -3495,7 +3496,7 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
           baseUrl,
           context,
         );
-        await logWorkflowExecution(workflow, entityType, entityId, { before: beforeData, after: afterData, trigger_type: triggerType, ...(context.triggerData || {}), ...(context.systemInitiated ? { system_initiated: true, ...(context.triggeredByWorkflow ? { triggered_by_workflow: context.triggeredByWorkflow } : {}) } : {}) }, results);
+        await logWorkflowExecution(workflow, entityType, entityId, { before: beforeData, after: afterData, trigger_type: triggerType, ...(context.triggerData || {}), ...(context.systemInitiated ? { system_initiated: true, ...(context.triggeredByWorkflow ? { triggered_by_workflow: context.triggeredByWorkflow } : {}) } : {}) }, results, workflowDeliveryKey);
         if (context.deliveryKey) {
           const deliveryOutcome = durableDeliveryOutcomeError(results, deliveryHadSuccessfulEffect);
           deliveryHadSuccessfulEffect = deliveryOutcome.hadSuccessfulEffect;
@@ -3516,6 +3517,7 @@ export async function triggerWorkflows(entityType, entityId, beforeData, afterDa
             workflow_id: workflow.id,
             entity_type: entityType,
             entity_id: entityId,
+            delivery_key: workflowDeliveryKey,
             trigger_data: {
               trigger_type: triggerType,
               ...(context.triggerData || {}),
@@ -3882,7 +3884,7 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
       // already in this chain must not run again (A -> B -> A / self-trigger).
       if (Array.isArray(context.chain?.visited) && context.chain.visited.includes(workflow.id)) {
         console.log(`[Workflows] Chain loop guard: "${workflow.name}" already ran in this chain - skipping`);
-        await logChainGuardSkip(workflow, entityType, entityId, 'chain_loop_guard', context.chain);
+        await logChainGuardSkip(workflow, entityType, entityId, 'chain_loop_guard', context.chain, context.deliveryKey);
         continue;
       }
 
@@ -4047,7 +4049,7 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
         // partial write, or a nested workflow updates a preference.
         preferenceConditionValues.clear();
       }
-      await logWorkflowExecution(workflow, entityType, entityId, { field_id: fieldId, value: value, trigger_type: 'field_change', ...(context.systemInitiated ? { system_initiated: true, ...(context.triggeredByWorkflow ? { triggered_by_workflow: context.triggeredByWorkflow } : {}) } : {}) }, results);
+      await logWorkflowExecution(workflow, entityType, entityId, { field_id: fieldId, value: value, trigger_type: 'field_change', ...(context.systemInitiated ? { system_initiated: true, ...(context.triggeredByWorkflow ? { triggered_by_workflow: context.triggeredByWorkflow } : {}) } : {}) }, results, context.deliveryKey);
       if (context.deliveryKey) {
         const deliveryOutcome = durableDeliveryOutcomeError(results, deliveryHadSuccessfulEffect);
         deliveryHadSuccessfulEffect = deliveryOutcome.hadSuccessfulEffect;
