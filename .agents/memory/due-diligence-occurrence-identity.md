@@ -26,3 +26,9 @@ Incident reconciliation may acknowledge already-satisfied static database assign
 **Why:** Successful action logs alone cannot establish a complete batch. A narrowly reviewed incident can nevertheless have every possible direct and nested outcome already satisfied without any external effects being required.
 
 **How to apply:** Fence the exact event cohort, current stage occurrence, workflow configuration, claim ownership and current values in one transaction. Preserve an explicit reconciliation audit reason. Never generalize this exception to email/provider actions or use a lack of logs as proof of no effects.
+
+Optional empty mapping answers are no-ops, not failed deliveries or clearing instructions.
+
+**Why:** A completed outbox cohort can coexist with an attention response caused solely by optional blank source fields. Historical `mappings_count` counted attention outcomes as well as successful writes, so it cannot prove completion.
+
+**How to apply:** Resolve persisted source definitions and requiredness/visibility before classifying absence; keep missing definitions and genuinely required blanks in attention. Preserve explicit member clears, false and zero. Report applied, skipped, attention and unchanged counts separately, and never replay a saved stage just to remove an optional-blank warning.

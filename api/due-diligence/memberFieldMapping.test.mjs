@@ -26,6 +26,78 @@ test('member core values retain their string storage representation', () => {
   assert.equal(__testables.coerceMemberCoreMappingValue('2026-10-25', 'job_title'), '2026-10-25');
 });
 
+test('member optional blank never clears or fans out; required and missing remain attention; explicit clear is retained', async () => {
+  const originalFrom = supabase.from;
+  const originalRpc = supabase.rpc;
+  const rpcCalls = [];
+  let history = [];
+  supabase.rpc = async (_name, params) => {
+    rpcCalls.push(params);
+    return { data: { applied: true, after: { first_name: null } }, error: null };
+  };
+  supabase.from = (table) => {
+    let mutation;
+    const query = {
+      select() { return query; }, eq() { return query; }, in() { return query; },
+      update(value) { mutation = value; return query; },
+      single() { return response(); }, maybeSingle() { return response(); },
+      then(resolve) { return resolve(response()); },
+    };
+    const response = () => {
+      if (table === 'member') return { data: { id: 'member', first_name: 'Retained' }, error: null };
+      if (table === 'form_submission_due_diligence') {
+        if (mutation) history = mutation.history_log;
+        return { data: { history_log: history }, error: null };
+      }
+      if (table === 'preference_field') return { data: [], error: null };
+      throw new Error(`Unexpected query: ${table}`);
+    };
+    return query;
+  };
+  try {
+    for (const scenario of ['optional', 'required', 'missing', 'hidden', 'clear', 'amended']) {
+      rpcCalls.length = 0;
+      const sourceFormFields = scenario === 'missing' ? [] : [{
+        id: 'source', required: scenario === 'required' || scenario === 'hidden',
+        starts_hidden: scenario === 'hidden',
+      }];
+      const result = await __testables.executeMemberFieldMappingActions({
+        memberActions: [{
+          id: 'action', tenant_id: 'tenant', target_entity: 'member', form_id: 'form',
+          due_diligence_stage_id: 'approved',
+          field_mappings: [{
+            source_type: scenario === 'clear' ? 'clear' : 'field',
+            source_field_id: 'source', target_type: 'core', target_field: 'first_name',
+          }],
+        }],
+        formSubmission: { form_id: 'form', created_member_id: 'member' },
+        ddSubmission: { id: 'dd', stage_action_occurrence_id: 'occurrence' },
+        tenantId: 'tenant', triggeredBy: 'test', options: {},
+        sourceFormFields,
+        originalData: { source: scenario === 'amended' ? 'Before' : [] },
+        reviewedData: scenario === 'amended' ? { source: '' } : {},
+        fieldReviewStatus: scenario === 'amended' ? { source: 'amended' } : {},
+      });
+      if (scenario === 'missing') {
+        assert.equal(result[0].status, 'error');
+      } else {
+        assert.equal(result[0].status, scenario === 'required' ? 'partial' : 'success');
+      }
+      assert.equal(rpcCalls.length, ['clear', 'amended'].includes(scenario) ? 1 : 0);
+      if (rpcCalls.length) {
+        assert.deepEqual(rpcCalls[0].p_mutation, { first_name: null });
+        assert.equal(rpcCalls[0].p_event_key, 'core:member:occurrence:action:0');
+      } else if (['optional', 'hidden'].includes(scenario)) {
+        assert.equal(history.at(-1).details.skipped_count, 1);
+        assert.equal(history.at(-1).details.applied_count, 0);
+      }
+    }
+  } finally {
+    supabase.from = originalFrom;
+    supabase.rpc = originalRpc;
+  }
+});
+
 test('member mappings apply configured transformations before storage coercion', () => {
   const resolved = __testables.resolveStageMappingSource({
     source_field_id: 'name',

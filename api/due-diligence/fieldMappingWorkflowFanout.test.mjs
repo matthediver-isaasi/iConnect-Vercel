@@ -33,7 +33,7 @@ function createFieldMappingClient(state) {
           return { data: {
             form_id: 'form',
             organization_id: 'organization',
-            submission_data: {},
+            submission_data: state.answers || {},
           }, error: null };
         }
         if (table === 'stage_field_mapping_action') {
@@ -60,7 +60,7 @@ function createFieldMappingClient(state) {
           return { data: operation === 'read' ? { ...state.organization } : null, error: null };
         }
         if (table === 'tenant') return { data: { slug: 'tenant' }, error: null };
-        if (table === 'form') return { data: { fields: [] }, error: null };
+        if (table === 'form') return { data: state.sourceForm || { fields: [] }, error: null };
         if (table === 'workflow') return { data: state.workflows || [], error: null };
         if (table === 'workflow_log') {
           if (operation === 'insert') (state.workflowLogs ||= []).push(mutation);
@@ -97,7 +97,10 @@ function createFieldMappingClient(state) {
             error: null,
           };
         }
-        if (table === 'form_submission_due_diligence') return { data: { history_log: [] }, error: null };
+        if (table === 'form_submission_due_diligence') {
+          if (operation === 'update') state.history = mutation.history_log;
+          return { data: { history_log: state.history || [] }, error: null };
+        }
         if (table === 'form_due_diligence_field_mapping_workflow_outbox') {
           if (operation === 'upsert') {
             if (!state.outbox.some((row) => row.event_key === mutation.event_key)) {
@@ -240,6 +243,103 @@ function assertFanoutError(error, row, status) {
   assert.equal(JSON.stringify(error.ddFanout).includes('before'), false);
   return true;
 }
+
+test('organization optional blanks preserve destinations and produce no workflow effects', async () => {
+  const blanks = new Map([[1, 'address.line2'], [6, 'linkedin'], [20, 'demographic'], [28, 'overview']]);
+  const state = {
+    organization: { id: 'organization', tenant_id: 'tenant', name: 'Retained', address: { line2: 'Retained' } },
+    preferenceFields: [...blanks.values()].filter(v => !v.includes('.')).map(id => ({ id, label: id })),
+    sourceForm: { fields: [...blanks.keys()].map(index => ({ id: `field_${index}`, required: false })) },
+    mappingAction: { id: 'mapping', field_mappings: Array.from({ length: 33 }, (_, index) => (
+      blanks.has(index)
+        ? { source_field_id: `field_${index}`, target_type: index === 1 ? 'core' : 'custom', target_field: blanks.get(index) }
+        : { source_type: 'static', static_value: 'Retained', target_type: 'core', target_field: 'name' }
+    )) },
+    outbox: [],
+  };
+  const original = structuredClone(state.organization);
+  await withFieldMappingClient(state, async () => {
+    const results = await executeFieldMappingActions('approved', ddSubmission, 'tenant', 'system', {
+      workflowFanoutDependencies: {
+        triggerWorkflows: async () => assert.fail('no workflow should run'),
+        triggerPreferenceWorkflows: async () => assert.fail('no preference workflow should run'),
+      },
+    });
+    assert.equal(results[0].status, 'success');
+    assert.equal(results[0].mappings.filter(m => m.status === 'skipped').length, 4);
+    assert.deepEqual(state.organization, original);
+    assert.equal(state.outbox.length, 0);
+    assert.deepEqual(state.history.at(-1).details, {
+      mappings_count: 0, applied_count: 0, skipped_count: 4, attention_count: 0, noop_count: 29,
+      organization_id: 'organization',
+    });
+  });
+});
+
+test('organization all optional blank versus required, missing definition and invalid target', async () => {
+  for (const scenario of ['optional', 'required', 'missing', 'invalid']) {
+    const state = {
+      organization: { id: 'organization', tenant_id: 'tenant', name: 'Retained' },
+      sourceForm: { fields: scenario === 'missing' ? [] : [{ id: 'source', required: scenario === 'required' }] },
+      answers: { source: [] },
+      mappingAction: { id: 'mapping', field_mappings: [{
+        source_field_id: 'source', target_type: 'core', target_field: scenario === 'invalid' ? 'not_a_column' : 'name',
+      }] },
+      outbox: [],
+    };
+    await withFieldMappingClient(state, async () => {
+      const results = await executeFieldMappingActions('approved', ddSubmission, 'tenant', 'system');
+      assert.equal(results[0].status, scenario === 'optional' ? 'success' : 'partial');
+      assert.equal(state.organization.name, 'Retained');
+      assert.equal(state.outbox.length, 0);
+    });
+  }
+});
+
+test('an optional skip cannot hide a genuine organization write failure', async () => {
+  const state = {
+    organization: { id: 'organization', tenant_id: 'tenant', name: 'Retained' },
+    sourceForm: { fields: [{ id: 'source', required: false }] },
+    mappingAction: { id: 'mapping', field_mappings: [
+      { source_field_id: 'source', target_type: 'core', target_field: 'address.line2' },
+      { source_type: 'static', static_value: 'Changed', target_type: 'core', target_field: 'name' },
+    ] },
+    failCoreField: 'name',
+    outbox: [],
+  };
+  await withFieldMappingClient(state, async () => {
+    const results = await executeFieldMappingActions('approved', ddSubmission, 'tenant', 'system');
+    assert.equal(results[0].status, 'partial');
+    assert.deepEqual(results[0].mappings.map(m => m.status), ['skipped', 'error']);
+    assert.equal(state.history.at(-1).details.attention_count, 1);
+    assert.equal(state.history.at(-1).details.skipped_count, 1);
+    assert.equal(state.outbox.length, 0);
+  });
+});
+
+test('organization false and zero are written, not skipped as empty answers', async () => {
+  for (const value of [false, 0]) {
+    const state = {
+      organization: { id: 'organization', tenant_id: 'tenant', name: 'Retained' },
+      sourceForm: { fields: [{ id: 'source', required: false }] },
+      answers: { source: value },
+      mappingAction: { id: 'mapping', field_mappings: [{
+        source_field_id: 'source', target_type: 'core', target_field: 'name',
+      }] },
+      outbox: [],
+    };
+    await withFieldMappingClient(state, async () => {
+      const results = await executeFieldMappingActions('approved', ddSubmission, 'tenant', 'system', {
+        workflowFanoutDependencies: { triggerWorkflows: async () => ({ delivery: { status: 'completed' } }) },
+      });
+      assert.equal(results[0].status, 'success');
+      assert.equal(results[0].mappings[0].status, 'updated');
+      assert.equal(state.organization.name, String(value));
+      assert.equal(state.outbox.length, 1);
+      assert.equal(state.history.at(-1).details.applied_count, 1);
+    });
+  }
+});
 
 test('requires_attention keeps its original recorded reason and row untouched', async () => {
   const row = fanoutRow({

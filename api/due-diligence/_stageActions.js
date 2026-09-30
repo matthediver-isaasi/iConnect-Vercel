@@ -6,8 +6,10 @@ import { resolveDdOwnerForSubmission } from '../_lib/ddOwner.js';
 import { buildContractBracketPlaceholders, replaceContractBracketPlaceholders } from '../_lib/contractPlaceholders.js';
 import { prepareMemberCustomPreferenceValue } from './memberCustomMapping.js';
 import { resolveStaticTodayToken } from '../_lib/staticValueTokens.js';
+import { classifyEmptyMappingSource, isEmptyMappingAnswer, summarizeMappingResults } from './mappingEmptySource.js';
 import {
   MEMBER_MAPPING_CORE_FIELDS,
+  isOrganizationCoreField,
   validateMemberMappingAction,
   validateStageFieldMapping,
 } from '../../shared/stageMemberMappingContract.js';
@@ -2221,7 +2223,7 @@ function resolveStageMappingSource(mapping, {
     sourceFormFields,
   });
   let value = resolved.value;
-  if (transformation && transformation !== 'none') {
+  if (!isEmptyMappingAnswer(value) && transformation && transformation !== 'none') {
     value = applyTransformation(value, transformation);
   }
   return {
@@ -2230,6 +2232,19 @@ function resolveStageMappingSource(mapping, {
     explicitEmpty: resolved.source === 'amended'
       && (value === null || value === undefined || value === ''),
   };
+}
+
+// Visibility must see the same reviewed/original answer authority as mappings,
+// retaining hidden answers rather than projecting them out before evaluation.
+function mappingVisibilityAnswers(sourceFormFields, context) {
+  const answers = { ...context.originalData };
+  for (const field of sourceFormFields) {
+    const value = resolveReviewedFieldValue({
+      ...context, sourceFormFields, sourceFieldId: field.id || field.name || field.key,
+    }).value;
+    for (const key of [field.id, field.name, field.key].filter(Boolean)) answers[key] = value;
+  }
+  return answers;
 }
 
 /**
@@ -2249,6 +2264,7 @@ async function executeMemberFieldMappingActions({
   triggeredBy,
   options,
   sourceFormFields,
+  sourceForm = { fields: sourceFormFields },
   sourceFormAvailable = true,
   originalData,
   reviewedData,
@@ -2383,11 +2399,13 @@ async function executeMemberFieldMappingActions({
         fieldReviewStatus,
         sourceFormFields,
       });
-      if (
-        !resolved.explicitEmpty
-        && (resolved.value === undefined || resolved.value === null || resolved.value === '')
-      ) {
-        mappingResults.push({ field: targetField, status: 'requires_attention', reason: 'Source value is empty' });
+      const emptyOutcome = classifyEmptyMappingSource(mapping, resolved.value, {
+        sourceForm,
+        answers: mappingVisibilityAnswers(sourceFormFields, { originalData, reviewedData, fieldReviewStatus }),
+        explicitEmpty: resolved.explicitEmpty,
+      });
+      if (emptyOutcome) {
+        mappingResults.push({ field: targetField, ...emptyOutcome });
         continue;
       }
 
@@ -2484,17 +2502,18 @@ async function executeMemberFieldMappingActions({
       });
     }
 
+    const summary = summarizeMappingResults(mappingResults);
     const result = {
       action: 'field_mapping',
       field_mapping_action_id: action.id,
       target_entity: 'member',
       member_id: linkedMemberId,
       mappings: mappingResults,
-      status: mappingResults.some((mapping) => ['error', 'requires_attention'].includes(mapping.status)) ? 'partial' : 'success',
+      status: summary.status,
     };
     results.push(result);
     await addHistoryLogEntry(ddSubmission.id, tenantId, 'field_mapping_executed', triggeredBy, {
-      mappings_count: mappingResults.filter((mapping) => mapping.status !== 'error').length,
+      ...summary.history,
       member_id: linkedMemberId,
     });
     if (result.status === 'success') {
@@ -2596,12 +2615,13 @@ export async function executeFieldMappingActions(stageId, ddSubmission, tenantId
       }
 
       let memberSourceFormFields = [];
+      let memberSourceForm = {};
       let memberSourceFormAvailable = false;
       const memberSourceFormId = formSubmission.form_id || ddSubmission.form_id || ddSubmission.form_submission?.form_id;
       if (memberSourceFormId) {
         const { data: sourceForm, error: sourceFormError } = await supabase
           .from('form')
-          .select('fields')
+          .select('fields, pages, visibility_rules')
           .eq('id', memberSourceFormId)
           .eq('tenant_id', tenantId)
           .single();
@@ -2611,6 +2631,7 @@ export async function executeFieldMappingActions(stageId, ddSubmission, tenantId
           }
         } else {
           memberSourceFormFields = sourceForm?.fields || [];
+          memberSourceForm = sourceForm || {};
           memberSourceFormAvailable = Boolean(sourceForm);
         }
       }
@@ -2625,6 +2646,7 @@ export async function executeFieldMappingActions(stageId, ddSubmission, tenantId
         triggeredBy,
         options,
         sourceFormFields: memberSourceFormFields,
+        sourceForm: memberSourceForm,
         sourceFormAvailable: memberSourceFormAvailable,
         originalData: formSubmission.submission_data || {},
         reviewedData: ddSubmission.reviewed_form_values || {},
@@ -2750,10 +2772,11 @@ export async function executeFieldMappingActions(stageId, ddSubmission, tenantId
     // keyed differently depending on how the form was rendered.
     const sourceFormId = formSubmission.form_id || ddSubmission.form_id || ddSubmission.form_submission?.form_id;
     let sourceFormFields = [];
+    let mappingSourceForm = {};
     if (sourceFormId) {
       const { data: sourceForm, error: sourceFormError } = await supabase
         .from('form')
-        .select('fields')
+        .select('fields, pages, visibility_rules')
         .eq('id', sourceFormId)
         .eq('tenant_id', tenantId)
         .single();
@@ -2761,6 +2784,7 @@ export async function executeFieldMappingActions(stageId, ddSubmission, tenantId
         console.warn('[DD Field Mapping] Could not load source form fields:', sourceFormError.message);
       } else {
         sourceFormFields = sourceForm?.fields || [];
+        mappingSourceForm = sourceForm || {};
       }
     }
 
@@ -2887,7 +2911,20 @@ export async function executeFieldMappingActions(stageId, ddSubmission, tenantId
       const mappingResults = [];
       
       for (const [mappingIndex, mapping] of mappings.entries()) {
+        if (!mapping || !['core', 'custom'].includes(mapping.target_type)
+          || (mapping.target_entity != null && mapping.target_entity !== 'organization')
+          || (mapping.target_type === 'core' && !isOrganizationCoreField(mapping.target_field))
+          || (mapping.target_type === 'custom' && !prefFieldMap.has(mapping.target_field))) {
+          mappingResults.push({ field: mapping?.target_field, status: 'error', error: 'Invalid organization field mapping target' });
+          continue;
+        }
         const { source_type, source_field_id, target_type, target_field, static_value, transformation } = mapping;
+        if (source_type !== 'static' && transformation !== 'current_date'
+          && !sourceFormFields.some((field) => field && source_field_id
+            && [field.id, field.name, field.key].includes(source_field_id))) {
+          mappingResults.push({ field: target_field, status: 'requires_attention', reason: 'Source field definition is missing' });
+          continue;
+        }
         
         let sourceValue;
         let valueSource;
@@ -2934,11 +2971,15 @@ export async function executeFieldMappingActions(stageId, ddSubmission, tenantId
             valueSource = 'current_date';
             console.log(`[DD Field Mapping] field=${source_field_id} -> ${target_field} resolved current_date transformation to "${sourceValue}"`);
           } else {
-            // Note: 0 and false are valid values; only undefined/null/empty-string means "not set".
-            const isValueEmpty = sourceValue === undefined || sourceValue === null || sourceValue === '';
-            if (isValueEmpty) {
+            // Optional absent answers (including empty collections) are not
+            // clearing instructions. Zero and false remain real values.
+            const emptyOutcome = classifyEmptyMappingSource(mapping, sourceValue, {
+              sourceForm: mappingSourceForm,
+              answers: mappingVisibilityAnswers(sourceFormFields, { originalData, reviewedData, fieldReviewStatus }),
+            });
+            if (emptyOutcome) {
               console.log(`[DD Field Mapping] field=${source_field_id} -> ${target_field} source=${valueSource} value=empty, skipping`);
-              mappingResults.push({ field: target_field, status: 'requires_attention', reason: 'Source value is empty' });
+              mappingResults.push({ field: target_field, ...emptyOutcome });
               continue;
             }
 
@@ -3303,7 +3344,8 @@ export async function executeFieldMappingActions(stageId, ddSubmission, tenantId
         }
       }
       
-      const mappingStatus = mappingResults.some(r => ['error', 'requires_attention'].includes(r.status)) ? 'partial' : 'success';
+      const summary = summarizeMappingResults(mappingResults);
+      const mappingStatus = summary.status;
       results.push({
         action: 'field_mapping',
         field_mapping_action_id: fma.id,
@@ -3312,7 +3354,7 @@ export async function executeFieldMappingActions(stageId, ddSubmission, tenantId
       });
       
       await addHistoryLogEntry(ddSubmission.id, tenantId, 'field_mapping_executed', triggeredBy, {
-        mappings_count: mappingResults.filter(r => r.status !== 'error').length,
+        ...summary.history,
         organization_id: organizationId
       });
       if (results[results.length - 1].status === 'success') {
