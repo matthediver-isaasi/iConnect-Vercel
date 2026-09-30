@@ -141,7 +141,7 @@ export async function runMemberGroupWidgetConfig(config, tenantId, client, optio
   }
   const refs = [...(config.filters || []), ...(config.groupBy ? [{ ...config.groupBy, fieldKind: config.groupBy.kind }] : [])];
   const customIds = [...new Set(refs.filter(r => r.fieldKind === 'custom').map(r => r.fieldId))];
-  const needsMembers = ['current_members', 'current_organizations'].includes(metric) || refs.some(r => r.fieldKind === 'custom' || MEMBER_FIELDS.includes(r.field));
+  const needsMembers = ['current_members', 'current_memberships', 'current_organizations'].includes(metric) || refs.some(r => r.fieldKind === 'custom' || MEMBER_FIELDS.includes(r.field));
   if (needsMembers) members = await read('member', 'id,role_id,organization_id,login_enabled');
   if (customIds.length) {
     // This value table has no tenant column. Both sides of the lookup are
@@ -189,6 +189,11 @@ export function aggregateMemberGroups(config, dataset, options = {}) {
     return values(fieldValue(row, ref, ref.kind)).map(v => v == null || v === '' ? '(Not set)' : String(v));
   };
   const count = rows => {
+    if (metric === 'current_memberships') {
+      // Count identities after eligibility and filters, independently in each
+      // bucket and overall: multi-valued breakdowns may overlap.
+      return new Set(rows.map(r => JSON.stringify([r.group_id, r.member_id]))).size;
+    }
     if (metric === 'current_organizations') {
       // Each bucket and the overall total have independent identity sets.
       return new Set(rows.map(r => members.get(r.member_id)?.organization_id)

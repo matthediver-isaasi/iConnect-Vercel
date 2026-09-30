@@ -388,6 +388,37 @@ test("Member Groups list renders missing history and provisional values without 
   container.remove();
 });
 
+test("Current group memberships dashboard stat and group rows render pair counts and their label", async () => {
+  const widget = {
+    id: "current-pairs",
+    widget_type: "stat",
+    config: { source: "member_group", measure: { aggregator: "count", fieldKind: "system", field: "current_memberships" } },
+  };
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(<WidgetBody widget={widget} payload={{ type: "scalar", value: 3, total: 3 }} />));
+    assert.equal(container.querySelector('[data-testid="stat-value-current-pairs"]').textContent, "3");
+    assert.match(container.textContent, /Current group memberships/);
+    assert.deepEqual(buildExportRows(widget, { type: "scalar", value: 3, total: 3 }), [
+      ["Label", "value", "Status"],
+      ["Current group memberships", 3, ""],
+    ]);
+
+    await act(async () => root.render(<WidgetBody widget={{ ...widget, widget_type: "list" }} payload={{
+      type: "group", total: 3, rows: [{ key: "Group A", value: 2 }, { key: "Group B", value: 1 }],
+    }} />));
+    assert.match(container.textContent, /Group A/);
+    assert.match(container.textContent, /Group B/);
+    assert.match(container.textContent, /Group counts are not an overall headcount/);
+    assert.doesNotMatch(container.textContent, /Total: 3/);
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
+
 test("Member Groups named monthly line chart keeps separate labelled series and unavailable CSV values", async () => {
   const widget = { id: "group-lines", widget_type: "line", config: { source: "member_group", measure: { field: "period_end_members" } } };
   const payload = {

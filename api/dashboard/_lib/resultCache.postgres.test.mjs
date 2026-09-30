@@ -6,6 +6,7 @@ import pg from 'pg';
 import { randomUUID } from 'node:crypto';
 import { createLocalPostgresHarness } from '../../../scripts/test-support/local-postgres-harness.mjs';
 import { readWidgetCache, executeClaim, runCacheScheduler } from './resultCache.js';
+import { runMemberGroupWidgetConfig } from './memberGroupAggregation.js';
 
 function command(name, args) {
   const out = spawnSync(name, args, { encoding: 'utf8' });
@@ -281,6 +282,66 @@ test('durable widget cache SQL, fencing, isolation, fairness and 24-widget warm 
     const recoveredRow = await row(capacityCold);
     assert.equal(recoveredRow.completed_request_id,expiredReceipt.refresh.requestId);
     assert.equal(recoveredRow.completed_request_outcome,'success');
+
+    // A saved current-memberships widget uses the real RPC cache path: one cold
+    // computation, no warm computation, then a new identity on config edit.
+    await client.query(`UPDATE dashboard_widget_result_cache SET lease_until=NULL,lease_token=NULL,
+      due_at=now()+interval '1 hour'`);
+    const groupConfig = {
+      source:'member_group',measure:{aggregator:'count',field:'current_memberships',fieldKind:'system'},
+      filters:[],groupBy:{kind:'system',field:'group_id'},
+    };
+    const membershipWidget = await insert({ config:groupConfig });
+    const tables = {
+      preference_field:[],
+      member_group:[{id:'a',name:'Alpha'},{id:'b',name:'Beta'}],
+      member:[{id:'m1'},{id:'m2'}],
+      member_group_assignment:[
+        {id:'1',group_id:'a',member_id:'m1'},
+        {id:'2',group_id:'a',member_id:'m1'},
+        {id:'3',group_id:'b',member_id:'m1'},
+        {id:'4',group_id:'b',member_id:'m2'},
+      ],
+    };
+    const source = { from(table) {
+      return {
+        select(){return this;},eq(){return this;},order(){return this;},
+        async range(){return {data:tables[table] || []};},
+      };
+    } };
+    let groupRuns = 0;
+    const runMemberships = (config, tenantId) => {
+      groupRuns++;
+      assert.equal(tenantId,actor.tenantId);
+      return runMemberGroupWidgetConfig(config,tenantId,source);
+    };
+    const initialIdentity = (await row(membershipWidget)).identity;
+    const cold = await readWidgetCache(db,membershipWidget,actor,{run:runMemberships});
+    assert.equal(cold.cache.status,'current');
+    assert.equal(cold.data.total,3);
+    assert.deepEqual(cold.data.rows,[{key:'Alpha',value:1},{key:'Beta',value:2}]);
+    assert.equal(groupRuns,1);
+    assert.deepEqual((await readWidgetCache(db,membershipWidget,actor,{run:runMemberships})).data,cold.data);
+    assert.equal(groupRuns,1,'warm reads must reuse the stored current-memberships result');
+
+    const filteredConfig = {...groupConfig,filters:[
+      {fieldKind:'system',field:'group_id',operator:'eq',value:'a'},
+    ]};
+    await client.query('UPDATE dashboard_widget SET config=$2 WHERE id=$1',[membershipWidget.id,filteredConfig]);
+    const afterEdit = await row(membershipWidget);
+    assert.notEqual(afterEdit.identity,initialIdentity);
+    assert.equal(afterEdit.result,null,'config changes discard old membership data');
+    assert.equal(afterEdit.updated_at,null);
+    await assert.rejects(readWidgetCache(db,membershipWidget,actor,{run:runMemberships}),/Widget changed/);
+    assert.equal(groupRuns,1);
+    const edited = {...membershipWidget,config:filteredConfig};
+    const changed = await readWidgetCache(db,edited,actor,{run:runMemberships});
+    assert.equal(changed.cache.status,'current');
+    assert.equal(changed.data.total,1);
+    assert.deepEqual(changed.data.rows,[{key:'Alpha',value:1}]);
+    assert.equal(groupRuns,2);
+    assert.deepEqual((await readWidgetCache(db,edited,actor,{run:runMemberships})).data,changed.data);
+    assert.equal(groupRuns,2);
   } finally {
     if (client) await client.end();
     try { command('pg_ctl',['-D',local.data,'-m','immediate','-w','stop']); } finally { await local.cleanup(); }

@@ -178,3 +178,59 @@ test("Current distinct organisations previews zero, saves, and reopens without t
     globalThis.fetch = originalFetch;
   }
 });
+
+test("Current group memberships previews, saves, and reopens as a non-temporal pair count", async () => {
+  const originalFetch = globalThis.fetch;
+  const previewConfigs = [];
+  globalThis.fetch = async (url, options) => {
+    if (url === "/api/dashboard/widgets/preview") {
+      previewConfigs.push(JSON.parse(options.body).config);
+    }
+    return {
+      ok: true,
+      json: async () => ({ data: { type: "scalar", value: 3, total: 3 } }),
+    };
+  };
+
+  const widget = {
+    ...initialWidget,
+    title: "Current group memberships",
+    config: {
+      ...initialWidget.config,
+      measure: { ...initialWidget.config.measure, field: "current_memberships" },
+    },
+  };
+  let saved;
+  let cleanup;
+  try {
+    cleanup = await renderBuilder(widget, value => { saved = value; });
+    assert.match(document.querySelector('[data-testid="widget-preview-pane"]').textContent, /3/);
+    assert.equal(document.querySelector('[data-testid="select-widget-field"]').textContent.trim(), "Current group memberships");
+    assert.ok(document.querySelector('[data-testid="select-widget-groupby"]'));
+    assert.equal(document.querySelector('[data-testid="select-widget-timebucket-field"]'), null);
+    assert.equal(document.querySelector('[data-testid="switch-widget-cumulative"]'), null);
+    assert.equal(document.querySelector('[data-testid="switch-widget-click-through"]'), null);
+    const preview = previewConfigs.at(-1);
+    assert.deepEqual(preview.measure, widget.config.measure);
+    assert.deepEqual(preview.filters, widget.config.filters);
+    assert.equal(preview.timeBucket, null);
+    assert.equal(Object.hasOwn(preview, "clickThrough"), false);
+
+    const save = document.querySelector('[data-testid="button-save-widget"]');
+    assert.equal(save.disabled, false);
+    await act(async () => save.click());
+    assert.deepEqual(reportingConfig(saved.config), reportingConfig(preview));
+    await cleanup();
+    cleanup = null;
+
+    cleanup = await renderBuilder(saved, () => {});
+    assert.match(document.querySelector('[data-testid="widget-preview-pane"]').textContent, /3/);
+    assert.equal(document.querySelector('[data-testid="select-widget-field"]').textContent.trim(), "Current group memberships");
+    assert.equal(document.querySelector('[data-testid="select-widget-timebucket-field"]'), null);
+    assert.equal(document.querySelector('[data-testid="switch-widget-click-through"]'), null);
+    assert.deepEqual(reportingConfig(previewConfigs.at(-1)), reportingConfig(saved.config));
+  } finally {
+    if (cleanup) await cleanup();
+    globalThis.fetch = originalFetch;
+  }
+});

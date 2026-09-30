@@ -83,6 +83,93 @@ test('organisation preview, saved creation and reloaded execution agree includin
   }
 });
 
+test('current memberships preview, create, reload and config update preserve distinct group-member pairs', async () => {
+  for (const scope of ['shared', 'personal']) for (const empty of [false, true]) {
+    let saved;
+    const tables = {
+      preference_field: [],
+      member_group: [{ id: 'a', name: 'Alpha' }, { id: 'b', name: 'Beta' }, { id: 'c', name: 'Empty' }],
+      member: empty ? [] : [{ id: 'm1' }, { id: 'm2' }],
+      member_group_assignment: [
+        { id: '1', group_id: 'a', member_id: 'm1' },
+        { id: '2', group_id: 'a', member_id: 'm1' },
+        { id: '3', group_id: 'b', member_id: 'm1' },
+        { id: '4', group_id: 'b', member_id: 'm2' },
+        { id: '5', group_id: 'a', member_id: 'missing' },
+        { id: '6', group_id: 'a', guest_id: 'guest' },
+      ],
+    };
+    const db = { from(table) {
+      let inserted, updated;
+      return {
+        select() { return this; }, order() { return this; }, limit() { return this; },
+        eq() { return this; },
+        insert(row) { inserted = row; return this; },
+        update(row) { updated = row; return this; },
+        async range() { return { data: tables[table] || [] }; },
+        async single() {
+          if (inserted) saved = JSON.parse(JSON.stringify({ ...inserted, id: 'saved-widget' }));
+          if (updated) saved = JSON.parse(JSON.stringify({ ...saved, ...updated }));
+          return { data: saved };
+        },
+        then(resolve) { return Promise.resolve({ data: [] }).then(resolve); },
+      };
+    } };
+    const dependencies = {
+      supabase: db, getDashboardActor: async () => actor,
+      runWidgetConfig: (cfg, tenantId) => runMemberGroupWidgetConfig(cfg, tenantId, db),
+    };
+    const cfg = {
+      source: 'member_group',
+      measure: { aggregator: 'count', field: 'current_memberships', fieldKind: 'system' },
+      filters: [],
+      groupBy: { kind: 'system', field: 'group_id' },
+    };
+    const preview = response();
+    await createPreview(dependencies)({ method: 'POST', body: { config: cfg, widgetType: 'bar' } }, preview);
+    assert.equal(preview.statusCode, 200);
+    assert.equal(preview.body.data.total, empty ? 0 : 3);
+    assert.deepEqual(preview.body.data.rows, [
+      { key: 'Alpha', value: empty ? 0 : 1 },
+      { key: 'Beta', value: empty ? 0 : 2 },
+      { key: 'Empty', value: 0 },
+    ]);
+
+    const created = response();
+    await createWidget(dependencies)({ method: 'POST', body: {
+      title: 'Current memberships', scope, widget_type: 'bar', config: cfg,
+    } }, created);
+    assert.equal(created.statusCode, 201);
+    assert.equal(saved.config.measure.field, 'current_memberships');
+    const getData = createData({
+      ...dependencies,
+      readWidgetCache: async (_db, widget, viewer, { run }) => ({ data: await run(widget.config, viewer.tenantId) }),
+    });
+    const reloaded = response();
+    await getData({ method: 'GET', query: { id: saved.id } }, reloaded);
+    assert.equal(reloaded.statusCode, 200);
+    assert.deepEqual(reloaded.body.data, preview.body.data);
+
+    const filtered = {
+      ...cfg,
+      filters: [{ fieldKind: 'system', field: 'group_id', operator: 'eq', value: 'a' }],
+    };
+    const changed = response();
+    await createUpdate(dependencies)({ method: 'PATCH', query: { id: saved.id }, body: { config: filtered } }, changed);
+    assert.equal(changed.statusCode, 200);
+    assert.equal(saved.config.measure.field, 'current_memberships');
+    assert.deepEqual(saved.config.filters, filtered.filters);
+    const updatedPreview = response();
+    await createPreview(dependencies)({ method: 'POST', body: { config: filtered, widgetType: 'bar' } }, updatedPreview);
+    assert.equal(updatedPreview.statusCode, 200);
+    const updatedData = response();
+    await getData({ method: 'GET', query: { id: saved.id } }, updatedData);
+    assert.equal(updatedData.statusCode, 200);
+    assert.deepEqual(updatedData.body.data, updatedPreview.body.data);
+    assert.equal(updatedData.body.data.total, empty ? 0 : 1);
+  }
+});
+
 test('preview rejects temporal pie/donut, stat series and missing type before aggregation', async () => {
   let calls = 0;
   const handler = createPreview({
@@ -158,10 +245,15 @@ test('null tenant historical requests fail explicitly without reading global bas
 
 test('count-only measures and period-end no-cumulative rules are never silently coerced', async () => {
   const handler = createPreview({ getDashboardActor: async () => actor, runWidgetConfig: async () => assert.fail('must reject first') });
+  const memberships = {
+    source: 'member_group', measure: { aggregator: 'count', field: 'current_memberships', fieldKind: 'system' }, filters: [],
+  };
   for (const bad of [
     { ...config, measure: { aggregator: 'sum', field: 'joins' } },
     { ...config, measure: { aggregator: 'count_distinct', field: 'joins' } },
     { ...config, measure: { aggregator: 'count', field: 'period_end_members' }, cumulative: true },
+    { ...memberships, measure: { aggregator: 'sum', field: 'current_memberships' } },
+    { ...memberships, timeBucket: config.timeBucket },
   ]) {
     const res = response();
     await handler({ method: 'POST', body: { config: bad, widgetType: 'line' } }, res);
@@ -170,4 +262,5 @@ test('count-only measures and period-end no-cumulative rules are never silently 
   assert.doesNotThrow(() => validateMemberGroupWidgetType({
     ...config, timeBucket: null, measure: { aggregator: 'count', field: 'current_members' },
   }, 'pie'));
+  assert.doesNotThrow(() => validateMemberGroupWidgetType(memberships, 'pie'));
 });
