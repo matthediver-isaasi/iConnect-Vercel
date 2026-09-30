@@ -24,6 +24,8 @@ import CustomObjectAudienceCondition, { customObjectConditionError, customObject
 import EventSurveyAudiencePicker from "@/components/communications/EventSurveyAudiencePicker";
 import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
 import { parseExternalContacts } from "@/lib/externalContactsCsv";
+import { downloadCsv, slugifyFilename } from "@/lib/csvExport";
+import { audiencePreviewToCsv } from "@/lib/audienceCsvExport";
 import {
   beginExternalSubscriberRequest,
   createLatestRequestTracker,
@@ -106,6 +108,8 @@ export default function CommunicationsManagementPage() {
   const [previewTotalCount, setPreviewTotalCount] = useState(0);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewPage, setPreviewPage] = useState(1);
+  const [exportingListIds, setExportingListIds] = useState(new Set());
+  const exportingListIdsRef = useRef(new Set());
   const previewPageSize = 20;
   const [externalContactsList, setExternalContactsList] = useState(null);
   const [externalContacts, setExternalContacts] = useState([]);
@@ -684,6 +688,36 @@ export default function CommunicationsManagementPage() {
     setAddListSegmentRoles([]);
     resetIndMemberSearch();
     setShowEditListDialog(true);
+  };
+
+  const downloadAudienceList = async (list) => {
+    // Ref guards rapid clicks before React has rendered the disabled state.
+    if (exportingListIdsRef.current.has(list.id)) return;
+    exportingListIdsRef.current.add(list.id);
+    setExportingListIds(new Set(exportingListIdsRef.current));
+    try {
+      const response = await fetch('/api/audience-lists/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        cache: 'no-store',
+        body: JSON.stringify({ listId: list.id }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Unable to download audience CSV.');
+      const csv = audiencePreviewToCsv(data);
+      if (csv === null) {
+        toast.info('No recipients found for this audience list.');
+        return;
+      }
+      const date = new Date().toISOString().slice(0, 10);
+      downloadCsv(csv, `audience-${slugifyFilename(data.listName || list.name)}-${date}.csv`);
+    } catch (error) {
+      toast.error(error.message || 'Unable to download audience CSV.');
+    } finally {
+      exportingListIdsRef.current.delete(list.id);
+      setExportingListIds(new Set(exportingListIdsRef.current));
+    }
   };
 
   const openPreviewModal = async (list) => {
@@ -1740,6 +1774,20 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                 data-testid={`button-preview-list-${list.id}`}
                               >
                                 <Eye className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => downloadAudienceList(list)}
+                                disabled={exportingListIds.has(list.id)}
+                                aria-busy={exportingListIds.has(list.id)}
+                                aria-label={`Download audience CSV for ${list.name}`}
+                                title="Download audience CSV"
+                                data-testid={`button-download-list-${list.id}`}
+                              >
+                                {exportingListIds.has(list.id)
+                                  ? <Loader2 className="w-4 h-4 animate-spin" />
+                                  : <Download className="w-4 h-4" />}
                               </Button>
                               <Button
                                 variant="ghost"

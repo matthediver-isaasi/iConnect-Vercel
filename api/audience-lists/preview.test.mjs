@@ -19,9 +19,11 @@ async function loadCampaignService() {
     for (const entry of names.replace(/[{}]/g, '').split(',').map((value) => value.trim()).filter(Boolean)) {
       const [imported, local = imported] = entry.split(/\s+as\s+/);
       if (imported === 'supabase') {
-        exports.push(`export const ${local} = { from: (...args) => globalThis.${serviceSlot}.db.from(...args) };`);
+        exports.push(`export const ${imported} = { from: (...args) => globalThis.${serviceSlot}.db.from(...args) };`);
+      } else if (imported === 'preparationDatabase') {
+        exports.push('export const preparationDatabase = db => db;');
       } else {
-        exports.push(`export function ${local}(...args) { return globalThis.${serviceSlot}.dependency(${JSON.stringify(imported)}, args); }`);
+        exports.push(`export function ${imported}(...args) { return globalThis.${serviceSlot}.dependency(${JSON.stringify(imported)}, args); }`);
       }
     }
     replacements.set(specifier, exports.join('\n'));
