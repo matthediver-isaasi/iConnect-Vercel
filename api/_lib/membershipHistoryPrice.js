@@ -1,5 +1,6 @@
 import { loadGoCardlessCollectionDetails } from './gocardlessCollectionDetails.js';
 import { resolveSavedCollectionPolicy } from '../../shared/gocardlessCollectionPolicy.js';
+import { signupMonthlyPriceFromAgreement } from './membershipSignupEvidence.js';
 
 const DIRECT_DEBIT_METHODS = new Set(['direct_debit', 'gocardless']);
 const ONGOING_STATUSES = new Set(['active', 'mandate_pending', 'first_payment_pending']);
@@ -73,6 +74,8 @@ export async function enrichMembershipHistoryPrices(records, {
 
   for (const record of candidates) {
     const snapshotCurrency = record.commitment_snapshot?.amounts?.currency || record.currency || null;
+    // Never trust an enrichment left on a reused row after a failed read.
+    delete record.signup_monthly_price;
     try {
       const agreementResult = await db.from('membership_billing_agreements')
         .select('*')
@@ -80,9 +83,12 @@ export async function enrichMembershipHistoryPrices(records, {
         .eq('id', record.billing_agreement_id)
         .maybeSingle();
       const agreement = agreementResult.data;
-      if (agreementResult.error || !ownerMatches(record, agreement)
+      if (agreementResult.error || agreement?.id !== record.billing_agreement_id
+          || !ownerMatches(record, agreement)
           || agreement.provider !== 'gocardless') continue;
 
+      const signupPrice = signupMonthlyPriceFromAgreement(agreement);
+      if (signupPrice) record.signup_monthly_price = signupPrice;
       const terms = agreement.metadata?.dd || {};
       if (resolveSavedCollectionPolicy(terms).pricing_policy !== 'dynamic') continue;
       record.monthly_price = unavailable(terms.currency || snapshotCurrency);

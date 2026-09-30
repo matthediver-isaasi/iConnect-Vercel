@@ -1,4 +1,5 @@
 import { directDebitPolicyText } from "@/lib/directDebitConsentSummary";
+import { getSignupMonthlyPricePresentation } from "./membershipPricingPresentation";
 
 function money(amount, currency) {
   if (amount == null || !Number.isFinite(Number(amount))) return 'Not available';
@@ -17,11 +18,20 @@ const STATE_LABELS = {
 export default function DirectDebitCommitmentDetails({ commitment }) {
   const policy = commitment.collectionPolicy;
   const details = commitment.collectionDetails;
+  const signup = getSignupMonthlyPricePresentation(commitment);
   const known = ['stop', 'continue'].includes(policy?.end_policy)
     && ['fixed', 'dynamic'].includes(policy?.pricing_policy) && !policy.needs_review;
   return (
     <div className="mt-4 space-y-3 border-t pt-4" data-testid={`dd-commitment-policy-${commitment.id}`}>
+      {commitment.authorisationStatus === 'completed_awaiting_bank_activation' && <p className="text-sm">
+        Authorisation completed; awaiting bank activation
+      </p>}
       <dl className="grid gap-3 text-sm sm:grid-cols-2">
+        {signup && <div>
+          <dt className="text-muted-foreground">{signup.label}</dt>
+          <dd className="font-medium">{signup.amount}</dd>
+          <dd className="text-xs text-muted-foreground">{signup.disclaimer}</dd>
+        </div>}
         <div>
           <dt className="text-muted-foreground">At the end of the billing period</dt>
           <dd className="font-medium">{known ? (policy.end_policy === 'continue' ? 'Continue collections' : 'Stop collections') : 'Existing agreement needs review'}</dd>

@@ -13,6 +13,28 @@ import {
   isDynamicMembershipPrice,
 } from './membershipPricingPresentation.js';
 
+test('signup evidence is historical, separate from unavailable current pricing and annual totals', () => {
+  const pricing = getMembershipPricingPresentation({
+    monthly_price: { state: 'unavailable', amount: null },
+    signup_monthly_price: { amount: 13, currency: 'GBP', variable: true },
+  });
+  assert.equal(pricing.signupMonthly.amount, '£13.00');
+  assert.match(pricing.signupMonthly.disclaimer, /variable, not a confirmed charge/);
+  assert.equal(pricing.monthly.amount, null);
+  assert.equal(pricing.agreed.amount, null);
+  assert.equal(pricing.gross.amount, null);
+});
+
+test('missing or invalid signup evidence never falls back to another price', () => {
+  for (const signup of [null, { amount: null, currency: 'GBP' }, { amount: -1, currency: 'GBP' }, { amount: 13 }]) {
+    assert.equal(getMembershipPricingPresentation({
+      signup_monthly_price: signup,
+      commitment_snapshot: { amounts: { monthly_amount: 13 } },
+      monthly_price: { state: 'calculated', amount: 19, currency: 'GBP' },
+    }).signupMonthly, null);
+  }
+});
+
 test('recognises dynamic pricing retained in the commitment snapshot', () => {
   const row = {
     commitment_snapshot: {

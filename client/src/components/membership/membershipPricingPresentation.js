@@ -47,6 +47,21 @@ export function formatMembershipPriceDate(value) {
   });
 }
 
+// Only the server's scoped agreement evidence supplies this historical value.
+// Never use a current estimate, ledger total or unvalidated snapshot fallback.
+export function getSignupMonthlyPricePresentation(record) {
+  const signup = record?.signupMonthlyPrice || record?.signup_monthly_price;
+  const amount = finiteAmount(signup?.amount);
+  if (amount === null || amount < 0 || !signup?.currency) return null;
+  return {
+    amount: formatMembershipMoney(amount, signup.currency),
+    label: 'Monthly price at signup',
+    disclaimer: signup.variable
+      ? 'Historical signup price — variable, not a confirmed charge'
+      : 'Historical signup price — not a confirmed charge',
+  };
+}
+
 function monthlyPrice(record, dynamic, fallbackCurrency) {
   if (!dynamic) return null;
   const supplied = record?.monthly_price;
@@ -125,5 +140,6 @@ export function getMembershipPricingPresentation(record) {
     vat: { amount: derivedVat, text: formatMembershipMoney(derivedVat, currency) },
     gross: { amount: gross, text: formatMembershipMoney(gross, currency) },
     monthly: monthlyPrice(record, dynamic, currency),
+    signupMonthly: getSignupMonthlyPricePresentation(record),
   };
 }

@@ -16,6 +16,7 @@ import { loadStripeCollectionSchedule, unavailableCollectionSchedule } from '../
 import { loadGoCardlessSchedule } from '../_lib/gocardlessCollectionScheduleChange.js';
 import { loadMigratedMandatePresentation, migratedMandatePresentation } from '../_lib/migratedMandatePresentation.js';
 import { enrichMembershipHistoryPrices } from '../_lib/membershipHistoryPrice.js';
+import { signupMonthlyPriceFromAgreement, completedPendingBankActivation } from '../_lib/membershipSignupEvidence.js';
 import { loadCanvasRenewalEligibility } from '../_lib/canvasRenewalEligibility.js';
 
 const INSTALMENT_PAGE_SIZE = 25;
@@ -251,13 +252,25 @@ export async function enrichDirectDebitCommitments({
       && (row.membership_source || 'personal') === commitment.source);
     if (!['direct_debit', 'gocardless'].includes(commitment.paymentMethod)) continue;
     commitment.collectionSchedule = unavailableCollectionSchedule('gocardless', 'Collection schedule evidence is unavailable.');
+    delete commitment.signupMonthlyPrice;
+    delete commitment.authorisationStatus;
     if (!record?.billing_agreement_id) continue;
     try {
       const { data: agreement, error } = await db.from('membership_billing_agreements')
         .select('*')
         .eq('tenant_id', tenantId).eq('id', record.billing_agreement_id).maybeSingle();
-      if (error || !agreementMatchesHistory(agreement, record, commitment.source)
-        || (agreement.provider && agreement.provider !== 'gocardless')) throw new Error('Agreement evidence unavailable');
+      if (error || agreement?.id !== record.billing_agreement_id
+        || !agreementMatchesHistory(agreement, record, commitment.source)
+        || agreement.provider !== 'gocardless') throw new Error('Agreement evidence unavailable');
+      const signupPrice = signupMonthlyPriceFromAgreement(agreement);
+      if (signupPrice) commitment.signupMonthlyPrice = signupPrice;
+      try {
+        if (await completedPendingBankActivation(db, tenantId, agreement)) {
+          commitment.authorisationStatus = 'completed_awaiting_bank_activation';
+        }
+      } catch {
+        // No positive authorisation claim without readable completion evidence.
+      }
       const planResult = await db.from('membership_payment_plans')
         .select('*,membership_monthly_arrears_period(due_period,amount_minor,settled_at)')
         .eq('tenant_id', tenantId).eq('billing_agreement_id', agreement.id)
@@ -377,12 +390,13 @@ function historyBelongsToMember(record, source, member) {
 }
 
 function agreementMatchesHistory(agreement, record, source) {
-  if (!agreement || agreement.tenant_id !== record.tenant_id) return false;
+  if (!agreement || !record?.tenant_id || agreement.tenant_id !== record.tenant_id) return false;
   if (source === 'personal') {
-    return agreement.member_id === record.member_id
+    return !!record.member_id && agreement.member_id === record.member_id
       && !agreement.organization_id;
   }
-  return agreement.organization_id === record.organization_id
+  return source === 'organisation' && !!record.organization_id
+    && agreement.organization_id === record.organization_id
     && !agreement.member_id;
 }
 

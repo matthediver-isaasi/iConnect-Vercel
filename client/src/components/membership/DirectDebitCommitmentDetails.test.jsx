@@ -31,6 +31,37 @@ test('legacy display is a review state and no amount is invented', async () => {
     assert.match(text, /Existing agreement needs review/);
     assert.match(text, /Not available/);
     assert.doesNotMatch(text, /£0.00/);
+    assert.doesNotMatch(text, /Monthly price at signup|Authorisation completed/);
+  });
+});
+
+test('completed authorisation retains historical signup price without inventing a collection', async () => {
+  await rendered({
+    signupMonthlyPrice: { amount: 13, currency: 'GBP', variable: true },
+    authorisationStatus: 'completed_awaiting_bank_activation',
+    collectionPolicy: { version: 1, end_policy: 'continue', pricing_policy: 'dynamic' },
+    collectionDetails: { state: 'unknown', amount: null, dueDate: null },
+  }, text => {
+    assert.match(text, /Monthly price at signup£13.00/);
+    assert.match(text, /variable, not a confirmed charge/);
+    assert.match(text, /Authorisation completed; awaiting bank activation/);
+    assert.match(text, /Current monthly collection amountNot available/);
+    assert.doesNotMatch(text, /Collection date/);
+  });
+});
+
+test('signup, estimate and provider charge remain distinct', async () => {
+  await rendered({
+    signupMonthlyPrice: { amount: 13, currency: 'GBP', variable: true },
+    collectionDetails: {
+      state: 'provider_scheduled', amount: 17, currency: 'GBP', dueDate: '2026-11-01',
+      pricePreview: { amount: 19, currency: 'GBP' },
+    },
+  }, text => {
+    assert.match(text, /Monthly price at signup£13.00/);
+    assert.match(text, /Current monthly collection amount£17.00/);
+    assert.match(text, /Current price preview — not a confirmed charge£19.00/);
+    assert.doesNotMatch(text, /Authorisation completed/);
   });
 });
 

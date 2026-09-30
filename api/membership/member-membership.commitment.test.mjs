@@ -435,3 +435,64 @@ test('collection enrichment rejects an agreement owned by another tenant or memb
     assert.equal(commitment.collectionPolicy.needs_review, true);
   }
 });
+
+test('historical signup quote and completed authorisation require independently linked evidence without a plan', async () => {
+  const record = { id: 'history', tenant_id: 'tenant', member_id: 'member', membership_source: 'personal',
+    billing_agreement_id: 'agreement', payment_method: 'direct_debit', term_key: 'term',
+    term_start_date: '2026-09-30', term_end_date: '2027-09-29',
+    final_cost: null, total_with_vat: null, commitment_snapshot: {
+      collection_policy: { version: 1, end_policy: 'continue', pricing_policy: 'dynamic' } } };
+  const agreement = { id: 'agreement', tenant_id: 'tenant', member_id: 'member', organization_id: null,
+    provider: 'gocardless', status: 'mandate_pending', environment: 'live',
+    gocardless_billing_request_id: 'BRQ', gocardless_mandate_id: 'MD',
+    metadata: { dd: { monthly_amount_minor: 1300, monthly_amount: 13, currency: 'GBP',
+      collection_policy: { version: 1, end_policy: 'continue', pricing_policy: 'dynamic' } } } };
+  const event = { tenant_id: 'tenant', provider: 'gocardless', resource_type: 'billing_requests',
+    action: 'fulfilled', resource_id: 'BRQ', processing_status: 'processed', processing_error: null,
+    event_id: 'EV', payload: { id: 'EV', resource_type: 'billing_requests', action: 'fulfilled',
+      links: { billing_request: 'BRQ', mandate_request_mandate: 'MD' } } };
+  async function run(changes = {}, eventChanges = {}, mandateChanges = {}, eventsPresent = true) {
+    const candidate = { ...agreement, ...changes };
+    const evidence = { ...event, ...eventChanges };
+    const db = { from(table) {
+      const chain = { select() { return chain; }, eq() { return chain; },
+        order() { return chain; }, limit() { return chain; },
+        async maybeSingle() { return { data: table === 'membership_billing_agreements' ? candidate
+          : table === 'gocardless_mandates'
+            ? { tenant_id: 'tenant', gocardless_mandate_id: 'MD', environment: 'live', status: 'created', ...mandateChanges }
+            : null, error: null }; },
+        then(resolve) { return Promise.resolve({ data: table === 'payment_webhook_events' && eventsPresent ? [evidence] : [] }).then(resolve); } };
+      return chain;
+    } };
+    const commitment = shapePersistedCommitment(record, new Date('2026-10-01'));
+    await enrichDirectDebitCommitments({ db, tenantId: 'tenant', history: [record], commitments: [commitment],
+      loadSchedule: async () => ({ available: false }) });
+    return commitment;
+  }
+  const good = await run();
+  assert.deepEqual(good.signupMonthlyPrice, { amount: 13, currency: 'GBP', variable: true });
+  assert.equal(good.authorisationStatus, 'completed_awaiting_bank_activation');
+  assert.equal(good.agreedPrice, null);
+  assert.equal(good.agreedNetPrice, null);
+  assert.equal(good.monthlyAmount, null);
+  assert.equal(good.collectionDetails.amount, null);
+  assert.deepEqual(good.collectionSchedule, { available: false });
+  for (const eventChanges of [
+    { processing_status: 'pending' }, { processing_error: 'failed' }, { tenant_id: 'other' },
+    { payload: { ...event.payload, links: { billing_request: 'BRQ', mandate_request_mandate: 'other' } } },
+    { resource_id: 'other' },
+  ]) {
+    assert.equal((await run({}, eventChanges)).authorisationStatus, undefined);
+  }
+  assert.equal((await run({ status: 'payment_setup_required' })).authorisationStatus, undefined);
+  assert.equal((await run({}, {}, {}, false)).authorisationStatus, undefined);
+  for (const mandateChanges of [
+    { status: 'active' }, { status: 'unknown' }, { tenant_id: 'other' },
+    { environment: 'sandbox' }, { gocardless_mandate_id: 'other' },
+  ]) {
+    assert.equal((await run({}, {}, mandateChanges)).authorisationStatus, undefined);
+  }
+  assert.equal((await run({ member_id: 'other' })).signupMonthlyPrice, undefined);
+  assert.equal((await run({ tenant_id: 'other' })).authorisationStatus, undefined);
+  assert.equal((await run({ metadata: { dd: { currency: 'GBP' } } })).signupMonthlyPrice, undefined);
+});

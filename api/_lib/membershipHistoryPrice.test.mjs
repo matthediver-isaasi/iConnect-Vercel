@@ -158,3 +158,35 @@ test('bounds linked reads and rejects old or malformed pricing dates', async () 
   assert.equal(rows[0].monthly_price.state, 'unavailable');
   assert.equal(rows[20].monthly_price.state, 'unavailable');
 });
+
+test('signup price is independent of unavailable or different current price, never copied from history snapshot', async () => {
+  const { row, agreement, plan } = fixture();
+  agreement.metadata.dd.monthly_amount_minor = 1300;
+  agreement.metadata.dd.monthly_amount = 13;
+  const db = database(agreement, plan);
+  await enrichMembershipHistoryPrices([row], { db, tenantId: 'tenant',
+    loadDetails: async () => ({ pricePreview: { amount: 19, currency: 'GBP',
+      dueDate: '2027-02-01', label: 'Current calculated price — not a confirmed charge' } }),
+    now: new Date('2027-01-01') });
+  assert.deepEqual(row.signup_monthly_price, { amount: 13, currency: 'GBP', variable: true });
+  assert.equal(row.monthly_price.amount, 19);
+  const noPlan = { ...fixture().row };
+  await enrichMembershipHistoryPrices([noPlan], { db: database(agreement, null), tenantId: 'tenant' });
+  assert.deepEqual(noPlan.signup_monthly_price, { amount: 13, currency: 'GBP', variable: true });
+  assert.equal(noPlan.monthly_price.amount, null);
+  assert.equal(noPlan.monthly_price.state, 'unavailable');
+});
+
+test('signup history price rejects missing, ambiguous, cross-owner, cross-tenant and wrong-ID evidence', async () => {
+  for (const changed of [
+    { metadata: { dd: { collection_policy: dynamicPolicy, currency: 'GBP' } } },
+    { metadata: { dd: { collection_policy: dynamicPolicy, currency: 'GBP', monthly_amount_minor: 1300, monthly_amount: 12 } } },
+    { member_id: 'other' }, { tenant_id: 'other' }, { id: 'other' }, { provider: 'stripe' },
+  ]) {
+    const { row, agreement } = fixture();
+    row.commitment_snapshot.amounts = { monthly_amount: 99, currency: 'GBP' };
+    Object.assign(agreement, changed);
+    await enrichMembershipHistoryPrices([row], { db: database(agreement, null), tenantId: 'tenant' });
+    assert.equal(row.signup_monthly_price, undefined, JSON.stringify(changed));
+  }
+});

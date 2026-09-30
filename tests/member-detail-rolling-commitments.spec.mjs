@@ -522,6 +522,29 @@ for (const end_policy of ['stop', 'continue']) {
   }
 }
 
+test('pending bank activation shows historical signup price without a collection or annual commitment', async ({ page }) => {
+  const state = await installFixtures(page, { commitmentOverrides: {
+    paymentMethod: 'direct_debit', agreedPrice: null, agreedNetPrice: null, monthlyAmount: null,
+    collectionPolicy: { version: 1, end_policy: 'continue', pricing_policy: 'dynamic' },
+    signupMonthlyPrice: { amount: 13, currency: 'GBP', variable: true },
+    authorisationStatus: 'completed_awaiting_bank_activation',
+    collectionDetails: { state: 'unknown', amount: null, dueDate: null, blockers: ['Awaiting an active mandate'] },
+  } });
+  await openMembership(page);
+  const current = page.getByTestId('card-member-commitment-personal-current');
+  await expect(current).toContainText('Monthly price at signup');
+  await expect(current).toContainText('£13.00');
+  await expect(current).toContainText('variable, not a confirmed charge');
+  await expect(current).toContainText('Authorisation completed; awaiting bank activation');
+  await expect(current).toContainText('No confirmed collection evidence available');
+  await expect(current).not.toContainText('£288.00');
+  await expect(current).not.toContainText('Collection date');
+  expect(state.writes).toEqual([]);
+  // The app imports Stripe.js globally; the fixture blocks it. No provider
+  // API traffic is allowed by this read-only membership presentation.
+  expect(state.providerRequests.filter(url => new URL(url).hostname !== 'js.stripe.com')).toEqual([]);
+});
+
 test('Direct Debit structure controls persist choices, reject implicit dynamic invoicing, and retain policies when scheduling a duplicate', async ({ page }) => {
   const safety = await installFixtures(page);
   const saved = [{
