@@ -261,11 +261,18 @@ async function installFixtures(page, {
   version = 1, viewer = "alpha", apiState = "ready", empty = false,
   duplicate = false, symbol = false, microsite = false,
   summaryOverride = null, membershipMinHeight, longMembershipContent = false,
-  symbolMinHeight,
+  symbolMinHeight, savedPaymentContent = null,
 } = {}) {
   const fixturePage = pageFixture(version, {
     empty, duplicate, symbol, microsite, membershipMinHeight, longMembershipContent,
   });
+  if (savedPaymentContent) {
+    fixturePage.canvas_design.root.sections[0].children = fixturePage.canvas_design.root.sections[0].children
+      .map(item => item.type === "payment-details"
+        ? { ...item, content: { ...item.content, ...savedPaymentContent,
+          fields: { ...item.content.fields, ...savedPaymentContent.fields } } }
+        : item);
+  }
   const requests = [];
   const writes = [];
   const pageErrors = [];
@@ -446,6 +453,92 @@ async function dragPaletteBlock(page, type, targetY) {
 }
 
 for (const version of [1, 2]) {
+  test(`isolated V${version} saved portal design explains completed bank setup without inventing a collection`, async ({ page }, testInfo) => {
+    const fixture = await installFixtures(page, {
+      version,
+      savedPaymentContent: {
+        manageLink: "/MembershipFees", manageLinkText: "Renew subscription",
+        renewalLink: "/forms/renew-membership",
+        fields: { amount: "Old next payment amount" },
+      },
+      summaryOverride: {
+        membership: { state: "pending", memberSince: null, membershipType: "Professional" },
+        payment: {
+          state: "bank_setup_pending", method: "monthly_direct_debit",
+          expectedMonthlyPrice: { amount: 13, currency: "GBP", variable: true },
+          amount: null, currency: null, nextPayment: null, collectionStatus: "unavailable",
+          plannedPayment: null, confirmedPayment: null, nextCollection: null, mandateStatus: null,
+        },
+        renewal: { eligible: true },
+      },
+    });
+    for (const [width, height, device] of [[1440, 1000, "desktop"], [390, 844, "mobile"]]) {
+      await page.setViewportSize({ width, height });
+      await openPublished(page, fixture);
+      const payment = page.getByTestId("canvas-payment-details").first();
+      await expect(payment).toBeVisible();
+      await expect(payment).toHaveAttribute("data-membership-state", "bank_setup_pending");
+      await expect(payment).toContainText("Payment details");
+      await expect(payment).toContainText("Expected monthly amount");
+      await expect(payment).toContainText("£13.00 per month");
+      await expect(payment).toContainText(/(?:join|sign.?up).*(?:price|amount)|(?:price|amount).*(?:join|sign.?up)/i);
+      await expect(payment).toContainText(/(?:variable|may change)/i);
+      await expect(payment).toContainText(/(?:completed your direct debit setup|(?:authorisation|authorization|setup).*(?:complete|finished))/i);
+      await expect(payment).toContainText(/(?:no action|nothing (?:else )?to do|don['’]t need to|do not need to)/i);
+      await expect(payment).not.toContainText("Old next payment amount");
+      await expect(payment).not.toContainText(/(?:Next payment amount|Planned payment date|Confirmed payment date|No scheduled payment recorded)/i);
+      await expect(payment.getByRole("link")).toHaveCount(0);
+      await expect(payment.getByTestId("membership-renewal-cta")).toHaveCount(0);
+      expect(await payment.locator("dt").allTextContents()).not.toContain("Renew subscription");
+      const overflow = await page.evaluate(() => ({
+        page: document.body.scrollWidth, viewport: window.innerWidth,
+        payment: document.querySelector("[data-membership-state='bank_setup_pending']")?.scrollWidth,
+        paymentClient: document.querySelector("[data-membership-state='bank_setup_pending']")?.clientWidth,
+      }));
+      expect(overflow.page).toBeLessThanOrEqual(overflow.viewport + 1);
+      expect(overflow.payment).toBeLessThanOrEqual(overflow.paymentClient + 1);
+      await page.screenshot({ path: testInfo.outputPath(`bank-setup-pending-v${version}-${device}.png`), fullPage: true });
+    }
+    expect(fixture.writes).toEqual([]);
+    expect(fixture.pageErrors).toEqual([]);
+  });
+
+  test(`isolated V${version} authored expected monthly label stays independent of saved collection labels`, async ({ page }) => {
+    const fixture = await installFixtures(page, {
+      version,
+      savedPaymentContent: {
+        fields: {
+          expectedMonthlyAmount: "Monthly joining quote",
+          amount: "Next collection (old label)",
+          projectedAmount: "Projection (old label)",
+        },
+      },
+      summaryOverride: {
+        membership: { state: "pending", memberSince: null },
+        payment: {
+          state: "bank_setup_pending", method: "monthly_direct_debit",
+          expectedMonthlyPrice: { amount: 13, currency: "GBP", variable: true },
+          amount: null, nextPayment: null, collectionStatus: "unavailable",
+          nextCollection: null, plannedPayment: null, confirmedPayment: null,
+        },
+      },
+    });
+    await openPublished(page, fixture);
+    const payment = page.getByTestId("canvas-payment-details").first();
+    await expect(payment).toContainText("Monthly joining quote");
+    await expect(payment).toContainText("£13.00 per month");
+    await expect(payment).not.toContainText("Next collection (old label)");
+    await expect(payment).not.toContainText("Projection (old label)");
+    expect(fixture.getSavedDesign().root.sections[0].children.find(item => item.type === "payment-details").content.fields)
+      .toMatchObject({
+        expectedMonthlyAmount: "Monthly joining quote",
+        amount: "Next collection (old label)",
+        projectedAmount: "Projection (old label)",
+      });
+    expect(fixture.writes).toEqual([]);
+    expect(fixture.pageErrors).toEqual([]);
+  });
+
   test(`isolated V${version} current dynamic DD projects collection without implying payment confirmation`, async ({ page }, testInfo) => {
     const fixture = await installFixtures(page, { version, summaryOverride: {
       membership: { state: "active", memberSince: null, membershipType: "Flat Rate" },

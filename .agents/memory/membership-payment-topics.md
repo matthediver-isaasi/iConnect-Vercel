@@ -1,5 +1,11 @@
 # Membership payment topics
 
+- [Portal pending DD evidence](portal-pending-dd-evidence.md) — completion, joined pricing and collection facts remain separate; saved link labels cannot establish renewal eligibility.
+- [GoCardless Drop-in modal](gocardless-dropin.md) — modal wrapper falls back to hosted redirect on load failure.
+- [GoCardless account discovery isolation](gocardless-discovery-isolation.md) — account discovery requires tenant-owned credentials, never platform fallback.
+- [GoCardless form origin](gocardless-form-origin.md) — pin original provider context; lookup failures never prove payment failure.
+- [Direct Debit console visibility](direct-debit-console-visibility.md) — hiding consoles cannot change historical processing or grant collection authority.
+
 - [Stripe membership reconcile safety net](stripe-membership-reconcile.md) — webhook + idempotent recorder back up the client confirm; PI lookups must tolerate test/live mode flips; post-charge rejections must say "charge succeeded, will be reconciled".
 - [Membership-paid workflow paths](membership-paid-workflow-paths.md) — any path settling a membership invoice as paid must insert the row paid AND fire the shared fireWorkflowForPaidRow helper (on payment success, exactly once).
 - [Stripe monthly card plans](stripe-monthly-card-plans.md) — card plans twin GC DD plans: shared dd_* config, metadata.card snapshot, exactly-once settle, replay-through-one-processor reconcile, both-ways year guards.

@@ -254,6 +254,160 @@ function dynamicRows() {
   };
 }
 
+function pendingSignupRows() {
+  return {
+    member_membership_history: [term({
+      status: 'pending_payment_setup', payment_status: 'unpaid',
+      payment_method: 'direct_debit', billing_period: 'monthly_direct_debit',
+      billing_agreement_id: 'agreement',
+    })],
+    membership_billing_agreements: [{
+      id: 'agreement', tenant_id: member.tenant_id, member_id: member.id,
+      organization_id: null, provider: 'gocardless', status: 'mandate_pending',
+      environment: 'live', term_key: '2026-term', term_start_date: '2026-01-01',
+      gocardless_billing_request_id: 'BRQ', gocardless_mandate_id: 'MD',
+      metadata: { dd: { monthly_amount_minor: 1300, monthly_amount: 13, currency: 'GBP',
+        collection_policy: { version: 1, end_policy: 'continue', pricing_policy: 'dynamic' } } },
+    }],
+    gocardless_mandates: [{
+      tenant_id: member.tenant_id, gocardless_mandate_id: 'MD',
+      environment: 'live', status: 'created',
+    }],
+    payment_webhook_events: [{
+      tenant_id: member.tenant_id, provider: 'gocardless', resource_type: 'billing_requests',
+      action: 'fulfilled', resource_id: 'BRQ', processing_status: 'processed',
+      processing_error: null, event_id: 'EV',
+      payload: { id: 'EV', resource_type: 'billing_requests', action: 'fulfilled',
+        links: { billing_request: 'BRQ', mandate_request_mandate: 'MD' } },
+    }],
+  };
+}
+
+test('completed new signup without a plan exposes historical monthly quote but no charge or date', async () => {
+  for (const start of ['2026-01-01', '2026-10-01']) {
+    const rows = pendingSignupRows();
+    rows.member_membership_history[0].term_start_date = start;
+    rows.member_membership_history[0].membership_renewal_date = start === '2026-10-01' ? '2027-10-01' : '2027-01-01';
+    rows.membership_billing_agreements[0].term_start_date = start;
+    const h = harness({ rows });
+    const response = await h.request();
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.payload.membership.state, 'pending');
+    assert.equal(response.payload.payment.state, 'bank_setup_pending');
+    assert.equal(response.payload.payment.method, 'monthly_direct_debit');
+    assert.deepEqual(response.payload.payment.expectedMonthlyPrice, { amount: 13, currency: 'GBP', variable: true });
+    assert.equal(response.payload.payment.amount, null);
+    assert.equal(response.payload.payment.nextPayment, null);
+    assert.equal(response.payload.payment.nextCollection, null);
+    assert.equal(response.payload.payment.collectionStatus, 'unavailable');
+    assert.deepEqual(response.payload.renewal, { eligible: false });
+    assert.ok(!h.db.calls.some(call => call.table === 'gocardless_payments'));
+    assert.ok(h.db.calls.every(call => call.filters.some(([key]) => key === 'tenant_id')));
+  }
+});
+
+test('unfinished, unreadable and ambiguous pending setup evidence never claims bank setup', async () => {
+  const changes = [
+    r => { r.payment_webhook_events = []; },
+    r => { r.payment_webhook_events[0].processing_status = 'pending'; },
+    r => { r.payment_webhook_events[0].processing_error = 'failure'; },
+    r => { r.payment_webhook_events[0].payload.links.mandate_request_mandate = 'other'; },
+    r => { r.payment_webhook_events.push({ ...r.payment_webhook_events[0], event_id: 'another' }); },
+    r => { r.gocardless_mandates = []; },
+    r => { r.gocardless_mandates[0].status = 'active'; },
+    r => { r.membership_billing_agreements[0].status = 'payment_setup_required'; },
+  ];
+  for (const change of changes) {
+    const rows = pendingSignupRows();
+    change(rows);
+    const payment = (await harness({ rows }).request()).payload.payment;
+    assert.equal(payment.state, 'unavailable');
+    assert.equal(payment.expectedMonthlyPrice, undefined);
+    assert.equal(payment.amount, null);
+  }
+  for (const table of ['payment_webhook_events', 'gocardless_mandates']) {
+    const payment = (await harness({ rows: pendingSignupRows(), errors: { [table]: { code: 'XX000' } } }).request()).payload.payment;
+    assert.equal(payment.state, 'unavailable');
+    assert.equal(payment.expectedMonthlyPrice, undefined);
+  }
+});
+
+test('completed authorisation without a usable signup price remains pending bank activation, not repeat setup', async () => {
+  for (const change of [
+    r => { delete r.membership_billing_agreements[0].metadata.dd.monthly_amount_minor; },
+    r => { r.membership_billing_agreements[0].metadata.dd.monthly_amount_minor = 1200; },
+    r => { r.membership_billing_agreements[0].metadata.dd.collection_policy = null; },
+  ]) {
+    const rows = pendingSignupRows();
+    change(rows);
+    const response = await harness({ rows }).request();
+    assert.equal(response.statusCode, 200);
+    const payment = response.payload.payment;
+    assert.equal(payment.state, 'bank_setup_pending');
+    assert.equal(payment.method, 'monthly_direct_debit');
+    assert.equal(payment.expectedMonthlyPrice, null);
+    assert.equal(payment.amount, null);
+    assert.equal(payment.nextPayment, null);
+    assert.equal(payment.nextCollection, null);
+    assert.deepEqual(response.payload.renewal, { eligible: false });
+  }
+});
+
+test('scope, term, environment and lifecycle mismatches fail closed', async () => {
+  for (const change of [
+    r => { r.membership_billing_agreements[0].tenant_id = 'other'; },
+    r => { r.membership_billing_agreements[0].member_id = 'other'; },
+    r => { r.membership_billing_agreements[0].organization_id = 'org-a'; },
+    r => { r.membership_billing_agreements[0].term_key = 'other'; },
+    r => { r.membership_billing_agreements[0].term_start_date = '2026-02-01'; },
+    r => { r.membership_billing_agreements[0].environment = 'sandbox'; },
+    r => { r.gocardless_mandates[0].environment = 'sandbox'; },
+    r => { r.member_membership_history[0].status = 'failed'; },
+    r => { r.member_membership_history[0].status = 'paused'; },
+    r => { r.member_membership_history[0].term_start_date = '2025-01-01'; r.member_membership_history[0].membership_renewal_date = '2026-01-01'; r.membership_billing_agreements[0].term_start_date = '2025-01-01'; },
+    r => { r.membership_billing_agreements[0].metadata.dd.billing_request_mode = 'migration_existing_mandate'; },
+    r => { r.membership_billing_agreements[0].metadata.dd.migration_invite_id = 'migration'; },
+  ]) {
+    const rows = pendingSignupRows();
+    change(rows);
+    const response = await harness({ rows }).request();
+    assert.ok([200, 500].includes(response.statusCode));
+    if (response.statusCode === 200) {
+      assert.notEqual(response.payload.payment.state, 'bank_setup_pending');
+      assert.equal(response.payload.payment.expectedMonthlyPrice, undefined);
+    }
+  }
+  const rows = pendingSignupRows();
+  rows.member = [{ ...member, membership_paused: true }];
+  assert.notEqual((await harness({ rows }).request()).payload.payment.state, 'bank_setup_pending');
+});
+
+test('a later matching plan retains collection precedence, even when its price differs from signup', async () => {
+  const rows = pendingSignupRows();
+  rows.membership_payment_plans = [{
+    id: 'plan', tenant_id: member.tenant_id, member_id: member.id, organization_id: null,
+    billing_agreement_id: 'agreement', provider: 'gocardless', environment: 'live',
+    status: 'active', interval_unit: 'monthly', amount_minor: 1700, currency: 'GBP',
+    next_charge_date: '2026-10-01',
+  }];
+  rows.membership_billing_agreements[0].metadata.dd.collection_policy.pricing_policy = 'fixed';
+  const payment = (await harness({ rows }).request()).payload.payment;
+  assert.equal(payment.state, 'active');
+  assert.equal(payment.amount, 17);
+  assert.equal(payment.nextPayment, '2026-10-01');
+  assert.equal(payment.expectedMonthlyPrice, undefined);
+  // A completed setup elsewhere cannot suppress a genuine unrelated upfront renewal.
+  const upfront = term({ status: 'active', payment_status: 'paid', term_key: null,
+    payment_method: 'card', billing_period: 'annual', config_id: 'config',
+    term_end_date: '2026-09-20', billing_agreement_id: null });
+  const config = { id: 'config', tenant_id: member.tenant_id,
+    structure_scope_type: 'member', renewal_open_days: 2, renewal_grace_days: 4 };
+  const renewal = (await harness({ rows: {
+    member_membership_history: [upfront], membership_tier_config: [config],
+  } }).request()).payload;
+  assert.equal(renewal.renewal.eligible, true);
+});
+
 test('dynamic DD API uses projected canonical price, not stale fixed amount or first-payment copy for current members', async () => {
   const h = harness({ rows: dynamicRows() });
   const result = await h.request();

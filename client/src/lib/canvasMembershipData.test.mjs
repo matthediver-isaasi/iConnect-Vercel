@@ -16,6 +16,31 @@ test('renewal configuration survives normalization but never stores server eligi
   }
 });
 
+test('bank setup keeps expected signup price separate and saved labels keep their meaning', () => {
+  const input = { payment: { state: 'bank_setup_pending',
+    expectedMonthlyPrice: { amount: 13, currency: 'GBP', variable: true, private: 'hidden' } } };
+  const data = normalizeCanvasMembershipSummary(input);
+  assert.deepEqual(data.payment.expectedMonthlyPrice, { amount: 13, currency: 'GBP', variable: true });
+  assert.equal(data.payment.amount, null);
+  assert.equal(data.payment.nextCollection, null);
+  assert.deepEqual(normalizeCanvasMembershipSummary(data), data);
+  for (const price of [null, { amount: -1, currency: 'GBP' }, { amount: '13', currency: 'GBP' },
+    { amount: 13, currency: 'gbp' }]) {
+    assert.equal(normalizeCanvasMembershipSummary({ payment: {
+      state: 'bank_setup_pending', expectedMonthlyPrice: price,
+    } }).payment.expectedMonthlyPrice, undefined);
+  }
+  const content = normalizeCanvasMembershipContent({
+    fields: { amount: 'Your next charge', expectedMonthlyAmount: 'Expected monthly fee' },
+    states: { pending: { supporting: 'Custom pending message' } },
+  }, 'payment-details');
+  assert.equal(content.fields.amount, 'Your next charge');
+  assert.equal(content.fields.expectedMonthlyAmount, 'Expected monthly fee');
+  assert.equal(content.states.pending.supporting, 'Custom pending message');
+  assert.equal(content.states.bank_setup_pending.heading, 'Payment details');
+  assert.deepEqual(normalizeCanvasMembershipContent(content, 'payment-details'), content);
+});
+
 test('form picker decodes persisted slugs once without corrupting query strings or malformed escapes', () => {
   for (const slug of ['renew-membership', 'renew membership', 'renew-é', 'literal%slug']) {
     const url = `/forms/${encodeURIComponent(slug)}`;

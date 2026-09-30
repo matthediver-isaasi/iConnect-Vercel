@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
+import { createCanvasSummaryHandler } from '../../../../../api/membership/canvas-summary.js';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://tenant.test/' });
 for (const name of ['window', 'document', 'navigator', 'localStorage', 'sessionStorage', 'HTMLElement', 'Element', 'Node', 'DocumentFragment', 'CustomEvent', 'MutationObserver']) {
@@ -63,6 +64,135 @@ function render(overrides = {}) {
     {...overrides}
   />);
 }
+
+test('completed bank setup shows separate expected price and suppresses saved repeat-setup links', () => {
+  const data = { membership: { state: 'pending' }, renewal: { eligible: true },
+    payment: { state: 'bank_setup_pending', method: 'monthly_direct_debit',
+      expectedMonthlyPrice: { amount: 13, currency: 'GBP', variable: true } } };
+  const block = { id: 'saved-pending', content: {
+    manageLink: '/forms/join', manageLinkText: 'Renew subscription', renewalLink: '/forms/renew',
+    fields: { amount: 'Custom scheduled charge', expectedMonthlyAmount: 'Expected monthly fee' },
+  } };
+  for (const breakpoint of ['desktop', 'mobile']) {
+    for (const asEditor of [false, true]) {
+      const html = render({ type: 'payment-details', block, breakpoint, asEditor,
+        result: { status: 'ready', data, isSample: asEditor } });
+      const text = new JSDOM(html).window.document.body.textContent;
+      assert.match(text, /Payment details/);
+      assert.match(text, /Expected monthly fee/);
+      assert.match(text, /£13.00 per month/);
+      assert.match(text, /Based on the price when you joined. This amount may change/);
+      assert.match(text, /You’ve completed your Direct Debit setup/);
+      assert.match(text, /You don’t need to do anything/);
+      assert.doesNotMatch(text, /Custom scheduled charge|Renew subscription|Renew your subscription|mandate|snapshot|reconciliation|administrator|paid in full/i);
+      assert.doesNotMatch(html, /<a /);
+    }
+  }
+  const missing = render({ type: 'payment-details', result: { status: 'ready',
+    data: { ...data, payment: { ...data.payment, expectedMonthlyPrice: null } } } });
+  assert.match(missing, /Amount not available/);
+  assert.doesNotMatch(missing, /£13|Based on the price/);
+});
+
+test('scoped completed no-plan signup flows from the real membership API into the payment card', async () => {
+  const tenantId = 'tenant-integration';
+  const memberId = 'member-integration';
+  const owner = { id: memberId, tenant_id: tenantId, organization_id: null, role_id: 'role-integration' };
+  const rows = {
+    member: [owner],
+    member_membership_history: [{
+      id: 'term-integration', tenant_id: tenantId, member_id: memberId,
+      term_key: '2026-term', term_start_date: '2026-09-30',
+      membership_renewal_date: '2027-09-30', term_end_date: '2027-09-29',
+      tier_label: 'Professional', membership_year: '2026/2027',
+      status: 'pending_payment_setup', payment_status: 'unpaid',
+      payment_method: 'direct_debit', billing_period: 'monthly_direct_debit',
+      billing_agreement_id: 'agreement-integration',
+    }],
+    membership_billing_agreements: [{
+      id: 'agreement-integration', tenant_id: tenantId, member_id: memberId, organization_id: null,
+      provider: 'gocardless', environment: 'live', status: 'mandate_pending',
+      term_key: '2026-term', term_start_date: '2026-09-30',
+      gocardless_billing_request_id: 'BRQ-integration', gocardless_mandate_id: 'MD-integration',
+      metadata: { dd: {
+        monthly_amount_minor: 1300, monthly_amount: 13, currency: 'GBP',
+        collection_policy: { version: 1, end_policy: 'continue', pricing_policy: 'dynamic' },
+      } },
+    }],
+    gocardless_mandates: [{
+      tenant_id: tenantId, gocardless_mandate_id: 'MD-integration',
+      environment: 'live', status: 'created',
+    }],
+    payment_webhook_events: [{
+      tenant_id: tenantId, provider: 'gocardless', resource_type: 'billing_requests',
+      action: 'fulfilled', resource_id: 'BRQ-integration', processing_status: 'processed',
+      processing_error: null, event_id: 'EV-integration',
+      payload: { id: 'EV-integration', resource_type: 'billing_requests', action: 'fulfilled',
+        links: { billing_request: 'BRQ-integration', mandate_request_mandate: 'MD-integration' } },
+    }],
+  };
+  const calls = [];
+  const db = {
+    from(table) {
+      const call = { table, filters: [], offset: 0, end: Infinity };
+      calls.push(call);
+      const resolve = () => {
+        let data = (rows[table] || []).filter(row => call.filters.every(([key, value]) => row[key] === value));
+        data = data.slice(call.offset, call.end + 1);
+        if (call.columns && call.columns !== '*') data = data.map(row => Object.fromEntries(
+          call.columns.split(',').map(column => column.trim()).map(column => [column, row[column]]),
+        ));
+        return { data, error: null };
+      };
+      const query = {
+        select(columns) { call.columns = columns; return query; },
+        eq(key, value) { call.filters.push([key, value]); return query; },
+        is(key, value) { call.filters.push([key, value]); return query; },
+        order() { return query; },
+        limit(count) { call.end = count - 1; return query; },
+        range(start, end) { call.offset = start; call.end = end; return query; },
+        maybeSingle() { const result = resolve(); return Promise.resolve({ ...result, data: result.data[0] || null }); },
+        then(fulfill, reject) { return Promise.resolve(resolve()).then(fulfill, reject); },
+      };
+      return query;
+    },
+  };
+  const handler = createCanvasSummaryHandler({
+    db, now: () => new Date('2026-09-30T12:00:00Z'),
+    getSessionMember: async () => owner,
+    getTenantContext: async () => ({ tenantId }),
+    hasAdminAccess: async () => true,
+  });
+  const res = {
+    statusCode: 200, setHeader() {},
+    status(code) { this.statusCode = code; return this; },
+    json(data) { this.payload = data; return data; },
+  };
+  await handler({ method: 'GET', query: {} }, res);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.payload.payment.state, 'bank_setup_pending');
+  assert.deepEqual(res.payload.payment.expectedMonthlyPrice, { amount: 13, currency: 'GBP', variable: true });
+  assert.equal(res.payload.payment.amount, null);
+  assert.equal(res.payload.payment.nextPayment, null);
+  assert.deepEqual(res.payload.renewal, { eligible: false });
+  assert.ok(calls.every(call => call.filters.some(([column, value]) => column === 'tenant_id' && value === tenantId)));
+  assert.ok(!calls.some(call => call.table === 'gocardless_payments'));
+  const html = render({
+    type: 'payment-details',
+    block: { id: 'saved-integration', content: {
+      manageLink: '/forms/join', manageLinkText: 'Renew subscription', renewalLink: '/forms/renew',
+    } },
+    result: { status: 'ready', data: res.payload },
+  });
+  const text = new JSDOM(html).window.document.body.textContent;
+  assert.match(text, /Expected monthly amount/);
+  assert.match(text, /£13.00 per month/);
+  assert.match(text, /Based on the price when you joined. This amount may change/);
+  assert.match(text, /You’ve completed your Direct Debit setup/);
+  assert.match(text, /You don’t need to do anything/);
+  assert.doesNotMatch(text, /Next payment amount|Planned payment date|Confirmed payment date|paid in full|Renew subscription/i);
+  assert.doesNotMatch(html, /<a /);
+});
 
 test('renewal CTA requires authoritative true eligibility and a safe independent destination', () => {
   const data = { ...live, payment: { state: 'paid', method: 'upfront' }, renewal: { eligible: true } };

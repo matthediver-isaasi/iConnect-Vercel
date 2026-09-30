@@ -7,6 +7,7 @@ import { shapePlan } from './payment-plan.js';
 import { loadMigratedMandatePresentation, migratedMandatePresentation } from '../_lib/migratedMandatePresentation.js';
 import { canvasDirectDebitCollection } from '../_lib/canvasDirectDebitCollection.js';
 import { loadCanvasRenewalEligibility } from '../_lib/canvasRenewalEligibility.js';
+import { signupMonthlyPriceFromAgreement, completedPendingBankActivation } from '../_lib/membershipSignupEvidence.js';
 
 // This endpoint is deliberately self-only, including for administrators. It
 // reads retained commitments and read-only dynamic pricing projections, never
@@ -82,7 +83,7 @@ export function selectCanvasCommitment(personal, organisation, today) {
 function paymentMethod(record, commitment, plan) {
   const method = text(commitment?.paymentMethod || record.payment_method);
   const monthly = commitment?.paymentFrequency === 'monthly'
-    || record.billing_period === 'monthly' || plan?.interval_unit === 'monthly';
+    || ['monthly', 'monthly_direct_debit'].includes(record.billing_period) || plan?.interval_unit === 'monthly';
   if (['monthly_direct_debit', 'gocardless_monthly', 'direct_debit_monthly'].includes(method)) return 'monthly_direct_debit';
   if (['monthly_card', 'card_monthly', 'stripe_monthly_card'].includes(method)) return 'monthly_card';
   if (['direct_debit', 'gocardless'].includes(method)) return monthly ? 'monthly_direct_debit' : 'direct_debit';
@@ -258,11 +259,11 @@ async function readHistory(db, tenantId, column, ownerId, table, source) {
   }
 }
 
-async function matchingPlan(db, selected, tenantId, memberId) {
+async function matchingBillingEvidence(db, selected, tenantId, memberId) {
   const record = selected?.record;
   if (!record || record.membership_source !== 'personal' || !record.billing_agreement_id) return null;
   const { data: agreement, error } = await db.from('membership_billing_agreements')
-    .select('id, tenant_id, member_id, organization_id, provider, status, environment, gocardless_mandate_id, metadata, term_key, term_start_date, commitment_snapshot')
+    .select('id, tenant_id, member_id, organization_id, provider, status, environment, gocardless_billing_request_id, gocardless_mandate_id, metadata, term_key, term_start_date, commitment_snapshot')
     .eq('tenant_id', tenantId).eq('member_id', memberId)
     .eq('id', record.billing_agreement_id).maybeSingle();
   if (error) throw error;
@@ -282,7 +283,7 @@ async function matchingPlan(db, selected, tenantId, memberId) {
     .order('created_at', { ascending: false }).order('id', { ascending: false }).limit(1);
   if (planError) throw planError;
   const plan = plans?.[0];
-  if (!plan) return null;
+  if (!plan) return { agreement, plan: null };
   if (!belongsTo(plan, tenantId, 'member_id', memberId) || plan.organization_id
       || plan.billing_agreement_id !== agreement.id) throw new Error('Payment plan ownership mismatch');
   if (agreement.provider && plan.provider && agreement.provider !== plan.provider) return null;
@@ -301,9 +302,43 @@ async function matchingPlan(db, selected, tenantId, memberId) {
     arrears.push(...data);
     if (data.length < 500) break;
   }
-  return loadMigratedMandatePresentation(db, {
+  return { agreement, plan: await loadMigratedMandatePresentation(db, {
     ...plan, membership_billing_agreements: agreement, membership_monthly_arrears_period: arrears,
-  });
+  }) };
+}
+
+// A fulfilled, processed billing request establishes authorisation, not an
+// active mandate, first payment, or scheduled collection. Never substitute
+// this historic signup quote for a current plan's amount.
+async function pendingSignupPrice(db, { selected, agreement, plan, owner, tenantId, today }) {
+  const record = selected?.record;
+  if (plan || !agreement || !record || record.membership_source !== 'personal'
+      || record.tenant_id !== tenantId || record.member_id !== owner.id
+      || record.billing_agreement_id !== agreement.id || agreement.tenant_id !== tenantId
+      || agreement.member_id !== owner.id || agreement.organization_id
+      || agreement.provider !== 'gocardless'
+      || !['live', 'sandbox'].includes(agreement.environment)
+      || !['current', 'scheduled'].includes(selected.lifecycle)
+      || !['pending_payment_setup', 'payment_setup_required', 'mandate_pending'].includes(record.status)
+      || record.payment_status !== 'unpaid' || owner.membership_paused
+      || agreement.status !== 'mandate_pending'
+      || !agreement.gocardless_billing_request_id || !agreement.gocardless_mandate_id
+      || agreement.metadata?.dd?.billing_request_mode === 'migration_existing_mandate'
+      || agreement.metadata?.dd?.migration_invite_id
+      || !['direct_debit', 'gocardless'].includes(record.payment_method)
+      || !['monthly', 'monthly_direct_debit'].includes(record.billing_period)
+      || selected.start == null) return null;
+  // Reject ambiguous retained events before the shared evidence check, which
+  // intentionally accepts any exact matching processed fulfillment.
+  const { data: events, error } = await db.from('payment_webhook_events')
+    .select('event_id')
+    .eq('tenant_id', tenantId).eq('provider', 'gocardless')
+    .eq('resource_type', 'billing_requests').eq('action', 'fulfilled')
+    .eq('resource_id', agreement.gocardless_billing_request_id)
+    .eq('processing_status', 'processed').limit(2);
+  if (error || !Array.isArray(events) || events.length !== 1) return null;
+  return await completedPendingBankActivation(db, tenantId, agreement)
+    ? { expectedMonthlyPrice: signupMonthlyPriceFromAgreement(agreement) } : null;
 }
 
 async function collectionEvidence(db, plan, tenantId, memberId, today) {
@@ -434,7 +469,8 @@ export function createCanvasSummaryHandler(dependencies = {}) {
       const today = now().toISOString().slice(0, 10);
       await attachAlphaMembershipRecognition(db, tenantId, member.id, personal, today);
       const selected = selectCanvasCommitment(personal, organisation, today);
-      const plan = await matchingPlan(db, selected, tenantId, member.id);
+      const billing = await matchingBillingEvidence(db, selected, tenantId, member.id);
+      const plan = billing?.plan || null;
       const [managed, historical] = await Promise.all([
         plan?.metadata?.collection_mode === 'dynamic' ? null : collectionEvidence(db, plan, tenantId, member.id, today),
         pilotHistoricalEvidence(db, selected, plan, tenantId, member.id),
@@ -448,7 +484,19 @@ export function createCanvasSummaryHandler(dependencies = {}) {
       const summary = buildCanvasSummary({
         selected: selectedWithEvidence, plan, paused: owner.membership_paused === true, today,
       });
+      try {
+        const completedSetup = await pendingSignupPrice(db, {
+          selected, agreement: billing?.agreement, plan, owner, tenantId, today,
+        });
+        if (completedSetup && summary.membership.state === 'pending') {
+          summary.payment = { ...summary.payment, state: 'bank_setup_pending',
+            expectedMonthlyPrice: completedSetup.expectedMonthlyPrice };
+        }
+      } catch {
+        // Optional read evidence fails closed without hiding ordinary membership.
+      }
       summary.renewal = await loadCanvasRenewalEligibility(db, { selected, owner, history: personal, today, plan });
+      if (summary.payment.state === 'bank_setup_pending') summary.renewal = { eligible: false };
       if (summary.renewal.inGrace) {
         summary.membership.grace = summary.renewal;
         summary.membership.membershipYear = selected.record.membership_year;

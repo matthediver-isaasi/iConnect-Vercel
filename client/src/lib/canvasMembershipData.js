@@ -1,11 +1,12 @@
 // Presentation-only configuration. Never put a viewer's records or editor samples
 // in these defaults: Canvas documents are public, reusable authoring documents.
 export const MEMBERSHIP_DATA_STATES = ['active', 'pending', 'paused', 'expired', 'failed', 'unavailable', 'none'];
-export const MEMBERSHIP_PAYMENT_STATES = ['active', 'paid', 'pending', 'first_payment_pending', 'current_direct_debit', 'paused', 'expired', 'failed', 'unavailable', 'none'];
+export const MEMBERSHIP_PAYMENT_STATES = ['active', 'paid', 'pending', 'bank_setup_pending', 'first_payment_pending', 'current_direct_debit', 'paused', 'expired', 'failed', 'unavailable', 'none'];
 export const MEMBERSHIP_PAYMENT_METHODS = ['direct_debit', 'monthly_direct_debit', 'card', 'monthly_card', 'bank_transfer', 'invoice', 'upfront', 'flat_rate', 'unavailable'];
 export const MEMBERSHIP_TEXT_ROLES = ['eyebrow', 'heading', 'supporting', 'fieldLabel', 'value', 'status', 'link'];
 
 const statuses = {
+  bank_setup_pending: 'Waiting for your bank',
   current_direct_debit: 'Current membership',
   first_payment_pending: 'Payment pending',
   active: 'Active', pending: 'Pending', paused: 'Paused', expired: 'Expired',
@@ -22,6 +23,7 @@ const membershipSupport = {
   none: 'There is no current membership to display.',
 };
 const paymentHeadings = {
+  bank_setup_pending: 'Payment details',
   current_direct_debit: 'Payment details',
   first_payment_pending: 'Payment details',
   active: 'Payment details', paid: 'Payment details', pending: 'Payment details', paused: 'Payment details',
@@ -29,6 +31,7 @@ const paymentHeadings = {
   unavailable: 'Payment details unavailable', none: 'No payment arrangement',
 };
 const paymentSupport = {
+  bank_setup_pending: 'You’ve completed your Direct Debit setup. We’re waiting for your bank to finish setting it up. You don’t need to do anything.',
   current_direct_debit: '',
   first_payment_pending: 'Your payment is awaiting confirmation.',
   active: 'Your payment arrangement is active.',
@@ -71,6 +74,7 @@ export function getCanvasMembershipDefaults(type = 'membership-summary') {
     fields: {
       memberSince: 'Member since', membershipType: '', amount: 'Next payment amount', method: 'Payment method',
       projectedAmount: 'Projected next payment amount', configuredAmount: 'Configured amount',
+      expectedMonthlyAmount: 'Expected monthly amount',
       collectionStructure: 'Collection structure',
       // nextPayment is retained only as a migration source for author wording.
       nextPayment: 'Payment date', expiryDate: 'Membership valid until', plannedPaymentDate: 'Planned payment date',
@@ -93,6 +97,8 @@ export function getCanvasMembershipDefaults(type = 'membership-summary') {
       joinDateNotRecorded: 'Join date not recorded',
       amountUnknown: 'Amount not available',
       noPaymentScheduled: 'No scheduled payment recorded',
+      signupPriceBasis: 'Based on the price when you joined.',
+      variableSignupPriceBasis: 'Based on the price when you joined. This amount may change.',
     },
     typography: Object.fromEntries(MEMBERSHIP_TEXT_ROLES.map(role => [role, ''])),
     // Responsive outer-card minimum height. Zero deliberately means Auto.
@@ -247,6 +253,15 @@ export function normalizeCanvasMembershipSummary(value) {
     },
     payment: {
       state: MEMBERSHIP_PAYMENT_STATES.includes(payment.state) ? payment.state : 'unavailable',
+      ...(payment.state === 'bank_setup_pending' && Number.isFinite(payment.expectedMonthlyPrice?.amount)
+        && payment.expectedMonthlyPrice.amount > 0
+        && /^[A-Z]{3}$/.test(payment.expectedMonthlyPrice.currency) ? {
+          expectedMonthlyPrice: {
+            amount: payment.expectedMonthlyPrice.amount,
+            currency: payment.expectedMonthlyPrice.currency,
+            variable: payment.expectedMonthlyPrice.variable === true,
+          },
+        } : {}),
       method: MEMBERSHIP_PAYMENT_METHODS.includes(payment.method) ? payment.method : 'unavailable',
       nextPayment: isoDate(payment.nextPayment),
       plannedPayment: paymentEvidence(payment.plannedPayment),

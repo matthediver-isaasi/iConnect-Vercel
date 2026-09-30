@@ -52,7 +52,8 @@ export function MembershipDataView({
   const ready = result?.status === 'ready';
   const state = ready ? (paymentCard ? summary.payment.state : summary.membership.state) : 'unavailable';
   const renewalHref = safeMembershipLink(content.renewalLink);
-  const showRenewal = paymentCard && ready && summary.renewal.eligible && !!renewalHref;
+   const bankSetupPending = summary.payment.state === 'bank_setup_pending';
+   const showRenewal = paymentCard && ready && !bankSetupPending && summary.renewal.eligible && !!renewalHref;
   // A confirmed absence of payment data has no useful published presentation.
   // Keep every unresolved/error lifecycle visible, and keep the editor sample
   // selectable, but remove the complete public block (including its authored
@@ -113,6 +114,8 @@ export function MembershipDataView({
     ? null : content.methods[summary.payment.method];
   const nextPaymentAmount = formatMembershipAmount(summary.payment.amount, summary.payment.currency)
     || content.messages.amountUnknown;
+   const expectedPrice = bankSetupPending ? summary.payment.expectedMonthlyPrice : null;
+   const expectedAmount = formatMembershipAmount(expectedPrice?.amount, expectedPrice?.currency);
   const amountLabel = summary.payment.collectionBasis === 'projected' ? content.fields.projectedAmount
     : summary.payment.collectionBasis === 'held' ? content.fields.configuredAmount : content.fields.amount;
   const confirmedAmount = formatMembershipAmount(confirmedPayment?.amount, confirmedPayment?.currency)
@@ -138,7 +141,7 @@ export function MembershipDataView({
   const paymentFactsAvailable = !['unavailable', 'none', 'paid'].includes(summary.payment.state);
   const fieldKeys = ['memberSince',
     ...(content.fields.membershipType && values.membershipType ? ['membershipType'] : []),
-    ...(paymentFactsAvailable ? ['amount', 'method', 'nextPayment'] : []),
+     ...(paymentFactsAvailable && !bankSetupPending ? ['amount', 'method', 'nextPayment'] : []),
     ...(summary.membership.paymentHistoryFrom ? ['paymentHistoryFrom'] : [])];
   return (
     <section ref={ref} data-membership-card={id} data-testid={`canvas-${type}`}
@@ -184,15 +187,19 @@ export function MembershipDataView({
           borderRadius: content.panel.borderRadius, minWidth: 0,
         }}>
           <dl className="membership-fields" style={{ margin: 0 }}>
-            {paymentFactsAvailable && <div style={{ minWidth: 0 }}>
+             {bankSetupPending && <div style={{ minWidth: 0 }}>
+               <dt {...role('fieldLabel')}>{content.fields.expectedMonthlyAmount}</dt>
+               <dd {...role('value', { fontSize: 24 })}>{expectedAmount ? `${expectedAmount} per month` : content.messages.amountUnknown}</dd>
+             </div>}
+             {paymentFactsAvailable && !bankSetupPending && <div style={{ minWidth: 0 }}>
               <dt {...role('fieldLabel')}>{amountLabel}</dt>
               <dd {...role('value', { fontSize: 24 })}>{nextPaymentAmount}</dd>
             </div>}
-            {paymentFactsAvailable && paymentDate && <div style={{ minWidth: 0 }}>
+             {paymentFactsAvailable && !bankSetupPending && paymentDate && <div style={{ minWidth: 0 }}>
               <dt {...role('fieldLabel')}>{paymentDateLabel}</dt>
               <dd {...role('value')}>{formatMembershipDate(paymentDate)}</dd>
             </div>}
-            {paymentFactsAvailable && confirmedPayment && <div style={{ minWidth: 0 }}>
+             {paymentFactsAvailable && !bankSetupPending && confirmedPayment && <div style={{ minWidth: 0 }}>
               <dt {...role('fieldLabel')}>
                 {confirmedPayment.historical ? content.fields.historicalPayment : content.fields.confirmedPayment}
               </dt>
@@ -202,12 +209,15 @@ export function MembershipDataView({
               <dt {...role('fieldLabel')}>{content.fields.method}</dt>
               <dd {...role('value')}>{displayMethod}</dd>
             </div>}
-            {paymentFactsAvailable && summary.payment.mandateStatus && <div style={{ minWidth: 0 }}>
+             {paymentFactsAvailable && !bankSetupPending && summary.payment.mandateStatus && <div style={{ minWidth: 0 }}>
               <dt {...role('fieldLabel')}>{content.fields.mandateStatus}</dt>
               <dd {...role('value', { color: stateColors[state] })}>{summary.payment.mandateStatus}</dd>
             </div>}
           </dl>
-          {summary.payment.collectionBasis && (collectionNotice?.trim() || collectionStructure?.trim()) && <div style={{ marginTop: 16 }}>
+          {expectedAmount && <p {...role('supporting', { marginTop: 16 })}>
+            {expectedPrice.variable ? content.messages.variableSignupPriceBasis : content.messages.signupPriceBasis}
+          </p>}
+          {!bankSetupPending && summary.payment.collectionBasis && (collectionNotice?.trim() || collectionStructure?.trim()) && <div style={{ marginTop: 16 }}>
             {collectionNotice?.trim() && <p {...role('supporting')}>{collectionNotice}</p>}
             {collectionStructure?.trim() && <dl style={{ margin: collectionNotice?.trim() ? '16px 0 0' : 0 }}>
               <dt {...role('fieldLabel')}>{content.fields.collectionStructure}</dt>
@@ -242,7 +252,7 @@ export function MembershipDataView({
           </dl>
         </>
       )}
-      {paymentCard && href && ready && <a href={href}
+       {paymentCard && href && ready && !bankSetupPending && <a href={href}
         target={content.manageLinkNewTab ? '_blank' : undefined}
         rel={content.manageLinkNewTab ? 'noopener noreferrer' : undefined}
         onClick={asEditor ? event => event.preventDefault() : undefined}
