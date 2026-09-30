@@ -19,6 +19,7 @@ function fixture({ amount = 12.5, firstDate = '2027-04-02', providerDate = '2027
         commitment_snapshot: { config: structuredClone(config) } },
     } } };
   const plan = { id: 'plan', tenant_id: 'tenant', billing_agreement_id: 'agreement', status: 'active',
+    dynamic_next_collection_date: firstDate,
     provider: 'gocardless', gocardless_mandate_id: 'MD_TEST', metadata: { collection_mode: 'dynamic', dynamic_first_date: firstDate } };
   const rows = { membership_tier_config: [config], membership_billing_agreements: [agreement],
     membership_payment_plans: [plan], membership_monthly_arrears_period: [],
@@ -26,18 +27,46 @@ function fixture({ amount = 12.5, firstDate = '2027-04-02', providerDate = '2027
     member: [{ id: 'member', tenant_id: 'tenant', country: 'GB' }], member_preference_value: [] };
   const updates = [];
   const calls = [];
+  const controls = {};
+  const valueAt = (row, key) => key.includes('->>') ? row.metadata?.[key.split('->>')[1]] : row[key];
   const db = {
     from(table) {
-      let filters = [], single = false, patch;
+      let filters = [], single = false, patch, rowLimit = Infinity, ordering = [];
       const query = {
-        select() { return this; }, eq(key, value) { filters.push(row => key.includes('->>') || row[key] === value); return this; },
+        select() { return this; }, eq(key, value) { filters.push(row => valueAt(row, key) === value); return this; },
         in(key, values) { filters.push(row => values.includes(row[key])); return this; },
         is(key, value) { filters.push(row => (row[key] ?? null) === value); return this; },
-        or() { return this; }, order() { return this; }, limit() { return this; }, lte() { return this; },
+        or(expression) {
+          filters.push(row => expression.split(',').some(condition => {
+            const [, key, op, value] = condition.match(/^(.*?)\.(is|eq|lte|gte)\.(.*)$/) || [];
+            const actual = valueAt(row, key || '');
+            if (op === 'is') return value === 'null' && actual == null;
+            if (op === 'eq') return actual != null && String(actual) === value;
+            if (op === 'lte') return actual != null && actual <= value;
+            if (op === 'gte') return actual != null && actual >= value;
+            throw new Error(`Unsupported filter ${condition}`);
+          }));
+          return this;
+        },
+        order(key, options = {}) { ordering.push([key, options]); return this; },
+        limit(value) { rowLimit = value; return this; },
+        lte(key, value) { filters.push(row => row[key] != null && row[key] <= value); return this; },
         update(value) { patch = value; return this; },
         maybeSingle() { single = true; return this; }, single() { single = true; return this; },
         then(resolve, reject) {
-          const data = (rows[table] || []).filter(row => filters.every(fn => fn(row)));
+          controls.beforeQuery?.({ table, patch, single });
+          const data = (rows[table] || []).filter(row => filters.every(fn => fn(row)))
+            .sort((a, b) => {
+              for (const [key, options] of ordering) {
+                if (a[key] === b[key]) continue;
+                if (a[key] == null) return options.nullsFirst ? -1 : 1;
+                if (b[key] == null) return options.nullsFirst ? 1 : -1;
+                return (a[key] < b[key] ? -1 : 1) * (options.ascending === false ? -1 : 1);
+              }
+              return 0;
+            }).slice(0, rowLimit);
+          const error = patch && controls.writeError?.(data, patch);
+          if (error) return Promise.resolve({ error: { message: error } }).then(resolve, reject);
           if (patch) { updates.push({ table, patch }); for (const row of data) Object.assign(row, patch); }
           return Promise.resolve({ data: single ? data[0] || null : data, error: null }).then(resolve, reject);
         },
@@ -46,11 +75,12 @@ function fixture({ amount = 12.5, firstDate = '2027-04-02', providerDate = '2027
     },
     async rpc(name, params) {
       if (name === 'reserve_gocardless_dynamic_collection') {
-        if (plan.status === 'cancelled') return { error: { message: 'cancelled' } };
-        let reservation = rows.gocardless_collection_reservations[0];
+        const target = rows.membership_payment_plans.find(row => row.id === params.p_plan_id);
+        if (target.status === 'cancelled') return { error: { message: 'cancelled' } };
+        let reservation = rows.gocardless_collection_reservations.find(row => row.plan_id === target.id);
         if (!reservation) {
           reservation = {
-            id: 'reservation', tenant_id: 'tenant', billing_agreement_id: agreement.id, plan_id: plan.id,
+            id: target.id === 'plan' ? 'reservation' : `reservation-${target.id}`, tenant_id: target.tenant_id, billing_agreement_id: target.billing_agreement_id, plan_id: target.id,
             collection_number: params.p_collection_number, due_date: params.p_due_date,
             requested_charge_date: params.p_provider_evidence.next_possible_charge_date,
             amount_minor: params.p_price_snapshot.monthly_amount_minor, currency: 'GBP',
@@ -62,8 +92,9 @@ function fixture({ amount = 12.5, firstDate = '2027-04-02', providerDate = '2027
         return { data: reservation };
       }
       if (name === 'attach_gocardless_dynamic_payment') {
-        Object.assign(rows.gocardless_collection_reservations[0], { status: 'submitted', gocardless_payment_id: params.p_payment.id });
-        return { data: rows.gocardless_collection_reservations[0] };
+        const reservation = rows.gocardless_collection_reservations.find(row => row.id === params.p_reservation_id);
+        Object.assign(reservation, { status: 'submitted', gocardless_payment_id: params.p_payment.id });
+        return { data: reservation };
       }
       throw new Error(`Unexpected RPC ${name}`);
     },
@@ -76,7 +107,7 @@ function fixture({ amount = 12.5, firstDate = '2027-04-02', providerDate = '2027
         status: 'pending_submission', links: { mandate: request.mandateId } };
     },
   };
-  return { config, agreement, plan, rows, db, gc, calls, updates, now: () => new Date('2027-03-29T12:00:00Z') };
+  return { config, agreement, plan, rows, db, gc, calls, updates, controls, now: () => new Date('2027-03-29T12:00:00Z') };
 }
 
 test('dynamic price follows active flat price, never the consent-time initial amount', async () => {
@@ -324,6 +355,129 @@ test('scheduler persists fair retry backoff and respects elapsed-time budget', a
   let clockCalls = 0;
   const noTime = await reconcileDynamicCollections({ ...f, clientForTenant: async () => f.gc, clock: () => clockCalls++ * 50000 });
   assert.equal(noTime.processed + noTime.blocked, 0);
+});
+
+function addOtherTenant(f) {
+  const other = fixture();
+  for (const [table, rows] of Object.entries(other.rows)) {
+    for (const row of rows) {
+      row.tenant_id = 'other-tenant';
+      if (row.id) row.id = `other-${row.id}`;
+      if (row.billing_agreement_id) row.billing_agreement_id = `other-${row.billing_agreement_id}`;
+      if (row.member_id) row.member_id = `other-${row.member_id}`;
+    }
+    f.rows[table].push(...rows);
+  }
+  return other.plan;
+}
+
+test('held plans are filtered before limit; released provenance and another tenant still submit', async () => {
+  const f = fixture();
+  addOtherTenant(f);
+  f.plan.metadata.bnms_beta_held = true; // provenance is not a hold predicate
+  f.plan.metadata.bnms_release_required = false;
+  const held = Array.from({ length: 120 }, (_, i) => ({
+    ...structuredClone(f.plan), id: `held-${i}`,
+    collection_stopped_at: i % 2 ? null : '2026-09-01T00:00:00Z',
+    metadata: { ...f.plan.metadata, bnms_release_required: i % 2 ? true : false },
+  }));
+  const before = structuredClone(held);
+  f.rows.membership_payment_plans.unshift(...held);
+  const result = await reconcileDynamicCollections({ ...f, limit: 2, clientForTenant: async () => f.gc });
+  assert.equal(result.processed, 2);
+  assert.equal(result.errors, 0);
+  assert.deepEqual(held, before);
+  assert.equal(f.calls.length, 2);
+  assert.deepEqual(new Set(f.calls.map(call => call.metadata.tenant_id)), new Set(['tenant', 'other-tenant']));
+  assert.equal(f.rows.gocardless_collection_reservations.length, 2);
+});
+
+test('new hold at scoped selection or direct reload causes no provider or bookkeeping effects', async () => {
+  for (const atReload of [false, true]) {
+    const f = fixture();
+    let reads = 0;
+    f.controls.beforeQuery = ({ table, patch, single }) => {
+      if (table !== 'membership_payment_plans' || patch) return;
+      reads++;
+      if (atReload ? single : reads === 2) {
+        f.plan.collection_stopped_at = '2027-03-29T12:00:00Z';
+        f.plan.metadata.bnms_release_required = true;
+      }
+    };
+    const result = await reconcileDynamicCollections({ ...f, clientForTenant: async () => {
+      throw new Error('held plan must not access provider');
+    } });
+    assert.equal(result.processed, 0);
+    assert.equal(result.errors, atReload ? 1 : 0);
+    assert.equal(f.plan.dynamic_next_check_at, undefined);
+    assert.equal(f.calls.length, 0);
+    assert.equal(f.rows.gocardless_collection_reservations.length, 0);
+  }
+});
+
+test('execution and bookkeeping errors stay visible, continue other tenants and retain retry backoff', async () => {
+  const f = fixture();
+  const other = addOtherTenant(f);
+  f.rows.membership_tier_config = f.rows.membership_tier_config.filter(row => row.tenant_id !== 'tenant');
+  f.controls.writeError = data => data.includes(f.plan) && 'Beta collection requires reviewed release';
+  const result = await reconcileDynamicCollections({ ...f, clientForTenant: async () => f.gc });
+  assert.equal(result.processed, 1);
+  assert.equal(result.blocked, 1);
+  assert.equal(result.errors, 2);
+  assert.match(result.details[0].error, /exactly one/);
+  assert.match(result.details[1].error, /Record dynamic collection error: Beta/);
+  assert.equal(f.plan.dynamic_next_check_at, undefined);
+  assert.equal(other.dynamic_next_check_at, '2027-03-29T13:00:00.000Z');
+  f.controls.writeError = null;
+  const retried = await reconcileDynamicCollections({ ...f, clientForTenant: async () => f.gc });
+  assert.equal(retried.errors, 1);
+  assert.equal(f.plan.dynamic_next_check_at, '2027-03-29T13:00:00.000Z');
+  const backedOff = await reconcileDynamicCollections({ ...f, clientForTenant: async () => f.gc });
+  assert.equal(backedOff.errors + backedOff.processed, 0);
+});
+
+test('provider acceptance with attach/outcome failure retries retained reservation and identical request', async () => {
+  const f = fixture();
+  const rpc = f.db.rpc;
+  let failAttach = true;
+  f.db.rpc = (name, params) => name === 'attach_gocardless_dynamic_payment' && failAttach
+    ? Promise.resolve({ error: { message: 'attachment unavailable' } }) : rpc(name, params);
+  f.controls.writeError = () => 'bookkeeping unavailable';
+  const result = await reconcileDynamicCollections({ ...f, clientForTenant: async () => f.gc });
+  assert.equal(result.errors, 2);
+  assert.equal(f.plan.dynamic_next_check_at, undefined);
+  failAttach = false;
+  f.controls.writeError = null;
+  const retry = await reconcileDynamicCollections({ ...f, clientForTenant: async () => f.gc });
+  assert.equal(retry.processed, 1);
+  assert.deepEqual(f.calls[1], f.calls[0]);
+  assert.equal(f.rows.gocardless_collection_reservations.length, 1);
+});
+
+test('successful submission with failed bookkeeping remains visible and later rows run', async () => {
+  const f = fixture();
+  addOtherTenant(f);
+  f.controls.writeError = data => data.includes(f.plan) && 'bookkeeping unavailable';
+  const result = await reconcileDynamicCollections({ ...f, clientForTenant: async () => f.gc });
+  assert.equal(result.processed, 2);
+  assert.equal(result.errors, 1);
+  assert.match(result.details[0].error, /Clear dynamic collection error/);
+  assert.equal(f.calls.length, 2);
+});
+
+test('pre-gate skip does not report repaired and retry is capped at London midnight', async () => {
+  const f = pilotFixture();
+  f.now = () => new Date('2026-09-30T22:55:00Z');
+  const result = await reconcileDynamicCollections({ ...f, clientForTenant: async () => {
+    throw new Error('no provider before gate');
+  } });
+  assert.equal(result.skipped, 1);
+  assert.equal(result.processed + result.errors, 0);
+  assert.equal(f.plan.dynamic_next_check_at, '2026-09-30T23:00:00.000Z');
+  f.now = () => new Date('2026-09-30T23:00:00Z');
+  const ready = await reconcileDynamicCollections({ ...f, clientForTenant: async () => f.gc });
+  assert.equal(ready.processed, 1);
+  assert.equal(ready.errors, 0);
 });
 
 test('pilot accepts provider dates after the processing gate, while unrelated plans retain existing behavior', async () => {

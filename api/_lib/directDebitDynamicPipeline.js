@@ -111,9 +111,14 @@ export async function resolveDynamicCollectionPrice(agreement, intendedDate, { d
   };
 }
 
+export function withoutDynamicCollectionHolds(query) {
+  return query.is('collection_stopped_at', null)
+    .or('metadata->>bnms_release_required.is.null,metadata->>bnms_release_required.eq.false');
+}
+
 export function selectDynamicCollections(db, now, limit = 100) {
   const horizon = day(new Date(now.getTime() + 35 * 86_400_000));
-  return db.from('membership_payment_plans').select('*')
+  return withoutDynamicCollectionHolds(db.from('membership_payment_plans').select('*'))
     .eq('provider', 'gocardless').eq('metadata->>collection_mode', 'dynamic')
     .in('status', LIVE_STATUSES).lte('dynamic_next_collection_date', horizon)
     .or(`dynamic_next_check_at.is.null,dynamic_next_check_at.lte.${now.toISOString()}`)
@@ -126,7 +131,7 @@ export async function runDynamicCollection({ db, plan, now = new Date(), getGc, 
     'Select scoped dynamic plan');
   if (!selected?.length) {
     trace({ stage: 'dynamic-collection', status: 'skipped', reason: 'Plan is not due in the dynamic collection batch (provider, mode, lifecycle, horizon or next-check gate).' });
-    return { plan, detail: 'Not due for dynamic collection batch' };
+    return { plan, skipped: true, persistOutcome: false, detail: 'Not due for dynamic collection batch' };
   }
   return processDynamicCollection({ db, plan, now, getGc, effects, trace });
 }
@@ -134,12 +139,16 @@ export async function runDynamicCollection({ db, plan, now = new Date(), getGc, 
 // Also used outside the cron when a just-created dynamic plan first collects.
 // That entry intentionally does not apply the cron's polling/backoff envelope.
 export async function processDynamicCollection({ db, plan, now, getGc, effects, trace = () => {} }) {
-  const skip = reason => {
+  const skip = (reason, extra = {}) => {
     trace({ stage: 'dynamic-collection', status: 'skipped', reason });
-    return { plan, detail: reason };
+    return { plan, skipped: true, detail: reason, ...extra };
   };
   plan = checked(await db.from('membership_payment_plans').select('*')
     .eq('tenant_id', plan.tenant_id).eq('id', plan.id).single(), 'Reload dynamic schedule');
+  if (plan.collection_stopped_at != null ||
+      ![undefined, null, false, 'false'].includes(plan.metadata?.bnms_release_required)) {
+    throw new Error('Dynamic collection is blocked by agreement or plan lifecycle: collection hold');
+  }
   const agreement = checked(await db.from('membership_billing_agreements').select('*')
     .eq('tenant_id', plan.tenant_id).eq('id', plan.billing_agreement_id).single(), 'Load dynamic agreement');
   if (!isDynamicAgreement(agreement) || !LIVE_STATUSES.includes(agreement.status)
@@ -175,7 +184,8 @@ export async function processDynamicCollection({ db, plan, now, getGc, effects, 
   const bnmsProcessing = bnmsPilot || bnmsBeta || Boolean(alphaAdoption) || Boolean(manualContext);
   if (bnmsProcessing) {
     if (!Number.isFinite(now.getTime())) throw new Error('BNMS pilot processing clock is invalid');
-    if (now.getTime() < Date.parse('2026-09-30T23:00:00Z')) return skip('BNMS processing starts 1 October 2026 Europe/London');
+    if (now.getTime() < Date.parse('2026-09-30T23:00:00Z')) return skip(
+      'BNMS processing starts 1 October 2026 Europe/London', { nextCheckAt: '2026-09-30T23:00:00.000Z' });
   }
   const arrears = checked(await db.from('membership_monthly_arrears_period').select('id')
     .eq('tenant_id', plan.tenant_id).eq('plan_id', plan.id).is('settled_at', null).limit(1), 'Check dynamic collection arrears');
@@ -192,7 +202,7 @@ export async function processDynamicCollection({ db, plan, now, getGc, effects, 
   if (number > terms.instalment_count || intendedDate > term.term_end_date) {
     await effects.perform({ type: 'dynamic.finish_schedule', description: 'Clear the exhausted dynamic collection schedule; renewal remains separate.',
       payload: { planId: plan.id, tenantId: plan.tenant_id, expectedDate: plan.dynamic_next_collection_date } });
-    return { plan, detail: 'All collections for this term are reserved; renewal is separate' };
+    return skip('All collections for this term are reserved; renewal is separate');
   }
   const client = await getGc(plan.tenant_id);
   const mandate = await client.getMandate(agreement.gocardless_mandate_id);

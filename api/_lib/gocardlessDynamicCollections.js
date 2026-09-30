@@ -5,7 +5,7 @@ import { buildIdempotencyKey, gocardlessForTenant } from './gocardless.js';
 import {
   DYNAMIC_RESERVATIONS, isDynamicAgreement, dynamicCollectionDate,
   resolveDynamicCollectionPrice as resolvePrice, processDynamicCollection,
-  selectDynamicCollections, runDynamicCollection,
+  selectDynamicCollections, runDynamicCollection, withoutDynamicCollectionHolds,
 } from './directDebitDynamicPipeline.js';
 
 export { DYNAMIC_RESERVATIONS, isDynamicAgreement, dynamicCollectionDate };
@@ -113,7 +113,7 @@ export function createLiveDynamicCollectionEffects({ db, getGc }) {
     });
     assertDynamicPayment(reservation, payment, agreement.gocardless_mandate_id);
     await attachDynamicPayment(reservation, payment, { db });
-    return { plan: { ...plan, amount_minor: reservation.amount_minor, next_charge_date: payment.charge_date }, detail: 'Dynamic collection scheduled with provider' };
+    return { submitted: true, plan: { ...plan, amount_minor: reservation.amount_minor, next_charge_date: payment.charge_date }, detail: 'Dynamic collection scheduled with provider' };
   } };
 }
 
@@ -157,26 +157,46 @@ export async function resolveDynamicPayment(paymentId, { db = supabase, gc } = {
 }
 
 export async function reconcileDynamicCollections({ db = supabase, clientForTenant = gocardlessForTenant, now = () => new Date(), limit = 100, budgetMs = 45000, clock = Date.now } = {}) {
-  if (budgetMs <= 0) return { processed: 0, blocked: 0 };
+  const result = { processed: 0, blocked: 0, skipped: 0, errors: 0, details: [] };
+  if (budgetMs <= 0) return result;
   const started = clock();
   const plans = checked(await selectDynamicCollections(db, now(), limit), 'Load due dynamic plans');
-  const result = { processed: 0, blocked: 0 };
+  let attempted = 0;
+  const recordError = (plan, stage, error) => {
+    result.errors++;
+    result.details.push({ tenant_id: plan.tenant_id, plan: plan.id, stage, error: String(error.message) });
+  };
   for (const plan of plans || []) {
     const elapsed = clock() - started;
-    if (elapsed >= budgetMs || ((result.processed + result.blocked) > 0 && budgetMs - elapsed < 30000)) break;
-    const nextCheck = new Date(now().getTime() + 60 * 60 * 1000).toISOString();
+    if (elapsed >= budgetMs || (attempted > 0 && budgetMs - elapsed < 30000)) break;
+    attempted++;
+    let outcome, failure;
     try {
-      const client = await clientForTenant(plan.tenant_id);
-      const getGc = async () => client;
-      await runDynamicCollection({ db, plan, now: now(), getGc,
+      // Resolve credentials only if the shared pipeline actually needs a provider.
+      const getGc = () => clientForTenant(plan.tenant_id);
+      outcome = await runDynamicCollection({ db, plan, now: now(), getGc,
         effects: createLiveDynamicCollectionEffects({ db, getGc }) });
-      checked(await db.from('membership_payment_plans').update({ dynamic_collection_error: null, dynamic_next_check_at: nextCheck })
-        .eq('id', plan.id).eq('tenant_id', plan.tenant_id), 'Clear dynamic collection error');
-      result.processed++;
+      if (outcome.submitted) result.processed++;
+      else result.skipped++;
     } catch (error) {
-      checked(await db.from('membership_payment_plans').update({ dynamic_collection_error: String(error.message).slice(0, 1000), dynamic_next_check_at: nextCheck })
-        .eq('id', plan.id).eq('tenant_id', plan.tenant_id), 'Record dynamic collection error');
+      failure = error;
       result.blocked++;
+      recordError(plan, 'dynamic-collection', error);
+    }
+    if (outcome?.persistOutcome === false) continue;
+    const retryAt = now().getTime() + 60 * 60 * 1000;
+    const nextCheck = new Date(outcome?.nextCheckAt
+      ? Math.min(retryAt, Date.parse(outcome.nextCheckAt)) : retryAt).toISOString();
+    try {
+      // Atomic write predicate prevents bookkeeping on a newly held plan.
+      // SQL hold/identity guards remain the final authority for concurrent races.
+      checked(await withoutDynamicCollectionHolds(db.from('membership_payment_plans').update({
+        dynamic_collection_error: failure ? String(failure.message).slice(0, 1000) : null,
+        dynamic_next_check_at: nextCheck,
+      }).eq('id', plan.id).eq('tenant_id', plan.tenant_id)),
+      failure ? 'Record dynamic collection error' : 'Clear dynamic collection error');
+    } catch (error) {
+      recordError(plan, 'dynamic-collection-outcome', error);
     }
   }
   return result;

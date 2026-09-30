@@ -98,6 +98,9 @@ export async function runReconciliationPhases(results, {
       const dynamic = await collect();
       results.repaired += dynamic.processed;
       results.flagged += dynamic.blocked;
+      results.skipped += dynamic.skipped || 0;
+      results.errors += dynamic.errors || 0;
+      results.details.push(...(dynamic.details || []));
     }],
     ...stages.map(stage => [stage.id, () => runStage(stage)]),
   ];

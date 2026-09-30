@@ -52,6 +52,23 @@ test('row-level completion errors and details are retained in the cron aggregate
   assert.match(results.details[0].error, /release guard/);
 });
 
+test('collection errors and skipped outcomes reach the aggregate used by partial status and heartbeat', async () => {
+  const results = { repaired: 0, flagged: 0, skipped: 0, errors: 0, details: [] };
+  await runReconciliationPhases(results, {
+    complete: async () => ({ completed: 0, notified: 0, errors: 0 }),
+    collect: async () => ({ processed: 2, blocked: 1, skipped: 3, errors: 2,
+      details: [{ stage: 'dynamic-collection', error: 'original error' },
+        { stage: 'dynamic-collection-outcome', error: 'bookkeeping error' }] }),
+    stages: [],
+  });
+  assert.equal(results.repaired, 2);
+  assert.equal(results.skipped, 3);
+  assert.equal(results.flagged, 1);
+  assert.equal(results.errors, 2);
+  assert.equal(results.details.length, 2);
+  assert.equal(results.errors === 0, false, 'success heartbeat/ok predicate must remain false');
+});
+
 function responseRecorder() {
   return {
     statusCode: null,

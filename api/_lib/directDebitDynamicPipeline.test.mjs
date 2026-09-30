@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import {
-  runDynamicCollection, runDynamicCompletion, runDynamicNotification,
+  runDynamicCollection, runDynamicCompletion, runDynamicNotification, processDynamicCollection,
 } from './directDebitDynamicPipeline.js';
 import { createLiveDynamicCollectionEffects } from './gocardlessDynamicCollections.js';
 import { DryRunEffectBoundary, readonlyTenantDatabase } from './directDebitDryRunRuntime.js';
@@ -96,7 +96,10 @@ test('existing reservation reuses frozen amount and date; skips and held plans n
     assert.equal(op.amountMinor, 1700); assert.equal(op.payload.existing, true); throw new DryRunEffectBoundary(op);
   } } }), /Not executed/);
   f.plan.collection_stopped_at = '2026-09-30';
-  await assert.rejects(runDynamicCollection({ ...f }), /blocked by agreement or plan lifecycle/);
+  const held = await runDynamicCollection({ ...f });
+  assert.equal(held.skipped, true);
+  assert.equal(held.persistOutcome, false);
+  await assert.rejects(processDynamicCollection({ ...f }), /blocked by agreement or plan lifecycle/);
   f.plan.provider = 'stripe';
   assert.match((await runDynamicCollection({ ...f })).detail, /Not due/);
   assert.deepEqual(f.mutations, []);
