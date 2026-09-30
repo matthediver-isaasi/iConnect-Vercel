@@ -420,6 +420,7 @@ function RepeatableRowsField({
   formSlug,
   formMemberRoleId,
   communicationMemberContext,
+  communicationAccess,
   communicationEligibilityError,
   communicationEligibilityReady,
   prefillData,
@@ -780,6 +781,7 @@ function RepeatableRowsField({
         formSlug={formSlug}
         formMemberRoleId={formMemberRoleId}
         communicationMemberContext={communicationMemberContext}
+        communicationAccess={communicationAccess}
         communicationEligibilityError={communicationEligibilityError}
         communicationEligibilityReady={communicationEligibilityReady}
         allFormValues={row}
@@ -871,6 +873,7 @@ function RepeatableRowsField({
           formSlug={formSlug}
           formMemberRoleId={formMemberRoleId}
           communicationMemberContext={communicationMemberContext}
+          communicationAccess={communicationAccess}
           communicationEligibilityError={communicationEligibilityError}
           communicationEligibilityReady={communicationEligibilityReady}
           allFormValues={row}
@@ -1231,12 +1234,50 @@ function MultiCountryCombobox({ countries, value = [], onChange, disabled, place
   );
 }
 
-function CommunicationPreferencesField({ field, value, onChange, disabled, memberInfo, formMemberRoleId, communicationMemberContext, communicationEligibilityReady, communicationEligibilityError, conditionalResolution }) {
+function credentialDiscriminator(value) {
+  if (!value) return 'none';
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `${value.length}-${(hash >>> 0).toString(36)}`;
+}
+
+function CommunicationPreferencesField({ field, value, onChange, disabled, memberInfo, formId, formMemberRoleId, communicationMemberContext, communicationAccess, communicationEligibilityReady, communicationEligibilityError, conditionalResolution }) {
   const initializedDefaults = useRef(false);
+  const existingMemberId = communicationAccess?.memberId;
+  const useMemberCategories = Boolean(formId && (existingMemberId || communicationAccess?.createsMember));
+  const tenant = publicClient.getTenantSlug();
+  const applicantToken = communicationAccess?.applicantContinuationToken;
+  const draftToken = communicationAccess?.draftToken;
+  const sourceAnswers = communicationAccess?.createsMember ? communicationAccess.sourceAnswers : null;
+  const sourceAnswerIdentity = credentialDiscriminator(JSON.stringify(sourceAnswers || {}));
+  const categoryIdentity = [
+    tenant, formId, field.id, existingMemberId,
+    communicationAccess?.sessionMemberId,
+    credentialDiscriminator(applicantToken), credentialDiscriminator(draftToken), sourceAnswerIdentity,
+  ].join(':');
+  const lastCategoryIdentity = useRef(categoryIdentity);
+  if (lastCategoryIdentity.current !== categoryIdentity) {
+    initializedDefaults.current = false;
+    lastCategoryIdentity.current = categoryIdentity;
+  }
   const { data: allCategories, isLoading, isFetching, isError, error, refetch } = useQuery({
-    queryKey: ['public-communication-categories'],
-    queryFn: () => publicClient.listCommunicationCategories(),
-    staleTime: 5 * 60 * 1000
+    queryKey: useMemberCategories
+      ? ['form-communication-categories', tenant, formId, field.id, existingMemberId,
+        communicationAccess?.sessionMemberId || null, Boolean(communicationAccess?.sessionValidated),
+        credentialDiscriminator(applicantToken), credentialDiscriminator(draftToken), sourceAnswerIdentity]
+      : ['public-communication-categories', tenant],
+    queryFn: () => useMemberCategories
+      ? publicClient.listFormCommunicationCategories({
+          formId, fieldId: field.id, memberId: existingMemberId,
+          sourceAnswers, applicantContinuationToken: applicantToken, draftToken,
+        })
+      : publicClient.listCommunicationCategories(),
+    enabled: communicationEligibilityReady && !communicationEligibilityError,
+    staleTime: useMemberCategories ? 0 : 5 * 60 * 1000,
+    gcTime: useMemberCategories ? 0 : 5 * 60 * 1000,
   });
 
   const allowedIds = Array.isArray(field.allowed_category_ids) ? field.allowed_category_ids : [];
@@ -1248,13 +1289,17 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
 
   const categories = useMemo(() => {
     const effectiveRoleId = formMemberRoleId || memberInfo?.role_id;
-    const staticallyFiltered = filterFormCommunicationCategories(allCategories, {
-      memberContext: communicationMemberContext || Boolean(memberInfo?.id || effectiveRoleId),
-      roleId: effectiveRoleId,
-      allowedIds,
-    });
+    // Form-scoped responses are already audience/role-authorized by the server
+    // and intentionally omit the public category metadata.
+    const staticallyFiltered = useMemberCategories
+      ? (allCategories || []).filter(category => allowedIds.length === 0 || allowedIds.includes(category.id))
+      : filterFormCommunicationCategories(allCategories, {
+          memberContext: communicationMemberContext || Boolean(memberInfo?.id || effectiveRoleId),
+          roleId: effectiveRoleId,
+          allowedIds,
+        });
     return intersectConditionalOptions(staticallyFiltered, conditionalResolution, cat => cat.id);
-  }, [allCategories, formMemberRoleId, memberInfo?.id, memberInfo?.role_id, communicationMemberContext, allowedIdsKey, conditionalResolution]);
+  }, [allCategories, formMemberRoleId, memberInfo?.id, memberInfo?.role_id, communicationMemberContext, allowedIdsKey, conditionalResolution, useMemberCategories]);
 
   useEffect(() => {
     if (!communicationEligibilityReady || initializedDefaults.current || isFetching || isError || !Array.isArray(allCategories) || categories.length === 0) return;
@@ -1274,7 +1319,16 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
     if (Object.keys(next).length !== Object.keys(value).length) onChange(next);
   }, [categories, communicationEligibilityReady, isFetching, isError, allCategories, value, onChange]);
 
-  if (isLoading) {
+  if (communicationEligibilityError) {
+    return (
+      <div role="alert" className="text-sm text-red-700">
+        Could not load member eligibility: {communicationEligibilityError.message || 'Please try again.'}
+        <button type="button" className="ml-2 underline" onClick={() => communicationEligibilityError.retry()}>Retry</button>
+      </div>
+    );
+  }
+
+  if (!communicationEligibilityReady || isLoading) {
     return (
       <div className="flex items-center gap-2 text-sm text-slate-500">
         <Loader2 className="h-4 w-4 animate-spin" />
@@ -1290,19 +1344,6 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
         <button type="button" className="ml-2 underline" onClick={() => refetch()}>Retry</button>
       </div>
     );
-  }
-
-  if (communicationEligibilityError) {
-    return (
-      <div role="alert" className="text-sm text-red-700">
-        Could not load member eligibility: {communicationEligibilityError.message || 'Please try again.'}
-        <button type="button" className="ml-2 underline" onClick={() => communicationEligibilityError.retry()}>Retry</button>
-      </div>
-    );
-  }
-
-  if (!communicationEligibilityReady) {
-    return <p role="status" className="text-sm text-slate-500">Loading communication preferences...</p>;
   }
 
   if (categories.length === 0) {
@@ -1358,7 +1399,7 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
   );
 }
 
-export default function FormRenderer({ field, value: suppliedValue, onChange, onFormNotListedTextChange, onFileUploadStateChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, onValidityChange, onRelationshipEmptyStateChange, onRecordSelectionOptionsChange, onRepeatableAvailabilityChange, onRepeatableVisibilityChange, repeatableAvailabilitySupport = null, preserveValueWhenUnavailable = false, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, communicationMemberContext = false, communicationEligibilityReady = true, communicationEligibilityError = null, allFormValues = {}, prefillData = null, currentSetOptionLabels = null, currentSetExistingBlankFieldsByRow = null, allFields = [], membershipFeeQuote = null, notListedDisplayLabel = '', rootAllFields = null, rootAllFormValues = null, repeatableSiblingUniqueValues: siblingUniqueValues = [], repeatableFormExcludedValues: formExcludedValues = [], hiddenFieldIds = new Set(), parentHidden = false, availabilityProbe = false, suppressPaymentSummary = false, membershipPaymentMemberId = null }) {
+export default function FormRenderer({ field, value: suppliedValue, onChange, onFormNotListedTextChange, onFileUploadStateChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, onValidityChange, onRelationshipEmptyStateChange, onRecordSelectionOptionsChange, onRepeatableAvailabilityChange, onRepeatableVisibilityChange, repeatableAvailabilitySupport = null, preserveValueWhenUnavailable = false, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, communicationMemberContext = false, communicationAccess = null, communicationEligibilityReady = true, communicationEligibilityError = null, allFormValues = {}, prefillData = null, currentSetOptionLabels = null, currentSetExistingBlankFieldsByRow = null, allFields = [], membershipFeeQuote = null, notListedDisplayLabel = '', rootAllFields = null, rootAllFormValues = null, repeatableSiblingUniqueValues: siblingUniqueValues = [], repeatableFormExcludedValues: formExcludedValues = [], hiddenFieldIds = new Set(), parentHidden = false, availabilityProbe = false, suppressPaymentSummary = false, membershipPaymentMemberId = null }) {
   const resolvedFieldValue = resolveFormRendererFieldValue({
     field,
     fields: allFields,
@@ -2346,6 +2387,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
       formSlug={formSlug}
       formMemberRoleId={formMemberRoleId}
       communicationMemberContext={communicationMemberContext}
+      communicationAccess={communicationAccess}
       communicationEligibilityError={communicationEligibilityError}
       communicationEligibilityReady={communicationEligibilityReady}
       prefillData={prefillData}
@@ -3750,8 +3792,10 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
             onChange={onChange}
             disabled={isFieldDisabled}
             memberInfo={memberInfo}
+            formId={formId}
             formMemberRoleId={formMemberRoleId}
             communicationMemberContext={communicationMemberContext}
+            communicationAccess={communicationAccess}
             communicationEligibilityError={communicationEligibilityError}
             communicationEligibilityReady={communicationEligibilityReady}
             conditionalResolution={conditionalResolution}

@@ -59,3 +59,89 @@ deployment has occurred.
   live browser verification of the corrected field is claimed.
 - No migrations are required, applied, or awaiting application. No production
   configuration, submissions, or subscriptions were changed.
+
+## Freelancer membership form: separate read-only check — 2026-09-30
+
+This is a **different form** from the `partner-application` above. A bounded
+`BEGIN READ ONLY` / `ROLLBACK` query used the existing project-pinned DEST SQL
+connection (`lvmzliemqnieeoruhkik`, verified TLS). Anonymous GETs to the
+tenant's configured `graduatefutures.org` domain supplied the deployed public
+API comparison. No member impersonation, form submission, consent change,
+subscription write, configuration update, or migration was performed.
+
+- Form `568c559b-90fa-49b9-b7cb-016a75a31660` belongs to GFI tenant
+  `fd82da65-aab7-4a5c-85b8-b2febeb2003d`. It is active, slug
+  `freelancer-membership`, and has 18 top-level fields. Both DEST and the
+  anonymous deployed form GET show one `communication_preferences` field,
+  `field_1772545139956`, labelled “Please confirm you wish to receive our
+  newsletter.” It is required, allows the three category IDs below, and
+  defaults **Graduate Futures Newsletter** to selected.
+- All three allowed categories are active, `member_enabled=true`, and
+  `is_public=false`. Graduate Futures Newsletter is allowed for the primary
+  member pipeline's configured role
+  `39ed3e82-cf1b-4764-a059-42ba71bdf4b3`; News updates and Event updates
+  are **not** assigned to that role. The form maps the newsletter field's
+  newsletter category to a member communication selection. These facts
+  describe the configured role, not the eligibility of a particular person.
+- The form has `prefill_source=member`, `require_authentication=false`, no
+  `access_policy`, and the persisted
+  `mutation_access_policy={"version":1,"mode":"legacy_public_application"}`.
+  The latter is the reviewed legacy form mutation contract; it does not grant
+  anonymous callers ownership of arbitrary member records. Any member-aware
+  preference read or write still requires verified, tenant-scoped authority
+  and server-side member/category eligibility checks.
+- Anonymous deployed GET
+  `https://graduatefutures.org/api/public/form/freelancer-membership`
+  returned HTTP 200 with the same form ID, field allowlist, defaults, and
+  legacy mutation mode. Anonymous deployed GET
+  `https://graduatefutures.org/api/public/communication-categories` returned
+  HTTP 200 with `[]`. The public endpoint filters for `is_public=true` before
+  returning categories. An empty anonymous response is therefore expected for
+  these three member-only categories, **not** proof of missing saved choices or
+  permission to make them public. A default category ID alone cannot populate
+  an option absent from the returned audience.
+
+No unambiguous reported member identifier was present in the investigation
+materials available for this check. We therefore did **not** inspect a
+particular member's role, existing `member_communication_preference` rows, or
+whether their prior selections should be restored. A form's configured
+creation role is not evidence of the current role of a returning member.
+Authorized member-specific confirmation requires the exact reported member ID
+and a tenant-scoped, read-only lookup. These production GETs describe the
+currently deployed anonymous API only; local code changes and isolated tests
+are **not** evidence that a member-aware fix has been deployed or that a
+member-authenticated browser flow works.
+
+## Implemented form-scoped discovery — 2026-09-30
+
+The user clarified that this form must also display preferences while creating
+a new member. The implementation therefore covers both authorized existing
+members and public new-member creation through a persisted primary member
+pipeline. New-member role eligibility is resolved on the server using the same
+role assignment rules as submission; browser-supplied roles or configuration
+are not authority. The general anonymous categories endpoint remains unchanged.
+No standard checkbox/mapping workaround or audience configuration change is
+needed for this form.
+
+Isolated endpoint tests cover existing-member authority, explicit legacy
+admission, secure forms, tenant boundaries, field allowlists, category audience
+and role eligibility, failures, new-member fixed/dynamic/roleless assignment,
+and subscription-persistence consistency. Mounted renderer tests cover private
+category defaults, retry without losing answers, conditional role answer
+changes, and cache/context changes. Existing public endpoint, subscription,
+membership eligibility and API route regressions also pass.
+
+Embedded forms now receive the same discovery context in both card and page
+layouts, including repeatable children. Six additional mounted EmbedForm
+regressions cover private choices and defaults, existing-member identity,
+repeatable propagation, changing conditional eligibility, and retry.
+
+The development workflow starts on port 5000. Its browser preview reaches the
+application but returns “Tenant not found” against the workspace's legacy
+database; this is not a successful visual verification of the production
+form. The new implementation has not been deployed or submitted against live
+data as part of this work.
+
+No database migrations were needed or applied to DEST, SOURCE, or any other
+database, and none remain outstanding. Production submissions, consent,
+category configuration and emails were not changed.

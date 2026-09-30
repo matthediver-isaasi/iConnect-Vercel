@@ -53,6 +53,7 @@ import {
   useDepartmentCurrentSet,
 } from "@/lib/departmentCurrentSet";
 import DepartmentCurrentSetNotice from "@/components/forms/DepartmentCurrentSetNotice";
+import { formCommunicationCreationRole, formCommunicationRoleSourceAnswers } from "@/lib/formCommunicationCategoryEligibility";
 
 // Stable empty array so disabled custom-value queries don't create a fresh
 // default identity every render (which would re-trigger dependent effects).
@@ -376,7 +377,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
   // dual path — the authenticated entity API when a session exists (full
   // data), the public prefill endpoints otherwise (safe subset) so explicit
   // ?member_id/?organization_id URLs work for anonymous viewers too.
-  const { data: prefillMemberData } = useQuery({
+  const { data: prefillMemberData, isLoading: prefillMemberLoading, isError: prefillMemberError, error: prefillMemberFailure, refetch: retryPrefillMember } = useQuery({
     queryKey: ['prefill-member-embedform', prefillMemberId, form?.slug || slug, !!authMember],
     queryFn: async () => {
       if (authMember) {
@@ -401,6 +402,43 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
   });
 
   const prefillMember = prefillMemberData?.member || null;
+  const communicationCreatesMember = form?.form_type !== 'survey'
+    && Boolean(form?.entity_pipelines?.members?.length || form?.member_entity_action === 'create');
+  const communicationExistingMemberId = form?.form_type === 'survey'
+    ? null
+    : prefillMemberId && form?.prefill_source === 'member'
+      ? prefillMemberId
+      : communicationCreatesMember
+        ? null
+        : authMember?.id || null;
+  const communicationPipelines = form?.entity_pipelines?.members || [];
+  const communicationPrimaryPipeline = communicationPipelines.find(
+    pipeline => pipeline?.isPrimary || pipeline?.is_primary,
+  ) || (communicationPipelines.length === 1 ? communicationPipelines[0] : null);
+  const communicationAccess = {
+    memberId: communicationExistingMemberId,
+    createsMember: communicationCreatesMember && !communicationExistingMemberId,
+    sourceAnswers: communicationCreatesMember
+      ? formCommunicationRoleSourceAnswers(form, formValues)
+      : null,
+    sessionMemberId: authMember?.id || null,
+    sessionValidated: !!authMember,
+  };
+  const communicationMemberContext = Boolean(
+    authMember?.id || prefillMemberId || communicationCreatesMember || form?.default_member_role_id
+      || form?.visibility_rules?.some(rule => rule.actions?.some(action =>
+        action.action_type === 'set_role' || action.action_type === 'clear_role')),
+  );
+  const communicationEligibilityReady = !authMemberLoading
+    && !(prefillMemberId && form?.prefill_source === 'member' && prefillMemberLoading)
+    && !prefillMemberError;
+  const communicationEligibilityError = prefillMemberError
+    ? { message: prefillMemberFailure?.message, retry: retryPrefillMember }
+    : null;
+  const communicationCreationRoleId = communicationPrimaryPipeline
+    ? formCommunicationCreationRole(communicationPrimaryPipeline, formValues)
+    : form?.default_member_role_id || null;
+  const communicationRoleId = prefillMember?.role_id || authMember?.role_id || communicationCreationRoleId;
 
   const { data: prefillOrg, isLoading: prefillOrgLoading } = useQuery({
     queryKey: ['prefill-org-embedform', prefillOrgId, !!authMember],
@@ -1537,6 +1575,12 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
                 disabled={false}
                 formId={form?.id}
                 formSlug={form?.slug}
+                memberInfo={authMember}
+                formMemberRoleId={communicationRoleId}
+                communicationMemberContext={communicationMemberContext}
+                communicationAccess={communicationAccess}
+                communicationEligibilityReady={communicationEligibilityReady}
+                communicationEligibilityError={communicationEligibilityError}
                 allFormValues={formValues}
                 currentSetOptionLabels={departmentCurrentSet.currentSet.optionLabels}
                 currentSetExistingBlankFieldsByRow={hiddenField.id === departmentCurrentSet.sectionIds.equipment ? departmentCurrentSet.existingBlankRequiredFieldsByRow : null}
@@ -1565,6 +1609,12 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
                 autoFocus={cardSwipeAutoFocusFor(currentField.type)}
                 formId={form?.id}
                 formSlug={form?.slug}
+                memberInfo={authMember}
+                formMemberRoleId={communicationRoleId}
+                communicationMemberContext={communicationMemberContext}
+                communicationAccess={communicationAccess}
+                communicationEligibilityReady={communicationEligibilityReady}
+                communicationEligibilityError={communicationEligibilityError}
                 allFormValues={formValues}
                 currentSetOptionLabels={departmentCurrentSet.currentSet.optionLabels}
                 currentSetExistingBlankFieldsByRow={currentField.id === departmentCurrentSet.sectionIds.equipment ? departmentCurrentSet.existingBlankRequiredFieldsByRow : null}
@@ -1738,6 +1788,12 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
               disabled={false}
               formId={form?.id}
               formSlug={form?.slug}
+              memberInfo={authMember}
+              formMemberRoleId={communicationRoleId}
+              communicationMemberContext={communicationMemberContext}
+              communicationAccess={communicationAccess}
+              communicationEligibilityReady={communicationEligibilityReady}
+              communicationEligibilityError={communicationEligibilityError}
               allFormValues={formValues}
               currentSetOptionLabels={departmentCurrentSet.currentSet.optionLabels}
               currentSetExistingBlankFieldsByRow={hiddenField.id === departmentCurrentSet.sectionIds.equipment ? departmentCurrentSet.existingBlankRequiredFieldsByRow : null}
@@ -1764,6 +1820,12 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
                 disabled={false}
                 formId={form?.id}
                 formSlug={form?.slug}
+                memberInfo={authMember}
+                formMemberRoleId={communicationRoleId}
+                communicationMemberContext={communicationMemberContext}
+                communicationAccess={communicationAccess}
+                communicationEligibilityReady={communicationEligibilityReady}
+                communicationEligibilityError={communicationEligibilityError}
                 allFormValues={formValues}
                 currentSetOptionLabels={departmentCurrentSet.currentSet.optionLabels}
                 currentSetExistingBlankFieldsByRow={field.id === departmentCurrentSet.sectionIds.equipment ? departmentCurrentSet.existingBlankRequiredFieldsByRow : null}

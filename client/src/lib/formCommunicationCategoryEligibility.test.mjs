@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { filterFormCommunicationCategories, formCommunicationCreationRole } from './formCommunicationCategoryEligibility.js';
+import { filterFormCommunicationCategories, formCommunicationCreationRole, formCommunicationRoleSourceAnswers } from './formCommunicationCategoryEligibility.js';
 import { initializeCommunicationPreferenceDefaults } from './formCommunicationPreferenceDefaults.js';
 
 const categories = [
@@ -46,6 +46,30 @@ test('answer-mapped member role cannot fall back to stale fixed role while unres
   assert.equal(formCommunicationCreationRole({ ...pipeline, role_assignment: {
     ...pipeline.role_assignment, fallback: 'fixed', fallback_role_id: 'safe-fallback',
   } }), 'safe-fallback');
+});
+
+test('creation role source projection includes modern and legacy conditional role dependencies, not unrelated answers or trusted role data', () => {
+  const form = {
+    fields: [{ id: 'choice' }, { id: 'region' }, { id: 'country' }, { id: 'newsletter' }],
+    entity_pipelines: { members: [{
+      isPrimary: true, role_id: 'fixed',
+      role_assignment: { mode: 'from_field', source_field_id: 'choice', value_to_role_id: { A: 'role-a' } },
+    }] },
+    visibility_rules: [
+      { conditions: [{ field_id: 'region' }, { field_id: 'country' }],
+        actions: [{ action_type: 'set_role', role_id: 'role-b' }] },
+      { trigger_field_id: 'choice', actions: [{ action_type: 'clear_role' }] },
+      { conditions: [{ field_id: 'newsletter' }], actions: [{ action_type: 'hide' }] },
+      { trigger_field_id: 'removed_field', actions: [{ action_type: 'set_role', role_id: 'role-c' }] },
+    ],
+  };
+  assert.deepEqual(formCommunicationRoleSourceAnswers(form, {
+    choice: 'A', region: 'North', country: 'GB', newsletter: true,
+    role_id: 'untrusted', removed_field: 'unknown',
+  }), { choice: 'A', region: 'North', country: 'GB' });
+  assert.deepEqual(formCommunicationRoleSourceAnswers(form, {}), {
+    choice: null, region: null, country: null,
+  });
 });
 
 test('defaults only select eligible categories', () => {

@@ -65,7 +65,7 @@ import DepartmentCurrentSetNotice from "@/components/forms/DepartmentCurrentSetN
 import { classifyFormMutationContract } from "../../../shared/formMutationContract.js";
 import { memberOwnerRequired, memberSignupLoginUrl, PUBLIC_MEMBER_SIGNUP_MODE } from "@/lib/publicMemberSignup";
 import { useLocation } from "react-router-dom";
-import { formCommunicationCreationRole } from "@/lib/formCommunicationCategoryEligibility";
+import { formCommunicationCreationRole, formCommunicationRoleSourceAnswers } from "@/lib/formCommunicationCategoryEligibility";
 
 const EMPTY_FORM_COLLECTION = Object.freeze([]);
 
@@ -715,6 +715,31 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       || form?.visibility_rules?.some(rule => rule.actions?.some(action =>
         action.action_type === 'set_role' || action.action_type === 'clear_role'))
   );
+  // Existing members and actual member creation both use the form-scoped
+  // endpoint. Never use the signed-in viewer's ID for a creation pipeline:
+  // they may be creating a different member.
+  const communicationCreatesMember = form?.form_type !== 'survey'
+    && Boolean(form?.entity_pipelines?.members?.length || form?.member_entity_action === 'create');
+  const communicationExistingMemberId = form?.form_type === 'survey'
+    ? null
+    : prefillMemberId && form?.prefill_source === 'member'
+      ? prefillMemberId
+      : communicationCreatesMember
+        ? null
+        : memberInfo?.id || null;
+  const communicationAccess = {
+    memberId: communicationExistingMemberId,
+    createsMember: communicationCreatesMember && !communicationExistingMemberId,
+    // Only answers, never a browser-selected role or pipeline config. The
+    // endpoint resolves the persisted form's role assignment itself.
+    sourceAnswers: communicationCreatesMember
+      ? formCommunicationRoleSourceAnswers(form, formValues)
+      : null,
+    sessionMemberId: memberInfo?.id || null,
+    sessionValidated,
+    applicantContinuationToken,
+    draftToken: draftToken || resumeToken,
+  };
   const communicationEligibilityReady = authResolved
     && !(memberInfo?.id && memberRecordLoading)
     && !(prefillMemberId && form?.prefill_source === 'member' && prefillMemberLoading)
@@ -3037,6 +3062,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 formSlug={form?.slug}
                 formMemberRoleId={prefillMember?.role_id || memberData?.role_id || communicationCreationRoleId}
                 communicationMemberContext={communicationMemberContext}
+                communicationAccess={communicationAccess}
                 communicationEligibilityError={communicationEligibilityError}
                 communicationEligibilityReady={communicationEligibilityReady}
                 allFormValues={formValues}
@@ -3072,6 +3098,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 formSlug={form?.slug}
                 formMemberRoleId={prefillMember?.role_id || memberData?.role_id || communicationCreationRoleId}
                 communicationMemberContext={communicationMemberContext}
+                communicationAccess={communicationAccess}
                 communicationEligibilityError={communicationEligibilityError}
                 communicationEligibilityReady={communicationEligibilityReady}
                 allFormValues={formValues}
@@ -3403,6 +3430,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                 formSlug={form?.slug}
                 formMemberRoleId={prefillMember?.role_id || memberData?.role_id || communicationCreationRoleId}
                 communicationMemberContext={communicationMemberContext}
+                communicationAccess={communicationAccess}
                 communicationEligibilityError={communicationEligibilityError}
                 communicationEligibilityReady={communicationEligibilityReady}
                 allFormValues={formValues}
@@ -3449,6 +3477,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
                   formSlug={form?.slug}
                   formMemberRoleId={prefillMember?.role_id || memberData?.role_id || communicationCreationRoleId}
                   communicationMemberContext={communicationMemberContext}
+                  communicationAccess={communicationAccess}
                   communicationEligibilityError={communicationEligibilityError}
                   communicationEligibilityReady={communicationEligibilityReady}
                   allFormValues={formValues}

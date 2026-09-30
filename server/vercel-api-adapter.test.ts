@@ -51,6 +51,12 @@ test("Department current-set prefill is discoverable through the Vercel API adap
   assert.deepEqual(result?.params, {});
 });
 
+test("form communication discovery uses its exact route rather than the public form slug route", async () => {
+  const result = await findHandler("/api/public/form/communication-categories");
+  assert.equal(typeof result?.handler, "function");
+  assert.deepEqual(result?.params, {});
+});
+
 test("historical Direct Debit endpoint is discoverable through the Vercel API adapter", async () => {
   const result = await findHandler("/api/membership/historical-dd");
   assert.equal(typeof result?.handler, "function");

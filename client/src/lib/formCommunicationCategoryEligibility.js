@@ -21,3 +21,31 @@ export function formCommunicationCreationRole(pipeline, answers = {}) {
   }
   return assignment.fallback === 'fixed' ? assignment.fallback_role_id || null : null;
 }
+
+// Pass only answers that can affect the server's persisted role resolution.
+// Role IDs, rule actions, and pipeline configuration never go to the endpoint.
+export function formCommunicationRoleSourceAnswers(form, values = {}) {
+  const pipelines = form?.entity_pipelines?.members || [];
+  const primary = pipelines.find(pipeline => pipeline?.isPrimary || pipeline?.is_primary)
+    || (pipelines.length === 1 ? pipelines[0] : null);
+  const ids = new Set();
+  if (primary?.role_assignment?.mode === 'from_field' && primary.role_assignment.source_field_id) {
+    ids.add(primary.role_assignment.source_field_id);
+  }
+  for (const rule of form?.visibility_rules || []) {
+    if (!rule?.actions?.some(action => action?.action_type === 'set_role' || action?.action_type === 'clear_role')) continue;
+    if (Array.isArray(rule.conditions) && rule.conditions.length > 0) {
+      for (const condition of rule.conditions) {
+        if (condition?.field_id) ids.add(condition.field_id);
+      }
+    } else if (rule.trigger_field_id) {
+      ids.add(rule.trigger_field_id);
+    }
+  }
+  // The server accepts only persisted top-level form fields. Projecting the
+  // same set also keeps unrelated answers out of the request and cache scope.
+  const allowed = new Set((form?.fields || []).map(field => field.id));
+  const answers = Object.fromEntries([...ids].filter(id => allowed.has(id))
+    .map(id => [id, values[id] ?? null]));
+  return Object.keys(answers).length ? answers : null;
+}

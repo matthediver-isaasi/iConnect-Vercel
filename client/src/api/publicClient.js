@@ -849,6 +849,20 @@ class PublicClient {
   async listCommunicationCategories() {
     return this._fetch('/api/public/communication-categories');
   }
+
+  async listFormCommunicationCategories({ formId, fieldId, memberId = null, sourceAnswers = null, applicantContinuationToken = null, draftToken = null }) {
+    return this._fetch('/api/public/form/communication-categories', {
+      method: 'POST',
+      credentials: 'include',
+      body: JSON.stringify({
+        formId, fieldId,
+        ...(memberId ? { memberId } : {}),
+        ...(sourceAnswers ? { sourceAnswers } : {}),
+        ...(applicantContinuationToken ? { applicantContinuationToken } : {}),
+        ...(draftToken ? { draftToken } : {}),
+      }),
+    });
+  }
   
   // Custom Field
   // formId is optional but recommended for embedded forms to ensure correct tenant resolution
