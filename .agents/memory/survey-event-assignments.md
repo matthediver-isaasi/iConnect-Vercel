@@ -5,6 +5,30 @@ description: Durable decisions for event-assigned surveys — exclusive assignme
 
 # Survey event assignments — durable decisions
 
+## Audience participation is not invitation eligibility
+Survey audiences require an explicit assignment even when only one exists.
+Closed and archived assignments may still be targeted using trustworthy historical
+participation evidence; do not reuse invitation open-window checks for audiences.
+
+**Why:** survey follow-ups often happen after closure, and a reusable survey's
+current event or publication policy cannot redefine historical participation.
+
+**How to apply:** retain the selected assignment and validate its event, tenant,
+and historical identity policies. Fail closed when evidence is unavailable; never
+infer anonymous respondents from answer content or purchaser profiles.
+
+Enhanced-anonymous completion records prove participation positively, not complete
+attribution of every historical response. Public anonymous submissions may have no
+known email, and the ledger deduplicates recipients without linking answers.
+
+**Why:** a nonempty ledger (or even equal aggregate counts) cannot prove that all
+respondents are identified. Using it as a complete exclusion set can email an
+anonymous respondent as a nonrespondent.
+
+**How to apply:** allow Responded from trustworthy ledger identities, but make
+No response explicitly unsupported for populated anonymous history without a
+trustworthy completeness guarantee. Keep support status response-filter-specific.
+
 - **Reusable campaign survey links resolve at send time, not when a template
   is saved.** `{{event_survey_url}}` and `[[event.survey_url]]` use explicit
   `email_campaign.event_survey_context` (`event_type`, `event_id`,

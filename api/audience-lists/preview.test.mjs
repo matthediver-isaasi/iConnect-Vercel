@@ -14,7 +14,7 @@ async function loadCampaignService() {
   const replacements = new Map();
 
   for (const [, names, specifier] of source.matchAll(importPattern)) {
-    if (specifier === 'crypto') continue;
+    if (specifier === 'crypto' || specifier === './eventSurveyAudience.js') continue;
     const exports = [];
     for (const entry of names.replace(/[{}]/g, '').split(',').map((value) => value.trim()).filter(Boolean)) {
       const [imported, local = imported] = entry.split(/\s+as\s+/);
@@ -72,8 +72,14 @@ function database(rows = {}, { missingReviewSchema = false } = {}) {
           return query;
         },
         order() { return query; },
+        or(expression) {
+          const emails = [...expression.matchAll(/email\.ilike\.([^,]+)/g)].map(match => match[1].replaceAll('"', '').toLowerCase());
+          filters.push(row => emails.includes(row.email?.toLowerCase()));
+          return query;
+        },
         range(from, to) { range = [from, to]; return query; },
         single() { return execute(true); },
+        maybeSingle() { return execute(true); },
         then(resolveResult, rejectResult) {
           return execute(false).then(resolveResult, rejectResult);
         },
@@ -192,8 +198,9 @@ const campaignService = await loadCampaignService();
 function useServiceFixture(db) {
   globalThis[serviceSlot] = {
     db,
-    dependency(name) {
+    dependency(name, args) {
       if (name === 'isActiveCommunicationMember') return true;
+      if (name === 'buildEmailCaseInsensitiveOr') return args[0].map(email => `email.ilike.${email}`).join(',');
       throw new Error(`Unexpected dependency: ${name}`);
     },
   };
@@ -335,4 +342,65 @@ test('getTargetRecipients fails closed before recipient reads when review schema
   assert.equal(result.code, 'AUDIENCE_LIST_REPLACEMENT_REQUIRED');
   assert.match(result.error, /does not exist/);
   assert.equal(db.calls.some(({ table }) => table === 'audience_list_external_contact'), false);
+});
+
+test('assignment survey preview and campaign preparation share exact resolution and existing global suppression', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  const tenant_id = 'tenant-a';
+  const segment = { type: 'event_form', form_id: 'survey', survey_assignment_id: 'assignment', received: false };
+  const rows = {
+    audience_list: [{ id: 'list', tenant_id, name: 'No response', category_review_required: false, target_audiences: [segment] }],
+    form: [{ id: 'survey', tenant_id, form_type: 'survey', survey_settings: { current_version: 1 } }],
+    event_survey_assignment: [{ id: 'assignment', tenant_id, form_id: 'survey', event_type: 'complex_event', complex_event_id: 'event', survey_version_id: 'version' }],
+    complex_event: [{ id: 'event', tenant_id, title: 'Complex' }],
+    survey_version: [{ id: 'version', tenant_id, form_id: 'survey', version_number: 1, survey_settings: { response_identity: 'identified' } }],
+    form_submission: [{ id: 'response', tenant_id, form_id: 'survey', survey_assignment_id: 'assignment', survey_version_id: 'version', submitted_by_email: 'responded@example.test' }],
+    complex_event_booking: ['responded', 'allowed', 'flagged', 'unsubscribed'].map((name, i) => ({
+      id: String(i), tenant_id, event_id: 'event', status: 'confirmed', attendee_email: `${name}@example.test`,
+    })),
+    member: [{ id: 'flagged-member', tenant_id, email: 'flagged@example.test', communications_opted_out_all: true }],
+    email_unsubscribe: [{ tenant_id, email: 'unsubscribed@example.test', unsubscribe_type: 'all' }],
+  };
+  const db = database(rows);
+  useServiceFixture(db);
+  const campaign = { target_audiences: [{ type: 'audience_list', ids: ['list'] }] };
+  const prepared = await campaignService.getTargetRecipients(campaign, tenant_id);
+  assert.equal(prepared.success, true, prepared.error);
+  assert.deepEqual(prepared.recipients.map(r => r.email), ['allowed@example.test']);
+  const res = response();
+  await previewHandler({ method: 'POST', body: { listId: 'list' } }, res, {
+    ...endpointDependencies(db), getTargetRecipients: campaignService.getTargetRecipients,
+  });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.body.recipients.map(r => r.email), prepared.recipients.map(r => r.email));
+  rows.form_submission[0].survey_version_id = 'missing-policy';
+  const failed = await campaignService.getTargetRecipients(campaign, tenant_id);
+  assert.equal(failed.success, false);
+  const failedPreview = response();
+  await previewHandler({ method: 'POST', body: { listId: 'list' } }, failedPreview, {
+    ...endpointDependencies(db), getTargetRecipients: campaignService.getTargetRecipients,
+  });
+  assert.equal(failedPreview.statusCode, 500);
+  assert.match(failedPreview.body.error, /historical response policy/);
+  // A known ledger completion plus an unidentifiable public anonymous response
+  // is not complete participation evidence, even though the ledger is nonempty.
+  rows.survey_version[0].survey_settings = { response_identity: 'anonymous', anonymous_completion_version: 1 };
+  rows.form_submission = ['known-response', 'public-response'].map(id => ({
+    id, tenant_id, form_id: 'survey', survey_assignment_id: 'assignment', survey_version_id: 'version', is_anonymous: true,
+  }));
+  rows.survey_completion = [{ id: 'known', tenant_id, form_id: 'survey', assignment_id: 'assignment', recipient_email: 'responded@example.test' }];
+  for (const received of [true, false]) {
+    segment.received = received;
+    const incomplete = await campaignService.getTargetRecipients(campaign, tenant_id);
+    assert.equal(incomplete.success, received, incomplete.error);
+    if (received) assert.deepEqual(incomplete.recipients.map(row => row.email), ['responded@example.test']);
+    else assert.match(incomplete.error, /completeness guarantee/);
+    const incompletePreview = response();
+    await previewHandler({ method: 'POST', body: { listId: 'list' } }, incompletePreview, {
+      ...endpointDependencies(db), getTargetRecipients: campaignService.getTargetRecipients,
+    });
+    assert.equal(incompletePreview.statusCode, received ? 200 : 500);
+    if (received) assert.deepEqual(incompletePreview.body.recipients.map(row => row.email), ['responded@example.test']);
+    else assert.match(incompletePreview.body.error, /completeness guarantee/);
+  }
 });

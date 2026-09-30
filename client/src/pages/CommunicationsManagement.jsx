@@ -21,6 +21,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import EmailCampaigns from "@/components/EmailCampaigns";
 import MemberCommunicationStatusReport from "@/components/communications/MemberCommunicationStatusReport";
 import CustomObjectAudienceCondition, { customObjectConditionError, customObjectSummary } from "@/components/communications/CustomObjectAudienceCondition";
+import EventSurveyAudiencePicker from "@/components/communications/EventSurveyAudiencePicker";
 import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
 import { parseExternalContacts } from "@/lib/externalContactsCsv";
 import {
@@ -94,13 +95,8 @@ export default function CommunicationsManagementPage() {
   const [eventAttendanceSelections, setEventAttendanceSelections] = useState({});
   const [eventFormSearchInput, setEventFormSearchInput] = useState('');
   const [selectedEventForm, setSelectedEventForm] = useState(null);
+  const [surveySegment, setSurveySegment] = useState(null);
   const [addListEventFormReceived, setAddListEventFormReceived] = useState(true);
-  const [eventFormAssignmentId, setEventFormAssignmentId] = useState('');
-  const { data: eventFormAssignments = [], isLoading: eventFormAssignmentsLoading, error: eventFormAssignmentsError } = useQuery({
-    queryKey: ['campaign-form-assignments', selectedEventForm?.id],
-    enabled: selectedEventForm?.form_type === 'survey',
-    queryFn: () => base44.entities.EventSurveyAssignment.filter({ form_id: selectedEventForm.id }),
-  });
   const [fieldFilterGroups, setFieldFilterGroups] = useState([{ conditions: [{ entity_scope: 'member', field_key: '', field_type: '', data_type: '', operator: '', value: '', field_label: '' }] }]);
   const [eventFilterSearches, setEventFilterSearches] = useState({});
 
@@ -535,7 +531,13 @@ export default function CommunicationsManagementPage() {
       return eventSummaries.length > 0 ? `${label}: ${eventSummaries.join('; ')}` : `${label} (${count})`;
     }
     if (segment.type === 'event_form') {
-      const formId = (segment.ids || [])[0];
+      const formId = segment.form_id || (segment.ids || [])[0];
+      if (segment.survey_assignment_id) {
+        return `Event Survey: ${segment.event_title || segment.event_id || 'Reselect event'} (${segment.event_type === 'complex_event' ? 'Complex event' : 'Event'}) — ${segment.survey_name || segment.names?.[formId] || formId} [${segment.survey_assignment_id}] — ${segment.received ? 'Responded' : 'No response'}${!segment.event_id || !segment.event_type ? ' — Please remove and reselect this survey' : ''}`;
+      }
+      if (segment.assignment_id || segment.form_type === 'survey' || eventLinkedForms.find(f => f.id === formId)?.form_type === 'survey') {
+        return `Event Survey: ${segment.names?.[formId] || formId} — Please remove and reselect this survey`;
+      }
       const lookup = segment.names || {};
       const formName = lookup[formId] || eventLinkedForms.find(f => f.id === formId)?.name;
       const receivedLabel = segment.received ? 'Received' : 'Not Received';
@@ -3157,7 +3159,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                         <X className="w-3.5 h-3.5" />
                       </Button>
                     </div>
-                    <Select disabled={editingFieldSegment !== null} value={addListSegmentType} onValueChange={(v) => { setAddListSegmentType(v); setAddListSegmentIds([]); setAddListSegmentRoles([]); resetIndMemberSearch(); setFieldFilterGroups([{ conditions: [{ entity_scope: 'member', field_key: '', field_type: '', data_type: '', operator: '', value: '', field_label: '' }] }]); }}>
+                    <Select disabled={editingFieldSegment !== null} value={addListSegmentType} onValueChange={(v) => { setAddListSegmentType(v); setSelectedEventForm(null); setSurveySegment(null); setAddListSegmentIds([]); setAddListSegmentRoles([]); resetIndMemberSearch(); setFieldFilterGroups([{ conditions: [{ entity_scope: 'member', field_key: '', field_type: '', data_type: '', operator: '', value: '', field_label: '' }] }]); }}>
                       <SelectTrigger data-testid="select-add-list-segment-type">
                         <SelectValue placeholder="Select type" />
                       </SelectTrigger>
@@ -3185,6 +3187,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                         {eventLinkedForms.length > 0 && (
                           <SelectItem value="event_form">Event Form</SelectItem>
                         )}
+                        <SelectItem value="event_survey">Event Survey</SelectItem>
                         <SelectItem value="field_filter">Field Filter</SelectItem>
                       </SelectContent>
                     </Select>
@@ -3426,6 +3429,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                       </div>
                     )}
 
+                    {addListSegmentType === 'event_survey' && <EventSurveyAudiencePicker onChange={setSurveySegment} />}
                     {addListSegmentType === 'event_form' && (
                       <div className="border rounded-md p-2 space-y-2 bg-background">
                         <div className="relative">
@@ -3440,6 +3444,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                         </div>
                         <div className="max-h-40 overflow-y-auto space-y-0.5">
                           {eventLinkedForms
+                            .filter(f => f.form_type !== 'survey')
                             .filter(f => selectedEventForm?.id !== f.id)
                             .filter(f => !eventFormSearchInput || (f.name || '').toLowerCase().includes(eventFormSearchInput.toLowerCase()))
                             .slice(0, 50)
@@ -3449,7 +3454,6 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                 className="flex items-center gap-2 p-1.5 rounded cursor-pointer hover-elevate text-sm"
                                 onClick={() => {
                                   setSelectedEventForm(f);
-                                  setEventFormAssignmentId('');
                                   setEventFormSearchInput('');
                                 }}
                                 data-testid={`event-form-result-${f.id}`}
@@ -3484,22 +3488,6 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                 <X className="w-3 h-3" />
                               </Button>
                             </div>
-                            {selectedEventForm.form_type === 'survey' && (
-                              <div className="space-y-1">
-                                <Label>Survey assignment</Label>
-                                <Select value={eventFormAssignmentId} onValueChange={setEventFormAssignmentId}>
-                                  <SelectTrigger><SelectValue placeholder="Select the event survey assignment" /></SelectTrigger>
-                                  <SelectContent>
-                                    {eventFormAssignments.filter(a => (a.event_id || a.complex_event_id) === selectedEventForm.related_event_id).map(a => (
-                                      <SelectItem key={a.id} value={a.id}>{a.event_title || a.id} ({a.status})</SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                                {eventFormAssignmentsLoading && <p className="text-xs">Loading assignments…</p>}
-                                {eventFormAssignmentsError && <p role="alert" className="text-xs text-red-600">Assignments could not be loaded. Try again before targeting this survey.</p>}
-                                <p className="text-xs text-muted-foreground">Anonymous completion uses verified participation, not email addresses typed into answers. Select an assignment when the survey uses event links.</p>
-                              </div>
-                            )}
                             <div className="flex items-center gap-2">
                               <Button
                                 type="button"
@@ -3922,7 +3910,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                       </div>
                     )}
 
-                    {addListSegmentType && addListSegmentType !== 'all_members' && addListSegmentType !== 'individual_members' && addListSegmentType !== 'field_filter' && addListSegmentType !== 'event_form' && (
+                    {addListSegmentType && addListSegmentType !== 'all_members' && addListSegmentType !== 'individual_members' && addListSegmentType !== 'field_filter' && addListSegmentType !== 'event_form' && addListSegmentType !== 'event_survey' && (
                       <div className="border rounded-md p-2 max-h-32 overflow-y-auto space-y-1 bg-background">
                         {addListSegmentType === 'communication_category' && categories.filter(c => c.is_active !== false).map(cat => (
                           <label key={cat.id} className="flex items-center gap-2 cursor-pointer">
@@ -4131,6 +4119,9 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                               if (Object.keys(newAttendanceSel).length > 0) seg.attendance_selection = newAttendanceSel;
                               setEditListAudiences(prev => [...prev, seg]);
                             }
+                          } else if (addListSegmentType === 'event_survey' && surveySegment) {
+                            setEditListAudiences(prev => [...prev, surveySegment]);
+                            setSurveySegment(null);
                           } else if (addListSegmentType === 'event_form' && selectedEventForm) {
                             setEditListAudiences(prev => [
                               ...prev,
@@ -4138,7 +4129,6 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                                 type: 'event_form',
                                 ids: [selectedEventForm.id],
                                 received: addListEventFormReceived,
-                                ...(eventFormAssignmentId ? { assignment_id: eventFormAssignmentId } : {}),
                                 names: { [selectedEventForm.id]: selectedEventForm.name },
                               },
                             ]);
@@ -4218,6 +4208,8 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                               ? indSelectedMembers.length === 0
                               : addListSegmentType === 'event_attendees'
                                 ? selectedEvents.length === 0
+                                : addListSegmentType === 'event_survey'
+                                  ? !surveySegment
                                 : addListSegmentType === 'event_form'
                                   ? !selectedEventForm
                                   : (addListSegmentType !== 'all_members' && addListSegmentIds.length === 0)

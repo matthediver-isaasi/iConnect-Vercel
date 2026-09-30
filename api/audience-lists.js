@@ -1,13 +1,15 @@
 import { getTenantContext, hasAdminAccess } from './_lib/tenantContext.js';
-import { supabase } from './_lib/database.js';
 import { validateAudienceCustomObjects } from './_lib/audienceCustomObjects.js';
+import { supabase as defaultDatabase } from './_lib/database.js';
+import { validateSurveyAudienceSegments } from './_lib/eventSurveyAudience.js';
 
-export default async function handler(req, res) {
-  const tenantContext = await getTenantContext(req);
+export default async function handler(req, res, dependencies = {}) {
+  const supabase = dependencies.supabase || defaultDatabase;
+  const tenantContext = await (dependencies.getTenantContext || getTenantContext)(req);
   if (!tenantContext.isAuthenticated || !tenantContext.tenantId || tenantContext.tenantMismatch) {
     return res.status(401).json({ error: 'Authentication required' });
   }
-  if (!(await hasAdminAccess(tenantContext))) {
+  if (!(await (dependencies.hasAdminAccess || hasAdminAccess)(tenantContext))) {
     return res.status(403).json({ error: 'Admin access required' });
   }
 
@@ -51,7 +53,9 @@ export default async function handler(req, res) {
         target_audiences,
         ignore_opt_outs: ignore_opt_outs === true
       };
+
       await validateAudienceCustomObjects(supabase, tenantId, target_audiences, { context: tenantContext, isAdmin: true });
+      await validateSurveyAudienceSegments(supabase, tenantId, target_audiences);
 
       const { data, error } = await supabase
         .from('audience_list')
@@ -93,7 +97,9 @@ export default async function handler(req, res) {
         ignore_opt_outs: ignore_opt_outs === true,
         updated_at: new Date().toISOString()
       };
+
       await validateAudienceCustomObjects(supabase, tenantId, target_audiences, { context: tenantContext, isAdmin: true });
+      await validateSurveyAudienceSegments(supabase, tenantId, target_audiences);
 
       const { data, error } = await supabase
         .from('audience_list')

@@ -21,7 +21,7 @@ import {
   mergeExternalCategorySubscribers,
 } from '../../shared/communicationCategoryMembership.js';
 import crypto from 'crypto';
-import { loadSurveyCompletionEmails } from './surveyCompletionTargeting.js';
+import { resolveEventSurveyAudience, audienceRows } from './eventSurveyAudience.js';
 
 const APP_DOMAIN = process.env.APP_DOMAIN || 'iconn.app';
 const BATCH_SIZE = 100;
@@ -1149,7 +1149,7 @@ function validateCampaignTargeting(campaign) {
           return { valid: false, reason: 'Field filter segment has no filter groups configured.' };
         }
       } else if (segment.type === 'event_form') {
-        if (!Array.isArray(segment.ids) || segment.ids.length !== 1) {
+        if (!segment.form_id && (!Array.isArray(segment.ids) || segment.ids.length !== 1)) {
           return { valid: false, reason: 'Event form segment must reference exactly one form.' };
         }
         if (typeof segment.received !== 'boolean') {
@@ -1263,6 +1263,8 @@ async function getExplicitCategoryMemberRecipients(categoryIds, tenantId) {
 }
 
 async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentData = null) {
+  if (targetType === 'event_form' && segmentData?.form_id) targetIds = [segmentData.form_id];
+  if (targetType === 'event_form' && targetIds.length !== 1) throw new Error('Select exactly one event form or survey');
   let recipients = [];
 
   if (!targetType) return recipients;
@@ -1825,11 +1827,33 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
       .maybeSingle();
 
     if (formLookupError) throw new Error('Form targeting policy could not be verified');
-    const completionEmails = form ? await loadSurveyCompletionEmails(supabase, {
-      tenantId, form, assignmentId: segmentData?.assignment_id || null,
-    }) : null;
-
-    if (form && form.is_event_related && form.related_event_id) {
+    if (!form) throw new Error('Event form is missing or inaccessible');
+    const completionEmails = null;
+    if (form.form_type === 'survey' || segmentData?.survey_assignment_id || segmentData?.assignment_id) {
+      const attendees = await resolveEventSurveyAudience(supabase, tenantId, {
+        ...segmentData, form_id: formId,
+      }, form);
+      const memberByEmail = new Map();
+      for (let offset = 0; offset < attendees.length; offset += 200) {
+        const batch = attendees.slice(offset, offset + 200).map(a => a.email);
+        const members = await audienceRows(() => supabase.from('member')
+          .select('id, email, first_name, last_name, communications_opted_out_all')
+          .eq('tenant_id', tenantId).or(buildEmailCaseInsensitiveOr(batch)),
+        'Survey recipient communication preferences');
+        for (const member of members) {
+          const key = member.email?.trim().toLowerCase();
+          const previous = memberByEmail.get(key);
+          // Duplicate CRM identities must not hide an opt-out.
+          memberByEmail.set(key, { ...member,
+            communications_opted_out_all: member.communications_opted_out_all || previous?.communications_opted_out_all });
+        }
+      }
+      for (const attendee of attendees) {
+        const member = memberByEmail.get(attendee.email);
+        recipients.push(member ? { ...attendee, id: member.id, member_id: member.id,
+          communications_opted_out_all: member.communications_opted_out_all } : attendee);
+      }
+    } else if (form && form.is_event_related && form.related_event_id) {
       const eventId = form.related_event_id;
       const fields = Array.isArray(form.fields) ? form.fields : [];
       const isDeletedEmail = (email) => /^deleted_.*@deleted\.local$/i.test(email || '');
