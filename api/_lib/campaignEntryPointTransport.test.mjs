@@ -119,6 +119,7 @@ function fixtureDatabase(initialCampaign, extraTables = {}) {
         filters.push((row) => row?.[key] === value);
         return query;
       },
+      neq() { return query; },
       ilike(key, value) {
         filters.push(row => String(row?.[key] || '').toLowerCase() === value.toLowerCase());
         return query;
@@ -151,6 +152,11 @@ function fixtureDatabase(initialCampaign, extraTables = {}) {
       maybeSingle() { single = true; return query; },
       then(resolve, reject) {
         Promise.resolve().then(() => {
+          if (table === 'campaign_preparation') return { data: [], error: null };
+          if (table === 'member_group') return { data: {
+            id: 'group-fixture', name: 'Fixture Group', is_active: true,
+            roles: ['Chair'], classification_id: null,
+          }, error: null };
           if (Object.hasOwn(state.surveyRows, table)) {
             const rows = state.surveyRows[table];
             if (operation === 'insert') {
@@ -257,7 +263,13 @@ function fixtureDatabase(initialCampaign, extraTables = {}) {
     };
     return query;
   };
-  supabase.rpc = async () => ({ data: null, error: null });
+  supabase.rpc = async (name, args) => {
+    if (name === 'campaign_preparation_begin') {
+      Object.assign(state.campaign, { status: 'preparing', preparation_generation: args.p_generation });
+      return { data: structuredClone(state.campaign), error: null };
+    }
+    return { data: null, error: null };
+  };
   return state;
 }
 
@@ -510,6 +522,20 @@ async function capture(run) {
   return transportCalls.at(-1).payload;
 }
 
+async function acceptThenDeliver(saved) {
+  const before = transportCalls.length;
+  const res = responseRecorder();
+  await immediateHandler(request({ campaignId: saved.id }), res);
+  assert.equal(res.statusCode, 202, JSON.stringify(res.body));
+  assert.equal(res.body.status, 'preparing');
+  assert.equal(transportCalls.length, before, 'enqueue must not submit to provider');
+  // Preparation transactions are exercised separately against PostgreSQL;
+  // these tests cover real entry-point composition/transport after readiness.
+  fixtureDatabase({ ...saved, status: 'sending' });
+  const result = await processScheduledCampaigns();
+  assert.equal(result.success, true, JSON.stringify(result));
+}
+
 after(() => {
   supabase.from = originalFrom;
   supabase.rpc = originalRpc;
@@ -547,9 +573,7 @@ test('actual tenant and group test-send handlers render the GSF structural fixtu
 test('actual immediate endpoint and scheduled continuation worker render the same final payload', async () => {
   fixtureDatabase(campaign('draft'));
   const immediatePayload = await capture(async () => {
-    const res = responseRecorder();
-    await immediateHandler(request({ campaignId: 'campaign-fixture' }), res);
-    assert.equal(res.statusCode, 200, JSON.stringify(res.body));
+    await acceptThenDeliver(campaign('draft'));
   });
 
   fixtureDatabase(campaign('sending'));
@@ -601,9 +625,7 @@ for (const fixture of [
 
     fixtureDatabase(campaign('draft', id, overrides));
     const immediatePayload = await capture(async () => {
-      const res = responseRecorder();
-      await immediateHandler(request({ campaignId: id }), res);
-      assert.equal(res.statusCode, 200, JSON.stringify(res.body));
+      await acceptThenDeliver(campaign('draft', id, overrides));
     });
 
     fixtureDatabase(campaign('sending', id, overrides));

@@ -132,6 +132,7 @@ test('actual real and source-test send paths deliver identical populated attende
   const sent = [];
   const source = (await readFile(new URL('./campaignService.js', import.meta.url), 'utf8'))
     .replace(/import\s+[\s\S]*?\s+from\s+['"][^'"]+['"];?/g, '')
+    .replace('const supabase = preparationDatabase(rawSupabase);', '')
     .replace(/export (async )?function /g, '$1function ');
   const { sendToRecipient } = vm.runInNewContext(`${source}\n;({sendToRecipient})`, {
     process: { env: {} }, crypto, Buffer, supabase: f.db, console,
@@ -186,6 +187,7 @@ test('invitation URL aliases cannot leak through third-party URL concatenation o
 test('actual send failures, uncertain acceptance and retries preserve the delivery boundary', async () => {
   const source = (await readFile(new URL('./campaignService.js', import.meta.url), 'utf8'))
     .replace(/import\s+[\s\S]*?\s+from\s+['"][^'"]+['"];?/g, '')
+    .replace('const supabase = preparationDatabase(rawSupabase);', '')
     .replace(/export (async )?function /g, '$1function ');
   for (const ambiguousEffect of [false, true]) {
     const f = fixture();
@@ -235,6 +237,7 @@ test('real survey personalization aborts a slow read, releases pending and never
   };
   const source = (await readFile(new URL('./campaignService.js', import.meta.url), 'utf8'))
     .replace(/import\s+[\s\S]*?\s+from\s+['"][^'"]+['"];?/g, '')
+    .replace('const supabase = preparationDatabase(rawSupabase);', '')
     .replace(/export (async )?function /g, '$1function ');
   let sends = 0;
   const { sendToRecipient } = vm.runInNewContext(`${source}\n;({sendToRecipient})`, {

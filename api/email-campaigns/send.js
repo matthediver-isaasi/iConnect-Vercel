@@ -110,8 +110,8 @@ export default async function handler(req, res) {
     return res.json(result);
   }
 
-  // Send immediately. Plan quota enforcement lives inside sendCampaign() so
-  // this same gate also covers scheduled sends executed by the cron.
+  // Accept preparation now; the background worker resolves the audience and
+  // checks quota before making the complete recipient queue deliverable.
   const requestHost = getHostFromRequest(req);
   const result = await sendCampaign(campaignId, tenantId, requestHost);
 
@@ -122,5 +122,5 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: result.error });
   }
 
-  return res.json(result);
+  return res.status(result.status === 'preparing' ? 202 : 200).json(result);
 }

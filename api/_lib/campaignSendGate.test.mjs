@@ -295,13 +295,16 @@ test('resume rejects processing-only recipients for explicit provider reconcilia
 test('scheduled cron reports a worker DB failure rather than green success', async () => {
   const originalFrom = supabase.from;
   supabase.from = table => {
-    assert.equal(table, 'email_campaign');
+    assert.ok(['email_campaign', 'campaign_preparation'].includes(table));
     let status;
     return {
       select() { return this; },
       eq(key, value) { if (key === 'status') status = value; return this; },
       lte() { return this; },
       lt() { return this; },
+      is() { return this; },
+      neq() { return this; },
+      limit() { return this; },
       order() { return this; },
       then(resolve) {
         resolve(status === 'sending'

@@ -128,6 +128,7 @@ test('actual per-recipient survey send rejects recipients without confirmed atte
   const logs = [];
   const source = (await readFile(new URL('./campaignService.js', import.meta.url), 'utf8'))
     .replace(/import\s+[\s\S]*?\s+from\s+['"][^'"]+['"];?/g, '')
+    .replace('const supabase = preparationDatabase(rawSupabase);', '')
     .replace(/export (async )?function /g, '$1function ');
   const { sendToRecipient } = vm.runInNewContext(`${source}\n;({sendToRecipient})`, {
     process: { env: {} }, crypto, Buffer,

@@ -97,6 +97,7 @@ async function installFixtures(page, campaignFixture, options = {}) {
   const state = {
     campaign: campaignFixture,
     writes: [],
+    sends: [],
     categoryDeletes: [],
     categoryRoleDeletes: [],
     escapedWrites: [],
@@ -193,6 +194,11 @@ async function installFixtures(page, campaignFixture, options = {}) {
       return json(route, state.campaign);
     }
     if (path === '/api/email-campaigns/send' && method === 'POST') {
+      const body = request.postDataJSON();
+      state.sends.push(body);
+      if (!body.preview && options.sendResponse) {
+        return json(route, options.sendResponse.body, options.sendResponse.status);
+      }
       return json(route, {
         recipientCount: 1,
         stats: {
@@ -467,6 +473,34 @@ test('successful acknowledged save clears the server review marker and unblocks 
   expectNoBrowserErrors(state);
 });
 
+test('accepted async send reports background preparation, not a sent or zero-success result', async ({ page }) => {
+  const state = await installFixtures(page, campaign(), {
+    sendResponse: {
+      status: 202,
+      body: { success: true, status: 'preparing' },
+    },
+  });
+  await page.goto(`/EmailCampaignEdit/${campaignId}`);
+  await expect(page.getByTestId('button-send-campaign')).toBeEnabled();
+  await page.getByTestId('button-send-campaign').click();
+  await expect(page.getByTestId('button-confirm-send')).toBeEnabled();
+  await page.getByTestId('button-confirm-send').click();
+
+  const feedback = page.locator('[data-sonner-toast]');
+  await expect(feedback).toHaveText(
+    'Campaign audience is being prepared in the background. You can leave this page; sending will start after preparation and quota checks finish. No emails have been accepted yet.',
+  );
+  await expect(feedback).toHaveAttribute('data-type', 'info');
+  await expect(page).toHaveURL(/\/CommunicationsManagement$/);
+  // The editor also previews unsaved targeting on mount with campaignId "preview".
+  expect(state.sends.filter(body => body.campaignId === campaignId)).toEqual([
+    { campaignId, preview: true },
+    { campaignId },
+  ]);
+  expect(state.escapedWrites).toEqual([]);
+  expectNoBrowserErrors(state);
+});
+
 test('campaign history shows deleted category and management issues one atomic category DELETE', async ({ page }) => {
   const historicalCampaign = campaign({
     status: 'sent',
@@ -494,6 +528,23 @@ test('campaign history shows deleted category and management issues one atomic c
   await expect.poll(() => state.categoryDeletes.length).toBe(1);
   expect(state.categoryDeletes).toEqual(['/api/entities/CommunicationCategory/replacement-category']);
   expect(state.categoryRoleDeletes).toEqual([]);
+  expect(state.escapedWrites).toEqual([]);
+  expectNoBrowserErrors(state);
+});
+
+test('terminal audience preparation error appears in tenant campaign list without a misleading resume action', async ({ page }) => {
+  const failedCampaign = campaign({
+    status: 'failed',
+    pending_count: 4,
+    preparation_generation: 'failed-generation',
+    preparation: { phase: 'failed', last_error: 'Audience quota exceeded for this campaign' },
+  });
+  const state = await installFixtures(page, failedCampaign, { campaigns: [failedCampaign] });
+  await page.goto('/CommunicationsManagement');
+
+  await expect(page.getByTestId(`text-preparation-error-${campaignId}`))
+    .toHaveText('Audience preparation failed: Audience quota exceeded for this campaign');
+  await expect(page.getByTestId(`button-resume-stuck-${campaignId}`)).toHaveCount(0);
   expect(state.escapedWrites).toEqual([]);
   expectNoBrowserErrors(state);
 });

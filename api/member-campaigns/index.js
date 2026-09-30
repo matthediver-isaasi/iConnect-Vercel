@@ -1,6 +1,7 @@
 import { supabase } from '../_lib/database.js';
 import { getCallerEmsAccess, requireGroupAccess, normalizeAudienceRoles, resolveMemberCampaignSender } from '../_lib/memberGroupEmsAccess.js';
 import { createCampaign, resolveMemberCampaignTemplateContent } from '../_lib/campaignService.js';
+import { enrichCampaignPreparationList } from '../_lib/campaignPreparationList.js';
 
 /**
  * /api/member-campaigns
@@ -32,7 +33,7 @@ export default async function handler(req, res) {
 
     const { data, error } = await supabase
       .from('email_campaign')
-      .select('id, name, subject, status, scheduled_at, sent_at, created_at, updated_at, total_recipients, sent_count, delivered_count, opened_count, clicked_count, bounced_count, member_group_id, target_audiences')
+      .select('id, name, subject, status, scheduled_at, sent_at, created_at, updated_at, total_recipients, sent_count, delivered_count, opened_count, clicked_count, bounced_count, member_group_id, target_audiences, preparation_generation')
       .eq('tenant_id', access.tenantContext.tenantId)
       .in('member_group_id', scopedGroupIds)
       .order('created_at', { ascending: false });
@@ -42,7 +43,13 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to load campaigns' });
     }
 
-    return res.json({ success: true, campaigns: data || [] });
+    try {
+      const campaigns = await enrichCampaignPreparationList(supabase, access.tenantContext.tenantId, data || []);
+      return res.json({ success: true, campaigns });
+    } catch (preparationError) {
+      console.error('[MemberCampaigns] preparation list error:', preparationError);
+      return res.status(500).json({ error: 'Failed to load campaign preparation status' });
+    }
   }
 
   if (req.method === 'POST') {

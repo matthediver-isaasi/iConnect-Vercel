@@ -95,19 +95,19 @@ export default async function handler(req, res) {
     const scheduleDate = new Date(scheduledAt);
     if (isNaN(scheduleDate.getTime())) return res.status(400).json({ error: 'Invalid schedule date' });
     if (scheduleDate <= new Date()) return res.status(400).json({ error: 'Schedule date must be in the future' });
-    const result = await scheduleCampaign(campaignId, access.tenantContext.tenantId, scheduleDate, { expectedStatus: 'draft', expectedUpdatedAt: row.updated_at });
+    const result = await scheduleCampaign(campaignId, access.tenantContext.tenantId, scheduleDate, { expectedStatus: 'draft', expectedUpdatedAt: row.updated_at, initiatingMemberId: access.memberId });
     if (!result.success) return res.status(result.code === 'CAMPAIGN_STATE_CONFLICT' || result.conflict ? 409 : Number.isInteger(result.status) ? result.status : 500).json({ error: result.error, code: result.code });
     return res.json(result);
   }
 
-  // ---- Send immediately ---- (plan quota enforced inside sendCampaign())
+  // ---- Queue preparation ---- (quota checked before background delivery)
   const requestHost = getHostFromRequest(req);
-  const result = await sendCampaign(campaignId, access.tenantContext.tenantId, requestHost, { expectedStatus: 'draft', expectedUpdatedAt: row.updated_at });
+  const result = await sendCampaign(campaignId, access.tenantContext.tenantId, requestHost, { expectedStatus: 'draft', expectedUpdatedAt: row.updated_at, initiatingMemberId: access.memberId });
   if (!result.success) {
     if (result.quota) {
       return res.status(402).json({ error: result.error, code: 'PLAN_QUOTA_EXCEEDED', quota: result.quota });
     }
     return res.status(result.code === 'CAMPAIGN_STATE_CONFLICT' || result.conflict ? 409 : Number.isInteger(result.status) ? result.status : 500).json({ error: result.error, code: result.code });
   }
-  return res.json(result);
+  return res.status(result.status === 'preparing' ? 202 : 200).json(result);
 }

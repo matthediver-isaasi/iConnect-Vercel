@@ -36,7 +36,7 @@ test('reports ongoing sends as progress rather than completion', () => {
 test('reports preparing and queued responses with zero acceptance truthfully', () => {
   assert.equal(
     getCampaignSendFeedback({ status: 'preparing', totalRecipients: 8 }).message,
-    'Campaign is preparing. No emails have been accepted yet.',
+    'Campaign audience is being prepared in the background. You can leave this page; sending will start after preparation and quota checks finish. No emails have been accepted yet.',
   );
   assert.equal(
     getCampaignSendFeedback({ status: 'queued', pendingCount: 8 }).message,

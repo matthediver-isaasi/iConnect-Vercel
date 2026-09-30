@@ -4,6 +4,8 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { resolveCampaignEventSurvey, replaceEventSurvey } from '../_lib/campaignEventSurvey.js';
 import { resolveCampaignEventSponsors, replaceEventSponsors } from '../_lib/eventEmailSponsors.js';
+import { getCampaignEmailComposition } from '../_lib/campaignEmailComposition.js';
+import { enrichCampaignPreparationList } from '../_lib/campaignPreparationList.js';
 
 // Execute the actual endpoint/access code with hermetic dependencies: no service
 // module imports, database connections, or email transports are loaded.
@@ -81,6 +83,8 @@ async function fixture(options = {}) {
     };
   };
   const dependencies = {
+    enrichCampaignPreparationList,
+    getCampaignEmailComposition,
     resolveCampaignEventSurvey, replaceEventSurvey, resolveCampaignEventSponsors, replaceEventSponsors,
     supabase, ...access, ...services,
     getHostFromRequest: () => 'example.org',
@@ -156,6 +160,9 @@ test('another admin can preview, test-send and invoke every lifecycle action', a
   for (const name of ['sendCampaign', 'scheduleCampaign', 'resumeCampaign']) {
     assert.equal(f.calls.find(call => call.name === name).args[3].expectedStatus, 'draft');
     assert.equal(f.calls.find(call => call.name === name).args[3].expectedUpdatedAt, f.campaign.updated_at);
+  }
+  for (const name of ['sendCampaign', 'scheduleCampaign']) {
+    assert.equal(f.calls.find(call => call.name === name).args[3].initiatingMemberId, 'other-admin');
   }
   assert.equal(f.calls.find(call => call.name === 'deleteCampaign').args[2].expectedStatus, 'draft');
   assert.ok(f.calls.some(call => call.name === 'sendEmail'));

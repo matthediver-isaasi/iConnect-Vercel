@@ -44,8 +44,9 @@ test('real send and scheduling validate before campaign mutation', async () => {
   );
   assert.ok(
     sendBody.indexOf('validateCampaignSenderEmail(campaign.from_email)')
-      < sendBody.indexOf('getTargetRecipients(campaign, tenantId)'),
+      < sendBody.indexOf("supabase.rpc('campaign_preparation_begin'"),
   );
+  assert.ok(!sendBody.includes('await getTargetRecipients('), 'request must not resolve the audience');
 });
 
 test('both campaign test-send handlers validate the stored sender before submission', async () => {

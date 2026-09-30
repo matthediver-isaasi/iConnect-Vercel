@@ -71,7 +71,9 @@ export function getCampaignSendFeedback(result = {}) {
   }
 
   if (status === 'queued' || status === 'pending' || status === 'preparing') {
-    const lead = status === 'preparing' ? 'Campaign is preparing.' : 'Campaign queued.';
+    const lead = status === 'preparing'
+      ? 'Campaign audience is being prepared in the background. You can leave this page; sending will start after preparation and quota checks finish.'
+      : 'Campaign queued.';
     const progress = accepted > 0 ? ` ${acceptedText}.` : ' No emails have been accepted yet.';
     const pending = remaining > 0 ? ` ${remaining} ${plural(remaining, 'email')} still queued.` : '';
     return {

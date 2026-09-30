@@ -24,7 +24,24 @@ function database(t, overrides = {}) {
   };
   const original = supabase.from;
   const originalRpc = supabase.rpc;
-  supabase.rpc = () => {
+  supabase.rpc = async (name, args) => {
+    if (name === 'campaign_preparation_begin') {
+      if (state.beforeClaim) {
+        const hook = state.beforeClaim; state.beforeClaim = null; await hook();
+      }
+      const row = state.row;
+      if (!row || row.id !== args.p_campaign || row.tenant_id !== args.p_tenant ||
+          row.status !== args.p_status || row.updated_at !== args.p_version ||
+          row.scheduled_at !== args.p_scheduled) {
+        return { error: { message: 'Campaign preparation conflict' } };
+      }
+      Object.assign(row, { status: 'preparing', preparation_generation: args.p_generation,
+        updated_at: new Date().toISOString() });
+      const claimed = structuredClone(row);
+      state.claims.push(claimed);
+      if (state.afterClaim) await state.afterClaim();
+      return { data: claimed, error: null };
+    }
     state.submissionClaims++;
     throw new Error('Unexpected provider-batch claim');
   };
@@ -38,6 +55,7 @@ function database(t, overrides = {}) {
       insert(value) { operation = 'insert'; values = value; return this; },
       delete() { operation = 'delete'; return this; },
       eq(key, value) { filters.push(row => row[key] === value); return this; },
+      neq(key, value) { filters.push(row => row[key] !== value); return this; },
       is(key, value) { filters.push(row => (row[key] ?? null) === value); return this; },
       in(key, values) { filters.push(row => values.includes(row[key])); return this; },
       lt(key, value) { filters.push(row => row[key] < value); return this; },
@@ -51,6 +69,9 @@ function database(t, overrides = {}) {
       async then(resolve, reject) {
         try {
           if (table !== 'email_campaign') {
+            if (table === 'campaign_preparation') {
+              resolve({ data: [], error: null }); return;
+            }
             if (state.allowRecipients) {
               if (table === 'member_group_assignment') {
                 resolve({ data: state.emptyAudience ? [] : [{ member_id: 'member' }], error: null });
@@ -286,18 +307,18 @@ for (const change of ['draft', 'rescheduled', 'same-time-rescheduled']) {
   });
 }
 
-test('claim uses freshly returned content even if two writes share a timestamp', async t => {
+test('enqueue persists the freshly claimed content for worker validation even when timestamps match', async t => {
   const state = database(t);
   state.beforeClaim = async () => {
     state.row.subject = 'Fresh';
-    // Invalid sender ensures the fresh claimed row is revalidated, and no
-    // recipient resolution or provider operation occurs.
+    // The worker validates this authoritative snapshot before resolution.
     state.row.from_email = 'invalid';
   };
   const result = await sendCampaign('campaign', 'tenant', null, draft);
   assert.equal(state.claims[0].subject, 'Fresh');
-  assert.match(result.error, /Sender Information/);
-  assert.equal(state.row.status, 'draft');
+  assert.equal(result.status, 'preparing');
+  assert.equal(state.row.status, 'preparing');
+  assert.equal(state.claims[0].from_email, 'invalid');
   assert.equal(state.childWrites, 0);
 });
 
@@ -309,8 +330,8 @@ test('guarded mutations cannot affect another tenant', async t => {
 });
 
 for (const status of ['paused', 'cancelled']) {
-  for (const timing of ['afterClaim', 'beforeInsert', 'beforeResume']) {
-    test(`${status} ${timing} preserves operator state and never submits newly prepared recipients`, async t => {
+  for (const timing of ['afterClaim']) {
+    test(`${status} ${timing} preserves operator state and never resolves or inserts in the request`, async t => {
       const state = database(t, { ignore_opt_outs: true });
       state.allowRecipients = true;
       state[timing] = async () => {
@@ -320,16 +341,15 @@ for (const status of ['paused', 'cancelled']) {
         assert.equal(result.success, true);
       };
       const result = await sendCampaign('campaign', 'tenant', null, draft);
-      assert.equal(result.code, 'CAMPAIGN_STATE_CONFLICT');
-      assert.equal(result.status, status);
+      assert.equal(result.success, true);
+      assert.equal(result.status, 'preparing');
       assert.equal(state.row.status, status);
-      assert.equal(state.recipients.length, 1);
-      assert.equal(state.recipients[0].status, status === 'cancelled' ? 'cancelled' : 'pending');
+      assert.equal(state.recipients.length, 0);
       assert.equal(state.submissionClaims, 0);
     });
   }
   for (const failure of ['empty', 'resolution', 'insert']) {
-    test(`${status} during preparation survives ${failure} failure`, async t => {
+    test(`${status} after enqueue is not overwritten by inline ${failure} work`, async t => {
       const state = database(t, { ignore_opt_outs: true });
       state.allowRecipients = failure !== 'resolution';
       state.emptyAudience = failure === 'empty';
@@ -343,22 +363,22 @@ for (const status of ['paused', 'cancelled']) {
       await sendCampaign('campaign', 'tenant', null, draft);
       assert.equal(state.row.status, status);
       assert.equal(state.submissionClaims, 0);
-      if (failure === 'insert') {
-        assert.equal(state.recipients[0].status, status === 'cancelled' ? 'cancelled' : 'pending');
-      }
+      assert.equal(state.recipients.length, 0);
     });
   }
 }
 
-test('preparation finalization rejects a newer generation even with the same preparing status', async t => {
+test('enqueue response never finalizes or overwrites a newer preparation generation', async t => {
   const state = database(t, { ignore_opt_outs: true });
   state.allowRecipients = true;
-  state.beforeResume = async () => {
+  state.afterClaim = async () => {
     state.row.updated_at = '2099-01-01T00:00:00.000Z';
+    state.row.preparation_generation = 'new-generation';
   };
   const result = await sendCampaign('campaign', 'tenant', null, draft);
-  assert.equal(result.code, 'CAMPAIGN_STATE_CONFLICT');
+  assert.equal(result.status, 'preparing');
   assert.equal(state.row.status, 'preparing');
   assert.equal(state.row.updated_at, '2099-01-01T00:00:00.000Z');
+  assert.equal(state.row.preparation_generation, 'new-generation');
   assert.equal(state.submissionClaims, 0);
 });

@@ -56,6 +56,12 @@ export async function resolve(specifier, context, nextResolve) {
         export async function validateStoredMemberCampaign() {
           return { ok: true };
         }
+        export async function getMemberEmsAccess() {
+          return { groups: [group] };
+        }
+        export async function resolveMemberCampaignSender() {
+          return { fromEmail: 'sender@example.test' };
+        }
         export function normalizeAudienceRoles() {
           return [];
         }

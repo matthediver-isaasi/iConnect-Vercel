@@ -1,10 +1,16 @@
-import { supabase } from './database.js';
+import { supabase as rawSupabase } from './database.js';
+import { enrichCampaignPreparationList } from './campaignPreparationList.js';
+import {
+  preparationDatabase, preparationContext, preparationStep,
+  prepareCampaignAudience, PREPARATION_BUDGET_MS,
+  isRetryablePreparationError,
+} from './campaignPreparation.js';
+import { resolvePreparationChunk } from './campaignPreparationStream.js';
 import { discoverAudienceCustomObjects, resolveCustomObjectConditions, validateCustomObjectCondition, validateAudienceCustomObjects } from './audienceCustomObjects.js';
 import { sendEmail, replacePlaceholders } from './emailService.js';
 import { replaceBookingPlaceholders } from './eventConfirmationEmail.js';
 import { resolveCampaignAttendeeContent } from './campaignAttendeeContent.js';
 import { prepareCampaignSurveyDelivery, finishCampaignSurveyDelivery } from './campaignSurveyDelivery.js';
-import { checkEmailQuota } from './planQuota.js';
 import { buildQrImageUrl, ensureBookingToken, ensureComplexSessionTokens } from './checkinService.js';
 import { sanitizeSlotHtml, htmlSlotToPlainText } from './slotHtmlSanitizer.js';
 import { getPublicBaseUrl } from './publicBaseUrl.js';
@@ -30,6 +36,7 @@ const BATCH_SIZE = 100;
 // bookkeeping and the HTTP response. Never abandon an in-flight provider call.
 const CAMPAIGN_WORK_BUDGET_MS = 38_000;
 const SUPABASE_PAGE_SIZE = 1000;
+const supabase = preparationDatabase(rawSupabase);
 
 export function campaignHasTime(deadline, now = Date.now()) {
   return now < deadline;
@@ -46,7 +53,7 @@ export function campaignReadBudget(db, deadline) {
       get(target, key) {
         if (key === 'then') return (resolve, reject) => {
           if (!mutation) {
-            if (controller.signal.aborted) return Promise.reject(new Error('Campaign preparation deadline exhausted')).then(resolve, reject);
+            if (controller.signal.aborted) return Promise.reject(Object.assign(new Error('Campaign preparation deadline exhausted'), { code: 'PREPARATION_YIELD' })).then(resolve, reject);
             if (typeof target.abortSignal === 'function') target.abortSignal(controller.signal);
           }
           return target.then(resolve, reject);
@@ -56,7 +63,7 @@ export function campaignReadBudget(db, deadline) {
         return (...args) => {
           if (['insert', 'update', 'upsert', 'delete'].includes(key)) mutation = true;
           if (!mutation && ['single', 'maybeSingle'].includes(key)) {
-            if (controller.signal.aborted) throw new Error('Campaign preparation deadline exhausted');
+            if (controller.signal.aborted) throw Object.assign(new Error('Campaign preparation deadline exhausted'), { code: 'PREPARATION_YIELD' });
             if (typeof target.abortSignal === 'function') target.abortSignal(controller.signal);
           }
           const next = method.apply(target, args);
@@ -230,8 +237,9 @@ export async function getCampaigns(tenantId, options = {}) {
 
     const campaigns = data || [];
     const enriched = await Promise.all(campaigns.map(c => enrichCampaignCounts(c)));
+    const withPreparation = await enrichCampaignPreparationList(supabase, tenantId, enriched);
 
-    return { success: true, campaigns: enriched };
+    return { success: true, campaigns: withPreparation };
   } catch (err) {
     console.error('[Campaign Service] Error fetching campaigns:', err);
     return { success: false, error: err.message };
@@ -253,6 +261,13 @@ export async function getCampaign(campaignId, tenantId) {
 
     if (error) throw error;
     const enriched = await enrichCampaignCounts(data);
+    if (data?.preparation_generation && data.status !== 'sent') {
+      const { data: preparation, error: preparationError } = await supabase.from('campaign_preparation')
+        .select('phase,segment,cursor,total,last_error,updated_at')
+        .eq('id', data.preparation_generation).eq('campaign_id', data.id).maybeSingle();
+      if (preparationError) throw preparationError;
+      enriched.preparation = preparation;
+    }
     return { success: true, campaign: enriched };
   } catch (err) {
     console.error('[Campaign Service] Error fetching campaign:', err);
@@ -895,6 +910,20 @@ export async function resumeCampaign(campaignId, tenantId, resumedBy = null, opt
       return { success: false, error: senderValidation.error, code: 'INVALID_SENDER_EMAIL' };
     }
 
+    if (campaign.preparation_generation) {
+      const { data: preparation, error } = await supabase.from('campaign_preparation')
+        .select('phase').eq('id', campaign.preparation_generation).maybeSingle();
+      if (error) throw error;
+      if (preparation && preparation.phase !== 'complete') {
+        if (!['paused', 'failed'].includes(campaign.status)) {
+          return { success: false, error: 'Cancelled or incomplete preparation cannot resume delivery.' };
+        }
+        const resumed = await preparationStep(supabase, campaign.preparation_generation,
+          crypto.randomUUID(), 'resume');
+        return { success: true, status: resumed.status, preparationPending: true, campaignId };
+      }
+    }
+
     const { count: pendingCount, error: pendingError } = await supabase
       .from('email_campaign_recipient')
       .select('*', { count: 'exact', head: true })
@@ -1400,7 +1429,7 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
     let assignmentOffset = 0;
     const assignmentBatchSize = 1000;
     let hasMoreAssignments = true;
-    const nowIso = new Date().toISOString();
+    const nowIso = preparationContext.getStore()?.at || new Date().toISOString();
 
     while (hasMoreAssignments) {
       let q = supabase
@@ -1453,7 +1482,7 @@ async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentD
     let assignmentOffset = 0;
     const assignmentBatchSize = 1000;
     let hasMoreAssignments = true;
-    const nowIso = new Date().toISOString();
+    const nowIso = preparationContext.getStore()?.at || new Date().toISOString();
 
     while (hasMoreAssignments) {
       const { data: batch } = await supabase
@@ -2563,7 +2592,7 @@ function buildEmailCaseInsensitiveOr(emails) {
     .join(',');
 }
 
-function applyConditionToQuery(query, fieldKey, operator, value, dataType) {
+export function applyConditionToQuery(query, fieldKey, operator, value, dataType) {
   switch (operator) {
     case 'equals':
       return query.eq(fieldKey, value);
@@ -2597,7 +2626,7 @@ function applyConditionToQuery(query, fieldKey, operator, value, dataType) {
   }
 }
 
-function applyPrefValueCondition(query, operator, value, dataType) {
+export function applyPrefValueCondition(query, operator, value, dataType) {
   const isNumericType = dataType === 'number' || dataType === 'decimal';
   const isMultiSelectType = dataType === 'list' || dataType === 'multiselect' || dataType === 'multi_select' || dataType === 'countries' || dataType === 'country';
   switch (operator) {
@@ -2698,12 +2727,12 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false,
     // Step 1b: Remove emails with global unsubscribe record
     let globalUnsubscribes = [];
     if (allRecipients.some((recipient) => recipient.bypass_opt_out !== true)) {
-      const { data, error: globalUnsubscribeError } = await supabase
+      const data = await fetchAllRows((offset, size) => supabase
         .from('email_unsubscribe')
         .select('email')
         .eq('tenant_id', tenantId)
-        .eq('unsubscribe_type', 'all');
-      if (globalUnsubscribeError) throw globalUnsubscribeError;
+        .eq('unsubscribe_type', 'all').order('id')
+        .range(offset, offset + size - 1));
       globalUnsubscribes = data || [];
     }
 
@@ -2785,14 +2814,13 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false,
       }
 
       // Also filter external subscribers who opted out of this category
-      const { data: categoryUnsubscribes, error: catUnsubError } = await supabase
+      const categoryUnsubscribes = await fetchAllRows((offset, size) => supabase
         .from('email_unsubscribe')
         .select('email')
         .eq('tenant_id', tenantId)
         .eq('unsubscribe_type', 'category')
-        .eq('communication_category_id', communicationCategoryId);
-
-      if (catUnsubError) throw catUnsubError;
+        .eq('communication_category_id', communicationCategoryId).order('id')
+        .range(offset, offset + size - 1));
 
       if (categoryUnsubscribes && categoryUnsubscribes.length > 0) {
         const categoryUnsubSet = new Set(categoryUnsubscribes.map(u => u.email.trim().toLowerCase()));
@@ -2840,6 +2868,7 @@ export async function getTargetRecipients(campaign, tenantId, countOnly = false,
     }
     return result;
   } catch (err) {
+    if (err.code === 'PREPARATION_YIELD') throw err;
     console.error('[Campaign Service] Error getting recipients:', err);
     return { success: false, error: err.message };
   }
@@ -2905,6 +2934,7 @@ export async function scheduleCampaign(campaignId, tenantId, scheduledAt, option
       .update({ 
         status: 'scheduled', 
         scheduled_at: scheduledAt.toISOString(),
+        preparation_actor_member_id: options.initiatingMemberId || null,
         updated_at: nextCampaignUpdatedAt(campaign.updated_at)
       })
       .eq('id', campaignId)
@@ -2975,16 +3005,25 @@ export async function processScheduledCampaigns(options = {}) {
       }
     }
 
+    // Preparation has its own smaller budget; a huge audience cannot consume
+    // the entire delivery window for already-ready campaigns.
+    const preparationResult = campaignHasTime(deadline)
+      ? await processPreparingCampaigns({ deadline: Math.min(deadline, Date.now() + PREPARATION_BUDGET_MS) })
+      : { success: true, processed: 0, budgetExhausted: true };
     const sendingResult = campaignHasTime(deadline)
       ? await processSendingCampaigns({ deadline })
       : { success: true, processed: 0, campaigns: [], budgetExhausted: true };
-    if (!sendingResult.success) return { success: false, error: sendingResult.error, campaigns: scheduledResults };
+    if (!sendingResult.success || !preparationResult.success) return {
+      success: false, error: preparationResult.error || sendingResult.error,
+      campaigns: scheduledResults, preparingCampaigns: preparationResult, sendingCampaigns: sendingResult,
+    };
 
     return { 
       success: true, 
       processed: scheduledResults.length,
       campaigns: scheduledResults,
       sendingCampaigns: sendingResult,
+      preparingCampaigns: preparationResult,
       budgetExhausted: scheduledResults.length < (dueCampaigns?.length || 0) || sendingResult.budgetExhausted === true,
     };
   } catch (err) {
@@ -3004,15 +3043,53 @@ export function shouldMarkCampaignSent({ pendingCount, processingCount, anyRowCo
   return true;
 }
 
-// Recovery for the interim 'preparing' status used by sendCampaign() to
-// avoid the race with the cron worker. Normally a campaign sits in
-// 'preparing' for only a few seconds (audience resolution + recipient row
-// insert). If something interrupts that work (Vercel function timeout,
-// hard crash, etc.), the campaign would otherwise be stuck. We sweep for
-// 'preparing' campaigns older than the threshold and either:
-//   - promote to 'sending' if recipient rows already exist (rows inserted
-//     but the status flip never ran), or
-//   - mark 'failed' if no rows exist (interrupted before insert).
+export async function processPreparingCampaigns(options = {}) {
+  const deadline = options.deadline ?? Date.now() + PREPARATION_BUDGET_MS;
+  const { data: campaigns, error } = await supabase.from('campaign_preparation')
+    .select('id,campaign_id,tenant_id,email_campaign!inner(status,preparation_generation)')
+    .eq('email_campaign.status', 'preparing').neq('phase', 'complete')
+    .order('updated_at').limit(20);
+  if (error) return { success: false, error: error.message };
+  const results = [];
+  for (const campaign of campaigns || []) {
+    if (Date.now() >= deadline - 2000) break;
+    if (campaign.email_campaign?.preparation_generation !== campaign.id) continue;
+    try {
+      results.push({ campaignId: campaign.campaign_id, ...await prepareCampaignAudience({
+        db: rawSupabase, generation: campaign.id, deadline,
+        // Quota approval/reservation and promotion are serialized in the RPC,
+        // not a racy application-level read/count followed by an insert.
+        resolveChunk: input => resolvePreparationChunk({ ...input,
+          conditions: { applyConditionToQuery, applyPrefValueCondition } }),
+        quota: async () => ({ ok: true }),
+        authorize: async snapshot => {
+          const budget = campaignReadBudget(rawSupabase, deadline - 1500);
+          try {
+            await preparationContext.run({ db: budget.db }, async () => {
+              const gate = await checkCampaignBatchGate(snapshot.id, snapshot.tenant_id, snapshot, true);
+              if (!gate.allowed) throw Object.assign(new Error(gate.error || 'Campaign preparation is paused or cancelled'), {
+                retryable: gate.retryable === true || gate.stopped === true,
+              });
+              const lists = await validateCampaignAudienceLists(snapshot, snapshot.tenant_id);
+              if (!lists.valid) throw new Error(lists.reason);
+              const targeting = validateCampaignTargeting(snapshot);
+              if (!targeting.valid) throw new Error(targeting.reason);
+            });
+          } finally { budget.dispose(); }
+        },
+      }) });
+    } catch (error) {
+      results.push({ campaignId: campaign.id, success: false, error: error.message });
+    }
+  }
+  const failures = results.filter(result => !result.success);
+  return { success: failures.length === 0, processed: results.length, campaigns: results,
+    ...(failures.length ? { error: failures.map(result => `${result.campaignId}: ${result.error || 'Audience preparation failed'}`).join('; ') } : {}),
+    budgetExhausted: Date.now() >= deadline - 2000 };
+}
+
+// Legacy preparations have no completion proof. Never infer readiness from
+// recipient existence; an interrupted bulk insert may have inserted a prefix.
 async function recoverStuckPreparingCampaigns(deadline) {
   const STALE_PREPARING_MS = 5 * 60 * 1000; // 5 minutes
   const cutoffIso = new Date(Date.now() - STALE_PREPARING_MS).toISOString();
@@ -3021,6 +3098,7 @@ async function recoverStuckPreparingCampaigns(deadline) {
     .from('email_campaign')
     .select('id, tenant_id, name, updated_at')
     .eq('status', 'preparing')
+    .is('preparation_generation', null)
     .eq('category_review_required', false)
     .lt('updated_at', cutoffIso);
 
@@ -3033,24 +3111,12 @@ async function recoverStuckPreparingCampaigns(deadline) {
 
   for (const c of stuck) {
     if (deadline != null && !campaignHasTime(deadline)) break;
-    const { count: rowCount, error: countError } = await supabase
-      .from('email_campaign_recipient')
-      .select('*', { count: 'exact', head: true })
-      .eq('campaign_id', c.id);
-    if (countError) {
-      console.error(`[Campaign Service] Cannot inspect stuck preparation ${c.id}:`, countError);
-      continue;
-    }
-
-    if (rowCount && rowCount > 0) {
-      console.warn(`[Campaign Service] Recovering stuck 'preparing' campaign ${c.id} (${c.name}) — ${rowCount} recipient rows already inserted, promoting to 'sending'`);
-    } else {
-      console.warn(`[Campaign Service] Recovering stuck 'preparing' campaign ${c.id} (${c.name}) — no recipient rows, marking 'failed'`);
-    }
+    console.warn(`[Campaign Service] Legacy preparation ${c.id} requires audience reconciliation; refusing automatic promotion`);
     const { error: recoveryError } = await supabase.from('email_campaign')
-      .update({ status: rowCount ? 'sending' : 'failed', updated_at: new Date().toISOString() })
+      .update({ status: 'failed', category_review_required: true, updated_at: new Date().toISOString() })
       .eq('id', c.id).eq('tenant_id', c.tenant_id)
       .eq('status', 'preparing').eq('updated_at', c.updated_at)
+      .is('preparation_generation', null)
       .eq('category_review_required', false);
     if (recoveryError) console.error(`[Campaign Service] Failed to recover preparation ${c.id}:`, recoveryError);
   }
@@ -3069,11 +3135,8 @@ export async function processSendingCampaigns(options = {}) {
 
   try {
     const deadline = options.deadline ?? Date.now() + CAMPAIGN_WORK_BUDGET_MS;
-    // Recovery sweep: any campaign stuck in the interim 'preparing' state
-    // for too long without recipient rows is a victim of an interrupted
-    // send (e.g. function timeout / hard crash). Mark it 'failed' so the
-    // user can retry. If rows DO exist (insert succeeded but the status
-    // update did not), promote it to 'sending' so this worker can finish.
+    // Legacy preparations without a completion proof require review. Modern
+    // generations are resumed only by their checkpointed preparation worker.
     await recoverStuckPreparingCampaigns(deadline);
 
     const { data: sendingCampaigns, error: fetchError } = await supabase
@@ -3550,6 +3613,39 @@ async function resolveRecipientBooking(recipient, campaign, tenantId, db = supab
   return null;
 }
 
+async function preparedRecipientStillConsents(db, recipient, campaign, tenantId) {
+  if (!campaign.preparation_generation) return true;
+  const { data: staged, error } = await db.from('campaign_preparation_recipient')
+    .select('recipient').eq('generation', campaign.preparation_generation)
+    .eq('recipient_id', recipient.id).single();
+  if (error || !staged) throw new Error('Prepared recipient consent provenance is unavailable');
+  if (staged.recipient.bypass_opt_out === true) return true;
+  if (recipient.member_id) {
+    const { data: member, error } = await db.from('member')
+      .select('id,email,login_enabled,communications_opted_out_all')
+      .eq('id', recipient.member_id).eq('tenant_id', tenantId).maybeSingle();
+    if (error) throw error;
+    if (!member || member.communications_opted_out_all === true ||
+        member.email?.trim().toLowerCase() !== recipient.email.trim().toLowerCase()) return false;
+    if (campaign.communication_category_id) {
+      if (!isActiveCommunicationMember(member)) return false;
+      const { data: preference, error } = await db.from('member_communication_preference')
+        .select('member_id').eq('tenant_id', tenantId).eq('member_id', member.id)
+        .eq('category_id', campaign.communication_category_id).eq('is_subscribed', true).maybeSingle();
+      if (error) throw error;
+      if (!preference) return false;
+    }
+  }
+  const escapedEmail = recipient.email.trim().replace(/[\\%_]/g, '\\$&');
+  const { data: unsubscribes, error: unsubscribeError } = await db.from('email_unsubscribe')
+    .select('unsubscribe_type,communication_category_id').eq('tenant_id', tenantId)
+    .ilike('email', escapedEmail);
+  if (unsubscribeError) throw unsubscribeError;
+  return !(unsubscribes || []).some(row => row.unsubscribe_type === 'all' ||
+    (campaign.communication_category_id && row.unsubscribe_type === 'category' &&
+      row.communication_category_id === campaign.communication_category_id));
+}
+
 export async function sendToRecipient(recipient, campaign, tenantId, tenantSlug, requestHost, designInfo, testDestination = null, options = {}) {
   let surveyDelivery = null;
   let providerAccepted = false;
@@ -3697,6 +3793,11 @@ export async function sendToRecipient(recipient, campaign, tenantId, tenantSlug,
     if (!testDestination && options.recheckBeforeProvider) {
       try {
         if (budget?.signal.aborted) throw new Error('Campaign preparation deadline exhausted');
+        if (!await preparedRecipientStillConsents(recipientDb, recipient, campaign, tenantId)) {
+          if (surveyDelivery?.deliveryId) await finishCampaignSurveyDelivery(supabase, surveyDelivery.deliveryId, false);
+          await releaseClaimedRecipients([recipient], 'unsubscribed');
+          return 'stopped';
+        }
         const gate = await checkCampaignBatchGate(campaign.id, tenantId, campaign);
         if (!gate.allowed || (options.deadline != null && !campaignHasTime(options.deadline))) {
           if (surveyDelivery?.deliveryId) await finishCampaignSurveyDelivery(supabase, surveyDelivery.deliveryId, false);
@@ -3926,7 +4027,7 @@ async function getCampaignSendOutcome(campaignId, campaignStatus = 'sending') {
   });
 }
 
-async function checkCampaignBatchGate(campaignId, tenantId, campaign) {
+async function checkCampaignBatchGate(campaignId, tenantId, campaign, preparing = false) {
   const { data: currentCampaign, error } = await supabase
     .from('email_campaign')
     .select('*')
@@ -3939,6 +4040,7 @@ async function checkCampaignBatchGate(campaignId, tenantId, campaign) {
       allowed: false,
       blocked: true,
       code: 'CAMPAIGN_SEND_GATE_UNAVAILABLE',
+      retryable: Boolean(error && isRetryablePreparationError(error)),
       error: 'Campaign could not be verified before sending. No recipients were claimed or submitted; try again after confirming the campaign still exists.',
     };
   }
@@ -3946,7 +4048,8 @@ async function checkCampaignBatchGate(campaignId, tenantId, campaign) {
   try {
     await resolveCampaignEventSurvey(supabase, currentCampaign, tenantId);
   } catch (error) {
-    return { allowed: false, blocked: true, code: 'EVENT_SURVEY_UNAVAILABLE', error: error.message };
+    return { allowed: false, blocked: true, code: 'EVENT_SURVEY_UNAVAILABLE', error: error.message,
+      retryable: isRetryablePreparationError(error) };
   }
 
   if (currentCampaign.status === 'cancelled' || currentCampaign.status === 'paused') {
@@ -3970,7 +4073,7 @@ async function checkCampaignBatchGate(campaignId, tenantId, campaign) {
     };
   }
 
-  if (currentCampaign.status !== 'sending') {
+  if (currentCampaign.status !== (preparing ? 'preparing' : 'sending')) {
     return {
       allowed: false,
       blocked: true,
@@ -3980,8 +4083,17 @@ async function checkCampaignBatchGate(campaignId, tenantId, campaign) {
     };
   }
 
-  if (currentCampaign.member_group_id && currentCampaign.created_by_member_id) {
-    const authority = await getMemberEmsAccess(currentCampaign.created_by_member_id, tenantId);
+  if (currentCampaign.preparation_generation !== campaign.preparation_generation ||
+      (preparing && currentCampaign.updated_at !== campaign.updated_at)) {
+    return { allowed: false, error: 'Campaign preparation generation changed.' };
+  }
+
+  const authorityMemberId = currentCampaign.preparation_actor_member_id || currentCampaign.created_by_member_id;
+  if (currentCampaign.member_group_id && authorityMemberId) {
+    if (currentCampaign.preparation_actor_member_id !== campaign.preparation_actor_member_id) {
+      return { allowed: false, error: 'Campaign initiating group administrator changed.' };
+    }
+    const authority = await getMemberEmsAccess(authorityMemberId, tenantId);
     const group = requireGroupAccess(authority.groups || [], currentCampaign.member_group_id);
     if (authority.error || !group) {
       return { allowed: false, blocked: true, code: 'MEMBER_GROUP_AUTHORITY_REVOKED',
@@ -4156,35 +4268,6 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null, opt
     return { success: false, error: 'Database not configured' };
   }
 
-  let claimed = false;
-  let ownedStatus = 'preparing';
-  let ownedVersion;
-  let preparedRecipientIds = [];
-  const updateOwnedPreparation = async (updates) => {
-    const { data, error } = await matchCampaignValue(
-      supabase.from('email_campaign')
-        .update({ ...updates, updated_at: nextCampaignUpdatedAt(ownedVersion) })
-        .eq('id', campaignId).eq('tenant_id', tenantId).eq('status', 'preparing'),
-      'updated_at', ownedVersion,
-    ).select().maybeSingle();
-    if (error) throw error;
-    if (data) ownedVersion = data.updated_at;
-    return data;
-  };
-  const stopPreparation = async (insertedIds = []) => {
-    const { data: current, error } = await supabase.from('email_campaign')
-      .select('status').eq('id', campaignId).eq('tenant_id', tenantId).maybeSingle();
-    if (error) throw error;
-    // Cancellation may have swept recipients BEFORE this preparation inserted
-    // them. Reconcile just our new rows; paused rows stay pending for resume.
-    if (current?.status === 'cancelled' && insertedIds.length) {
-      const { error: cleanupError } = await supabase.from('email_campaign_recipient')
-        .update({ status: 'cancelled' }).eq('campaign_id', campaignId)
-        .in('id', insertedIds).eq('status', 'pending');
-      if (cleanupError) throw cleanupError;
-    }
-    return { ...campaignConflict(), status: current?.status };
-  };
   try {
     const { success, campaign: loadedCampaign, error } = await getCampaign(campaignId, tenantId);
     let campaign = loadedCampaign;
@@ -4214,137 +4297,29 @@ export async function sendCampaign(campaignId, tenantId, requestHost = null, opt
 
     await resolveCampaignEventSurvey(supabase, campaign, tenantId);
 
-    // Atomic claim into the interim 'preparing' status. This prevents
-    // double-send (a second caller will fail the status filter) AND keeps
-    // the campaign invisible to the cron until recipients are inserted.
-    let claimQuery = supabase
-      .from('email_campaign')
-      .update({
-        status: 'preparing',
-        sent_at: new Date().toISOString(),
-        sent_count: 0,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', campaignId)
-      .eq('tenant_id', tenantId)
-      .eq('status', options.expectedStatus || campaign.status)
-      .eq('category_review_required', false);
-    claimQuery = matchCampaignValue(claimQuery, 'updated_at',
-      Object.hasOwn(options, 'expectedUpdatedAt') ? options.expectedUpdatedAt : campaign.updated_at);
-    claimQuery = matchCampaignValue(claimQuery, 'scheduled_at',
-      Object.hasOwn(options, 'expectedScheduledAt') ? options.expectedScheduledAt : campaign.scheduled_at);
-    const { data: claimedCampaign, error: claimError } = await claimQuery.select().maybeSingle();
-
-    if (claimError || !claimedCampaign) {
-      if (claimError) return { success: false, error: claimError.message };
-      return campaignConflict();
-    }
-    claimed = true;
-    ownedVersion = claimedCampaign.updated_at;
-    // Use the row actually claimed, not the pre-claim read. Even two edits
-    // sharing timestamp precision must never send an obsolete content snapshot.
-    campaign = claimedCampaign;
-    const claimedSender = validateCampaignSenderEmail(campaign.from_email);
-    const claimedLists = await validateCampaignAudienceLists(campaign, tenantId);
-    if (!claimedSender.valid || !claimedLists.valid) {
-      if (!await updateOwnedPreparation({ status: 'draft' })) return await stopPreparation();
-      return { success: false, error: claimedSender.error || claimedLists.reason };
-    }
-
     const targetingValidation = validateCampaignTargeting(campaign);
     if (!targetingValidation.valid) {
-      console.error(`[Campaign Service] BLOCKED SEND: Campaign ${campaignId} - ${targetingValidation.reason}`);
-      if (!await updateOwnedPreparation({ status: 'draft' })) return await stopPreparation();
       return { success: false, error: targetingValidation.reason };
     }
-
-    let recipientsResult;
-    try {
-      recipientsResult = await getTargetRecipients(campaign, tenantId);
-    } catch (recipientErr) {
-      if (!await updateOwnedPreparation({ status: 'failed' })) return await stopPreparation();
-      return { success: false, error: recipientErr.message || 'Failed to resolve recipients' };
+    // Campaign claim and its generation record commit together. HTTP requests
+    // never enumerate audiences or insert recipients.
+    const { data, error: beginError } = await supabase.rpc('campaign_preparation_begin', {
+      p_campaign: campaignId, p_tenant: tenantId,
+      p_version: Object.hasOwn(options, 'expectedUpdatedAt') ? options.expectedUpdatedAt : campaign.updated_at,
+      p_status: options.expectedStatus || campaign.status,
+      p_scheduled: Object.hasOwn(options, 'expectedScheduledAt') ? options.expectedScheduledAt : campaign.scheduled_at,
+      p_generation: crypto.randomUUID(),
+      p_actor: options.initiatingMemberId || (campaign.status === 'scheduled' ? campaign.preparation_actor_member_id : null) || null,
+    });
+    if (beginError) {
+      if (/preparation conflict/i.test(beginError.message)) return campaignConflict();
+      return { success: false, error: beginError.message };
     }
-
-    if (!recipientsResult.success) {
-      if (!await updateOwnedPreparation({ status: 'failed' })) return await stopPreparation();
-      return recipientsResult;
-    }
-
-    const recipients = recipientsResult.recipients;
-    if (recipients.length === 0) {
-      if (!await updateOwnedPreparation({ status: 'failed' })) return await stopPreparation();
-      return { success: false, error: 'No recipients found for this campaign' };
-    }
-
-    // Plan quota enforcement (Task #1026). Centralised here so both
-    // immediate sends AND scheduled sends executed by the cron go through
-    // the same gate. Fails closed: if usage cannot be computed the helper
-    // returns ok:false with a 503-shaped body and we abort the send.
-    const quotaCheck = await checkEmailQuota(tenantId, { addingCount: recipients.length });
-    if (!quotaCheck.ok) {
-      if (!await updateOwnedPreparation({ status: 'draft' })) return await stopPreparation();
-      console.warn(`[Campaign Service] Plan quota blocked send for campaign ${campaignId}:`, quotaCheck.body?.code);
-      return { success: false, error: quotaCheck.body?.error || 'Plan email quota exceeded', quota: quotaCheck.body?.quota };
-    }
-
-    const recipientRecords = recipients.map(r => ({
-      id: crypto.randomUUID(),
-      campaign_id: campaignId,
-      member_id: r.member_id !== undefined ? r.member_id : r.id,
-      email: r.email,
-      first_name: r.first_name,
-      last_name: r.last_name,
-      status: 'pending'
-    }));
-    // Keep IDs even if the insert commits but its response fails, so a
-    // concurrent cancellation can still reconcile this request's rows.
-    preparedRecipientIds = recipientRecords.map(row => row.id);
-
-    const { error: insertError } = await supabase
-      .from('email_campaign_recipient')
-      .insert(recipientRecords);
-
-    if (insertError) throw insertError;
-
-    // Only NOW that recipient rows are durably inserted, flip from
-    // 'preparing' to 'sending' so the cron worker can safely take over
-    // if this request times out.
-    const promoted = await updateOwnedPreparation({ status: 'sending', total_recipients: recipients.length });
-    if (!promoted) return await stopPreparation(preparedRecipientIds);
-    ownedStatus = 'sending';
-
-    // The cron owns provider submission. Returning immediately after durable
-    // preparation avoids spending the request's remaining 60s on slow sends.
-    return {
-      success: true,
-      status: 'sending',
-      totalRecipients: recipients.length,
-      sent: 0,
-      failed: 0,
-      pending: recipients.length,
-      queued: recipients.length,
-      processing: 0,
-      remaining: recipients.length,
-    };
+    if (!data) return campaignConflict();
+    return { success: true, status: 'preparing', preparationPending: true,
+      totalRecipients: null, sent: 0, failed: 0, pending: null, queued: null, processing: 0 };
   } catch (err) {
     console.error('[Campaign Service] Error sending campaign:', err);
-    if (claimed && preparedRecipientIds.length) {
-      try {
-        await stopPreparation(preparedRecipientIds);
-      } catch (cleanupError) {
-        return { success: false, error: `${err.message}. Failed to reconcile prepared recipients: ${cleanupError.message}` };
-      }
-    }
-    // Do not overwrite an operator pause/cancellation that raced this error.
-    try {
-      if (claimed) await matchCampaignValue(supabase.from('email_campaign').update({ status: 'failed' })
-        .eq('id', campaignId)
-        .eq('tenant_id', tenantId)
-        .eq('status', ownedStatus), 'updated_at', ownedVersion);
-    } catch {
-      // Preserve the original, actionable send error.
-    }
     return { success: false, error: err.message };
   }
 }

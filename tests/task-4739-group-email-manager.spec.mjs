@@ -79,7 +79,8 @@ async function mount(page, { duplicateFailure = false } = {}) {
       { id: "draft", name: "Other admin draft", subject: "Draft", status: "draft" },
       { id: "scheduled", name: "Scheduled update", subject: "Schedule", status: "scheduled", scheduled_at: "2030-01-01T10:00:00Z" },
       { id: "sent", name: "Already sent", subject: "Sent", status: "sent", sent_count: 0 },
-      { id: "failed", name: "Failed campaign", subject: "Failed", status: "failed", sent_count: 0 },
+      { id: "failed", name: "Failed campaign", subject: "Failed", status: "failed", sent_count: 0,
+        preparation: { phase: "failed", last_error: "Audience quota exceeded" } },
     ],
     full: {
       draft: { id: "draft", name: "Other admin draft", subject: "Draft", html_content: "<p>draft</p>", target_audiences: [{ roles: ["Chair"] }] },
@@ -126,6 +127,13 @@ test("standalone entry describes shared campaigns and mounts the shared lifecycl
   await page.getByTestId("option-group-group-b").click();
   await expect(page.getByTestId("empty-campaigns")).toBeVisible();
   await expect(page.getByTestId("row-member-campaign-scheduled")).toHaveCount(0);
+});
+
+test("group campaign list shows terminal audience preparation failure to its operator", async ({ page }) => {
+  const state = await mount(page);
+  await expect(page.getByTestId("text-member-preparation-error-failed"))
+    .toHaveText("Audience preparation failed: Audience quota exceeded");
+  expect(state.writes).toEqual([]);
 });
 
 test("draft-only destructive controls, scheduled confirmation, and duplicate use fixture-only lifecycle requests", async ({ page }) => {

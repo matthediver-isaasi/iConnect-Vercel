@@ -1221,6 +1221,11 @@ export default function EmailCampaigns() {
                                 {campaign.sent_count || 0} / {campaign.total_recipients} accepted
                               </span>
                             )}
+                            {campaign.preparation?.phase === 'failed' && campaign.status === 'failed' && (
+                              <span className="text-xs text-destructive block max-w-[320px] whitespace-normal break-words" data-testid={`text-preparation-error-${campaign.id}`}>
+                                Audience preparation failed: {campaign.preparation.last_error || 'No further details available.'}
+                              </span>
+                            )}
                             {campaign.status === 'scheduled' && campaign.scheduled_at && (
                               <span className="text-xs text-muted-foreground">
                                 {formatDate(campaign.scheduled_at)}
@@ -1340,7 +1345,7 @@ export default function EmailCampaigns() {
                                 that still has pending recipients (e.g. the
                                 GRAFTAs incident or any future race/timeout)
                                 gets a Resume button to drain the remainder. */}
-                            {(campaign.status === 'sent' || campaign.status === 'failed' || campaign.status === 'cancelled') && (campaign.pending_count || 0) > 0 && (
+                            {(campaign.status === 'sent' || campaign.status === 'failed' || campaign.status === 'cancelled') && campaign.preparation?.phase !== 'failed' && (campaign.pending_count || 0) > 0 && (
                               <Button
                                 variant="ghost"
                                 size="icon"

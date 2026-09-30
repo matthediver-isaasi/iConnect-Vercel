@@ -143,6 +143,7 @@
 - [Validation registration](validation-registration.md) — registering validation may append it to default Run; keep standalone checks without changing application startup.
 - [Widget cache authority](widget-cache-authority.md) — stale/overdue is not active work; unchanged results require request-correlated publication evidence, not old success/pending flags.
 - [Group campaign claims](group-campaign-claims.md) — bind validated delivery snapshots and scheduled-worker selections to the atomic claim; draft status alone is insufficient.
+- [Campaign preparation progress](campaign-preparation-progress.md) — durable read replay can exhaust its own budget; bounded resolver continuations must guarantee new progress.
 - [Canvas widget discovery sharing](canvas-widget-discovery-sharing.md) — deduplicate auth-scoped metadata discovery without sharing per-card result or refresh state.
 - [New-member incentive evidence](new-member-incentive-evidence.md) — rollover preserves original entitlement less usage; later pricing cannot establish legacy credit.
 - [Post-booking credit authority](post-booking-credit-authority.md) — use actual reversal evidence; overlapping refund and credit-note legs require durable linkage, never inferred totals.

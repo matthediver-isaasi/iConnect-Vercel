@@ -749,6 +749,11 @@ export default function GroupEmailManager({ group, heading = "Email campaigns", 
                 <TableCell>
                   <div className="flex flex-col gap-1">
                     <Badge variant={STATUS_VARIANTS[c.status] || "outline"}>{c.status}</Badge>
+                    {c.status === "failed" && c.preparation?.phase === "failed" && (
+                      <span className="text-xs text-destructive whitespace-normal break-words max-w-[320px]" data-testid={`text-member-preparation-error-${c.id}`}>
+                        Audience preparation failed: {c.preparation.last_error || "No further details available."}
+                      </span>
+                    )}
                     {c.status === "scheduled" && c.scheduled_at && (
                       <span className="text-xs text-muted-foreground">{formatDateTime(c.scheduled_at)}</span>
                     )}
