@@ -156,3 +156,39 @@ test("successful previews keep both fee cards and their actions, without review 
     assert.equal(calls.length, 0);
   });
 });
+
+test("unrecorded Year 1 and prospective Year 2 display both figures but only Year 1 has financial controls", async () => {
+  await mounted({
+    currentYearCost: { ...current, overrideType: "price", overridePrice: 1, finalCost: 1, totalWithVat: 1.2 },
+    nextYearPreview: { ...next, previewOnly: true, rolloverDiscount: 50,
+      incentiveRollover: { source: "prospective_year1_projection", appliedDiscount: 50 } },
+  }, async ({ container, calls }) => {
+    assert.match(section(container, "current-year").textContent, /£1\.00/);
+    assert.match(section(container, "next-year").textContent, /£678\.90/);
+    assert.match(container.querySelector('[data-testid="prospective-estimate-next-year"]').textContent,
+      /not a purchased entitlement/);
+    assert.equal(container.querySelector('[data-testid="prospective-estimate-current-year"]'), null);
+    for (const action of ["simulate", "override", "remove-override", "email-fees", "renew-now", "invoice-now",
+      "save-invoicing", "approve", "unapprove"]) {
+      assert.equal(container.querySelector(`[data-testid="button-${action}-next-year"]`), null, action);
+    }
+    assert.equal(container.querySelector('[data-testid="radio-invoicing-mode-next-year"]'), null);
+    assert.ok(container.querySelector('[data-testid="button-record-current"]'));
+    assert.ok(container.querySelector('[data-testid="button-simulate-current-year"]'));
+    await act(async () => container.querySelector('[data-testid="button-simulate-current-year"]').click());
+    assert.equal(JSON.parse(calls[0].options.body).targetYear, "2026/2027");
+  });
+});
+
+test("recorded Year 1 and verified Year 2 preserve the ordinary actions and no prospective label", async () => {
+  await mounted({
+    nextYearPreview: { ...next, previewOnly: false,
+      incentiveRollover: { source: "commitment_snapshot", appliedDiscount: 50 } },
+    history: [{ id: "current", membership_year: "2026/2027", final_cost: 123.45 }],
+  }, async ({ container }) => {
+    assert.equal(container.querySelector('[data-testid="prospective-estimate-next-year"]'), null);
+    assert.ok(container.querySelector('[data-testid="button-simulate-next-year"]'));
+    assert.ok(container.querySelector('[data-testid="button-override-next-year"]'));
+    assert.ok(container.querySelector('[data-testid="button-save-invoicing-next-year"]'));
+  });
+});

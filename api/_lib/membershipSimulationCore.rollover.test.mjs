@@ -23,28 +23,46 @@ function rollover(changes = {}) {
 }
 
 // No SDK, environment variables, network, or write-capable client is involved.
-function fixture({ history = [year1], config = original, overrides = [], extraConfigs = [], bands = [] } = {}) {
+function fixture({ history = [year1], config = original, overrides = [], extraConfigs = [],
+  bands = [], discountRules = [], preferenceValues = [], goLiveValue = '2026-09-18', failTable = null } = {}) {
   const tables = {
     organization: [{ id: 'org', tenant_id: 'tenant', name: 'Isolated organisation' }],
     membership_tier_config: [config, ...extraConfigs],
     membership_tier_band: bands,
+    membership_tier_discount: discountRules,
     organisation_membership_history: history,
     organisation_membership_override: overrides,
     preference_field: [{ id: 'go-live', tenant_id: 'tenant', name: 'go_live', entity_scope: 'organization', is_active: true }],
-    organization_preference_value: [{ organization_id: 'org', field_id: 'go-live', value: '2026-09-18' }],
+    organization_preference_value: [
+      ...(goLiveValue == null ? [] : [{ organization_id: 'org', field_id: 'go-live', value: goLiveValue }]),
+      ...preferenceValues,
+    ],
   };
   const reads = [];
   const db = { from(table) {
     reads.push(table);
     const filters = [];
     let single = false;
+    let fieldListRead = false;
     const q = {
       select() { return q; }, eq(key, value) { filters.push(row => row[key] === value); return q; },
-      or() { return q; }, order() { return q; }, limit() { return q; },
+      in(key, values) { fieldListRead = true; filters.push(row => values.includes(row[key])); return q; },
+      or(expression) {
+        const year = expression.match(/^membership_year\.eq\.([^,]+),membership_year\.is\.null$/)?.[1];
+        if (year) filters.push(row => row.membership_year === year || row.membership_year == null);
+        const from = expression.match(/^effective_from\.is\.null,effective_from\.lte\.(.+)$/)?.[1];
+        if (from) filters.push(row => !row.effective_from || row.effective_from <= from);
+        const to = expression.match(/^effective_to\.is\.null,effective_to\.gte\.(.+)$/)?.[1];
+        if (to) filters.push(row => !row.effective_to || row.effective_to >= to);
+        return q;
+      }, order() { return q; }, limit() { return q; },
       maybeSingle() { single = true; return q; }, single() { single = true; return q; },
       then(resolve, reject) {
         const rows = (tables[table] || []).filter(row => filters.every(f => f(row)));
-        return Promise.resolve({ data: single ? rows[0] || null : rows, error: null }).then(resolve, reject);
+        return Promise.resolve({ data: single ? rows[0] || null : rows,
+          error: table === failTable || (failTable === 'discount_fields'
+            && table === 'organization_preference_value' && fieldListRead)
+            ? { message: `${table} unavailable` } : null }).then(resolve, reject);
       },
       insert() { assert.fail('writes forbidden'); }, update() { assert.fail('writes forbidden'); },
       upsert() { assert.fail('writes forbidden'); }, delete() { assert.fail('writes forbidden'); },
@@ -234,4 +252,186 @@ test('Year 1 structure override freezes effective incentive policy for Year 2 de
   assert.equal(second.incentiveRollover.originalEntitlement, 550.04);
   assert.equal(second.rolloverDiscount, 72.33);
   assert.equal(second.finalCost, 3927.67);
+});
+
+test('tab estimates Year 2 from internally simulated Year 1 and marks it non-purchasable', async () => {
+  const result = await simulate({ history: [] }, { source: 'tab', configId: null, asOfDate: '2027-08-01' });
+  assert.equal(result.success, true, result.error);
+  assert.equal(result.previewOnly, true);
+  assert.equal(result.membershipYear.label, '2027/2028');
+  assert.equal(result.incentiveRollover.source, 'prospective_year1_projection');
+  assert.equal(result.incentiveRollover.originalEntitlement, 550.04);
+  assert.equal(result.incentiveRollover.usedInYear1, 477.71);
+  assert.equal(result.rolloverDiscount, 72.33);
+  assert.equal(result.finalCost, 1761.14);
+  assert.deepEqual(membershipIncentiveSnapshot(result), {});
+});
+
+test('only genuinely current, unpurchased Year 1 qualifies, never a financial quote', async () => {
+  const tab = { source: 'tab', configId: null, asOfDate: '2027-08-01' };
+  for (const [fixtureOptions, options, now] of [
+    [{ history: [year1] }, tab, '2026-09-24'],
+    [{ history: [{ ...year1, status: 'cancelled' }] }, tab, '2026-09-24'],
+    [{ history: [] }, tab, '2027-08-01'],
+    [{ history: [] }, { ...tab, source: 'member-portal' }, '2026-09-24'],
+    [{ history: [] }, { ...tab, configId: original.id }, '2026-09-24'],
+  ]) {
+    const result = await simulate(fixtureOptions, options, now);
+    assert.notEqual(result.previewOnly, true);
+    assert.notEqual(result.incentiveRollover?.source, 'prospective_year1_projection');
+  }
+});
+
+test('year-scoped Year 1 price override and Year 2 price override have distinct prospective effects', async () => {
+  const base = { tenant_id: 'tenant', organization_id: 'org', override_type: 'price' };
+  const tab = { source: 'tab', configId: null };
+  const joining = await simulate({ history: [], overrides: [{ ...base, membership_year: '2026/2027', manual_price: 1 }] }, tab);
+  assert.equal(joining.success, true, joining.error);
+  assert.equal(joining.previewOnly, true);
+  assert.equal(joining.incentiveRollover.source, 'prospective_year1_projection');
+  assert.equal(joining.rolloverDiscount, 0, 'joining price override suppresses original incentive');
+  const renewal = await simulate({ history: [], overrides: [{ ...base, membership_year: '2027/2028', manual_price: 1 }] }, tab);
+  assert.equal(renewal.success, true, renewal.error);
+  assert.equal(renewal.previewOnly, true);
+  assert.equal(renewal.finalCost, 1);
+  assert.equal(renewal.rolloverDiscount, 0);
+  assert.equal(renewal.incentiveRollover.source, 'prospective_year1_projection');
+  assert.equal(renewal.incentiveRollover.remainingEntitlement, 72.33);
+});
+
+test('tab projection values original days at Year 1 rates and does not transfer currency', async () => {
+  const dayConfig = { ...original, flat_cost: 3650, free_period_amount: 365, free_period_unit: 'days' };
+  const day = await simulate({ history: [], config: dayConfig }, { source: 'tab', configId: null });
+  assert.equal(day.success, true, day.error);
+  assert.equal(day.previewOnly, true);
+  assert.equal(day.rolloverDiscount, 480);
+
+  const changedCurrency = await simulate({ history: [], config: { ...original, currency: 'EUR' } },
+    { source: 'tab', configId: null });
+  assert.equal(changedCurrency.success, true, changedCurrency.error);
+  assert.equal(changedCurrency.previewOnly, true);
+});
+
+test('future pricing config does not move the original Year 2 window or revalue incentive', async () => {
+  const joining = { ...original, effective_from: '2026-01-01' };
+  const renewal = { ...joining, id: 'renewal', flat_cost: 4000,
+    membership_start_month: 10, free_period_amount: 90, effective_from: '2027-08-01' };
+  const result = await simulate({ history: [], config: renewal, extraConfigs: [joining] },
+    { source: 'tab', configId: null, asOfDate: '2027-08-01' });
+  assert.equal(result.success, true, result.error);
+  assert.equal(result.previewOnly, true);
+  assert.equal(result.membershipYear.start.toISOString().slice(0, 10), '2027-08-01');
+  assert.equal(result.config.id, 'renewal');
+  assert.equal(result.incentiveRollover.originalConfigId, 'original');
+  assert.equal(result.rolloverDiscount, 72.33);
+  assert.equal(result.finalCost, 3927.67);
+  const currencyMismatch = await simulate({ history: [], config: { ...renewal, currency: 'EUR' }, extraConfigs: [joining] },
+    { source: 'tab', configId: null, asOfDate: '2027-08-01' });
+  assert.equal(currencyMismatch.success, false);
+  assert.equal(currencyMismatch.code, 'new_member_incentive_review_required');
+});
+
+test('missing pricing evidence and failed Year 1 override reads never create a prospective price', async () => {
+  const options = { source: 'tab', configId: null };
+  const banded = await simulate({ history: [], config: { ...original, pricing_model: 'banded' } }, options);
+  assert.equal(banded.success, false);
+  assert.ok(banded.error);
+  const failedHistory = await simulate({ history: [], failTable: 'organisation_membership_history' }, options);
+  assert.equal(failedHistory.success, false);
+  assert.ok(failedHistory.error);
+  const failedOverrides = await simulate({ history: [], failTable: 'organisation_membership_override' }, options);
+  assert.equal(failedOverrides.success, false);
+  assert.equal(failedOverrides.code, 'new_member_incentive_review_required');
+});
+
+test('prospective banded pricing and a joining discount use the calculated net joining price', async () => {
+  const config = { ...original, pricing_model: 'banded', field_id: 'size',
+    flat_cost: null, updated_at: '2026-10-01T00:00:00Z' };
+  const result = await simulate({
+    history: [], config,
+    bands: [{ id: 'small', tenant_id: 'tenant', config_id: config.id,
+      label: 'Small', min_value: 0, max_value: 100, annual_cost: 1000 }],
+    discountRules: [{ id: 'rule', tenant_id: 'tenant', config_id: config.id, field_id: 'category',
+      match_value: 'eligible', discount_type: 'fixed', discount_value: 100 }],
+    preferenceValues: [
+      { organization_id: 'org', field_id: 'size', value: '12' },
+      { organization_id: 'org', field_id: 'category', value: 'eligible' },
+    ],
+  }, { source: 'tab', configId: null });
+  assert.equal(result.success, true, result.error);
+  assert.equal(result.previewOnly, true);
+  assert.equal(result.annualCost, 900);
+  assert.equal(result.incentiveRollover.originalEntitlement, 270);
+  assert.equal(result.incentiveRollover.usedInYear1, 234.49);
+  assert.equal(result.rolloverDiscount, 35.51);
+  assert.equal(result.finalCost, 864.49);
+});
+
+test('edited or missing historical timestamps do not prevent clearly marked prospective estimates', async () => {
+  for (const updated_at of ['2027-01-01T00:00:00Z', null]) {
+    const result = await simulate({ history: [], config: { ...original, updated_at } },
+      { source: 'tab', configId: null });
+    assert.equal(result.success, true, result.error);
+    assert.equal(result.incentiveRollover.source, 'prospective_year1_projection');
+    const financial = await simulate({ history: [], config: { ...original, updated_at } });
+    assert.equal(financial.success, false);
+    assert.equal(financial.code, 'new_member_incentive_review_required');
+  }
+});
+
+test('prospective days, weeks, months carry only unused joining days at original daily rate', async () => {
+  for (const [unit, amount, days] of [
+    ['days', 365, 48], ['weeks', 52, 49], ['months', 12, 48],
+  ]) {
+    const result = await simulate({
+      history: [], config: { ...original, flat_cost: 3650, free_period_unit: unit,
+        free_period_amount: amount, updated_at: null },
+    }, { source: 'tab', configId: null });
+    assert.equal(result.success, true, `${unit}: ${result.error}`);
+    assert.equal(result.incentiveRollover.remainingEntitlement, days);
+    assert.equal(result.freePeriodDaysApplied, days);
+    assert.equal(result.rolloverDiscount, days * 10);
+    assert.equal(result.finalCost, 3650 - days * 10);
+  }
+});
+
+test('discount rule and discount-field read failures do not silently remove joining discounts', async () => {
+  const config = { ...original, updated_at: null };
+  for (const [failTable, message] of [
+    ['membership_tier_discount', /discount rules/], ['discount_fields', /discount fields/],
+  ]) {
+    await assert.rejects(simulate({
+      history: [], config, failTable,
+      discountRules: [{ id: 'rule', tenant_id: 'tenant', config_id: config.id,
+        field_id: 'category', match_value: 'eligible', discount_type: 'fixed', discount_value: 100 }],
+      preferenceValues: [{ organization_id: 'org', field_id: 'category', value: 'eligible' }],
+    }, { source: 'tab', configId: null }), message);
+  }
+});
+
+test('expired joining schedule without a future successor does not reuse old fees', async () => {
+  const result = await simulate({
+    history: [], config: { ...original, effective_from: '2026-01-01', effective_to: '2027-07-31' },
+  }, { source: 'tab', configId: null });
+  assert.equal(result.success, false);
+  assert.equal(result.code, 'membership_preview_unavailable');
+});
+
+test('unknown joining date is not represented as evidence of a purchased or prospective second year', async () => {
+  const result = await simulate({ history: [], goLiveValue: null, config: { ...original, updated_at: null } },
+    { source: 'tab', configId: null });
+  assert.equal(result.previewOnly, undefined);
+  assert.notEqual(result.incentiveRollover?.source, 'prospective_year1_projection');
+});
+
+test('band or discount-value read failures cannot silently underprice a prospective estimate', async () => {
+  const bandedConfig = { ...original, pricing_model: 'banded', field_id: 'size' };
+  const bands = [{ id: 'band', config_id: bandedConfig.id, tenant_id: 'tenant',
+    label: 'Small', min_value: 0, max_value: 100, annual_cost: 1000 }];
+  for (const failTable of ['membership_tier_band', 'organization_preference_value']) {
+    await assert.rejects(simulate({
+      history: [], config: bandedConfig, bands, failTable,
+      preferenceValues: [{ organization_id: 'org', field_id: 'size', value: '12' }],
+    }, { source: 'tab', configId: null }), /Could not load|unavailable/);
+  }
 });

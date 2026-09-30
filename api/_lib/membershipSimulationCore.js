@@ -3,6 +3,7 @@ import { createVatOverrideHelper } from './vatOverrideHelperCore.js';
 import { createMembershipConfigResolver } from './membershipConfigResolverCore.js';
 import { resolveInvoiceAddress } from './invoiceAddressResolver.js';
 import { matchBand } from './tierBandMatcher.js';
+import { matchesSelections } from './selectionMatcher.js';
 import { calculateMembershipYearWindow, calculateNextMembershipYearWindow, rollingMembershipWindow } from './membershipYear.js';
 
 // A saved usage amount is not evidence of the rate/entitlement that produced it.
@@ -13,8 +14,6 @@ export function calculateOriginalIncentiveRollover({ history = null, originalCon
     error.code = 'new_member_incentive_review_required';
     throw error;
   };
-  const money = value => Math.round((value + Number.EPSILON) * 100) / 100;
-  const validNumber = value => value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value)) && Number(value) >= 0;
   const snapshotConfig = history?.commitment_snapshot?.config;
   const original = snapshotConfig || originalConfig;
   if (!original) review('the original joining configuration is unavailable.');
@@ -29,23 +28,64 @@ export function calculateOriginalIncentiveRollover({ history = null, originalCon
       review('no snapshot or demonstrably unchanged, history-linked joining configuration is available.');
     }
   }
-  const result = {
-    source: snapshotConfig ? 'commitment_snapshot' : history ? 'unchanged_history_config' : 'unchanged_joining_config',
-    originalConfigId: original.id || history?.config_id || null,
-    year1HistoryId: history?.id || null,
+  const originalAnnual = history?.annual_cost ?? history?.commitment_snapshot?.amounts?.annual_cost ?? projectedAnnualCost;
+  const usedDiscount = history ? history.free_period_discount : projectedDiscount;
+  if (!original.rollover_enabled || !original.free_period_amount || !original.free_period_unit) {
+    return calculateIncentiveRolloverAmounts({
+      original, goLiveDate, annualCost, originalAnnual, usedDiscount, usedDays: 0,
+      source: snapshotConfig ? 'commitment_snapshot' : history ? 'unchanged_history_config' : 'unchanged_joining_config',
+      year1HistoryId: history?.id || null, originalConfigId: original.id || history?.config_id || null, review,
+    });
+  }
+  const validNumber = value => value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value)) && Number(value) >= 0;
+  if (!validNumber(original.free_period_amount)) review('the original incentive amount is invalid.');
+  if (!validNumber(originalAnnual) || !validNumber(usedDiscount)) review('original net annual price and Year 1 incentive usage must both be recorded.');
+  if (history?.override_type === 'price') return {
+    source: snapshotConfig ? 'commitment_snapshot' : 'unchanged_history_config',
+    originalConfigId: original.id || history.config_id || null, year1HistoryId: history.id || null,
     unit: original.free_period_unit || null,
     originalEntitlement: 0, usedInYear1: 0, remainingEntitlement: 0,
-    appliedDiscount: 0, appliedDays: 0,
-    eligible: false,
+    appliedDiscount: 0, appliedDays: 0, eligible: false,
+  };
+  if (history?.override_applied && !history.override_type) review('the original override type is missing.');
+  if (history?.override_type === 'structure' && !snapshotConfig) review('the original structure override requires a saved configuration snapshot.');
+  return calculateIncentiveRolloverAmounts({
+    original, goLiveDate, annualCost, originalAnnual, usedDiscount,
+    usedDays: history ? history.free_period_days_applied : projectedDays,
+    source: snapshotConfig ? 'commitment_snapshot' : history ? 'unchanged_history_config' : 'unchanged_joining_config',
+    year1HistoryId: history?.id || null,
+    originalConfigId: original.id || history?.config_id || null,
+    review,
+  });
+}
+
+// Prospective quotes have no historical promise to prove: their joining
+// schedule and usage come from an internally calculated current Year 1.
+// This must never be substituted for the historical helper above in billing.
+function calculateProspectiveIncentiveRollover({ projection, goLiveDate, annualCost }) {
+  const review = message => {
+    throw new Error(`Prospective Year 1 requires review: ${message}`);
+  };
+  return calculateIncentiveRolloverAmounts({
+    original: projection.incentiveConfig, goLiveDate, annualCost,
+    originalAnnual: projection.annualCost, usedDiscount: projection.freeDiscount,
+    usedDays: projection.freePeriodDaysApplied, source: 'prospective_year1_projection',
+    year1HistoryId: null, review,
+  });
+}
+
+function calculateIncentiveRolloverAmounts({ original, goLiveDate, annualCost, originalAnnual, usedDiscount, usedDays, source, year1HistoryId, originalConfigId = original.id || null, review }) {
+  const money = value => Math.round((value + Number.EPSILON) * 100) / 100;
+  const validNumber = value => value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value)) && Number(value) >= 0;
+  const result = {
+    source, originalConfigId, year1HistoryId,
+    unit: original.free_period_unit || null,
+    originalEntitlement: 0, usedInYear1: 0, remainingEntitlement: 0,
+    appliedDiscount: 0, appliedDays: 0, eligible: false,
   };
   if (!original.rollover_enabled || !original.free_period_amount || !original.free_period_unit) return result;
   if (!validNumber(original.free_period_amount)) review('the original incentive amount is invalid.');
-  const originalAnnual = history?.annual_cost ?? history?.commitment_snapshot?.amounts?.annual_cost ?? projectedAnnualCost;
-  const usedDiscount = history ? history.free_period_discount : projectedDiscount;
   if (!validNumber(originalAnnual) || !validNumber(usedDiscount)) review('original net annual price and Year 1 incentive usage must both be recorded.');
-  if (history?.override_type === 'price') return result;
-  if (history?.override_applied && !history.override_type) review('the original override type is missing.');
-  if (history?.override_type === 'structure' && !snapshotConfig) review('the original structure override requires a saved configuration snapshot.');
   if (original.free_period_unit === 'percent') {
     result.originalEntitlement = money(Number(originalAnnual) * Number(original.free_period_amount) / 100);
     result.usedInYear1 = Number(usedDiscount);
@@ -56,7 +96,6 @@ export function calculateOriginalIncentiveRollover({ history = null, originalCon
     const totalDays = original.free_period_unit === 'days' ? Math.round(amount)
       : original.free_period_unit === 'weeks' ? Math.round(amount / 4.33 * 30.44)
       : original.free_period_unit === 'months' ? Math.round(amount * 30.44) : null;
-    const usedDays = history ? history.free_period_days_applied : projectedDays;
     if (totalDays === null || !validNumber(usedDays)) review('original free-day entitlement and Year 1 day usage must both be recorded.');
     const join = new Date(`${String(goLiveDate).slice(0, 10)}T00:00:00.000Z`);
     if (!Number.isFinite(join.getTime())) review('the original joining date is unavailable.');
@@ -164,6 +203,9 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
     configId: explicitConfigId = null,
     asOfDate = null,
   } = options;
+  // Only the organisation tab may estimate a not-yet-purchased second year.
+  // Internal Year 1 calls are calculator-owned, never supplied by an API caller.
+  const prospectiveYear1 = options._prospectiveYear1 === true && source === 'workflow';
 
   const steps = [];
   const log = (step, detail, status = 'ok') => {
@@ -206,7 +248,12 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
 
   let config = explicitConfigId
     ? await getConfigByIdDirect(tenantId, explicitConfigId)
-    : await getConfigForOrganisation(tenantId, organizationId, fieldOverrides, asOfDate);
+    : await getConfigForOrganisation(tenantId, organizationId, fieldOverrides,
+      source === 'tab' ? clock().toISOString().slice(0, 10) : asOfDate,
+      { strict: source === 'tab' || prospectiveYear1 });
+  const actualCurrentConfig = source === 'tab' && !explicitConfigId
+    ? await getConfigForOrganisation(tenantId, organizationId, {}, clock().toISOString().slice(0, 10), { strict: true })
+    : config;
   let rollingContext;
   try {
     rollingContext = await resolveRollingSimulationContext(supabase, { tenantId, organizationId, config, options });
@@ -235,9 +282,11 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
   let configResolutionDate = asOfDate || null;
   let fixedTargetWindow;
   if (!rollingContext) {
-    const referenceDate = asOfDate ? new Date(`${asOfDate}T00:00:00.000Z`) : clock();
-    const bootstrapCurrentYear = calculateMembershipYearWindow(config, referenceDate);
-    const bootstrapNextYear = calculateNextMembershipYearWindow(config, referenceDate);
+    const referenceDate = source === 'tab' ? clock()
+      : asOfDate ? new Date(`${asOfDate}T00:00:00.000Z`) : clock();
+    const scheduleConfig = source === 'tab' ? actualCurrentConfig || config : config;
+    const bootstrapCurrentYear = calculateMembershipYearWindow(scheduleConfig, referenceDate);
+    const bootstrapNextYear = calculateNextMembershipYearWindow(scheduleConfig, referenceDate);
     let targetWindow;
     if (targetYear != null) {
       targetWindow = [bootstrapCurrentYear, bootstrapNextYear].find(window => window.label === targetYear);
@@ -251,7 +300,11 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
     if (!explicitConfigId && targetWindow.label === bootstrapNextYear.label) {
       const targetStartDate = targetWindow.start.toISOString().split('T')[0];
       configResolutionDate = targetStartDate;
-      const reResolved = await getConfigForOrganisation(tenantId, organizationId, fieldOverrides, targetStartDate);
+      const reResolved = await getConfigForOrganisation(tenantId, organizationId, fieldOverrides, targetStartDate, { strict: source === 'tab' || prospectiveYear1 });
+      if (!reResolved && source === 'tab') {
+        return { success: false, steps, code: 'membership_preview_unavailable',
+          error: `No eligible membership structure exists at the start of ${targetWindow.label}.` };
+      }
       if (reResolved) config = reResolved;
     }
   }
@@ -291,8 +344,10 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
     log('Config Resolution', 'Using default (unscoped) tier configuration — no structure scope defined');
   }
 
-  const currentYear = calculateMembershipYearWindow(config, asOfDate ? new Date(`${asOfDate}T00:00:00.000Z`) : clock());
-  const nextYear = calculateNextMembershipYearWindow(config, asOfDate ? new Date(`${asOfDate}T00:00:00.000Z`) : clock());
+  const yearReference = source === 'tab' ? clock() : asOfDate ? new Date(`${asOfDate}T00:00:00.000Z`) : clock();
+  const yearSchedule = source === 'tab' ? actualCurrentConfig || config : config;
+  const currentYear = calculateMembershipYearWindow(yearSchedule, yearReference);
+  const nextYear = calculateNextMembershipYearWindow(yearSchedule, yearReference);
   log('Calculate Membership Year', `Current year: ${currentYear.label}, Next year: ${nextYear.label}`);
 
   let membershipYear;
@@ -306,8 +361,17 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
   const goLiveFieldId = await getGoLiveFieldId(tenantId);
   const goLiveDate = goLiveFieldId ? await getOrgGoLiveDate(organizationId, goLiveFieldId) : null;
   const assumedGoLiveDate = goLiveDate || clock().toISOString().split('T')[0];
-  const yearNumber = rollingContext ? (rollingContext.previousTerm ? (Number(rollingContext.previousTerm.year_number) || 1) + 1 : 1) : determineMembershipYearNumber(assumedGoLiveDate, membershipYear, config);
-  const currentYearNumber = determineMembershipYearNumber(assumedGoLiveDate, currentYear, config);
+  const yearNumber = rollingContext ? (rollingContext.previousTerm ? (Number(rollingContext.previousTerm.year_number) || 1) + 1 : 1) : determineMembershipYearNumber(assumedGoLiveDate, membershipYear, yearSchedule);
+  const currentYearNumber = determineMembershipYearNumber(assumedGoLiveDate, currentYear, yearSchedule);
+  const actualCurrentYear = actualCurrentConfig && !rollingContext
+    ? calculateMembershipYearWindow(actualCurrentConfig, clock()) : null;
+  const genuinelyInYearOne = !!(goLiveDate && actualCurrentYear
+    && clock().toISOString().slice(0, 10) >= goLiveDate
+    && determineMembershipYearNumber(goLiveDate, actualCurrentYear, actualCurrentConfig) === 1
+    && membershipYear.label === calculateNextMembershipYearWindow(actualCurrentConfig, clock()).label
+    && clock() >= actualCurrentYear.start && clock() <= actualCurrentYear.end);
+  const strictProspectiveInputs = prospectiveYear1 || (source === 'tab' && !explicitConfigId
+    && !rollingContext && yearNumber === 2 && genuinelyInYearOne);
 
   if (goLiveDate) {
     let yearDesc;
@@ -362,10 +426,10 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
     tierLabel = 'Flat Rate';
     log('Pricing Model', `Flat rate pricing: ${annualCostRaw}`);
   } else {
-    const bands = await getBandsForConfig(config.id, tenantId);
+    const bands = await getBandsForConfig(config.id, tenantId, strictProspectiveInputs);
     log('Fetch Tier Bands', `Found ${bands.length} band(s)`);
 
-    fieldValue = await getOrgFieldValue(organizationId, tenantId, config, fieldOverrides);
+    fieldValue = await getOrgFieldValue(organizationId, tenantId, config, fieldOverrides, strictProspectiveInputs);
     const fieldLabel = await resolveBasisFieldLabel(config, tenantId);
     log('Get Organisation Field Value', `${fieldLabel}: ${fieldValue !== null ? fieldValue : 'N/A'}`);
 
@@ -382,7 +446,9 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
     usedBandId = matchedBand.id;
   }
 
-  const discountResult = await evaluateDiscountsForOrg(config.id, tenantId, organizationId, fieldOverrides);
+  const discountResult = strictProspectiveInputs
+    ? await getStrictProspectiveDiscounts(config.id, tenantId, organizationId)
+    : await evaluateDiscountsForOrg(config.id, tenantId, organizationId, fieldOverrides);
   if (discountResult.discountDetails.length > 0) {
     const applied = applyDiscountsToAnnualCost(annualCost, discountResult.discountDetails);
     customDiscountTotal = applied.totalDiscount;
@@ -407,11 +473,16 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
     if (yearLabel) {
       overrideQuery = overrideQuery.or(`membership_year.eq.${yearLabel},membership_year.is.null`);
     }
-    const { data: overrideRows } = await overrideQuery;
+    const { data: overrideRows, error: overrideError } = await overrideQuery;
+    if (overrideError && (source === 'tab' || prospectiveYear1)) throw overrideError;
     if (overrideRows && overrideRows.length > 0) {
       override = overrideRows.find(o => o.membership_year === yearLabel) || overrideRows.find(o => !o.membership_year) || overrideRows[0];
     }
-  } catch {}
+  } catch (error) {
+    if (source === 'tab' || prospectiveYear1) {
+      return { success: false, steps, code: 'new_member_incentive_review_required', error: `Could not load membership overrides: ${error.message}` };
+    }
+  }
 
   if (override) {
     overrideApplied = true;
@@ -441,8 +512,9 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
     } else if (override.override_type === 'structure' && override.config_id) {
       if (rollingContext && override.config_id !== config.id) throw new Error('A rolling structure override must be resolved as an eligible structure before a new commitment is quoted.');
       const overrideConfig = await getConfigById(override.config_id, tenantId);
+      if (strictProspectiveInputs && !overrideConfig) throw new Error('The overridden membership structure cannot be verified.');
       if (overrideConfig) {
-        const overrideBands = await getBandsForConfig(overrideConfig.id, tenantId);
+        const overrideBands = await getBandsForConfig(overrideConfig.id, tenantId, strictProspectiveInputs);
         const overrideBand = override.band_id
           ? overrideBands.find(b => b.id === override.band_id)
           : matchBand(fieldValue, overrideBands);
@@ -456,7 +528,9 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
           usedConfigId = overrideConfig.id;
           usedBandId = overrideBand.id;
 
-          const overrideDiscountResult = await evaluateDiscountsForOrg(overrideConfig.id, tenantId, organizationId, fieldOverrides);
+          const overrideDiscountResult = strictProspectiveInputs
+            ? await getStrictProspectiveDiscounts(overrideConfig.id, tenantId, organizationId)
+            : await evaluateDiscountsForOrg(overrideConfig.id, tenantId, organizationId, fieldOverrides);
           if (overrideDiscountResult.discountDetails.length > 0) {
             const overrideApplied2 = applyDiscountsToAnnualCost(annualCost, overrideDiscountResult.discountDetails);
             customDiscountTotal = overrideApplied2.totalDiscount;
@@ -468,6 +542,7 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
           }
           log('Apply Override', `Structure override: config "${overrideConfig.name || overrideConfig.id}", band "${overrideBand.label}", cost: ${annualCost.toFixed(2)} (note: ${override.note || 'none'})`);
         } else {
+          if (strictProspectiveInputs) throw new Error('The overridden membership band cannot be verified.');
           log('Apply Override', 'Structure override set but no matching band found', 'warning');
           overrideApplied = false;
         }
@@ -485,6 +560,11 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
     .eq('tenant_id', tenantId)
     .eq('organization_id', organizationId);
   if (historyError) return { success: false, steps, code: 'new_member_incentive_review_required', error: `Could not load original incentive usage: ${historyError.message}` };
+  const prospectiveYear2 = source === 'tab' && !explicitConfigId && !existingRecord
+    && !Object.keys(fieldOverrides).length && !rollingContext
+    && config.billing_period === 'annual' && actualCurrentConfig?.billing_period === 'annual'
+    && yearNumber === 2 && genuinelyInYearOne
+    && Array.isArray(historyRecords) && historyRecords.length === 0;
 
   const hasCurrentYearRecord = (historyRecords || []).some(h => h.membership_year === currentYear.label);
   const isNewOrg = rollingContext ? !rollingContext.previousTerm : (currentYearNumber === 1 || !goLiveDate) && !hasCurrentYearRecord;
@@ -505,7 +585,7 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
   let proRataEnabled = false;
   let incentiveRollover = null;
 
-  if (isPriceOverride) {
+  if (isPriceOverride && !prospectiveYear2) {
     finalCost = annualCost;
     log('Price Override', `Final cost set to manual price: ${finalCost.toFixed(2)}, all calculation lines suppressed`);
   } else if (yearNumber === 1) {
@@ -573,17 +653,47 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
       const firstYears = activeHistory.filter(row => Number(row.year_number) === 1);
       if (firstYears.length > 1) throw new Error('Multiple Year 1 records prevent identifying original incentive usage.');
       const firstYear = firstYears[0] || null;
+      let prospectiveProjection = null;
+      if (prospectiveYear2) {
+        // Check the actual joining date, not a future asOfDate. A missing or
+        // unreadable preference must not manufacture a new membership.
+        const { data: liveField, error: fieldError } = await supabase.from('preference_field')
+          .select('id').eq('tenant_id', tenantId).eq('entity_scope', 'organization')
+          .eq('is_active', true).eq('name', 'go_live').maybeSingle();
+        if (fieldError || !liveField?.id || liveField.id !== goLiveFieldId) {
+          throw new Error('Original joining date could not be verified.');
+        }
+        const { data: liveDate, error: dateError } = await supabase.from('organization_preference_value')
+          .select('value').eq('organization_id', organizationId).eq('field_id', liveField.id).maybeSingle();
+        if (dateError || String(liveDate?.value || '').split('T')[0] !== goLiveDate) {
+          throw new Error('Original joining date could not be verified.');
+        }
+        prospectiveProjection = await simulateMembershipForOrg(tenantId, organizationId, {
+          source: 'workflow', targetYear: actualCurrentYear.label,
+          asOfDate: clock().toISOString().slice(0, 10), _prospectiveYear1: true,
+        });
+        if (!prospectiveProjection.success || prospectiveProjection.yearNumber !== 1
+            || prospectiveProjection.membershipYear?.label !== actualCurrentYear.label
+            || prospectiveProjection.existingRecord || prospectiveProjection.config?.start_mode === 'immediate'
+            || prospectiveProjection.config?.billing_period !== 'annual'
+            || !['flat', 'banded'].includes(prospectiveProjection.incentiveConfig?.pricing_model)
+            || !Number.isFinite(Number(prospectiveProjection.annualCost))
+            || !Number.isFinite(Number(prospectiveProjection.freeDiscount))
+            || !Number.isFinite(Number(prospectiveProjection.freePeriodDaysApplied))) {
+          throw new Error('Prospective Year 1 could not be calculated safely.');
+        }
+      }
       if (!firstYear && activeHistory.some(row => row.membership_year !== membershipYear.label)) {
         throw new Error('Historical records do not identify original Year 1 incentive usage.');
       }
-      const originalConfig = firstYear?.commitment_snapshot?.config || (firstYear?.config_id
+      const originalConfig = prospectiveProjection?.incentiveConfig || firstYear?.commitment_snapshot?.config || (firstYear?.config_id
         ? await getConfigById(firstYear.config_id, tenantId)
         : await getConfigForOrganisation(tenantId, organizationId, {}, goLiveDate));
-      if (originalConfig && (firstYear?.currency || originalConfig.currency || 'GBP') !== (config.currency || 'GBP')) {
+      if (originalConfig && (prospectiveProjection?.currency || firstYear?.currency || originalConfig.currency || 'GBP') !== (config.currency || 'GBP')) {
         throw new Error('Original incentive and renewal currencies differ; conversion requires review.');
       }
       let projection = null;
-      if (!firstYear) {
+      if (!firstYear && !prospectiveYear2) {
         // Check provenance before quoting: a historical date alone does not make a
         // mutable schedule (or today's organisation fields/bands) historical evidence.
         if (!originalConfig || originalConfig.pricing_model !== 'flat') {
@@ -603,11 +713,30 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
           throw new Error('Original Year 1 incentive could not be reconstructed safely.');
         }
       }
-      incentiveRollover = calculateOriginalIncentiveRollover({
-        history: firstYear, originalConfig, goLiveDate, annualCost,
-        projectedAnnualCost: projection?.annualCost, projectedDiscount: projection?.freeDiscount,
-        projectedDays: projection?.freePeriodDaysApplied,
-      });
+      incentiveRollover = prospectiveYear2
+        ? calculateProspectiveIncentiveRollover({ projection: prospectiveProjection, goLiveDate, annualCost })
+        : calculateOriginalIncentiveRollover({
+          history: firstYear, originalConfig, goLiveDate, annualCost,
+          projectedAnnualCost: projection?.annualCost,
+          projectedDiscount: projection?.freeDiscount,
+          projectedDays: projection?.freePeriodDaysApplied,
+        });
+      if (prospectiveYear2) {
+        if (prospectiveProjection.overrideType === 'price') {
+          // A joining price override replaces the entire Year 1 incentive;
+          // it cannot leave a credit to carry into the next year.
+          incentiveRollover.originalEntitlement = 0;
+          incentiveRollover.usedInYear1 = 0;
+          incentiveRollover.remainingEntitlement = 0;
+          incentiveRollover.eligible = false;
+          incentiveRollover.appliedDiscount = 0;
+          incentiveRollover.appliedDays = 0;
+        }
+        if (isPriceOverride) {
+          incentiveRollover.appliedDiscount = 0;
+          incentiveRollover.appliedDays = 0;
+        }
+      }
       freeDiscount = incentiveRollover.appliedDiscount;
       freePeriodDaysApplied = incentiveRollover.appliedDays;
       finalCost = parseFloat(Math.max(0, annualCost - freeDiscount).toFixed(2));
@@ -800,6 +929,7 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
 
   return {
     success: true,
+    ...(prospectiveYear2 ? { previewOnly: true } : {}),
     org,
     config,
     incentiveConfig,
@@ -869,15 +999,38 @@ async function getConfigById(configId, tenantId) {
   return data;
 }
 
-async function getBandsForConfig(configId, tenantId) {
-  const { data } = await supabase
+async function getBandsForConfig(configId, tenantId, strict = false) {
+  const { data, error } = await supabase
     .from('membership_tier_band')
     .select('*')
     .eq('config_id', configId)
     .eq('tenant_id', tenantId)
     .order('display_order', { ascending: true, nullsFirst: false })
     .order('min_value', { ascending: true, nullsFirst: false });
+  if (strict && (error || !Array.isArray(data))) throw new Error(`Could not load membership tier bands: ${error?.message || 'no verified result'}`);
   return data || [];
+}
+
+async function getStrictProspectiveDiscounts(configId, tenantId, organizationId) {
+  const { data: rules, error } = await supabase.from('membership_tier_discount')
+    .select('*').eq('config_id', configId).eq('tenant_id', tenantId)
+    .order('sort_order', { ascending: true });
+  if (error || !Array.isArray(rules)) throw new Error(`Could not load membership discount rules: ${error?.message || 'no verified result'}`);
+  if (!rules.length) return { discountDetails: [] };
+  const ids = [...new Set(rules.map(rule => rule.field_id).filter(Boolean))];
+  if (!ids.length) return { discountDetails: [] };
+  const { data: values, error: valuesError } = await supabase.from('organization_preference_value')
+    .select('field_id, value').eq('organization_id', organizationId).in('field_id', ids);
+  if (valuesError || !Array.isArray(values)) throw new Error(`Could not load membership discount fields: ${valuesError?.message || 'no verified result'}`);
+  const valueMap = Object.fromEntries(values.map(value => [value.field_id, value.value]));
+  return { discountDetails: rules.filter(rule =>
+    valueMap[rule.field_id] != null
+    && matchesSelections(valueMap[rule.field_id], rule.match_value, rule.match_condition))
+    .map(rule => ({
+      rule_id: rule.id, field_id: rule.field_id, field_label: rule.field_label || rule.field_id,
+      match_value: rule.match_value, discount_type: rule.discount_type,
+      discount_value: parseFloat(rule.discount_value) || 0, label: rule.label || null,
+    })) };
 }
 
 
@@ -1019,7 +1172,7 @@ async function getOrgGoLiveDate(orgId, goLiveFieldId) {
   }
 }
 
-async function getOrgFieldValue(orgId, tenantId, config, fieldOverrides = {}) {
+async function getOrgFieldValue(orgId, tenantId, config, fieldOverrides = {}, strict = false) {
   if (!config) return null;
 
   if (config.field_source === 'core' && config.field_name === 'member_count') {
@@ -1028,11 +1181,12 @@ async function getOrgFieldValue(orgId, tenantId, config, fieldOverrides = {}) {
       const num = parseFloat(fieldOverrides[coreKey]);
       return isNaN(num) ? null : num;
     }
-    const { data: members } = await supabase
+    const { data: members, error } = await supabase
       .from('member')
       .select('id')
       .eq('tenant_id', tenantId)
       .eq('organization_id', orgId);
+    if (strict && (error || !Array.isArray(members))) throw new Error(`Could not load organisation membership count: ${error?.message || 'no verified result'}`);
     return members?.length || 0;
   }
 
@@ -1041,12 +1195,13 @@ async function getOrgFieldValue(orgId, tenantId, config, fieldOverrides = {}) {
       const v = fieldOverrides[config.field_id];
       return v == null || v === '' ? null : v;
     }
-    const { data: pv } = await supabase
+    const { data: pv, error } = await supabase
       .from('organization_preference_value')
       .select('value')
       .eq('organization_id', orgId)
       .eq('field_id', config.field_id)
       .maybeSingle();
+    if (strict && error) throw new Error(`Could not load organisation membership field: ${error.message}`);
 
     if (pv?.value != null && pv.value !== '') {
       return pv.value;

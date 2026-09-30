@@ -22,6 +22,8 @@ test.beforeAll(async () => {
         <h1>New-member incentive rollover — isolated fixture</h1>
         <section><YearCostSection {...shared} yearLabel="Live Year 2 preview" testIdPrefix="preview" yearData={base}/></section>
         <section><YearCostSection {...shared} yearLabel="Recorded Year 2" testIdPrefix="recorded" currentYearRecorded yearData={{...base, recordedFromHistory:true}}/></section>
+        <section><YearCostSection {...shared} yearLabel="Unrecorded Year 1" testIdPrefix="year-one" showRecordFee={false} yearData={{...base, membershipYear:'2026', yearNumber:1, finalCost:1, totalWithVat:1.2, freeDiscount:0, rolloverDiscount:0}}/></section>
+        <section><YearCostSection {...shared} yearLabel="Prospective Year 2" testIdPrefix="prospective" yearData={{...base, previewOnly:true, incentiveRollover:{...evidence, source:'prospective_year1_projection'}}}/></section>
       </main>);`, resolveDir: process.cwd(), loader: 'jsx' },
     bundle: true, write: false, jsx: 'automatic', alias: { '@': path.resolve('client/src') },
     plugins: [{ name: 'isolated-boundaries', setup(b) {
@@ -50,8 +52,26 @@ test('live and recorded cards show the explicit rollover amount, once, with corr
     await expect(row).toContainText('New Member Discount (rollover from Y1)');
     await expect(row).toContainText('-£300.00');
   }
-  await expect(page.getByText('-£300.00', { exact: true })).toHaveCount(2);
-  await expect(page.getByText('£900.00', { exact: true })).toHaveCount(2);
-  await expect(page.getByText('£1,080.00', { exact: true })).toHaveCount(2);
+  await expect(page.getByText('-£300.00', { exact: true })).toHaveCount(3);
+  await expect(page.getByText('£900.00', { exact: true })).toHaveCount(3);
+  await expect(page.getByText('£1,080.00', { exact: true })).toHaveCount(3);
   await page.screenshot({ path: testInfo.outputPath('live-and-recorded-rollover.png'), fullPage: true });
+});
+
+test('prospective Year 2 is marked as an estimate with no financial actions while Year 1 retains controls', async ({ page }, testInfo) => {
+  await page.route('**/*', route => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/fixture.js') return route.fulfill({ contentType: 'text/javascript', body: script });
+    return route.fulfill({ contentType: 'text/html', body: '<div id="root"></div><script src="/fixture.js"></script>' });
+  });
+  await page.goto('https://task4748.fixture.invalid');
+  const prospective = page.getByTestId('section-prospective');
+  await expect(prospective.getByTestId('prospective-estimate-prospective')).toContainText('not a purchased entitlement');
+  await expect(prospective).toContainText('£900.00');
+  await expect(page.getByTestId('section-year-one')).toContainText('£1.00');
+  await expect(page.getByTestId('button-simulate-year-one')).toBeVisible();
+  for (const action of ['simulate', 'override', 'save-invoicing', 'approve', 'renew-now', 'invoice-now']) {
+    await expect(prospective.getByTestId(`button-${action}-prospective`)).toHaveCount(0);
+  }
+  await page.screenshot({ path: testInfo.outputPath('prospective-year-two.png'), fullPage: true });
 });

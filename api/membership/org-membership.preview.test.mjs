@@ -168,6 +168,42 @@ test('both valid previews have no warnings', async () => {
   assert.equal(res.body.nextYearPreview.totalWithVat, 1080);
 });
 
+test('prospective Year 2 provenance survives endpoint mapping without turning Year 1 into an estimate', async () => {
+  const evidence = { source: 'prospective_year1_projection', appliedDiscount: 72.33 };
+  const res = await get({ simulation: async (_tenant, _org, { targetYear }) =>
+    targetYear === '2027'
+      ? { ...success(targetYear), previewOnly: true, incentiveRollover: evidence }
+      : success(targetYear) });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.currentYearCost.previewOnly, false);
+  assert.equal(res.body.nextYearPreview.previewOnly, true);
+  assert.deepEqual(res.body.nextYearPreview.incentiveRollover, evidence);
+  assert.equal(res.body.nextYearPreview.finalCost, 900);
+});
+
+test('Year 1 price override does not reprice Year 2 or erase its independent override', async () => {
+  const db = readOnlyDb();
+  const originalFrom = db.from;
+  db.from = table => table === 'organisation_membership_override'
+    ? { select() { return this; }, eq() { return this; }, then(resolve) {
+      return Promise.resolve({ data: [
+        { membership_year: '2026', override_type: 'price', manual_price: 1 },
+        { membership_year: '2027', override_type: 'discount', discount_type: 'fixed', discount_value: 50 },
+      ] }).then(resolve);
+    } } : originalFrom(table);
+  const res = await get({
+    db,
+    simulation: async (_tenant, _org, { targetYear }) =>
+      targetYear === '2027' ? { ...success(targetYear), previewOnly: true, annualCost: 950,
+        customDiscountTotal: 50, finalCost: 900, rolloverDiscount: 0 } : success(targetYear),
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.nextYearPreview.finalCost, 900);
+  assert.equal(res.body.nextYearPreview.totalWithVat, 1080);
+  assert.equal(res.body.nextYearPreview.overrideType, 'discount');
+  assert.equal(res.body.nextYearPreview.previewOnly, true);
+});
+
 test('saved current-year history remains intact when next-year simulation fails', async () => {
   const record = {
     id: 'saved', tenant_id: 'tenant', organization_id: 'org', membership_year: '2026',
@@ -370,4 +406,118 @@ test('future scheduled structure with a different start month keeps the next pre
   assert.equal(res.statusCode, 200, JSON.stringify(res.body));
   assert.equal(res.body.fees_approved, true);
   assert.equal(tables.organisation_membership_invoicing[0].membership_year, nextYear.label);
+});
+
+test('real simulator and organisation endpoint show both years before recording, including a Year 1-only price override', async () => {
+  const joining = {
+    ...config, id: 'joining', membership_start_month: 8, membership_start_day: 1,
+    flat_cost: 1833.47, free_period_amount: 30, free_period_unit: 'percent',
+    rollover_enabled: true, prorata_enabled: true, start_mode: 'fixed_date',
+    created_at: '2026-01-01', updated_at: '2026-01-01',
+  };
+  const now = new Date('2026-09-24T00:00:00Z');
+  for (const withPriceOverride of [false, true]) {
+    const writes = [];
+    const rpcCalls = [];
+    const tables = {
+      organization: [{ id: 'org', name: 'Organisation', tenant_id: 'tenant' }],
+      membership_tier_config: [joining],
+      preference_field: [{ id: 'go-live', tenant_id: 'tenant', name: 'go_live', entity_scope: 'organization', is_active: true }],
+      organization_preference_value: [{ organization_id: 'org', field_id: 'go-live', value: '2026-09-18' }],
+      organisation_membership_history: [],
+      organisation_membership_override: withPriceOverride
+        ? [{ tenant_id: 'tenant', organization_id: 'org', membership_year: '2026/2027', override_type: 'price', manual_price: 1 }] : [],
+    };
+    const db = { rpc: async (...args) => { rpcCalls.push(args); return { error: null }; }, from(table) {
+      const filters = [];
+      let single = false;
+      const query = {
+        select() { return query; },
+        eq(column, value) { filters.push(row => row[column] === value); return query; },
+        or(expression) {
+          const year = expression.match(/^membership_year\.eq\.([^,]+),membership_year\.is\.null$/)?.[1];
+          if (year) filters.push(row => row.membership_year === year || row.membership_year == null);
+          const from = expression.match(/^effective_from\.is\.null,effective_from\.lte\.(.+)$/)?.[1];
+          if (from) filters.push(row => !row.effective_from || row.effective_from <= from);
+          const to = expression.match(/^effective_to\.is\.null,effective_to\.gte\.(.+)$/)?.[1];
+          if (to) filters.push(row => !row.effective_to || row.effective_to >= to);
+          return query;
+        },
+        order() { return query; },
+        maybeSingle() { single = true; return query; },
+        then(resolve, reject) {
+          const rows = (tables[table] || []).filter(row => filters.every(filter => filter(row)));
+          return Promise.resolve({ data: single ? rows[0] || null : rows, error: null }).then(resolve, reject);
+        },
+        insert(value) {
+          assert.equal(table, 'organisation_membership_invoicing');
+          writes.push(value);
+          tables[table] = [...(tables[table] || []), value];
+          return Promise.resolve({ error: null });
+        },
+        update: forbidden, upsert: forbidden, delete: forbidden,
+      };
+      return query;
+    } };
+    const simulator = createMembershipSimulator(db, () => now);
+    const res = await get({
+      db, resolveConfig: async () => joining,
+      currentWindow: value => calculateMembershipYearWindow(value, now),
+      nextWindow: value => calculateNextMembershipYearWindow(value, now),
+      simulation: simulator.simulateMembershipForOrg,
+    });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.currentYearCost?.membershipYear, '2026/2027', JSON.stringify(res.body.previewWarnings));
+    assert.equal(res.body.nextYearPreview?.membershipYear, '2027/2028', JSON.stringify(res.body.previewWarnings));
+    assert.equal(res.body.nextYearPreview.previewOnly, true);
+    assert.equal(res.body.nextYearPreview.incentiveRollover.source, 'prospective_year1_projection');
+    if (withPriceOverride) assert.equal(res.body.currentYearCost.finalCost, 1);
+    else assert.ok(res.body.currentYearCost.finalCost > 1);
+    assert.equal(res.body.nextYearPreview.rolloverDiscount, withPriceOverride ? 0 : 72.33);
+    assert.equal(res.body.nextYearPreview.finalCost, withPriceOverride ? 1833.47 : 1761.14);
+    assert.equal(res.body.previewWarnings.nextYear, null);
+
+    const approvalSource = await readFile(new URL('./org-membership-invoicing.js', import.meta.url), 'utf8');
+    const deps = {
+      supabase: db, getTenantContext: async () => ({ tenantId: 'tenant' }),
+      getConfigForOrganisation: async () => joining,
+      calculateNextMembershipYearWindow: value => calculateNextMembershipYearWindow(value, now),
+      simulateMembershipForOrg: simulator.simulateMembershipForOrg,
+    };
+    const body = approvalSource.replace(/import\s+\{([\s\S]*?)\}\s+from\s+['"][^'"]+['"];?/g, (_, names) => {
+      for (const name of names.split(',').map(part => part.trim()).filter(Boolean)) deps[name] ??= forbidden;
+      return '';
+    }).replace('export default async function handler', 'async function handler');
+    const approve = new Function(...Object.keys(deps), `${body}; return handler;`)(...Object.values(deps));
+    const request = { method: 'PATCH', body: { organizationId: 'org', membershipYear: '2027/2028', action: 'approve' } };
+    const response = () => ({ statusCode: 200, status(code) { this.statusCode = code; return this; },
+      json(value) { this.body = value; return this; } });
+    const rejected = response();
+    await approve(request, rejected);
+    assert.equal(rejected.statusCode, 400);
+    assert.equal(rejected.body.code, 'prospective_membership_preview_only');
+    assert.deepEqual(writes, [], 'a projected Year 2 cannot persist approval');
+    assert.deepEqual(rpcCalls, [], 'a projected Year 2 must be rejected before schema writes');
+
+    // A recorded (not necessarily paid) Year 1 carries its joining snapshot
+    // and usage. Requoting Year 2 must now use that evidence, not the projection.
+    tables.organisation_membership_history.push({
+      id: 'year-one', tenant_id: 'tenant', organization_id: 'org',
+      membership_year: '2026/2027', year_number: 1, status: 'active',
+      config_id: joining.id, created_at: '2026-09-18T00:00:00Z',
+      annual_cost: res.body.currentYearCost.annualCost,
+      free_period_discount: res.body.currentYearCost.freeDiscount,
+      free_period_days_applied: res.body.currentYearCost.freePeriodDaysApplied,
+      commitment_snapshot: { config: structuredClone(joining) },
+      currency: 'GBP', override_applied: withPriceOverride,
+      override_type: withPriceOverride ? 'price' : null,
+    });
+    const accepted = response();
+    await approve(request, accepted);
+    assert.equal(accepted.statusCode, 200, JSON.stringify(accepted.body));
+    assert.equal(accepted.body.fees_approved, true);
+    assert.equal(writes.length, 1);
+    assert.equal(rpcCalls.length, 1);
+    assert.equal(writes[0].membership_year, '2027/2028');
+  }
 });

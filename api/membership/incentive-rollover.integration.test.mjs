@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { membershipIncentiveSnapshot } from '../_lib/membershipIncentiveSnapshot.js';
+import { createMembershipSimulator } from '../_lib/membershipSimulationCore.js';
 import { runAnnualOwnerRow } from '../_lib/annualOwnerRenewalPipeline.js';
 
 const failure = {
@@ -11,12 +12,114 @@ const failure = {
 };
 const forbidden = () => { throw new Error('Unexpected database/provider side effect'); };
 
+// A read-only simulator boundary: the actual simulator must not turn a
+// prospective tab estimate into evidence for a renewal/payment writer.
+function simulatorFixture(history = [], overrides = []) {
+  const config = {
+    id: 'joining', tenant_id: 'tenant', name: 'Annual', pricing_model: 'flat',
+    start_mode: 'fixed_date', flat_cost: 1833.47, currency: 'GBP',
+    billing_period: 'annual', membership_start_month: 8, membership_start_day: 1,
+    prorata_enabled: true, free_period_amount: 30, free_period_unit: 'percent',
+    rollover_enabled: true, created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  };
+  const tables = {
+    organization: [{ id: 'org', name: 'Organisation', tenant_id: 'tenant' }],
+    membership_tier_config: [config],
+    organisation_membership_invoicing: [],
+    organisation_membership_history: history,
+    organisation_membership_override: overrides,
+    membership_tier_discount: [],
+    preference_field: [{ id: 'join-field', tenant_id: 'tenant', entity_scope: 'organization', is_active: true, name: 'go_live' }],
+    organization_preference_value: [{ field_id: 'join-field', organization_id: 'org', value: '2026-09-18' }],
+  };
+  const db = { from(table) {
+    const filters = [];
+    let single = false;
+    const query = {
+      select() { return query; },
+      eq(key, value) { filters.push(row => row[key] === value); return query; },
+      or() { return query; },
+      order() { return query; },
+      limit() { return query; },
+      maybeSingle() { single = true; return query; },
+      then(resolve, reject) {
+        const rows = (tables[table] || []).filter(row => filters.every(fn => fn(row)));
+        return Promise.resolve({ data: single ? rows[0] || null : rows, error: null }).then(resolve, reject);
+      },
+      insert: forbidden, update: forbidden, upsert: forbidden, delete: forbidden,
+    };
+    return query;
+  } };
+  return createMembershipSimulator(db, () => new Date('2026-09-24T00:00:00Z'));
+}
+
+test('actual financial simulator does not consume a tab estimate as purchased Year 1 evidence', async () => {
+  const simulator = simulatorFixture();
+  const tab = await simulator.simulateMembershipForOrg('tenant', 'org', {
+    source: 'tab', targetYear: '2027/2028', asOfDate: '2027-08-01',
+  });
+  assert.equal(tab.success, true, tab.error);
+  assert.equal(tab.previewOnly, true);
+  assert.equal(tab.incentiveRollover.source, 'prospective_year1_projection');
+  for (const source of ['manual', 'member-portal', 'cron', 'simulate']) {
+    const quote = await simulator.simulateMembershipForOrg('tenant', 'org', {
+      source, targetYear: '2027/2028', asOfDate: '2027-08-01',
+    });
+    assert.notEqual(quote.previewOnly, true, source);
+    assert.notEqual(quote.incentiveRollover?.source, 'prospective_year1_projection', source);
+  }
+  const second = simulatorFixture([], [{
+    tenant_id: 'tenant', organization_id: 'org', membership_year: '2026/2027',
+    override_type: 'price', manual_price: 1,
+  }]);
+  const estimate = await second.simulateMembershipForOrg('tenant', 'org', {
+    source: 'tab', targetYear: '2027/2028',
+  });
+  assert.equal(estimate.previewOnly, true);
+  assert.equal(estimate.rolloverDiscount, 0);
+  const payment = await second.simulateMembershipForOrg('tenant', 'org', {
+    source: 'member-portal', targetYear: '2027/2028', asOfDate: '2027-08-01',
+  });
+  assert.notEqual(payment.previewOnly, true);
+  assert.notEqual(payment.incentiveRollover?.source, 'prospective_year1_projection');
+});
+
+test('paid and unpaid Year 1 snapshots remain authoritative for tab and financial quotes', async () => {
+  const config = {
+    id: 'joining', tenant_id: 'tenant', pricing_model: 'flat', start_mode: 'fixed_date',
+    flat_cost: 1833.47, currency: 'GBP', billing_period: 'annual',
+    membership_start_month: 8, membership_start_day: 1,
+    prorata_enabled: true, free_period_amount: 30, free_period_unit: 'percent', rollover_enabled: true,
+  };
+  for (const status of ['paid', 'unpaid']) {
+    const history = [{
+      id: `y1-${status}`, tenant_id: 'tenant', organization_id: 'org',
+      membership_year: '2026/2027', config_id: config.id, year_number: 1,
+      status: 'active', payment_status: status, annual_cost: 1833.47,
+      currency: 'GBP', free_period_discount: 477.71, free_period_days_applied: 0,
+      commitment_snapshot: { config }, created_at: '2026-09-18T00:00:00Z',
+    }];
+    const simulator = simulatorFixture(history);
+    for (const source of ['tab', 'member-portal', 'manual']) {
+      const result = await simulator.simulateMembershipForOrg('tenant', 'org', {
+        source, targetYear: '2027/2028', asOfDate: '2027-08-01',
+      });
+      assert.equal(result.success, true, `${status}/${source}: ${result.error}`);
+      assert.notEqual(result.previewOnly, true);
+      assert.equal(result.incentiveRollover.source, 'commitment_snapshot');
+      assert.equal(result.rolloverDiscount, 72.33);
+    }
+  }
+});
+
 // Evaluate the actual route with every imported boundary replaced. No live
 // database, auth, email or accounting module is loaded by these route tests.
 async function isolatedRoute(file, overrides = {}) {
   const source = await readFile(new URL(file, import.meta.url), 'utf8');
   const deps = { supabase: { from: forbidden }, getTenantContext: async () => ({ tenantId: 'tenant' }),
-    simulateMembershipForOrg: async () => failure, simulateMembershipForMember: async () => failure, ...overrides };
+    hasAdminAccess: async () => true, simulateMembershipForOrg: async () => failure,
+    simulateMembershipForMember: async () => failure, ...overrides };
   const body = source.replace(/import\s+\{([\s\S]*?)\}\s+from\s+['"][^'"]+['"];?/g, (_, names) => {
     for (const name of names.split(',').map(n => n.trim()).filter(Boolean)) deps[name] ??= forbidden;
     return '';

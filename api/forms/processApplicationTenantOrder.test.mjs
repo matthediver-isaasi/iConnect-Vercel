@@ -148,12 +148,12 @@ test('answer-driven roles use authoritative answers and remain create-only', () 
   assert.match(src, /resolveMemberRoleAssignment\(\{\s*pipeline: primaryMemberPipeline,\s*(?:\/\/[^\n]*\n\s*)*answers: authoritativeAnswers,/);
   assert.match(src, /resolveMemberRoleAssignment\(\{\s*pipeline: memberConfig,\s*(?:\/\/[^\n]*\n\s*)*answers: authoritativeAnswers,/);
 
-  const primaryUpdateAt = idx('const effectiveRoleIdForUpdate = primaryMemberRoleAssignment.configured');
+  const primaryUpdateAt = idx('const effectiveRoleIdForUpdate =');
   const primaryCreateAt = idx("roleSource = primaryMemberRoleAssignment.source;");
   assert.ok(primaryUpdateAt < primaryCreateAt);
   assert.match(
     src.slice(primaryUpdateAt, primaryUpdateAt + 250),
-    /\? undefined\s*: \(memberData\.role_id !== undefined/,
+    /legacyApplicationScope \|\| primaryMemberRoleAssignment\.configured\s*\? undefined\s*: \(memberData\.role_id !== undefined/,
     'answer-driven primary roles must not mutate an existing member',
   );
 

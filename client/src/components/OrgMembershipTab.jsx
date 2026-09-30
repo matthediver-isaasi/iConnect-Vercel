@@ -124,6 +124,7 @@ export function YearCostSection({
 
   if (!yearData) return null;
 
+  const prospective = yearData.previewOnly === true;
   const hasOverride = !!yearData.overrideType;
   const invoiceSent = !!advanceInvoiceRecord;
   const advanceInvoiceNumber = advanceInvoiceRecord?.accounting_invoice_number || advanceInvoiceRecord?.xero_invoice_number || null;
@@ -135,7 +136,7 @@ export function YearCostSection({
     : null;
 
   return (
-    <div data-testid={`section-${testIdPrefix}`} className={approvalRequired && feesApproved ? 'rounded-md border border-green-200 bg-green-50/50 dark:border-green-900 dark:bg-green-950/30 p-3 -m-1' : ''}>
+    <div data-testid={`section-${testIdPrefix}`} className={approvalRequired && feesApproved && !prospective ? 'rounded-md border border-green-200 bg-green-50/50 dark:border-green-900 dark:bg-green-950/30 p-3 -m-1' : ''}>
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <p className="text-sm text-muted-foreground flex items-center gap-1">
@@ -145,7 +146,7 @@ export function YearCostSection({
           {isNewOrg && testIdPrefix === 'current-year' && (
             <Badge variant="outline" className="text-xs">New {memberLabel}</Badge>
           )}
-          {approvalRequired && feesApproved && (
+          {approvalRequired && feesApproved && !prospective && (
             <Badge variant="outline" className="text-xs text-green-700 border-green-300 dark:text-green-400 dark:border-green-700" data-testid={`badge-approved-${testIdPrefix}`}>
               <ShieldCheck className="w-3 h-3 mr-1" />
               Approved
@@ -153,7 +154,7 @@ export function YearCostSection({
           )}
         </div>
         <div className="flex items-center gap-1 flex-wrap">
-          {!currentYearRecorded && !feesApproved && (
+          {!prospective && !currentYearRecorded && !feesApproved && (
             <Button
               size="sm"
               variant={hasOverride ? "secondary" : "outline"}
@@ -164,7 +165,7 @@ export function YearCostSection({
               {hasOverride ? 'Edit Override' : 'Override'}
             </Button>
           )}
-          <Button
+          {!prospective && <Button
             size="sm"
             variant="outline"
             onClick={() => onSimulate(yearData.membershipYear)}
@@ -173,10 +174,16 @@ export function YearCostSection({
           >
             {simulatePending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <PlayCircle className="w-3 h-3 mr-1" />}
             Simulate
-          </Button>
+          </Button>}
         </div>
       </div>
       <p className="font-semibold" data-testid={`text-year-${testIdPrefix}`}>{yearData.membershipYear}</p>
+      {prospective && (
+        <div role="note" data-testid={`prospective-estimate-${testIdPrefix}`} className="mt-2 rounded-md border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30 p-3 text-sm">
+          <p className="font-medium">Prospective estimate — not a purchased entitlement</p>
+          <p className="text-muted-foreground">Year 1 has not been recorded. This Year 2 projection assumes the displayed Year 1 fee and incentive usage. Amounts may change when Year 1 is recorded; financial actions require a verified quote.</p>
+        </div>
+      )}
 
       {isNewOrg && testIdPrefix === 'current-year' && goLiveDate && (
         <p className="text-xs text-muted-foreground mt-1">
@@ -204,7 +211,7 @@ export function YearCostSection({
                 </p>
               )}
             </div>
-            <Button
+            {!prospective && <Button
               size="icon"
               variant="ghost"
               onClick={() => onRemoveOverride(yearData.membershipYear)}
@@ -212,7 +219,7 @@ export function YearCostSection({
               data-testid={`button-remove-override-${testIdPrefix}`}
             >
               {removeOverridePending ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
-            </Button>
+            </Button>}
           </div>
         </div>
       )}
@@ -314,7 +321,7 @@ export function YearCostSection({
             )}
             {yearData.rolloverDiscount > 0 && (
               <div className="flex items-center justify-between text-sm" data-testid={`rollover-discount-${testIdPrefix}`}>
-                <span className="text-muted-foreground">New Member Discount (rollover from Y1)</span>
+                <span className="text-muted-foreground">{prospective ? 'Estimated New Member Discount (projected Year 1 carryover)' : 'New Member Discount (rollover from Y1)'}</span>
                 <span className="text-green-600">-{formatCost(yearData.rolloverDiscount, currency)}</span>
               </div>
             )}
@@ -367,7 +374,7 @@ export function YearCostSection({
         </p>
       )}
 
-      {currentYearRecorded ? (
+      {prospective ? null : currentYearRecorded ? (
         <>
           <Separator className="my-3" />
           <div className="flex items-center gap-2 text-sm text-muted-foreground" data-testid={`text-invoicing-complete-${testIdPrefix}`}>

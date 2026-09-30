@@ -205,6 +205,7 @@ function mapSimResultToYearData(sim, startDate) {
     membershipYear: sim.membershipYear?.label || null,
     yearNumber: sim.yearNumber,
     startDate,
+    previewOnly: sim.previewOnly === true,
     tierLabel: sim.tierLabel || null,
     fieldValue: sim.fieldValue,
     annualCost: sim.annualCost,
@@ -515,17 +516,9 @@ async function handleGet(req, res, tenantId) {
 
   await applyOverrideToYear(currentYearCost, currentYearOverride);
 
-  if (currentYearOverride?.override_type === 'price' && nextYearPreview) {
-    nextYearPreview.freeDiscount = 0;
-    nextYearPreview.rolloverDiscount = 0;
-    nextYearPreview.freePeriodDaysApplied = 0;
-    nextYearPreview.freePeriodAmount = null;
-    nextYearPreview.freePeriodUnit = null;
-    const nextFull = nextYearPreview.annualCost;
-    nextYearPreview.finalCost = parseFloat(Math.max(0, nextFull).toFixed(2));
-    recomputeVatForYear(nextYearPreview);
-  }
-
+  // The simulator has already priced the applicable Year 2 override and the
+  // Year 1 incentive policy. Never reprice a quote using the Year 1 override:
+  // that can erase a separately agreed Year 2 discount or manual price.
   await applyOverrideToYear(nextYearPreview, nextYearOverride);
 
   return res.json({

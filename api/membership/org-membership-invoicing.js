@@ -882,6 +882,12 @@ async function handleApproval(req, res, tenantId) {
         code: 'membership_year_mismatch',
       });
     }
+    if (quote.previewOnly === true) {
+      return res.status(400).json({
+        error: 'Year 2 is only a prospective estimate until Year 1 has been recorded. Record Year 1 and recalculate fees before approving.',
+        code: 'prospective_membership_preview_only',
+      });
+    }
   }
 
   await ensureColumns();
