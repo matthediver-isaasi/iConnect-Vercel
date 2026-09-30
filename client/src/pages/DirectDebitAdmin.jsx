@@ -16,6 +16,7 @@ import {
 import { useToast } from "@/components/ui/use-toast";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import DirectDebitDryRun from "@/components/direct-debit/DirectDebitDryRun";
+import DirectDebitCollection from "@/components/direct-debit/DirectDebitCollection";
 import {
   Landmark, AlertCircle, RefreshCw, Search, ArrowLeft, Loader2, Download,
 } from "lucide-react";
@@ -1100,6 +1101,9 @@ export default function DirectDebitAdmin() {
                           </p>
                         </div>
                         <DirectDebitDryRun plan={p} />
+                        {isAccessReady && !isFeatureExcluded("commerce.monthly-finance-report") && (
+                          <DirectDebitCollection key={`collection-${p.id}`} plan={p} />
+                        )}
                       </CardContent>
                     </Card>
                   ))}

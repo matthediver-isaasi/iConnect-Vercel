@@ -78,6 +78,54 @@ test('dynamic cron entry constructs identical priced reservation in live and rec
   assert.deepEqual(live.mutations, ['reserve_gocardless_dynamic_collection', 'reserve_gocardless_dynamic_collection', 'createPayment', 'attach_gocardless_dynamic_payment']);
 });
 
+test('manual timing capability changes only timing and preserves the real clock and canonical period', async () => {
+  const f = fixture();
+  const tenant = 'ff2df806-b321-4254-b651-3af11fccf1db';
+  f.plan.tenant_id = tenant;
+  f.agreement.tenant_id = tenant;
+  f.agreement.member_id = '33e5d54d-162e-436d-9bff-ec6676d198f9';
+  f.rows.membership_tier_config[0].tenant_id = tenant;
+  f.now = new Date('2026-09-30T22:59:59Z');
+  const manualTiming = { tenantId: tenant, planId: f.plan.id, dueDate: '2026-10-01',
+    resolveDueDate: async n => { assert.equal(n, 1); return '2026-10-01'; } };
+  const before = await runDynamicCollection({ ...f, effects: { perform() { assert.fail('Cron must wait for midnight'); } } });
+  assert.equal(before.nextCheckAt, '2026-09-30T23:00:00.000Z');
+  let operation;
+  await runDynamicCollection({ ...f, manualTiming, effects: { perform(op) { operation = op; return { preview: true }; } } });
+  assert.equal(operation.payload.params.p_due_date, '2026-10-01');
+  assert.equal(operation.payload.params.p_provider_evidence.checked_at, '2026-09-30T22:59:59.000Z');
+  assert.equal(operation.payload.params.p_collection_number, 1);
+  f.plan.collection_stopped_at = '2026-09-01';
+  assert.equal((await runDynamicCollection({ ...f, manualTiming, effects: { perform() { assert.fail('Hold bypass'); } } })).skipped, true);
+});
+
+test('a reserved manual attempt is evidence-only recovery, never a cron provider retry', async () => {
+  const f = fixture();
+  f.rows.gocardless_collection_reservations.push({ tenant_id: 'tenant', plan_id: 'plan',
+    collection_number: 1, status: 'reserved', due_date: '2026-10-01',
+    provider_evidence: { manual_authorization_id: 'authorization' } });
+  const result = await runDynamicCollection({ ...f, getGc() { assert.fail('No provider call for an ambiguous manual attempt'); },
+    effects: { perform() { assert.fail('No retry effects'); } } });
+  assert.equal(result.persistOutcome, false);
+  assert.match(result.detail, /automatic resubmission is disabled/);
+});
+
+test('a stale cron read cannot resubmit the manual reservation that won the SQL lock', async () => {
+  const f = fixture();
+  const rpc = f.db.rpc;
+  f.db.rpc = async (name, params) => {
+    const result = await rpc(name, params);
+    if (name === 'reserve_gocardless_dynamic_collection') {
+      result.data.provider_evidence = { ...result.data.provider_evidence, manual_authorization_id: 'winner' };
+    }
+    return result;
+  };
+  const result = await runDynamicCollection({ ...f, effects: createLiveDynamicCollectionEffects(f) });
+  assert.equal(result.skipped, true);
+  assert.equal(result.persistOutcome, false);
+  assert.equal(f.mutations.includes('createPayment'), false);
+});
+
 test('failed reservation never submits a payment; failed provider validation never proposes reservation', async () => {
   const f = fixture();
   f.db.rpc = async () => ({ error: { message: 'owner paused concurrently' } });

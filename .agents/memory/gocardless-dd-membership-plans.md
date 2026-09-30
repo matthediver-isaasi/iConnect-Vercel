@@ -3,6 +3,9 @@ name: GoCardless monthly DD membership plans
 description: Design rules for the monthly Direct Debit membership checkout, agreement snapshot, and portal/admin plan surfaces.
 ---
 
+- Treat installed financial function bodies as the rollout contract, not the migration files present in the repository.
+- **Why:** production retained original collection cadence while the repository contained a broader collection-day amendment migration; installing that merely to satisfy a manual-run helper would enable unrelated financial functionality.
+- **How to apply:** validate the installed reserve/attach pair together and fail closed on mixed versions. Use a narrowly scoped compatible helper rather than installing unrelated cadence changes as an incidental prerequisite.
 - The DD offer is derived from the membership SIMULATION result, never raw config: flat pricing reads the config monthly amount, banded pricing reads the matched band's amount and must NOT fall back to the config amount.
 - **Why:** a banded tier with a config-level amount would silently charge the wrong price for a member whose band has no DD amount — absence of a band amount means "DD not offered for this band".
 - Collection authority and pricing policy are separate consent-time decisions. Later structure settings never authorise continuation or variable pricing for an existing agreement; only explicit dynamic consent permits subsequent active prices.

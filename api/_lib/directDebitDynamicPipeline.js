@@ -116,29 +116,59 @@ export function withoutDynamicCollectionHolds(query) {
     .or('metadata->>bnms_release_required.is.null,metadata->>bnms_release_required.eq.false');
 }
 
-export function selectDynamicCollections(db, now, limit = 100) {
+export function manualCollectionPeriodAllowed(dueDate, now) {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London',
+    year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+  const tomorrow = day(new Date(Date.parse(`${today}T12:00:00Z`) + 86400000));
+  return /^\d{4}-\d{2}-\d{2}$/.test(dueDate || '')
+    && dueDate >= `${today.slice(0, 7)}-01` && dueDate <= tomorrow;
+}
+
+export function selectDynamicCollections(db, now, limit = 100, manualTiming = null) {
   const horizon = day(new Date(now.getTime() + 35 * 86_400_000));
-  return withoutDynamicCollectionHolds(db.from('membership_payment_plans').select('*'))
+  let query = withoutDynamicCollectionHolds(db.from('membership_payment_plans').select('*'))
     .eq('provider', 'gocardless').eq('metadata->>collection_mode', 'dynamic')
-    .in('status', LIVE_STATUSES).lte('dynamic_next_collection_date', horizon)
-    .or(`dynamic_next_check_at.is.null,dynamic_next_check_at.lte.${now.toISOString()}`)
+    .in('status', LIVE_STATUSES).lte('dynamic_next_collection_date', horizon);
+  if (!manualTiming) query = query.or(`dynamic_next_check_at.is.null,dynamic_next_check_at.lte.${now.toISOString()}`);
+  else query = query.eq('tenant_id', manualTiming.tenantId).eq('id', manualTiming.planId)
+    .eq('dynamic_next_collection_date', manualTiming.dueDate);
+  return query
     .order('dynamic_next_check_at', { ascending: true, nullsFirst: true })
     .order('dynamic_next_collection_date', { ascending: true }).limit(Math.min(limit, 100));
 }
 
-export async function runDynamicCollection({ db, plan, now = new Date(), getGc, effects, trace = () => {} }) {
-  const selected = checked(await selectDynamicCollections(db, now).eq('tenant_id', plan.tenant_id).eq('id', plan.id),
+export async function runDynamicCollection({ db, plan, now = new Date(), getGc, effects, trace = () => {}, manualTiming = null }) {
+  if (manualTiming && (manualTiming.tenantId !== plan.tenant_id || manualTiming.planId !== plan.id
+    || !manualCollectionPeriodAllowed(manualTiming.dueDate, now))) {
+    return { plan, skipped: true, persistOutcome: false, detail: 'Manual collection is limited to the current London calendar month through tomorrow only' };
+  }
+  const selected = checked(await selectDynamicCollections(db, now, 100, manualTiming).eq('tenant_id', plan.tenant_id).eq('id', plan.id),
     'Select scoped dynamic plan');
   if (!selected?.length) {
-    trace({ stage: 'dynamic-collection', status: 'skipped', reason: 'Plan is not due in the dynamic collection batch (provider, mode, lifecycle, horizon or next-check gate).' });
-    return { plan, skipped: true, persistOutcome: false, detail: 'Not due for dynamic collection batch' };
+    const current = checked(await db.from('membership_payment_plans').select('*')
+      .eq('tenant_id', plan.tenant_id).eq('id', plan.id).maybeSingle(), 'Read collection gate');
+    const reasons = [];
+    if (!current) reasons.push('plan no longer exists');
+    else {
+      if (current.provider !== 'gocardless') reasons.push('provider is not GoCardless');
+      if (current.metadata?.collection_mode !== 'dynamic') reasons.push('not a dynamic collection plan');
+      if (!LIVE_STATUSES.includes(current.status)) reasons.push(`lifecycle status: ${current.status}`);
+      if (current.collection_stopped_at != null) reasons.push('collection stopped');
+      if (![undefined, null, false, 'false'].includes(current.metadata?.bnms_release_required)) reasons.push('reviewed release required');
+      if (!current.dynamic_next_collection_date) reasons.push('no next collection date');
+      else if (current.dynamic_next_collection_date > day(new Date(now.getTime() + 35 * 86_400_000))) reasons.push('outside 35-day collection horizon');
+      if (current.dynamic_next_check_at && Date.parse(current.dynamic_next_check_at) > now.getTime()) reasons.push(`next-check backoff until ${current.dynamic_next_check_at}`);
+    }
+    const detail = `Not due for dynamic collection batch: ${reasons.join('; ') || 'selection changed; refresh to review'}`;
+    trace({ stage: 'dynamic-collection', status: 'skipped', reason: detail });
+    return { plan, skipped: true, persistOutcome: false, detail };
   }
-  return processDynamicCollection({ db, plan, now, getGc, effects, trace });
+  return processDynamicCollection({ db, plan, now, getGc, effects, trace, manualTiming });
 }
 
 // Also used outside the cron when a just-created dynamic plan first collects.
 // That entry intentionally does not apply the cron's polling/backoff envelope.
-export async function processDynamicCollection({ db, plan, now, getGc, effects, trace = () => {} }) {
+export async function processDynamicCollection({ db, plan, now, getGc, effects, trace = () => {}, manualTiming = null }) {
   const skip = (reason, extra = {}) => {
     trace({ stage: 'dynamic-collection', status: 'skipped', reason });
     return { plan, skipped: true, detail: reason, ...extra };
@@ -184,7 +214,7 @@ export async function processDynamicCollection({ db, plan, now, getGc, effects, 
   const bnmsProcessing = bnmsPilot || bnmsBeta || Boolean(alphaAdoption) || Boolean(manualContext);
   if (bnmsProcessing) {
     if (!Number.isFinite(now.getTime())) throw new Error('BNMS pilot processing clock is invalid');
-    if (now.getTime() < Date.parse('2026-09-30T23:00:00Z')) return skip(
+    if (!manualTiming && now.getTime() < Date.parse('2026-09-30T23:00:00Z')) return skip(
       'BNMS processing starts 1 October 2026 Europe/London', { nextCheckAt: '2026-09-30T23:00:00.000Z' });
   }
   const arrears = checked(await db.from('membership_monthly_arrears_period').select('id')
@@ -197,8 +227,19 @@ export async function processDynamicCollection({ db, plan, now, getGc, effects, 
   const last = reservations?.[0];
   const reservation = last?.status === 'reserved' ? last : null;
   if (last?.status === 'blocked') throw new Error(last.blocked_reason || 'Dynamic collection reservation is blocked');
+  if (reservation?.provider_evidence?.manual_authorization_id) {
+    return skip('A manual collection reservation has an unconfirmed outcome. Reconcile provider evidence; automatic resubmission is disabled.', { persistOutcome: false });
+  }
   const number = reservation?.collection_number || (last?.collection_number || 0) + 1;
-  const intendedDate = reservation?.due_date || dynamicCollectionDate(plan.metadata.dynamic_first_date, number);
+  // The SQL cadence helper is authoritative for amended schedules in manual
+  // execution. The due date returned here is rechecked under the reservation lock.
+  const intendedDate = reservation?.due_date || (manualTiming
+    ? await manualTiming.resolveDueDate(number)
+    : dynamicCollectionDate(plan.metadata.dynamic_first_date, number));
+  if (manualTiming && (reservation || intendedDate !== manualTiming.dueDate
+    || !manualCollectionPeriodAllowed(intendedDate, now))) {
+    return skip('Period already reserved or outside the current month/tomorrow manual window; inspect existing payments, do not retry', { persistOutcome: false });
+  }
   if (number > terms.instalment_count || intendedDate > term.term_end_date) {
     await effects.perform({ type: 'dynamic.finish_schedule', description: 'Clear the exhausted dynamic collection schedule; renewal remains separate.',
       payload: { planId: plan.id, tenantId: plan.tenant_id, expectedDate: plan.dynamic_next_collection_date } });

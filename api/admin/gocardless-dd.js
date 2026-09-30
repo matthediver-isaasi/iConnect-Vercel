@@ -52,11 +52,12 @@ import { filterConsoleRows, filterDirectDebitRows, readConsoleRows, paginateCons
 import { escapeCsvCell, CSV_BOM, CSV_ROW_SEPARATOR } from '../_lib/csvCell.js';
 import { readonlyTenantDatabase } from '../_lib/directDebitDryRunRuntime.js';
 import { readStripeCredentials } from '../_lib/stripeCredentialReadCore.js';
+import { handleManualCollection } from '../_lib/directDebitManualCollection.js';
 const consoleDatabase = supabase;
 
 export default async function handler(req, res, {
   db = supabase, getContext = getTenantContext, adminAccess = hasAdminAccess,
-  featureAccess = hasFeatureAccess, dryRunProvider = gocardlessForTenant,
+  featureAccess = hasFeatureAccess, dryRunProvider = gocardlessForTenant, collectionProvider = gocardlessForTenant,
 } = {}) {
   if (req.method === 'POST' && ['preview_collection_day', 'change_collection_day'].includes(req.body?.action)) {
     return handleCollectionDayAction(req, res);
@@ -82,6 +83,20 @@ export default async function handler(req, res, {
   try {
     if (req.method === 'GET') return await handleGet(req, res, tenantId, db);
     if (req.method === 'POST') {
+      if (['preview_collection', 'run_collection'].includes(req.body?.action)) {
+        if (context.roleId && !(await featureAccess(context.roleId, 'commerce.monthly-finance-report'))) {
+          return res.status(403).json({ error: 'This action requires finance permission' });
+        }
+        try {
+          return await handleManualCollection(req, res, {
+            db, tenantId, actor: actorEmail, getProvider: collectionProvider,
+          });
+        } catch (error) {
+          console.error('[manual-collection] request verification failed', error);
+          return res.status(500).json({ code: 'COLLECTION_REQUEST_FAILED',
+            error: 'Manual collection could not be verified. Do not retry a submitted request; ask a finance operator to inspect the evidence.' });
+        }
+      }
       if (req.body?.action === 'dry_run') {
         if (context.roleId && !(await featureAccess(context.roleId, 'commerce.monthly-finance-report'))) {
           return res.status(403).json({ error: 'This action requires finance permission' });

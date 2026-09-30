@@ -81,8 +81,9 @@ export async function ensureDynamicPlanForAgreement(agreement, deps = {}) {
   return { created, plan: result.plan || plan, detail: result.detail };
 }
 
-export function createLiveDynamicCollectionEffects({ db, getGc }) {
+export function createLiveDynamicCollectionEffects({ db, getGc, authorizeOperation }) {
   return { async perform(operation) {
+    if (authorizeOperation) await authorizeOperation(operation);
     if (operation.type === 'dynamic.finish_schedule') {
       const { tenantId, planId, expectedDate } = operation.payload;
       return checked(await db.from('membership_payment_plans').update({ dynamic_next_collection_date: null })
@@ -93,6 +94,12 @@ export function createLiveDynamicCollectionEffects({ db, getGc }) {
     const { params, existing, plan, agreement, today, bnmsProcessing } = operation.payload;
     let reservation = checked(await db.rpc('reserve_gocardless_dynamic_collection', params),
       existing ? 'Authorize reserved dynamic collection' : 'Reserve dynamic collection');
+    // A cron worker may have read before the manual reservation won the lock.
+    // Do not turn that stale read into an automatic retry of a manual attempt.
+    if (!authorizeOperation && reservation.provider_evidence?.manual_authorization_id) {
+      return { plan, skipped: true, persistOutcome: false,
+        detail: 'Manual collection reservation requires evidence-only reconciliation; automatic resubmission is disabled' };
+    }
     if (!existing) {
       if (bnmsProcessing && reservation.requested_charge_date < today) {
         throw new Error('BNMS pilot reserved charge date is in the past; reconcile before retry');
@@ -104,6 +111,10 @@ export function createLiveDynamicCollectionEffects({ db, getGc }) {
       }), 'Authorize reserved dynamic collection');
     }
     const client = await getGc(plan.tenant_id);
+    if (authorizeOperation && (reservation.amount_minor !== operation.amountMinor
+      || reservation.currency !== operation.currency)) {
+      throw new Error('Reserved amount changed; review the collection again before submitting');
+    }
     const payment = await client.createPayment({
       mandateId: agreement.gocardless_mandate_id, amountMinor: reservation.amount_minor,
       currency: reservation.currency, chargeDate: reservation.requested_charge_date,
@@ -112,8 +123,18 @@ export function createLiveDynamicCollectionEffects({ db, getGc }) {
       idempotencyKey: reservation.idempotency_key,
     });
     assertDynamicPayment(reservation, payment, agreement.gocardless_mandate_id);
-    await attachDynamicPayment(reservation, payment, { db });
-    return { submitted: true, plan: { ...plan, amount_minor: reservation.amount_minor, next_charge_date: payment.charge_date }, detail: 'Dynamic collection scheduled with provider' };
+    const paymentResult = { id: payment.id, amountMinor: payment.amount,
+      currency: payment.currency, date: payment.charge_date, status: payment.status };
+    try {
+      await attachDynamicPayment(reservation, payment, { db });
+    } catch (error) {
+      // Validated provider acceptance is still useful evidence when the local
+      // transaction fails. It is NOT confirmation of local persistence.
+      error.payment = paymentResult;
+      throw error;
+    }
+    return { submitted: true, payment: paymentResult,
+    plan: { ...plan, amount_minor: reservation.amount_minor, next_charge_date: payment.charge_date }, detail: 'Dynamic collection scheduled with provider' };
   } };
 }
 
@@ -156,6 +177,40 @@ export async function resolveDynamicPayment(paymentId, { db = supabase, gc } = {
   return { plan, reservation, payment };
 }
 
+// Both cron and the single-plan console action use this exact outcome envelope.
+export async function reconcileDynamicCollectionPlan({ db = supabase, plan,
+  clientForTenant = gocardlessForTenant, now = () => new Date(), authorizeOperation, manualTiming } = {}) {
+  let outcome, failure;
+  const errors = [];
+  try {
+    const getGc = () => clientForTenant(plan.tenant_id);
+    outcome = await runDynamicCollection({ db, plan, now: now(), getGc, manualTiming,
+      effects: createLiveDynamicCollectionEffects({ db, getGc, authorizeOperation }) });
+  } catch (error) {
+    failure = error;
+    errors.push({ stage: 'dynamic-collection', error: String(error.message) });
+  }
+  if (outcome?.persistOutcome !== false) {
+    const retryAt = now().getTime() + 60 * 60 * 1000;
+    const nextCheck = new Date(outcome?.nextCheckAt
+      ? Math.min(retryAt, Date.parse(outcome.nextCheckAt)) : retryAt).toISOString();
+    try {
+      checked(await withoutDynamicCollectionHolds(db.from('membership_payment_plans').update({
+        // Console plan reads expose this field too. Keep raw manual provider
+        // errors in restricted server diagnostics, not in user-facing records.
+        dynamic_collection_error: failure ? (manualTiming
+          ? 'Manual collection outcome unconfirmed. Do not retry; finance must reconcile provider evidence.'
+          : String(failure.message).slice(0, 1000)) : null,
+        dynamic_next_check_at: nextCheck,
+      }).eq('id', plan.id).eq('tenant_id', plan.tenant_id)),
+      failure ? 'Record dynamic collection error' : 'Clear dynamic collection error');
+    } catch (error) {
+      errors.push({ stage: 'dynamic-collection-outcome', error: String(error.message) });
+    }
+  }
+  return { outcome, failed: Boolean(failure), payment: outcome?.payment || failure?.payment || null, errors };
+}
+
 export async function reconcileDynamicCollections({ db = supabase, clientForTenant = gocardlessForTenant, now = () => new Date(), limit = 100, budgetMs = 45000, clock = Date.now } = {}) {
   const result = { processed: 0, blocked: 0, skipped: 0, errors: 0, details: [] };
   if (budgetMs <= 0) return result;
@@ -170,34 +225,11 @@ export async function reconcileDynamicCollections({ db = supabase, clientForTena
     const elapsed = clock() - started;
     if (elapsed >= budgetMs || (attempted > 0 && budgetMs - elapsed < 30000)) break;
     attempted++;
-    let outcome, failure;
-    try {
-      // Resolve credentials only if the shared pipeline actually needs a provider.
-      const getGc = () => clientForTenant(plan.tenant_id);
-      outcome = await runDynamicCollection({ db, plan, now: now(), getGc,
-        effects: createLiveDynamicCollectionEffects({ db, getGc }) });
-      if (outcome.submitted) result.processed++;
-      else result.skipped++;
-    } catch (error) {
-      failure = error;
-      result.blocked++;
-      recordError(plan, 'dynamic-collection', error);
-    }
-    if (outcome?.persistOutcome === false) continue;
-    const retryAt = now().getTime() + 60 * 60 * 1000;
-    const nextCheck = new Date(outcome?.nextCheckAt
-      ? Math.min(retryAt, Date.parse(outcome.nextCheckAt)) : retryAt).toISOString();
-    try {
-      // Atomic write predicate prevents bookkeeping on a newly held plan.
-      // SQL hold/identity guards remain the final authority for concurrent races.
-      checked(await withoutDynamicCollectionHolds(db.from('membership_payment_plans').update({
-        dynamic_collection_error: failure ? String(failure.message).slice(0, 1000) : null,
-        dynamic_next_check_at: nextCheck,
-      }).eq('id', plan.id).eq('tenant_id', plan.tenant_id)),
-      failure ? 'Record dynamic collection error' : 'Clear dynamic collection error');
-    } catch (error) {
-      recordError(plan, 'dynamic-collection-outcome', error);
-    }
+    const { outcome, failed, errors } = await reconcileDynamicCollectionPlan({ db, plan, clientForTenant, now });
+    if (failed) result.blocked++;
+    else if (outcome?.submitted) result.processed++;
+    else result.skipped++;
+    for (const error of errors) recordError(plan, error.stage, { message: error.error });
   }
   return result;
 }

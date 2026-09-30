@@ -6,6 +6,7 @@ import {
 } from './gocardlessDynamicCollections.js';
 import { resolveInstalmentInvoiceContext } from './membershipInstalmentInvoicing.js';
 import { BNMS_ALPHA_TENANT, BNMS_ALPHA_MANIFEST, BNMS_ALPHA_PROCESSING_NOT_BEFORE } from './bnmsAlphaAccounting.js';
+import { selectDynamicCollections } from './directDebitDynamicPipeline.js';
 
 function fixture({ amount = 12.5, firstDate = '2027-04-02', providerDate = '2027-04-06', end = '2028-03-31' } = {}) {
   const config = { id: 'config', tenant_id: 'tenant', start_mode: 'immediate', structure_scope_type: 'member',
@@ -109,6 +110,21 @@ function fixture({ amount = 12.5, firstDate = '2027-04-02', providerDate = '2027
   };
   return { config, agreement, plan, rows, db, gc, calls, updates, controls, now: () => new Date('2027-03-29T12:00:00Z') };
 }
+
+test('manual scoped selection bypasses next-check only, while retaining Beta holds and exact plan scope', async () => {
+  const f = fixture();
+  const now = new Date('2027-04-01T12:00:00Z');
+  f.plan.dynamic_next_check_at = '2027-04-02T12:00:00Z';
+  assert.equal((await selectDynamicCollections(f.db, now)).data.length, 0);
+  const manualTiming = { tenantId: f.plan.tenant_id, planId: f.plan.id, dueDate: f.plan.dynamic_next_collection_date };
+  assert.equal((await selectDynamicCollections(f.db, now, 100, manualTiming)).data.length, 1);
+  assert.equal((await selectDynamicCollections(f.db, now, 100, { ...manualTiming, planId: 'foreign' })).data.length, 0);
+  f.plan.metadata.bnms_release_required = true;
+  assert.equal((await selectDynamicCollections(f.db, now, 100, manualTiming)).data.length, 0);
+  f.plan.metadata.bnms_release_required = false;
+  f.plan.collection_stopped_at = '2027-04-01';
+  assert.equal((await selectDynamicCollections(f.db, now, 100, manualTiming)).data.length, 0);
+});
 
 test('dynamic price follows active flat price, never the consent-time initial amount', async () => {
   const f = fixture();
