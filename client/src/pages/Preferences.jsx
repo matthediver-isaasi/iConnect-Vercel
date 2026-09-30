@@ -62,6 +62,7 @@ import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { sanitizeRichText } from "@/components/canvas/blocks/sanitize";
 import { mergeLibraryBadges } from "@/lib/aboutMeBadges";
+import { confirmedProfilePatch, profileQueryKey, synchronizeProfile } from "@/lib/profileSynchronization";
 
 // --- List Field Editor Component ---
 function ListFieldEditor({ fieldId, values = [], onChange, placeholder, disabled = false }) {
@@ -323,11 +324,11 @@ export default function PreferencesPage() {
   // Fetch fresh member data from backend API to ensure we have all fields (including created_at)
   // Uses /api/auth/me which runs with service key and bypasses RLS
   const { data: freshMemberData, isLoading: freshMemberLoading } = useQuery({
-    queryKey: ["fresh-member-data", sessionMember?.id],
+    queryKey: profileQueryKey(sessionMember?.id),
     enabled: !!sessionMember?.id,
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       try {
-        const response = await fetch('/api/auth/me', { credentials: 'include' });
+        const response = await fetch('/api/auth/me', { credentials: 'include', signal });
         console.log("[Preferences] /api/auth/me response status:", response.status);
         if (!response.ok) {
           console.error("[Preferences] Error fetching fresh member data:", response.status);
@@ -1036,20 +1037,21 @@ export default function PreferencesPage() {
   }, [engagementAssignments, engagementAwards, awardSublevels]);
 
   // --- Load profile state from memberRecord ---
-  const profileInitializedRef = useRef(false);
+  const previousProfileRef = useRef(null);
+  const profileSetters = {
+    first_name: setFirstName, last_name: setLastName, job_title: setJobTitle,
+    mobile: setMobile, landline: setLandline, biography: setBiography,
+    profile_photo_url: setProfilePhotoUrl, show_in_directory: setShowInDirectory,
+  };
+  const profileValue = (key, value) => key === "show_in_directory" ? value !== false : value || "";
   useEffect(() => {
     if (!memberRecord) return;
-    if (profileInitializedRef.current && hasUnsavedProfile) return;
-    profileInitializedRef.current = true;
-
-    setFirstName(memberRecord.first_name || "");
-    setLastName(memberRecord.last_name || "");
-    setJobTitle(memberRecord.job_title || "");
-    setMobile(memberRecord.mobile || "");
-    setLandline(memberRecord.landline || "");
-    setBiography(memberRecord.biography || "");
-    setProfilePhotoUrl(memberRecord.profile_photo_url || "");
-    setShowInDirectory(memberRecord.show_in_directory !== false);
+    const previous = previousProfileRef.current;
+    for (const [key, setter] of Object.entries(profileSetters)) {
+      setter(current => !previous || previous.id !== memberRecord.id || current === profileValue(key, previous[key])
+        ? profileValue(key, memberRecord[key]) : current);
+    }
+    previousProfileRef.current = memberRecord;
   }, [memberRecord]);
 
   // --- Load expandedCategories from localStorage (UI state only, always load) ---
@@ -1183,29 +1185,21 @@ export default function PreferencesPage() {
         .select()
         .maybeSingle();
       if (error) throw error;
-      return data;
+      return confirmedProfilePatch(data, profileData, memberRecord.id);
     },
-    onSuccess: (updatedMember) => {
-      // Update session storage with new member data so it persists on page refresh
-      if (updatedMember) {
-        const storedMember = localStorage.getItem('agcas_member');
-        if (storedMember) {
-          try {
-            const parsed = JSON.parse(storedMember);
-            const updatedSession = { ...parsed, ...updatedMember };
-            localStorage.setItem('agcas_member', JSON.stringify(updatedSession));
-            // Also update the local state
-            setSessionMember(updatedSession);
-          } catch {
-            // Ignore parse errors
-          }
-        }
+    onSuccess: async (patch, submitted) => {
+      await synchronizeProfile({
+        queryClient, memberId: memberRecord.id, patch, sessionMember,
+        setSessionMember, storage: localStorage,
+      });
+      for (const [key, value] of Object.entries(patch)) {
+        // A user may have continued typing during the request.
+        profileSetters[key](current => current === profileValue(key, submitted[key])
+          ? profileValue(key, value) : current);
       }
-      queryClient.invalidateQueries({ queryKey: ["memberRecord"] });
       queryClient.invalidateQueries({ queryKey: ["all-members-directory"] });
       queryClient.invalidateQueries({ queryKey: ["/api/entities/MemberPreferenceValue", memberRecord?.id] });
       toast.success("Profile updated successfully");
-      setHasUnsavedProfile(false);
       setIsSavingProfile(false);
     },
     onError: () => {
@@ -1266,6 +1260,7 @@ export default function PreferencesPage() {
 
   // --- Handlers ---
   const handlePhotoUpload = async (e) => {
+    if (isSavingProfile || isUploadingPhoto) return;
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -1286,25 +1281,23 @@ export default function PreferencesPage() {
         "member-photos",
         folder
       );
-      setProfilePhotoUrl(publicUrl);
-
       if (memberRecord?.id) {
-        const { error } = await supabase
+        const submitted = { profile_photo_url: publicUrl };
+        const { data, error } = await supabase
           .from("member")
-          .update({ profile_photo_url: publicUrl })
-          .eq("id", memberRecord.id);
+          .update(submitted)
+          .eq("id", memberRecord.id)
+          .select()
+          .maybeSingle();
         if (error) throw error;
-
-        const storedMember = localStorage.getItem('agcas_member');
-        if (storedMember) {
-          try {
-            const parsed = JSON.parse(storedMember);
-            localStorage.setItem('agcas_member', JSON.stringify({ ...parsed, profile_photo_url: publicUrl }));
-            setSessionMember(prev => prev ? { ...prev, profile_photo_url: publicUrl } : prev);
-          } catch {}
-        }
-        queryClient.invalidateQueries({ queryKey: ["fresh-member-data", memberRecord.id] });
-      }
+        const patch = confirmedProfilePatch(data, submitted, memberRecord.id);
+        await synchronizeProfile({
+          queryClient, memberId: memberRecord.id, patch, sessionMember,
+          setSessionMember, storage: localStorage,
+        });
+        setProfilePhotoUrl(patch.profile_photo_url || "");
+        queryClient.invalidateQueries({ queryKey: ["all-members-directory"] });
+      } else throw new Error("No member record");
 
       toast.success("Photo saved");
     } catch (err) {
@@ -1354,6 +1347,7 @@ export default function PreferencesPage() {
 
 
   const handleSaveProfile = async () => {
+    if (isSavingProfile || isUploadingPhoto) return;
     const wordCount = biography
       .trim()
       .split(/\s+/)
@@ -1712,7 +1706,7 @@ export default function PreferencesPage() {
                         <Button
                           type="button"
                           variant="outline"
-                          disabled={isUploadingPhoto}
+                          disabled={isUploadingPhoto || isSavingProfile}
                           onClick={() =>
                             document.getElementById("photo-upload").click()
                           }
@@ -1863,7 +1857,7 @@ export default function PreferencesPage() {
                 <div className="flex justify-end pt-4">
                   <Button
                     onClick={handleSaveProfile}
-                    disabled={isSavingProfile}
+                    disabled={isSavingProfile || isUploadingPhoto}
                     className="bg-blue-600 hover:bg-blue-700"
                   >
                     {isSavingProfile ? (
@@ -2555,7 +2549,7 @@ export default function PreferencesPage() {
                   <Button
                     onClick={handleSaveProfile}
                     disabled={
-                      isSavingProfile || getBiographyWordCount() > 500
+                      isSavingProfile || isUploadingPhoto || getBiographyWordCount() > 500
                     }
                     className="bg-blue-600 hover:bg-blue-700"
                   >
