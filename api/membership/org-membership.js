@@ -206,6 +206,7 @@ function mapSimResultToYearData(sim, startDate) {
     yearNumber: sim.yearNumber,
     startDate,
     previewOnly: sim.previewOnly === true,
+    previewAssumedJoinDate: sim.previewOnly === true ? sim.previewAssumedJoinDate || null : null,
     tierLabel: sim.tierLabel || null,
     fieldValue: sim.fieldValue,
     annualCost: sim.annualCost,
@@ -666,6 +667,12 @@ async function handlePost(req, res, tenantId) {
 
   if (!simResult.success) {
     return res.status(400).json({ error: simResult.error || 'Simulation failed', code: simResult.code });
+  }
+  if (simResult.previewOnly === true) {
+    return res.status(400).json({
+      error: 'This is only a prospective membership estimate. Record the preceding year and recalculate fees before recording.',
+      code: 'prospective_membership_preview_only',
+    });
   }
 
   // Stored, approved add-ons are part of the membership amount due. Keep the

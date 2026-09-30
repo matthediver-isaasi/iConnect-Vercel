@@ -93,6 +93,25 @@ async function get(options = {}, organizationId = 'org') {
   return res;
 }
 
+test('record endpoint rejects prospective simulations before loading add-ons or writing history', async () => {
+  const db = readOnlyDb();
+  const handler = await isolatedRoute({
+    db,
+    simulation: async () => ({ ...success('2027'), previewOnly: true }),
+  });
+  const res = {
+    statusCode: 200,
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+  };
+  await handler({
+    method: 'POST', body: { organizationId: 'org', membershipYear: '2027' }, headers: {},
+  }, res);
+  assert.equal(res.statusCode, 400);
+  assert.equal(res.body.code, 'prospective_membership_preview_only');
+  assert.deepEqual(db.reads, []);
+});
+
 function assertWarning(value, year, code, message) {
   assert.deepEqual(value, { membershipYear: year, code, message });
 }
@@ -408,7 +427,7 @@ test('future scheduled structure with a different start month keeps the next pre
   assert.equal(tables.organisation_membership_invoicing[0].membership_year, nextYear.label);
 });
 
-test('real simulator and organisation endpoint show both years before recording, including a Year 1-only price override', async () => {
+test('real simulator and organisation endpoint show both years before recording, including an absent joining date and a Year 1-only price override', async () => {
   const joining = {
     ...config, id: 'joining', membership_start_month: 8, membership_start_day: 1,
     flat_cost: 1833.47, free_period_amount: 30, free_period_unit: 'percent',
@@ -416,14 +435,19 @@ test('real simulator and organisation endpoint show both years before recording,
     created_at: '2026-01-01', updated_at: '2026-01-01',
   };
   const now = new Date('2026-09-24T00:00:00Z');
-  for (const withPriceOverride of [false, true]) {
+  for (const { withPriceOverride, missingGoLive } of [
+    { withPriceOverride: false, missingGoLive: false },
+    { withPriceOverride: true, missingGoLive: false },
+    { withPriceOverride: false, missingGoLive: true },
+  ]) {
     const writes = [];
     const rpcCalls = [];
     const tables = {
       organization: [{ id: 'org', name: 'Organisation', tenant_id: 'tenant' }],
       membership_tier_config: [joining],
       preference_field: [{ id: 'go-live', tenant_id: 'tenant', name: 'go_live', entity_scope: 'organization', is_active: true }],
-      organization_preference_value: [{ organization_id: 'org', field_id: 'go-live', value: '2026-09-18' }],
+      organization_preference_value: missingGoLive
+        ? [] : [{ organization_id: 'org', field_id: 'go-live', value: '2026-09-18' }],
       organisation_membership_history: [],
       organisation_membership_override: withPriceOverride
         ? [{ tenant_id: 'tenant', organization_id: 'org', membership_year: '2026/2027', override_type: 'price', manual_price: 1 }] : [],
@@ -471,10 +495,23 @@ test('real simulator and organisation endpoint show both years before recording,
     assert.equal(res.body.nextYearPreview?.membershipYear, '2027/2028', JSON.stringify(res.body.previewWarnings));
     assert.equal(res.body.nextYearPreview.previewOnly, true);
     assert.equal(res.body.nextYearPreview.incentiveRollover.source, 'prospective_year1_projection');
+    if (missingGoLive) {
+      assert.equal(res.body.goLiveDate, null);
+      assert.equal(res.body.nextYearPreview.previewAssumedJoinDate, '2026-09-24');
+      assert.equal(res.body.currentYearCost.previewAssumedJoinDate, null);
+      assert.equal(res.body.currentYearCost?.membershipYear, '2026/2027');
+      assert.ok(Number.isFinite(res.body.nextYearPreview.finalCost));
+      assert.deepEqual(tables.organisation_membership_history, []);
+      assert.deepEqual(tables.organisation_membership_override, []);
+    } else {
+      assert.equal(res.body.nextYearPreview.previewAssumedJoinDate, null);
+    }
     if (withPriceOverride) assert.equal(res.body.currentYearCost.finalCost, 1);
     else assert.ok(res.body.currentYearCost.finalCost > 1);
-    assert.equal(res.body.nextYearPreview.rolloverDiscount, withPriceOverride ? 0 : 72.33);
-    assert.equal(res.body.nextYearPreview.finalCost, withPriceOverride ? 1833.47 : 1761.14);
+    if (!missingGoLive) {
+      assert.equal(res.body.nextYearPreview.rolloverDiscount, withPriceOverride ? 0 : 72.33);
+      assert.equal(res.body.nextYearPreview.finalCost, withPriceOverride ? 1833.47 : 1761.14);
+    }
     assert.equal(res.body.previewWarnings.nextYear, null);
 
     const approvalSource = await readFile(new URL('./org-membership-invoicing.js', import.meta.url), 'utf8');
@@ -498,6 +535,7 @@ test('real simulator and organisation endpoint show both years before recording,
     assert.equal(rejected.body.code, 'prospective_membership_preview_only');
     assert.deepEqual(writes, [], 'a projected Year 2 cannot persist approval');
     assert.deepEqual(rpcCalls, [], 'a projected Year 2 must be rejected before schema writes');
+    if (missingGoLive) continue;
 
     // A recorded (not necessarily paid) Year 1 carries its joining snapshot
     // and usage. Requoting Year 2 must now use that evidence, not the projection.

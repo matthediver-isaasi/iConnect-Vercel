@@ -417,11 +417,47 @@ test('expired joining schedule without a future successor does not reuse old fee
   assert.equal(result.code, 'membership_preview_unavailable');
 });
 
-test('unknown joining date is not represented as evidence of a purchased or prospective second year', async () => {
+test('absent joining date uses an explicit today assumption only for prospective tab estimates', async () => {
   const result = await simulate({ history: [], goLiveValue: null, config: { ...original, updated_at: null } },
     { source: 'tab', configId: null });
-  assert.equal(result.previewOnly, undefined);
-  assert.notEqual(result.incentiveRollover?.source, 'prospective_year1_projection');
+  assert.equal(result.success, true, result.error);
+  assert.equal(result.previewOnly, true);
+  assert.equal(result.previewAssumedJoinDate, '2026-09-24');
+  assert.equal(result.incentiveRollover?.source, 'prospective_year1_projection');
+  const financial = await simulate({ history: [], goLiveValue: null, config: { ...original, updated_at: null } },
+    { source: 'manual', configId: null });
+  assert.equal(financial.success, false);
+  assert.notEqual(financial.previewOnly, true);
+});
+
+test('missing joining-date reads are errors, not permission to assume today', async () => {
+  for (const failTable of ['preference_field', 'organization_preference_value']) {
+    await assert.rejects(simulate({ history: [], goLiveValue: null, failTable },
+      { source: 'tab', configId: null }), /Could not load joining date/);
+  }
+});
+
+test('Partner screenshot: missing go-live retains £793.82 Year 1 and estimates £950 Year 2 with zero incentive', async () => {
+  const config = { ...original, flat_cost: 950, free_period_amount: null,
+    free_period_unit: null, rollover_enabled: false, updated_at: '2026-09-30T08:00:00Z' };
+  const inputs = { history: [], goLiveValue: null, config };
+  const first = await simulate(inputs, { source: 'tab', configId: null, targetYear: '2026/2027' }, '2026-09-30');
+  const next = await simulate(inputs, { source: 'tab', configId: null, asOfDate: '2027-08-01' }, '2026-09-30');
+  assert.equal(first.success, true, first.error);
+  assert.equal(first.annualCost, 950);
+  assert.equal(first.prorataCost, 793.82);
+  assert.equal(next.success, true, next.error);
+  assert.equal(next.finalCost, 950);
+  assert.equal(next.previewAssumedJoinDate, '2026-09-30');
+  assert.equal(next.previewOnly, true);
+  assert.equal(next.incentiveRollover.remainingEntitlement, 0);
+  // A subsequently recorded, unpaid commitment is not an empty-history quote.
+  const recorded = await simulate({ ...inputs, history: [{ ...year1,
+    payment_status: 'unpaid', annual_cost: 950, free_period_discount: 0,
+    commitment_snapshot: { config } }] }, { source: 'tab', configId: null }, '2026-09-30');
+  assert.equal(recorded.success, true, recorded.error);
+  assert.notEqual(recorded.previewOnly, true);
+  assert.equal(recorded.incentiveRollover.source, 'commitment_snapshot');
 });
 
 test('band or discount-value read failures cannot silently underprice a prospective estimate', async () => {

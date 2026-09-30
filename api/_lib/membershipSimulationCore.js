@@ -358,16 +358,18 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
     membershipYear = fixedTargetWindow;
   }
 
-  const goLiveFieldId = await getGoLiveFieldId(tenantId);
-  const goLiveDate = goLiveFieldId ? await getOrgGoLiveDate(organizationId, goLiveFieldId) : null;
+  const goLiveFieldId = await getGoLiveFieldId(tenantId, source === 'tab' || prospectiveYear1);
+  const goLiveDate = goLiveFieldId ? await getOrgGoLiveDate(organizationId, goLiveFieldId, source === 'tab' || prospectiveYear1) : null;
   const assumedGoLiveDate = goLiveDate || clock().toISOString().split('T')[0];
   const yearNumber = rollingContext ? (rollingContext.previousTerm ? (Number(rollingContext.previousTerm.year_number) || 1) + 1 : 1) : determineMembershipYearNumber(assumedGoLiveDate, membershipYear, yearSchedule);
   const currentYearNumber = determineMembershipYearNumber(assumedGoLiveDate, currentYear, yearSchedule);
   const actualCurrentYear = actualCurrentConfig && !rollingContext
     ? calculateMembershipYearWindow(actualCurrentConfig, clock()) : null;
-  const genuinelyInYearOne = !!(goLiveDate && actualCurrentYear
-    && clock().toISOString().slice(0, 10) >= goLiveDate
-    && determineMembershipYearNumber(goLiveDate, actualCurrentYear, actualCurrentConfig) === 1
+  // A tab with no joining date already projects Year 1 from today. Reuse that
+  // explicit assumption for display only, never as historical billing evidence.
+  const genuinelyInYearOne = !!(actualCurrentYear
+    && clock().toISOString().slice(0, 10) >= assumedGoLiveDate
+    && determineMembershipYearNumber(assumedGoLiveDate, actualCurrentYear, actualCurrentConfig) === 1
     && membershipYear.label === calculateNextMembershipYearWindow(actualCurrentConfig, clock()).label
     && clock() >= actualCurrentYear.start && clock() <= actualCurrentYear.end);
   const strictProspectiveInputs = prospectiveYear1 || (source === 'tab' && !explicitConfigId
@@ -660,12 +662,15 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
         const { data: liveField, error: fieldError } = await supabase.from('preference_field')
           .select('id').eq('tenant_id', tenantId).eq('entity_scope', 'organization')
           .eq('is_active', true).eq('name', 'go_live').maybeSingle();
-        if (fieldError || !liveField?.id || liveField.id !== goLiveFieldId) {
+        if (fieldError || (liveField?.id || null) !== goLiveFieldId) {
           throw new Error('Original joining date could not be verified.');
         }
-        const { data: liveDate, error: dateError } = await supabase.from('organization_preference_value')
-          .select('value').eq('organization_id', organizationId).eq('field_id', liveField.id).maybeSingle();
-        if (dateError || String(liveDate?.value || '').split('T')[0] !== goLiveDate) {
+        const { data: liveDate, error: dateError } = liveField?.id ? await supabase.from('organization_preference_value')
+          .select('value').eq('organization_id', organizationId).eq('field_id', liveField.id).maybeSingle()
+          : { data: null, error: null };
+        const rawLiveDate = String(liveDate?.value || '').trim();
+        const verifiedLiveDate = !rawLiveDate || rawLiveDate === 'null' ? null : rawLiveDate.split('T')[0];
+        if (dateError || verifiedLiveDate !== goLiveDate) {
           throw new Error('Original joining date could not be verified.');
         }
         prospectiveProjection = await simulateMembershipForOrg(tenantId, organizationId, {
@@ -714,7 +719,7 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
         }
       }
       incentiveRollover = prospectiveYear2
-        ? calculateProspectiveIncentiveRollover({ projection: prospectiveProjection, goLiveDate, annualCost })
+        ? calculateProspectiveIncentiveRollover({ projection: prospectiveProjection, goLiveDate: assumedGoLiveDate, annualCost })
         : calculateOriginalIncentiveRollover({
           history: firstYear, originalConfig, goLiveDate, annualCost,
           projectedAnnualCost: projection?.annualCost,
@@ -929,7 +934,7 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
 
   return {
     success: true,
-    ...(prospectiveYear2 ? { previewOnly: true } : {}),
+    ...(prospectiveYear2 ? { previewOnly: true, previewAssumedJoinDate: goLiveDate ? null : assumedGoLiveDate } : {}),
     org,
     config,
     incentiveConfig,
@@ -1138,9 +1143,9 @@ function determineMembershipYearNumber(goLiveDate, targetYear, config) {
   return yearNumber;
 }
 
-async function getGoLiveFieldId(tenantId) {
+async function getGoLiveFieldId(tenantId, strict = false) {
   try {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('preference_field')
       .select('id')
       .eq('tenant_id', tenantId)
@@ -1148,26 +1153,30 @@ async function getGoLiveFieldId(tenantId) {
       .eq('is_active', true)
       .eq('name', 'go_live')
       .maybeSingle();
+    if (error && strict) throw error;
     return data?.id || null;
-  } catch {
+  } catch (error) {
+    if (strict) throw new Error(`Could not load joining date field: ${error.message}`);
     return null;
   }
 }
 
-async function getOrgGoLiveDate(orgId, goLiveFieldId) {
+async function getOrgGoLiveDate(orgId, goLiveFieldId, strict = false) {
   if (!goLiveFieldId) return null;
   try {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('organization_preference_value')
       .select('value')
       .eq('organization_id', orgId)
       .eq('field_id', goLiveFieldId)
       .maybeSingle();
+    if (error && strict) throw error;
     if (!data?.value) return null;
     const dateStr = String(data.value).trim();
     if (!dateStr || dateStr === 'null') return null;
     return dateStr.split('T')[0];
-  } catch {
+  } catch (error) {
+    if (strict) throw new Error(`Could not load joining date: ${error.message}`);
     return null;
   }
 }

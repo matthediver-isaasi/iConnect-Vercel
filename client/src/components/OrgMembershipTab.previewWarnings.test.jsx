@@ -180,6 +180,32 @@ test("unrecorded Year 1 and prospective Year 2 display both figures but only Yea
   });
 });
 
+test("prospective current-year price has no record button even when the card requests it", async () => {
+  await mounted({
+    currentYearCost: { ...current, previewOnly: true },
+  }, async ({ container, calls }) => {
+    assert.ok(section(container, "current-year"));
+    assert.equal(container.querySelector('[data-testid="button-record-current"]'), null);
+    assert.equal(container.querySelector('[data-testid="button-simulate-current-year"]'), null);
+    assert.deepEqual(calls, []);
+  });
+});
+
+test("prospective Year 2 note names its assumed joining date when no joining date is set", async () => {
+  await mounted({
+    goLiveDate: null,
+    currentYearCost: { ...current, previewAssumedJoinDate: null },
+    nextYearPreview: { ...next, previewOnly: true, previewAssumedJoinDate: "2026-09-24" },
+    history: [],
+  }, async ({ container }) => {
+    const note = container.querySelector('[data-testid="prospective-estimate-next-year"]');
+    assert.match(note.textContent, /Joining date is not set/);
+    assert.match(note.textContent, /estimate assumes a joining date of 2026-09-24/);
+    assert.equal(container.querySelector('[data-testid="assumed-joining-date-current-year"]'), null);
+    assert.equal(container.querySelector('[data-testid="button-simulate-next-year"]'), null);
+  });
+});
+
 test("recorded Year 1 and verified Year 2 preserve the ordinary actions and no prospective label", async () => {
   await mounted({
     nextYearPreview: { ...next, previewOnly: false,

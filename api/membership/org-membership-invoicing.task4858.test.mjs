@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 
 // Only pure production modules are copied. All database/provider/email effects
 // terminate in this in-memory harness; run through run-isolated-tests.mjs.
-const state = { tables: {}, writes: [], invoices: [], duplicate: false, mismatch: false, authorized: true };
+const state = { tables: {}, writes: [], invoices: [], duplicate: false, mismatch: false, previewOnly: false, authorized: true };
 const RealDate = Date;
 class FixedDate extends RealDate {
   constructor(...args) { super(...(args.length ? args : ['2026-08-15T12:00:00Z'])); }
@@ -79,6 +79,7 @@ before(async () => {
         globalThis.__task4858.state.simulationOptions = args[2];
         const result = await createMembershipSimulator(supabase).simulateMembershipForOrg(...args);
         if (globalThis.__task4858.state.mismatch && result.success) result.membershipYear.label = '2027/2028';
+        if (globalThis.__task4858.state.previewOnly && result.success) result.previewOnly = true;
         return result;
       }`,
     'membershipConfigResolver.js': `import {createMembershipConfigResolver} from './membershipConfigResolverCore.js';
@@ -111,7 +112,7 @@ after(async () => {
   if (root) await rm(root, { recursive: true, force: true });
 });
 function reset() {
-  Object.assign(state, { writes: [], invoices: [], duplicate: false, mismatch: false, authorized: true, admin: true });
+  Object.assign(state, { writes: [], invoices: [], duplicate: false, mismatch: false, previewOnly: false, authorized: true, admin: true });
   state.tables = {
     organization: [{ id: 'org', tenant_id: 'tenant', name: 'Isolated organisation' }],
     membership_tier_config: [{
@@ -140,6 +141,14 @@ const history = extra => ({
 });
 for (const advance of [false, true]) {
   const mode = advance ? 'advance' : 'manual';
+  test(`${mode}: prospective simulation cannot be recorded or invoiced`, async () => {
+    reset(); state.previewOnly = true;
+    const res = await request(advance);
+    assert.equal(res.statusCode, 400, JSON.stringify(res.body));
+    assert.equal(res.body.code, 'prospective_membership_preview_only');
+    assert.deepEqual(state.writes, []);
+    assert.deepEqual(state.invoices, []);
+  });
   test(`${mode}: genuine initial history-free invoice uses real price and dates`, async () => {
     reset();
     const res = await request(advance);

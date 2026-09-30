@@ -182,6 +182,11 @@ export function YearCostSection({
         <div role="note" data-testid={`prospective-estimate-${testIdPrefix}`} className="mt-2 rounded-md border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30 p-3 text-sm">
           <p className="font-medium">Prospective estimate — not a purchased entitlement</p>
           <p className="text-muted-foreground">Year 1 has not been recorded. This Year 2 projection assumes the displayed Year 1 fee and incentive usage. Amounts may change when Year 1 is recorded; financial actions require a verified quote.</p>
+          {yearData.previewAssumedJoinDate && (
+            <p className="text-muted-foreground mt-1" data-testid={`assumed-joining-date-${testIdPrefix}`}>
+              Joining date is not set. This estimate assumes a joining date of {yearData.previewAssumedJoinDate}.
+            </p>
+          )}
         </div>
       )}
 
@@ -347,7 +352,7 @@ export function YearCostSection({
         )}
       </div>
 
-      {showRecordFee && (
+      {showRecordFee && !prospective && (
         <div className="mt-2">
           {currentYearRecorded ? (
             <Badge variant="secondary">

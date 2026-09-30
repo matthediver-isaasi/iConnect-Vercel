@@ -265,6 +265,12 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
   if (!simResult.success) {
     return res.status(400).json({ error: simResult.error || 'Simulation failed', code: simResult.code });
   }
+  if (simResult.previewOnly === true) {
+    return res.status(400).json({
+      error: 'This is only a prospective membership estimate. Record the preceding year and recalculate fees before invoicing.',
+      code: 'prospective_membership_preview_only',
+    });
+  }
   if (requestedYear && simResult.membershipYear?.label !== requestedYear) {
     return res.status(400).json({
       error: 'The calculated membership year does not match the requested invoice year.',
@@ -561,6 +567,12 @@ async function handleAdvanceInvoice(req, res, tenantId, tenantContext) {
 
   if (!simResult.success) {
     return res.status(400).json({ error: simResult.error || 'Simulation failed', code: simResult.code });
+  }
+  if (simResult.previewOnly === true) {
+    return res.status(400).json({
+      error: 'This is only a prospective membership estimate. Record the preceding year and recalculate fees before invoicing.',
+      code: 'prospective_membership_preview_only',
+    });
   }
   if (simResult.membershipYear?.label !== requestedYear) {
     return res.status(400).json({
