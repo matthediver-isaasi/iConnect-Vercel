@@ -3762,6 +3762,24 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
   const reverts = [];
   let deliveryClaim = null;
   let deliveryHadSuccessfulEffect = false;
+  // Reuse condition reads only within this one evaluation. Actions (including
+  // chained workflows) and reverts can change preferences before the next
+  // workflow is checked, so discard the snapshot at either boundary.
+  const preferenceConditionValues = new Map();
+  const readPreferenceCondition = async (table, foreignKey, recordId, conditionFieldId) => {
+    const key = JSON.stringify([table, recordId, conditionFieldId]);
+    if (preferenceConditionValues.has(key)) return preferenceConditionValues.get(key);
+    const { data, error } = await supabase
+      .from(table)
+      .select('value')
+      .eq(foreignKey, recordId)
+      .eq('field_id', conditionFieldId)
+      .single();
+    // Preserve the existing missing/error behaviour, but do not retain a
+    // failed query: a later condition should get another chance to read it.
+    if (!error) preferenceConditionValues.set(key, data?.value);
+    return data?.value;
+  };
   
   if (!supabase) {
     return {
@@ -3904,13 +3922,7 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
                 afterValue = value;
                 beforeValue = previousValue;
               } else {
-                const { data: prefValue } = await supabase
-                  .from('member_preference_value')
-                  .select('value')
-                  .eq('member_id', memberId)
-                  .eq('field_id', condition.field_id)
-                  .single();
-                afterValue = prefValue?.value;
+                afterValue = await readPreferenceCondition('member_preference_value', 'member_id', memberId, condition.field_id);
               }
             }
           } else if (isOrgCustom) {
@@ -3920,13 +3932,7 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
                 afterValue = value;
                 beforeValue = previousValue;
               } else {
-                const { data: prefValue } = await supabase
-                  .from('organization_preference_value')
-                  .select('value')
-                  .eq('organization_id', orgIdForCustomField)
-                  .eq('field_id', condition.field_id)
-                  .single();
-                afterValue = prefValue?.value;
+                afterValue = await readPreferenceCondition('organization_preference_value', 'organization_id', orgIdForCustomField, condition.field_id);
               }
             }
           }
@@ -4018,6 +4024,8 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
             }
           } catch (revertErr) {
             console.error(`[Workflows] Error reverting custom field trigger for "${workflow.name}":`, revertErr);
+          } finally {
+            preferenceConditionValues.clear();
           }
         } else if (reverts.some(r => r.field_id === fieldId)) {
           console.log(`[Workflows] Field ${fieldId} already reverted by another workflow - skipping for "${workflow.name}"`);
@@ -4031,7 +4039,14 @@ export async function triggerPreferenceWorkflows(entityType, entityId, fieldId, 
       const entityTable = entityType === 'organization' ? 'organization' : 'member';
       const { data: entityData } = await supabase.from(entityTable).select('*').eq('id', entityId).single();
       
-      const results = await executeWorkflowActions(workflow, entityType, entityId, entityData || {}, baseUrl, context);
+      let results;
+      try {
+        results = await executeWorkflowActions(workflow, entityType, entityId, entityData || {}, baseUrl, context);
+      } finally {
+        // Do not reuse pre-action values even if the action throws after a
+        // partial write, or a nested workflow updates a preference.
+        preferenceConditionValues.clear();
+      }
       await logWorkflowExecution(workflow, entityType, entityId, { field_id: fieldId, value: value, trigger_type: 'field_change', ...(context.systemInitiated ? { system_initiated: true, ...(context.triggeredByWorkflow ? { triggered_by_workflow: context.triggeredByWorkflow } : {}) } : {}) }, results);
       if (context.deliveryKey) {
         const deliveryOutcome = durableDeliveryOutcomeError(results, deliveryHadSuccessfulEffect);

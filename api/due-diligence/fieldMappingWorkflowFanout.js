@@ -19,6 +19,26 @@ function ambiguousFanoutFailure(context, cause) {
   return error;
 }
 
+function attachFanoutDiagnostics(error, event) {
+  // Keep the persisted payload out of diagnostics. The original last_error is
+  // only attached as a separate server-side property, never in the message.
+  // Only member mapping keys include an occurrence; legacy organization keys
+  // are deliberately left intact, without guessing an occurrence from them.
+  const occurrence = /^(?:core|preference):member:([^:]+):[^:]+:\d+$/
+    .exec(event.event_key || '')?.[1];
+  error.ddFanout = {
+    event_id: event.id,
+    event_key: event.event_key,
+    delivery_key: `dd-field-mapping:${event.id}`,
+    status: event.status,
+    ...(occurrence ? { stage_action_occurrence_id: occurrence } : {}),
+  };
+  if (event.status === 'requires_attention' && event.last_error) {
+    error.ddFanoutRecordedReason = event.last_error;
+  }
+  return error;
+}
+
 /**
  * Persist a field-mapping workflow event before its mapping action is marked
  * complete.  The action checkpoint can consequently never hide an unfanned-out
@@ -126,10 +146,14 @@ async function markFanout(event, status, error = null) {
       ...(error ? { last_error: String(error.message || error).slice(0, 2000) } : {}),
       updated_at: new Date().toISOString(),
     })
-    .eq('id', event.id);
+    .eq('id', event.id)
+    .eq('tenant_id', event.tenant_id)
+    .eq('form_submission_due_diligence_id', event.form_submission_due_diligence_id);
   if (updateError) {
     throw ambiguousFanoutFailure('Could not record field-mapping workflow fanout state', updateError);
   }
+  event.status = status;
+  if (error) event.last_error = String(error.message || error).slice(0, 2000);
 }
 
 async function claimFanout(event) {
@@ -141,10 +165,13 @@ async function claimFanout(event) {
       updated_at: new Date().toISOString(),
     })
     .eq('id', event.id)
+    .eq('tenant_id', event.tenant_id)
+    .eq('form_submission_due_diligence_id', event.form_submission_due_diligence_id)
     .eq('status', 'pending')
     .select('id')
     .maybeSingle();
   if (error) throw knownQueryFailure('Could not claim field-mapping workflow fanout', error);
+  if (data) event.status = 'processing';
   return Boolean(data);
 }
 
@@ -174,7 +201,6 @@ async function dispatchPreferenceFanout(event, baseUrl, dependencies) {
     const unknown = ambiguousFanoutFailure(
       `${targetEntity === 'member' ? 'Member preference' : 'Preference'} workflow delivery is not confirmed`,
     );
-    await markFanout(event, 'requires_attention', unknown);
     throw unknown;
   } catch (error) {
     // The optional delivery mode makes these query errors explicit before a
@@ -224,7 +250,6 @@ async function dispatchCoreFanout(event, baseUrl, dependencies) {
     const unknown = ambiguousFanoutFailure(
       `${targetLabel(targetEntity)} workflow delivery is not confirmed`,
     );
-    await markFanout(event, 'requires_attention', unknown);
     throw unknown;
   } catch (error) {
     // triggerWorkflows throws this specific error before it claims the
@@ -249,9 +274,9 @@ async function dispatchCoreFanout(event, baseUrl, dependencies) {
 }
 
 /**
- * Deliver every persisted event not already completed. A completed event is
- * never invoked again. A surviving processing event represents a worker that
- * died after dispatch began and is deliberately escalated instead of replayed.
+ * Deliver pending events only. A completed event is never invoked again.
+ * Processing may be owned by a live worker or interrupted; neither case can
+ * safely be reclaimed or replayed by this dispatcher.
  */
 export async function dispatchFieldMappingWorkflowFanouts({
   dueDiligenceSubmissionId,
@@ -259,37 +284,41 @@ export async function dispatchFieldMappingWorkflowFanouts({
   baseUrl,
   dependencies = {},
 }) {
-  const events = await loadPendingFanouts(dueDiligenceSubmissionId, tenantId);
+  const events = (await loadPendingFanouts(dueDiligenceSubmissionId, tenantId))
+    .sort((a, b) => (
+      String(a.event_key).localeCompare(String(b.event_key), 'en')
+      || String(a.id).localeCompare(String(b.id), 'en')
+    ));
   const runners = {
     triggerWorkflows: dependencies.triggerWorkflows || triggerWorkflows,
     triggerPreferenceWorkflows: dependencies.triggerPreferenceWorkflows || triggerPreferenceWorkflows,
   };
 
   for (const event of events) {
-    if (event.status === 'requires_attention') {
-      throw ambiguousFanoutFailure(
-        'A field-mapping workflow delivery requires attention and will not be replayed',
-      );
-    }
-    if (event.status === 'processing') {
-      const unknown = ambiguousFanoutFailure(
-        'A prior field-mapping workflow delivery was interrupted and requires attention',
-      );
-      await markFanout(event, 'requires_attention', unknown);
-      throw unknown;
-    }
-    if (!(await claimFanout(event))) {
-      // A concurrent worker owns it. It may have crossed an external boundary;
-      // treating that as complete or replaying it would both be unsafe. Do not
-      // overwrite the owner's processing row while it may still be active.
-      throw ambiguousFanoutFailure(
-        'Field-mapping workflow delivery ownership changed and requires attention',
-      );
-    }
-    if (event.event_type === 'core') {
-      await dispatchCoreFanout(event, baseUrl, runners);
-    } else {
-      await dispatchPreferenceFanout(event, baseUrl, runners);
+    try {
+      if (event.status === 'requires_attention') {
+        throw ambiguousFanoutFailure(
+          'A field-mapping workflow delivery requires attention and will not be replayed',
+        );
+      }
+      if (event.status === 'processing') {
+        throw ambiguousFanoutFailure(
+          'A field-mapping workflow delivery is processing or interrupted and will not be replayed',
+        );
+      }
+      if (!(await claimFanout(event))) {
+        // Another worker may own it; do not overwrite or replay its work.
+        throw ambiguousFanoutFailure(
+          'Field-mapping workflow delivery ownership changed and requires attention',
+        );
+      }
+      if (event.event_type === 'core') {
+        await dispatchCoreFanout(event, baseUrl, runners);
+      } else {
+        await dispatchPreferenceFanout(event, baseUrl, runners);
+      }
+    } catch (error) {
+      throw attachFanoutDiagnostics(error, event);
     }
   }
 }

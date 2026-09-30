@@ -4,6 +4,7 @@ import { supabase } from '../_lib/database.js';
 import {
   executeContractSendingActions,
   executeMeetingRequestActions,
+  executeEmailTemplateActions,
   executeMemberCreationActions,
 } from './_stageActions.js';
 
@@ -62,6 +63,9 @@ function createStatefulSupabase(state) {
     }
     if (table === 'stage_meeting_request') {
       return { data: state.meetingActions || [], error: null };
+    }
+    if (table === 'stage_email_action') {
+      return { data: state.emailActions || [], error: null };
     }
     if (table === 'agent_meeting_template') {
       return { data: [{ identity_id: 'agent-identity' }], error: null };
@@ -200,6 +204,72 @@ function contractState(signers = [{ email: 'signer@example.invalid', name: 'Sign
     meetingRequests: [],
   };
 }
+
+test('configured contract without its delivery template needs attention; already sent is a no-op', async () => {
+  const state = contractState();
+  state.contractForm.contract_settings = {};
+  await withStatefulSupabase(state, async () => {
+    const missing = await executeContractSendingActions(
+      ['contact-field'], submission, tenantId, 'system',
+    );
+    assert.equal(missing[0].status, 'requires_attention');
+    assert.match(missing[0].reason, /template/);
+
+    state.contractInstance.sent_at = '2025-01-01T00:00:00.000Z';
+    const alreadySent = await executeContractSendingActions(
+      ['contact-field'], submission, tenantId, 'system',
+    );
+    assert.equal(alreadySent[0].status, 'skipped');
+  });
+});
+
+test('configured meeting request without agent or recipient reports unmet delivery requirements', async () => {
+  const state = {
+    formSubmission: { form_id: 'source-form', submission_data: {}, organization_id: 'organization' },
+    meetingActions: [{
+      id: 'meeting-action', recipient_email_field: 'email',
+      meeting_template: { id: 'meeting-template', name: 'Meeting', email_template_id: 'email-template' },
+    }],
+    emailTemplate: { id: 'email-template', subject: 'Book', body: 'Book' },
+  };
+  await withStatefulSupabase(state, async () => {
+    const noRecipient = await executeMeetingRequestActions('stage', submission, tenantId, 'system');
+    assert.equal(noRecipient[0].status, 'requires_attention');
+    state.formSubmission.submission_data.email = 'recipient@example.invalid';
+    state.meetingActions[0].meeting_template = null;
+    const noTemplate = await executeMeetingRequestActions('stage', submission, tenantId, 'system');
+    assert.equal(noTemplate[0].status, 'requires_attention');
+    state.meetingActions[0].meeting_template = { id: 'meeting-template', name: 'Meeting', email_template_id: 'email-template' };
+    const originalFrom = supabase.from;
+    supabase.from = (table) => {
+      const query = originalFrom(table);
+      if (table === 'agent_meeting_template') query.then = resolve => Promise.resolve({ data: [], error: null }).then(resolve);
+      return query;
+    };
+    try {
+      const noAgent = await executeMeetingRequestActions('stage', submission, tenantId, 'system');
+      assert.equal(noAgent[0].status, 'requires_attention');
+    } finally {
+      supabase.from = originalFrom;
+    }
+  });
+});
+
+test('configured email action missing template or recipient requires attention; no configured action is a no-op', async () => {
+  const state = {
+    formSubmission: { form_id: 'source-form', submission_data: {}, organization_id: 'organization' },
+    emailActions: [{ id: 'email-action', recipient_email_field: 'email', email_template: null }],
+  };
+  await withStatefulSupabase(state, async () => {
+    const missingTemplate = await executeEmailTemplateActions('stage', submission, tenantId, 'system');
+    assert.equal(missingTemplate[0].status, 'requires_attention');
+    state.emailActions[0].email_template = { name: 'Welcome', subject: 'Hello', body: 'Hello' };
+    const missingRecipient = await executeEmailTemplateActions('stage', submission, tenantId, 'system');
+    assert.equal(missingRecipient[0].status, 'requires_attention');
+    state.emailActions = [];
+    assert.deepEqual(await executeEmailTemplateActions('stage', submission, tenantId, 'system'), []);
+  });
+});
 
 test('contract resolved provider failure leaves the contract uncheckpointed and unsent until retry', async () => {
   const state = contractState();

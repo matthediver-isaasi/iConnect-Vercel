@@ -3,6 +3,9 @@
   "buildCommand": "npx vite build",
   "outputDirectory": "dist/public",
   "functions": {
+    "api/due-diligence/update-status.js": {
+      "maxDuration": 300
+    },
     "api/cron/reconcile-booking-credits.js": {
       "maxDuration": 60
     },

@@ -56,8 +56,11 @@ async function apiRequest(method, url, body = null) {
   }
   const response = await fetch(url, options);
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Request failed' }));
-    throw new Error(error.error || 'Request failed');
+    const errorBody = await response.json().catch(() => ({ error: 'Request failed' }));
+    const error = new Error(errorBody.error || 'Request failed');
+    error.body = errorBody;
+    error.status = response.status;
+    throw error;
   }
   return response.json();
 }
@@ -1237,6 +1240,7 @@ export default function ReviewSubmissionPage() {
   const [staticQuestionNotes, setStaticQuestionNotes] = useState({});
   const [staticQuestionNotApplicable, setStaticQuestionNotApplicable] = useState({});
   const [workflowStatus, setWorkflowStatus] = useState('');
+  const [stageTransitionNotice, setStageTransitionNotice] = useState(null);
   const [isProcessingStatusChange, setIsProcessingStatusChange] = useState(false);
   const [notes, setNotes] = useState('');
   const [showNotesEditor, setShowNotesEditor] = useState(false);
@@ -1674,6 +1678,7 @@ export default function ReviewSubmissionPage() {
     },
     onSuccess: (data) => {
       setWorkflowStatus(data.new_status);
+      setStageTransitionNotice(null);
       queryClient.invalidateQueries({ queryKey: ['dd-submission', submissionId] });
       queryClient.invalidateQueries({ queryKey: ['contracts-by-submission', ddSubmission?.form_submission_id] });
       toast.success('Status updated successfully');
@@ -1718,8 +1723,24 @@ export default function ReviewSubmissionPage() {
         }
       }
     },
-    onError: (error) => {
-      toast.error('Failed to update status: ' + error.message);
+    onError: async (error) => {
+      const saved = error.body?.status_persisted === true;
+      const message = saved
+        ? 'Stage saved, but action completion needs attention. Actions have not been replayed. Contact an administrator.'
+        : 'The status update could not be confirmed. The current saved stage is being refreshed.';
+      setStageTransitionNotice(message);
+      toast.error(message);
+      if (saved && error.body?.persisted_status) {
+        setWorkflowStatus(error.body.persisted_status);
+      }
+      // Refresh even for network/server errors: the write may have committed
+      // before the response was lost. Do not optimistically roll the stage back.
+      await queryClient.invalidateQueries({ queryKey: ['dd-submission', submissionId] });
+      const authoritative = queryClient.getQueryData(['dd-submission', submissionId]);
+      if (authoritative?.submission?.workflow_status) {
+        setWorkflowStatus(authoritative.submission.workflow_status);
+      }
+      queryClient.invalidateQueries({ queryKey: ['contracts-by-submission', ddSubmission?.form_submission_id] });
     },
     onSettled: () => {
       setIsProcessingStatusChange(false); // Always release lock when mutation completes
@@ -2373,6 +2394,11 @@ export default function ReviewSubmissionPage() {
           
           <div className="flex flex-col gap-1">
             <Label className="text-xs">Status</Label>
+            {stageTransitionNotice && (
+              <p role="alert" className="max-w-xs text-sm text-amber-800" data-testid="stage-transition-notice">
+                {stageTransitionNotice}
+              </p>
+            )}
             <Select value={workflowStatus} onValueChange={handleStatusChange} data-testid="select-status">
               <SelectTrigger className="w-48">
                 <SelectValue />

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { supabase } from '../_lib/database.js';
 import { getSessionMember } from '../_lib/session.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
-import { sendEmail } from '../_lib/emailService.js';
+import { resolveMemberExclusions, makeFeatureAccessChecker } from '../_lib/memberFeatureAccess.js';
 import { executeStageActions } from './_stageActions.js';
 import { getPublicBaseUrl } from '../_lib/publicBaseUrl.js';
 
@@ -25,7 +25,18 @@ export default async function handler(req, res) {
     return res.status(403).json({ error: 'Tenant context required' });
   }
 
+  let persistedTransition = null;
   try {
+    if ((member.tenant_id || member.organization?.tenant_id) !== tenantCtx.tenantId) {
+      return res.status(403).json({ error: 'Reviewer access required' });
+    }
+    const exclusions = await resolveMemberExclusions({
+      roleId: member.role_id,
+      memberExcludedFeatures: member.member_excluded_features,
+    }, supabase, { requireRole: true });
+    if (!makeFeatureAccessChecker(exclusions).canAccessFeature('page_ReviewSubmission')) {
+      return res.status(403).json({ error: 'Reviewer access required' });
+    }
     const { submissionId, newStatus, customMessage, selectedAgentId } = req.body;
 
     if (!submissionId || !newStatus) {
@@ -63,26 +74,36 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: `Invalid status: ${newStatus}` });
     }
 
-    // Check selection conditions
+    const previousStatus = ddSubmission.workflow_status;
+    // This endpoint has no durable per-effect receipt for status webhooks or
+    // all stage actions. Never replay an existing occurrence (including legacy
+    // records without an occurrence). A saved stage alone is not completion
+    // evidence. In particular, do not resend webhooks before a blocked fanout.
+    if (previousStatus === newStatus) {
+      return res.status(409).json({
+        error: 'Stage is already saved. Action completion cannot be confirmed; no actions were replayed.',
+        code: 'DD_STAGE_ACTIONS_REQUIRE_ATTENTION',
+        status_persisted: true,
+        actions_require_attention: true,
+        persisted_status: previousStatus,
+        stage_action_occurrence_id: ddSubmission.stage_action_occurrence_id || null,
+      });
+    }
+    // Conditions gate new transitions, not acknowledgement of a saved stage.
     const conditionCheck = evaluateStageConditions(targetStage, ddSubmission);
     if (!conditionCheck.canSelect) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: 'Stage conditions not met',
         reasons: conditionCheck.reasons
       });
     }
-
-    const previousStatus = ddSubmission.workflow_status;
-    // The occurrence is persisted independently of updated_at. A retry of a
-    // committed same-stage request reuses it; an actual transition gets a new
-    // UUID in the same CAS update as workflow_status.
-    const transitionOccurrenceId = previousStatus === newStatus
-      ? (ddSubmission.stage_action_occurrence_id || randomUUID())
-      : randomUUID();
+    // Actual transitions get a fresh occurrence in the same CAS update. Same
+    // stage requests above retain their original identity without any writes.
+    const transitionOccurrenceId = randomUUID();
 
     // Update the status with tenant isolation and compare-and-swap on the
     // status read above. Only the winner may create a new stage occurrence.
-    const { data: transitionedSubmission, error: updateError } = await supabase
+    let transitionQuery = supabase
       .from('form_submission_due_diligence')
       .update({
         workflow_status: newStatus,
@@ -91,7 +112,11 @@ export default async function handler(req, res) {
       })
       .eq('id', submissionId)
       .eq('tenant_id', tenantCtx.tenantId)
-      .eq('workflow_status', previousStatus)
+      .eq('workflow_status', previousStatus);
+    transitionQuery = ddSubmission.stage_action_occurrence_id
+      ? transitionQuery.eq('stage_action_occurrence_id', ddSubmission.stage_action_occurrence_id)
+      : transitionQuery.is('stage_action_occurrence_id', null);
+    const { data: transitionedSubmission, error: updateError } = await transitionQuery
       .select('id, workflow_status, stage_action_occurrence_id')
       .maybeSingle();
 
@@ -102,6 +127,10 @@ export default async function handler(req, res) {
     if (!transitionedSubmission) {
       return res.status(409).json({ error: 'Due diligence status changed concurrently; retry the transition' });
     }
+    persistedTransition = {
+      persisted_status: transitionedSubmission.workflow_status,
+      stage_action_occurrence_id: transitionedSubmission.stage_action_occurrence_id || transitionOccurrenceId,
+    };
 
     // Add to history log
     await addHistoryLogEntry(submissionId, tenantCtx.tenantId, 'status_changed', member.email, {
@@ -132,7 +161,7 @@ export default async function handler(req, res) {
             id: webhook.id,
             name: webhook.name,
             success: false,
-            error: webhookErr.message
+            error: 'Webhook delivery could not be confirmed'
           });
         }
       }
@@ -156,9 +185,25 @@ export default async function handler(req, res) {
       }
     );
     const stageActionsResults = actionResults.stage_actions_results || [];
+    if (webhooksTriggered.some(result => !result.success)
+      || stageActionsResults.some(result => ['error', 'failed', 'partial', 'requires_attention'].includes(result.status))) {
+      console.error('[DD Status] Saved stage has unfinished actions:', {
+        submissionId, ...persistedTransition, stageActionsResults,
+      });
+      return res.status(409).json({
+        error: 'Stage saved, but some actions need attention. Do not repeat the transition.',
+        code: 'DD_STAGE_ACTIONS_REQUIRE_ATTENTION',
+        status_persisted: true,
+        actions_require_attention: true,
+        ...persistedTransition,
+      });
+    }
 
     return res.status(200).json({
       success: true,
+      status_persisted: true,
+      actions_require_attention: false,
+      ...persistedTransition,
       previous_status: previousStatus,
       new_status: newStatus,
       webhooks_triggered: webhooksTriggered,
@@ -167,6 +212,32 @@ export default async function handler(req, res) {
 
   } catch (error) {
     console.error('[DD Status] Error:', error);
+    if (persistedTransition) {
+      // Only the diagnostic identifiers are client-facing. The recorded reason,
+      // provider errors and payloads remain in the server log.
+      const diagnostic = {};
+      for (const key of ['event_id', 'event_key', 'delivery_key', 'status']) {
+        const value = error.ddFanout?.[key];
+        if (typeof value === 'string' && /^[a-zA-Z0-9_:./-]{1,512}$/.test(value)) {
+          diagnostic[key] = value;
+        }
+      }
+      console.error('[DD Status] Persisted stage action failure:', {
+        ...persistedTransition,
+        diagnostic,
+        // May describe an older occurrence's blocker, not this transition.
+        // Never include the recorded provider reason in the response below.
+        recorded_reason: error.ddFanoutRecordedReason || null,
+      });
+      return res.status(409).json({
+        error: 'Stage saved, but its actions need attention. Do not repeat the transition.',
+        code: 'DD_STAGE_ACTIONS_REQUIRE_ATTENTION',
+        status_persisted: true,
+        actions_require_attention: true,
+        ...persistedTransition,
+        diagnostic,
+      });
+    }
     return res.status(500).json({ error: 'Internal server error' });
   }
 }

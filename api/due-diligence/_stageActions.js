@@ -396,6 +396,9 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
   const formSubmissionId = ddSubmission.form_submission_id;
   if (!formSubmissionId) {
     console.log('[DD Contract Send] No form submission ID, skipping contract sending');
+    for (const fieldId of contactFieldIds) {
+      results.push({ action: 'send_contract', field_id: fieldId, status: 'requires_attention', reason: 'Form submission is missing' });
+    }
     return results;
   }
 
@@ -471,7 +474,7 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
         results.push({
           action: 'send_contract',
           field_id: fieldId,
-          status: 'skipped',
+          status: 'requires_attention',
           reason: 'Field not found or not a contract contact field'
         });
         continue;
@@ -495,7 +498,7 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
             action: 'send_contract',
             field_id: fieldId,
             field_label: field.label || field.name,
-            status: 'skipped',
+            status: 'requires_attention',
             reason: 'Multiple matching contract instances found - unable to determine correct one'
           });
           continue;
@@ -520,7 +523,7 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
             action: 'send_contract',
             field_id: fieldId,
             field_label: field.label || field.name,
-            status: 'skipped',
+            status: 'requires_attention',
             reason: 'No contact data found in form submission for this field'
           });
           continue;
@@ -615,7 +618,7 @@ export async function executeContractSendingActions(contactFieldIds, ddSubmissio
           field_id: fieldId,
           field_label: field.label || field.name,
           contract_instance_id: contractInstance.id,
-          status: 'skipped',
+          status: 'requires_attention',
           reason: 'No initial email template configured for contract form'
         });
         continue;
@@ -918,6 +921,10 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
     const formSubmissionId = ddSubmission.form_submission_id;
     if (!formSubmissionId) {
       console.log('[DD Stage Actions] No form submission ID, skipping meeting requests');
+      results.push(...meetingRequests.map(mr => ({
+        action: 'send_meeting_request', meeting_request_id: mr.id,
+        status: 'requires_attention', reason: 'Form submission is missing',
+      })));
       return results;
     }
 
@@ -953,7 +960,7 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
         results.push({
           action: 'send_meeting_request',
           meeting_request_id: mr.id,
-          status: 'skipped',
+          status: 'requires_attention',
           reason: 'Meeting template not found'
         });
         continue;
@@ -969,7 +976,7 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
           action: 'send_meeting_request',
           meeting_request_id: mr.id,
           template_name: template.name,
-          status: 'skipped',
+          status: 'requires_attention',
           reason: `No email found in field: ${mr.recipient_email_field}`
         });
         continue;
@@ -981,7 +988,7 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
           action: 'send_meeting_request',
           meeting_request_id: mr.id,
           template_name: template.name,
-          status: 'skipped',
+          status: 'requires_attention',
           reason: 'No email template configured for meeting type'
         });
         continue;
@@ -1006,7 +1013,7 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
           action: 'send_meeting_request',
           meeting_request_id: mr.id,
           template_name: template.name,
-          status: 'skipped',
+          status: 'requires_attention',
           reason: 'Email template not found',
         });
         continue;
@@ -1031,7 +1038,7 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
           action: 'send_meeting_request',
           meeting_request_id: mr.id,
           template_name: template.name,
-          status: 'skipped',
+          status: 'requires_attention',
           reason: 'No booking agents assigned to this meeting type'
         });
         continue;
@@ -1073,7 +1080,7 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
           action: 'send_meeting_request',
           meeting_request_id: mr.id,
           template_name: template.name,
-          status: 'skipped',
+          status: 'requires_attention',
           reason: 'Booking agent is not linked to a member'
         });
         continue;
@@ -1107,7 +1114,7 @@ export async function executeMeetingRequestActions(stageId, ddSubmission, tenant
           action: 'send_meeting_request',
           meeting_request_id: mr.id,
           template_name: template.name,
-          status: 'skipped',
+          status: 'requires_attention',
           reason: 'Booking agent has no handle configured'
         });
         continue;
@@ -1287,6 +1294,7 @@ export async function executeEmailTemplateActions(stageId, ddSubmission, tenantI
     const formSubmissionId = ddSubmission.form_submission_id;
     if (!formSubmissionId) {
       console.log('[DD Email Action] No form submission ID, skipping email actions');
+      results.push({ action: 'send_email_template', status: 'requires_attention', reason: 'Form submission is missing' });
       return results;
     }
 
@@ -1389,7 +1397,7 @@ export async function executeEmailTemplateActions(stageId, ddSubmission, tenantI
         results.push({
           action: 'send_email_template',
           email_action_id: ea.id,
-          status: 'skipped',
+          status: 'requires_attention',
           reason: 'Email template not found'
         });
         continue;
@@ -1437,7 +1445,7 @@ export async function executeEmailTemplateActions(stageId, ddSubmission, tenantI
           action: 'send_email_template',
           email_action_id: ea.id,
           template_name: template.name,
-          status: 'skipped',
+          status: 'requires_attention',
           reason: `No email found in field: ${ea.recipient_email_field}`
         });
         continue;
@@ -1631,6 +1639,10 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
     const formSubmissionId = ddSubmission.form_submission_id;
     if (!formSubmissionId) {
       console.log('[DD Member Action] No form submission ID, skipping member actions');
+      results.push(...memberActions.map(ma => ({
+        action: 'create_member', member_action_id: ma.id,
+        status: 'requires_attention', reason: 'Form submission is missing',
+      })));
       return results;
     }
 
@@ -1653,7 +1665,7 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
       console.log('[DD Member Action] No organization_id on form submission, skipping');
       results.push({
         action: 'create_member',
-        status: 'skipped',
+        status: 'requires_attention',
         reason: 'Form submission has no associated organization'
       });
       return results;
@@ -1725,7 +1737,7 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
         results.push({
           action: 'create_member',
           member_action_id: ma.id,
-          status: 'skipped',
+          status: 'requires_attention',
           reason: `No email found in field: ${ma.email_field}`
         });
         continue;
@@ -2120,7 +2132,8 @@ export async function executeMemberCreationActions(stageId, ddSubmission, tenant
         member_action_id: ma.id,
         member_id: newMember.id,
         email: normalizedEmail,
-        status: customFieldErrors.length > 0 || welcomeEmailFailure ? 'partial' : 'success',
+        status: customFieldErrors.length > 0 || welcomeEmailFailure
+          || customFieldOutcomes.some(outcome => outcome.status === 'skipped') ? 'partial' : 'success',
         custom_field_errors: customFieldErrors.length > 0 ? customFieldErrors : undefined,
         custom_field_outcomes: customFieldOutcomes.length > 0 ? customFieldOutcomes : undefined,
         welcome_email_error: welcomeEmailFailure?.message
@@ -2281,7 +2294,7 @@ async function executeMemberFieldMappingActions({
       action: 'field_mapping',
       field_mapping_action_id: action.id,
       target_entity: 'member',
-      status: 'skipped',
+      status: 'requires_attention',
       reason: 'Form submission has no linked member',
     }))];
   }
@@ -2303,7 +2316,7 @@ async function executeMemberFieldMappingActions({
       action: 'field_mapping',
       field_mapping_action_id: action.id,
       target_entity: 'member',
-      status: 'skipped',
+      status: 'requires_attention',
       reason: 'Linked member not found in this tenant',
     }))];
   }
@@ -2374,7 +2387,7 @@ async function executeMemberFieldMappingActions({
         !resolved.explicitEmpty
         && (resolved.value === undefined || resolved.value === null || resolved.value === '')
       ) {
-        mappingResults.push({ field: targetField, status: 'skipped', reason: 'Source value is empty' });
+        mappingResults.push({ field: targetField, status: 'requires_attention', reason: 'Source value is empty' });
         continue;
       }
 
@@ -2429,7 +2442,7 @@ async function executeMemberFieldMappingActions({
       } else {
         const prepared = prepareMemberCustomPreferenceValue(resolved.value, prefField);
         if (!prepared.ok) {
-          mappingResults.push({ field: targetField, status: 'skipped', reason: prepared.reason });
+          mappingResults.push({ field: targetField, status: 'requires_attention', reason: prepared.reason });
           continue;
         }
         storedValue = prepared.storedValue;
@@ -2477,7 +2490,7 @@ async function executeMemberFieldMappingActions({
       target_entity: 'member',
       member_id: linkedMemberId,
       mappings: mappingResults,
-      status: mappingResults.some((mapping) => mapping.status === 'error') ? 'partial' : 'success',
+      status: mappingResults.some((mapping) => ['error', 'requires_attention'].includes(mapping.status)) ? 'partial' : 'success',
     };
     results.push(result);
     await addHistoryLogEntry(ddSubmission.id, tenantId, 'field_mapping_executed', triggeredBy, {
@@ -2619,6 +2632,13 @@ export async function executeFieldMappingActions(stageId, ddSubmission, tenantId
       }));
     }
 
+    if (!organizationId && fieldMappingActions.length) {
+      results.push(...fieldMappingActions.map(action => ({
+        action: 'field_mapping', field_mapping_action_id: action.id,
+        target_entity: 'organization', status: 'requires_attention',
+        reason: 'Form submission has no associated organization',
+      })));
+    }
     if (!organizationId || fieldMappingActions.length === 0) {
       let noOrganizationBaseUrl = options.baseUrl;
       if (!noOrganizationBaseUrl) {
@@ -2889,6 +2909,7 @@ export async function executeFieldMappingActions(stageId, ddSubmission, tenantId
           // Check if static value is usable
           if (sourceValue === undefined || sourceValue === null || sourceValue === '') {
             console.log(`[DD Field Mapping] Static value for target ${target_field}: empty, skipping`);
+            mappingResults.push({ field: target_field, status: 'requires_attention', reason: 'Static source value is empty' });
             continue;
           }
           
@@ -2917,6 +2938,7 @@ export async function executeFieldMappingActions(stageId, ddSubmission, tenantId
             const isValueEmpty = sourceValue === undefined || sourceValue === null || sourceValue === '';
             if (isValueEmpty) {
               console.log(`[DD Field Mapping] field=${source_field_id} -> ${target_field} source=${valueSource} value=empty, skipping`);
+              mappingResults.push({ field: target_field, status: 'requires_attention', reason: 'Source value is empty' });
               continue;
             }
 
@@ -3281,7 +3303,7 @@ export async function executeFieldMappingActions(stageId, ddSubmission, tenantId
         }
       }
       
-      const mappingStatus = mappingResults.some(r => r.status === 'error') ? 'partial' : 'success';
+      const mappingStatus = mappingResults.some(r => ['error', 'requires_attention'].includes(r.status)) ? 'partial' : 'success';
       results.push({
         action: 'field_mapping',
         field_mapping_action_id: fma.id,
@@ -3907,7 +3929,7 @@ export async function executeZohoCrmActions(stageId, ddSubmission, tenantId, tri
           results.push({
             action: 'zoho_crm_create',
             action_id: action.id,
-            status: 'skipped',
+            status: 'requires_attention',
             reason: 'No organisation name found in submission'
           });
           continue;

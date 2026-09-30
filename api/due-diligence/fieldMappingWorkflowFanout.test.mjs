@@ -108,7 +108,12 @@ function createFieldMappingClient(state) {
             return { data: null, error: null };
           }
           if (operation === 'update') {
-            const row = state.outbox.find((item) => item.id === filters.id);
+            const row = state.outbox.find((item) => (
+              item.id === filters.id
+              && item.tenant_id === filters.tenant_id
+              && item.form_submission_due_diligence_id === filters.form_submission_due_diligence_id
+            ));
+            if (selected && filters.status === 'pending') state.onClaim?.(row);
             if (!row || (filters.status && row.status !== filters.status)) {
               return { data: null, error: null };
             }
@@ -193,6 +198,179 @@ async function withFieldMappingClient(state, callback) {
 }
 
 const ddSubmission = { id: 'dd', form_submission_id: 'submission' };
+
+function fanoutRow(overrides = {}) {
+  return {
+    id: 'event-1',
+    event_key: 'core:mapping:0',
+    event_type: 'core',
+    target_entity: 'organization',
+    organization_id: 'organization',
+    form_submission_due_diligence_id: 'dd',
+    tenant_id: 'tenant',
+    status: 'pending',
+    attempt_count: 0,
+    payload: { before: { name: 'Before' }, after: { name: 'After' } },
+    ...overrides,
+  };
+}
+
+const dispatchOptions = (dependencies) => ({
+  dueDiligenceSubmissionId: 'dd',
+  tenantId: 'tenant',
+  baseUrl: 'https://tenant.example',
+  dependencies,
+});
+
+function assertFanoutError(error, row, status) {
+  assert.equal(error.ddAmbiguousEffect || error.ddKnownQueryFailure, true);
+  assert.deepEqual(error.ddFanout, {
+    event_id: row.id,
+    event_key: row.event_key,
+    delivery_key: `dd-field-mapping:${row.id}`,
+    status,
+  });
+  assert.equal(JSON.stringify(error.ddFanout).includes('before'), false);
+  return true;
+}
+
+test('requires_attention keeps its original recorded reason and row untouched', async () => {
+  const row = fanoutRow({
+    status: 'requires_attention',
+    last_error: 'original workflow delivery uncertainty',
+    attempt_count: 2,
+  });
+  const state = { outbox: [row] };
+  const original = structuredClone(row);
+  let calls = 0;
+  await withFieldMappingClient(state, async () => {
+    await assert.rejects(dispatchFieldMappingWorkflowFanouts(dispatchOptions({
+      triggerWorkflows: async () => { calls += 1; },
+    })), (error) => {
+      assertFanoutError(error, row, 'requires_attention');
+      assert.equal(error.ddFanoutRecordedReason, original.last_error);
+      assert.equal(error.message.includes(original.last_error), false);
+      return true;
+    });
+  });
+  assert.deepEqual(row, original);
+  assert.equal(calls, 0);
+});
+
+test('member event diagnostics expose the occurrence without changing the event key or payload', async () => {
+  const row = fanoutRow({
+    status: 'requires_attention',
+    event_key: 'preference:member:transition-123:action-456:0',
+    event_type: 'preference',
+    target_entity: 'member',
+    member_id: 'member',
+    payload: { field_id: 'field', new_value: 'private value', previous_value: null },
+    last_error: 'original delivery uncertainty',
+  });
+  const original = structuredClone(row);
+  await withFieldMappingClient({ outbox: [row] }, async () => {
+    await assert.rejects(dispatchFieldMappingWorkflowFanouts(dispatchOptions({
+      triggerPreferenceWorkflows: async () => { throw new Error('must not replay'); },
+    })), (error) => {
+      assert.deepEqual(error.ddFanout, {
+        event_id: row.id,
+        event_key: original.event_key,
+        delivery_key: `dd-field-mapping:${row.id}`,
+        status: 'requires_attention',
+        stage_action_occurrence_id: 'transition-123',
+      });
+      assert.equal(JSON.stringify(error.ddFanout).includes('private value'), false);
+      assert.equal(error.ddFanoutRecordedReason, original.last_error);
+      return true;
+    });
+  });
+  assert.deepEqual(row, original);
+});
+
+test('processing rows are blocked without reclaiming, replaying, or rewriting their state', async () => {
+  for (const last_error of [null, 'interrupted worker original reason']) {
+    const row = fanoutRow({ status: 'processing', attempt_count: 3, last_error });
+    const state = { outbox: [row] };
+    const original = structuredClone(row);
+    let calls = 0;
+    await withFieldMappingClient(state, async () => {
+      await assert.rejects(dispatchFieldMappingWorkflowFanouts(dispatchOptions({
+        triggerWorkflows: async () => { calls += 1; },
+      })), (error) => assertFanoutError(error, row, 'processing'));
+    });
+    assert.deepEqual(row, original);
+    assert.equal(calls, 0);
+  }
+});
+
+test('a concurrent claim blocks dispatch without modifying or replaying the owned row', async () => {
+  const row = fanoutRow();
+  const state = {
+    outbox: [row],
+    onClaim: (candidate) => { candidate.status = 'processing'; candidate.attempt_count = 1; },
+  };
+  let calls = 0;
+  await withFieldMappingClient(state, async () => {
+    await assert.rejects(dispatchFieldMappingWorkflowFanouts(dispatchOptions({
+      triggerWorkflows: async () => { calls += 1; },
+    })), (error) => assertFanoutError(error, row, 'pending'));
+  });
+  assert.equal(row.status, 'processing');
+  assert.equal(row.attempt_count, 1);
+  assert.equal(row.last_error, undefined);
+  assert.equal(calls, 0);
+});
+
+test('completed and foreign-tenant/submission rows are skipped; relevant rows dispatch in event-key order', async () => {
+  const rows = [
+    fanoutRow({ id: 'event-b', event_key: 'core:b' }),
+    fanoutRow({ id: 'event-foreign-tenant', event_key: 'core:0', tenant_id: 'foreign' }),
+    fanoutRow({ id: 'event-complete', event_key: 'core:1', status: 'completed' }),
+    fanoutRow({ id: 'event-foreign-submission', event_key: 'core:2', form_submission_due_diligence_id: 'foreign' }),
+    fanoutRow({ id: 'event-a', event_key: 'core:a' }),
+  ];
+  const state = { outbox: rows };
+  const calls = [];
+  await withFieldMappingClient(state, async () => {
+    await dispatchFieldMappingWorkflowFanouts(dispatchOptions({
+      triggerWorkflows: async (_entity, _id, _before, _after, _type, _url, context) => {
+        calls.push(context.deliveryKey);
+        return { delivery: { status: 'completed' } };
+      },
+    }));
+  });
+  assert.deepEqual(calls, ['dd-field-mapping:event-a', 'dd-field-mapping:event-b']);
+  assert.deepEqual(rows.map((row) => row.status), [
+    'completed', 'pending', 'completed', 'pending', 'completed',
+  ]);
+});
+
+test('all dispatch failure paths include event correlation without payload diagnostics', async () => {
+  for (const [name, trigger, expectedStatus, expectedFlag] of [
+    ['core pre-effect query', async () => { throw new Error('load workflows for durable delivery failed: db down'); }, 'pending', 'ddKnownQueryFailure'],
+    ['core ambiguous', async () => { throw new Error('provider timed out'); }, 'requires_attention', 'ddAmbiguousEffect'],
+    ['core unconfirmed', async () => ({ delivery: { status: 'processing' } }), 'requires_attention', 'ddAmbiguousEffect'],
+  ]) {
+    const row = fanoutRow();
+    await withFieldMappingClient({ outbox: [row] }, async () => {
+      await assert.rejects(dispatchFieldMappingWorkflowFanouts(dispatchOptions({
+        triggerWorkflows: trigger,
+      })), (error) => {
+        assertFanoutError(error, row, expectedStatus);
+        assert.equal(error[expectedFlag], true, name);
+        return true;
+      });
+    });
+    assert.equal(row.status, expectedStatus);
+  }
+  const row = fanoutRow({ id: 'preference-event', event_key: 'preference:mapping:0', event_type: 'preference',
+    payload: { field_id: 'field', new_value: 'secret', previous_value: null } });
+  await withFieldMappingClient({ outbox: [row] }, async () => {
+    await assert.rejects(dispatchFieldMappingWorkflowFanouts(dispatchOptions({
+      triggerPreferenceWorkflows: async () => { throw new Error('provider timed out'); },
+    })), (error) => assertFanoutError(error, row, 'requires_attention'));
+  });
+});
 
 test('field mapping persists fanout before checkpoint and retry escalates an unconfirmed workflow without replay', async () => {
   const state = {
