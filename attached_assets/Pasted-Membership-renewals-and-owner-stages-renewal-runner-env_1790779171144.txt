@@ -1,0 +1,137 @@
+Membership renewals and owner stages
+renewal-runner-envelope
+unknown
+Tenant scheduled hour is 06:00 UTC; the current UTC hour has reached that threshold. Current rows meet the tenant-discovery predicate (an open-ended tier configuration or history awaiting expiry enforcement); the runner also retains previously discovered tenants. Actual billing eligibility remains unknown: membership_renewal_cron_tenants discovery and the protected membership_renewal_cron_state billing opportunity/date, done flag, stage and row cursor are not acquired or advanced. A new daily billing opportunity is registered only at/after the scheduled hour if absent, or if an older opportunity is done. A pending opportunity can resume even before today’s scheduled hour; an already-done opportunity for today does not rerun. Owner activation, annual renewals, Direct Debit renewals and reminders below are conditional on a registered, unfinished billing opportunity and its current stage/cursor. Pause restart is a separate pre-billing pass; annual expiry is a separate discovered-tenant pass, not gated by the billing hour/done flag. All passes still require the live lease, discovery and budget.
+
+Evidence checked 30 Sept 2026, 16:38
+
+pause-auto-restart
+skipped
+Membership is not paused.
+
+Evidence checked 30 Sept 2026, 16:38
+
+annual-expiry
+skipped
+History 16665b02-2396-43ff-a3e9-803fc9a7753f is not an expired annual non-recurring candidate.
+
+Evidence checked 30 Sept 2026, 16:38
+
+member-scheduled-activation
+skipped
+No scheduled membership has reached its activation date.
+
+Evidence checked 30 Sept 2026, 16:38
+
+member-annual-renewal
+skipped
+Owner has no automatic or scheduled annual invoicing setting.
+
+Evidence checked 30 Sept 2026, 16:38
+
+dd-renewals
+skipped
+before notice window
+
+Evidence checked 30 Sept 2026, 16:38
+
+owner-reminders
+skipped
+Membership history 16665b02-2396-43ff-a3e9-803fc9a7753f has not started.
+
+Evidence checked 30 Sept 2026, 16:38
+
+payment-link-reminders
+skipped
+Finished selected-owner payment-link reminder evaluation without a pending effect.
+
+Evidence checked 30 Sept 2026, 16:38
+
+owner-reminders
+skipped
+History 16665b02-2396-43ff-a3e9-803fc9a7753f is not a current trusted rolling reminder candidate.
+
+Evidence checked 30 Sept 2026, 16:38
+
+rolling-reminders
+skipped
+Finished selected-owner rolling reminder evaluation without a pending effect.
+
+Evidence checked 30 Sept 2026, 16:38
+
+fixed-reminders
+skipped
+Finished selected-owner fixed-cycle reminder evaluation without a pending effect.
+
+Evidence checked 30 Sept 2026, 16:38
+
+Arrears and post-grace collections
+access-policy
+skipped
+No expired-grace unapplied/restrict access policy is due.
+
+Evidence checked 30 Sept 2026, 16:38
+
+monthly-collection
+skipped
+No expired-grace monthly GoCardless collection sweep is due.
+
+Evidence checked 30 Sept 2026, 16:38
+
+Automatic payment retries
+automatic-retries
+skipped
+not_due
+
+Evidence checked 30 Sept 2026, 16:38
+
+GoCardless reconciliation
+dynamic-completion
+conditional
+Stopped before this operation. Subsequent work depends on its result; no claim, change, or collection was made.
+
+Evidence checked 30 Sept 2026, 16:38
+
+Ask the atomic completion transaction to check all reserved payments and settle the term if eligible. Membership settlement and the completion email outbox depend on its result; no completion is assumed. · conditional
+dynamic-completion-notification
+skipped
+No due pending completion notification exists for this plan.
+
+Evidence checked 30 Sept 2026, 16:38
+
+dynamic-collection
+skipped
+Plan is not due in the dynamic collection batch (provider, mode, lifecycle, horizon or next-check gate).
+
+Evidence checked 30 Sept 2026, 16:38
+
+stale-agreements
+skipped
+Not selected. Requires mandate_pending/payment_setup_required, needs_attention=false, a billing request, and updated_at older than three days (seven for payment setup)
+
+Evidence checked 30 Sept 2026, 16:38
+
+missing-subscription
+skipped
+Dynamic plans deliberately have no subscription
+
+Evidence checked 30 Sept 2026, 16:38
+
+subscription-drift
+skipped
+Not selected. Requires a subscription, first_payment_pending/active/payment_grace_period/payment_overdue, and updated_at older than one day
+
+Evidence checked 30 Sept 2026, 16:38
+
+stale-payments
+skipped
+Not selected. Requires pending/submitted payment older than ten days, or confirmed/paid_out payment older than fifteen minutes
+
+Evidence checked 30 Sept 2026, 16:38
+
+accounting-retry
+skipped
+Not selected. Requires confirmed/paid_out payment with failed/invoice_unpaid posting, or a posting claim older than fifteen minutes
+
+Evidence checked 30 Sept 2026, 16:38
+
