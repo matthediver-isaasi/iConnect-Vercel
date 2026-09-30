@@ -78,3 +78,32 @@ test('active send UIs dispatch shared feedback while test sends stay distinct', 
   assert.doesNotMatch(editorTestSend, /dispatchCampaignSendFeedback/);
   assert.doesNotMatch(groupTestSend, /dispatchCampaignSendFeedback/);
 });
+
+test('EmailCampaigns closes Send Now on queued success and polls active progress', async () => {
+  const notifier = recordingNotifier();
+  dispatchCampaignSendFeedback({ success: true, status: 'queued', sent: 0, pendingCount: 8 }, notifier);
+  assert.deepEqual(notifier.calls, [{
+    type: 'info',
+    message: 'Campaign queued. No emails have been accepted yet. 8 emails still queued.',
+  }]);
+
+  const source = await readFile(new URL('../components/EmailCampaigns.jsx', import.meta.url), 'utf8');
+  const sendNow = source.slice(
+    source.indexOf('const handleSendCampaign = async'),
+    source.indexOf('const handleScheduleCampaign = async'),
+  );
+  const schedule = source.slice(
+    source.indexOf('const handleScheduleCampaign = async'),
+    source.indexOf('const handleEmailPreview = async'),
+  );
+
+  assert.match(sendNow, /getCampaignSendFeedback\(result\)/);
+  assert.match(sendNow, /toast\[feedback\.type\]\(feedback\.message\)/);
+  assert.match(sendNow, /queryClient\.invalidateQueries\(\{ queryKey: \['email-campaigns'\] \}\)/);
+  assert.match(sendNow, /setShowPreviewDialog\(false\)/);
+  assert.doesNotMatch(sendNow, /(?:result\.)?(?:sent|sent_count)\s*>\s*0/);
+  assert.match(source, /refetchInterval: \(query\) => \{[\s\S]*?c\.status === 'sending'[\s\S]*?return 5000/);
+  assert.match(source, /campaign\.status === 'sending' && campaign\.total_recipients > 0/);
+  assert.match(schedule, /setScheduleMode\(false\)/);
+  assert.doesNotMatch(schedule, /getCampaignSendFeedback/);
+});

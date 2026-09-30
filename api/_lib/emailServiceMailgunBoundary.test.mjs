@@ -89,6 +89,33 @@ test('sendEmail omits rendered message content unless a trusted caller opts in',
   assert.equal(JSON.stringify(result).includes('CONFIDENTIAL'), false);
 });
 
+test('campaign-only deadline prevents submission and prevents late fallback after explicit domain rejection', async () => {
+  const calls = [];
+  const originalNow = Date.now;
+  let now = originalNow();
+  Date.now = () => now;
+  const dependencies = {
+    client: { messages: { create: async () => {
+      calls.push('provider');
+      now += 5000;
+      throw Object.assign(new Error('Unauthorized'), { status: 401 });
+    } } },
+    getTenantEmailConfig: async () => ({ domain: 'mail.tenant.test' }),
+    getEmailFooter: async () => null,
+  };
+  try {
+    const message = { to: 'test@example.test', subject: 'Test', html: '<p>Test</p>', tenantId: 'tenant' };
+    const skipped = await sendEmail({ ...message, campaignDeadlineAt: now + 5000 }, dependencies);
+    assert.equal(skipped.notSubmitted, true);
+    assert.equal(calls.length, 0);
+    const rejected = await sendEmail({ ...message, campaignDeadlineAt: now + 9000 }, dependencies);
+    assert.equal(rejected.notSubmitted, true);
+    assert.equal(calls.length, 1); // explicit auth rejection, no fallback call
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
 test('certificate-style bearer messages explicitly disable Mailgun domain click tracking', async () => {
   let message;
   const result = await sendEmail({

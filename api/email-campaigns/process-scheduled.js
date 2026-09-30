@@ -2,6 +2,7 @@ import { processScheduledCampaigns } from '../_lib/campaignService.js';
 import { createHeartbeatReporter, HEARTBEAT_ENV_VARS } from '../_lib/heartbeat.js';
 
 export default async function handler(req, res) {
+  const deadline = Date.now() + 38_000;
   const authHeader = req.headers.authorization;
   const cronSecret = process.env.CRON_SECRET;
 
@@ -15,7 +16,7 @@ export default async function handler(req, res) {
   });
 
   try {
-    const result = await processScheduledCampaigns();
+    const result = await processScheduledCampaigns({ deadline });
 
     if (!result.success) {
       await reportHeartbeat(false);

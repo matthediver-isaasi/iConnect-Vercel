@@ -30,6 +30,15 @@ export async function getCallerEmsAccess(req) {
     return { error: 'Database not configured', status: 500, tenantContext, memberId, groups: [] };
   }
 
+  return { ...await getMemberEmsAccess(memberId, tenantContext.tenantId), tenantContext };
+}
+
+// Same live authority check for the cron, which has no browser session. Never
+// infer continuing group authority merely from the original send claim.
+export async function getMemberEmsAccess(memberId, tenantId) {
+  if (!supabase || !memberId || !tenantId) {
+    return { error: 'Member group authority unavailable', status: 403, memberId, groups: [] };
+  }
   const nowIso = new Date().toISOString();
 
   // Pull the caller's active assignments. Filter expired rows in JS so we can
@@ -42,7 +51,7 @@ export async function getCallerEmsAccess(req) {
 
   if (assignErr) {
     console.error('[MemberGroupEmsAccess] assignment lookup failed:', assignErr.message || assignErr);
-    return { error: 'Failed to resolve group access', status: 500, tenantContext, memberId, groups: [] };
+    return { error: 'Failed to resolve group access', status: 500, memberId, groups: [] };
   }
 
   const liveAssignments = (assignments || []).filter((a) => {
@@ -53,7 +62,7 @@ export async function getCallerEmsAccess(req) {
   });
 
   if (liveAssignments.length === 0) {
-    return { tenantContext, memberId, groups: [] };
+    return { memberId, groups: [] };
   }
 
   const groupIds = [...new Set(liveAssignments.map((a) => a.group_id))];
@@ -61,12 +70,12 @@ export async function getCallerEmsAccess(req) {
   const { data: groupRows, error: groupErr } = await supabase
     .from('member_group')
     .select('id, name, is_active, roles, tenant_id, classification_id')
-    .eq('tenant_id', tenantContext.tenantId)
+    .eq('tenant_id', tenantId)
     .in('id', groupIds);
 
   if (groupErr) {
     console.error('[MemberGroupEmsAccess] group lookup failed:', groupErr.message || groupErr);
-    return { error: 'Failed to resolve group access', status: 500, tenantContext, memberId, groups: [] };
+    return { error: 'Failed to resolve group access', status: 500, memberId, groups: [] };
   }
 
   const activeGroups = new Map();
@@ -95,7 +104,7 @@ export async function getCallerEmsAccess(req) {
     });
   }
 
-  return { tenantContext, memberId, groups: qualifying };
+  return { memberId, groups: qualifying };
 }
 
 export function requireGroupAccess(qualifyingGroups, groupId) {

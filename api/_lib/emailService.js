@@ -219,7 +219,12 @@ async function replaceSocialPlaceholdersInFooter(footer, tenantId = null) {
   }
 }
 
-function getMailgunClient() {
+function getMailgunClient(timeoutMs = MAILGUN_TIMEOUT_MS) {
+  if (timeoutMs !== MAILGUN_TIMEOUT_MS && MAILGUN_API_KEY) {
+    const config = { username: 'api', key: MAILGUN_API_KEY, timeout: timeoutMs };
+    if (MAILGUN_REGION === 'eu') config.url = 'https://api.eu.mailgun.net';
+    return new Mailgun(formData).client(config);
+  }
   if (!mailgunClient && MAILGUN_API_KEY) {
     const mailgun = new Mailgun(formData);
     const config = {
@@ -273,9 +278,16 @@ export function mailgunSuccessMetadata(
 // domain and skip tenant-domain resolution entirely, regardless of tenantId.
 // Tenant→member messages (welcomes, reminders, campaigns, form notifications)
 // continue to resolve off tenantId as before.
-export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bcc, skipFooter = false, tenantId = null, contentWidth = null, enableTracking = false, disableTracking = false, unsubscribeUrl = null, campaignPreferences = null, attachments = null, testMode = false, systemEmail = false, inboxDelivery = null, deadlineAt = null, resolveTransactionalPreferences = true, includeRenderedContent = false }, dependencies = {}) {
+export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bcc, skipFooter = false, tenantId = null, contentWidth = null, enableTracking = false, disableTracking = false, unsubscribeUrl = null, campaignPreferences = null, attachments = null, testMode = false, systemEmail = false, inboxDelivery = null, deadlineAt = null, campaignDeadlineAt = null, resolveTransactionalPreferences = true, includeRenderedContent = false }, dependencies = {}) {
   if (deadlineAt && deadlineAt - Date.now() < MAILGUN_TIMEOUT_MS) {
     return { success: false, error: 'Worker deadline exhausted before Mailgun delivery' };
+  }
+  // Campaign workers can cap the *real socket timeout*, including a second
+  // fallback-domain attempt. Other mail retains its configured timeout.
+  const campaignTimeout = campaignDeadlineAt == null ? null
+    : Math.max(1000, Math.min(MAILGUN_TIMEOUT_MS, 5000, Math.floor((campaignDeadlineAt - Date.now() - 4000) / 2)));
+  if (campaignDeadlineAt != null && campaignDeadlineAt - Date.now() < 6000) {
+    return { success: false, notSubmitted: true, error: 'Campaign deadline exhausted before Mailgun delivery' };
   }
   if (!MAILGUN_API_KEY && !dependencies.client) {
     console.error('[Email Service] MAILGUN_API_KEY not configured');
@@ -285,7 +297,7 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
     };
   }
 
-  const client = dependencies.client || getMailgunClient();
+  const client = dependencies.client || getMailgunClient(campaignTimeout ?? MAILGUN_TIMEOUT_MS);
   if (!client) {
     return {
       success: false,
@@ -472,6 +484,9 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
 
     // Try sending with the tenant domain first
     try {
+      if (campaignDeadlineAt != null && campaignDeadlineAt - Date.now() < campaignTimeout * 2 + 2000) {
+        return { success: false, notSubmitted: true, error: 'Campaign deadline exhausted before Mailgun delivery' };
+      }
       attemptedDomain = domain;
       attemptedFromAddress = messageData.from;
       const response = await deliverMailgunMessage(client, domain, messageData);
@@ -488,6 +503,9 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
                           primaryError.status === 403;
       
       if (isAuthError && domain !== fallbackDomain) {
+        if (campaignDeadlineAt != null && campaignDeadlineAt - Date.now() < campaignTimeout + 2000) {
+          return { success: false, notSubmitted: true, error: 'Campaign deadline exhausted before fallback delivery' };
+        }
         console.warn(`[Email Service] Tenant domain ${domain} failed (${errorMsg}), falling back to ${fallbackDomain}`);
         
         // Update from address to use fallback domain

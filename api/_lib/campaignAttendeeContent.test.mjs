@@ -122,7 +122,7 @@ test('ordinary no-source content is unchanged and recipient data cannot inject t
 test('real and selected-source sends use the same resolver before tracking; no-source test validates before transport', async () => {
   const service = await readFile(new URL('./campaignService.js', import.meta.url), 'utf8');
   const route = await readFile(new URL('../email-campaigns/test-send.js', import.meta.url), 'utf8');
-  assert.match(service, /resolveCampaignAttendeeContent\(supabase, \{ \.\.\.campaign, html_content: html, subject \}, tenantId, recipient\)/);
+  assert.match(service, /resolveCampaignAttendeeContent\(recipientDb, \{ \.\.\.campaign, html_content: html, subject \}, tenantId, recipient\)/);
   assert.match(route, /sendToRecipient\(sourceRecipient, campaign, tenantId, tenantSlug, requestHost, composition, valid\[i\]\)/);
   assert.match(route, /await resolveCampaignAttendeeContent\(supabase, campaign, tenantId, null\)/);
 });
@@ -202,9 +202,9 @@ test('actual send failures, uncertain acceptance and retries preserve the delive
     });
     const send = () => sendToRecipient({ ...f.recipient, id: 'recipient' },
       { ...f.campaign, id: 'campaign' }, 'tenant', 'fixture', null, {});
-    assert.equal(await send(), 'failed');
+    assert.equal(await send(), ambiguousEffect ? 'processing' : 'failed');
     assert.equal(f.rows.campaign_survey_delivery[0].status, ambiguousEffect ? 'pending' : 'failed');
-    assert.equal(await send(), ambiguousEffect ? 'failed' : 'sent');
+    assert.equal(await send(), ambiguousEffect ? 'processing' : 'sent');
     assert.equal(sends, ambiguousEffect ? 1 : 2);
     assert.equal(f.rows.certificate_survey_entitlement.length, 1);
     if (!ambiguousEffect) {
@@ -212,6 +212,48 @@ test('actual send failures, uncertain acceptance and retries preserve the delive
       assert.equal(sends, 2);
     }
   }
+});
+
+test('real survey personalization aborts a slow read, releases pending and never reaches Mailgun', async () => {
+  const f = fixture();
+  f.rows.email_campaign_recipient = [{ id: 'slow-recipient', status: 'processing' }];
+  const originalFrom = f.db.from;
+  let readAborted = false;
+  f.db.from = table => {
+    const q = originalFrom(table);
+    if (table === 'booking') {
+      let signal;
+      q.abortSignal = value => { signal = value; return q; };
+      q.then = resolve => new Promise(done => {
+        signal.addEventListener('abort', () => {
+          readAborted = true;
+          done(resolve({ data: null, error: new Error('Aborted') }));
+        }, { once: true });
+      });
+    }
+    return q;
+  };
+  const source = (await readFile(new URL('./campaignService.js', import.meta.url), 'utf8'))
+    .replace(/import\s+[\s\S]*?\s+from\s+['"][^'"]+['"];?/g, '')
+    .replace(/export (async )?function /g, '$1function ');
+  let sends = 0;
+  const { sendToRecipient } = vm.runInNewContext(`${source}\n;({sendToRecipient})`, {
+    process: { env: {} }, crypto, Buffer, supabase: f.db, console,
+    AbortController, setTimeout, clearTimeout,
+    resolveCampaignAttendeeContent, resolveCampaignEventSurvey, replaceEventSurvey,
+    prepareCampaignSurveyDelivery, finishCampaignSurveyDelivery,
+    resolveCampaignEventSponsors, replaceEventSponsors, isStandaloneCampaignPreferencePlaceholder,
+    replacePlaceholders: text => text,
+    sendEmail: async () => { sends++; return { success: true }; },
+  });
+  const result = await sendToRecipient(
+    { ...f.recipient, id: 'slow-recipient' }, { ...f.campaign, id: 'campaign' },
+    'tenant', 'fixture', null, {}, null, { deadline: Date.now() + 120, recheckBeforeProvider: true },
+  );
+  assert.equal(result, 'stopped');
+  assert.equal(readAborted, true);
+  assert.equal(sends, 0);
+  assert.equal(f.rows.email_campaign_recipient[0].status, 'pending');
 });
 
 async function getInvitation(f, token, member = null) {

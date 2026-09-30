@@ -26,3 +26,11 @@ Source-recipient tests should use the ordinary campaign personalization path wit
 **Why:** the requested purpose is to verify fully populated event emails when the test destination is not an attendee. Fabricated attendee context would hide the failures the test is meant to expose.
 
 **How to apply:** retain the explicit warning against checking in or submitting surveys from test messages. Do not describe these tests as entirely side-effect-free: ordinary QR resolution may initialize missing tokens.
+
+## Campaign deadline and ambiguous delivery boundaries
+
+Queue delivery rather than waiting for provider sends in the interactive request. Worker budgets must cover personalization and transport fallback, not just loop entry.
+
+**Why:** A count-limited sequential batch exceeded the serverless deadline after accepting some emails. Cancellation raced acceptance recording; recipient status alone could not establish which emails were unsent.
+
+**How to apply:** Claim only immediately needed recipients, budget read-only personalization, await started writes, and retain ambiguous processing outcomes for provider reconciliation. Never reset them based on age or sweep them to cancelled. Ordinary noncampaign mail must not inherit campaign-only transport limits.
