@@ -28,13 +28,20 @@ export async function handleManualCollection(req, res, { db, tenantId, actor, ge
   res.setHeader('Cache-Control', 'private, no-store');
   const body = req.body || {};
   const execute = body.action === 'run_collection';
+  if (!actor) {
+    return res.status(403).json({ code: 'COLLECTION_ACTOR_REQUIRED', error: 'An authenticated collection actor is required' });
+  }
   const allowed = new Set(['action', 'planId', ...(execute ? ['confirmed', 'confirmationToken', 'reason'] : [])]);
   if (Object.keys(body).some(key => !allowed.has(key)) || typeof body.planId !== 'string' || !body.planId.trim()) {
     return res.status(400).json({ error: 'Only a selected plan and explicit confirmation are accepted; overrides are forbidden' });
   }
-  if (execute && (body.confirmed !== true || !/^[a-f0-9]{64}$/.test(body.confirmationToken || '')
-    || typeof body.reason !== 'string' || body.reason.trim().length < 10 || body.reason.length > 500 || !actor)) {
-    return res.status(400).json({ error: 'Explicit confirmation, identified actor and a 10–500 character reason are required' });
+  if (execute && (body.confirmed !== true || typeof body.confirmationToken !== 'string'
+    || !/^[a-f0-9]{64}$/.test(body.confirmationToken))) {
+    return res.status(400).json({ code: 'COLLECTION_CONFIRMATION_REQUIRED', error: 'Explicit confirmation and a valid confirmation token are required' });
+  }
+  const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+  if (execute && (reason.length < 10 || reason.length > 500)) {
+    return res.status(400).json({ code: 'COLLECTION_REASON_INVALID', error: 'A 10–500 character reason is required' });
   }
   const reads = readonlyTenantDatabase(db, tenantId);
   const plan = checked(await reads.from('membership_payment_plans').select('*').eq('id', body.planId).maybeSingle(), 'Plan lookup');
@@ -96,7 +103,7 @@ export async function handleManualCollection(req, res, { db, tenantId, actor, ge
         p_collection_number: candidate.payload.params.p_collection_number,
         p_amount_minor: candidate.amountMinor, p_currency: candidate.currency,
         p_charge_date: candidate.date, p_idempotency_key: candidate.payload.params.p_idempotency_key,
-        p_actor: actor, p_reason: body.reason.trim(),
+        p_actor: actor, p_reason: reason,
         p_identity: { agreement: candidate.payload.agreement.id,
           member: candidate.payload.agreement.member_id || null,
           organization: candidate.payload.agreement.organization_id || null,

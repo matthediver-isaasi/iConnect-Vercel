@@ -6,7 +6,7 @@ import { manualCollectionPeriodAllowed } from '../_lib/directDebitDynamicPipelin
 
 const response = () => ({ statusCode: 200, status(code) { this.statusCode = code; return this; },
   json(body) { this.body = body; return this; }, setHeader() {} });
-const auth = { getContext: async () => ({ tenantId: 'tenant', roleId: 'role', email: 'finance@example.test' }),
+const auth = { getContext: async () => ({ tenantId: 'tenant', roleId: 'role', tenantUserId: 'finance-user' }),
   adminAccess: async () => true, featureAccess: async () => true };
 const request = body => ({ method: 'POST', body, query: {} });
 function fixture() {
@@ -95,9 +95,63 @@ test('confirmed scoped attempt uses canonical pipeline, reports actual payment, 
   assert.equal(f.writes.filter(write => write.name === 'provider').length, 1);
   assert.equal((await f.invoke(body)).body.status, 'blocked');
   assert.equal(f.writes.filter(write => write.name === 'provider').length, 1);
-  assert.equal(f.writes.find(write => write.name === 'authorize_gocardless_manual_collection').params.p_actor, 'finance@example.test');
+  assert.equal(f.writes.find(write => write.name === 'authorize_gocardless_manual_collection').params.p_actor, 'tenant_user:finance-user');
   assert.ok(f.writes.filter(write => write.name === 'reserve_gocardless_dynamic_collection')
     .every(write => write.params.p_plan_id === 'plan' && write.params.p_provider_evidence.manual_authorization_id === 'auth'));
+});
+
+test('authenticated member and dual identities record the correct actor and trimmed reason', async () => {
+  for (const [ids, actor] of [
+    [{ memberId: 'finance-member' }, 'member:finance-member'],
+    [{ tenantUserId: 'finance-user', memberId: 'finance-member' }, 'tenant_user:finance-user'],
+  ]) {
+    const f = fixture();
+    const deps = { getContext: async () => ({ tenantId: 'tenant', roleId: 'role', ...ids }) };
+    const preview = await f.invoke({ action: 'preview_collection', planId: 'plan' }, deps);
+    const result = await f.invoke({ action: 'run_collection', planId: 'plan', confirmed: true,
+      confirmationToken: preview.body.confirmation.token, reason: `  ${'r'.repeat(500)}  ` }, deps);
+    assert.equal(result.body.status, 'submitted', JSON.stringify(result.body));
+    const params = f.writes.find(write => write.name === 'authorize_gocardless_manual_collection').params;
+    assert.equal(params.p_actor, actor);
+    assert.equal(params.p_reason, 'r'.repeat(500));
+  }
+});
+
+test('missing authenticated IDs fail closed, even with email or caller actor, without any effects', async () => {
+  const f = fixture();
+  f.db.from = () => assert.fail('No database reads expected');
+  f.db.rpc = () => assert.fail('No RPC expected');
+  const deps = { getContext: async () => ({ tenantId: 'tenant', roleId: 'role',
+    email: 'ignored@example.test', member: { email: 'ignored@example.test' } }),
+    collectionProvider: () => assert.fail('No provider access expected') };
+  for (const action of ['preview_collection', 'run_collection']) {
+    for (const extra of [{}, { actor: 'caller', actorEmail: 'caller@example.test' }]) {
+      const result = await f.invoke({ action, planId: 'plan', ...(action === 'run_collection' ? {
+        confirmed: true, confirmationToken: 'a'.repeat(64), reason: 'Valid finance reason',
+      } : {}), ...extra }, deps);
+      assert.equal(result.statusCode, 403);
+      assert.equal(result.body.code, 'COLLECTION_ACTOR_REQUIRED');
+    }
+  }
+  assert.deepEqual(f.writes, []);
+});
+
+test('confirmation and trimmed reason validation return distinct errors without effects', async () => {
+  const f = fixture();
+  f.db.from = () => assert.fail('No database reads expected');
+  const body = { action: 'run_collection', planId: 'plan', confirmed: true,
+    confirmationToken: 'a'.repeat(64), reason: 'Valid finance reason' };
+  for (const invalid of [{ confirmed: false }, { confirmationToken: 'bad' }, { confirmationToken: null }]) {
+    const result = await f.invoke({ ...body, ...invalid });
+    assert.equal(result.statusCode, 400);
+    assert.equal(result.body.code, 'COLLECTION_CONFIRMATION_REQUIRED');
+  }
+  for (const reason of [undefined, null, 123, ' '.repeat(20), '  short  ', 'r'.repeat(501)]) {
+    const result = await f.invoke({ ...body, reason });
+    assert.equal(result.statusCode, 400);
+    assert.equal(result.body.code, 'COLLECTION_REASON_INVALID');
+  }
+  assert.deepEqual(f.writes, []);
 });
 
 test('ambiguous provider acceptance never retries and changed confirmation fails closed', async () => {

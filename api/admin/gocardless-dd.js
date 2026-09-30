@@ -88,8 +88,10 @@ export default async function handler(req, res, {
           return res.status(403).json({ error: 'This action requires finance permission' });
         }
         try {
+          const actor = context.tenantUserId ? `tenant_user:${context.tenantUserId}`
+            : context.memberId ? `member:${context.memberId}` : null;
           return await handleManualCollection(req, res, {
-            db, tenantId, actor: actorEmail, getProvider: collectionProvider,
+            db, tenantId, actor, getProvider: collectionProvider,
           });
         } catch (error) {
           console.error('[manual-collection] request verification failed', error);
