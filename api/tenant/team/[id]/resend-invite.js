@@ -30,6 +30,9 @@ export default async function handler(req, res) {
   if (!tenantId) {
     return res.status(400).json({ error: 'No tenant context' });
   }
+  if (!['owner', 'admin'].includes(tenantUser.role)) {
+    return res.status(403).json({ error: 'Team management requires admin access' });
+  }
 
   try {
     const membershipId = req.query.id;
@@ -44,6 +47,8 @@ export default async function handler(req, res) {
         id,
         identity_id,
         role,
+        membership_type,
+        status,
         tenant_id,
         tenant_identity:identity_id (
           id,
@@ -56,8 +61,18 @@ export default async function handler(req, res) {
       .eq('tenant_id', tenantId)
       .single();
 
-    if (membershipError || !membership) {
+    if (membershipError) {
+      console.error('[Resend Invite] Membership lookup error:', membershipError);
+      return res.status(500).json({ error: 'Failed to look up team member' });
+    }
+    if (!membership) {
       return res.status(404).json({ error: 'Team member not found' });
+    }
+    if (membership.membership_type !== 'owner' && !['owner', 'admin', 'billing', 'viewer'].includes(membership.role)) {
+      return res.status(404).json({ error: 'Team member not found' });
+    }
+    if (membership.status !== 'active') {
+      return res.status(409).json({ error: 'This team membership is inactive' });
     }
 
     const identity = membership.tenant_identity;
@@ -65,17 +80,33 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Identity not found' });
     }
 
-    const resetToken = crypto.randomUUID();
+    const { data: credentials, error: credentialsError } = await supabase.from('tenant_identity')
+      .select('password_hash, google_id').eq('id', identity.id).single();
+    if (credentialsError || !credentials) {
+      return res.status(500).json({ error: 'Failed to look up account credentials' });
+    }
+    let hasTenantPassword = false;
+    if (!credentials.password_hash && !credentials.google_id) {
+      const { data: tenantCreds, error: tenantCredsError } = await supabase
+        .from('tenant_membership_credentials')
+        .select('password_hash').eq('identity_id', identity.id).eq('tenant_id', tenantId).maybeSingle();
+      if (tenantCredsError) {
+        return res.status(500).json({ error: 'Failed to look up account credentials' });
+      }
+      hasTenantPassword = !!tenantCreds?.password_hash;
+    }
+    const needsSetup = !credentials.password_hash && !credentials.google_id && !hasTenantPassword;
+    const resetToken = needsSetup ? crypto.randomUUID() : null;
     const resetExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
-    const { error: updateError } = await supabase
+    const { error: updateError } = needsSetup ? await supabase
       .from('tenant_identity')
       .update({
         reset_token: resetToken,
         reset_token_expires: resetExpires.toISOString(),
         updated_at: new Date().toISOString()
       })
-      .eq('id', identity.id);
+      .eq('id', identity.id) : { error: null };
 
     if (updateError) {
       console.error('[Resend Invite] Update error:', updateError);
@@ -107,13 +138,13 @@ export default async function handler(req, res) {
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; line-height: 1.6;">
           <p>Hi${identity.first_name ? ` ${identity.first_name}` : ''},</p>
           <p>${inviterName} has sent you a new invitation link for <strong>${tenantName}</strong>.</p>
-          <p>Click the button below to set up your password and access the admin portal as a <strong>${roleLabel}</strong>:</p>
+          <p>${needsSetup ? 'Set up your password' : 'Log in with your existing account'} to access the admin portal as a <strong>${roleLabel}</strong>:</p>
           <p style="margin: 30px 0; text-align: center;">
-            <a href="${setPasswordUrl}" style="background-color: #4f46e5; color: white; padding: 14px 28px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 500;">
-              Set Up Your Account
+            <a href="${needsSetup ? setPasswordUrl : `${protocol}://${adminHost}/admin/login`}" style="background-color: #4f46e5; color: white; padding: 14px 28px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 500;">
+              ${needsSetup ? 'Set Up Your Account' : 'Go to Admin Portal'}
             </a>
           </p>
-          <p>This invitation link will expire in 7 days.</p>
+          ${needsSetup ? '<p>This invitation link will expire in 7 days.</p>' : ''}
           <p>If you didn't expect this invitation, you can safely ignore this email.</p>
         </div>
       `;

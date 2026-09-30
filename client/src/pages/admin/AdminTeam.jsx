@@ -109,7 +109,7 @@ export default function AdminTeam() {
       setNewMember({ email: '', first_name: '', last_name: '', role: 'admin' });
       toast.success(data.member?.is_new_user 
         ? 'Team member added. They will receive an email to set their password.'
-        : 'Team member added successfully'
+        : 'Team member added. They can sign in with their existing account.'
       );
     },
     onError: (error) => {

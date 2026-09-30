@@ -666,6 +666,17 @@ async function tryPromoteMemberToTenantUser(session, req) {
       .single();
     
     if (directTenantUser) {
+      // A team revocation suspends the shared membership before it disables
+      // legacy tenant_user rows. Do not promote through that transient legacy
+      // entitlement, even if the legacy write fails.
+      const { data: suspended, error: suspendError } = await supabase
+        .from('tenant_membership')
+        .select('id')
+        .eq('identity_id', identityId)
+        .eq('tenant_id', targetTenantId)
+        .eq('status', 'inactive')
+        .limit(1);
+      if (suspendError || suspended?.length) return null;
       tenantUser = directTenantUser;
       console.log('[Session] Found tenant_user via identity_id lookup:', tenantUser.id);
     }
@@ -1051,6 +1062,27 @@ export async function getSessionTenantUser(req) {
     if (tenantUser.status !== 'active') {
       console.log('[Session] Tenant user inactive, rejecting request without deleting session:', tenantUser.id);
       return null;
+    }
+
+    // A suspended unified membership is the fail-closed fence for a team
+    // removal whose legacy tenant_user revocation is still in progress (or
+    // failed). Legacy sessions may only carry tenant_user.id rather than an
+    // identity ID, so resolve the tenant identity by the verified legacy email.
+    const { data: legacyIdentity, error: legacyIdentityError } = await supabase
+      .from('tenant_identity')
+      .select('id')
+      .eq('email', String(tenantUser.email || '').toLowerCase())
+      .maybeSingle();
+    if (legacyIdentityError) return null;
+    if (legacyIdentity) {
+      const { data: suspended, error: suspendedError } = await supabase
+        .from('tenant_membership')
+        .select('id')
+        .eq('identity_id', legacyIdentity.id)
+        .eq('tenant_id', session.data.tenantId)
+        .eq('status', 'inactive')
+        .limit(1);
+      if (suspendedError || suspended?.length) return null;
     }
     
     // Attach session metadata to the tenant user for downstream use
