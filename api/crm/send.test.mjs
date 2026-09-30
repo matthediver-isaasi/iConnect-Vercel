@@ -120,6 +120,49 @@ test('tenant-scoped admin send uses server member address and records Mailgun me
   });
 });
 
+test('rich member email preserves formatting but strips active markup, unsafe URLs and CSS', async () => {
+  const rich = '<h2>News</h2><p onclick="steal()"><strong>Hello</strong> <em>friend</em> '
+    + '<a href="https://example.test/info" style="background:url(https://tracker.test/a)">Details</a> '
+    + '<a href="javascript:alert(1)">Unsafe</a></p><script>alert(2)</script>'
+    + '<ul><li>First</li><li>Second</li></ul><img src=x onerror="steal()">';
+  const { res, deliveries, database } = await invoke({
+    body: { ...body, body: rich, bodyType: 'html' },
+  });
+  assert.equal(res.statusCode, 200);
+  const sent = deliveries[0];
+  assert.equal(sent.includeRenderedContent, true);
+  assert.match(sent.html, /<h2>News<\/h2>/);
+  assert.match(sent.html, /<strong>Hello<\/strong>/);
+  assert.match(sent.html, /<em>friend<\/em>/);
+  assert.match(sent.html, /href="https:\/\/example.test\/info"/);
+  assert.match(sent.html, /<ul><li>First<\/li><li>Second<\/li><\/ul>/);
+  assert.doesNotMatch(sent.html, /script|onclick|onerror|javascript:|<img|style=|tracker\.test/);
+  assert.match(sent.text, /Hello friend Details \(https:\/\/example.test\/info\) Unsafe/);
+  const history = database.operations.find(op => op.table === 'member_email').value;
+  assert.equal(history.body_content, '<div>Message</div><footer>Tenant footer</footer>');
+  assert.equal(history.body_preview, 'Message');
+  assert.equal(res.body.renderedHtml, undefined);
+  assert.equal(res.body.renderedText, undefined);
+});
+
+test('rich drafts without visible content are rejected before provider delivery', async () => {
+  for (const empty of [
+    '<p></p>',
+    '<p><br></p>',
+    '<p>&nbsp;&#x200b;&#8203;&#x2060;&lrm;&shy;&#xFE0F;</p>',
+    '<script>alert("hidden")</script><img src="https://example.test/a">',
+    '<a href="https://example.test"></a>',
+  ]) {
+    const { res, deliveries, database } = await invoke({
+      body: { ...body, body: empty, bodyType: 'html' },
+    });
+    assert.equal(res.statusCode, 400, empty);
+    assert.match(res.body.error, /body/i);
+    assert.equal(deliveries.length, 0);
+    assert.equal(database.operations.some(op => op.table === 'member_email'), false);
+  }
+});
+
 test('records the actual fallback domain and sender returned by Mailgun service', async () => {
   const { res, database } = await invoke({
     delivery: {

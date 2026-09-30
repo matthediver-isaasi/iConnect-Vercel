@@ -25,6 +25,10 @@ globalThis.ResizeObserver = class {
   unobserve() {}
   disconnect() {}
 };
+dom.window.Range.prototype.getClientRects = () => [];
+dom.window.Range.prototype.getBoundingClientRect = () => ({ top: 0, left: 0, bottom: 0, right: 0 });
+globalThis.requestAnimationFrame = callback => setTimeout(callback, 0);
+globalThis.cancelAnimationFrame = clearTimeout;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const React = (await import('react')).default;
@@ -57,6 +61,14 @@ function change(input, value) {
   setter.call(input, value);
   input.dispatchEvent(new Event('input', { bubbles: true }));
   input.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+async function changeBody(html) {
+  const editor = document.querySelector('[data-testid="rte-content"] .tiptap');
+  assert.ok(editor, 'expected TipTap message editor');
+  editor.innerHTML = html;
+  editor.dispatchEvent(new Event('input', { bubbles: true }));
+  await settle();
 }
 
 async function mount(overrides = {}) {
@@ -108,7 +120,7 @@ test('shows exact recipients and sends the pinned mailbox with parsed CC', async
     await act(async () => {
       change(cc, 'copy.one@example.com; copy.two@example.com');
       change(document.querySelector('[data-testid="input-email-subject"]'), 'Subject');
-      change(document.querySelector('[data-testid="input-email-body"]'), 'Message');
+      await changeBody('<p>Message</p>');
     });
     assert.match(
       document.querySelector('[data-testid="email-recipient-summary"]').textContent,
@@ -130,8 +142,8 @@ test('shows exact recipients and sends the pinned mailbox with parsed CC', async
       to: 'member.a@example.com',
       cc: 'copy.one@example.com, copy.two@example.com',
       subject: 'Subject',
-      body: 'Message',
-      bodyType: 'text',
+      body: '<p>Message</p>',
+      bodyType: 'html',
     });
     assert.equal(view.successCount, 1);
   } finally {
@@ -203,7 +215,9 @@ test('ignores a late send response after recipient context changes', async () =>
   try {
     await act(async () => {
       change(document.querySelector('[data-testid="input-email-subject"]'), 'Subject');
-      change(document.querySelector('[data-testid="input-email-body"]'), 'Message');
+    });
+    await changeBody('<p>Message</p>');
+    await act(async () => {
       document.querySelector('[data-testid="button-send-email"]')
         .dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
@@ -233,7 +247,9 @@ test('locks the draft when the server reports unknown provider acceptance', asyn
   try {
     await act(async () => {
       change(document.querySelector('[data-testid="input-email-subject"]'), 'Subject');
-      change(document.querySelector('[data-testid="input-email-body"]'), 'Message');
+    });
+    await changeBody('<p>Message</p>');
+    await act(async () => {
       document.querySelector('[data-testid="button-send-email"]')
         .dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
@@ -266,7 +282,9 @@ test('locks the draft when Mailgun reports an ambiguous acceptance effect', asyn
   try {
     await act(async () => {
       change(document.querySelector('[data-testid="input-email-subject"]'), 'Subject');
-      change(document.querySelector('[data-testid="input-email-body"]'), 'Message');
+    });
+    await changeBody('<p>Message</p>');
+    await act(async () => {
       document.querySelector('[data-testid="button-send-email"]')
         .dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
@@ -286,7 +304,9 @@ test('suppresses a late send callback after unmount', async () => {
   const view = await mount();
   await act(async () => {
     change(document.querySelector('[data-testid="input-email-subject"]'), 'Subject');
-    change(document.querySelector('[data-testid="input-email-body"]'), 'Message');
+  });
+  await changeBody('<p>Message</p>');
+  await act(async () => {
     document.querySelector('[data-testid="button-send-email"]')
       .dispatchEvent(new MouseEvent('click', { bubbles: true }));
   });
@@ -306,7 +326,9 @@ test('built-in close cannot clear the duplicate-send fence while sending', async
   try {
     await act(async () => {
       change(document.querySelector('[data-testid="input-email-subject"]'), 'Subject');
-      change(document.querySelector('[data-testid="input-email-body"]'), 'Message');
+    });
+    await changeBody('<p>Message</p>');
+    await act(async () => {
       document.querySelector('[data-testid="button-send-email"]')
         .dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
@@ -334,6 +356,115 @@ test('built-in close cannot clear the duplicate-send fence while sending', async
     await settle();
     assert.equal(requestCount, 1);
     assert.equal(view.successCount, 1);
+  } finally {
+    await view.cleanup();
+  }
+});
+
+test('formatting, inline links, and HTML payload survive a rejected send for editing', async () => {
+  const requests = [];
+  globalThis.fetch = async (_url, options) => {
+    requests.push(JSON.parse(options.body));
+    return response({ error: 'Provider rejected message' }, 502);
+  };
+  const view = await mount();
+  try {
+    await act(async () => change(document.querySelector('[data-testid="input-email-subject"]'), 'Formatted'));
+    await changeBody('<p>Hello world</p>');
+    const editor = document.querySelector('[data-testid="rte-content"] .tiptap');
+    const selectText = () => {
+      editor.editor.commands.setTextSelection({ from: 1, to: 12 });
+    };
+    selectText();
+    await act(async () => document.querySelector('[data-testid="button-rte-bold"]').click());
+    assert.match(editor.innerHTML, /<strong>Hello world<\/strong>/);
+    selectText();
+    await act(async () => document.querySelector('[data-testid="button-rte-add-link"]').click());
+    await act(async () => change(document.querySelector('[data-testid="input-rte-link-url"]'), 'https://example.com/news'));
+    await act(async () => document.querySelector('[data-testid="button-rte-save-link"]').click());
+    assert.match(editor.innerHTML, /href="https:\/\/example.com\/news"/);
+    await act(async () => document.querySelector('[data-testid="button-send-email"]').click());
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].bodyType, 'html');
+    assert.match(requests[0].body, /<strong>/);
+    assert.match(requests[0].body, /href="https:\/\/example.com\/news"/);
+    assert.equal(document.querySelector('[data-testid="input-email-subject"]').value, 'Formatted');
+    assert.equal(editor.getAttribute('contenteditable'), 'true');
+
+    selectText();
+    await act(async () => document.querySelector('[data-testid="button-rte-add-link"]').click());
+    assert.equal(document.querySelector('[data-testid="input-rte-link-url"]').value, 'https://example.com/news');
+    await act(async () => change(document.querySelector('[data-testid="input-rte-link-url"]'), 'https://example.com/updated'));
+    await act(async () => document.querySelector('[data-testid="button-rte-save-link"]').click());
+    assert.match(editor.innerHTML, /example.com\/updated/);
+    selectText();
+    await act(async () => document.querySelector('[data-testid="button-rte-remove-link"]').click());
+    assert.doesNotMatch(editor.innerHTML, /href=/);
+  } finally {
+    await view.cleanup();
+  }
+});
+
+test('empty markup cannot send; pending and uncertain delivery lock the whole draft', async () => {
+  let resolveRequest;
+  let count = 0;
+  globalThis.fetch = () => {
+    count += 1;
+    return new Promise(resolve => { resolveRequest = resolve; });
+  };
+  const view = await mount();
+  try {
+    await act(async () => change(document.querySelector('[data-testid="input-email-subject"]'), 'Subject'));
+    await changeBody('<p> &nbsp; </p><ul><li><p> </p></li></ul>');
+    assert.equal(document.querySelector('[data-testid="button-send-email"]').disabled, true);
+    await changeBody('<p>Actual message</p>');
+    await act(async () => document.querySelector('[data-testid="button-send-email"]').click());
+    assert.equal(count, 1);
+    assert.equal(document.querySelector('[data-testid="input-email-cc"]').disabled, true);
+    assert.equal(document.querySelector('[data-testid="input-email-subject"]').disabled, true);
+    assert.equal(document.querySelector('[data-testid="rte-content"] .tiptap').getAttribute('contenteditable'), 'false');
+    assert.equal(document.querySelector('[data-testid="button-rte-bold"]').disabled, true);
+    await act(async () => resolveRequest(response({ deliveryUnknown: true }, 502)));
+    assert.equal(document.querySelector('[data-testid="input-email-cc"]').disabled, true);
+    assert.equal(document.querySelector('[data-testid="input-email-subject"]').disabled, true);
+    assert.equal(document.querySelector('[data-testid="rte-content"] .tiptap').getAttribute('contenteditable'), 'false');
+    assert.equal(document.querySelector('[data-testid="button-send-email"]').disabled, true);
+  } finally {
+    await view.cleanup();
+  }
+});
+
+test('italic, underline and both list formats are available in the composer', async () => {
+  const view = await mount();
+  try {
+    await changeBody('<p>Some text</p>');
+    const editor = document.querySelector('[data-testid="rte-content"] .tiptap');
+    editor.editor.commands.setTextSelection({ from: 1, to: 10 });
+    await act(async () => document.querySelector('[data-testid="button-rte-italic"]').click());
+    assert.match(editor.innerHTML, /<em>Some text<\/em>/);
+    editor.editor.commands.setTextSelection({ from: 1, to: 10 });
+    await act(async () => document.querySelector('[data-testid="button-rte-underline"]').click());
+    assert.match(editor.innerHTML, /<u>/);
+    await act(async () => document.querySelector('[data-testid="button-rte-bullet-list"]').click());
+    assert.match(editor.innerHTML, /<ul>/);
+    await act(async () => document.querySelector('[data-testid="button-rte-numbered-list"]').click());
+    assert.match(editor.innerHTML, /<ol>/);
+  } finally {
+    await view.cleanup();
+  }
+});
+
+test('closing and reopening clears rich text and link controls', async () => {
+  const view = await mount();
+  try {
+    await changeBody('<p>A previous message</p>');
+    await act(async () => document.querySelector('[data-testid="button-rte-add-link"]').click());
+    assert.ok(document.querySelector('[data-testid="input-rte-link-url"]'));
+    await view.render({ open: false });
+    await view.render({ open: true });
+    assert.doesNotMatch(document.querySelector('[data-testid="rte-content"] .tiptap').textContent, /previous message/);
+    assert.equal(document.querySelector('[data-testid="input-rte-link-url"]'), null);
+    assert.equal(document.querySelector('[data-testid="button-send-email"]').disabled, true);
   } finally {
     await view.cleanup();
   }

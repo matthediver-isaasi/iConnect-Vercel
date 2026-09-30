@@ -75,7 +75,7 @@ function serviceDependencies(client) {
   };
 }
 
-async function invoke({ cc, create }) {
+async function invoke({ cc, create, body = 'Line <one>', bodyType = 'text' }) {
   const calls = [];
   const client = {
     messages: {
@@ -97,8 +97,8 @@ async function invoke({ cc, create }) {
         to: 'member@example.test',
         ...(cc === undefined ? {} : { cc }),
         subject: 'Subject',
-        body: 'Line <one>',
-        bodyType: 'text',
+        body,
+        bodyType,
       },
     },
     res,
@@ -153,6 +153,36 @@ test('CRM route reaches the real Mailgun orchestration with exact rendered envel
       { address: 'two@example.test', name: null },
     ],
   );
+});
+
+test('formatted CRM message reaches Mailgun safely and history stores the exact footer-personalized rendering', async () => {
+  const result = await invoke({
+    body: '<p><strong>Hello</strong> <a href="https://example.test/news">news</a></p>'
+      + '<p><a href="javascript:alert(1)" onclick="alert(1)">Unsafe</a></p>'
+      + '<script>evil()</script>',
+    bodyType: 'html',
+    create: async () => ({ id: '<rich@mailgun.test>' }),
+  });
+  assert.equal(result.res.statusCode, 200);
+  assert.equal(result.calls.length, 1);
+  const { envelope } = result.calls[0];
+  assert.equal(
+    envelope.html,
+    '<p><strong>Hello</strong> <a href="https://example.test/news">news</a></p>'
+      + '<p><a>Unsafe</a></p>'
+      + wrapEmailFooter('<p>Footer https://example.test/tenant</p>')
+      + '<p>Preference resolved</p>',
+  );
+  assert.equal(
+    envelope.text,
+    'Hello news (https://example.test/news)\nUnsafe|preference-resolved',
+  );
+  assert.equal(envelope.subject, 'Resolved Subject');
+  assert.equal(result.database.history[0].body_content, envelope.html);
+  assert.equal(result.database.history[0].subject, envelope.subject);
+  assert.equal(result.database.history[0].body_preview, envelope.text.slice(0, 255));
+  assert.equal(result.res.body.renderedHtml, undefined);
+  assert.equal(result.res.body.renderedText, undefined);
 });
 
 test('explicit tenant-domain rejection falls back once and records the actual fallback From', async () => {

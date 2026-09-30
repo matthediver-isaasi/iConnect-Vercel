@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
+import SimpleRichTextEditor from './SimpleRichTextEditor';
 import {
   Dialog,
   DialogContent,
@@ -17,6 +17,13 @@ import {
   normalizeMemberEmailAddress,
   parseMemberEmailCc,
 } from '@shared/memberEmailRecipients.mjs';
+
+function hasMessageText(html) {
+  if (!html) return false;
+  const element = document.createElement('div');
+  element.innerHTML = html;
+  return !!element.textContent?.replace(/\u00a0/g, ' ').trim();
+}
 
 export default function ComposeEmailModal({ 
   open, 
@@ -36,6 +43,8 @@ export default function ComposeEmailModal({
   const [recipientError, setRecipientError] = useState('');
   const [ccError, setCcError] = useState('');
   const [deliveryUncertain, setDeliveryUncertain] = useState(false);
+  const bodyHasText = hasMessageText(body);
+  const draftLocked = sending || deliveryUncertain;
   const contextKey = `${tenantId || ''}\u0000${memberId || ''}\u0000${memberEmail || ''}`;
   const contextRef = useRef(contextKey);
   const wasOpenRef = useRef(false);
@@ -109,7 +118,7 @@ export default function ComposeEmailModal({
   };
 
   const handleSend = async () => {
-    if (!subject.trim() || !body.trim()) {
+    if (!subject.trim() || !bodyHasText) {
       toast({
         title: 'Missing Fields',
         description: 'Please enter a subject and message body',
@@ -152,8 +161,8 @@ export default function ComposeEmailModal({
           to: recipient,
           cc: ccRecipients.join(', '),
           subject: subject.trim(),
-          body: body.trim(),
-          bodyType: 'text'
+          body,
+          bodyType: 'html'
         })
       });
 
@@ -228,7 +237,7 @@ export default function ComposeEmailModal({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
-        className="sm:max-w-[600px]"
+        className="flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] flex-col sm:max-w-[600px]"
         onEscapeKeyDown={(event) => {
           if (sendInFlightRef.current) event.preventDefault();
         }}
@@ -246,7 +255,7 @@ export default function ComposeEmailModal({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto py-2 pr-1 sm:py-4">
           <div className="space-y-2">
             <Label htmlFor="to">To</Label>
             <Input
@@ -264,6 +273,7 @@ export default function ComposeEmailModal({
               id="cc"
               value={cc}
               onChange={handleCcChange}
+              disabled={draftLocked}
               placeholder="one@example.com, two@example.com"
               aria-invalid={ccError ? 'true' : undefined}
               data-testid="input-email-cc"
@@ -288,6 +298,7 @@ export default function ComposeEmailModal({
               id="subject"
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
+              disabled={draftLocked}
               placeholder="Enter subject..."
               data-testid="input-email-subject"
             />
@@ -295,13 +306,14 @@ export default function ComposeEmailModal({
 
           <div className="space-y-2">
             <Label htmlFor="body">Message</Label>
-            <Textarea
+            <SimpleRichTextEditor
               id="body"
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
+              aria-label="Message"
+              content={body}
+              onChange={setBody}
+              disabled={draftLocked}
               placeholder="Write your message..."
-              rows={8}
-              data-testid="input-email-body"
+              className="min-h-[160px]"
             />
           </div>
         </div>
@@ -317,7 +329,7 @@ export default function ComposeEmailModal({
           </Button>
           <Button
             onClick={handleSend}
-            disabled={sending || deliveryUncertain || !!recipientError || !!ccError || !recipient || !subject.trim() || !body.trim()}
+            disabled={draftLocked || !!recipientError || !!ccError || !recipient || !subject.trim() || !bodyHasText}
             data-testid="button-send-email"
           >
             {sending ? (

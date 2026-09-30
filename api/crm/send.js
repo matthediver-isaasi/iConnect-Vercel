@@ -3,6 +3,8 @@ import { supabase } from '../_lib/database.js';
 import { sendEmail } from '../_lib/emailService.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { normalizeMemberEmailAddress, parseMemberEmailCc } from '../../shared/memberEmailRecipients.mjs';
+import { JSDOM } from 'jsdom';
+import { sanitizeSlotHtml } from '../_lib/slotHtmlSanitizer.js';
 
 const ALLOWED_FIELDS = new Set([
   'memberId', 'tenantId', 'to', 'cc', 'subject', 'body', 'bodyType',
@@ -27,6 +29,46 @@ function textToHtml(value) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')}</div>`;
+}
+
+function prepareHtmlBody(value) {
+  // The shared formatting allowlist removes active markup and unsafe hrefs.
+  // CRM messages do not require arbitrary inline CSS or classes, which may
+  // contain external resource URLs even on otherwise allowed elements.
+  const document = new JSDOM(`<body>${sanitizeSlotHtml(value)}</body>`).window.document;
+  const blocks = new Set(['P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'UL', 'OL', 'BLOCKQUOTE', 'PRE']);
+  let plainText = '';
+  function visit(node) {
+    if (node.nodeType === 3) {
+      plainText += node.nodeValue;
+      return;
+    }
+    if (node.nodeType !== 1) return;
+    if (node.tagName === 'BR') {
+      plainText += '\n';
+      return;
+    }
+    node.removeAttribute('style');
+    node.removeAttribute('class');
+    for (const child of node.childNodes) visit(child);
+    if (node.tagName === 'A') {
+      const href = node.getAttribute('href');
+      const label = node.textContent.trim();
+      if (href && label && label !== href) plainText += ` (${href})`;
+    }
+    if (blocks.has(node.tagName)) plainText += '\n';
+  }
+  for (const child of document.body.childNodes) visit(child);
+  const html = document.body.innerHTML.trim();
+  const text = plainText.trim();
+  // TipTap emits e.g. <p></p> for empty drafts. Decode entities via the
+  // parser before checking so &#8203;, &nbsp;, and similar invisible-only
+  // drafts cannot be sent as messages.
+  const visible = document.body.textContent.replace(
+    /[\s\p{Default_Ignorable_Code_Point}]/gu,
+    '',
+  );
+  return { html, text, hasVisibleText: visible.length > 0 };
 }
 
 export async function handleCrmSend(req, res, dependencies = {}) {
@@ -92,6 +134,10 @@ export async function handleCrmSend(req, res, dependencies = {}) {
     if (!['text', 'html'].includes(bodyType)) {
       return res.status(400).json({ error: 'Invalid message options' });
     }
+    const htmlBody = bodyType === 'html' ? prepareHtmlBody(body) : null;
+    if (htmlBody && !htmlBody.hasVisibleText) {
+      return res.status(400).json({ error: 'Missing required fields: subject, body' });
+    }
 
     let clientTo;
     let ccAddresses;
@@ -136,7 +182,7 @@ export async function handleCrmSend(req, res, dependencies = {}) {
         cc: ccAddresses.length ? ccAddresses : undefined,
         subject: subject.trim(),
         ...(bodyType === 'html'
-          ? { html: body.trim() }
+          ? { html: htmlBody.html, text: htmlBody.text }
           : { text: body.trim(), html: textToHtml(body.trim()) }),
         tenantId: context.tenantId,
         // CRM history must persist the exact final provider rendering. This is
@@ -187,10 +233,10 @@ export async function handleCrmSend(req, res, dependencies = {}) {
       : subject.trim();
     const historyBody = typeof delivery.renderedHtml === 'string'
       ? delivery.renderedHtml
-      : body.trim();
+      : (htmlBody ? htmlBody.html : body.trim());
     const historyPreviewSource = typeof delivery.renderedText === 'string'
       ? delivery.renderedText
-      : historyBody.replace(/<[^>]*>/g, '');
+      : (htmlBody ? htmlBody.text : historyBody.replace(/<[^>]*>/g, ''));
     let logError = null;
     try {
       const logResult = await database.from('member_email').insert({
