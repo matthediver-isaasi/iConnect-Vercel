@@ -241,7 +241,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   const applicantContinuationStorageKey = `form-applicant-continuation:${formSlug || ''}`;
   const applicantContinuationTokenFromUrl = urlParams.get('applicant_continuation_token');
   const hasApplicantContinuationMarker = urlParams.get('applicant_continuation') === '1';
-  const applicantContinuationToken = applicantContinuationTokenFromUrl || (
+  const storedApplicantContinuationToken = applicantContinuationTokenFromUrl || (
     hasApplicantContinuationMarker
       ? window.sessionStorage.getItem(applicantContinuationStorageKey)
       : null
@@ -271,18 +271,6 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     identity: null,
     grant: null,
   });
-
-  // Capability URLs are intentionally short lived in the address bar. Keeping
-  // the token in component state allows this visit (and draft binding) to
-  // continue without leaking it through referrers, screenshots or analytics.
-  useEffect(() => {
-    if (!applicantContinuationToken) return;
-    window.sessionStorage.setItem(applicantContinuationStorageKey, applicantContinuationToken);
-    const next = new URL(window.location.href);
-    next.searchParams.delete('applicant_continuation_token');
-    next.searchParams.set('applicant_continuation', '1');
-    window.history.replaceState({}, '', `${next.pathname}${next.search}${next.hash}`);
-  }, [applicantContinuationStorageKey, applicantContinuationToken]);
 
   // Fetch full member record to get job_title (for logged-in user)
   const { data: memberRecord, isLoading: memberRecordLoading, isError: memberRecordError, error: memberRecordFailure, refetch: retryMemberRecord } = useQuery({
@@ -428,10 +416,35 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
 
   // Survey presentation (question numbering) — no-op for standard forms
   const form = useMemo(() => applySurveyPresentation(rawForm), [rawForm]);
+  const legacyPublicApplication = form?.require_authentication !== true
+    && form?.mutation_access_policy?.version === 1
+    && form?.mutation_access_policy?.mode === 'legacy_public_application';
+  // Legacy links use server-scoped ID admission, never a cached or URL
+  // invitation capability (which may be expired or belong to another org).
+  const applicantContinuationToken = legacyPublicApplication ? null : storedApplicantContinuationToken;
+  useEffect(() => {
+    if (!form?.id) return;
+    const next = new URL(window.location.href);
+    if (legacyPublicApplication) {
+      window.sessionStorage.removeItem(applicantContinuationStorageKey);
+      next.searchParams.delete('applicant_continuation_token');
+      next.searchParams.delete('applicant_continuation');
+    } else {
+      if (!applicantContinuationToken) return;
+      // Keep secure invitation tokens out of referrers and the address bar.
+      window.sessionStorage.setItem(applicantContinuationStorageKey, applicantContinuationToken);
+      next.searchParams.delete('applicant_continuation_token');
+      next.searchParams.set('applicant_continuation', '1');
+    }
+    if (next.href !== window.location.href) {
+      window.history.replaceState({}, '', `${next.pathname}${next.search}${next.hash}`);
+    }
+  }, [form?.id, legacyPublicApplication, applicantContinuationStorageKey, applicantContinuationToken]);
   const applicantCredentialIdentity = `${form?.id || 'loading'}:${
     continuationCredentialDiscriminator(applicantContinuationToken)
   }:${continuationCredentialDiscriminator(draftToken)}`;
-  const applicantContinuationGrant = applicantContinuationGrantState.identity === applicantCredentialIdentity
+  const applicantContinuationGrant = !legacyPublicApplication
+    && applicantContinuationGrantState.identity === applicantCredentialIdentity
     ? applicantContinuationGrantState.grant
     : null;
   const applicantVerification = useQuery({
@@ -444,10 +457,11 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       formId: form.id,
       applicantContinuationToken,
     }),
-    enabled: !!form?.id && !!applicantContinuationToken && !formAccess.restricted,
+    enabled: !!form?.id && !legacyPublicApplication && !!applicantContinuationToken && !formAccess.restricted,
     retry: false,
   });
   const applicantVerificationActive = !!form?.id
+    && !legacyPublicApplication
     && !!applicantContinuationToken
     && !formAccess.restricted;
   useEffect(() => {
@@ -544,13 +558,13 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     retry: false
   });
   useEffect(() => {
-    if (draftData?.applicant_continuation) {
+    if (!legacyPublicApplication && draftData?.applicant_continuation) {
       setApplicantContinuationGrantState({
         identity: applicantCredentialIdentity,
         grant: draftData.applicant_continuation,
       });
     }
-  }, [applicantCredentialIdentity, draftData?.applicant_continuation]);
+  }, [applicantCredentialIdentity, draftData?.applicant_continuation, legacyPublicApplication]);
   // Save draft mutation
   const saveDraftMutation = useMutation({
     mutationFn: async () => {
@@ -911,6 +925,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   }, [applicantContinuationGrant?.organization_id, formValues, form?.fields, orgCapacityConfig?.sourceFieldId, orgDropdownField?.id]);
 
   const applicantContinuationError = useMemo(() => {
+    if (legacyPublicApplication) return null;
     if (applicantVerificationActive && applicantVerification.isError) {
       return 'This secure applicant link is invalid or has expired. Ask an administrator for a fresh secure applicant link.';
     }
@@ -935,6 +950,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     return null;
   }, [
     applicantContinuationGrant,
+    legacyPublicApplication,
     applicantVerification.isError,
     applicantVerification.isPending,
     applicantVerificationActive,

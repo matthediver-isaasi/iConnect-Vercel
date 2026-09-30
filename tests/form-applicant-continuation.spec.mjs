@@ -316,6 +316,61 @@ test("legacy public application accepts an ordinary organisation link without a 
   await page.screenshot({ path: "screenshots/legacy-public-application.jpg", type: "jpeg", fullPage: true });
 });
 
+for (const credential of ["stored marker", "URL token"]) {
+  test(`legacy public application ignores ${credential} for prefill, draft, submission and payment`, async ({ page }) => {
+    const { state, form } = await fixture(page, {
+      legacyPublicApplication: true,
+      membershipPayment: true,
+      invalidToken: true,
+      boundDraft: true,
+    });
+    await page.addInitScript(({ key, token }) => {
+      window.sessionStorage.setItem(key, token);
+    }, { key: `form-applicant-continuation:${form.slug}`, token: "expired-stored-token" });
+    const credentials = credential === "stored marker"
+      ? "&applicant_continuation=1"
+      : "&applicant_continuation_token=expired-url-token";
+    await page.goto(`/FormView?slug=${form.slug}&organization_id=${ORG_ID}&draft=${RESUME}${credentials}`);
+    await expect(answerInput(page)).toHaveValue("Preserved answer");
+    await expect(page.getByTestId("applicant-continuation-error")).toHaveCount(0);
+    await expect.poll(() => state.quotes.length).toBeGreaterThan(0);
+    expect(state.quotes.at(-1).prefill_organization_id).toBe(ORG_ID);
+    expect(state.quotes.at(-1).applicant_continuation_token).toBeUndefined();
+    expect(state.quotes.at(-1).resume_token).toBeUndefined();
+    await expect.poll(() => new URL(page.url()).searchParams.has("applicant_continuation")).toBe(false);
+    expect(new URL(page.url()).searchParams.has("applicant_continuation_token")).toBe(false);
+    expect(await page.evaluate(slug =>
+      window.sessionStorage.getItem(`form-applicant-continuation:${slug}`), form.slug)).toBeNull();
+    await page.getByTestId("button-save-draft").click();
+    await expect.poll(() => state.draftSaves.length).toBe(1);
+    expect(state.draftSaves[0].applicant_continuation_token).toBeUndefined();
+    await page.getByTestId("button-form-payment-stripe-membership-payment").click();
+    await expect.poll(() => state.paymentCreates.length).toBe(1);
+    expect(state.paymentCreates[0].prefill_organization_id).toBe(ORG_ID);
+    expect(state.paymentCreates[0].applicant_continuation_token).toBeNull();
+    expect(state.paymentCreates[0].resume_token).toBeNull();
+    expect(state.verifications).toEqual([]);
+    expect(state.unexpectedWrites).toEqual([]);
+  });
+}
+
+for (const credential of ["applicant_continuation=1", "applicant_continuation_token=expired-url-token"]) {
+  test(`legacy public application submits with ${credential} and no capability`, async ({ page }) => {
+    const { state, form } = await fixture(page, { legacyPublicApplication: true, invalidToken: true });
+    await page.addInitScript(slug =>
+      window.sessionStorage.setItem(`form-applicant-continuation:${slug}`, "expired-stored-token"), form.slug);
+    await page.goto(`/FormView?slug=${form.slug}&organization_id=${ORG_ID}&${credential}`);
+    await answerInput(page).fill("Existing public link");
+    await expect(page.getByTestId("button-submit-form")).toBeEnabled();
+    await page.getByTestId("button-submit-form").click();
+    await expect.poll(() => state.submissions.length).toBe(1);
+    expect(state.submissions[0].prefill_organization_id).toBe(ORG_ID);
+    expect(state.submissions[0].applicant_continuation_token).toBeUndefined();
+    expect(state.submissions[0].resume_token).toBeUndefined();
+    expect(state.verifications).toEqual([]);
+  });
+}
+
 test("legacy public application carries an ordinary member ID without a token", async ({ page }) => {
   const memberId = "existing-applicant-member";
   const { state, form } = await fixture(page, { legacyPublicApplication: true });

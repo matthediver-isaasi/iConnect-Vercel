@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   applicantConfigurationDigest, hashApplicantToken, verifyApplicantContinuation,
   loadSubmissionApplicantContinuation, bindApplicantContinuation, bindApplicantDraft,
-  loadApplicantMemberScope, canIssueApplicantContinuation,
+  loadApplicantMemberScope, canIssueApplicantContinuation, authorizeApplicantAdmission,
 } from './formApplicantContinuation.js';
 
 const form = { id: 'form', tenant_id: 'tenant', fields: [],
@@ -50,6 +50,23 @@ test('bare IDs and expired/revoked/cross-tenant/config-changed grants fail close
   ]) {
     await assert.rejects(verifyApplicantContinuation({ db: dbFor(altered), form, token }));
   }
+});
+test('legacy admission ignores expired invitation and draft tokens; protected admission does not', async () => {
+  const legacy = { ...form, require_authentication: false,
+    mutation_access_policy: { version: 1, mode: 'legacy_public_application' } };
+  const db = { from() { throw new Error('Legacy admission must not verify invitation tokens'); } };
+  assert.deepEqual(await authorizeApplicantAdmission({
+    db, form: legacy, token: 'expired-token', resumeToken: 'expired-draft',
+    requestedOrganizationId: 'requested-org',
+  }), { applicantGrant: null, organizationId: 'requested-org' });
+  await assert.rejects(authorizeApplicantAdmission({
+    db: dbFor({ ...grant, expires_at: '2000-01-01' }), form,
+    token, requestedOrganizationId: 'requested-org',
+  }), error => error.code === 'APPLICANT_CONTINUATION_REQUIRED');
+  await assert.rejects(authorizeApplicantAdmission({
+    db: dbFor({ ...grant, tenant_id: 'other' }), form,
+    token, requestedOrganizationId: 'requested-org',
+  }), error => error.code === 'APPLICANT_CONTINUATION_REQUIRED');
 });
 test('processor uses persisted submission binding, not request signatures', async () => {
   const boundGrant = { ...grant, submission_id: 'submission', bound_at: '2026-01-01' };

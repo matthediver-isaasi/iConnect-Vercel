@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { supportsApplicantContinuationIssuance } from '../../shared/formMutationContract.js';
+import { isLegacyPublicApplication } from './formLegacyApplication.js';
 
 export class FormApplicantContinuationError extends Error {
   constructor(message = 'This applicant link is invalid, expired, revoked, or no longer matches the form.') {
@@ -42,6 +43,11 @@ export async function authorizeApplicantAdmission({
   db, form, token, resumeToken, requestedOrganizationId = null,
   verifiedMember = null, verifiedAdminAccess = false,
 }) {
+  // An explicitly opted-in historical public application admits scoped IDs
+  // directly. A stale invitation/draft token must never override that scope.
+  if (isLegacyPublicApplication(form)) {
+    return { applicantGrant: null, organizationId: requestedOrganizationId };
+  }
   const memberTenantId = verifiedMember?.tenant_id || verifiedMember?.organization?.tenant_id;
   const memberOrganizationId = verifiedMember?.id && memberTenantId === form.tenant_id
     ? verifiedMember.organization_id : null;

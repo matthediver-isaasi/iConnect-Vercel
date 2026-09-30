@@ -22,6 +22,17 @@ alone do not change production access settings.
 
 The rules below remain applicable outside that deliberately opted-in exception.
 
+Legacy public admission must take precedence over stale secure-invitation state.
+
+**Why:** Previously issued non-expiring links can carry a continuation marker
+while a browser retains an expired invitation token; draft associations can
+also outlive a form's switch to the approved legacy policy. Those credentials
+must not silently reintroduce an invitation requirement.
+
+**How to apply:** Ignore invitation credentials for explicitly approved legacy
+public forms across viewing, drafts, submission and payment, retaining the
+legacy tenant and configured-mapping checks. Keep secure-mode checks elsewhere.
+
 Public application links containing an organisation ID are reference/prefill
 evidence, not permission to modify that organisation. Compatibility must preserve
 configured finance/contact updates using server-issued, scoped applicant

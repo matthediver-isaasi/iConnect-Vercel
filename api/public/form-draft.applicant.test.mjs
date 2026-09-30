@@ -103,6 +103,32 @@ test('changed form configuration invalidates saved applicant draft authority', a
   assert.equal(resumed.statusCode, 403);
 });
 
+test('legacy public draft GET and POST ignore stale capability even on an already bound draft', async () => {
+  const h = harness();
+  const initial = await h.invoke('POST', { form_id: h.form.id, draft_data: { answer: 'original' },
+    applicant_continuation_token: h.token });
+  assert.equal(initial.statusCode, 201);
+  const resumeToken = initial.payload.resume_token;
+  h.form.require_authentication = false;
+  h.form.mutation_access_policy = { version: 1, mode: 'legacy_public_application' };
+  h.grant.expires_at = '2000-01-01T00:00:00Z';
+
+  const resumed = await h.invoke('GET', {}, { token: resumeToken });
+  assert.equal(resumed.statusCode, 200);
+  assert.deepEqual(resumed.payload.draft.draft_data, { answer: 'original' });
+  assert.equal(resumed.payload.applicant_continuation, undefined);
+
+  const updated = await h.invoke('POST', { form_id: h.form.id, resume_token: resumeToken,
+    draft_data: { answer: 'revised' }, applicant_continuation_token: h.token });
+  assert.equal(updated.statusCode, 200);
+  assert.deepEqual(h.tables.form_draft_submission[0].draft_data, { answer: 'revised' });
+  const fresh = await h.invoke('POST', { form_id: h.form.id,
+    draft_data: { answer: 'fresh' }, applicant_continuation_token: h.token });
+  assert.equal(fresh.statusCode, 201);
+  assert.equal(h.tables.form_draft_submission[1].applicant_continuation_id, undefined);
+  assert.equal(h.grant.draft_token_hashes.length, 1);
+});
+
 test('real draft GET and POST reject detached or revoked grant while unrelated drafts remain usable', async (t) => {
   for (const reason of ['detached', 'revoked']) {
     await t.test(reason, async () => {
