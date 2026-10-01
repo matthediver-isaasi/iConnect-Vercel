@@ -20,6 +20,8 @@ import HistoricalDdPayments from "@/components/membership/HistoricalDdPayments";
 import MemberMembershipInstalments, { isMonthlyMembershipRecord } from "@/components/membership/MemberMembershipInstalments";
 import MembershipPricingDisplay from "@/components/membership/MembershipPricingDisplay";
 import { getMembershipPricingPresentation } from "@/components/membership/membershipPricingPresentation";
+import EventInvoiceStatus from "@/components/booking/EventInvoiceStatus";
+import { eventInvoiceGroupRecord, eventInvoiceId, eventInvoiceNumber, eventInvoiceRefetchInterval } from "../../../shared/eventInvoiceRecoveryPresentation.mjs";
 
 const ITEMS_PER_PAGE = 10;
 
@@ -179,9 +181,32 @@ export default function HistoryPage({ hasBanner }) {
     enabled: !!memberInfo?.id,
     staleTime: 0,
     refetchOnMount: true,
+    refetchInterval: query => canAccessInvoices ? eventInvoiceRefetchInterval(query, query.state.data || []) : false,
   });
 
-  const { data: bookings = [], isLoading: bookingsLoading } = bookingsQuery;
+  const complexBookingsQuery = useQuery({
+    queryKey: ['history-complex-bookings', memberInfo?.id],
+    queryFn: async () => {
+      const response = await fetch('/api/complex-event-bookings', { credentials: 'include' });
+      if (!response.ok) throw new Error('Could not load multi-session event history. Please try again.');
+      return response.json();
+    },
+    enabled: !!memberInfo?.id,
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchInterval: query => canAccessInvoices ? eventInvoiceRefetchInterval(query, query.state.data?.bookings || []) : false,
+  });
+  const bookingsLoading = bookingsQuery.isLoading || complexBookingsQuery.isLoading;
+  const bookings = useMemo(() => [
+    ...(bookingsQuery.data || []),
+    ...(complexBookingsQuery.data?.bookings || []).map(b => ({
+      ...b,
+      _source: 'complex',
+      total_cost: Number(b.total_paid) || 0,
+      created_date: b.created_at,
+      event_name: complexBookingsQuery.data?.events?.[b.event_id]?.title || 'Multi-session event',
+    })),
+  ], [bookingsQuery.data, complexBookingsQuery.data]);
 
   // Fetch events for display info
   const { data: events = [] } = useQuery({
@@ -272,7 +297,8 @@ export default function HistoryPage({ hasBanner }) {
   const bookingGroups = useMemo(() => {
     const groups = {};
     bookings.forEach(booking => {
-      const ref = booking.booking_group_reference || booking.booking_reference || booking.id;
+      const displayRef = booking.booking_group_reference || booking.booking_reference || booking.id;
+      const ref = booking._source === 'complex' ? `complex:${displayRef}` : displayRef;
       if (!groups[ref]) {
         groups[ref] = [];
       }
@@ -282,6 +308,7 @@ export default function HistoryPage({ hasBanner }) {
     return Object.entries(groups)
       .map(([ref, items]) => ({
         reference: ref,
+        invoiceReference: items[0].booking_group_reference || items[0].booking_reference || items[0].id,
         bookings: items,
         firstBooking: items[0],
         created_date: items[0].created_date || items[0].created_at,
@@ -328,7 +355,7 @@ export default function HistoryPage({ hasBanner }) {
       filtered = bookingGroups.filter(group => {
         const eventTitle = group.event?.title || group.firstBooking.event_name || '';
         const reference = group.reference || '';
-        const invoiceNumber = group.firstBooking.xero_invoice_number || '';
+        const invoiceNumber = eventInvoiceNumber(eventInvoiceGroupRecord(group.bookings)) || '';
         const poNumber = group.firstBooking.purchase_order_number || '';
         const attendees = group.bookings.map(b => 
           `${b.attendee_first_name || ''} ${b.attendee_last_name || ''} ${b.attendee_email || ''}`
@@ -379,7 +406,7 @@ export default function HistoryPage({ hasBanner }) {
   // Navigation is based on eligible, unfiltered rows, never search results or
   // the current page. Both Training Fund sources must confirm emptiness.
   const historyCategories = [
-    { key: 'tickets', label: 'Standard Tickets', count: bookingGroups.length, eligible: true, queries: [bookingsQuery] },
+    { key: 'tickets', label: 'Standard Tickets', count: bookingGroups.length, eligible: true, queries: [bookingsQuery, complexBookingsQuery] },
     { key: 'program', label: 'Program Tickets', count: transactions.length, eligible: hasOrg, queries: [programQuery] },
     { key: 'training-fund', label: 'Training Fund', count: dedupedTrainingFundTransactions.length + trainingFundPurchases.length, eligible: hasOrg, queries: [trainingFundQuery, trainingFundPurchasesQuery] },
     { key: 'vouchers', label: 'Vouchers', count: voucherTransactions.length, eligible: hasOrg, queries: [vouchersQuery] },
@@ -651,8 +678,7 @@ export default function HistoryPage({ hasBanner }) {
       });
       
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: 'Failed to load invoice' }));
-        throw new Error(error.error || 'Failed to load invoice');
+        throw new Error('Your invoice could not be loaded. Please try again later.');
       }
       
       const pdfBlob = await response.blob();
@@ -680,8 +706,7 @@ export default function HistoryPage({ hasBanner }) {
       });
       
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: 'Failed to download invoice' }));
-        throw new Error(error.error || 'Failed to download invoice');
+        throw new Error('Your invoice could not be downloaded. Please try again later.');
       }
       
       const pdfBlob = await response.blob();
@@ -983,11 +1008,13 @@ export default function HistoryPage({ hasBanner }) {
   // Component for standard ticket booking group with date column
   const BookingGroupCard = ({ group, loadingBookingInvoice, handleViewBookingInvoice, handleDownloadBookingInvoice, canAccessInvoices }) => {
     const { reference, bookings, firstBooking, event } = group;
+    const invoiceReference = group.invoiceReference || reference;
     const eventTitle = event?.title || firstBooking.event_name || 'Event';
     const totalCost = bookings.reduce((sum, b) => sum + (b.total_cost || 0), 0);
     const attendeeCount = bookings.length;
-    // Check both xero_invoice_number and xero_invoice_id for invoice availability (matching Bookings page logic)
-    const hasInvoice = !!(firstBooking.xero_invoice_number || firstBooking.xero_invoice_id);
+    const invoiceBooking = eventInvoiceGroupRecord(bookings);
+    const invoiceNumber = eventInvoiceNumber(invoiceBooking);
+    const hasInvoice = !!eventInvoiceId(invoiceBooking);
     const dateValue = firstBooking.created_date || firstBooking.created_at;
     const transactionDate = dateValue ? new Date(dateValue) : null;
 
@@ -1006,7 +1033,7 @@ export default function HistoryPage({ hasBanner }) {
             <div className="flex items-center gap-2 mb-1 flex-wrap">
               <h3 className="font-semibold text-slate-900">{eventTitle}</h3>
               <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200">
-                One-off Event
+                {firstBooking._source === 'complex' ? 'Multi-Session Event' : 'One-off Event'}
               </Badge>
             </div>
             
@@ -1015,18 +1042,19 @@ export default function HistoryPage({ hasBanner }) {
                 {attendeeCount} attendee{attendeeCount > 1 ? 's' : ''} • £{totalCost.toFixed(2)}
               </p>
               <p className="text-xs text-slate-500">
-                Ref: {reference}
+                Ref: {invoiceReference}
               </p>
               {firstBooking.purchase_order_number && (
                 <p className="text-xs text-slate-500">
                   PO: {firstBooking.purchase_order_number}
                 </p>
               )}
-              {hasInvoice && firstBooking.xero_invoice_number && (
+              {invoiceNumber && (
                 <p className="text-xs text-slate-500">
-                  Invoice: {firstBooking.xero_invoice_number}
+                  Invoice: {invoiceNumber}
                 </p>
               )}
+              {canAccessInvoices && <EventInvoiceStatus record={invoiceBooking} testId={`invoice-status-${reference}`} />}
             </div>
           </div>
           
@@ -1063,11 +1091,11 @@ export default function HistoryPage({ hasBanner }) {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => handleViewBookingInvoice(reference, firstBooking.xero_invoice_number || reference)}
-              disabled={loadingBookingInvoice === reference}
+              onClick={() => handleViewBookingInvoice(invoiceReference, invoiceNumber || invoiceReference)}
+              disabled={loadingBookingInvoice === invoiceReference}
               data-testid={`button-view-invoice-${reference}`}
             >
-              {loadingBookingInvoice === reference ? (
+              {loadingBookingInvoice === invoiceReference ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 <>
@@ -1079,11 +1107,11 @@ export default function HistoryPage({ hasBanner }) {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => handleDownloadBookingInvoice(reference, firstBooking.xero_invoice_number || reference)}
-              disabled={loadingBookingInvoice === reference}
+              onClick={() => handleDownloadBookingInvoice(invoiceReference, invoiceNumber || invoiceReference)}
+              disabled={loadingBookingInvoice === invoiceReference}
               data-testid={`button-download-invoice-${reference}`}
             >
-              {loadingBookingInvoice === reference ? (
+              {loadingBookingInvoice === invoiceReference ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 <>

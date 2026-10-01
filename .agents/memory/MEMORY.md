@@ -5,7 +5,7 @@
 - [base44 new field needs a DB column](base44-new-field-migration.md) — adding a new property to an existing base44 entity requires a migration; the column-per-field table does not auto-create columns.
 - [Canvas rendering and layout](canvas-rendering-layout-index.md) — index of durable rules for V1/V2 geometry, reflow, block rendering, editor behavior, symbols, links, and footers.
 - [Canvas member personalisation](canvas-member-personalisation.md) — display-only TipTap tokens use a fresh viewer snapshot, never cached identity or design-wide replacement.
-- [Per-attendee flag surfaces](attendee-flag-surfaces.md) — a booking boolean (buddy/badge) must be wired through ~8 places across both booking tables; default-true reads as `x !== false` everywhere, not `!!x`.
+- [Event operations](event-operations-index.md) — attendee flags, reminders, timing, deleted bookings, counts, CPD rewards, revenue and ticket releases.
 - [PostgREST and pagination topics](postgrest-pagination-index.md) — index of durable rules for PostgREST caps, stable ranged pages, bounded exports, large filters, and exact totals.
 - [Membership invoice boundaries](membership-invoice-index.md) — duplicate prevention, override display, add-on lines and PO contracts.
 - [Background worker self-trigger](background-worker-self-trigger.md) — a self-re-triggering chunked worker needs a handoff bypass on its heartbeat lock, or the chain blocks itself and falls back to cron pace.
@@ -37,8 +37,6 @@
 - [Microsite branding overrides](microsite-branding-overrides.md) — a new overridable key needs whitelist + tenant-branding merge + SSR renderHtml + editor card; SSR and the branding endpoint are separate resolution paths.
 - [Typography styles microsite scoping](typography-microsite-scope.md) — a style is scoped to main-site OR one microsite; effective default per style_type = microsite default ?? main-site default; is_default unique per (scope,type) app-level only.
 - [Unchecked supabase inserts hide schema drift](unchecked-supabase-inserts.md) — supabase-js returns {error}, never throws; unchecked side-effect inserts fail silently forever on column drift.
-- [Complex event reminders per-day](complex-reminders-per-day.md) — relative reminders schedule once per calendar day via shared helper; dedupe reuses session_id as the deterministic day-anchor session.
-- [Session Zoom ID conventions](session-zoom-id-conventions.md) — session cols hold EXTERNAL Zoom IDs (event table holds local PKs); saved-session Zoom changes must route through change-zoom, the PATCH strips them.
 - [Billing, import, and evidence topics](billing-import-evidence-index.md) — index of durable rules for CSV imports, accounting/Xero invoices, BNMS reconciliation, and private report recovery.
 - [Member group role name canonicalisation](member-group-role-name-canonicalisation.md) — role names are free text duplicated across ~9 surfaces incl. role-keyed JSONB maps; rename/merge must rewrite all together.
 - [Job posting payment legacy pitfalls](job-posting-payment-legacy.md) — non-member postings have NULL tenant_id; legacy admin-notify filter mass-emails the whole tenant, use is_admin roles + hard cap.
@@ -52,7 +50,6 @@
 - [Cron email delivery model](speaker-award-notifications.md) — one-off notification emails need lease+delivered timestamp pairs (CAS everywhere) and a retry sweep independent of the parent's done-stamp; a claim is not delivery.
 - [Resource category & subcategory role access](resource-category-role-access.md) — name-level visible-wins hiding via one shared helper; ~6 surfaces must strip access fields + trim hidden names or roles leak.
 - [record_create workflows & custom fields](workflow-record-create-custom-fields.md) — trigger AFTER preference values persist or custom-field conditions see empty; workflow_log status check allows success|partial|failed|skipped.
-- [Event hard-delete vs booking rows](event-delete-booking-detach.md) — bookings survive event deletion detached (event_id NULL + event_name snapshot); surfaces must fall back to booking.event_name.
 - [Static "AI generated" page class](static-page-class.md) — builder_type='ai_static' pages render stored sanitized HTML/CSS read-only; writes only via the store-time sanitize+scope helper, never the entity API.
 - [Wildcard subdomain canonical links](wildcard-subdomain-canonical-links.md) — *.iconn.app is wildcard DNS; tenant-known link builders must use getTenantTrustedBaseUrl, and rebuilt custom domains must pass sanitizeHostname.
 - [Unified directory card-back ordering](directory-back-order.md) — one mixed core+custom order list; resolver duplicated client+server, keep in sync; visibility toggles still gate content.
@@ -62,7 +59,6 @@
 - [Organisation Group CRM parity](org-group-crm-parity.md) — preference_field.entity_scope is CHECK-constrained; org layout/rules editors take a coreFields prop, rule eval is entity-agnostic.
 - [Per-instalment monthly invoicing](per-instalment-invoicing.md) — mode snapshotted at consent; idempotency via invoice linkage (GC row cols / Stripe unique table); annual paths must call shouldSuppressAnnualInvoice.
 - [Tenant feed cron fairness](tenant-feed-cron-fairness.md) — time-bounded tenant feed crons need an ordered durable cursor, or the first page silently starves later tenants.
-- [Simple-event timing invariants](simple-event-timing-invariants.md) — enforce timing rules before event-write admin bypasses; training normalizes timing, while public reads suppress stale schedule data.
 - [WordPress option leases](wordpress-option-leases.md) — expiring locks need DB compare-and-swap takeover/renewal and compare-and-delete release; read/delete/add reopens concurrency races.
 - [Preference-field ownership scopes](preference-field-ownership-scopes.md) — adding a new field owner requires API and DB guards on every legacy value table, not just filtering field definitions.
 - [External campaign contacts](external-campaign-contacts.md) — non-member recipients may have no subscriber row; resolve them before shared suppression and treat email_unsubscribe as canonical.
@@ -103,10 +99,6 @@
 - [Relationship edge metadata enforcement](relationship-edge-metadata-enforcement.md) — generic edge writes bypass the interactive service; defaults and required/type rules need DB enforcement too.
 - [Relationship multi-select answers](relationship-multiselect-answers.md) — mixed record IDs + Other must be reconciled, validated, and formatted member-by-member.
 - [Merge is not public rollout](merge-vs-public-rollout.md) — custom domains may keep serving an older frontend bundle after source merges; verify the live asset contains the feature.
-- [Event-card attendee count states](event-card-attendee-count-states.md) — attendee actions show a secured number; unresolved/error states must never fall back to the old icon or a false zero.
-- [Speaker award timing lifecycle](speaker-award-timing-lifecycle.md) — badges may award on assignment, but vouchers stay event-start; removals require atomic, provenance-safe reconciliation.
-- [Event CPD badge awards](event-cpd-badge-awards.md) — resolve the attendee, treat ticket rules as whole-config overrides, and isolate grants behind their own transactional outbox.
-- [Event CPD points ledger](event-cpd-points-ledger.md) — points are signed append-only entries; ticket overrides replace the whole rule, and reversals bind to exact evidence.
 - [Entity-pipeline mapping ownership](entity-pipeline-mapping-ownership.md) — enclosing member/org pipeline owns every mapping destination; normalize saved metadata and reject mismatches at side-effect boundaries.
 - [Organisation reference vs mutation](organization-reference-mutation-auth.md) — a persisted tenant-valid selection may link records, but only explicit creation provenance can bypass mutation authorization.
 - [Email design validity](email-design-validity.md) — non-empty generated HTML does not prove unsupported blocks survived; preserve stored HTML when a design cannot be edited safely.
@@ -150,10 +142,9 @@
 - [Post-booking credit authority](post-booking-credit-authority.md) — use actual reversal evidence; overlapping refund and credit-note legs require durable linkage, never inferred totals.
 - [Annual membership value](annual-membership-value-semantics.md) — recorded net commitments are not settlement; allocate by applied structure, not term or payment dates.
 - [Widget date boundaries](widget-date-boundaries.md) — day-first input support must preserve midnight comparisons, never expand date-only operands to whole days.
-- [Event revenue evidence](event-revenue-basis.md) — booked value differs from cash; historical currency and imported registration evidence boundaries.
 - [PDF browser verification](pdf-browser-verification.md) — fixture layout evidence is separate from unshimmed PDF.js browser compatibility.
 - [Delivery finalization column grants](delivery-finalization-column-grants.md) — test successful final audit writes as service_role; immutable initial provenance needs a separate narrowly granted final-output column.
 - [Member AI policy boundaries](member-ai-policy-boundaries.md) — tenant voice does not authorize reporting changes; no-evidence replies stay deterministic and fixture tests are not model guarantees.
 - [Live import snapshot boundaries](live-import-snapshot-boundaries.md) — distinguish exact cohort invariants from concurrent production activity; disclose drift without weakening core checks.
 - [Team and portal dual access](team-portal-dual-access.md) — team revocation must preserve member access; shared status cannot independently suspend both access types.
-- [Ticket release boundaries](ticket-release-boundaries.md) — releases gate new purchases, not visibility or purchased allocations; ambiguous DST drafts must block saving.
+- [Event invoice recovery](event-invoice-recovery-authority.md) — immutable checkout evidence, provider-ID reconciliation, payment ownership and completed-sweep health.

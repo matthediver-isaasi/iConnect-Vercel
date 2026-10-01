@@ -283,6 +283,7 @@ async function installFixtures(page, {
     if (path === "/api/entities/Role") return json(route, [fixtureRole]);
     if (path === "/api/entities/Event") return json(route, []);
     if (path === "/api/entities/Booking") return json(route, [booking]);
+    if (path === "/api/complex-event-bookings") return json(route, { bookings: [], events: {}, sessions: {} });
     if (path === "/api/entities/ProgramTicketTransaction") return json(route, [programTransaction]);
     if (path === "/api/membership/member-history") {
       state.membershipCalls += 1;

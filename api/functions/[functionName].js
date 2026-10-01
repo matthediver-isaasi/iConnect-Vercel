@@ -1,4 +1,5 @@
 import Stripe from 'stripe';
+import { enqueueCheckoutEventInvoice, eventInvoiceContact, simpleEventInvoiceLines } from '../_lib/eventInvoiceProducer.js';
 import { PUBLIC_INVOICE_PO, validatePublicInvoicePo, requirePublicInvoicePoBalance } from '../_lib/publicInvoicePo.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { resolveTicketPrice } from '../_lib/complexEventPricing.js';
@@ -2277,6 +2278,7 @@ const functionHandlers = {
 
     // Verify Stripe payment if card payment was used
     let verifiedStripeClient = null;
+    let invoicePaymentEvidence = null;
     if (_testMode && paymentMethod === 'card') {
       console.log('[createOneOffEventBooking] TEST MODE - Skipping Stripe payment verification');
     } else if (paymentMethod === 'card' && stripePaymentIntentId) {
@@ -2290,7 +2292,7 @@ const functionHandlers = {
       verifiedStripeClient = stripe;
 
       try {
-        const paymentIntent = await stripe.paymentIntents.retrieve(stripePaymentIntentId);
+        const paymentIntent = await stripe.paymentIntents.retrieve(stripePaymentIntentId, { expand: ['latest_charge'] });
         
         // Verify payment was successful
         if (paymentIntent.status !== 'succeeded' && paymentIntent.status !== 'requires_capture') {
@@ -2338,6 +2340,7 @@ const functionHandlers = {
         }
 
         console.log('[createOneOffEventBooking] Stripe payment verified:', paymentIntent.status);
+        invoicePaymentEvidence = paymentIntent;
       } catch (stripeError) {
         console.error('[createOneOffEventBooking] Stripe verification error:', stripeError);
         return { success: false, error: 'Failed to verify payment: ' + (stripeError.message || 'Unknown error') };
@@ -3303,25 +3306,6 @@ const functionHandlers = {
     }
 
     // If paying to account, create an account charge record
-    let xeroInvoiceResult = null;
-    let xeroDebug = {
-      attempted: false,
-      remainingBalance: validatedRemainingBalance,
-      paymentMethod: paymentMethod,
-      isGuestBooking: isGuestBooking,
-      hasOrganization: !!org,
-      settingEnabled: null,
-      settingValue: null,
-      tokenFound: null,
-      tenantIdFound: null,
-      contactId: null,
-      invoiceResponseStatus: null,
-      invoiceResponseBody: null,
-      error: null
-    };
-    
-    console.log(`[Xero] Invoice flow started - remainingBalance: ${validatedRemainingBalance}, paymentMethod: ${paymentMethod}, isGuest: ${isGuestBooking}, hasOrg: ${!!org}`);
-    
     // Account charges only apply to account/PO payments (not Stripe)
     if (!isGuestBooking && validatedRemainingBalance > 0 && paymentMethod === 'account' && org) {
       console.log(`[Xero] Creating account charge record for £${validatedRemainingBalance.toFixed(2)}`);
@@ -3346,429 +3330,7 @@ const functionHandlers = {
         });
       if (accountChargeError) {
         console.error(`[Xero] Failed to create account charge record: ${accountChargeError.message}`);
-        xeroDebug.accountChargeError = accountChargeError.message;
       }
-    }
-
-    // Xero invoices are created for ANY payment method when there's a balance due
-    // Only skip when training funds/vouchers completely cover the cost (zero balance)
-    // Invoice to: organization (if linked) > plain text org > individual name
-    if (paymentMethod !== PUBLIC_INVOICE_PO && validatedRemainingBalance > 0) {
-      // Resolve invoice contact using priority: linked org > guest plain text org > individual name
-      let invoiceContactInfo = null;
-      
-      if (org) {
-        invoiceContactInfo = {
-          name: org.name,
-          email: org.invoicing_email || null,
-          isOrganization: true
-        };
-        console.log(`[Xero] Invoice to linked organization: ${org.name}`);
-      } else if (isGuestBooking && guestInfo) {
-        // Guest booking - use guest's organization or personal details
-        if (guestInfo.organization && guestInfo.organization.trim()) {
-          invoiceContactInfo = {
-            name: guestInfo.organization.trim(),
-            email: guestInfo.email,
-            isOrganization: true
-          };
-          console.log(`[Xero] Invoice to guest organization: ${guestInfo.organization}`);
-        } else {
-          // No organization provided - invoice to individual
-          const guestName = `${guestInfo.first_name || ''} ${guestInfo.last_name || ''}`.trim();
-          invoiceContactInfo = {
-            name: guestName || guestInfo.email,
-            email: guestInfo.email,
-            isOrganization: false
-          };
-          console.log(`[Xero] Invoice to guest individual: ${invoiceContactInfo.name}`);
-        }
-      } else if (member) {
-        // Member without linked organization - invoice to individual member
-        const memberName = `${member.first_name || ''} ${member.last_name || ''}`.trim();
-        invoiceContactInfo = {
-          name: memberName || member.email,
-          email: member.email,
-          isOrganization: false
-        };
-        console.log(`[Xero] Invoice to member individual: ${invoiceContactInfo.name}`);
-      }
-      
-      if (!invoiceContactInfo || !invoiceContactInfo.name) {
-        console.log(`[Xero] Cannot determine invoice contact - skipping invoice creation`);
-        xeroDebug.error = 'Cannot determine invoice contact';
-      } else {
-        xeroDebug.invoiceContactInfo = invoiceContactInfo;
-        console.log(`[Xero] Checking if invoice should be created - balance: £${validatedRemainingBalance.toFixed(2)}, contact: ${invoiceContactInfo.name}`);
-
-        // Derive appTenantId early for tenant-scoped settings queries
-        const appTenantId = event.tenant_id || member?.tenant_id || null;
-        console.log(`[Xero] Using appTenantId for settings: ${appTenantId}`);
-        
-        if (!appTenantId) {
-          console.error(`[Xero] Cannot determine tenant ID for Xero invoice - skipping`);
-          xeroDebug.error = 'Cannot determine tenant ID';
-        } else {
-        // Check if Xero invoice generation is enabled (tenant-scoped)
-        const { data: xeroSettings, error: xeroSettingsError } = await supabase
-          .from('system_settings')
-          .select('setting_value')
-          .eq('setting_key', 'xero_invoice_enabled')
-          .eq('tenant_id', appTenantId)
-          .maybeSingle();
-
-        xeroDebug.settingValue = xeroSettings?.setting_value;
-        xeroDebug.settingError = xeroSettingsError?.message;
-
-        const xeroInvoiceEnabled = xeroSettings?.setting_value === 'true';
-        xeroDebug.settingEnabled = xeroInvoiceEnabled;
-
-        console.log(`[Xero] Invoice setting enabled: ${xeroInvoiceEnabled} (raw value: ${xeroSettings?.setting_value})`);
-
-        if (!xeroInvoiceEnabled) {
-          console.log(`[Xero] Invoice creation skipped - feature not enabled in system settings`);
-        } else {
-          xeroDebug.attempted = true;
-          console.log(`[Xero] Attempting invoice creation for ${paymentMethod} payment of £${validatedRemainingBalance.toFixed(2)}`);
-
-          try {
-            console.log(`[Xero] Getting valid access token for appTenantId: ${appTenantId}`);
-            const { accessToken, tenantId } = await getValidXeroAccessToken(appTenantId);
-            xeroDebug.tokenFound = !!accessToken;
-            xeroDebug.tenantIdFound = !!tenantId;
-            console.log(`[Xero] Token retrieved: ${!!accessToken}, tenantId: ${!!tenantId}`);
-
-            if (!accessToken || !tenantId) {
-              console.error(`[Xero] Missing token or tenantId - cannot create invoice`);
-              xeroDebug.error = 'Missing access token or tenant ID';
-            } else {
-              // Find or create Xero contact using resolved contact info
-              const contactId = await findOrCreateXeroContact(accessToken, tenantId, invoiceContactInfo);
-              xeroDebug.contactId = contactId;
-              console.log(`[Xero] Contact ID: ${contactId}`);
-
-              // Build attendee list for description
-              const attendeeList = bookingAttendees.map(a => {
-                const firstName = a.first_name || a.firstName || '';
-                const lastName = a.last_name || a.lastName || '';
-                return `${firstName} ${lastName}`.trim() || a.email;
-              }).join('\n');
-
-              // Build financial breakdown
-              const ticketUnitPrice = ticketClassPrice || (totalCost / ticketsRequired);
-              const ticketSubtotal = ticketUnitPrice * ticketsRequired;
-
-              let financialBreakdown = [];
-              financialBreakdown.push(`${ticketsRequired} x ${ticketClassName || 'Ticket'} @ £${ticketUnitPrice.toFixed(2)} = £${ticketSubtotal.toFixed(2)}`);
-
-              // Add any discounts/offers applied
-              if (voucherAmountApplied > 0) {
-                financialBreakdown.push(`Voucher applied: -£${voucherAmountApplied.toFixed(2)}`);
-              }
-              if (validatedTrainingFundAmount > 0) {
-                financialBreakdown.push(`Training fund applied: -£${validatedTrainingFundAmount.toFixed(2)}`);
-              }
-
-              // Check if there was a BOGO or bulk discount in pricing details
-              if (pricingDetails) {
-                if (pricingDetails.freeTickets && pricingDetails.freeTickets > 0) {
-                  financialBreakdown.push(`BOGO offer: ${pricingDetails.freeTickets} free ticket${pricingDetails.freeTickets > 1 ? 's' : ''}`);
-                }
-                if (pricingDetails.bulkDiscountAmount && pricingDetails.bulkDiscountAmount > 0) {
-                  financialBreakdown.push(`Bulk discount: -£${pricingDetails.bulkDiscountAmount.toFixed(2)}`);
-                }
-                if (pricingDetails.discountAmount && pricingDetails.discountAmount > 0 && !pricingDetails.bulkDiscountAmount) {
-                  financialBreakdown.push(`Discount applied: -£${pricingDetails.discountAmount.toFixed(2)}`);
-                }
-              }
-
-              financialBreakdown.push(`Total to invoice: £${validatedRemainingBalance.toFixed(2)}`);
-
-              // Build line description with full event details and financial breakdown
-              const lineDescriptionParts = [
-                `Event: ${event.title || 'One-off Event'}`,
-                `Reference: ${event.internal_reference || 'N/A'}`,
-                `Ticket class: ${ticketClassName || 'Standard'}`,
-                `Attendees: ${ticketsRequired}`,
-                attendeeList,
-                '',
-                '----------',
-                'Financial Breakdown:',
-                ...financialBreakdown
-              ];
-              const lineDescription = lineDescriptionParts.join('\n');
-
-              // Get Xero account code from system settings (default to '200' for Sales) - tenant-scoped
-              const { data: accountCodeSetting } = await supabase
-                .from('system_settings')
-                .select('setting_value')
-                .eq('setting_key', 'xero_sales_account_code')
-                .eq('tenant_id', appTenantId)
-                .maybeSingle();
-
-              const systemDefaultAccountCode = accountCodeSetting?.setting_value || '200';
-              const eventAccountCode = (event.xero_account_code || '').trim();
-              const xeroAccountCode = eventAccountCode || systemDefaultAccountCode;
-              xeroDebug.accountCodeUsed = xeroAccountCode;
-              xeroDebug.accountCodeSource = eventAccountCode ? 'event' : 'system_default';
-              
-              // Get Xero invoice status setting (DRAFT or AUTHORISED) - tenant-scoped
-              const { data: invoiceStatusSetting } = await supabase
-                .from('system_settings')
-                .select('setting_value')
-                .eq('setting_key', 'xero_invoice_status')
-                .eq('tenant_id', appTenantId)
-                .maybeSingle();
-              
-              const xeroInvoiceStatus = invoiceStatusSetting?.setting_value || 'DRAFT';
-              xeroDebug.invoiceStatus = xeroInvoiceStatus;
-
-              // Calculate due date (30 days from now)
-              const dueDate = new Date();
-              dueDate.setDate(dueDate.getDate() + 30);
-              const dueDateString = dueDate.toISOString().split('T')[0];
-
-              // Determine reference: PO number or "TBC" if supply later was selected
-              const invoiceReference = poToFollow ? 'TBC' : (purchaseOrderNumber || 'TBC');
-
-              // Get VAT rate from ticket class if available
-              let vatRateKey = null;
-              if (ticketClassId && event.pricing_config?.ticket_classes) {
-                const selectedTicketClass = event.pricing_config.ticket_classes.find(tc => tc.id === ticketClassId);
-                if (selectedTicketClass?.vat_rate_key) {
-                  vatRateKey = selectedTicketClass.vat_rate_key;
-                  xeroDebug.vatRateKey = vatRateKey;
-                  xeroDebug.vatRateLabel = selectedTicketClass.vat_rate_label;
-                  xeroDebug.vatRatePercentage = selectedTicketClass.vat_rate_percentage;
-                }
-              }
-
-              // Build line item with optional tracking for Project and VAT
-              const lineItem = {
-                Description: lineDescription,
-                Quantity: 1,
-                UnitAmount: validatedRemainingBalance,
-                AccountCode: xeroAccountCode
-              };
-
-              // Add VAT rate (TaxType) if set on ticket class
-              if (vatRateKey) {
-                lineItem.TaxType = vatRateKey;
-              }
-
-              // Add tracking for Projects if internal_reference is set on the event
-              if (event.internal_reference) {
-                lineItem.Tracking = [{
-                  Name: 'Projects',
-                  Option: event.internal_reference
-                }];
-                xeroDebug.trackingAdded = { Name: 'Projects', Option: event.internal_reference };
-              }
-
-              // Create invoice with quantity 1 and total amount
-              const invoicePayload = {
-                Type: 'ACCREC',
-                Contact: { ContactID: contactId },
-                DueDate: dueDateString,
-                LineItems: [lineItem],
-                Reference: invoiceReference,
-                Status: xeroInvoiceStatus
-              };
-
-              console.log(`[Xero] Sending invoice to Xero API - Amount: £${validatedRemainingBalance.toFixed(2)}, Reference: ${invoiceReference}, DueDate: ${dueDateString}`);
-              console.log(`[Xero] Invoice payload: ${JSON.stringify(invoicePayload).substring(0, 500)}`);
-
-              const invoiceResponse = await fetch('https://api.xero.com/api.xro/2.0/Invoices', {
-                method: 'POST',
-                headers: {
-                  'Authorization': `Bearer ${accessToken}`,
-                  'xero-tenant-id': tenantId,
-                  'Content-Type': 'application/json',
-                  'Accept': 'application/json'
-                },
-                body: JSON.stringify({ Invoices: [invoicePayload] })
-              });
-
-              xeroDebug.invoiceResponseStatus = invoiceResponse.status;
-              console.log(`[Xero] API response status: ${invoiceResponse.status}`);
-
-              // Get response as text first to handle both JSON and XML errors
-              const responseText = await invoiceResponse.text();
-              xeroDebug.invoiceResponseRaw = responseText.substring(0, 500);
-
-              let invoiceData = null;
-              try {
-                invoiceData = JSON.parse(responseText);
-                xeroDebug.invoiceResponseBody = invoiceData;
-              } catch (parseError) {
-                console.error(`[Xero] Failed to parse response as JSON: ${responseText.substring(0, 200)}`);
-                xeroDebug.invoiceResponseBody = responseText.substring(0, 500);
-                xeroDebug.parseError = 'Response was not JSON: ' + responseText.substring(0, 200);
-              }
-
-              if (invoiceData && invoiceData.Invoices && invoiceData.Invoices.length > 0) {
-                const invoice = invoiceData.Invoices[0];
-                console.log(`[Xero] Invoice created successfully - ID: ${invoice.InvoiceID}, Number: ${invoice.InvoiceNumber}, Total: ${invoice.Total}`);
-
-                xeroInvoiceResult = {
-                  invoice_id: invoice.InvoiceID,
-                  invoice_number: invoice.InvoiceNumber,
-                  total: invoice.Total,
-                  status: invoice.Status
-                };
-
-                // Update all booking records with Xero invoice ID and number
-                console.log(`[Xero] Updating booking records with invoice ID for group: ${bookingReference}`);
-                const { error: updateError } = await supabase
-                  .from('booking')
-                  .update({
-                    xero_invoice_id: invoice.InvoiceID,
-                    xero_invoice_number: invoice.InvoiceNumber,
-                    xero_invoice_error: null
-                  })
-                  .eq('booking_group_reference', bookingReference);
-
-                if (updateError) {
-                  console.error(`[Xero] Failed to update bookings with Xero data: ${updateError.message}`);
-                  xeroDebug.updateError = updateError.message;
-                } else {
-                  console.log(`[Xero] Bookings updated with Xero invoice ID: ${invoice.InvoiceNumber}`);
-                }
-
-                // Record payment in Xero if this was a Stripe payment AND invoice is AUTHORISED
-                // Xero only accepts payments against AUTHORISED invoices, not DRAFT
-                if (paymentMethod === 'card' && stripePaymentIntentId && invoice.InvoiceID && invoice.Status === 'AUTHORISED') {
-                  try {
-                    // Get Stripe bank account code from system settings - tenant-scoped
-                    const { data: stripeBankCodeSetting } = await supabase
-                      .from('system_settings')
-                      .select('setting_value')
-                      .eq('setting_key', 'xero_stripe_bank_account_code')
-                      .eq('tenant_id', appTenantId)
-                      .maybeSingle();
-
-                    const stripeBankAccountCode = stripeBankCodeSetting?.setting_value;
-                    
-                    if (stripeBankAccountCode) {
-                      console.log(`[Xero] Recording Stripe payment for invoice ${invoice.InvoiceNumber} - Amount: £${validatedRemainingBalance.toFixed(2)}, Bank Account: ${stripeBankAccountCode}`);
-                      
-                      // First, get the bank account ID from the account code
-                      const accountsResponse = await fetch(`https://api.xero.com/api.xro/2.0/Accounts?where=Code=="${stripeBankAccountCode}"`, {
-                        method: 'GET',
-                        headers: {
-                          'Authorization': `Bearer ${accessToken}`,
-                          'xero-tenant-id': tenantId,
-                          'Accept': 'application/json'
-                        }
-                      });
-
-                      const accountsData = await accountsResponse.json();
-                      const bankAccount = accountsData?.Accounts?.[0];
-
-                      if (bankAccount?.AccountID) {
-                        // Create payment against the invoice
-                        const paymentPayload = {
-                          Invoice: { InvoiceID: invoice.InvoiceID },
-                          Account: { AccountID: bankAccount.AccountID },
-                          Date: new Date().toISOString().split('T')[0],
-                          Amount: validatedRemainingBalance,
-                          Reference: `Stripe: ${stripePaymentIntentId}`
-                        };
-
-                        console.log(`[Xero] Creating payment: ${JSON.stringify(paymentPayload)}`);
-
-                        const paymentResponse = await fetch('https://api.xero.com/api.xro/2.0/Payments', {
-                          method: 'POST',
-                          headers: {
-                            'Authorization': `Bearer ${accessToken}`,
-                            'xero-tenant-id': tenantId,
-                            'Content-Type': 'application/json',
-                            'Accept': 'application/json'
-                          },
-                          body: JSON.stringify({ Payments: [paymentPayload] })
-                        });
-
-                        const paymentData = await paymentResponse.json();
-                        
-                        if (paymentData?.Payments?.[0]?.PaymentID) {
-                          console.log(`[Xero] Payment recorded successfully - PaymentID: ${paymentData.Payments[0].PaymentID}`);
-                          xeroDebug.paymentRecorded = true;
-                          xeroDebug.paymentId = paymentData.Payments[0].PaymentID;
-                        } else {
-                          console.error(`[Xero] Failed to record payment: ${JSON.stringify(paymentData)}`);
-                          xeroDebug.paymentError = JSON.stringify(paymentData).substring(0, 500);
-                        }
-                      } else {
-                        console.warn(`[Xero] Bank account not found for code: ${stripeBankAccountCode}`);
-                        xeroDebug.paymentSkipped = 'Bank account not found';
-                      }
-                    } else {
-                      console.log(`[Xero] Stripe bank account code not configured - payment not recorded`);
-                      xeroDebug.paymentSkipped = 'No Stripe bank account code configured';
-                    }
-                  } catch (paymentError) {
-                    console.error(`[Xero] Error recording payment: ${paymentError.message}`);
-                    xeroDebug.paymentError = paymentError.message;
-                    // Don't fail the booking, just log the error
-                  }
-                } else if (paymentMethod === 'card' && stripePaymentIntentId && invoice.InvoiceID && invoice.Status !== 'AUTHORISED') {
-                  console.log(`[Xero] Skipping payment recording - invoice is ${invoice.Status} (must be AUTHORISED for payment recording)`);
-                  xeroDebug.paymentSkipped = `Invoice is ${invoice.Status}, not AUTHORISED`;
-                }
-              } else {
-                console.error(`[Xero] Invoice creation failed - no invoice in response. Status: ${invoiceResponse.status}`);
-                if (invoiceData?.ErrorNumber) {
-                  console.error(`[Xero] Error details: ${invoiceData.ErrorNumber} - ${invoiceData.Message}`);
-                }
-                // Log full validation errors if present
-                if (invoiceData?.Elements) {
-                  invoiceData.Elements.forEach((element, idx) => {
-                    if (element.ValidationErrors) {
-                      element.ValidationErrors.forEach((ve, veIdx) => {
-                        console.error(`[Xero] Validation error ${idx}.${veIdx}: ${ve.Message}`);
-                      });
-                    }
-                  });
-                }
-                // Log raw response for debugging
-                console.error(`[Xero] Full response: ${JSON.stringify(invoiceData).substring(0, 1000)}`);
-              }
-            }
-          } catch (xeroError) {
-            console.error(`[Xero] Invoice creation error: ${xeroError.message}`);
-            xeroDebug.error = xeroError.message;
-            xeroDebug.errorStack = xeroError.stack;
-            // Don't fail the booking, just log the error
-          }
-
-          // Failure marker: the invoice flow is best-effort (errors never fail
-          // the booking), so record WHY no invoice was created on the booking
-          // rows. Cleared automatically when an invoice is later created.
-          if (!xeroInvoiceResult) {
-            const failureSummary = (
-              xeroDebug.error ||
-              (xeroDebug.invoiceResponseStatus ? `Xero API returned status ${xeroDebug.invoiceResponseStatus}` : null) ||
-              'Invoice creation failed for an unknown reason'
-            ).toString().substring(0, 500);
-            try {
-              const { error: markerError } = await supabase
-                .from('booking')
-                .update({ xero_invoice_error: failureSummary })
-                .eq('booking_group_reference', bookingReference);
-              if (markerError) {
-                console.error(`[Xero] Failed to record invoice failure marker: ${markerError.message}`);
-              } else {
-                console.log(`[Xero] Recorded invoice failure marker on booking group ${bookingReference}: ${failureSummary}`);
-              }
-            } catch (markerErr) {
-              console.error(`[Xero] Failure marker update threw: ${markerErr.message}`);
-            }
-          }
-        }
-        }
-      }
-    } else {
-      console.log(`[Xero] Invoice skipped - zero balance (fully covered by training funds/vouchers)`);
     }
 
     // Decrement available seats for the event (if not unlimited)
@@ -3821,6 +3383,24 @@ const functionHandlers = {
     // ticket_class_id. Capacity is enforced atomically via the
     // check_oneoff_ticket_capacity pre-check / post-verify guard above, so there
     // is no decrement step here.
+
+    // Booking, capacity, allocation and required financial side effects have
+    // succeeded. Persist immutable invoice intent before optional notifications.
+    // The recovery worker is the sole writer, including its Stripe settlement.
+    const invoiceRecovery = paymentMethod !== PUBLIC_INVOICE_PO && validatedRemainingBalance > 0
+      ? await enqueueCheckoutEventInvoice({
+      db: supabase, tenantId: event.tenant_id, source: 'booking',
+      bookingGroupReference: bookingReference, event, amount: validatedRemainingBalance,
+      currency: event.pricing_config?.ticket_classes?.find(tc => tc.id === ticketClassId)?.currency || 'GBP',
+      paymentMethod, paymentIntentId: stripePaymentIntentId, paymentIntent: invoicePaymentEvidence,
+      contact: eventInvoiceContact({ source: 'booking', org, member, isGuestBooking, guestInfo }),
+      purchaseOrderNumber, poToFollow,
+      buildLines: accountCode => simpleEventInvoiceLines({
+        event, bookingAttendees, ticketsRequired, ticketClassName, ticketClassPrice,
+        ticketClassId, totalCost, voucherAmountApplied, validatedTrainingFundAmount,
+        pricingDetails, validatedRemainingBalance,
+      }, accountCode),
+      }) : { status: 'not_applicable' };
 
     // Send confirmation emails using event_email configuration
     const emailResults = [];
@@ -4046,7 +3626,8 @@ const functionHandlers = {
         account_amount: paymentMethod === 'account' ? validatedRemainingBalance : 0,
         card_amount: paymentMethod === 'card' ? validatedRemainingBalance : 0
       },
-      xero_invoice: xeroInvoiceResult,
+      xero_invoice: null, // Retain the legacy response field; the durable worker owns creation.
+      invoice_recovery: invoiceRecovery,
       group_booking: groupBookingResult
     };
 

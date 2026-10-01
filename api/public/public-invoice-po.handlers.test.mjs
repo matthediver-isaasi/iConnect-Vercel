@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { build } from 'esbuild';
+import { eventInvoiceContact } from '../_lib/eventInvoiceProducer.js';
 
 // Run with scripts/run-isolated-tests.mjs. Only module boundaries are replaced;
 // the actual exported HTTP handlers, validation, pricing and persistence run.
@@ -123,6 +124,8 @@ function fixture({ enabled = true, member = null, memberEmail = null, free = fal
       if (name === 'getSession') return null;
       if (name === 'sharedSendConfirmationEmailsFromTemplate' || name === 'sendConfirmationEmailsFromTemplate') return [];
       if (name === 'scheduleComplexEventReminders') return;
+      if (name === 'eventInvoiceContact') return eventInvoiceContact(...args);
+      if (name === 'enqueueCheckoutEventInvoice') return { status: 'pending', queued: true };
       unexpected.push(`dependency:${name}`);
       throw new Error(`Unexpected provider/dependency call: ${name}`);
     },
@@ -260,7 +263,10 @@ test('complex: legacy member invoice remains its own pending payment method', as
   }, { payment_method: 'invoice' });
   assert.equal(result.bookings.length, 2, JSON.stringify(result.res.body));
   assert.ok(result.bookings.every(b => b.payment_method === 'invoice' && b.payment_status === 'pending' && !b.purchaser_context));
-  // Unlike the new isolated intention, the legacy method still reaches its
-  // configured accounting boundary (stub throws before any external effect).
-  assert.ok(result.calls.some(c => c.dependency === 'getAccountingProvider'));
+  // Legacy invoices now reach the durable queue, never an independent writer.
+  assert.equal(result.res.statusCode, 201);
+  assert.deepEqual(result.res.body.invoice_recovery, { status: 'pending', queued: true });
+  assert.ok(result.calls.some(c => c.dependency === 'enqueueCheckoutEventInvoice'));
+  assert.ok(!result.calls.some(c => c.dependency === 'getAccountingProvider'));
+  assert.deepEqual(result.unexpected, []);
 });

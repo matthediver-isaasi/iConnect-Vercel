@@ -309,6 +309,7 @@ async function installHistoryFixtures(page, {
       return json(route, [{ id: member.role_id, name: "Member", excluded_features: [] }]);
     }
     if (path === "/api/membership/member-history") return json(route, membership);
+    if (path === "/api/complex-event-bookings") return json(route, { bookings: [], events: {}, sessions: {} });
     if (path === "/api/membership/historical-dd") return json(route, { payments: [] });
     if (path === "/api/membership/member-membership" && url.searchParams.get("instalments") === "true") {
       const recordId = url.searchParams.get("recordId");

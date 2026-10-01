@@ -130,6 +130,40 @@ test('authorized admin can load report options', async () => {
 const adminContext = { tenantId: 'tenant', isAuthenticated: true, tenantUserId: 'admin' };
 const contextSnapshot = { classification: 'public_non_member', details: { first_name: 'Public', last_name: 'Purchaser', email: 'public@example.invalid' } };
 
+test('complex report preserves provider-neutral and legacy linkage and safe recovery projection', async () => {
+  const result = await runRoute(adminContext, true, true, {
+    fixtures: {
+      complex_event: [{ id: 'complex-recovery', title: 'Conference', tenant_id: 'tenant', status: 'published' }],
+      complex_event_booking: [
+        {
+          id: 'first', event_id: 'complex-recovery', tenant_id: 'tenant',
+          booking_group_reference: 'RECOVERY', member_id: null, status: 'confirmed',
+          payment_method: 'card', total_paid: 50, ticket_price: 50,
+        },
+        {
+          id: 'second', event_id: 'complex-recovery', tenant_id: 'tenant',
+          booking_group_reference: 'RECOVERY', member_id: null, status: 'confirmed',
+          payment_method: 'card', total_paid: 50, ticket_price: 50,
+          accounting_provider: 'xero', accounting_invoice_id: 'generic-id',
+          accounting_invoice_number: 'GEN-1', xero_invoice_id: 'legacy-id',
+          xero_invoice_number: 'LEGACY-1', invoice_recovery_status: 'retry',
+          invoice_recovery_next_attempt_at: '2026-12-01T12:00:00Z',
+        },
+      ],
+    },
+    query: { generate: 'true', eventId: 'complex-recovery' },
+  });
+  assert.equal(result.code, 200);
+  const gp = result.body.bookingGroups[0].groupPayment;
+  assert.equal(gp.accountingProvider, 'xero');
+  assert.equal(gp.accountingInvoiceId, 'generic-id');
+  assert.equal(gp.accountingInvoiceNumber, 'GEN-1');
+  assert.equal(gp.xeroInvoiceId, 'legacy-id');
+  assert.equal(gp.xeroInvoiceNumber, 'LEGACY-1');
+  assert.equal(gp.invoiceRecoveryStatus, 'retry');
+  assert.equal(gp.invoiceRecoveryNextAttemptAt, '2026-12-01T12:00:00Z');
+});
+
 test('confirmed non-member one-off Invoice / PO registration is returned without invoice or payment', async () => {
   const result = await runRoute(adminContext, true, true, {
     fixtures: {

@@ -28,6 +28,8 @@ import {
 import { toast } from "sonner";
 import PublicInvoicePoRegistrations from "@/components/events/PublicInvoicePoRegistrations";
 import BookingCreditRefresh from "@/components/events/BookingCreditRefresh";
+import EventInvoiceStatus from "@/components/booking/EventInvoiceStatus";
+import { eventInvoiceAwaited, eventInvoiceId, eventInvoiceNeedsAttention, eventInvoiceNumber, eventInvoiceRefetchInterval, eventInvoiceRetryAt } from "../../../shared/eventInvoiceRecoveryPresentation.mjs";
 import AttendeeCpdCertificateDialog from "@/components/events/AttendeeCpdCertificateDialog";
 import CpdPointsReplayDialog from "@/components/events/CpdPointsReplayDialog";
 import { CPD_REPLAY_ENDPOINT, cpdRegistrationIdentity, cpdRegistrationKey, readCpdReplayResponse } from "@/lib/cpdPointsReplay";
@@ -45,6 +47,29 @@ import {
 function formatDietarySelections(value) {
   if (!Array.isArray(value)) return '';
   return value.filter(Boolean).join(', ');
+}
+
+function ReportInvoice({ payment, testId }) {
+  if (eventInvoiceId(payment) || eventInvoiceNumber(payment) || eventInvoiceAwaited(payment) || eventInvoiceNeedsAttention(payment)) {
+    return <EventInvoiceStatus record={payment} admin showInvoice testId={testId} />;
+  }
+  return payment.xeroInvoiceError
+    ? <span className="text-xs italic text-warning" title="Invoice creation needs an administrator's attention." data-testid={testId}>Needs attention</span>
+    : '-';
+}
+
+function reportInvoiceExport(payment) {
+  const number = eventInvoiceNumber(payment);
+  if (number || eventInvoiceId(payment)) {
+    const label = number || 'Invoice available';
+    if (eventInvoiceNeedsAttention(payment)) return `${label}; Needs attention`;
+    const next = eventInvoiceRetryAt(payment);
+    return next ? `${label}; next retry ${next.toISOString()}` : label;
+  }
+  if (eventInvoiceNeedsAttention(payment) || payment.xeroInvoiceError) return 'Needs attention';
+  if (!eventInvoiceAwaited(payment)) return '';
+  const next = eventInvoiceRetryAt(payment);
+  return next ? `Invoice awaited; next retry ${next.toISOString()}` : 'Invoice awaited';
 }
 
 function formatAllergySelections(value) {
@@ -448,6 +473,7 @@ export default function EventRegistrationReport() {
     enabled: !!appliedFilters,
     staleTime: 0,
     refetchOnMount: true,
+    refetchInterval: query => eventInvoiceRefetchInterval(query, (query.state.data?.bookingGroups || []).map(group => group.groupPayment)),
   });
 
   const bookingGroups = reportData?.bookingGroups || [];
@@ -861,7 +887,7 @@ export default function EventRegistrationReport() {
         ) ||
         (group.groupPayment.purchaseOrderNumber || '').toLowerCase().includes(q) ||
         (group.groupPayment.bookingReference || '').toLowerCase().includes(q) ||
-        (group.groupPayment.xeroInvoiceNumber || '').toLowerCase().includes(q) ||
+        (eventInvoiceNumber(group.groupPayment) || '').toLowerCase().includes(q) ||
         (group.eventTitle || '').toLowerCase().includes(q) ||
         (group.internalReference || '').toLowerCase().includes(q)
       );
@@ -1151,7 +1177,7 @@ export default function EventRegistrationReport() {
     { key: 'std:poNumber', label: 'PO Number', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.purchaseOrderNumber || '') : '') },
     { key: 'std:poToFollow', label: 'PO To Follow', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.poToFollow ? 'Yes' : 'No') : '') },
     { key: 'std:stripe', label: 'Stripe Payment', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.stripePaymentIntentId ? 'Yes' : 'No') : '') },
-    { key: 'std:xero', label: 'Xero Invoice', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.xeroInvoiceNumber || '') : '') },
+    { key: 'std:xero', label: 'Invoice', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? reportInvoiceExport(gp) : '') },
     { key: 'std:bookingRef', label: 'Booking Reference', get: ({ gp, isFirstInGroup }) => (isFirstInGroup ? (gp.bookingReference || '') : '') },
     { key: 'std:status', label: 'Status', get: ({ a }) => a.status || '' },
     { key: 'std:date', label: 'Date', get: ({ a }) => (a.created_at ? format(parseISO(a.created_at), 'yyyy-MM-dd HH:mm') : '') },
@@ -2215,11 +2241,7 @@ export default function EventRegistrationReport() {
                                   ) : '-'}
                                 </td>
                                 <td className="py-3 pr-3 whitespace-nowrap">
-                                  {gp.xeroInvoiceNumber ? (
-                                    <span className="text-xs font-mono">{gp.xeroInvoiceNumber}</span>
-                                  ) : gp.xeroInvoiceError ? (
-                                    <span className="text-xs italic text-warning" title={gp.xeroInvoiceError} data-testid={`text-invoice-failed-${attendee.id}`}>Failed</span>
-                                  ) : '-'}
+                                  <ReportInvoice payment={gp} testId={`text-invoice-status-${attendee.id}`} />
                                 </td>
                                 <td className="py-3 pr-3 whitespace-nowrap">
                                   <Badge variant={attendee.status === 'confirmed' ? 'default' : attendee.status === 'cancelled' ? 'destructive' : 'secondary'}>
@@ -2321,11 +2343,7 @@ export default function EventRegistrationReport() {
                                 ) : '-'}
                               </td>
                               <td className="py-2 pr-3 whitespace-nowrap" rowSpan={groupRowCount}>
-                                {gp.xeroInvoiceNumber ? (
-                                  <span className="text-xs font-mono">{gp.xeroInvoiceNumber}</span>
-                                ) : gp.xeroInvoiceError ? (
-                                  <span className="text-xs italic text-warning" title={gp.xeroInvoiceError} data-testid={`text-invoice-failed-group-${group.groupRef || keyAttendeeId}`}>Failed</span>
-                                ) : '-'}
+                                <ReportInvoice payment={gp} testId={`text-invoice-status-group-${group.groupRef || keyAttendeeId}`} />
                               </td>
                             </>
                           );

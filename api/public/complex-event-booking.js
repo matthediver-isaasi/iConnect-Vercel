@@ -20,7 +20,7 @@ import {
   getMemberGroupIdsForMember,
   isActiveMemberOfGroup
 } from '../_lib/ticketAccess.js';
-import { getAccountingProvider } from '../_lib/accountingProvider.js';
+import { enqueueCheckoutEventInvoice, eventInvoiceContact, complexEventInvoiceLines } from '../_lib/eventInvoiceProducer.js';
 import { getAllowVoucherUseAfterExpiry, isVoucherUsableForEventDate } from '../_lib/voucherExpiryPolicy.js';
 import { orderVoucherIdsForRedemption } from '../_lib/voucherOrdering.js';
 import { sendConfirmationEmailsFromTemplate } from '../_lib/eventConfirmationEmail.js';
@@ -435,6 +435,7 @@ export default async function handler(req, res) {
     // Captured during card verification so sold-out paths can auto-refund
     // (mirrors the standard-event guard's auto-refund). Task #1760.
     let stripeSecretKeyForRefund = null;
+    let invoicePaymentEvidence = null;
     let allocationPaymentBindingVerified = false;
     let cardPaymentAuthorizedForCompensation = false;
 
@@ -477,7 +478,7 @@ export default async function handler(req, res) {
         stripeSecretKeyForRefund = stripeSecretKey;
 
         try {
-          const stripeResponse = await fetch(`https://api.stripe.com/v1/payment_intents/${stripe_payment_intent_id}`, {
+          const stripeResponse = await fetch(`https://api.stripe.com/v1/payment_intents/${stripe_payment_intent_id}?expand[]=latest_charge`, {
             headers: { 'Authorization': `Bearer ${stripeSecretKey}` }
           });
           const paymentIntent = await stripeResponse.json();
@@ -566,6 +567,7 @@ export default async function handler(req, res) {
           // invitation binding was also verified.
           cardPaymentAuthorizedForCompensation = !allocationContext
             || allocationPaymentBindingVerified;
+          invoicePaymentEvidence = paymentIntent;
         } catch (stripeErr) {
           console.error('[Complex Event Booking] Stripe verification error:', stripeErr);
           return res.status(500).json({ error: 'Failed to verify payment' });
@@ -1321,250 +1323,16 @@ export default async function handler(req, res) {
       }
     }
 
-    if (confirmedPaymentMethod !== PUBLIC_INVOICE_PO && validatedRemainingBalance > 0) {
-      const appTenantId = event.tenant_id || tenant.id;
-      try {
-        const { data: xeroSettings } = await supabase
-          .from('system_settings')
-          .select('setting_value')
-          .eq('setting_key', 'xero_invoice_enabled')
-          .eq('tenant_id', appTenantId)
-          .maybeSingle();
-
-        const xeroInvoiceEnabled = xeroSettings?.setting_value === 'true';
-
-        if (xeroInvoiceEnabled) {
-          console.log(`[Complex Event Booking] Xero invoice creation starting for £${validatedRemainingBalance.toFixed(2)}`);
-
-          let invoiceContactInfo = null;
-          if (org) {
-            invoiceContactInfo = {
-              name: org.name,
-              email: org.invoicing_email || null,
-              address: org.address || null,
-              isOrganization: true
-            };
-          } else if (authenticatedMember) {
-            const memberName = `${authenticatedMember.first_name || ''} ${authenticatedMember.last_name || ''}`.trim();
-            invoiceContactInfo = {
-              name: memberName || authenticatedMember.email,
-              email: authenticatedMember.email,
-              isOrganization: false
-            };
-          }
-
-          if (invoiceContactInfo && invoiceContactInfo.name) {
-            try {
-              const _provider = await getAccountingProvider(appTenantId);
-              const { accessToken, tenantId: xeroTenantId } = await _provider.getRawAccessToken(appTenantId);
-
-              if (accessToken && xeroTenantId) {
-                const { findOrCreateXeroContact } = await import('../_lib/xero.js');
-                const contactId = await findOrCreateXeroContact(accessToken, xeroTenantId, invoiceContactInfo);
-
-                const { data: accountCodeSetting } = await supabase
-                  .from('system_settings')
-                  .select('setting_value')
-                  .eq('setting_key', 'xero_sales_account_code')
-                  .eq('tenant_id', appTenantId)
-                  .maybeSingle();
-
-                const systemDefaultAccountCode = accountCodeSetting?.setting_value || '200';
-                const eventAccountCode = (event.xero_account_code || '').trim();
-                const xeroAccountCode = eventAccountCode || systemDefaultAccountCode;
-
-                const { data: invoiceStatusSetting } = await supabase
-                  .from('system_settings')
-                  .select('setting_value')
-                  .eq('setting_key', 'xero_invoice_status')
-                  .eq('tenant_id', appTenantId)
-                  .maybeSingle();
-
-                const xeroInvoiceStatus = invoiceStatusSetting?.setting_value || 'DRAFT';
-
-                const dueDate = new Date();
-                dueDate.setDate(dueDate.getDate() + 30);
-                const dueDateString = dueDate.toISOString().split('T')[0];
-
-                const invoiceReference = poToFollow ? 'TBC' : (purchaseOrderNumber || 'TBC');
-
-                const trackingCategory = event.internal_reference
-                  ? [{ Name: 'Projects', Option: event.internal_reference }]
-                  : undefined;
-
-                const lineItems = resolvedItems.map(item => {
-                  const qty = item.attendees.length;
-                  const ticketName = item.serverTicket.name || 'Ticket';
-                  const unitPrice = item.authoritativePrice;
-                  const itemAttendees = item.attendees.map(a => {
-                    const name = `${a.first_name || ''} ${a.last_name || ''}`.trim();
-                    return name || a.email;
-                  }).join(', ');
-
-                  const descParts = [
-                    `Event: ${event.title || 'Complex Event'}`,
-                    `Ticket: ${ticketName}`,
-                    `Attendees: ${itemAttendees}`
-                  ];
-
-                  const li = {
-                    Description: descParts.join('\n'),
-                    Quantity: qty,
-                    UnitAmount: unitPrice,
-                    AccountCode: xeroAccountCode
-                  };
-
-                  if (item.ticketClass?.vat_rate_key) {
-                    li.TaxType = item.ticketClass.vat_rate_key;
-                  }
-
-                  if (trackingCategory) {
-                    li.Tracking = trackingCategory;
-                  }
-
-                  return li;
-                });
-
-                if (actualVoucherApplied > 0) {
-                  lineItems.push({
-                    Description: 'Voucher discount',
-                    Quantity: 1,
-                    UnitAmount: -actualVoucherApplied,
-                    AccountCode: xeroAccountCode
-                  });
-                }
-                if (actualTfApplied > 0) {
-                  lineItems.push({
-                    Description: 'Training fund contribution',
-                    Quantity: 1,
-                    UnitAmount: -actualTfApplied,
-                    AccountCode: xeroAccountCode
-                  });
-                }
-
-                const invoicePayload = {
-                  Type: 'ACCREC',
-                  Contact: { ContactID: contactId },
-                  DueDate: dueDateString,
-                  LineItems: lineItems,
-                  Reference: invoiceReference,
-                  Status: xeroInvoiceStatus
-                };
-
-                console.log(`[Complex Event Booking] Sending invoice to Xero - Amount: £${validatedRemainingBalance.toFixed(2)}, Reference: ${invoiceReference}`);
-
-                const invoiceResponse = await fetch('https://api.xero.com/api.xro/2.0/Invoices', {
-                  method: 'POST',
-                  headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'xero-tenant-id': xeroTenantId,
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                  },
-                  body: JSON.stringify({ Invoices: [invoicePayload] })
-                });
-
-                const responseText = await invoiceResponse.text();
-                let invoiceData = null;
-                try {
-                  invoiceData = JSON.parse(responseText);
-                } catch (parseError) {
-                  console.error(`[Complex Event Booking] Failed to parse Xero response: ${responseText.substring(0, 200)}`);
-                }
-
-                if (invoiceData?.Invoices?.[0]) {
-                  const invoice = invoiceData.Invoices[0];
-                  console.log(`[Complex Event Booking] Xero invoice created: ${invoice.InvoiceNumber} (${invoice.InvoiceID})`);
-
-                  const { error: updateError } = await supabase
-                    .from('complex_event_booking')
-                    .update({
-                      xero_invoice_id: invoice.InvoiceID,
-                      xero_invoice_number: invoice.InvoiceNumber
-                    })
-                    .eq('booking_group_reference', bookingGroupRef);
-
-                  if (updateError) {
-                    console.error(`[Complex Event Booking] Failed to update bookings with Xero data: ${updateError.message}`);
-                  }
-
-                  if (confirmedPaymentMethod === 'card' && stripe_payment_intent_id && invoice.InvoiceID && invoice.Status === 'AUTHORISED') {
-                    try {
-                      const { data: stripeBankCodeSetting } = await supabase
-                        .from('system_settings')
-                        .select('setting_value')
-                        .eq('setting_key', 'xero_stripe_bank_account_code')
-                        .eq('tenant_id', appTenantId)
-                        .maybeSingle();
-
-                      const stripeBankAccountCode = stripeBankCodeSetting?.setting_value;
-
-                      if (stripeBankAccountCode) {
-                        const accountsResponse = await fetch(`https://api.xero.com/api.xro/2.0/Accounts?where=Code=="${stripeBankAccountCode}"`, {
-                          method: 'GET',
-                          headers: {
-                            'Authorization': `Bearer ${accessToken}`,
-                            'xero-tenant-id': xeroTenantId,
-                            'Accept': 'application/json'
-                          }
-                        });
-
-                        const accountsData = await accountsResponse.json();
-                        const bankAccount = accountsData?.Accounts?.[0];
-
-                        if (bankAccount?.AccountID) {
-                          const paymentPayload = {
-                            Invoice: { InvoiceID: invoice.InvoiceID },
-                            Account: { AccountID: bankAccount.AccountID },
-                            Date: new Date().toISOString().split('T')[0],
-                            Amount: validatedRemainingBalance,
-                            Reference: `Stripe: ${stripe_payment_intent_id}`
-                          };
-
-                          const paymentResponse = await fetch('https://api.xero.com/api.xro/2.0/Payments', {
-                            method: 'POST',
-                            headers: {
-                              'Authorization': `Bearer ${accessToken}`,
-                              'xero-tenant-id': xeroTenantId,
-                              'Content-Type': 'application/json',
-                              'Accept': 'application/json'
-                            },
-                            body: JSON.stringify({ Payments: [paymentPayload] })
-                          });
-
-                          const paymentData = await paymentResponse.json();
-                          if (paymentData?.Payments?.[0]?.PaymentID) {
-                            console.log(`[Complex Event Booking] Xero payment recorded: ${paymentData.Payments[0].PaymentID}`);
-                          } else {
-                            console.error(`[Complex Event Booking] Failed to record Xero payment: ${JSON.stringify(paymentData).substring(0, 500)}`);
-                          }
-                        } else {
-                          console.warn(`[Complex Event Booking] Bank account not found for code: ${stripeBankAccountCode}`);
-                        }
-                      } else {
-                        console.log(`[Complex Event Booking] xero_stripe_bank_account_code not configured - payment not recorded`);
-                      }
-                    } catch (paymentError) {
-                      console.error(`[Complex Event Booking] Xero payment recording error (non-fatal): ${paymentError.message}`);
-                    }
-                  }
-                } else {
-                  console.error(`[Complex Event Booking] Xero invoice creation failed: ${responseText.substring(0, 500)}`);
-                }
-              } else {
-                console.error(`[Complex Event Booking] Missing Xero token or tenantId`);
-              }
-            } catch (xeroError) {
-              console.error(`[Complex Event Booking] Xero invoice error (non-fatal): ${xeroError.message}`);
-            }
-          } else {
-            console.log(`[Complex Event Booking] Cannot determine invoice contact - skipping`);
-          }
-        }
-      } catch (xeroSettingsError) {
-        console.error(`[Complex Event Booking] Xero settings check error (non-fatal): ${xeroSettingsError.message}`);
-      }
-    }
+    const invoiceRecovery = confirmedPaymentMethod !== PUBLIC_INVOICE_PO && validatedRemainingBalance > 0
+      ? await enqueueCheckoutEventInvoice({
+      db: supabase, tenantId: tenant.id, source: 'complex_event_booking',
+      bookingGroupReference: bookingGroupRef, event, amount: validatedRemainingBalance,
+      currency: unifiedCurrency, paymentMethod: confirmedPaymentMethod,
+      paymentIntentId: stripe_payment_intent_id, paymentIntent: invoicePaymentEvidence,
+      contact: eventInvoiceContact({ source: 'complex_event_booking', org, member: authenticatedMember }),
+      purchaseOrderNumber, poToFollow,
+      buildLines: accountCode => complexEventInvoiceLines({ event, resolvedItems, actualVoucherApplied, actualTfApplied }, accountCode),
+      }) : { status: 'not_applicable' };
 
     const emailResults = [];
     console.log('[Complex Event Booking] Sending confirmation emails to attendees...');
@@ -1625,6 +1393,7 @@ export default async function handler(req, res) {
       success: true,
       booking_group_reference: bookingGroupRef,
       bookings,
+      invoice_recovery: invoiceRecovery,
       event_title: event.title
     });
   } catch (error) {

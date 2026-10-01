@@ -19,6 +19,13 @@ export async function readAllReportRows(query) {
   }
 }
 
+export function reportInvoiceRecord(bookings) {
+  return bookings.find(b => b.accounting_invoice_id || b.xero_invoice_id)
+    || bookings.find(b => b.status !== 'cancelled' && b.invoice_recovery_status === 'needs_review')
+    || bookings.find(b => b.status !== 'cancelled' && ['pending', 'processing', 'retry'].includes(b.invoice_recovery_status))
+    || bookings[0];
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -292,7 +299,7 @@ export default async function handler(req, res) {
       if (targetEventIds.length > 0) {
         let bookingQuery = supabase
           .from('booking')
-          .select('id, event_id, member_id, attendee_email, attendee_first_name, attendee_last_name, ticket_price, total_cost, payment_method, purchaser_context, voucher_amount, training_fund_amount, account_amount, purchase_order_number, po_to_follow, stripe_payment_intent_id, ticket_class_name, ticket_class_id, organization_id, booking_reference, booking_group_reference, xero_invoice_id, xero_invoice_number, xero_invoice_error, is_guest_booking, status, created_at, third_party_consent, designation, buddy, badge, dietary_selections, allergy_selections, accessibility_selections, discount_code_id, discount_code_amount, attendee_job_title, attendee_phone, guest_organisation_name')
+          .select('id, event_id, member_id, attendee_email, attendee_first_name, attendee_last_name, ticket_price, total_cost, payment_method, purchaser_context, voucher_amount, training_fund_amount, account_amount, purchase_order_number, po_to_follow, stripe_payment_intent_id, ticket_class_name, ticket_class_id, organization_id, booking_reference, booking_group_reference, xero_invoice_id, xero_invoice_number, xero_invoice_error, accounting_provider, accounting_invoice_id, accounting_invoice_number, invoice_recovery_status, invoice_recovery_next_attempt_at, is_guest_booking, status, created_at, third_party_consent, designation, buddy, badge, dietary_selections, allergy_selections, accessibility_selections, discount_code_id, discount_code_amount, attendee_job_title, attendee_phone, guest_organisation_name')
           .in('event_id', targetEventIds)
           .eq('tenant_id', tenantId)
           .order('booking_group_reference', { ascending: true, nullsFirst: false })
@@ -323,7 +330,7 @@ export default async function handler(req, res) {
       if (targetComplexEventIds.length > 0) {
         let complexBookingQuery = supabase
           .from('complex_event_booking')
-          .select('id, event_id, member_id, attendee_email, attendee_first_name, attendee_last_name, ticket_price, total_paid, payment_method, payment_status, purchaser_context, purchase_order_number, voucher_amount, training_fund_amount, account_balance_amount, stripe_payment_intent_id, ticket_class_name, ticket_class_id, organization_id, booking_reference, booking_group_reference, discount_code, discount_amount, status, created_at, third_party_consent, designation, buddy, badge, dietary_selections, allergy_selections, accessibility_selections, attendee_job_title, attendee_phone, attendee_organization')
+          .select('id, event_id, member_id, attendee_email, attendee_first_name, attendee_last_name, ticket_price, total_paid, payment_method, payment_status, purchaser_context, purchase_order_number, voucher_amount, training_fund_amount, account_balance_amount, stripe_payment_intent_id, ticket_class_name, ticket_class_id, organization_id, booking_reference, booking_group_reference, xero_invoice_id, xero_invoice_number, xero_invoice_error, accounting_provider, accounting_invoice_id, accounting_invoice_number, invoice_recovery_status, invoice_recovery_next_attempt_at, discount_code, discount_amount, status, created_at, third_party_consent, designation, buddy, badge, dietary_selections, allergy_selections, accessibility_selections, attendee_job_title, attendee_phone, attendee_organization')
           .in('event_id', targetComplexEventIds)
           .eq('tenant_id', tenantId)
           .order('booking_group_reference', { ascending: true, nullsFirst: false })
@@ -352,8 +359,6 @@ export default async function handler(req, res) {
             account_amount: b.account_balance_amount || 0,
             purchase_order_number: b.purchase_order_number || null,
             po_to_follow: null,
-            xero_invoice_id: null,
-            xero_invoice_number: null,
             is_guest_booking: !b.member_id,
             // Normalize discount-code fields to the common shape used by standard bookings.
             // Complex events store the code amount in `discount_amount` and the code string in `discount_code`;
@@ -836,6 +841,7 @@ export default async function handler(req, res) {
         }
 
         const eventInfo = eventMap[first.event_id] || {};
+        const invoiceRecord = reportInvoiceRecord(members);
 
         bookingGroups.push({
           bookingSource: first._report_booking_source === 'complex' ? 'complex_event_booking' : 'booking',
@@ -866,9 +872,15 @@ export default async function handler(req, res) {
             purchaseOrderNumber: first.purchase_order_number,
             poToFollow: first.po_to_follow,
             stripePaymentIntentId: first.stripe_payment_intent_id,
-            xeroInvoiceNumber: first.xero_invoice_number,
-            xeroInvoiceId: first.xero_invoice_id,
-            xeroInvoiceError: first.xero_invoice_error || null,
+            xeroInvoiceNumber: invoiceRecord.xero_invoice_number || null,
+            xeroInvoiceId: invoiceRecord.xero_invoice_id || null,
+            xeroInvoiceError: invoiceRecord.xero_invoice_error || null,
+            accountingProvider: invoiceRecord.accounting_provider || null,
+            accountingInvoiceId: invoiceRecord.accounting_invoice_id || null,
+            accountingInvoiceNumber: invoiceRecord.accounting_invoice_number || null,
+            invoiceRecoveryStatus: invoiceRecord.invoice_recovery_status || null,
+            invoiceRecoveryNextAttemptAt: invoiceRecord.invoice_recovery_next_attempt_at || null,
+            status: invoiceRecord.status,
             bookingReference: first.booking_reference,
           },
           hasZoom: eventInfo.has_zoom || false,

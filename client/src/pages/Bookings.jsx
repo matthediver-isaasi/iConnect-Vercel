@@ -27,6 +27,8 @@ import TourButton from "../components/tour/TourButton";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import TransferTicketDialog from "@/components/TransferTicketDialog";
+import EventInvoiceStatus from "@/components/booking/EventInvoiceStatus";
+import { eventInvoiceAwaited, eventInvoiceGroupRecord, eventInvoiceId, eventInvoiceNumber, eventInvoiceRefetchInterval } from "../../../shared/eventInvoiceRecoveryPresentation.mjs";
 
 export default function BookingsPage() {
   const { memberInfo, memberRole, isFeatureExcluded } = useMemberAccess();
@@ -92,6 +94,7 @@ export default function BookingsPage() {
     enabled: !!memberInfo?.id,
     staleTime: 0,
     refetchOnMount: true,
+    refetchInterval: query => canAccessInvoices ? eventInvoiceRefetchInterval(query, query.state.data || []) : false,
   });
 
   const { data: complexBookingsData, isLoading: loadingComplexBookings } = useQuery({
@@ -106,6 +109,7 @@ export default function BookingsPage() {
     enabled: !!memberInfo?.id,
     staleTime: 0,
     refetchOnMount: true,
+    refetchInterval: query => canAccessInvoices ? eventInvoiceRefetchInterval(query, query.state.data?.bookings || []) : false,
   });
 
   const complexEventsMap = complexBookingsData?.events || {};
@@ -472,8 +476,7 @@ export default function BookingsPage() {
       });
       
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: 'Failed to load invoice' }));
-        throw new Error(error.error || 'Failed to load invoice');
+        throw new Error('Your invoice could not be loaded. Please try again later.');
       }
       
       // Get the PDF as a blob
@@ -503,8 +506,7 @@ export default function BookingsPage() {
       });
       
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: 'Failed to download invoice' }));
-        throw new Error(error.error || 'Failed to download invoice');
+        throw new Error('Your invoice could not be downloaded. Please try again later.');
       }
       
       // Get the PDF as a blob
@@ -792,11 +794,14 @@ export default function BookingsPage() {
             {filteredAndSortedGroups.map(([bookingRef, groupBookings], index) => {
               const displayRef = bookingRef.startsWith('complex:') ? bookingRef.slice(8) : bookingRef;
               const firstBooking = groupBookings[0];
+              const invoiceBooking = eventInvoiceGroupRecord(groupBookings);
+              const invoiceNumber = eventInvoiceNumber(invoiceBooking);
+              const hasInvoice = !!eventInvoiceId(invoiceBooking);
               const isComplex = firstBooking._source === 'complex';
               const event = isComplex ? firstBooking._complexEvent : events.find(e => e.id === firstBooking.event_id);
               
               const isOneOffEvent = firstBooking.is_one_off_event || event?.is_one_off;
-              const hasXeroData = !!(firstBooking.xero_invoice_id || firstBooking.xero_invoice_number);
+              const hasXeroData = hasInvoice || !!invoiceNumber || eventInvoiceAwaited(invoiceBooking);
               const showFinancials = isOneOffEvent || isComplex || hasXeroData;
               const eventTitle = event?.title || firstBooking.event_name || 'Event';
               const startDate = event?.start_date ? new Date(event.start_date) : null;
@@ -1139,19 +1144,22 @@ export default function BookingsPage() {
                         </div>
                       )}
                       
-                      {canAccessInvoices && showFinancials && firstBooking.xero_invoice_number && (
+                      {canAccessInvoices && showFinancials && (
+                        <EventInvoiceStatus record={invoiceBooking} testId={`invoice-status-${bookingRef}`} />
+                      )}
+                      {canAccessInvoices && showFinancials && hasInvoice && (
                         <div className="flex items-center justify-between p-3 bg-blue-50 border border-blue-200 rounded-lg">
                           <div className="flex items-center gap-2">
                             <FileText className="w-4 h-4 text-blue-600" />
                             <span className="text-sm text-blue-800">
-                              Invoice: <span className="font-mono font-medium">{firstBooking.xero_invoice_number}</span>
+                              Invoice: <span className="font-mono font-medium">{invoiceNumber || displayRef}</span>
                             </span>
                           </div>
                           <div className="flex gap-2">
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => handleViewInvoice(bookingRef, displayRef, firstBooking.xero_invoice_number)}
+                              onClick={() => handleViewInvoice(bookingRef, displayRef, invoiceNumber)}
                               disabled={loadingInvoiceFor === bookingRef}
                               data-testid={`button-view-invoice-${bookingRef}`}
                               className="border-blue-300 text-blue-700 hover:bg-blue-100"
@@ -1168,7 +1176,7 @@ export default function BookingsPage() {
                             <Button
                               variant="outline"
                               size="sm"
-                              onClick={() => handleDownloadInvoice(bookingRef, displayRef, firstBooking.xero_invoice_number)}
+                              onClick={() => handleDownloadInvoice(bookingRef, displayRef, invoiceNumber)}
                               disabled={loadingInvoiceFor === bookingRef}
                               data-testid={`button-download-invoice-${bookingRef}`}
                               className="border-blue-300 text-blue-700 hover:bg-blue-100"

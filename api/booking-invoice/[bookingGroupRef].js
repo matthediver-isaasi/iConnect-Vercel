@@ -1,5 +1,5 @@
 import { getSessionMember } from '../_lib/session.js';
-import { getAccountingProvider } from '../_lib/accountingProvider.js';
+import { getAccountingProvider, getAccountingProviderByName } from '../_lib/accountingProvider.js';
 import { supabase } from '../_lib/database.js';
 
 export default async function handler(req, res) {
@@ -27,7 +27,7 @@ export default async function handler(req, res) {
 
     const { data: regularBooking, error } = await supabase
       .from('booking')
-      .select('xero_invoice_id, xero_invoice_number, accounting_invoice_id, accounting_invoice_number, member_id, organization_id')
+      .select('xero_invoice_id, xero_invoice_number, accounting_provider, accounting_invoice_id, accounting_invoice_number, member_id, organization_id')
       .eq('booking_group_reference', bookingGroupRef)
       .eq('tenant_id', sessionMember.tenant_id)
       .or('xero_invoice_id.not.is.null,accounting_invoice_id.not.is.null')
@@ -45,7 +45,7 @@ export default async function handler(req, res) {
     if (!hasInvoice(booking)) {
       const { data: complexBooking, error: complexError } = await supabase
         .from('complex_event_booking')
-        .select('xero_invoice_id, xero_invoice_number, accounting_invoice_id, accounting_invoice_number, member_id, organization_id')
+        .select('xero_invoice_id, xero_invoice_number, accounting_provider, accounting_invoice_id, accounting_invoice_number, member_id, organization_id')
         .eq('booking_group_reference', bookingGroupRef)
         .eq('tenant_id', sessionMember.tenant_id)
         .or('xero_invoice_id.not.is.null,accounting_invoice_id.not.is.null')
@@ -80,7 +80,11 @@ export default async function handler(req, res) {
 
     const invoiceId = booking.accounting_invoice_id || booking.xero_invoice_id;
     const invoiceNumber = booking.accounting_invoice_number || booking.xero_invoice_number;
-    const provider = await getAccountingProvider(appTenantId);
+    // Historical linkage must not follow a subsequent active-provider switch.
+    const pinnedProvider = booking.accounting_provider || (booking.xero_invoice_id ? 'xero' : null);
+    const provider = pinnedProvider
+      ? getAccountingProviderByName(pinnedProvider)
+      : await getAccountingProvider(appTenantId);
     const pdfBuffer = await provider.fetchInvoicePdf(invoiceId, appTenantId);
 
     const inline = req.query.inline === 'true';
@@ -95,7 +99,7 @@ export default async function handler(req, res) {
   } catch (error) {
     console.error('Error serving invoice PDF:', error);
     if (error.code === 'ACCOUNTING_PROVIDER_NONE' || error.code === 'ACCOUNTING_PROVIDER_NOT_CONFIGURED') {
-      return res.status(503).json({ error: error.message });
+      return res.status(503).json({ error: 'The invoice is temporarily unavailable. Please try again later.' });
     }
     return res.status(500).json({ error: 'Failed to fetch invoice from accounting provider' });
   }

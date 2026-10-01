@@ -3,6 +3,9 @@
   "buildCommand": "npx vite build",
   "outputDirectory": "dist/public",
   "functions": {
+    "api/cron/reconcile-event-invoices.js": {
+      "maxDuration": 60
+    },
     "api/due-diligence/update-status.js": {
       "maxDuration": 300
     },
@@ -44,6 +47,10 @@
     }
   },
   "crons": [
+    {
+      "path": "/api/cron/reconcile-event-invoices",
+      "schedule": "*/5 * * * *"
+    },
     {
       "path": "/api/cron/refresh-dashboard-widgets",
       "schedule": "* * * * *"

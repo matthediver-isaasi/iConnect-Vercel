@@ -127,7 +127,8 @@ export default async function handler(req, res) {
     }
 
     return res.json({
-      bookings,
+      // Recovery state is customer-safe; provider diagnostics are admin-only.
+      bookings: bookings.map(({ xero_invoice_error, accounting_invoice_error, accounting_sync_error, invoice_recovery_error, invoice_recovery_last_error, ...booking }) => booking),
       events: eventsMap,
       sessions: bookingSessionsMap,
     });
