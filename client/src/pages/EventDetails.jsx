@@ -46,6 +46,8 @@ import { useTicketAvailabilityRealtime } from "@/hooks/useTicketAvailabilityReal
 import BookmarkButton from "@/components/bookmarks/BookmarkButton";
 import { getSeatStatusLabels } from "@/lib/seatStatusLabels";
 import { normalizeAllocationContext } from "@/lib/eventAllocation.mjs";
+import { useTicketReleaseClock } from "@/hooks/useTicketReleaseClock";
+import { isTicketReleased, ticketReleaseMessage } from "../../../shared/ticketRelease.js";
 
 // Training agenda grouped by day with the same collapse behaviour/styling as
 // the complex-event schedule (ComplexEventSchedule.jsx ScheduleGrid): chevron +
@@ -734,6 +736,12 @@ export function EventDetailsExperience({
     
     return parsed;
   }, [event, isOneOffEvent]);
+
+  // Truly absent legacy pricing is not the same as a configured ticket list
+  // with no purchasable classes (or an invalid config). Only the former has no
+  // ticket selection to make.
+  const legacyWithoutPricingConfig = isOneOffEvent
+    && (event?.pricing_config == null || event.pricing_config === '');
   
   // Set up realtime subscription for ticket class availability updates
   // MUST be after pricingConfig is defined to seed initial state
@@ -791,6 +799,8 @@ export function EventDetailsExperience({
           id: String(tc.id || `ticket-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`),
           name: String(tc.name || 'Ticket'),
           price: Number(tc.price) || 0,
+          release_at: tc.release_at ?? null,
+          release_timezone: tc.release_timezone ?? null,
           role_ids: Array.isArray(tc.role_ids) ? tc.role_ids : [],
           member_group_ids: Array.isArray(tc.member_group_ids) ? tc.member_group_ids : [],
           is_default: Boolean(tc.is_default),
@@ -819,6 +829,8 @@ export function EventDetailsExperience({
       });
   }, [isOneOffEvent, pricingConfig]);
   
+  const releaseNowMs = useTicketReleaseClock(allNormalizedTickets);
+
   // Count-based availability helpers (Task #1758). available_count is a fixed
   // maximum; availability is derived from confirmed-booking counts. Prefer live
   // realtime data, otherwise fall back to the sold_count / is_sold_out embedded
@@ -867,6 +879,7 @@ export function EventDetailsExperience({
   const isTicketPurchasable = (ticket) => {
     if (!ticket) return false;
     if (allocationMode && String(ticket.id) === allocationContext.ticketTypeId) return true;
+    if (!isTicketReleased(ticket, releaseNowMs)) return false;
     
     // Count-based availability (Task #1758): availability is derived from the
     // number of confirmed bookings, not from mutating available_count.
@@ -993,8 +1006,10 @@ export function EventDetailsExperience({
           setSelectedTicketClassId(null);
         }
       }
+    } else {
+      setSelectedTicketClassId(null);
     }
-  }, [availableTicketClasses, selectedTicketClassId, allowGuestsToViewAllTickets, currentMemberInfo, userRoleId, allocationMode, allocationContext?.ticketTypeId]);
+  }, [availableTicketClasses, selectedTicketClassId, allowGuestsToViewAllTickets, currentMemberInfo, userRoleId, allocationMode, allocationContext?.ticketTypeId, releaseNowMs]);
   
   // Get selected ticket class
   const selectedTicketClass = useMemo(() => {
@@ -1330,12 +1345,17 @@ export function EventDetailsExperience({
   
   // Use effective ticket price (early bird or standard)
   const effectivePricing = getEffectiveTicketPrice(selectedTicketClass);
-  const ticketPrice = allocationMode ? 0 : (effectivePricing.price || pricingConfig?.ticket_price || 0);
+  const ticketPrice = allocationMode ? 0 : (legacyWithoutPricingConfig
+    ? Number(event.ticket_price) || 0
+    : (effectivePricing.price || pricingConfig?.ticket_price || 0));
   
   // Calculate one-off event cost with offers based on selected ticket class
   const calculateOneOffCost = () => {
-    if (!isOneOffEvent || !selectedTicketClass || ticketsRequired === 0) {
+    if (!isOneOffEvent || (!selectedTicketClass && !legacyWithoutPricingConfig) || ticketsRequired === 0) {
       return { totalCost: 0, ticketsToPay: ticketsRequired, freeTickets: 0, discount: 0, discountDescription: '' };
+    }
+    if (legacyWithoutPricingConfig) {
+      return { totalCost: ticketsRequired * ticketPrice, ticketsToPay: ticketsRequired, freeTickets: 0, discount: 0, discountDescription: '' };
     }
     
     const basePrice = allocationMode ? 0 : (effectivePricing.price || 0);
@@ -1403,7 +1423,7 @@ export function EventDetailsExperience({
   const hasEnoughTickets = isOneOffEvent ? true : availableProgramTickets >= ticketsRequired;
   
   // Check if user has no tickets available for their role
-  const noTicketsForRole = isOneOffEvent && availableTicketClasses.length === 0;
+  const noTicketsForRole = isOneOffEvent && !legacyWithoutPricingConfig && availableTicketClasses.length === 0;
 
   // CTA override "detail_page" mode: card opens this page, but booking inputs
   // are hidden and replaced with a "Continue to book" button linking out.
@@ -2564,6 +2584,9 @@ export function EventDetailsExperience({
                                   )}
                                 </span>
                               </Label>
+                              {!allocationMode && !isTicketReleased(tc, releaseNowMs) && (
+                                <p className="text-xs text-slate-600 mt-1" data-testid={`ticket-release-${ticketId}`} role="status">{ticketReleaseMessage(tc)}</p>
+                              )}
                               {!purchasable && !currentMemberInfo && tc.visibility_mode && tc.visibility_mode !== 'public_only' && tc.visibility_mode !== 'members_and_public' && (
                                 <p className="text-xs text-slate-500 mt-0.5" data-testid={`text-members-only-${ticketId}`}>
                                   Members only —{' '}
@@ -2657,6 +2680,9 @@ export function EventDetailsExperience({
                                 </Badge>
                               )}
                             </div>
+                            {!allocationMode && !isTicketReleased(selectedTicketClass, releaseNowMs) && (
+                              <p className="text-xs text-slate-600 mt-1" data-testid="ticket-release-single" role="status">{ticketReleaseMessage(selectedTicketClass)}</p>
+                            )}
                             {!purchasable && !currentMemberInfo && selectedTicketClass.visibility_mode && selectedTicketClass.visibility_mode !== 'public_only' && selectedTicketClass.visibility_mode !== 'members_and_public' && (
                               <p className="text-xs text-slate-500 mt-0.5" data-testid="text-members-only-single">
                                 Members only —{' '}
@@ -2790,6 +2816,7 @@ export function EventDetailsExperience({
               ticketPrice={ticketPrice}
               isFeatureExcluded={isFeatureExcluded}
               selectedTicketClass={selectedTicketClass}
+              ticketSelectionUnavailable={isOneOffEvent && !legacyWithoutPricingConfig && (!selectedTicketClassId || !isTicketPurchasable(selectedTicketClass))}
               onCanProceedChange={setPaymentCanProceed}
               isGuestCheckout={isGuestCheckout}
               guestInfo={guestInfo}
@@ -2808,7 +2835,7 @@ export function EventDetailsExperience({
               checkGuestEmailIsMember={checkGuestEmailIsMember}
               checkingMemberEmail={checkingMemberEmail}
               guestEmailIsMember={guestEmailIsMember}
-              allocationContext={allocationMode ? { token: allocationToken, id: allocationContext.id } : null}
+              allocationContext={allocationMode ? { token: allocationToken, id: allocationContext.id, ticketTypeId: allocationContext.ticketTypeId } : null}
             />
             )}
             </>

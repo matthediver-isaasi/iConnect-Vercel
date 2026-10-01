@@ -51,6 +51,29 @@
     "ticket_price": {
       "type": "number"
     },
+    "pricing_config": {
+      "type": "object",
+      "description": "Event pricing and ticket classes",
+      "properties": {
+        "ticket_classes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "release_at": {
+                "type": ["string", "null"],
+                "format": "date-time",
+                "description": "Optional ticket release instant in explicit UTC ISO format; requires release_timezone"
+              },
+              "release_timezone": {
+                "type": ["string", "null"],
+                "description": "IANA timezone used to configure and display release_at; null when no release is scheduled"
+              }
+            }
+          }
+        }
+      }
+    },
     "available_seats": {
       "type": "number"
     },

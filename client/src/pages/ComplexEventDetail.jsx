@@ -48,6 +48,8 @@ import EventSponsorsCard from "@/components/events/EventSponsorsCard";
 import { EventDisclosureHeading, useEventDisclosure } from "@/components/events/EventDisclosure";
 import { getSeatStatusLabels } from "@/lib/seatStatusLabels";
 import { allocationCartUnitPrice, normalizeAllocationContext } from "@/lib/eventAllocation.mjs";
+import { useTicketReleaseClock } from "@/hooks/useTicketReleaseClock";
+import { isTicketReleased, ticketReleaseMessage } from "../../../shared/ticketRelease.js";
 
 
 function TrackAccessIndicator({ ticket, tracks }) {
@@ -531,6 +533,12 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
     }));
   }, [pricingConfig]);
 
+  const releaseNowMs = useTicketReleaseClock(ticketClasses);
+  const isReleaseBlocked = useCallback((ticket) => {
+    if (allocationContext?.ticketTypeId && String(ticket?.id) === String(allocationContext.ticketTypeId)) return false;
+    return !isTicketReleased(ticket, releaseNowMs);
+  }, [allocationContext?.ticketTypeId, releaseNowMs]);
+
   const isGuest = !memberInfo;
   const userRoleId = memberInfo?.role_id;
 
@@ -630,9 +638,35 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
   }, [cart]);
 
   const handleOpenAttendeeModal = useCallback((ticketClassId) => {
+    const ticket = availableTicketClasses.find(tc => tc.id === ticketClassId);
+    if (!ticket || isReleaseBlocked(ticket) || isTicketSoldOut(ticket)) return;
     setModalTicketClassId(ticketClassId);
     setAttendeeModalOpen(true);
-  }, []);
+  }, [availableTicketClasses, isReleaseBlocked, isTicketSoldOut]);
+
+  // Reconcile against current settings, never a ticket snapshot saved in a cart.
+  // Already purchased allocations are exempt from the new-sale release gate.
+  useEffect(() => {
+    setCart(previous => {
+      let changed = false;
+      const next = {};
+      for (const [id, item] of Object.entries(previous)) {
+        const ticket = availableTicketClasses.find(tc => String(tc.id) === String(id));
+        if (!ticket || isReleaseBlocked(ticket) || isTicketSoldOut(ticket)) {
+          changed = true;
+          continue;
+        }
+        next[id] = item.ticketClass === ticket ? item : { ...item, ticketClass: ticket };
+        if (next[id] !== item) changed = true;
+      }
+      return changed ? next : previous;
+    });
+    const modalTicket = availableTicketClasses.find(tc => tc.id === modalTicketClassId);
+    if (modalTicketClassId && (!modalTicket || isReleaseBlocked(modalTicket) || isTicketSoldOut(modalTicket))) {
+      setAttendeeModalOpen(false);
+      setModalTicketClassId(null);
+    }
+  }, [availableTicketClasses, isReleaseBlocked, isTicketSoldOut, modalTicketClassId, setCart]);
 
   useEffect(() => {
     if (!allocationContext?.ticketTypeId) return;
@@ -659,6 +693,11 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
 
   const handleAddAttendee = useCallback((attendee) => {
     if (!modalTicketClassId) return;
+    const ticket = availableTicketClasses.find(tc => tc.id === modalTicketClassId);
+    if (!ticket || isReleaseBlocked(ticket) || isTicketSoldOut(ticket)) {
+      toast.error(ticket ? ticketReleaseMessage(ticket) || 'This ticket is no longer available' : 'This ticket is no longer available');
+      return;
+    }
     setCart(prev => {
       const tc = ticketClasses.find(t => t.id === modalTicketClassId);
       const existing = prev[modalTicketClassId] || { ticketClass: tc, attendees: [] };
@@ -671,7 +710,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
         }
       };
     });
-  }, [modalTicketClassId, ticketClasses]);
+  }, [modalTicketClassId, ticketClasses, availableTicketClasses, isReleaseBlocked, isTicketSoldOut]);
 
   const handleUpdateAttendee = useCallback((ticketClassId, attendeeIndex, patch) => {
     setCart(prev => {
@@ -777,6 +816,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
       }));
       return publicClient.createComplexEventPaymentIntent({
         event_id: event.id,
+        purchaser_email: data.purchaser_email,
         items,
         selected_voucher_ids: data.selected_voucher_ids || [],
         voucher_order_manual: data.voucher_order_manual === true,
@@ -892,7 +932,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
   // hidden entirely; only a minimal Add Attendee control remains so the
   // attendee inputs, terms enforcement and booking payload are unchanged.
   const tbcBookableTicketClass = availableTicketClasses
-    .find(tc => !isTicketRestricted(tc) && !isTicketSoldOut(tc)) || null;
+    .find(tc => !isTicketRestricted(tc) && !isTicketSoldOut(tc) && !isReleaseBlocked(tc)) || null;
 
   const ticketCards = tbcTicketSelectorsHidden ? (
     <TbcAttendeeControls
@@ -911,6 +951,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
         const tcPrice = getEffectiveTicketPrice(tc);
         const restricted = isTicketRestricted(tc);
         const soldOut = isTicketSoldOut(tc);
+        const releaseBlocked = isReleaseBlocked(tc);
         const remaining = getTicketRemaining(tc);
         const cartEntry = cart[tc.id];
         const count = cartEntry?.attendees?.length || 0;
@@ -948,6 +989,9 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
                     </Badge>
                   )}
                 </span>
+                {releaseBlocked && (
+                  <p className="text-xs text-slate-600 mt-1" data-testid={`ticket-release-${tc.id}`} role="status">{ticketReleaseMessage(tc)}</p>
+                )}
                 {tc.description && (
                   <p className="text-xs text-slate-500 mt-0.5">{tc.description}</p>
                 )}
@@ -980,7 +1024,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
                 variant="outline"
                 size="sm"
                 onClick={() => handleOpenAttendeeModal(tc.id)}
-                disabled={restricted || soldOut || (isGroupEvent && totalAttendeeCount >= 1)
+                disabled={restricted || soldOut || releaseBlocked || (isGroupEvent && totalAttendeeCount >= 1)
                   || (Boolean(allocationContext?.ticketTypeId)
                     && String(tc.id) === String(allocationContext.ticketTypeId) && count >= 1)}
                 data-testid={`button-add-attendee-${tc.id}`}
@@ -1030,6 +1074,12 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
       attendees={flatAttendees}
       registrationMode="colleagues"
       selectedTicketClass={firstCartTicketClass}
+      checkoutTicketClasses={cartItems.map(item => ticketClasses.find(tc => String(tc.id) === String(item.ticketClassId)) || item.ticketClass)}
+      ticketSelectionUnavailable={cartItems.some(item => {
+        const ticket = availableTicketClasses.find(tc => String(tc.id) === String(item.ticketClassId));
+        return !ticket || isReleaseBlocked(ticket) || isTicketSoldOut(ticket);
+      })}
+      allocationContext={allocationContext}
       ticketPrice={oneOffCostDetails.ticketPrice}
       totalCost={grandTotal}
       oneOffCostDetails={oneOffCostDetails}
@@ -1096,6 +1146,9 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
                             </Badge>
                           )}
                         </span>
+                        {isReleaseBlocked(tc) && (
+                          <p className="text-xs text-slate-600 mt-1" data-testid={`ticket-release-${tc.id}`} role="status">{ticketReleaseMessage(tc)}</p>
+                        )}
                         {tc.description && (
                           <p className="text-xs text-slate-500 mt-0.5">{tc.description}</p>
                         )}

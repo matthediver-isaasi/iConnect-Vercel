@@ -22,7 +22,7 @@ async function loadHandler(path) {
   const replacements = new Map();
   for (const [, names, specifier] of source.matchAll(importPattern)) {
     if (specifier.startsWith('node:') || specifier === 'crypto') continue;
-    if (/\/eventPaymentPolicy(?:Compensation)?\.js$/.test(specifier)) continue;
+    if (/\/(?:eventPaymentPolicy(?:Compensation)?|ticketReleaseAccess)\.js$/.test(specifier)) continue;
     if (specifier === 'stripe') {
       replacements.set(specifier, `export default class StripeProxy { constructor(...args) { return new globalThis.${slot}.Stripe(...args); } }`);
       continue;
@@ -98,7 +98,7 @@ function fixture({
     organization: [],
     booking: [],
     complex_event_booking: [],
-    complex_event_ticket_class: [],
+    complex_event_ticket_class: [{ id: 'ticket-a', complex_event_id: 'event-a', tenant_id: 'tenant-a' }],
   };
   const calls = [];
   const effects = [];

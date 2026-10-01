@@ -155,6 +155,8 @@ export default async function handler(req, res) {
         early_bird_enabled: tc.early_bird_enabled || false,
         early_bird_price: tc.early_bird_price != null ? tc.early_bird_price : null,
         early_bird_deadline: tc.early_bird_deadline || null,
+        release_at: tc.release_at ?? null,
+        release_timezone: tc.release_timezone ?? null,
         offer_type: tc.offer_type || 'none',
         bogo_logic_type: tc.bogo_logic_type || 'buy_x_get_y_free',
         bogo_buy_quantity: tc.bogo_buy_quantity || 0,

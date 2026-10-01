@@ -55,6 +55,7 @@ import { base44 } from "@/api/base44Client";
 import { format } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import { TimezoneAwareDateTimeInput } from "@/components/events/TimezoneAwareDateTimeInput";
+import TicketReleaseFields, { hydrateTicketRelease, serializeTicketRelease, validateTicketReleases } from "@/components/events/TicketReleaseFields";
 import EventClashWarningDialog from "@/components/events/EventClashWarningDialog";
 import EventBudgetPanel from "@/components/events/EventBudgetPanel";
 import { checkEventClashes, buildClashWindows } from "@/lib/eventClash";
@@ -135,6 +136,7 @@ function toLocalDatetimeString(isoOrLocal) {
 // - 'members_and_public': Visible to both members and public (non-logged-in) users
 // - 'public_only': Only visible to public (non-logged-in) users, hidden from members
 const createEmptyTicketClass = (isDefault = false, defaultVatRate = null) => ({
+  ...hydrateTicketRelease(),
   id: `ticket-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
   name: isDefault ? "Standard Ticket" : "",
   price: "",
@@ -1279,6 +1281,7 @@ export default function EditEvent() {
               visibilityMode = isPublicBool ? 'members_and_public' : 'members_only';
             }
             return {
+              ...hydrateTicketRelease(tc),
               id: tc.id || `ticket-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
               name: tc.name || (isGroupLimited ? groupTicketTypeName : "Standard Ticket"),
               price: priceValue !== null ? String(priceValue) : "",
@@ -1557,6 +1560,12 @@ export default function EditEvent() {
 
     // Guard against double-submit while a clash check is already running.
     if (checkingClashes) return;
+
+    const releaseErrors = validateTicketReleases(isOneOffEvent ? ticketClasses : []);
+    if (releaseErrors.length > 0) {
+      toast.error(releaseErrors[0]);
+      return;
+    }
 
     if (cpdPointsConfig !== null) {
       const cpdPointsErrors = validateEventCpdPointsConfig(cpdPointsConfig, isOneOffEvent ? ticketClasses : []);
@@ -1888,6 +1897,7 @@ export default function EditEvent() {
     if (isOneOffEvent) {
       const formattedTicketClasses = ticketClasses.map(ticket => {
         const ticketData = {
+          ...serializeTicketRelease(ticket),
           id: ticket.id,
           name: ticket.name,
           // Group-limited events allow free tickets only.
@@ -3619,6 +3629,13 @@ export default function EditEvent() {
                         )}
 
                         {/* Ticket Availability */}
+                        <TicketReleaseFields
+                          ticket={ticket}
+                          eventTimezone={eventTimezone}
+                          onChange={(patch) => setTicketClasses(prev => prev.map(t =>
+                            t.id === ticket.id ? { ...t, ...patch } : t
+                          ))}
+                        />
                         <div className="space-y-2">
                           <Label className="flex items-center gap-2">
                             <Ticket className="h-4 w-4 text-slate-500" />

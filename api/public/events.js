@@ -152,7 +152,9 @@ export default async function handler(req, res) {
           is_public: tc.is_public,
           early_bird_enabled: tc.early_bird_enabled || false,
           early_bird_price: tc.early_bird_price != null ? tc.early_bird_price : null,
-          early_bird_deadline: tc.early_bird_deadline || null
+          early_bird_deadline: tc.early_bird_deadline || null,
+          release_at: tc.release_at ?? null,
+          release_timezone: tc.release_timezone ?? null
         }));
 
       return {

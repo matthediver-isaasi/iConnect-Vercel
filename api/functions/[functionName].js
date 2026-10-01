@@ -22,6 +22,7 @@ import { fetchMemberJobTitlesByEmail, resolveStoredJobTitle } from '../_lib/atte
 import { getAllowVoucherUseAfterExpiry, isVoucherUsableForEventDate } from '../_lib/voucherExpiryPolicy.js';
 import { orderVoucherIdsForRedemption } from '../_lib/voucherOrdering.js';
 import { loadEventPaymentPolicy, assertEventPaymentMethodsAllowed } from '../_lib/eventPaymentPolicy.js';
+import { assertSimpleTicketsReleased, normalizeSimpleTicketId } from '../_lib/ticketReleaseAccess.js';
 import {
   buildEventCreditSnapshotMetadata,
   compensateRejectedEventCreditPayment,
@@ -702,18 +703,52 @@ const functionHandlers = {
 
     const voucherRequested = Array.isArray(selectedVoucherIds) && selectedVoucherIds.length > 0;
     const trainingFundRequested = Number(trainingFundAmount) > 0;
-    if (voucherRequested || trainingFundRequested) {
+    let resolvedTicketId;
+    if (metadata?.event_id || voucherRequested || trainingFundRequested || metadata?.ticket_class_id) {
       const eventId = metadata?.event_id;
-      if (!eventId) throw new Error('event_id is required when applying event credits');
-      const { data: event, error: eventError } = await supabase
+      if (!eventId) throw new Error('event_id is required');
+      let { data: event, error: eventError } = await supabase
         .from('event')
-        .select('id, tenant_id')
+        .select('id, tenant_id, pricing_config')
         .eq('id', eventId)
         .eq('tenant_id', tenantId)
         .maybeSingle();
+      let donationBookingTable = 'booking';
+      if (!eventError && !event && metadata?.payment_type === 'donation') {
+        const complexResult = await supabase.from('complex_event')
+          .select('id, tenant_id').eq('id', eventId).eq('tenant_id', tenantId).maybeSingle();
+        event = complexResult.data;
+        eventError = complexResult.error;
+        donationBookingTable = 'complex_event_booking';
+      }
       if (eventError || !event) throw new Error('Event not found');
-      const paymentPolicy = await loadEventPaymentPolicy(supabase, tenantId);
-      assertEventPaymentMethodsAllowed(paymentPolicy, { voucherRequested, trainingFundRequested });
+      if (metadata?.payment_type === 'donation') {
+        // A client flag alone must not exempt an unpurchased ticket.
+        const { data: booking, error } = await supabase.from(donationBookingTable).select('id')
+          .eq('event_id', event.id).eq('tenant_id', tenantId)
+          .eq('booking_reference', metadata.booking_reference || '')
+          .eq('status', 'confirmed').limit(1);
+        if (error) throw new Error('Unable to verify the donation booking');
+        if (!booking?.length) {
+          const { data: group, error: groupError } = await supabase.from(donationBookingTable).select('id')
+            .eq('event_id', event.id).eq('tenant_id', tenantId)
+            .eq('booking_group_reference', metadata.booking_reference || '')
+            .eq('status', 'confirmed').limit(1);
+          if (groupError || !group?.length) throw new Error('A confirmed booking is required for a post-booking donation');
+        }
+      } else {
+        if (params.items != null || metadata?.ticket_class_ids) {
+          throw new Error('Simple event payments require one ticket class');
+        }
+        const [ticket] = assertSimpleTicketsReleased(event, [metadata?.ticket_class_id]);
+        resolvedTicketId = ticket?.id || null;
+      }
+      if (voucherRequested || trainingFundRequested) {
+        const paymentPolicy = await loadEventPaymentPolicy(supabase, tenantId);
+        assertEventPaymentMethodsAllowed(paymentPolicy, { voucherRequested, trainingFundRequested });
+      }
+    } else if (!metadata?.program_name) {
+      throw new Error('event_id is required');
     }
 
     // Do not initialize Stripe or create/find a customer until the authoritative
@@ -749,6 +784,9 @@ const functionHandlers = {
       receipt_email: memberEmail || undefined,
       metadata: {
         ...(metadata || {}),
+        ...(resolvedTicketId != null
+          ? { ticket_class_id: String(resolvedTicketId) }
+          : resolvedTicketId === null && metadata?.ticket_class_id === 'default' ? { ticket_class_id: '' } : {}),
         tenant_id: tenantId,
         member_email: String(memberEmail || '').trim().toLowerCase(),
         ...buildEventCreditSnapshotMetadata({
@@ -1237,7 +1275,7 @@ const functionHandlers = {
     };
   },
 
-  async createBooking(params) {
+  async createBooking(params, req) {
     if (!supabase) throw new Error('Supabase not configured');
     
     const {
@@ -1254,6 +1292,8 @@ const functionHandlers = {
     if (!eventId || !memberEmail) {
       return { success: false, error: 'Missing required parameters: eventId and memberEmail' };
     }
+    const requestTenant = await resolveTenantFromRequest(req);
+    if (!requestTenant) return { success: false, error: 'Event not found' };
 
     // Use case-insensitive email lookup
     const normalizedEmail = memberEmail.toLowerCase();
@@ -1263,6 +1303,7 @@ const functionHandlers = {
       .from('member')
       .select('*')
       .ilike('email', normalizedEmail)
+      .eq('tenant_id', requestTenant.id)
       .maybeSingle();
 
     if (memberError) {
@@ -1282,6 +1323,7 @@ const functionHandlers = {
       .from('event')
       .select('*')
       .eq('id', eventId)
+      .eq('tenant_id', requestTenant.id)
       .maybeSingle();
 
     if (eventError) {
@@ -1295,6 +1337,13 @@ const functionHandlers = {
     }
     
     console.log('[createBooking] Found event:', event.id, event.title);
+
+    try {
+      if (params.items != null) throw new Error('Simple event bookings require one ticket class');
+      assertSimpleTicketsReleased(event, [params.ticketClassId]);
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
 
     // Block registration for closed events (event_state or legacy status='closed' when event_state is null, or past registration deadline)
     if (event.event_state === 'closed' || (!event.event_state && event.status === 'closed')) {
@@ -1791,7 +1840,7 @@ const functionHandlers = {
       poToFollow = false,
       paymentMethod: requestedPaymentMethod = 'account',
       stripePaymentIntentId = null,
-      ticketClassId: requestedTicketClassId = null,
+      ticketClassId: requestedTicketClassId = params.selectedTicketClassId ?? null,
       ticketClassName = null,
       ticketClassPrice = null,
       isGuestBooking = false,
@@ -1909,6 +1958,35 @@ const functionHandlers = {
     if (eventError || !event) {
       console.error('[createOneOffEventBooking] Event query error:', eventError);
       return { success: false, error: 'Event not found' };
+    }
+
+    // Completed payments stay idempotent even if a ticket is rescheduled later.
+    if (paymentMethod === 'card' && stripePaymentIntentId && !_testMode) {
+      const { data: existingBookings, error } = await supabase.from('booking')
+        .select('id, booking_reference, booking_group_reference, attendee_email, status')
+        .eq('tenant_id', event.tenant_id).eq('event_id', event.id)
+        .eq('stripe_payment_intent_id', stripePaymentIntentId);
+      if (error) return { success: false, error: 'Unable to verify existing payment bookings' };
+      if (existingBookings?.length) {
+        return {
+          success: true,
+          booking_reference: existingBookings[0].booking_group_reference || existingBookings[0].booking_reference,
+          bookings: existingBookings,
+          already_processed: true,
+          message: 'This payment has already been processed and your booking is confirmed.',
+        };
+      }
+    }
+    let ticketReleaseError = null;
+    try {
+      if (params.items != null) throw new Error('Simple event bookings require one ticket class');
+      assertSimpleTicketsReleased(event, [ticketClassId], allocationContext);
+      ticketClassId = normalizeSimpleTicketId(event, ticketClassId);
+    } catch (error) {
+      ticketReleaseError = error;
+      if (paymentMethod !== 'card' || !stripePaymentIntentId || _testMode) {
+        return { success: false, error: error.message };
+      }
     }
 
     let purchaserContext = null;
@@ -2035,8 +2113,9 @@ const functionHandlers = {
       || (Array.isArray(selectedVoucherIds) && selectedVoucherIds.length > 0);
     const trainingFundPaymentRequested = paymentMethod === 'training_fund'
       || Number(trainingFundAmount) > 0;
-    if (voucherPaymentRequested || trainingFundPaymentRequested) {
+    if (ticketReleaseError || voucherPaymentRequested || trainingFundPaymentRequested) {
       try {
+        if (ticketReleaseError) throw ticketReleaseError;
         const paymentPolicy = await loadEventPaymentPolicy(supabase, event.tenant_id);
         assertEventPaymentMethodsAllowed(paymentPolicy, {
           voucherRequested: voucherPaymentRequested,
@@ -2062,7 +2141,7 @@ const functionHandlers = {
                 eventId,
                 purchaserEmail: member?.email || guestInfo?.email || memberEmail,
                 allocationContext,
-                expectedCreditSnapshot: {
+                expectedCreditSnapshot: ticketReleaseError ? null : {
                   voucherIds: selectedVoucherIds,
                   voucherOrderManual,
                   trainingFundAmount,
@@ -2080,7 +2159,7 @@ const functionHandlers = {
               if (!compensation.ok) {
                 return {
                   success: false,
-                  error: `This payment method is no longer available and the card payment could not be automatically reversed. Please contact support with reference: ${stripePaymentIntentId}`,
+                  error: `${policyError.message}. The card payment could not be automatically reversed. Please contact support with reference: ${stripePaymentIntentId}`,
                   refund_failed: true,
                   stripe_payment_intent_id: stripePaymentIntentId,
                 };
@@ -2097,7 +2176,7 @@ const functionHandlers = {
             } catch (compensationError) {
               return {
                 success: false,
-                error: `This payment method is no longer available and the card payment could not be automatically reversed. Please contact support with reference: ${stripePaymentIntentId}`,
+                error: `${policyError.message}. The card payment could not be automatically reversed. Please contact support with reference: ${stripePaymentIntentId}`,
                 refund_failed: true,
                 stripe_payment_intent_id: stripePaymentIntentId,
               };
@@ -2210,23 +2289,6 @@ const functionHandlers = {
       }
       verifiedStripeClient = stripe;
 
-      // Check for existing bookings with this PaymentIntent to prevent duplicate processing
-      const { data: existingBookings, error: existingError } = await supabase
-        .from('booking')
-        .select('id, booking_reference, booking_group_reference, attendee_email, status')
-        .eq('stripe_payment_intent_id', stripePaymentIntentId);
-      
-      if (!existingError && existingBookings && existingBookings.length > 0) {
-        console.log('[createOneOffEventBooking] Found existing bookings for PaymentIntent:', stripePaymentIntentId, 'count:', existingBookings.length);
-        return {
-          success: true,
-          booking_reference: existingBookings[0].booking_group_reference || existingBookings[0].booking_reference,
-          bookings: existingBookings,
-          already_processed: true,
-          message: 'This payment has already been processed and your booking is confirmed.'
-        };
-      }
-
       try {
         const paymentIntent = await stripe.paymentIntents.retrieve(stripePaymentIntentId);
         
@@ -2242,6 +2304,11 @@ const functionHandlers = {
         // The amount was already validated when the PaymentIntent was created, so we do a loose sanity check
         // rather than a strict recalculation (which is fragile due to voucher/discount server-side revalidation).
         const piMetadata = paymentIntent.metadata || {};
+        if (piMetadata.payment_type === 'donation'
+            || (piMetadata.ticket_class_id
+              && String(normalizeSimpleTicketId(event, piMetadata.ticket_class_id)) !== String(ticketClassId))) {
+          return { success: false, error: 'Payment was created for a different ticket or purpose' };
+        }
         if (piMetadata.event_id && piMetadata.event_id !== eventId) {
           console.error('[createOneOffEventBooking] PaymentIntent event_id mismatch:', {
             expected: eventId,

@@ -156,3 +156,4 @@
 - [Member AI policy boundaries](member-ai-policy-boundaries.md) — tenant voice does not authorize reporting changes; no-evidence replies stay deterministic and fixture tests are not model guarantees.
 - [Live import snapshot boundaries](live-import-snapshot-boundaries.md) — distinguish exact cohort invariants from concurrent production activity; disclose drift without weakening core checks.
 - [Team and portal dual access](team-portal-dual-access.md) — team revocation must preserve member access; shared status cannot independently suspend both access types.
+- [Ticket release boundaries](ticket-release-boundaries.md) — releases gate new purchases, not visibility or purchased allocations; ambiguous DST drafts must block saving.

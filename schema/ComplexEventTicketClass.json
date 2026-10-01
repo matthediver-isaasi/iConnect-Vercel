@@ -32,6 +32,15 @@
       "format": "date-time",
       "description": "Deadline after which early bird pricing no longer applies"
     },
+    "release_at": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "Optional ticket release instant in explicit UTC ISO format; requires release_timezone"
+    },
+    "release_timezone": {
+      "type": ["string", "null"],
+      "description": "IANA timezone used to configure and display release_at; null when no release is scheduled"
+    },
     "is_group_ticket": {
       "type": "boolean",
       "description": "Whether this is a group ticket"

@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -31,6 +31,8 @@ import {
   resolveSavedPaidEventPaymentSelection,
 } from "@/lib/eventPaymentSelection.mjs";
 import { resolveEventPaymentPolicy } from "../../../../shared/eventPaymentPolicy.js";
+import { isTicketReleased, ticketReleaseMessage } from "../../../../shared/ticketRelease.js";
+import { useTicketReleaseClock } from "@/hooks/useTicketReleaseClock";
 
 // Stripe promise will be initialized dynamically
 let stripePromise = null;
@@ -433,6 +435,8 @@ export default function PaymentOptions({
   ticketPrice = 0,
   isFeatureExcluded = () => false,
   selectedTicketClass = null,
+  checkoutTicketClasses = null,
+  ticketSelectionUnavailable = false,
   onCanProceedChange = null,
   isGuestCheckout = false,
   guestInfo = null,
@@ -486,6 +490,36 @@ export default function PaymentOptions({
   const [stripePaymentIntentId, setStripePaymentIntentId] = useState(null);
   const [stripeAvailable, setStripeAvailable] = useState(false);
   const [poSupplyLater, setPoSupplyLater] = useState(true);
+
+  const releaseTickets = checkoutTicketClasses || (selectedTicketClass ? [selectedTicketClass] : []);
+  const releaseNowMs = useTicketReleaseClock(releaseTickets);
+  const releaseBlockedTickets = releaseTickets.filter(ticket =>
+    !(allocationContext?.ticketTypeId && String(ticket?.id) === String(allocationContext.ticketTypeId))
+    && !isTicketReleased(ticket, releaseNowMs));
+  const ticketBookingUnavailable = (isOneOffEvent || isComplexEvent)
+    && (ticketSelectionUnavailable || releaseBlockedTickets.length > 0);
+  const latestTicketGate = useRef(null);
+  latestTicketGate.current = { releaseTickets, ticketSelectionUnavailable, allocationContext };
+  const guardTicketBooking = () => {
+    if (!isOneOffEvent && !isComplexEvent) return true;
+    const current = latestTicketGate.current;
+    const blocked = current.releaseTickets.find(ticket =>
+      !(current.allocationContext?.ticketTypeId && String(ticket?.id) === String(current.allocationContext.ticketTypeId))
+      && !isTicketReleased(ticket));
+    if (blocked || current.ticketSelectionUnavailable) {
+      toast.error(blocked ? ticketReleaseMessage(blocked) : 'Please select an available ticket');
+      return false;
+    }
+    return true;
+  };
+
+  useEffect(() => {
+    if (ticketBookingUnavailable) {
+      setShowStripeModal(false);
+      setStripeClientSecret(null);
+      setStripePaymentIntentId(null);
+    }
+  }, [ticketBookingUnavailable]);
 
   useEffect(() => {
     if (!guestInfo) return;
@@ -1054,6 +1088,7 @@ export default function PaymentOptions({
   };
 
   const handleOneOffBooking = async () => {
+    if (!guardTicketBooking()) return;
     console.log('[PaymentOptions] handleOneOffBooking called', {
       isGuestCheckout,
       isComplexEvent,
@@ -1147,6 +1182,7 @@ export default function PaymentOptions({
   };
 
   const proceedToStripePayment = async (paymentEmail) => {
+    if (!guardTicketBooking()) return;
     const chargeAmount = remainingBalance;
     console.log('[PaymentOptions] Creating Stripe payment intent for amount:', chargeAmount);
     doSetSubmitting(true);
@@ -1156,6 +1192,7 @@ export default function PaymentOptions({
       if (isComplexEvent && complexEventApi) {
         const piPayload = {
           event_id: event.id,
+          purchaser_email: paymentEmail,
           ticket_class_id: selectedTicketClass?.id,
           attendee_count: ticketsRequired,
           selected_voucher_ids: effectiveSelectedVouchers,
@@ -1196,6 +1233,7 @@ export default function PaymentOptions({
           ? (guestInfo?.email ? [guestInfo.email] : [])
           : attendees.filter(a => a.isValid).map(a => a.email).filter(Boolean);
         
+        if (!guardTicketBooking()) return;
         const response = await base44.functions.invoke('createStripePaymentIntent', {
           amount: chargeAmount,
           currency: 'gbp',
@@ -1211,6 +1249,7 @@ export default function PaymentOptions({
             is_guest: isGuestCheckout ? 'true' : 'false',
             attendee_emails: attendeeEmails.slice(0, 5).join(',').substring(0, 450),
             ticket_class: selectedTicketClass?.name || 'default',
+            ticket_class_id: selectedTicketClass?.id ? String(selectedTicketClass.id) : null,
             tickets_required: String(ticketsRequired),
             member_email: paymentEmail
           }
@@ -1225,6 +1264,7 @@ export default function PaymentOptions({
         paymentIntentId = response.data.paymentIntentId;
       }
 
+      if (!guardTicketBooking()) return;
       setStripeClientSecret(clientSecret);
       setStripePaymentIntentId(paymentIntentId);
       
@@ -1291,6 +1331,9 @@ export default function PaymentOptions({
 
 
   const processOneOffBooking = async (stripePaymentId = null, testMode = false, paidPaymentSnapshot = null) => {
+    // Paid returns must reach server verification/compensation rather than
+    // silently abandoning an already captured payment.
+    if (!stripePaymentId && !guardTicketBooking()) return;
     console.log('[PaymentOptions] processOneOffBooking started');
     doSetSubmitting(true);
 
@@ -1570,6 +1613,7 @@ export default function PaymentOptions({
 
   // Main submit handler with duplicate check
   const handleSubmit = async () => {
+    if (!guardTicketBooking()) return;
     if (memberInfo && totalCost > 0 && !eventPaymentPolicy) {
       toast.error(eventPaymentSettingsError
         ? 'Payment options could not be loaded. Please retry before booking.'
@@ -2090,7 +2134,7 @@ export default function PaymentOptions({
   // Also require terms acceptance if terms exist
   const termsRequirementMet = !hasBookingTerms || termsAccepted;
   const paymentPolicyReady = !memberInfo || totalCost <= 0 || eventPaymentPolicy !== null;
-  const canProceed = paymentPolicyReady && !isSoldOut && !isRegistrationClosed && !hasAttendeesWithMissingNames && termsRequirementMet && (
+  const canProceed = !ticketBookingUnavailable && paymentPolicyReady && !isSoldOut && !isRegistrationClosed && !hasAttendeesWithMissingNames && termsRequirementMet && (
     (isComplexEvent || isOneOffEvent)
       ? (ticketsRequired > 0 && !isSubmitting && (totalCost === 0 || isFullyPaid) && !noTicketsForRole)
       : (hasEnoughTickets && event.program_tag && !isSubmitting && ticketsRequired > 0)
@@ -2344,6 +2388,12 @@ export default function PaymentOptions({
           </div>
         ) : null
       ) : (isOneOffEvent || isComplexEvent) ? renderOneOffPricing() : renderProgramEventDisplay()}
+
+          {releaseBlockedTickets.map(ticket => (
+            <p key={ticket.id} className="text-sm text-slate-600" role="status" data-testid={`checkout-ticket-release-${ticket.id}`}>
+              {ticketReleaseMessage(ticket)}
+            </p>
+          ))}
 
           {/* Action Buttons */}
           {!isOneOffEvent && !hasEnoughTickets && event.program_tag && (

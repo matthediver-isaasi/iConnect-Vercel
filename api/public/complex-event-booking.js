@@ -34,6 +34,7 @@ import {
   runAuthorizedCardCompensation,
 } from '../_lib/allocationPaymentBinding.js';
 import { loadEventPaymentPolicy, assertEventPaymentMethodsAllowed } from '../_lib/eventPaymentPolicy.js';
+import { assertRequestedTicketsReleased, loadComplexReleaseTickets } from '../_lib/ticketReleaseAccess.js';
 import { compensateRejectedEventCreditPayment } from '../_lib/eventPaymentPolicyCompensation.js';
 
 function generateBookingReference() {
@@ -150,12 +151,34 @@ export default async function handler(req, res) {
 
     if (eventError || !event) return res.status(404).json({ error: 'Event not found' });
 
+    // Preserve the existing duplicate-payment response before release changes.
+    if (payment_method === 'card' && stripe_payment_intent_id) {
+      const { data: existing, error } = await supabase.from('complex_event_booking')
+        .select('id').eq('tenant_id', tenant.id).eq('event_id', event.id)
+        .eq('stripe_payment_intent_id', stripe_payment_intent_id).limit(1);
+      if (error) return res.status(503).json({ error: 'Unable to verify existing payment bookings' });
+      if (existing?.length) return res.status(409).json({ error: 'This payment has already been used for a booking' });
+    }
+    let allTicketClasses;
+    let ticketReleaseError = null;
+    try {
+      allTicketClasses = await loadComplexReleaseTickets(supabase, event);
+      assertRequestedTicketsReleased({
+        event, tickets: allTicketClasses,
+        ticketIds: normalizedItems.map(item => item?.ticket_class_id),
+        allocationContext, eventKind: 'complex',
+      });
+    } catch (error) {
+      ticketReleaseError = error;
+    }
+
     const voucherPaymentRequested = payment_method === 'voucher'
       || (Array.isArray(selected_voucher_ids) && selected_voucher_ids.length > 0);
     const trainingFundPaymentRequested = payment_method === 'training_fund'
       || Number(requestedTrainingFundAmount) > 0;
-    if (voucherPaymentRequested || trainingFundPaymentRequested) {
+    if (ticketReleaseError || voucherPaymentRequested || trainingFundPaymentRequested) {
       try {
+        if (ticketReleaseError) throw ticketReleaseError;
         const paymentPolicy = await loadEventPaymentPolicy(supabase, tenant.id);
         assertEventPaymentMethodsAllowed(paymentPolicy, {
           voucherRequested: voucherPaymentRequested,
@@ -196,9 +219,9 @@ export default async function handler(req, res) {
                 expectedIntentId: stripe_payment_intent_id,
                 tenantId: tenant.id,
                 eventId: event_id,
-                purchaserEmail: authenticatedMember?.email || purchaserInfo?.email,
+                purchaserEmail: authenticatedMember?.email || purchaserInfo?.email || normalizedItems[0]?.attendees?.[0]?.email,
                 allocationContext,
-                expectedCreditSnapshot: {
+                expectedCreditSnapshot: ticketReleaseError ? null : {
                   voucherIds: selected_voucher_ids,
                   voucherOrderManual,
                   trainingFundAmount: requestedTrainingFundAmount,
@@ -215,7 +238,7 @@ export default async function handler(req, res) {
               });
               if (!compensation.ok) {
                 return res.status(502).json({
-                  error: `This payment method is no longer available and the card payment could not be automatically reversed. Please contact support with reference: ${stripe_payment_intent_id}`,
+                  error: `${policyError.message}. The card payment could not be automatically reversed. Please contact support with reference: ${stripe_payment_intent_id}`,
                   refund_failed: true,
                   stripe_payment_intent_id,
                 });
@@ -230,7 +253,7 @@ export default async function handler(req, res) {
               });
             } catch (compensationError) {
               return res.status(502).json({
-                error: `This payment method is no longer available and the card payment could not be automatically reversed. Please contact support with reference: ${stripe_payment_intent_id}`,
+                error: `${policyError.message}. The card payment could not be automatically reversed. Please contact support with reference: ${stripe_payment_intent_id}`,
                 refund_failed: true,
                 stripe_payment_intent_id,
               });
@@ -302,13 +325,6 @@ export default async function handler(req, res) {
       }
     }
 
-    const { data: ticketClassRows } = await supabase
-      .from('complex_event_ticket_class')
-      .select('*')
-      .eq('complex_event_id', event_id)
-      .eq('tenant_id', tenant.id);
-
-    const allTicketClasses = ticketClassRows || [];
     const hasTicketClasses = allTicketClasses.length > 0;
     const isMember = !!authenticatedMember;
 
@@ -446,16 +462,6 @@ export default async function handler(req, res) {
       } else if (payment_method === 'card') {
         if (!stripe_payment_intent_id) {
           return res.status(400).json({ error: 'stripe_payment_intent_id is required for card payments' });
-        }
-
-        const { data: existingWithIntent } = await supabase
-          .from('complex_event_booking')
-          .select('id')
-          .eq('stripe_payment_intent_id', stripe_payment_intent_id)
-          .limit(1);
-
-        if (existingWithIntent && existingWithIntent.length > 0) {
-          return res.status(409).json({ error: 'This payment has already been used for a booking' });
         }
 
         let stripeSecretKey;

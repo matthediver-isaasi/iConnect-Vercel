@@ -12,6 +12,7 @@ import {
 } from '../_lib/complexEventPricing.js';
 import { resolveAllocationInvitation } from '../_lib/allocationInvitation.js';
 import { loadEventPaymentPolicy, assertEventPaymentMethodsAllowed } from '../_lib/eventPaymentPolicy.js';
+import { assertRequestedTicketsReleased, loadComplexReleaseTickets } from '../_lib/ticketReleaseAccess.js';
 import { buildEventCreditSnapshotMetadata } from '../_lib/eventPaymentPolicyCompensation.js';
 import { getAllowVoucherUseAfterExpiry, isVoucherUsableForEventDate } from '../_lib/voucherExpiryPolicy.js';
 import {
@@ -41,6 +42,7 @@ export default async function handler(req, res) {
     if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
 
     const { event_id: requestedEventId, ticket_class_id: requestedTicketClassId, attendee_count = 1, discount_code, items,
+      purchaser_email: purchaserEmail,
       selected_voucher_ids: selectedVoucherIds, training_fund_amount: trainingFundAmount,
       voucher_order_manual: voucherOrderManual,
       allocation_invitation_token: allocationInvitationToken } = req.body;
@@ -100,13 +102,12 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Registration for this event is closed' });
     }
 
-    const { data: ticketClassRows } = await supabase
-      .from('complex_event_ticket_class')
-      .select('*')
-      .eq('complex_event_id', event_id)
-      .eq('tenant_id', tenant.id);
-
-    const allTicketClasses = ticketClassRows || [];
+    const allTicketClasses = await loadComplexReleaseTickets(supabase, event);
+    assertRequestedTicketsReleased({
+      event, tickets: allTicketClasses,
+      ticketIds: isMultiTicket ? items.map(item => item?.ticket_class_id) : [ticket_class_id],
+      allocationContext, eventKind: 'complex',
+    });
 
     let member = null;
     let memberTenantId = null;
@@ -126,6 +127,10 @@ export default async function handler(req, res) {
     } catch (e) {}
 
     const isMember = member && memberTenantId === tenant.id;
+    const paymentEmail = String((isMember ? member.email : purchaserEmail) || '').trim().toLowerCase();
+    if (paymentEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(paymentEmail)) {
+      return res.status(400).json({ error: 'A valid purchaser email is required' });
+    }
 
     let organization = null;
     const creditsRequested = requestedVoucherIds.length > 0 || Number(trainingFundAmount) > 0;
@@ -378,7 +383,7 @@ export default async function handler(req, res) {
         requestedVoucherIds,
         voucherOrderManual,
       }),
-      member_email: member?.email || '',
+      member_email: paymentEmail,
       ...creditSnapshotMetadata,
     };
     if (allocationContext) {
@@ -398,7 +403,7 @@ export default async function handler(req, res) {
       amount: creditQuote.remainingMinor,
       currency,
       metadata,
-      ...(isMember && member.email ? { receipt_email: member.email } : {})
+      ...(paymentEmail ? { receipt_email: paymentEmail } : {})
     });
 
     return res.status(200).json({
@@ -413,6 +418,8 @@ export default async function handler(req, res) {
     });
   } catch (error) {
     console.error('[Complex Event Payment Intent] Error:', error);
-    return res.status(500).json({ error: 'Failed to create payment intent' });
+    return res.status(error.statusCode || 500).json({
+      error: error.statusCode ? error.message : 'Failed to create payment intent',
+    });
   }
 }

@@ -1,6 +1,7 @@
 import { sendEmail, replacePlaceholders } from '../../_lib/emailService.js';
 import { withoutEnhancedSurveyAnswers } from '../../_lib/surveyCompletionOutputs.js';
 import { validateAnonymousCompletionConfiguration } from '../../../shared/surveyCompletionPolicy.js';
+import { validateTicketRelease } from '../../../shared/ticketRelease.js';
 import { generatePasswordSetupUrl, hasSetPasswordToken, replaceSetPasswordToken } from '../../_lib/passwordSetupUrl.js';
 import { triggerWorkflows, triggerPreferenceWorkflows, recheckRecordCreateWorkflows } from '../../_lib/workflows.js';
 import { triggerZohoCrmSync, awaitZohoCrmSyncForResponse } from '../../_lib/zohoCrmSync.js';
@@ -2610,6 +2611,18 @@ export default async function handler(req, res) {
         const authorizedBody = { ...authz.body };
         for (const key of Object.keys(sanitizedBody)) delete sanitizedBody[key];
         Object.assign(sanitizedBody, authorizedBody);
+      }
+
+      // Validate only the authorized payload; release scheduling never grants
+      // additional audience access or changes the event-write guardrails.
+      if (entityNorm === 'event' || entityNorm === 'complexeventticketclass') {
+        const tickets = entityNorm === 'event'
+          ? sanitizedBody.pricing_config?.ticket_classes || []
+          : [sanitizedBody];
+        for (const ticket of Array.isArray(tickets) ? tickets : []) {
+          const releaseError = validateTicketRelease(ticket);
+          if (releaseError) return res.status(400).json({ error: releaseError });
+        }
       }
 
       if (entityNorm === 'membergroup' && tenantCtx.tenantId) {

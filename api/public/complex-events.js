@@ -115,7 +115,7 @@ export default async function handler(req, res) {
     if (eventIds.length > 0) {
       const { data: ticketClasses, error: tcError } = await supabase
         .from('complex_event_ticket_class')
-        .select('id, complex_event_id, name, price, is_free, early_bird_enabled, early_bird_price, early_bird_deadline, visibility_mode, linked_track_ids, all_tracks, display_order')
+        .select('id, complex_event_id, name, price, is_free, early_bird_enabled, early_bird_price, early_bird_deadline, release_at, release_timezone, visibility_mode, linked_track_ids, all_tracks, display_order')
         .in('complex_event_id', eventIds)
         .eq('tenant_id', tenant.id)
         .order('display_order', { ascending: true });
@@ -150,6 +150,8 @@ export default async function handler(req, res) {
           early_bird_enabled: tc.early_bird_enabled || false,
           early_bird_price: tc.early_bird_price != null ? Number(tc.early_bird_price) : null,
           early_bird_deadline: tc.early_bird_deadline || null,
+          release_at: tc.release_at ?? null,
+          release_timezone: tc.release_timezone ?? null,
           linked_track_ids: tc.linked_track_ids || [],
           all_tracks: tc.all_tracks
         }));

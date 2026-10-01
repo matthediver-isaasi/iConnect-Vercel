@@ -22,6 +22,7 @@ import {
 import { format, parseISO } from "date-fns";
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import { TimezoneAwareDateTimeInput } from "@/components/events/TimezoneAwareDateTimeInput";
+import TicketReleaseFields, { hydrateTicketRelease, serializeTicketRelease, validateTicketReleases } from "@/components/events/TicketReleaseFields";
 import EventClashWarningDialog from "@/components/events/EventClashWarningDialog";
 import EventBudgetPanel from "@/components/events/EventBudgetPanel";
 import { checkEventClashes } from "@/lib/eventClash";
@@ -591,6 +592,7 @@ function generateId() {
 }
 
 const createEmptyTicketClass = (isDefault = false, defaultVatRate = null) => ({
+  ...hydrateTicketRelease(),
   _localId: generateId(),
   name: isDefault ? "Standard Ticket" : "",
   price: "",
@@ -1129,6 +1131,7 @@ export default function CreateComplexEvent() {
   useEffect(() => {
     if (isEditMode && existingTicketClasses.length > 0 && !ticketsInitialized) {
       const loaded = existingTicketClasses.map(tc => ({
+        ...hydrateTicketRelease(tc),
         _localId: tc.id,
         _dbId: tc.id,
         name: tc.name || "",
@@ -1805,6 +1808,12 @@ export default function CreateComplexEvent() {
       toast.error("Event title is required");
       return;
     }
+    const releaseErrors = validateTicketReleases(ticketClasses);
+    if (releaseErrors.length > 0) {
+      toast.error(releaseErrors[0]);
+      setActiveSection("tickets");
+      return;
+    }
     if (!formData.slug.trim()) {
       toast.error("Event slug is required");
       return;
@@ -2214,6 +2223,7 @@ export default function CreateComplexEvent() {
       for (let ti = 0; ti < ticketClasses.length; ti++) {
         const ticket = ticketClasses[ti];
         const tcPayload = {
+          ...serializeTicketRelease(ticket),
           complex_event_id: eventId,
           name: ticket.name || "Standard Ticket",
           price: isGroupLimited ? 0 : (parseFloat(ticket.price) || 0),
@@ -4081,6 +4091,13 @@ export default function CreateComplexEvent() {
                         </div>
                       )}
 
+                      <TicketReleaseFields
+                        ticket={ticket}
+                        eventTimezone={formData.timezone}
+                        onChange={(patch) => setTicketClasses(prev => prev.map(t =>
+                          t._localId === ticket._localId ? { ...t, ...patch } : t
+                        ))}
+                      />
                       <div className="space-y-2">
                         <Label className="flex items-center gap-2">
                           <Ticket className="h-4 w-4 text-slate-500" />

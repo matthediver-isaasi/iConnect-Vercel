@@ -1,4 +1,5 @@
 import { validateSurveyCompletionUpdate } from '../../_lib/surveyCompletionConfiguration.js';
+import { validateTicketRelease } from '../../../shared/ticketRelease.js';
 import { triggerWorkflows, triggerPreferenceWorkflows } from '../../_lib/workflows.js';
 import { triggerZohoCrmSync, awaitZohoCrmSyncForResponse } from '../../_lib/zohoCrmSync.js';
 import {
@@ -1935,11 +1936,15 @@ export default async function handler(req, res, dependencies = {}) {
       // administer, within the free/no-zoom/audience guardrails. Tenant admins
       // pass through unchanged.
       if (isEventFamilyEntity(entity)) {
-        const { data: existingRow } = await supabase
+        const validatesTicketRelease = entityNormalized === 'event' || entityNormalized === 'complexeventticketclass';
+        let existingQuery = supabase
           .from(tableName)
           .select('*')
-          .eq('id', id)
-          .maybeSingle();
+          .eq('id', id);
+        if (validatesTicketRelease && tenantCtx.tenantId) {
+          existingQuery = existingQuery.eq('tenant_id', tenantCtx.tenantId);
+        }
+        const { data: existingRow, error: existingError } = await existingQuery.maybeSingle();
         const authz = await authorizeGroupAdminEventWrite({
           entity,
           op: 'update',
@@ -1962,6 +1967,20 @@ export default async function handler(req, res, dependencies = {}) {
         if (guardedBody !== sanitizedBody) {
           for (const k of Object.keys(sanitizedBody)) delete sanitizedBody[k];
           Object.assign(sanitizedBody, guardedBody);
+        }
+        if (validatesTicketRelease) {
+          if (existingError) return res.status(500).json({ error: 'Failed to load ticket release settings for update' });
+          if (!existingRow) return res.status(404).json({ error: 'Record not found' });
+          // PATCH merges row fields; JSON pricing_config, when supplied,
+          // replaces the stored JSON exactly as it does in the database.
+          const merged = { ...existingRow, ...sanitizedBody };
+          const tickets = entityNormalized === 'event'
+            ? merged.pricing_config?.ticket_classes || []
+            : [merged];
+          for (const ticket of Array.isArray(tickets) ? tickets : []) {
+            const releaseError = validateTicketRelease(ticket);
+            if (releaseError) return res.status(400).json({ error: releaseError });
+          }
         }
       }
 

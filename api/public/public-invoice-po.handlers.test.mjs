@@ -17,7 +17,7 @@ async function loadHandler(path) {
   const replacements = new Map();
   for (const [, names, specifier] of source.matchAll(imports)) {
     if (specifier.startsWith('node:') || specifier === 'crypto') continue;
-    if (/publicInvoicePo|complexEventPricing|ticketAccess|eventOptionSelections|attendeeJobTitleEnrichment/.test(specifier)) continue;
+    if (/publicInvoicePo|complexEventPricing|ticketAccess|ticketReleaseAccess|eventOptionSelections|attendeeJobTitleEnrichment/.test(specifier)) continue;
     const exports = [];
     if (names.trim().startsWith('{')) {
       for (const entry of names.replace(/[{}]/g, '').split(',').map(s => s.trim()).filter(Boolean)) {
@@ -51,8 +51,8 @@ async function loadHandler(path) {
   return (await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`)).default;
 }
 
-function fixture({ enabled = true, member = null, memberEmail = null, free = false, soldOut = false, loseRace = false, visibility = 'members_and_public' } = {}) {
-  const tickets = [
+function fixture({ enabled = true, member = null, memberEmail = null, free = false, soldOut = false, loseRace = false, visibility = 'members_and_public', noTickets = false } = {}) {
+  const tickets = noTickets ? [] : [
     { id: 'ticket-a', name: 'Standard', price: free ? 0 : 25, is_free: free, visibility_mode: visibility, is_unlimited_tickets: false, available_count: 20 },
     { id: 'ticket-b', name: 'Premium', price: 50, visibility_mode: 'public_only', is_unlimited_tickets: false, available_count: 20 },
   ];
@@ -145,6 +145,13 @@ async function invoke(kind, options = {}, bodyOverride = {}) {
 }
 
 for (const kind of ['simple', 'complex']) {
+  test(`${kind}: legacy free registration without ticket classes still succeeds`, async () => {
+    const result = await invoke(kind, { noTickets: true, free: true }, kind === 'simple'
+      ? { paymentMethod: 'free', ticketClassId: null, totalCost: 0 }
+      : { payment_method: 'free', items: [{ attendees: [attendee] }] });
+    assert.equal(result.bookings.length, kind === 'simple' ? 2 : 1, JSON.stringify(result.res.body));
+    assert.deepEqual(result.unexpected, []);
+  });
   test(`${kind}: toggle off rejects invoice intention before bookings/providers`, async () => {
     const result = await invoke(kind, { enabled: false });
     assert.equal(result.bookings.length, 0);

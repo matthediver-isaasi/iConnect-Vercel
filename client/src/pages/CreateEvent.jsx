@@ -48,6 +48,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { base44 } from "@/api/base44Client";
 import { format } from "date-fns";
 import { TimezoneAwareDateTimeInput } from "@/components/events/TimezoneAwareDateTimeInput";
+import TicketReleaseFields, { hydrateTicketRelease, serializeTicketRelease, validateTicketReleases } from "@/components/events/TicketReleaseFields";
 import EventClashWarningDialog from "@/components/events/EventClashWarningDialog";
 import { checkEventClashes, buildClashWindows } from "@/lib/eventClash";
 import { createPageUrl, getEventUrl } from "@/utils";
@@ -124,6 +125,7 @@ async function apiRequest(url, options = {}) {
 // - 'members_and_public': Visible to both members and public (non-logged-in) users
 // - 'public_only': Only visible to public (non-logged-in) users, hidden from members
 const createEmptyTicketClass = (isDefault = false, defaultVatRate = null) => ({
+  ...hydrateTicketRelease(),
   id: `ticket-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
   name: isDefault ? "Standard Ticket" : "",
   price: "",
@@ -928,6 +930,7 @@ export default function CreateEvent() {
 
     // Collect all validation errors
     const errors = [];
+    errors.push(...validateTicketReleases(isProgramEvent ? [] : ticketClasses));
     errors.push(...validateEventCpdPointsConfig(cpdPointsConfig, isProgramEvent ? [] : ticketClasses));
     errors.push(...validateEventCpdCertificateConfig(cpdCertificateConfig, isProgramEvent ? [] : ticketClasses));
     
@@ -1217,6 +1220,7 @@ export default function CreateEvent() {
     if (!isProgramEvent) {
       const formattedTicketClasses = ticketClasses.map(ticket => {
         const ticketData = {
+          ...serializeTicketRelease(ticket),
           id: ticket.id,
           name: ticket.name,
           // Group-limited events allow free tickets only.
@@ -2695,6 +2699,13 @@ export default function CreateEvent() {
                         </div>
 
                         {/* Ticket Availability */}
+                        <TicketReleaseFields
+                          ticket={ticket}
+                          eventTimezone={eventTimezone}
+                          onChange={(patch) => setTicketClasses(prev => prev.map(t =>
+                            t.id === ticket.id ? { ...t, ...patch } : t
+                          ))}
+                        />
                         <div className="space-y-2">
                           <Label className="flex items-center gap-2">
                             <Ticket className="h-4 w-4 text-slate-500" />
