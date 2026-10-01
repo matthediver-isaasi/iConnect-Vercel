@@ -36,6 +36,7 @@ import { applyFormFieldValueChange } from "@/lib/formFieldValueChange";
 import { prepareFormSubmissionValues } from "@/lib/formSubmissionPayload";
 import { useFormFieldPrefill } from "@/lib/useFormFieldPrefill";
 import { useConditionalFormFieldPrefill } from "@/lib/useFormFieldPrefill";
+import { groupInitialSelectionSurfaceReady, hasGroupInitialSelectionAnswer } from "@/lib/formGroupInitialSelection";
 import { useFormOpenTransition } from "@/lib/useFormOpenTransition";
 import FormTransitionOverlay from "@/components/forms/FormTransitionOverlay";
 import {
@@ -1363,6 +1364,8 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
         const merged = { ...prev };
         for (const [key, value] of Object.entries(newValues)) {
           const field = form.fields?.find(f => f.id === key);
+          if (field?.type === 'organisation_group_dropdown'
+            && hasGroupInitialSelectionAnswer(field, prev, prev[key])) continue;
           if (field?.type === 'boolean') {
             merged[key] = value;
           } else if (prev[key] === undefined || prev[key] === '' || prev[key] === null) {
@@ -1400,6 +1403,23 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     sectionIds: departmentCurrentSet.sectionIds,
     acknowledgements: departmentCurrentSet.acknowledgements,
     baselineReady: departmentCurrentSet.baselineReady,
+  });
+  const groupInitialSelectionReady = groupInitialSelectionSurfaceReady({
+    form,
+    initialized: defaultsInitialized,
+    initializedFormId: defaultsInitializedFormId,
+    authResolved,
+    draftToken,
+    draftLoaded,
+    prefillExpected: !certificateGrant && (
+      (form?.prefill_source === 'member' && !!prefillMemberId)
+      || (form?.prefill_source === 'organization' && !!prefillOrgId)
+      || (form?.prefill_source === 'booking' && !!(prefillBookingId || memberInfo || prefillBooking))
+    ),
+    prefillApplied,
+    currentSetPending: departmentCurrentSet.active && (!departmentCurrentSet.baselineReady || !!departmentCurrentSet.error),
+    blocked: formAccess.restricted || submitted
+      || (!!certificateGrant && invitationInitializedRef.current !== assignmentMeta?.invitation_prefill),
   });
 
   // Per-submission side-effect runs (emails, field mappings), keyed by
@@ -3063,6 +3083,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
             ))}
             {currentField && (
               <FormRenderer
+                groupInitialSelectionReady={groupInitialSelectionReady}
                 membershipPaymentMemberId={applicantContinuationToken ? null : prefillMemberId}
                 key={currentStep}
                 field={currentField}
@@ -3440,6 +3461,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
 
               const renderField = (field) => (
                 <FormRenderer
+                  groupInitialSelectionReady={groupInitialSelectionReady}
                   membershipPaymentMemberId={applicantContinuationToken ? null : prefillMemberId}
                   key={field.id}
                   field={field}

@@ -155,6 +155,7 @@ export default function ManualContractOverrideForm({
             {renderableFields.length > 0 ? (
               renderableFields.map((field) => (
                 <FormRenderer
+                  groupInitialSelectionReady={!isLoading && !isSubmitting}
                   key={field.id}
                   field={field}
                   value={formValues[field.id] ?? formValues[field.name] ?? ''}

@@ -110,6 +110,7 @@ import { evaluateGalleryAccessPolicy, validateGalleryAccessPolicy } from '../../
 import { enrichMembersWithDepartments, MemberDepartmentError } from '../../_lib/memberDepartments.js';
 import { validateFormStripeAddressMappingConfig } from '../../_lib/formStripeAddressMappingConfig.js';
 import { validateFormRowSourceConfiguration } from '../../_lib/formRowSourceConfiguration.js';
+import { validateFormGroupInitialSelection } from '../../_lib/formGroupInitialSelection.js';
 import { resolveTrustedSchemaCapabilities } from '../../_lib/customObjectSchemaAccess.js';
 import { computeAuthoritativeHiddenFieldIds } from '../../_lib/formFieldVisibility.js';
 import { validateFutureDateFields } from '../../../shared/formFutureDates.js';
@@ -1362,6 +1363,14 @@ export default async function handler(req, res, dependencies = {}) {
         }
         if (mutationAccessValidation.policy || Object.prototype.hasOwnProperty.call(sanitizedBody, 'mutation_access_policy')) {
           sanitizedBody.mutation_access_policy = mutationAccessValidation.policy;
+        }
+        const groupInitialSelectionValidation = await validateFormGroupInitialSelection({
+          db: supabase,
+          tenantId: tenantCtx.effectiveTenantId || tenantCtx.tenantId,
+          form: { ...persistedMutationForm, ...sanitizedBody },
+        });
+        if (!groupInitialSelectionValidation.ok) {
+          return res.status(422).json(groupInitialSelectionValidation);
         }
       }
 

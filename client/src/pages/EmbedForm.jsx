@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Loader2, ChevronLeft, ChevronRight, CheckCircle2, Lock } from "lucide-react";
 import FormRenderer, { RepeatableAvailabilityProbe } from "../components/forms/FormRenderer";
+import { groupInitialSelectionSurfaceReady, hasGroupInitialSelectionAnswer } from "@/lib/formGroupInitialSelection";
 import { toast, Toaster } from "sonner";
 import { publicClient } from "@/api/publicClient";
 import { base44 } from "@/api/base44Client";
@@ -626,6 +627,8 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
         const merged = { ...prev };
         for (const [key, value] of Object.entries(newValues)) {
           const field = form.fields?.find(f => f.id === key);
+          if (field?.type === 'organisation_group_dropdown'
+            && hasGroupInitialSelectionAnswer(field, prev, prev[key])) continue;
           if (field?.type === 'boolean') {
             merged[key] = value;
           } else if (prev[key] === undefined || prev[key] === '' || prev[key] === null) {
@@ -643,6 +646,17 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
   }, [form, prefillMember, prefillMemberData?.resourceCategorySelections, prefillOrg, prefillMemberOrg, prefillMemberCustomValues, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId, prefillMemberId, memberSourceOrgId, memberOrgLoading, prefillOrgLoading, effectiveOrgIdForCustomFields, authMember, memberCustomValuesLoading, orgCustomValuesLoading]);
 
   const originalValuesRef = useRef({});
+  const groupInitialSelectionReady = groupInitialSelectionSurfaceReady({
+    form,
+    initialized: defaultsInitialized,
+    initializedFormId: defaultsInitializedFormId,
+    authResolved: !authMemberLoading,
+    prefillExpected: (form?.prefill_source === 'member' && !!prefillMemberId)
+      || (form?.prefill_source === 'organization' && !!prefillOrgId),
+    prefillApplied,
+    currentSetPending: departmentCurrentSet.active && (!departmentCurrentSet.baselineReady || !!departmentCurrentSet.error),
+    blocked: formAccess.restricted || submitted,
+  });
   const activeSetValueActionsRef = useRef(new Set());
 
   useEffect(() => {
@@ -1593,6 +1607,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
             ))}
             {currentField && (
               <FormRenderer
+                groupInitialSelectionReady={groupInitialSelectionReady}
                 membershipPaymentMemberId={prefillMemberId}
                 key={currentStep}
                 field={currentField}
@@ -1807,6 +1822,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
           <div className="space-y-4">
             {currentPageFields.map(field => (
               <FormRenderer
+                groupInitialSelectionReady={groupInitialSelectionReady}
                 membershipPaymentMemberId={prefillMemberId}
                 key={field.id}
                 field={field}

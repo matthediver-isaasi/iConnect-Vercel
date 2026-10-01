@@ -548,6 +548,7 @@ export default function FloaterDisplay({
 
                   <div className="min-h-[200px]">
                     <FormRenderer
+                      groupInitialSelectionReady={authResolved && !memberRecordLoading && !memberRecordError}
                       field={selectedForm.fields[currentStep]}
                       value={formValues[selectedForm.fields[currentStep].id]}
                       onChange={(value) =>
@@ -565,6 +566,7 @@ export default function FloaterDisplay({
                       communicationEligibilityReady={authResolved && !memberRecordLoading && !memberRecordError}
                       communicationEligibilityError={memberRecordError ? { message: memberRecordError.message, retry: retryMemberRecord } : null}
                       organizationInfo={organizationInfo}
+                      formId={selectedForm.id}
                       formSlug={selectedForm.slug}
                       allFormValues={formValues}
                       allFields={selectedForm.fields}
@@ -623,6 +625,7 @@ export default function FloaterDisplay({
                   <div className="space-y-4">
                     {selectedForm.fields.map((field) => (
                       <FormRenderer
+                        groupInitialSelectionReady={authResolved && !memberRecordLoading && !memberRecordError}
                         key={field.id}
                         field={field}
                         value={formValues[field.id]}
@@ -641,6 +644,7 @@ export default function FloaterDisplay({
                         communicationEligibilityReady={authResolved && !memberRecordLoading && !memberRecordError}
                         communicationEligibilityError={memberRecordError ? { message: memberRecordError.message, retry: retryMemberRecord } : null}
                         organizationInfo={organizationInfo}
+                        formId={selectedForm.id}
                         formSlug={selectedForm.slug}
                         allFormValues={formValues}
                         allFields={selectedForm.fields}

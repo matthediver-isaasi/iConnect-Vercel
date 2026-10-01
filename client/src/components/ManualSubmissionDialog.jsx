@@ -130,6 +130,7 @@ export default function ManualSubmissionDialog({ open, onOpenChange, form }) {
   const [submitterName, setSubmitterName] = useState("");
   const [submitterEmail, setSubmitterEmail] = useState("");
   const [fieldValidity, setFieldValidity] = useState({});
+  const [initializedForm, setInitializedForm] = useState(null);
   const queryClient = useQueryClient();
   useFormFieldPrefill({
     form,
@@ -145,6 +146,9 @@ export default function ManualSubmissionDialog({ open, onOpenChange, form }) {
       setSubmitterName("");
       setSubmitterEmail("");
       setFieldValidity({});
+      setInitializedForm(form);
+    } else {
+      setInitializedForm(null);
     }
   }, [open, form]);
 
@@ -234,6 +238,7 @@ export default function ManualSubmissionDialog({ open, onOpenChange, form }) {
     if (!['file', 'signature'].includes(field.type)) {
       return (
         <FormRenderer
+          groupInitialSelectionReady={open && initializedForm === form}
           field={field}
           value={value}
           onChange={(nextValue) => updateValue(field.id, nextValue)}

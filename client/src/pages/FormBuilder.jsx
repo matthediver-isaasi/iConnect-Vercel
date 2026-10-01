@@ -6447,7 +6447,109 @@ function findInvalidNotListedField(fields) {
   return null;
 }
 
-function RepeatableRowsSettings({
+const GROUP_INITIAL_SELECTION_MODES = ['none', 'specific', 'url'];
+
+export function organizationGroupInitialSelectionError(fields) {
+  for (const field of fields || []) {
+    if (field.type === 'organisation_group_dropdown' && field.group_initial_selection !== undefined) {
+      const selection = field.group_initial_selection;
+      const label = field.label || 'Untitled field';
+      if (!selection || !GROUP_INITIAL_SELECTION_MODES.includes(selection.mode)) {
+        return `“${label}” needs a valid Organisation Group initial selection mode.`;
+      }
+      if (selection.mode === 'specific' && !isTenantUuid(selection.group_id)) {
+        return `“${label}” needs a specific Organisation Group for its initial selection.`;
+      }
+      if (selection.mode !== 'specific' && selection.group_id !== undefined) {
+        return `“${label}” can only store an initial group ID in Specific group mode. Re-select its initial selection mode.`;
+      }
+    }
+    if (isRepeatableRowField(field)) {
+      const childError = organizationGroupInitialSelectionError(repeatableRowChildren(field));
+      if (childError) return childError;
+    }
+  }
+  return null;
+}
+
+export function OrganizationGroupInitialSelectionEditor({
+  field,
+  organizationGroups = [],
+  onChange,
+  idPrefix = field.id,
+}) {
+  const selection = field.group_initial_selection;
+  const mode = selection?.mode || 'none';
+  const groupId = mode === 'specific' ? selection?.group_id : null;
+  const selectedGroup = organizationGroups.find(group => group.id === groupId);
+  const unavailableGroup = groupId && !selectedGroup;
+  const modeId = `group-initial-selection-mode-${idPrefix}`;
+  const groupSelectId = `group-initial-selection-group-${idPrefix}`;
+
+  return (
+    <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-3" data-testid={`group-initial-selection-config-${idPrefix}`}>
+      <div className="space-y-1">
+        <Label htmlFor={modeId} className="text-xs font-medium">Initial selection</Label>
+        <Select
+          value={mode}
+          onValueChange={nextMode => {
+            // Radix's native select may emit an empty value while hydrating.
+            // None is an explicit choice, never an empty-string reset.
+            if (!GROUP_INITIAL_SELECTION_MODES.includes(nextMode)) return;
+            onChange({
+              group_initial_selection: nextMode === 'specific' && mode === 'specific' && groupId
+                ? { mode: nextMode, group_id: groupId }
+                : { mode: nextMode },
+            });
+          }}
+        >
+          <SelectTrigger id={modeId} data-testid={`select-group-initial-selection-mode-${idPrefix}`}><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">None</SelectItem>
+            <SelectItem value="specific">Specific group</SelectItem>
+            <SelectItem value="url">From URL parameter</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      {mode === 'specific' && (
+        <div className="space-y-1">
+          <Label htmlFor={groupSelectId} className="text-xs">Organisation Group</Label>
+          <Select
+            value={groupId || '__choose_group__'}
+            onValueChange={nextGroupId => {
+              // Do not erase a saved ID when native options hydrate or reload.
+              if (!nextGroupId || !organizationGroups.some(group => group.id === nextGroupId)) return;
+              onChange({ group_initial_selection: { mode: 'specific', group_id: nextGroupId } });
+            }}
+          >
+            <SelectTrigger id={groupSelectId} data-testid={`select-group-initial-selection-group-${idPrefix}`}><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__choose_group__" disabled>Select a group…</SelectItem>
+              {unavailableGroup && (
+                <SelectItem value={groupId} disabled>Unavailable group ({groupId}) — select a replacement</SelectItem>
+              )}
+              {organizationGroups.map(group => (
+                <SelectItem key={group.id} value={group.id}>{group.name || group.id}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {!groupId && <p className="text-xs text-amber-700">Choose a group before saving.</p>}
+          {organizationGroups.length === 0 && <p className="text-xs text-amber-700">No Organisation Groups are currently available to select.</p>}
+          {unavailableGroup && <p className="text-xs text-amber-700">The saved group is not in the available list. Its ID is preserved; select a replacement if needed.</p>}
+        </div>
+      )}
+      <p className="text-xs text-slate-500">
+        {mode === 'url'
+          ? <>Uses the fixed URL parameter <code>group_id</code>, for example <code>?group_id=&lt;group UUID&gt;</code>. The group must be available in this dropdown; otherwise no initial group is selected.</>
+          : mode === 'specific'
+            ? 'Start with this Organisation Group selected. Respondents can still change the selection.'
+            : 'Leave the Organisation Group unselected initially.'}
+      </p>
+    </div>
+  );
+}
+
+export function RepeatableRowsSettings({
   field,
   originalIndex,
   updateField,
@@ -6460,6 +6562,7 @@ function RepeatableRowsSettings({
   allFields = [],
   customFields = [],
   customObjects = [],
+  organizationGroups = [],
 }) {
   const config = normalizeRepeatableRowField(field);
   const addRowLabelEditorValue = repeatableRowAddLabelEditorValue(field);
@@ -6879,6 +6982,14 @@ function RepeatableRowsSettings({
               child={child}
               onChange={row_visibility => updateChild(childIndex, { row_visibility })}
             />
+            {child.type === 'organisation_group_dropdown' && (
+              <OrganizationGroupInitialSelectionEditor
+                field={child}
+                organizationGroups={organizationGroups}
+                idPrefix={`${field.id}-${child.id}`}
+                onChange={updates => updateChild(childIndex, updates)}
+              />
+            )}
             {supportsFormNotListedChoice(child) && child.type !== 'relationship_dropdown' && (
               <div className="space-y-3 rounded border border-slate-200 bg-slate-50 p-3" data-testid={`repeatable-not-listed-config-${field.id}-${child.id}`}>
                 <div className="flex items-center gap-2">
@@ -8125,6 +8236,14 @@ function FieldCard({
                 </div>
               )}
 
+              {field.type === 'organisation_group_dropdown' && (
+                <OrganizationGroupInitialSelectionEditor
+                  field={field}
+                  organizationGroups={organizationGroups}
+                  onChange={updates => updateField(originalIndex, updates)}
+                />
+              )}
+
               <ConditionalFilterRuleEditor
                 field={field}
                 originalIndex={originalIndex}
@@ -8150,6 +8269,7 @@ function FieldCard({
                   customObjects={discoveredCustomObjects}
                   allFields={allFields}
                   customFields={customFields}
+                  organizationGroups={organizationGroups}
                 />
               )}
 
@@ -11925,6 +12045,11 @@ export default function FormBuilderPage() {
       toast.error(`“${invalidNotListedField.label || 'Untitled field'}” needs a label for its not-listed choice.`);
       return;
     }
+    const groupInitialSelectionError = organizationGroupInitialSelectionError(formData.fields);
+    if (groupInitialSelectionError) {
+      toast.error(groupInitialSelectionError);
+      return;
+    }
     if (isProtectedDepartmentForm(formId)) {
       setProtectedAction({
         action: 'save',
@@ -12021,6 +12146,12 @@ export default function FormBuilderPage() {
     const invalidNotListedField = findInvalidNotListedField(formData.fields);
     if (invalidNotListedField) {
       toast.error(`“${invalidNotListedField.label || 'Untitled field'}” needs a label for its not-listed choice.`);
+      return;
+    }
+
+    const groupInitialSelectionError = organizationGroupInitialSelectionError(formData.fields);
+    if (groupInitialSelectionError) {
+      toast.error(groupInitialSelectionError);
       return;
     }
 

@@ -53,6 +53,11 @@ import {
 } from "@/lib/formConditionalFilters";
 import { labelSpreadsheetControls } from "@/lib/repeatableRowsLayout";
 import { initializeCommunicationPreferenceDefaults } from "@/lib/formCommunicationPreferenceDefaults";
+import {
+  hasGroupInitialSelectionAnswer,
+  resolveGroupInitialSelection,
+  repeatableGroupInitialCellEntries,
+} from "@/lib/formGroupInitialSelection";
 import { filterFormCommunicationCategories } from "@/lib/formCommunicationCategoryEligibility";
 import {
   FORM_NOT_LISTED_VALUE,
@@ -411,7 +416,8 @@ function RepeatableRowsField({
   field,
   value,
   onChange,
-  disabled,
+  disabled: surfaceDisabled,
+  locked = false,
   onValidityChange,
   memberInfo,
   organizationInfo,
@@ -423,6 +429,7 @@ function RepeatableRowsField({
   communicationAccess,
   communicationEligibilityError,
   communicationEligibilityReady,
+  groupInitialSelectionReady,
   prefillData,
   membershipFeeQuote,
   membershipPaymentMemberId,
@@ -436,6 +443,7 @@ function RepeatableRowsField({
   currentSetOptionLabels = null,
   currentSetExistingBlankFieldsByRow = null,
 }) {
+  const disabled = surfaceDisabled || locked;
   const config = useMemo(() => normalizeRepeatableRowField(field), [field]);
   const firstChild = config.children[0] || null;
   const hideWhenFirstColumnEmpty = config.hide_when_first_column_empty === true;
@@ -456,10 +464,10 @@ function RepeatableRowsField({
     ensureFutureDateRowIds(controlledRows, field),
   ).map(row => Object.fromEntries([
     ['_row_id', row._row_id],
-    ...config.children.map(child => [
+    ...config.children.flatMap(child => repeatableGroupInitialCellEntries(child, row) ?? [[
       child.id,
       row[child.id] ?? (Array.isArray(child.default_value) ? [...child.default_value] : (child.default_value ?? '')),
-    ]),
+    ]]),
     ...(row[FORM_NOT_LISTED_TEXT_KEY] && typeof row[FORM_NOT_LISTED_TEXT_KEY] === 'object'
       ? [[FORM_NOT_LISTED_TEXT_KEY, row[FORM_NOT_LISTED_TEXT_KEY]]]
       : []),
@@ -515,10 +523,10 @@ function RepeatableRowsField({
   const targetInitialRows = Math.max(config.min_rows, 1);
   const createRow = () => Object.fromEntries([
     ['_row_id', createRepeatableRowId()],
-    ...config.children.map(child => [
+    ...config.children.flatMap(child => repeatableGroupInitialCellEntries(child) ?? [[
       child.id,
       Array.isArray(child.default_value) ? [...child.default_value] : (child.default_value ?? ''),
-    ]),
+    ]]),
   ]);
 
   useEffect(() => {
@@ -533,9 +541,12 @@ function RepeatableRowsField({
     initializedRows.current = true;
     const needsCanonicalValue = incomingRows.length !== controlledRows.length || incomingRows.some((row, index) => (
       row._row_id !== controlledRows[index]?._row_id
-      || config.children.some(child => !Object.prototype.hasOwnProperty.call(controlledRows[index] || {}, child.id))
+      || config.children.some(child => Object.prototype.hasOwnProperty.call(row, child.id)
+        && !Object.prototype.hasOwnProperty.call(controlledRows[index] || {}, child.id))
     ));
-    if (needsCanonicalValue) onChange(incomingRows);
+    // Child defaults can commit before this parent effect. Keep those pending
+    // edits instead of emitting the pre-effect projection over them.
+    if (needsCanonicalValue) onChange(latestRows.current);
   }, [controlledRows, incomingRows, targetInitialRows, config.children, onChange]);
 
   const validation = useMemo(() => validateRepeatableRows(field, rows, {
@@ -584,11 +595,21 @@ function RepeatableRowsField({
     pendingRows.current = nextRows;
     onChange(nextRows);
   };
-  const updateRow = (rowId, childId, nextValue) => {
+  const updateRow = (rowId, childId, nextValue, initialSelection = false) => {
     // An upload can finish after its row was removed. Never re-emit stale
     // answers (nor attach them to a newly added row at the same index).
     if (!latestRows.current.some(row => row._row_id === rowId)) return;
     const child = config.children.find(candidate => candidate.id === childId);
+    if (initialSelection) {
+      const currentRow = latestRows.current.find(row => row._row_id === rowId);
+      if (hasGroupInitialSelectionAnswer(child, currentRow, currentRow?.[childId])) return;
+      const siblingKeys = new Set(repeatableSiblingUniqueValues(latestRows.current, child, rowId)
+        .map(item => repeatableUniqueValueKey(item, child)));
+      // Two newly mounted rows can resolve the same cached options in one
+      // effect flush. Recheck against committed pending rows, not render-time
+      // siblings, so a unique column never receives duplicate defaults.
+      if (!isRepeatableUniqueOptionAvailable(nextValue, undefined, child, siblingKeys)) return;
+    }
     commitRows(currentRows => currentRows.map((row) => {
       if (row._row_id !== rowId) return row;
       const updated = { ...row, [childId]: nextValue };
@@ -758,6 +779,7 @@ function RepeatableRowsField({
         }}
         value={row[child.id]}
         onChange={nextValue => updateRow(rowId, child.id, nextValue)}
+        onGroupInitialSelection={nextValue => updateRow(rowId, child.id, nextValue, true)}
         onFileUploadStateChange={child.type === 'file' ? uploading => setPendingFileUploads(current => {
           if (!latestRows.current.some(candidate => candidate._row_id === rowId)) return current;
           const cells = { ...(current[rowId] || {}) };
@@ -775,7 +797,8 @@ function RepeatableRowsField({
         memberInfo={memberInfo}
         organizationInfo={organizationInfo}
         selectedOrgGuestAccess={selectedOrgGuestAccess}
-        disabled={disabled}
+        disabled={child.type === 'organisation_group_dropdown' ? surfaceDisabled : disabled}
+        inheritedFieldLock={child.type === 'organisation_group_dropdown' && locked}
         hideLabel
         formId={formId}
         formSlug={formSlug}
@@ -784,6 +807,7 @@ function RepeatableRowsField({
         communicationAccess={communicationAccess}
         communicationEligibilityError={communicationEligibilityError}
         communicationEligibilityReady={communicationEligibilityReady}
+        groupInitialSelectionReady={groupInitialSelectionReady && !childHidden && !repeatableParentHidden && !availabilityProbe}
         allFormValues={row}
         allFields={config.children}
         rootAllFields={rootAllFields}
@@ -1399,7 +1423,7 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
   );
 }
 
-export default function FormRenderer({ field, value: suppliedValue, onChange, onFormNotListedTextChange, onFileUploadStateChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, onValidityChange, onRelationshipEmptyStateChange, onRecordSelectionOptionsChange, onRepeatableAvailabilityChange, onRepeatableVisibilityChange, repeatableAvailabilitySupport = null, preserveValueWhenUnavailable = false, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, communicationMemberContext = false, communicationAccess = null, communicationEligibilityReady = true, communicationEligibilityError = null, allFormValues = {}, prefillData = null, currentSetOptionLabels = null, currentSetExistingBlankFieldsByRow = null, allFields = [], membershipFeeQuote = null, notListedDisplayLabel = '', rootAllFields = null, rootAllFormValues = null, repeatableSiblingUniqueValues: siblingUniqueValues = [], repeatableFormExcludedValues: formExcludedValues = [], hiddenFieldIds = new Set(), parentHidden = false, availabilityProbe = false, suppressPaymentSummary = false, membershipPaymentMemberId = null }) {
+export default function FormRenderer({ field, value: suppliedValue, onChange, onGroupInitialSelection, onFormNotListedTextChange, onFileUploadStateChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, inheritedFieldLock = false, onValidityChange, onRelationshipEmptyStateChange, onRecordSelectionOptionsChange, onRepeatableAvailabilityChange, onRepeatableVisibilityChange, repeatableAvailabilitySupport = null, preserveValueWhenUnavailable = false, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, communicationMemberContext = false, communicationAccess = null, communicationEligibilityReady = true, communicationEligibilityError = null, groupInitialSelectionReady = false, allFormValues = {}, prefillData = null, currentSetOptionLabels = null, currentSetExistingBlankFieldsByRow = null, allFields = [], membershipFeeQuote = null, notListedDisplayLabel = '', rootAllFields = null, rootAllFormValues = null, repeatableSiblingUniqueValues: siblingUniqueValues = [], repeatableFormExcludedValues: formExcludedValues = [], hiddenFieldIds = new Set(), parentHidden = false, availabilityProbe = false, suppressPaymentSummary = false, membershipPaymentMemberId = null }) {
   const resolvedFieldValue = resolveFormRendererFieldValue({
     field,
     fields: allFields,
@@ -1555,8 +1579,9 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
     onValidityChange?.(field.id, valid);
   }, [field, hasNotListedSelection, notListedText, onValidityChange]);
   
-  // Combine field.locked with disabled prop - either makes the field non-editable
-  const isFieldDisabled = field.locked || disabled;
+  // Author locks (including container locks) disable controls, not configured
+  // initialization. The separate disabled prop identifies a read-only surface.
+  const isFieldDisabled = field.locked || inheritedFieldLock || disabled;
 
   const domainErrorRef = useRef('');
   const emailFormatErrorRef = useRef('');
@@ -1771,7 +1796,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
     preserveValueWhenUnavailable,
   ]);
 
-  const { data: organisationGroups = [], isLoading: organisationGroupsLoading, isError: organisationGroupsError } = useQuery({
+  const { data: organisationGroups = [], isLoading: organisationGroupsLoading, isError: organisationGroupsError, isSuccess: organisationGroupsLoaded } = useQuery({
     queryKey: ['public-form-organisation-group-options', formSlug, formId, field.id, field.repeatable_container_field_id],
     queryFn: () => publicClient.listFormOrganisationGroupOptions(
       formSlug,
@@ -1969,6 +1994,49 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
     ),
     [field, organisationGroups, conditionalResolution],
   );
+  const groupInitialSelectionScope = JSON.stringify([
+    formId, formSlug, field.id, field.repeatable_container_field_id, field.repeatable_row_id,
+  ]);
+  const groupInitialSelectionState = useRef({ scope: null, consumed: false });
+  useEffect(() => {
+    if (groupInitialSelectionState.current.scope !== groupInitialSelectionScope) {
+      groupInitialSelectionState.current = { scope: groupInitialSelectionScope, consumed: false };
+    }
+    if (field.type !== 'organisation_group_dropdown' || groupInitialSelectionState.current.consumed) return;
+    // Parent form resets/restores and authenticated prefill must finish first;
+    // otherwise an old form's answers can accidentally consume a new scope.
+    if (!groupInitialSelectionReady) return;
+    if (hasGroupInitialSelectionAnswer(field, allFormValues, suppliedValue)) {
+      groupInitialSelectionState.current.consumed = true;
+      return;
+    }
+    const next = resolveGroupInitialSelection({
+      field,
+      values: allFormValues,
+      value: suppliedValue,
+      search: typeof window === 'undefined' ? '' : window.location.search,
+      ready: groupInitialSelectionReady && !availabilityProbe && !parentHidden,
+      optionsLoaded: organisationGroupsLoaded,
+      optionsError: organisationGroupsError,
+      conditionalResolution,
+      options: organisationGroupOptions,
+      disabled,
+      optionIsAvailable: candidate => isRepeatableUniqueOptionAvailable(
+        candidate, value, field, new Set(siblingUniqueValues.map(item => repeatableUniqueValueKey(item, field))),
+      ) && !repeatableSelectionContainsExcludedValue(candidate, field, formExcludedValues),
+    });
+    const commit = onGroupInitialSelection || onChange;
+    if (next === null || typeof commit !== 'function') return;
+    // Latch before calling the normal change pipeline (including its dependent
+    // Organisation reset/query behaviour). Refetches and clears never reapply.
+    groupInitialSelectionState.current.consumed = true;
+    commit(next);
+  }, [
+    groupInitialSelectionScope, field, suppliedValue, allFormValues, groupInitialSelectionReady,
+    availabilityProbe, parentHidden, organisationGroupsLoaded, organisationGroupsError,
+    organisationGroupOptions, conditionalResolution, disabled, onChange, onGroupInitialSelection,
+    siblingUniqueValues, formExcludedValues,
+  ]);
   // Conditional display-name copying consumes only this respondent-scoped
   // option material. Reporting pending and failed states is as important as
   // reporting labels: callers clear any old derived text and block submission
@@ -2281,6 +2349,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
       getValue = option => option.id;
       loading = orgsLoading;
     } else if (field.type === 'organisation_group_dropdown') {
+      if (isFieldDisabled || availabilityProbe || !organisationGroupsLoaded || organisationGroupsError) return;
       options = organisationGroupOptions;
       getValue = option => option.id;
       loading = organisationGroupsLoading;
@@ -2315,7 +2384,8 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
     if (next !== value) onChange(next);
   }, [
     field.type, value, staticOptions, imageButtonOptions, organisationOptions, orgsLoading,
-    organisationGroupOptions, organisationGroupsLoading,
+    organisationGroupOptions, organisationGroupsLoading, organisationGroupsLoaded, organisationGroupsError,
+    isFieldDisabled, availabilityProbe,
     relationshipOptions, relationshipOptionsLoading, relationshipOptionsLoaded,
     relationshipParentValue, availableCountryOptions, availableCountryNotListedLabel, onChange,
     categoryDropdownOptions, categoryMultiselectAllowedValues, categoriesLoading,
@@ -2378,7 +2448,8 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
       field={field}
       value={value}
       onChange={onChange}
-      disabled={isFieldDisabled}
+      disabled={disabled || field.read_only || field.display_only}
+      locked={field.locked || inheritedFieldLock}
       onValidityChange={onValidityChange}
       memberInfo={memberInfo}
       organizationInfo={organizationInfo}
@@ -2390,6 +2461,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
       communicationAccess={communicationAccess}
       communicationEligibilityError={communicationEligibilityError}
       communicationEligibilityReady={communicationEligibilityReady}
+      groupInitialSelectionReady={groupInitialSelectionReady}
       prefillData={prefillData}
       membershipFeeQuote={membershipFeeQuote}
       membershipPaymentMemberId={membershipPaymentMemberId}
@@ -3001,6 +3073,9 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
               Loading organisation groups...
             </div>
           );
+        }
+        if (organisationGroupsError) {
+          return <p role="alert" className="text-sm text-red-600">Unable to load organisation groups. Please try again.</p>;
         }
         const effectiveOrganisationGroupOptions = organisationGroupOptions.filter(
           group => repeatableOptionIsAvailable(group.id),

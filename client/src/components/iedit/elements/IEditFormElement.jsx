@@ -1,9 +1,11 @@
 import { evaluateScoreCondition } from '@/lib/surveyConditions';
-import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback, useContext } from "react";
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 import DOMPurify from 'dompurify';
 import FormRenderer from "../../forms/FormRenderer";
+import LayoutContext from "@/contexts/LayoutContext";
+import { groupInitialSelectionSurfaceReady, hasGroupInitialSelectionAnswer } from "@/lib/formGroupInitialSelection";
 import { base44 } from "@/api/base44Client";
 import { publicClient, getTenantSlugFromLocation } from "@/api/publicClient";
 import { useSubmissionIdempotencyKey } from "@/lib/useSubmissionIdempotencyKey";
@@ -87,6 +89,7 @@ const safeHexColor = (color, fallback = '#000000') => {
 
 export default function IEditFormElement({ element, memberInfo, organizationInfo }) {
   const isMobile = useIsMobile();
+  const { authResolved } = useContext(LayoutContext);
   const content = element.content || {};
   const formSlug = content.form_slug;
   const [formValues, setFormValues] = useState({});
@@ -773,6 +776,8 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
             continue;
           }
           const field = form.fields?.find(f => f.id === key);
+          if (field?.type === 'organisation_group_dropdown'
+            && hasGroupInitialSelectionAnswer(field, prev, prev[key])) continue;
           if (field?.type === 'boolean') {
             merged[key] = value;
           } else if (prev[key] === undefined || prev[key] === '' || prev[key] === null) {
@@ -790,6 +795,22 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   }, [form, prefillMember, prefillOrg, prefillMemberOrg, prefillMemberCustomValues, prefillMemberResourceCategorySelections, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId, prefillMemberId, memberSourceOrgId, memberOrgLoading, prefillOrgLoading, effectiveOrgIdForCustomFields, memberInfo, memberCustomValuesLoading, memberResourceCategoriesLoading, orgCustomValuesLoading, draftToken, draftLoaded, draftData, draftFetchError]);
 
   // Helper to evaluate a rule condition
+  const groupInitialSelectionReady = groupInitialSelectionSurfaceReady({
+    form,
+    initialized: defaultsInitialized,
+    initializedFormId: defaultsInitializedFormId,
+    authResolved,
+    draftToken,
+    draftLoaded,
+    prefillExpected: !!memberInfo && (
+      (form?.prefill_source === 'member' && !!prefillMemberId)
+      || (form?.prefill_source === 'organization' && !!prefillOrgId)
+    ),
+    prefillApplied,
+    currentSetPending: departmentCurrentSet.active && (!departmentCurrentSet.baselineReady || !!departmentCurrentSet.error),
+    blocked: formAccess.restricted || submitted,
+  });
+
   const evaluateSingleCondition = (triggerValue, operator, value) => {
     // LMIC operators on country fields (Task #3477) — compared against the
     // tenant LMIC list delivered with the form payload.
@@ -2157,6 +2178,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
             <CardContent className="min-h-[300px] pt-8">
               {currentField && (
                 <FormRenderer
+                  groupInitialSelectionReady={groupInitialSelectionReady}
                   membershipPaymentMemberId={prefillMemberId}
                   key={currentStep}
                   field={currentField}
@@ -2319,6 +2341,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
               if (columnCount === 1 || !hasPages) {
                 return displayFields.map(field => (
                   <FormRenderer
+                    groupInitialSelectionReady={groupInitialSelectionReady}
                     membershipPaymentMemberId={prefillMemberId}
                     key={field.id}
                     field={field}
@@ -2352,6 +2375,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                     <div className="space-y-4 mb-4">
                       {unassignedFields.map(field => (
                         <FormRenderer
+                          groupInitialSelectionReady={groupInitialSelectionReady}
                           membershipPaymentMemberId={prefillMemberId}
                           key={field.id}
                           field={field}
@@ -2385,6 +2409,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
                         <div key={colIndex} className="space-y-4">
                           {columnFields.map(field => (
                             <FormRenderer
+                              groupInitialSelectionReady={groupInitialSelectionReady}
                               membershipPaymentMemberId={prefillMemberId}
                               key={field.id}
                               field={field}

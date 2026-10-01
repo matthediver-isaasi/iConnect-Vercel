@@ -96,6 +96,7 @@ import {
 import { evaluateGalleryAccessPolicy, validateGalleryAccessPolicy } from '../../_lib/galleryAccessPolicy.js';
 import { validateFormStripeAddressMappingConfig } from '../../_lib/formStripeAddressMappingConfig.js';
 import { validateFormRowSourceConfiguration } from '../../_lib/formRowSourceConfiguration.js';
+import { validateFormGroupInitialSelection } from '../../_lib/formGroupInitialSelection.js';
 import { resolveTrustedSchemaCapabilities } from '../../_lib/customObjectSchemaAccess.js';
 import {
   computeAuthoritativeHiddenFieldIds,
@@ -1691,6 +1692,14 @@ export default async function handler(req, res) {
       }
 
       if (entityNorm === 'form') {
+        const groupInitialSelectionValidation = await validateFormGroupInitialSelection({
+          db: supabase,
+          tenantId: tenantCtx.effectiveTenantId || tenantCtx.tenantId,
+          form: sanitizedBody,
+        });
+        if (!groupInitialSelectionValidation.ok) {
+          return res.status(422).json(groupInitialSelectionValidation);
+        }
         const stripeMappingValidation = await validateFormStripeAddressMappingConfig({
           supabase,
           tenantId: tenantCtx.effectiveTenantId || tenantCtx.tenantId,

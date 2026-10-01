@@ -37,8 +37,15 @@ async function loadHandler(entryPoint) {
       if (imported === 'validateFormWidthPayload' || imported === 'validateEventDisplayModePayload') {
         return `export const ${local} = () => null;`;
       }
+      if (imported === 'validateFormMutationAccessSave') {
+        return `export const ${local} = () => ({ ok: true });`;
+      }
+      if (imported === 'validateSurveyCompletionUpdate') {
+        return `export const ${local} = async () => [];`;
+      }
       if (imported === 'validateFormStripeAddressMappingConfig'
-          || imported === 'validateFormRowSourceConfiguration') {
+          || imported === 'validateFormRowSourceConfiguration'
+          || imported === 'validateFormGroupInitialSelection') {
         return `export const ${local} = async () => ({ ok: true });`;
       }
       if (imported === 'resolveTrustedSchemaCapabilities') {
