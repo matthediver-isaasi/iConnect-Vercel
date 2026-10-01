@@ -92,6 +92,133 @@ const tablesFor = histories => ({ member_membership_history: histories,
   membership_tier_config: [structuredClone(config)],
   member: histories.map(row => member(row.member_id)) });
 
+const bnms = 'ff2df806-b321-4254-b651-3af11fccf1db';
+const legacyExpiry = () => history('legacy', { tenant_id: bnms, config_id: null,
+  membership_year: '2025/2026', payment_status: 'paid', payment_method: 'upfront',
+  currency: 'GBP', tier_label: 'Reviewed tier', term_start_date: null,
+  term_end_date: '2026-09-25', notes: JSON.stringify({ source: 'bnms_non_dd_current_backfill' }),
+  final_cost: null, total_with_vat: null });
+
+test('attested expiry-only history records durable actionable review before advancing to valid rows', async () => {
+  const legacy = legacyExpiry(), original = structuredClone(legacy);
+  const valid = history('valid', { tenant_id: bnms });
+  const db = database({ member_membership_history: [legacy, valid],
+    membership_tier_config: [{ ...config, tenant_id: bnms }],
+    member: [member(valid.member_id, { tenant_id: bnms })] });
+  const results = { details: [] }, checkpoints = [], retained = [];
+  const outcome = await sweep(db, bnms, results, new Date('2026-09-27'), {
+    invalidateSessions: async () => ({ success: true }),
+    reviewRequired: async id => {
+      assert.ok(db.tables.scheduled_task_log?.length, 'review log must precede durable identity');
+      retained.push(id);
+    },
+    checkpoint: async cursor => {
+      checkpoints.push(structuredClone(cursor));
+      assert.ok(db.tables.scheduled_task_log?.length, 'review must precede cursor advance');
+      assert.deepEqual(retained, [legacy.id], 'durable identity must precede cursor advance');
+    },
+  });
+  assert.equal(outcome.complete, true);
+  assert.equal(outcome.examined, 2);
+  assert.equal(outcome.enforced, 1);
+  assert.deepEqual(legacy, original, 'legacy history/expiry/date evidence is never rewritten');
+  assert.equal(results.errors, 1, 'review is not a healthy heartbeat');
+  assert.equal(results.details[0].status, 'review_required');
+  const log = db.tables.scheduled_task_log[0];
+  assert.equal(log.status, 'error');
+  assert.equal(JSON.parse(log.details).details[0].historyId, legacy.id);
+  assert.match(JSON.parse(log.details).details[0].reason, /access policy authority/);
+  assert.ok(checkpoints.some(cursor => cursor.afterId === valid.id));
+});
+
+test('review-log write failure preserves the cursor and does not change legacy access', async () => {
+  const legacy = legacyExpiry(), checkpoints = [];
+  const db = database({ member_membership_history: [legacy] }, {
+    fail: query => query.table === 'scheduled_task_log' && query.operation === 'insert',
+  });
+  await assert.rejects(sweep(db, bnms, { details: [] }, new Date('2026-09-27'), {
+    checkpoint: async cursor => checkpoints.push(cursor),
+  }), /Could not record legacy expiry policy review/);
+  assert.deepEqual(checkpoints, []);
+  assert.deepEqual(db.writes, []);
+  assert.equal(legacy.expiry_enforced_at, null);
+});
+
+test('retained review resolves only after assigned explicit policy passes normal expiry processing', async () => {
+  const legacy = legacyExpiry();
+  const db = database({ member_membership_history: [legacy],
+    member: [member(legacy.member_id, { tenant_id: bnms })] });
+  const resolved = [];
+  const options = {
+    cursor: { historyType: 'organisation', afterId: null },
+    reviewHistoryIds: [legacy.id],
+    reviewResolved: async id => resolved.push(id),
+    invalidateSessions: async () => ({ success: true }),
+  };
+  const date = new Date('2026-09-27');
+  await sweep(db, bnms, { details: [] }, date, options);
+  assert.deepEqual(resolved, [], 'unknown policy stays unresolved after traversal');
+  legacy.config_id = 'repaired';
+  db.tables.membership_tier_config = [{ ...config, id: 'repaired', tenant_id: bnms }];
+  await sweep(db, bnms, { details: [] }, date, options);
+  assert.deepEqual(resolved, [], 'absent explicit grace setting cannot clear review');
+  db.tables.membership_tier_config[0].renewal_grace_days = 0;
+  await sweep(db, bnms, { details: [] }, date, options);
+  assert.deepEqual(resolved, [legacy.id]);
+  assert.ok(legacy.expiry_enforced_at);
+  assert.equal(db.tables.member[0].login_enabled, false);
+  assert.equal(legacy.term_start_date, null);
+});
+
+test('failed repaired-policy enforcement and missing history never clear a retained review', async () => {
+  for (const missing of [false, true]) {
+    const legacy = { ...legacyExpiry(), config_id: 'repaired' }, resolved = [];
+    const db = database({ member_membership_history: missing ? [] : [legacy],
+      membership_tier_config: [{ ...config, id: 'repaired', tenant_id: bnms, renewal_grace_days: 0 }],
+      member: [member(legacy.member_id, { tenant_id: bnms })] }, {
+      fail: query => query.table === 'membership_expiry_action' && query.operation === 'insert',
+    });
+    await assert.rejects(sweep(db, bnms, { details: [] }, new Date('2026-09-27'), {
+      cursor: { historyType: 'organisation', afterId: null }, reviewHistoryIds: [legacy.id],
+      reviewResolved: async id => resolved.push(id),
+    }), missing ? /review history missing/ : /prepare expiry journal/i);
+    assert.deepEqual(resolved, []);
+  }
+});
+
+test('review revalidation is batched across server caps and explicit no-access policy resolves without effects', async () => {
+  const histories = Array.from({ length: 100 }, (_, i) => ({
+    ...legacyExpiry(), id: `review-${String(i).padStart(3, '0')}`,
+  }));
+  const db = database({ member_membership_history: histories }, { cap: 37 });
+  const resolved = [];
+  const options = { cursor: { historyType: 'organisation' },
+    reviewHistoryIds: histories.map(row => row.id),
+    reviewResolved: async id => resolved.push(id) };
+  const date = new Date('2026-09-27');
+  await sweep(db, bnms, { details: [] }, date, options);
+  assert.deepEqual(resolved, []);
+  assert.equal(db.queries.filter(q => q.table === 'member_membership_history').length, 4);
+  histories[0].config_id = 'disabled';
+  db.tables.membership_tier_config = [{ ...config, id: 'disabled', tenant_id: bnms,
+    renewal_disable_login: false, renewal_change_role: false, renewal_grace_days: 0 }];
+  await sweep(db, bnms, { details: [] }, date, options);
+  assert.deepEqual(resolved, [histories[0].id]);
+  assert.deepEqual(db.writes, []);
+});
+
+test('missing modern policy and unproven legacy shape are still errors, not review skips', async () => {
+  for (const extra of [{ notes: null }, { config_id: 'deleted' }, { term_key: 'rolling' },
+    { term_start_date: '2025-09-26' }, { payment_method: 'direct_debit' },
+    { tenant_id: 'other' }, { term_end_date: '2026-02-30' }]) {
+    const legacy = { ...legacyExpiry(), ...extra };
+    const db = database({ member_membership_history: [legacy] });
+    await assert.rejects(sweep(db, legacy.tenant_id, { details: [] }, new Date('2026-09-27')),
+      /Expiry policy missing/);
+    assert.deepEqual(db.writes, []);
+  }
+});
+
 test('868 observed candidates: batched policy reads remove N+1 latency, including checkpoint writes', async t => {
   const db = database({ member_membership_history: rows(868),
     membership_tier_config: [{ ...config, renewal_disable_login: false, renewal_change_role: false }] });

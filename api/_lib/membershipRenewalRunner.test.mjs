@@ -133,6 +133,58 @@ test('after-hour catchup registers today once and resets only on next due day', 
   assert.equal(h.db.state.billing.a.date, '2026-09-19');
 });
 
+test('durable expiry review gates later invocations past the row until explicit revalidation resolves it', async () => {
+  const h = harness();
+  const first = await h.run({ expiry: async (_db, _tenantId, results, _now, control) => {
+    await control.reviewRequired('history-review');
+    results.errors++;
+    await control.checkpoint({ historyType: 'member', afterId: 'history-review' });
+    return { complete: false, examined: 1, enforced: 0,
+      cursor: { historyType: 'member', afterId: 'history-review' } };
+  } });
+  assert.equal(first.healthy, false);
+  assert.deepEqual(h.db.state.expiry.a.reviewHistoryIds, ['history-review']);
+  const reviewSaved = h.db.writes.findIndex(write =>
+    write.type === 'save' && write.p_state.expiry.a?.reviewHistoryIds?.length);
+  const cursorSaved = h.db.writes.findIndex(write =>
+    write.type === 'save' && write.p_state.expiry.a?.cursor?.afterId === 'history-review');
+  assert.ok(reviewSaved >= 0 && reviewSaved < cursorSaved);
+  const second = await h.run({ expiry: async (_db, _tenantId, _results, _now, control) => {
+    assert.equal(control.cursor.afterId, 'history-review');
+    assert.deepEqual(control.reviewHistoryIds, ['history-review']);
+    // Later valid records can complete, without revisiting the original row.
+    return { ...complete(), examined: 3, enforced: 2 };
+  } });
+  assert.equal(second.outcome, 'failed');
+  assert.equal(second.healthy, false);
+  assert.deepEqual(second.details.find(row => row.code === 'unresolved_expiry_policy_review').historyIds,
+    ['history-review']);
+  assert.equal(h.db.state.expiry.a.cursor, null);
+  const untouched = await h.run({ limits: { workMs: 0 }, expiry: async () => assert.fail('No expiry budget') });
+  assert.equal(untouched.healthy, false, 'unvisited tenant reviews still gate the heartbeat');
+  const resolved = await h.run({ expiry: async (_db, _tenantId, _results, _now, control) => {
+    assert.deepEqual(control.reviewHistoryIds, ['history-review']);
+    await control.reviewResolved('history-review');
+    return complete();
+  } });
+  assert.equal(resolved.healthy, true);
+  assert.deepEqual(h.db.state.expiry.a.reviewHistoryIds, []);
+});
+
+test('expiry review identity capacity fails closed before advancing the cursor', async () => {
+  const ids = Array.from({ length: 100 }, (_, i) => `review-${i}`);
+  const db = database({ initialState: { expiry: { a: { reviewHistoryIds: ids,
+    cursor: { historyType: 'member', afterId: 'prior' } } } } });
+  const h = harness({ db });
+  const result = await h.run({ expiry: async (_db, _tenantId, _results, _now, control) => {
+    await control.reviewRequired('overflow');
+    assert.fail('Review overflow cannot advance the cursor');
+  } });
+  assert.equal(result.healthy, false);
+  assert.equal(db.state.expiry.a.cursor.afterId, 'prior');
+  assert.deepEqual(db.state.expiry.a.reviewHistoryIds, ids);
+});
+
 test('unfinished prior-day stage resumes before a new daily opportunity', async () => {
   const db = database({ initialState: {
     billing: { a: { date: '2026-09-17', stage: 1, cursor: 'old-row' } },

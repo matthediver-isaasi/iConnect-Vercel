@@ -3,6 +3,12 @@ import { requestsReminderPaymentLink, resolveReminderPaymentQuote } from './remi
 import { deriveAnnualTerm } from './annualRenewalPolicy.js';
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
+const MEMBER_REMINDER_COLUMNS = 'id, email, first_name, last_name, role_id';
+
+function formatMemberName(member) {
+  return [member?.first_name, member?.last_name]
+    .map(part => String(part ?? '').trim()).filter(Boolean).join(' ') || member?.email || '';
+}
 
 export function createMembershipReminders({
   db: supabase, simulateMembershipForOrg, simulateMembershipForMember,
@@ -221,7 +227,7 @@ async function processRollingReminders(tenantId, results, today) {
       if (renewedError) throw new Error(`Could not check renewed reminder term: ${renewedError.message}`);
       if (renewed?.length) { skipped(`History ${history.id} already has a paid successor.`); continue; }
       const { data: owner, error: ownerError } = await supabase.from(memberScope ? 'member' : 'organization')
-        .select(memberScope ? 'id, email, first_name, last_name, name, role_id' : 'id, name')
+        .select(memberScope ? MEMBER_REMINDER_COLUMNS : 'id, name')
         .eq('tenant_id', tenantId).eq('id', memberScope ? history.member_id : history.organization_id).maybeSingle();
       if (ownerError) throw new Error(`Could not load rolling reminder recipient: ${ownerError.message}`);
       if (!owner) continue;
@@ -248,14 +254,13 @@ async function processRollingReminders(tenantId, results, today) {
         }, now);
         if (!claim) continue;
         const first = recipients[0];
-        const memberName = first.name || [first.first_name, first.last_name].filter(Boolean).join(' ');
         const data = buildOrgContext({
           org: memberScope ? {} : owner, member: first,
           membershipYear: { label: `${history.term_start_date} – ${history.term_end_date}` },
           simResult: { tierLabel: history.tier_label, finalCost: history.final_cost, currency: history.currency },
           renewalDate, reminder,
         });
-        Object.assign(data, { member_id: first.id, member_name: memberName, memberName, member_email: first.email });
+        Object.assign(data, { member_id: first.id, member_email: first.email });
         const { subject, html } = renderTemplate(template, scope, data);
         let status = 'sent';
         let sendError = null;
@@ -353,7 +358,7 @@ async function resolveOrgRecipients(tenantId, organizationId, roleIds) {
   if (!Array.isArray(roleIds) || roleIds.length === 0) return [];
   const { data: members, error } = await supabase
     .from('member')
-    .select('id, email, first_name, last_name, name, role_id')
+    .select(MEMBER_REMINDER_COLUMNS)
     .eq('tenant_id', tenantId)
     .eq('organization_id', organizationId)
     .in('role_id', roleIds);
@@ -362,12 +367,13 @@ async function resolveOrgRecipients(tenantId, organizationId, roleIds) {
 }
 
 function buildOrgContext({ org, member, membershipYear, simResult, renewalDate, reminder }) {
+  const memberName = formatMemberName(member);
   return {
     organization_id: org.id,
     organization_name: org.name,
     organizationName: org.name,
-    member_name: member?.name || [member?.first_name, member?.last_name].filter(Boolean).join(' ') || '',
-    memberName: member?.name || [member?.first_name, member?.last_name].filter(Boolean).join(' ') || '',
+    member_name: memberName,
+    memberName,
     membership_year: membershipYear.label,
     membershipYear: membershipYear.label,
     renewal_date: renewalDate.toISOString().split('T')[0],
@@ -387,10 +393,11 @@ function renderTemplate(template, entityType, data) {
   return { subject, html };
 }
 
-async function alreadySent({ reminderId, membershipYear, organizationId = null, memberId = null }) {
+async function alreadySent({ tenantId, reminderId, membershipYear, organizationId = null, memberId = null }) {
   let query = supabase
     .from('membership_tier_reminder_send')
     .select('id')
+    .eq('tenant_id', tenantId)
     .eq('reminder_id', reminderId)
     .eq('membership_year', membershipYear)
     .limit(1);
@@ -503,6 +510,7 @@ async function processOrgConfigReminders(tenantId, config, reminders, today, res
 
       const yearLabel = membershipYear.label;
       const already = await alreadySent({
+        tenantId,
         reminderId: reminder.id,
         membershipYear: yearLabel,
         organizationId: org.id,
@@ -625,7 +633,7 @@ async function processMemberConfigReminders(tenantId, config, reminders, today, 
   const members = reminderRows(() => {
     let query = supabase
     .from('member')
-    .select('id, email, first_name, last_name, name, role_id')
+    .select(MEMBER_REMINDER_COLUMNS)
     .eq('tenant_id', tenantId)
     .is('organization_id', null);
     if (owner) query = query.eq('id', owner.member_id || '00000000-0000-0000-0000-000000000000');
@@ -666,6 +674,7 @@ async function processMemberConfigReminders(tenantId, config, reminders, today, 
 
       const yearLabel = membershipYear.label;
       const already = await alreadySent({
+        tenantId,
         reminderId: reminder.id,
         membershipYear: yearLabel,
         memberId: member.id,
@@ -688,7 +697,7 @@ async function processMemberConfigReminders(tenantId, config, reminders, today, 
         continue;
       }
 
-      const memberName = member.name || [member.first_name, member.last_name].filter(Boolean).join(' ') || member.email;
+      const memberName = formatMemberName(member);
       const data = {
         member_id: member.id,
         member_name: memberName,

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { runRenewals } from './ddRenewalPipeline.js';
+import { runRenewals, loadRenewalContext } from './ddRenewalPipeline.js';
 import { processTenantDdRenewals } from './gocardlessDdRenewals.js';
 import { recordingEffects, readonlyTenantDatabase } from './directDebitDryRunRuntime.js';
 import { createMembershipSimulator } from './membershipSimulationCore.js';
@@ -76,11 +76,86 @@ function fixture({ paused = false, debt = 0, latest = 'a', planId = 'p', rolling
     };
     return q;
   }, rpc() { assert.fail('RPC forbidden'); } };
-  return { db, agreement: a, plan: { ...p, id: 'p' }, reads, mutations };
+  return { db, agreement: a, plan: { ...p, id: 'p' }, reads, mutations, tables };
 }
 const quote = async () => ({
   success: true, config, currency: 'GBP', annualCost: 120, finalCost: 120,
   membershipYear: { label: '2026', start: new Date('2026-01-01'), end: new Date('2026-12-31') },
+});
+
+function unboundFixture(options) {
+  const f = fixture(options);
+  Object.assign(f.agreement, { member_id: null, organization_id: null,
+    agreement_type: 'member', status: 'payment_setup_required' });
+  f.agreement.metadata.form_submission_id = 'submission';
+  f.tables.form_submission = [{ id: 'submission', tenant_id: 't',
+    payment_provider: 'gocardless_monthly_dd', payment_status: 'pending',
+    payment_meta: { monthly_direct_debit: { agreement_id: 'a' } } }];
+  f.tables.membership_payment_plans = [];
+  f.tables.member_membership_history = [];
+  return f;
+}
+
+test('evidenced unbound form setup is outside renewal, with no plan or paid membership', async () => {
+  const f = unboundFixture();
+  const result = await loadRenewalContext({ ...f, now });
+  assert.equal(result.status, 'skipped');
+  assert.match(result.reason, /Unbound form/);
+  assert.deepEqual(f.reads, ['form_submission', 'membership_payment_plans',
+    'member_membership_history', 'organisation_membership_history']);
+  const results = { details: [] }, operations = [];
+  await processTenantDdRenewals('t', results, { db: f.db, now: () => now,
+    effects: recordingEffects(operations) });
+  assert.equal(results.errors || 0, 0);
+  assert.deepEqual(operations, []);
+  assert.deepEqual(f.mutations, []);
+});
+
+test('unbound setup exception never conceals conflicting, collected, active or ambiguous ownership', async () => {
+  for (const change of [
+    f => { f.agreement.status = 'active'; },
+    f => { f.agreement.member_id = 'm'; f.agreement.organization_id = 'org'; },
+    f => { delete f.agreement.metadata.form_submission_id; },
+    f => { f.agreement.gocardless_mandate_id = 'mandate'; },
+    f => { f.tables.form_submission[0].payment_status = 'paid'; },
+    f => { f.tables.form_submission[0].payment_paid_at = now.toISOString(); },
+    f => { f.tables.form_submission[0].tenant_id = 'other'; },
+    f => { f.tables.form_submission[0].payment_meta.monthly_direct_debit.agreement_id = 'other'; },
+    f => { f.tables.membership_payment_plans = [plan]; },
+    f => { f.tables.member_membership_history = [{ id: 'h', tenant_id: 't', billing_agreement_id: 'a' }]; },
+    f => { f.tables.organisation_membership_history = [{ id: 'h', tenant_id: 't', billing_agreement_id: 'a' }]; },
+  ]) {
+    const f = unboundFixture();
+    change(f);
+    await assert.rejects(loadRenewalContext({ ...f, now }), /ambiguous membership owner/);
+    assert.deepEqual(f.mutations, []);
+  }
+});
+
+test('unbound setup evidence read failures remain errors', async () => {
+  for (const failTable of ['form_submission', 'membership_payment_plans', 'member_membership_history', 'organisation_membership_history']) {
+    const f = unboundFixture({ failTable });
+    await assert.rejects(loadRenewalContext({ ...f, now }), /Could not verify unbound DD/);
+  }
+});
+
+test('active unbound agreement remains a cron error without effects; canonical organisation owner stays renewable', async () => {
+  const invalid = unboundFixture();
+  invalid.agreement.status = 'active';
+  const results = { details: [] }, operations = [];
+  await processTenantDdRenewals('t', results, { db: invalid.db, now: () => now,
+    effects: recordingEffects(operations) });
+  assert.equal(results.errors, 1);
+  assert.match(results.details.find(row => row.status === 'error').reason, /ambiguous membership owner/);
+  assert.deepEqual(operations, []);
+  const org = fixture();
+  Object.assign(org.agreement, { member_id: null, organization_id: 'org', agreement_type: 'organization' });
+  const context = await loadRenewalContext({ ...org, now });
+  assert.equal(context.status, 'ready');
+  assert.equal(context.ownerColumn, 'organization_id');
+  assert.equal(context.ownerId, 'org');
+  assert.ok(org.reads.includes('organisation_membership_history'));
+  assert.ok(!org.reads.includes('member'));
 });
 
 test('real cron and scoped preview construct identical first operations for notice and automatic reservation', async () => {

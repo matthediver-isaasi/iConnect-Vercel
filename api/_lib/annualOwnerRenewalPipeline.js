@@ -6,10 +6,44 @@ import { upfrontRollingCommitment } from './upfrontRollingRenewal.js';
 import { resolveMembershipNominalCode } from './membershipNominalCode.js';
 import { resolveInvoiceAddress } from './invoiceAddressResolver.js';
 import { stripeInvoiceAddressFromMetadata } from './stripeInvoiceAddress.js';
+import { renewalRows } from './membershipRenewalBudget.js';
 
 export const selectAnnualOwnerSettings = (db, tenantId, scope) => db
   .from(scope === 'member' ? 'member_membership_invoicing' : 'organisation_membership_invoicing')
   .select('*').eq('tenant_id', tenantId).in('invoicing_mode', ['automatic', 'scheduled']);
+
+const legacyBoundaryReplay = Symbol('annual owner legacy boundary replay');
+
+function explicitZeroAmount(amount) {
+  if (typeof amount !== 'number' && typeof amount !== 'string') return false;
+  if (typeof amount === 'string' && !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(amount.trim())) return false;
+  return Number.isFinite(Number(amount)) && Number(amount) === 0;
+}
+
+export async function* annualOwnerRenewalRows(db, tenantId, scope, options = {}) {
+  const originalControl = options.control, cursor = originalControl?.cursor;
+  const legacyOwner = typeof cursor === 'string' ? cursor : cursor?.legacyBoundary ?? null;
+  if (cursor && typeof cursor === 'object' && cursor.legacyBoundary !== undefined
+    && (typeof legacyOwner !== 'string' || legacyOwner !== cursor.value)) {
+    throw new Error('Invalid renewal pagination cursor');
+  }
+  const key = scope === 'member' ? 'member_id' : 'organization_id';
+  const control = originalControl && {
+    cursor,
+    shouldContinue: () => originalControl.shouldContinue(),
+    checkpoint: next => originalControl.checkpoint({
+      ...next,
+      // Keep the ambiguity marker across budget handoffs within this owner.
+      // Once past it, ordinary processing/checkpoints are unchanged.
+      ...(next.value === legacyOwner ? { legacyBoundary: legacyOwner } : {}),
+    }),
+  };
+  for await (const row of renewalRows(() => selectAnnualOwnerSettings(db, tenantId, scope), {
+    ...options, control, key, tieBreaker: 'id',
+  })) {
+    yield row[key] === legacyOwner ? { ...row, [legacyBoundaryReplay]: true } : row;
+  }
+}
 
 export async function runAnnualOwnerRow({ db, tenantId, scope, setting, now, effects, trace = () => {}, simulator = createMembershipSimulator(db, () => now) }) {
   const memberScope = scope === 'member', stage = `${scope}-annual-renewal`;
@@ -17,6 +51,12 @@ export async function runAnnualOwnerRow({ db, tenantId, scope, setting, now, eff
   const table = memberScope ? 'member_membership_history' : 'organisation_membership_history';
   const mode = setting.invoicing_mode;
   const skip = reason => { trace({ stage, status: 'skipped', reason }); return { skipped: true, reason }; };
+  const operation = (type, description, payload, amountMinor, currency) => effects.perform({
+    type, stage, description, payload, amountMinor, currency,
+    conditional: 'Invoice linkage, payment emails, paid workflows and notes depend on this operation succeeding; no successful response is simulated.',
+  });
+  const zeroWorkflow = record => operation('owner.annual_zero_workflow', 'Retry durable paid workflow for existing zero-due membership.',
+    { table, row: record, paidAt: record.paid_at, source: memberScope ? 'cron_member_membership_zero_due' : 'cron_org_membership_zero_due' });
   if (memberScope && (await readPausedOwners(db, tenantId, [ownerId])).has(ownerId)) return skip('Membership paused');
   const sim = await (memberScope ? simulator.simulateMembershipForMember : simulator.simulateMembershipForOrg)(
     tenantId, ownerId, { source: 'cron', mode, targetYear: setting.membership_year || null });
@@ -43,21 +83,38 @@ export async function runAnnualOwnerRow({ db, tenantId, scope, setting, now, eff
     const approved = data?.find(r => r.membership_year === sim.membershipYear.label) || data?.find(r => !r.membership_year);
     if (!approved?.fees_approved) return skip('Fees not yet approved');
   }
+  if (setting[legacyBoundaryReplay] && sim.existingRecord) {
+    // Old owner-only checkpoints cannot prove which year's provider write
+    // finished. Never turn inclusive migration replay into an invoice retry:
+    // absence of linkage is NOT evidence that no provider invoice was created.
+    const loaded = await db.from(table).select('*').eq('tenant_id', tenantId).eq('id', sim.existingRecord.id).single();
+    if (loaded.error) throw new Error(`Could not verify legacy renewal boundary invoice: ${loaded.error.message}`);
+    if (loaded.data?.xero_invoice_id || loaded.data?.accounting_invoice_id) {
+      return skip(`Record for ${sim.membershipYear.label} already exists with invoice`);
+    }
+    const record = loaded.data;
+    if (record?.payment_status === 'paid' && explicitZeroAmount(record.total_with_vat ?? record.final_cost)) {
+      // An explicit paid zero is a proved no-invoice history, not an ambiguous
+      // provider write. Return here so replay can never fall through to invoice
+      // creation, even if a later read or simulation disagrees.
+      if (mode === 'automatic') return skip(`Record for ${sim.membershipYear.label} already exists`);
+      return zeroWorkflow(record);
+    }
+    const error = new Error(`Legacy renewal cursor boundary requires financial review: ${scope} ${ownerId}, membership year ${sim.membershipYear.label}, history ${sim.existingRecord.id} has no verified invoice linkage; prior provider success is unknown and automatic replay is withheld.`);
+    error.code = 'RENEWAL_LEGACY_BOUNDARY_REVIEW_REQUIRED';
+    throw error;
+  }
   if (mode === 'automatic' && sim.existingRecord) return skip(`Record for ${sim.membershipYear.label} already exists`);
   if (!sim.existingRecord && today < start) return skip('Renewal start date has not arrived');
   const invoiceDate = setting.invoice_date ? new Date(setting.invoice_date) : null;
   invoiceDate?.setHours(0, 0, 0, 0);
   const invoiceDue = mode === 'automatic' || !!(invoiceDate && today >= invoiceDate);
-  if (sim.existingRecord && (sim.existingRecord.xero_invoice_id || (!memberScope && sim.existingRecord.accounting_invoice_id))) {
+  if (sim.existingRecord && (sim.existingRecord.xero_invoice_id || sim.existingRecord.accounting_invoice_id)) {
     return skip(`Record for ${sim.membershipYear.label} already exists with invoice`);
   }
   const addonLines = memberScope ? [] : await loadApprovedAddonLines(db, tenantId, ownerId, sim.membershipYear.label);
   const addons = computeAddonTotals(addonLines);
   const ownerName = memberScope ? owner.name || `${owner.first_name || ''} ${owner.last_name || ''}`.trim() || 'Unknown Member' : owner.name;
-  const operation = (type, description, payload, amountMinor, currency) => effects.perform({
-    type, stage, description, payload, amountMinor, currency,
-    conditional: 'Invoice linkage, payment emails, paid workflows and notes depend on this operation succeeding; no successful response is simulated.',
-  });
   if (!sim.existingRecord) {
     const zeroDue = Math.round((Number(sim.totalWithVat ?? sim.finalCost ?? 0) + addons.total) * 100) === 0;
     let poNumber = null;
@@ -101,11 +158,13 @@ export async function runAnnualOwnerRow({ db, tenantId, scope, setting, now, eff
   if (loaded.error) throw new Error(loaded.error.message);
   const record = loaded.data;
   if (!record) return skip('Existing membership history no longer exists');
+  if (record.xero_invoice_id || record.accounting_invoice_id) {
+    return skip(`Record for ${sim.membershipYear.label} already exists with invoice`);
+  }
   const total = record.total_with_vat ?? record.final_cost;
   if (record.payment_status === 'paid' && !record.xero_invoice_id && !record.accounting_invoice_id
     && total != null && Math.round(Number(total) * 100) === 0) {
-    return operation('owner.annual_zero_workflow', 'Retry durable paid workflow for existing zero-due membership.',
-      { table, row: record, paidAt: record.paid_at, source: memberScope ? 'cron_member_membership_zero_due' : 'cron_org_membership_zero_due' });
+    return zeroWorkflow(record);
   }
   if (!invoiceDue) return skip('Scheduled invoice date has not arrived');
   let agreement = null;

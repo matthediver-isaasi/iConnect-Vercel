@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { RenewalBudgetExceeded } from './membershipRenewalBudget.js';
 
 const PAGE_SIZE = 200;
+const MAX_EXPIRY_REVIEWS_PER_TENANT = 100;
 export const RENEWAL_LIMITS = Object.freeze({
   discoveryMs: 3_000, readMs: 2_000, pauseMs: 5_000,
   billingMs: 30_000, workMs: 48_000, tenantExpiryMs: 4_000, finalizationMs: 54_000,
@@ -221,6 +222,23 @@ export async function runMembershipRenewals({
       const prior = state.expiry[tenantId] || {};
       const control = {
         cursor: prior.cursor || null,
+        reviewHistoryIds: [...(prior.reviewHistoryIds || [])],
+        reviewRequired: async historyId => {
+          const current = state.expiry[tenantId] || {};
+          const ids = new Set(current.reviewHistoryIds || []);
+          ids.add(historyId);
+          if (ids.size > MAX_EXPIRY_REVIEWS_PER_TENANT) {
+            throw new Error('Expiry policy review capacity exceeded; cursor retained for manual review');
+          }
+          state.expiry[tenantId] = { ...current, reviewHistoryIds: [...ids] };
+          await save();
+        },
+        reviewResolved: async historyId => {
+          const current = state.expiry[tenantId] || {};
+          state.expiry[tenantId] = { ...current,
+            reviewHistoryIds: (current.reviewHistoryIds || []).filter(id => id !== historyId) };
+          await save();
+        },
         shouldContinue: () => clock() < sliceEnd,
         checkpoint: async cursor => {
           state.expiry[tenantId] = { ...state.expiry[tenantId], cursor, progressAt: new Date(clock()).toISOString() };
@@ -232,6 +250,7 @@ export async function runMembershipRenewals({
         const readBoundDb = withRenewalReadDeadline(db, { deadline: sliceEnd, clock, timeoutMs: limits.readMs });
         const outcome = await runStage('expiry', tenantId, () => expiry(readBoundDb, tenantId, results, now, control));
         state.expiry[tenantId] = {
+          ...state.expiry[tenantId],
           cursor: outcome.complete ? null : outcome.cursor,
           progressAt: new Date(clock()).toISOString(),
           completedAt: outcome.complete ? new Date(clock()).toISOString() : prior.completedAt || null,
@@ -250,6 +269,16 @@ export async function runMembershipRenewals({
     errorDetail('runner', error);
   } finally {
     if (claimed) {
+      // Gate every invocation, including slices that never reached this tenant
+      // and runs that completed traversal after the original review row.
+      for (const [tenantId, expiryState] of Object.entries(state?.expiry || {})) {
+        const historyIds = expiryState.reviewHistoryIds || [];
+        if (!historyIds.length) continue;
+        results.errors++;
+        results.details.push({ tenantId, stage: 'annual-expiry', status: 'review_required',
+          code: 'unresolved_expiry_policy_review', historyIds,
+          reason: 'Historical expiry policies still require authoritative repair and successful revalidation.' });
+      }
       diagnostic('finalization', 'start');
       const logRows = [];
       for (const tenantId of tenants.length ? tenants.map(t => t.tenant_id) : [null]) {

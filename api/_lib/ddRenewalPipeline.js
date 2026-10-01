@@ -58,6 +58,33 @@ export function decideRenewalAction({ snapshot, planStatus, autoRenew, renewalRo
 export const renewalAgreementQuery = (db, tenantId) => db.from('membership_billing_agreements')
   .select('*').eq('tenant_id', tenantId).eq('metadata->dd->>kind', 'monthly_direct_debit');
 
+// Form checkout reserves an applicant agreement before there is a member.
+// Only that evidenced, uncollected setup state is outside renewal ownership;
+// missing owners on active/bound/collected agreements remain hard errors.
+async function isUnboundFormSetup(db, agreement) {
+  const submissionId = agreement.metadata?.form_submission_id;
+  if (agreement.member_id || agreement.organization_id || !submissionId
+      || agreement.provider !== 'gocardless' || agreement.agreement_type !== 'member'
+      || agreement.status !== 'payment_setup_required'
+      || agreement.gocardless_mandate_id || agreement.stripe_subscription_id) return false;
+  const { data: submission, error } = await db.from('form_submission')
+    .select('id, tenant_id, payment_provider, payment_status, payment_paid_at, payment_meta')
+    .eq('tenant_id', agreement.tenant_id).eq('id', submissionId).maybeSingle();
+  if (error) throw new Error(`Could not verify unbound DD application: ${error.message}`);
+  if (!submission || submission.tenant_id !== agreement.tenant_id
+      || submission.payment_provider !== 'gocardless_monthly_dd'
+      || submission.payment_status !== 'pending' || submission.payment_paid_at
+      || submission.payment_meta?.monthly_direct_debit?.agreement_id !== agreement.id) return false;
+  for (const table of ['membership_payment_plans', 'member_membership_history', 'organisation_membership_history']) {
+    const { data, error: linkedError } = await db.from(table).select('id')
+      .eq('tenant_id', agreement.tenant_id).eq('billing_agreement_id', agreement.id).limit(1);
+    if (linkedError) throw new Error(`Could not verify unbound DD ${table}: ${linkedError.message}`);
+    if (!Array.isArray(data)) throw new Error(`Could not verify unbound DD ${table}: missing evidence`);
+    if (data.length) return false;
+  }
+  return true;
+}
+
 // This is the actual pre-effect part of the tenant renewal loop. Both callers
 // use it; it deliberately does not obtain production simulation/client helpers.
 export async function loadRenewalContext({ db, agreement, now, planId, checkLatest = true, pausedMemberIds }) {
@@ -65,10 +92,11 @@ export async function loadRenewalContext({ db, agreement, now, planId, checkLate
   const ownerColumn = agreement.organization_id ? 'organization_id' : 'member_id';
   const ownerId = agreement.organization_id || agreement.member_id;
   const skip = reason => ({ status: 'skipped', reason });
+  if (agreement.metadata?.dd?.kind !== 'monthly_direct_debit') return skip('not a monthly_direct_debit agreement');
   if (!ownerId || (agreement.organization_id && agreement.member_id)) {
+    if (await isUnboundFormSetup(db, agreement)) return skip('Unbound form Direct Debit setup is not a renewable membership');
     throw new Error('Direct Debit renewal has an ambiguous membership owner.');
   }
-  if (agreement.metadata?.dd?.kind !== 'monthly_direct_debit') return skip('not a monthly_direct_debit agreement');
   if (agreement.metadata?.renewal_setup_pending) return skip('renewal setup is pending');
   if (checkLatest) {
     const { data: latest, error } = await renewalAgreementQuery(db, tenantId)

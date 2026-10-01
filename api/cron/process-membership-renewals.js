@@ -29,7 +29,7 @@ import { upfrontRollingCommitment } from '../_lib/upfrontRollingRenewal.js';
 import { runMembershipRenewals } from '../_lib/membershipRenewalRunner.js';
 import { renewalRows } from '../_lib/membershipRenewalBudget.js';
 import { selectScheduledActivations, runScheduledActivation } from '../_lib/directDebitOwnerPipeline.js';
-import { selectAnnualOwnerSettings, runAnnualOwnerRow } from '../_lib/annualOwnerRenewalPipeline.js';
+import { annualOwnerRenewalRows, runAnnualOwnerRow } from '../_lib/annualOwnerRenewalPipeline.js';
 
 export function buildCronRollingFields(simResult, eligibility, addonTotals = { subtotal: 0, vat: 0, total: 0 }) {
   if (simResult.config?.start_mode !== 'immediate') return {};
@@ -165,8 +165,8 @@ async function processTenantRenewals(tenantId, results) {
 async function processAnnualOwnerRows(tenantId, scope, results) {
   const now = new Date();
   const column = scope === 'member' ? 'member_id' : 'organization_id';
-  const rows = renewalRows(() => selectAnnualOwnerSettings(supabase, tenantId, scope),
-    { key: column, control: results.__renewalControl, results, missingSchema: true });
+  const rows = annualOwnerRenewalRows(supabase, tenantId, scope,
+    { control: results.__renewalControl, results, missingSchema: true });
   for await (const setting of rows) {
     try {
       await runAnnualOwnerRow({ db: supabase, tenantId, scope, setting, now,

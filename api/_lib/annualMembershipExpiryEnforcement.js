@@ -65,6 +65,34 @@ const PAGE_SIZE = 100;
 const MEMBER_FIELDS = 'id, tenant_id, identity_id, login_enabled, role_id, organization_id, membership_paused';
 const TABLES = { member: 'member_membership_history', organisation: 'organisation_membership_history' };
 
+// This attestation establishes only a legacy paid-through date, not an access
+// policy or commencement. Never use today's structure as expiry authority.
+function isAttestedExpiryOnlyHistory(history, tenantId) {
+  if (tenantId !== 'ff2df806-b321-4254-b651-3af11fccf1db' || history.tenant_id !== tenantId
+      || !history.member_id || history.organization_id
+      || history.membership_year !== '2025/2026' || history.status !== 'active'
+      || history.payment_status !== 'paid' || history.payment_method !== 'upfront'
+      || history.billing_period !== 'annual' || history.currency !== 'GBP'
+      || !history.tier_label || history.config_id != null || history.term_start_date != null
+      || history.membership_renewal_date != null || history.term_key != null
+      || history.term_duration_months != null || history.commitment_snapshot != null
+      || history.billing_agreement_id != null) return false;
+  const expiry = history.term_end_date;
+  if (typeof expiry !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(expiry)
+      || !Number.isFinite(Date.parse(expiry))
+      || new Date(expiry).toISOString().slice(0, 10) !== expiry || expiry > '2026-12-31') return false;
+  let notes = history.notes;
+  if (typeof notes === 'string') {
+    try { notes = JSON.parse(notes); } catch { return false; }
+  }
+  if (notes?.source !== 'bnms_non_dd_current_backfill') return false;
+  const missingCost = history.final_cost == null;
+  const missingTotal = history.total_with_vat == null;
+  return missingCost === missingTotal && (missingCost
+    || (Number.isFinite(Number(history.final_cost)) && Number(history.final_cost) >= 0
+      && Number(history.total_with_vat) === Number(history.final_cost)));
+}
+
 // Live capability is constructed by the cron with its injected DB/session
 // dispatcher. The preview passes only a recording effect capability.
 export function annualExpiryEffects(client, invalidateSessions) {
@@ -245,6 +273,30 @@ export async function processTenantAnnualExpirySweep(client, tenantId, results =
   async function processHistory(history) {
     if (!candidate(history)) { skip(`History ${history.id} is not an expired annual non-recurring candidate.`); return; }
     const config = history.commitment_snapshot?.config || configs.get(history.config_id);
+    if (!config && cursor.historyType === 'member' && isAttestedExpiryOnlyHistory(history, tenantId)) {
+      const detail = { tenantId, historyId: history.id, memberId: history.member_id,
+        stage: 'annual-expiry', status: 'review_required', code: 'legacy_expiry_policy_unassigned',
+        reason: 'Attested legacy expiry-only membership has no assigned historical expiry policy. Administrator review must establish access policy authority; no commencement, policy or access change was inferred.' };
+      // The existing task log is the durable review channel. Persist BEFORE
+      // allowing the cursor past this row, even if final runner logging fails.
+      guard();
+      await mutate('owner.expiry_insert', 'Record legacy expiry policy review', {
+        table: 'scheduled_task_log', values: {
+          tenant_id: tenantId, task_name: 'membership_renewals', task_display_name: 'Membership Renewals',
+          status: 'error', executed_at: now.toISOString(),
+          details: JSON.stringify({ outcome: 'review_required', details: [detail] }),
+        },
+      });
+      // The runner retains the identity across invocations before this row can
+      // leave the cursor. The log is human-readable evidence, not resolution.
+      await options.reviewRequired?.(history.id);
+      if (results) {
+        results.errors = (results.errors || 0) + 1;
+        results.details?.push(detail);
+      }
+      trace({ stage: 'annual-expiry', status: 'blocked', reason: detail.reason });
+      return;
+    }
     if (!config) throw new Error(`Expiry policy missing for history ${history.id}`);
     if (config.start_mode === 'immediate' && !history.commitment_snapshot) {
       trace({ stage: 'annual-expiry', status: 'blocked', reason: 'Legacy rolling term has no trusted commitment; expiry was not guessed.' });
@@ -288,6 +340,40 @@ export async function processTenantAnnualExpirySweep(client, tenantId, results =
     await markHistory(history, 'expired');
   }
   try {
+    // Revisit durable review identities independently of the traversal cursor.
+    // Missing/deleted evidence never clears a review; a repaired, explicitly
+    // assigned policy must successfully pass normal expiry processing first.
+    const reviewIds = options.reviewHistoryIds || [];
+    const reviewRows = new Map();
+    if (reviewIds.length) {
+      await anyPage(() => client.from(TABLES.member).select('*')
+        .eq('tenant_id', tenantId).in('id', reviewIds), history => {
+        reviewRows.set(history.id, history);
+        return false;
+      }, 'Could not reload expiry policy reviews');
+      await prepareConfigs([...reviewRows.values()]);
+    }
+    for (const historyId of reviewIds) {
+      const history = reviewRows.get(historyId);
+      if (!history) throw new Error(`Expiry policy review history missing: ${historyId}`);
+      const config = history.commitment_snapshot?.config || configs.get(history.config_id);
+      const explicitPolicy = config && config.tenant_id === tenantId
+        && typeof config.renewal_disable_login === 'boolean'
+        && typeof config.renewal_change_role === 'boolean'
+        && Number.isInteger(config.renewal_grace_days) && config.renewal_grace_days >= 0
+        && config.renewal_grace_days <= 366
+        && (!config.renewal_change_role || !!config.renewal_fallback_role_id)
+        && !(config.start_mode === 'immediate' && !history.commitment_snapshot);
+      if (!explicitPolicy) continue;
+      const traversalCursor = cursor;
+      try {
+        cursor = { historyType: 'member', afterId: null };
+        await processHistory(history);
+        await options.reviewResolved?.(historyId);
+      } finally {
+        cursor = traversalCursor;
+      }
+    }
     while (true) {
       const rows = await read(() => {
         let query = client.from(TABLES[cursor.historyType]).select('*').eq('tenant_id', tenantId)
