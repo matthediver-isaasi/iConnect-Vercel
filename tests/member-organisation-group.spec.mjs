@@ -140,6 +140,15 @@ async function installMocks(page, state) {
     if (path === `/api/entities/Member/${memberId}`) return json(route, memberFixture());
     if (path === "/api/entities/Member") return json(route, [memberFixture()]);
     if (path === "/api/entities/OrganizationGroup") return json(route, [group]);
+    if (path === "/api/entities/Organization" && state.organizations && method === "GET") {
+      state.organizationRequests.push(Object.fromEntries(url.searchParams));
+      const visible = url.searchParams.get("skipDirectoryFilters") === "true"
+        ? state.organizations
+        : state.organizations.filter(org => org.application_status === "Live");
+      const offset = Number(url.searchParams.get("offset") || 0);
+      const limit = Number(url.searchParams.get("limit") || 1000);
+      return json(route, visible.slice(offset, offset + limit));
+    }
     if (path === "/api/entities/Role") return json(route, [adminRole]);
     if (path === `/api/entities/Role/${browserUser.role_id}`) return json(route, adminRole);
     if (path === "/api/entities/PreferenceField") return json(route, []);
@@ -251,5 +260,52 @@ test("FormView stores the selected Organisation Group ID", async ({ page }) => {
   await expect.poll(() => state.submissions.length).toBe(1);
   expect(state.submissions[0].submission_data[groupField.id]).toBe(groupId);
   await expect(page.getByText("Submitted", { exact: true })).toBeVisible();
+  expect(state.escapedWrites).toEqual([]);
+});
+
+test("Organisation Groups includes all 22 assigned organisations; normal client listing stays filtered", async ({ page }) => {
+  // Reproduce the imported group's status distribution, without live requests.
+  const organizations = [
+    ...Array.from({ length: 14 }, (_, i) => ({
+      id: `group-live-${i}`, name: `Live organisation ${i + 1}`, application_status: "Live",
+    })),
+    ...Array.from({ length: 6 }, (_, i) => ({
+      id: `group-null-${i}`, name: `No status organisation ${i + 1}`, application_status: null,
+    })),
+    { id: "group-atu", name: "ATU", application_status: "Full application received" },
+    { id: "group-nci", name: "NCI", application_status: "Verified" },
+  ].map(org => ({
+    ...org, tenant_id: browserUser.tenant_id, organization_group_id: groupId,
+  }));
+  const state = {
+    form: makeForm(), formWrites: [], escapedWrites: [],
+    organizations, organizationRequests: [],
+  };
+  await installMocks(page, state);
+  await page.goto("/OrganisationGroups");
+  await expect(page.getByTestId(`badge-group-count-${groupId}`)).toHaveText("22 organisations");
+  expect(state.organizationRequests.length).toBeGreaterThan(0);
+  for (const request of state.organizationRequests) {
+    expect(request.skipDirectoryFilters).toBe("true");
+    expect(request.limit).toBe("1000");
+    expect(JSON.parse(request.sort)).toEqual({ name: "asc", id: "asc" });
+  }
+  await page.getByTestId(`row-group-${groupId}`).click();
+  await expect(page.getByText("Organisations in this group (22)", { exact: true })).toBeVisible();
+  await expect(page.locator('[data-testid^="link-group-org-"]')).toHaveCount(22);
+  for (const org of organizations.filter(org => org.application_status !== "Live")) {
+    await expect(page.getByTestId(`link-group-org-${org.id}`)).toHaveText(org.name);
+  }
+  await page.screenshot({ path: "/tmp/group-detail-22.png", fullPage: true });
+
+  // Control the real SDK's normal listing request without loading unrelated
+  // directory-page dependencies. This does NOT assert rendered directory UI.
+  const normalList = await page.evaluate(async () => {
+    const { base44 } = await import("/src/api/base44Client.js");
+    return base44.entities.Organization.list({ sort: { name: "asc" } });
+  });
+  expect(normalList).toHaveLength(14);
+  expect(normalList.every(org => org.application_status === "Live")).toBe(true);
+  expect(state.organizationRequests.at(-1).skipDirectoryFilters).toBeUndefined();
   expect(state.escapedWrites).toEqual([]);
 });

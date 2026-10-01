@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
+import { listAllOrganizationsForAdmin } from "@/lib/adminOrgList";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { Button } from "@/components/ui/button";
@@ -176,11 +177,12 @@ export default function OrganisationGroups() {
     queryFn: () => base44.entities.OrganizationGroup.list({ sort: { name: "asc" } }),
   });
 
-  // Organisations, used for per-group counts and the detail listing.
+  // CRM counts and detail rows must include non-directory organisations too.
+  // The server permission-gates the directory bypass; tenant scoping is unchanged.
   const { data: orgs = EMPTY_ARR } = useQuery({
     queryKey: ["organisation-groups-orgs"],
     enabled: accessChecked,
-    queryFn: () => base44.entities.Organization.list({ sort: { name: "asc" } }),
+    queryFn: () => listAllOrganizationsForAdmin({ sort: { name: "asc", id: "asc" } }),
   });
 
   // Custom field definitions scoped to organisation groups.
