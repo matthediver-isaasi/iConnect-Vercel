@@ -1,0 +1,638 @@
+{
+  "version": 1,
+  "project": "lvmzliemqnieeoruhkik",
+  "tenant": "fd82da65-aab7-4a5c-85b8-b2febeb2003d",
+  "group": "841c4f58-1b6b-4f60-b94a-55a3de124cc7",
+  "field": "e201a90e-840b-4555-8cd3-c50aa8d9b19f",
+  "inputSha256": "c9fca307cb7d162e0539f7e61d4209e7d8b8b287d063d616edfb632ccc97d1fe",
+  "runnerSha256": "91f5eebbd44d1ed8ca97b35fa9ee236e6e026dd1353f869a665874f549c2c5bb",
+  "schema": {
+    "hash": "25bca9e81c549357ad414302f8c430bd6069d7f26c3f7ede217f8cc799382638",
+    "functions": [
+      "set_updated_at",
+      "record_organization_zoho_tombstone",
+      "bump_organization_updated_at_from_pref",
+      "trg_member_group_auto_membership_generation",
+      "guard_custom_object_preference_field",
+      "guard_core_preference_value_field",
+      "audit_custom_object_mutation",
+      "queue_automatic_memberships_for_source_changes",
+      "trg_queue_auto_memberships_from_new_core_rows",
+      "trg_queue_auto_memberships_from_old_core_rows",
+      "trg_queue_auto_memberships_from_organization_updates",
+      "trg_queue_auto_memberships_from_organization_preferences",
+      "revoke_organisation_member_login_sessions",
+      "organisation_login_gate_config",
+      "organisation_login_gate_custom_value_allows",
+      "organisation_login_gate_allows",
+      "revoke_gate_members_transitioning_to_denied",
+      "revoke_organisation_members_for_gate_transition",
+      "revoke_gate_members_for_setting_change",
+      "revoke_gate_members_for_core_change",
+      "revoke_gate_members_for_custom_change",
+      "enforce_member_login_revocation_generation",
+      "organisation_login_gate_transaction_lock",
+      "lock_organisation_login_gate_setting_transition",
+      "lock_organisation_login_gate_member_or_org_create",
+      "lock_organisation_login_gate_policy_write",
+      "department_current_set_lock",
+      "department_current_set_serialise_change",
+      "department_current_set_auth_lock",
+      "department_current_set_auth_lock_write",
+      "department_current_set_auth_lock_organization_write",
+      "capture_member_group_identity_history"
+    ],
+    "triggerCount": 153,
+    "defaults": [
+      {
+        "table_name": "organization",
+        "column_name": "id",
+        "column_default": "gen_random_uuid()"
+      },
+      {
+        "table_name": "organization",
+        "column_name": "training_fund_balance",
+        "column_default": "0"
+      },
+      {
+        "table_name": "organization",
+        "column_name": "program_ticket_balances",
+        "column_default": "'{}'::jsonb"
+      },
+      {
+        "table_name": "organization",
+        "column_name": "created_at",
+        "column_default": "now()"
+      },
+      {
+        "table_name": "organization",
+        "column_name": "status",
+        "column_default": "'active'::character varying"
+      },
+      {
+        "table_name": "organization",
+        "column_name": "is_primary",
+        "column_default": "false"
+      },
+      {
+        "table_name": "organization",
+        "column_name": "tags",
+        "column_default": "'{}'::text[]"
+      },
+      {
+        "table_name": "organization",
+        "column_name": "updated_at",
+        "column_default": "now()"
+      },
+      {
+        "table_name": "organization",
+        "column_name": "guest_access_enabled",
+        "column_default": "false"
+      },
+      {
+        "table_name": "organization",
+        "column_name": "guest_access_unlimited",
+        "column_default": "false"
+      },
+      {
+        "table_name": "organization",
+        "column_name": "is_sample",
+        "column_default": "false"
+      },
+      {
+        "table_name": "organization",
+        "column_name": "training_fund_pending_balance",
+        "column_default": "0"
+      },
+      {
+        "table_name": "organization",
+        "column_name": "member_login_blocked",
+        "column_default": "false"
+      },
+      {
+        "table_name": "organization",
+        "column_name": "member_login_revocation_generation",
+        "column_default": "0"
+      },
+      {
+        "table_name": "organization_preference_value",
+        "column_name": "id",
+        "column_default": "gen_random_uuid()"
+      },
+      {
+        "table_name": "organization_preference_value",
+        "column_name": "created_at",
+        "column_default": "now()"
+      },
+      {
+        "table_name": "organization_preference_value",
+        "column_name": "updated_at",
+        "column_default": "now()"
+      }
+    ]
+  },
+  "config": {
+    "hash": "e1a160db4ea3f8e1d4e5c4c06f18ee4cf1582a40d7aa72a596ef5f7f91b05121",
+    "activeWorkflows": 8,
+    "organizationFieldChangeWorkflows": 4,
+    "automaticMembershipEnabled": 0,
+    "memberGroups": 26,
+    "loginGateSettings": 0
+  },
+  "matches": [
+    {
+      "inputName": "Atlantic Technological University",
+      "domain": "atu.ie",
+      "id": "c0bf1dd8-6ecd-49ef-9a9f-c1df6156df88",
+      "existingName": "ATU ",
+      "match": "reviewed-domain-alias",
+      "beforeOrgHash": "a66d01ca644c0be1ff586f50da11edd4161e659c6a0e75d74a93c28a9408c1ef",
+      "preservedOrgHash": "4c7ec79ec22b43f3bda755d071dc5507bcbcd4af69caf40661d7e370cb19fb3b",
+      "beforeGroup": null,
+      "beforePreferenceHash": "9579b61bfb6d6f045b72d9eedbe538a40f583ac48c02d5c26f60ce7c7862a5e4",
+      "beforeValue": "[\"atu.ie\",\"https://www.atu.ie/student-life/student-support/careers\"]",
+      "preferenceExisted": true,
+      "desiredValue": "[\"atu.ie\",\"https://www.atu.ie/student-life/student-support/careers\"]",
+      "existingDomains": [
+        "atu.ie",
+        "https://www.atu.ie/student-life/student-support/careers"
+      ],
+      "desiredDomains": [
+        "atu.ie",
+        "https://www.atu.ie/student-life/student-support/careers"
+      ],
+      "groupChange": true,
+      "domainChange": false
+    },
+    {
+      "inputName": "Carlow College, St Patrick’s",
+      "domain": "carlowcollege.ie",
+      "id": "6d92f8bb-6714-55ad-a6b7-b8247e21e429",
+      "existingName": null,
+      "match": "create",
+      "beforeOrgHash": null,
+      "preservedOrgHash": null,
+      "beforeGroup": null,
+      "beforePreferenceHash": null,
+      "beforeValue": null,
+      "preferenceExisted": false,
+      "desiredValue": "[\"carlowcollege.ie\"]",
+      "existingDomains": [],
+      "desiredDomains": [
+        "carlowcollege.ie"
+      ],
+      "groupChange": true,
+      "domainChange": true
+    },
+    {
+      "inputName": "Dublin City University",
+      "domain": "dcu.ie",
+      "id": "b9cca635-df91-4537-b850-91b5a9f34e32",
+      "existingName": "Dublin City University",
+      "match": "normalized-name",
+      "beforeOrgHash": "0212dde96f942000163a32ed4ce24d0af9ccd51aef65f210bc35bab814ef6d48",
+      "preservedOrgHash": "4313449e19ec10633c80997ad1006d70496d3d21ef5e3c28e737758446c1a611",
+      "beforeGroup": null,
+      "beforePreferenceHash": "8c41df60c7b87fe590edff8736fc9323d0cefadf4efa5482ced10dc3461763a8",
+      "beforeValue": "[\"dcu.ie\"]",
+      "preferenceExisted": true,
+      "desiredValue": "[\"dcu.ie\"]",
+      "existingDomains": [
+        "dcu.ie"
+      ],
+      "desiredDomains": [
+        "dcu.ie"
+      ],
+      "groupChange": true,
+      "domainChange": false
+    },
+    {
+      "inputName": "Dundalk Institute of Technology",
+      "domain": "dkit.ie",
+      "id": "5c7f7fc2-2bda-598a-a534-638f5443cc60",
+      "existingName": null,
+      "match": "create",
+      "beforeOrgHash": null,
+      "preservedOrgHash": null,
+      "beforeGroup": null,
+      "beforePreferenceHash": null,
+      "beforeValue": null,
+      "preferenceExisted": false,
+      "desiredValue": "[\"dkit.ie\"]",
+      "existingDomains": [],
+      "desiredDomains": [
+        "dkit.ie"
+      ],
+      "groupChange": true,
+      "domainChange": true
+    },
+    {
+      "inputName": "Institute of Art, Design and Technology, Dún Laoghaire",
+      "domain": "iadt.ie",
+      "id": "2dad914f-6799-5232-a4b9-adbff2e2a523",
+      "existingName": null,
+      "match": "create",
+      "beforeOrgHash": null,
+      "preservedOrgHash": null,
+      "beforeGroup": null,
+      "beforePreferenceHash": null,
+      "beforeValue": null,
+      "preferenceExisted": false,
+      "desiredValue": "[\"iadt.ie\"]",
+      "existingDomains": [],
+      "desiredDomains": [
+        "iadt.ie"
+      ],
+      "groupChange": true,
+      "domainChange": true
+    },
+    {
+      "inputName": "Marino Institute of Education",
+      "domain": "mie.ie",
+      "id": "52489b0d-c1c5-51c6-a122-35d8a041d753",
+      "existingName": null,
+      "match": "create",
+      "beforeOrgHash": null,
+      "preservedOrgHash": null,
+      "beforeGroup": null,
+      "beforePreferenceHash": null,
+      "beforeValue": null,
+      "preferenceExisted": false,
+      "desiredValue": "[\"mie.ie\"]",
+      "existingDomains": [],
+      "desiredDomains": [
+        "mie.ie"
+      ],
+      "groupChange": true,
+      "domainChange": true
+    },
+    {
+      "inputName": "Maynooth University",
+      "domain": "mu.ie",
+      "id": "67d8438b-56c0-4e35-95cc-a0190553825d",
+      "existingName": "Maynooth University",
+      "match": "normalized-name",
+      "beforeOrgHash": "4e42cdbef20724ec1d4d0a7453bd00223a272638084822029bd5e8137d28065f",
+      "preservedOrgHash": "7d9f9e828e998a341403d89a8de59959bfb2eedaeb44650c525674ed49438386",
+      "beforeGroup": null,
+      "beforePreferenceHash": "99feeb5950623188cee97190943b1bfb061702a5c423935e42ab5ccf91129079",
+      "beforeValue": "[\"nuim.ie\",\"mu.ie\"]",
+      "preferenceExisted": true,
+      "desiredValue": "[\"nuim.ie\",\"mu.ie\"]",
+      "existingDomains": [
+        "nuim.ie",
+        "mu.ie"
+      ],
+      "desiredDomains": [
+        "nuim.ie",
+        "mu.ie"
+      ],
+      "groupChange": true,
+      "domainChange": false
+    },
+    {
+      "inputName": "Munster Technological University",
+      "domain": "mtu.ie",
+      "id": "b60f8987-0c69-42d6-8b2d-198901c19d2a",
+      "existingName": "Munster Technological University",
+      "match": "normalized-name",
+      "beforeOrgHash": "def14f8bb1dcdc26ad5f20fe5533e9dcd5afca730ae16084ff022cd293ec4427",
+      "preservedOrgHash": "c9f9a590f73359d741f9d70eebf69742c4eac735596508526a0c86840a2f05b6",
+      "beforeGroup": null,
+      "beforePreferenceHash": "686a149044928553f5545a18384d7a1784f54d38852baa29c85eaf3c94255fc7",
+      "beforeValue": "[\"mtu.ie\",\"https://www.mtu.ie/access/RSW\"]",
+      "preferenceExisted": true,
+      "desiredValue": "[\"mtu.ie\",\"https://www.mtu.ie/access/RSW\"]",
+      "existingDomains": [
+        "mtu.ie",
+        "https://www.mtu.ie/access/RSW"
+      ],
+      "desiredDomains": [
+        "mtu.ie",
+        "https://www.mtu.ie/access/RSW"
+      ],
+      "groupChange": true,
+      "domainChange": false
+    },
+    {
+      "inputName": "National College of Art and Design",
+      "domain": "ncad.ie",
+      "id": "cb726774-f11c-5be2-ae6d-8449603d1fe1",
+      "existingName": null,
+      "match": "create",
+      "beforeOrgHash": null,
+      "preservedOrgHash": null,
+      "beforeGroup": null,
+      "beforePreferenceHash": null,
+      "beforeValue": null,
+      "preferenceExisted": false,
+      "desiredValue": "[\"ncad.ie\"]",
+      "existingDomains": [],
+      "desiredDomains": [
+        "ncad.ie"
+      ],
+      "groupChange": true,
+      "domainChange": true
+    },
+    {
+      "inputName": "National College of Ireland",
+      "domain": "ncirl.ie",
+      "id": "405965e3-a868-49d8-8164-d8c031862b7e",
+      "existingName": "National College of Ireland ",
+      "match": "normalized-name",
+      "beforeOrgHash": "3dabeac53e19b0e9fe2ed4d3ebf2d97d8ceea420b392f6409d3fd25ab6508069",
+      "preservedOrgHash": "7b8b77c4b313779a1106b8996a0f7ef079cf1f131b64cdad4b72f10597fba54d",
+      "beforeGroup": null,
+      "beforePreferenceHash": "312e5a9a84d53b4f3f57b08a75baebdd92e98de702e2ce62fc02dd5097cdc996",
+      "beforeValue": "[\"ncirl.ie\",\"www.ncirl.ie\"]",
+      "preferenceExisted": true,
+      "desiredValue": "[\"ncirl.ie\",\"www.ncirl.ie\"]",
+      "existingDomains": [
+        "ncirl.ie",
+        "www.ncirl.ie"
+      ],
+      "desiredDomains": [
+        "ncirl.ie",
+        "www.ncirl.ie"
+      ],
+      "groupChange": true,
+      "domainChange": false
+    },
+    {
+      "inputName": "Queen’s University Belfast",
+      "domain": "qub.ac.uk",
+      "id": "7fa62175-4bb3-41a8-b301-b59c4d739246",
+      "existingName": "Queen's University of Belfast",
+      "match": "reviewed-domain-alias",
+      "beforeOrgHash": "7bffcf1476d55e6ead86387a48a769119fcfd2db64d0320cef0f5efebf60386f",
+      "preservedOrgHash": "498af192c5c5f6fc7c72f5d678242fa4cc63640023d23b3a6ddc66684b92113b",
+      "beforeGroup": null,
+      "beforePreferenceHash": "1ff908fb1da72109571f9c03d2eb50a6946ea79f0eca5c49e1a23965715cdcf6",
+      "beforeValue": "[\"qub.ac.uk\"]",
+      "preferenceExisted": true,
+      "desiredValue": "[\"qub.ac.uk\"]",
+      "existingDomains": [
+        "qub.ac.uk"
+      ],
+      "desiredDomains": [
+        "qub.ac.uk"
+      ],
+      "groupChange": true,
+      "domainChange": false
+    },
+    {
+      "inputName": "Royal College of Surgeons in Ireland",
+      "domain": "rcsi.ie",
+      "id": "0be5036d-7afb-4135-a474-47d2058e5630",
+      "existingName": "Royal College of Surgeons in Ireland (RCSI)",
+      "match": "reviewed-domain-alias",
+      "beforeOrgHash": "0f54364065b0a9fe580b05bf013b7ad9fc7bb8a4162529f28b1d600d4ddde73a",
+      "preservedOrgHash": "08e4018a7c12f984ca70ced2cd560be266bd3a6586c8b6d8d88cfa0918660b0c",
+      "beforeGroup": null,
+      "beforePreferenceHash": "8e093ac20e6458fd125aa23b49b8755568a5e66255f401292ddf9892044afd41",
+      "beforeValue": "[\"rcsi.ie\"]",
+      "preferenceExisted": true,
+      "desiredValue": "[\"rcsi.ie\"]",
+      "existingDomains": [
+        "rcsi.ie"
+      ],
+      "desiredDomains": [
+        "rcsi.ie"
+      ],
+      "groupChange": true,
+      "domainChange": false
+    },
+    {
+      "inputName": "South East Technological University",
+      "domain": "setu.ie",
+      "id": "fc032ca1-a1a1-48c3-b3b1-60a4036188b4",
+      "existingName": "South East Technological University (SETU)",
+      "match": "reviewed-domain-alias",
+      "beforeOrgHash": "8de293899e783bf75bb9f610e77baa8b8e07b98149a5c2da14c13aa9cf00f4d4",
+      "preservedOrgHash": "15fe4810561e36289ab62e34078f18391db2cfb740bcec9c1ce637a257b2ca7f",
+      "beforeGroup": null,
+      "beforePreferenceHash": "77b194dfcfa947fc1be40962aa5a5501bc3d1de584aa507864e4e76e4e2ce031",
+      "beforeValue": "[\"setu.ie\"]",
+      "preferenceExisted": true,
+      "desiredValue": "[\"setu.ie\"]",
+      "existingDomains": [
+        "setu.ie"
+      ],
+      "desiredDomains": [
+        "setu.ie"
+      ],
+      "groupChange": true,
+      "domainChange": false
+    },
+    {
+      "inputName": "Technological University Dublin",
+      "domain": "tudublin.ie",
+      "id": "c3c1bf83-0b2a-5e75-a90a-d052089794a0",
+      "existingName": null,
+      "match": "create",
+      "beforeOrgHash": null,
+      "preservedOrgHash": null,
+      "beforeGroup": null,
+      "beforePreferenceHash": null,
+      "beforeValue": null,
+      "preferenceExisted": false,
+      "desiredValue": "[\"tudublin.ie\"]",
+      "existingDomains": [],
+      "desiredDomains": [
+        "tudublin.ie"
+      ],
+      "groupChange": true,
+      "domainChange": true
+    },
+    {
+      "inputName": "Technological University of the Shannon: Midlands Midwest",
+      "domain": "tus.ie",
+      "id": "08214b75-9b13-450b-af69-09e64d53e902",
+      "existingName": "TUS: Technological University of the Shannon",
+      "match": "reviewed-domain-alias",
+      "beforeOrgHash": "e506ff9f922508322731e8455f84d273611412fd5f1ccd318885ce43daa3d9c5",
+      "preservedOrgHash": "0161c7e7eb0c018244752ef820d7a8723b91983d83e80bf47b08989b6b48ae16",
+      "beforeGroup": null,
+      "beforePreferenceHash": "9254b67fcd1c47476a83a51d8a2391a1d9fbc755d16510e3551178cfa41a5afa",
+      "beforeValue": "[\"tus.ie\",\"https://tus.ie/\"]",
+      "preferenceExisted": true,
+      "desiredValue": "[\"tus.ie\",\"https://tus.ie/\"]",
+      "existingDomains": [
+        "tus.ie",
+        "https://tus.ie/"
+      ],
+      "desiredDomains": [
+        "tus.ie",
+        "https://tus.ie/"
+      ],
+      "groupChange": true,
+      "domainChange": false
+    },
+    {
+      "inputName": "The Open University",
+      "domain": "open.ac.uk",
+      "id": "f9ffd450-a2d4-4829-a5a2-d5f462d1d849",
+      "existingName": "The Open University",
+      "match": "normalized-name",
+      "beforeOrgHash": "1d5781b0a9040651b1f4ff24b7e0afc57a1d1361e678ffc1207f73c89ea87ef7",
+      "preservedOrgHash": "61ecf5b97e9b0b3dc7a4f3fa01cb5c6ba0bafbde094cf92e64c215ac06d5eef4",
+      "beforeGroup": null,
+      "beforePreferenceHash": "95ca8c890b4907d887780f2631bab3fb3e85ef744e906f12e5c5ad2207ff95a5",
+      "beforeValue": "[\"open.ac.uk\"]",
+      "preferenceExisted": true,
+      "desiredValue": "[\"open.ac.uk\"]",
+      "existingDomains": [
+        "open.ac.uk"
+      ],
+      "desiredDomains": [
+        "open.ac.uk"
+      ],
+      "groupChange": true,
+      "domainChange": false
+    },
+    {
+      "inputName": "Trinity College Dublin",
+      "domain": "tcd.ie",
+      "id": "1633d72e-6b1f-43ab-ae2a-d8479006c6a2",
+      "existingName": "Trinity College Dublin",
+      "match": "normalized-name",
+      "beforeOrgHash": "2c22fdc171f304118ae6ee9a551937a434fea0fb35b6f63e34f302897a798d3b",
+      "preservedOrgHash": "e731bc5d8aa2c5585e27f4d4e19895a96fa6339a66c93c81149472bfab08f528",
+      "beforeGroup": null,
+      "beforePreferenceHash": "4adc94949edeeb0e2a03a9ff52413536b0b9a685c4c87d59e44615b8a791a71d",
+      "beforeValue": "[\"tcd.ie\"]",
+      "preferenceExisted": true,
+      "desiredValue": "[\"tcd.ie\"]",
+      "existingDomains": [
+        "tcd.ie"
+      ],
+      "desiredDomains": [
+        "tcd.ie"
+      ],
+      "groupChange": true,
+      "domainChange": false
+    },
+    {
+      "inputName": "Ulster University",
+      "domain": "ulster.ac.uk",
+      "id": "c890d2ea-b4ce-4d2e-bd43-1ef926e41371",
+      "existingName": "Ulster University",
+      "match": "normalized-name",
+      "beforeOrgHash": "f915a68ef860245c05bb3fa20265e78d681c2e82fc59610a62f37a34abf34b93",
+      "preservedOrgHash": "ed3cc8ff36d0d407290636935e6a1d3150615b17f76040ebacbc5c79ba115004",
+      "beforeGroup": null,
+      "beforePreferenceHash": "18f8bff4fee90310a5b55a1c9f4cf1eac5c9542183d738badbbb79e6ef254566",
+      "beforeValue": "[\"ulster.ac.uk\"]",
+      "preferenceExisted": true,
+      "desiredValue": "[\"ulster.ac.uk\"]",
+      "existingDomains": [
+        "ulster.ac.uk"
+      ],
+      "desiredDomains": [
+        "ulster.ac.uk"
+      ],
+      "groupChange": true,
+      "domainChange": false
+    },
+    {
+      "inputName": "University College Cork",
+      "domain": "ucc.ie",
+      "id": "1f7c886e-c411-4e4e-9d02-25f31ff12e07",
+      "existingName": "University College Cork",
+      "match": "normalized-name",
+      "beforeOrgHash": "442878e6eec989b4dafde34bb0cec9520f0a10e80036a0de9cc9f31564be8173",
+      "preservedOrgHash": "f430d9ba810c0884af68c48f0ee01ebf7cb9384b6d2ac1e3e2b8e32c5696279c",
+      "beforeGroup": null,
+      "beforePreferenceHash": "5fd884e1d4337afa0a894d04eb9ecdcfc4452437343bc5eb8e76d49cf5c714dd",
+      "beforeValue": "[\"ucc.ie\"]",
+      "preferenceExisted": true,
+      "desiredValue": "[\"ucc.ie\"]",
+      "existingDomains": [
+        "ucc.ie"
+      ],
+      "desiredDomains": [
+        "ucc.ie"
+      ],
+      "groupChange": true,
+      "domainChange": false
+    },
+    {
+      "inputName": "University College Dublin",
+      "domain": "ucd.ie",
+      "id": "8b3fc098-bb29-489c-904d-04b87920e002",
+      "existingName": "University College Dublin",
+      "match": "normalized-name",
+      "beforeOrgHash": "80cb8eca6ae4e67d101da79c26e30d860ab444d72d2038b52418849e4edb016a",
+      "preservedOrgHash": "1c3c83725d243159aea16b9cef55ee5798d83ef244e9b2be144756fbd6aefcb2",
+      "beforeGroup": null,
+      "beforePreferenceHash": "1359fc4e8187e7635ea354fbe15bffff2fef02875142acf6cd09af7cac7cd173",
+      "beforeValue": "[\"ucd.ie\"]",
+      "preferenceExisted": true,
+      "desiredValue": "[\"ucd.ie\"]",
+      "existingDomains": [
+        "ucd.ie"
+      ],
+      "desiredDomains": [
+        "ucd.ie"
+      ],
+      "groupChange": true,
+      "domainChange": false
+    },
+    {
+      "inputName": "University of Galway",
+      "domain": "universityofgalway.ie",
+      "id": "62939f53-6711-4767-a780-5c419863ef47",
+      "existingName": "University of Galway",
+      "match": "normalized-name",
+      "beforeOrgHash": "b08c4022e884c69b4211e6e2eca332a07c82cfa6708dced21d95b1886de60ba2",
+      "preservedOrgHash": "ce4222e104de210fcd4b6532ce71e8d1746ab93229a87dc141280695172495d3",
+      "beforeGroup": null,
+      "beforePreferenceHash": "b97688093b514e01fde81312327cfb7f567a223ef05911bf02528457cb5eec59",
+      "beforeValue": "[\"universityofgalway.ie\",\"nuigalway.ie\"]",
+      "preferenceExisted": true,
+      "desiredValue": "[\"universityofgalway.ie\",\"nuigalway.ie\"]",
+      "existingDomains": [
+        "universityofgalway.ie",
+        "nuigalway.ie"
+      ],
+      "desiredDomains": [
+        "universityofgalway.ie",
+        "nuigalway.ie"
+      ],
+      "groupChange": true,
+      "domainChange": false
+    },
+    {
+      "inputName": "University of Limerick",
+      "domain": "ul.ie",
+      "id": "46731a44-551e-445f-bae8-150ffdb5dbea",
+      "existingName": "University of Limerick",
+      "match": "normalized-name",
+      "beforeOrgHash": "e567b5227e78a1157064af42789e52a57004eb05bc0128051c78ad2a52488c2b",
+      "preservedOrgHash": "7a176775de22cb5a3e7f4f428ed363e028e96f6221e2683c97739f415812c182",
+      "beforeGroup": null,
+      "beforePreferenceHash": "757678e27c73d8f5fd0f52d880b34d4a887a17a313cc3b2de175f7bdeb3267eb",
+      "beforeValue": "[\"ul.ie\"]",
+      "preferenceExisted": true,
+      "desiredValue": "[\"ul.ie\"]",
+      "existingDomains": [
+        "ul.ie"
+      ],
+      "desiredDomains": [
+        "ul.ie"
+      ],
+      "groupChange": true,
+      "domainChange": false
+    }
+  ],
+  "counts": {
+    "rows": 22,
+    "create": 6,
+    "reuse": 16,
+    "domainAliases": 5,
+    "groupLinks": 22,
+    "domainWrites": 6,
+    "existingDomainValuesPreserved": 16
+  },
+  "approvedHash": "44b612de830e876ea1c8a435e59b310df7bcf4f1c4e478341d546832143aac0b"
+}

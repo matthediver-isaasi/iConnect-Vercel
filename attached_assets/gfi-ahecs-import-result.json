@@ -1,0 +1,54 @@
+{
+  "mode": "applied",
+  "approvedHash": "44b612de830e876ea1c8a435e59b310df7bcf4f1c4e478341d546832143aac0b",
+  "created": 6,
+  "reused": 16,
+  "groupUpdates": 16,
+  "domainWrites": 6,
+  "beforeEvidence": {
+    "workflow_log": {
+      "count": 311,
+      "fingerprint": "23a83d1ab9d5c31d7776ac1f5ffc0695"
+    },
+    "workflow_delivery_claim": {
+      "count": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "form_due_diligence_field_mapping_workflow_outbox": {
+      "count": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "member_group": {
+      "count": 26,
+      "fingerprint": "16e086badc9d6111b30acb074aa9c126"
+    },
+    "member_login_session_revocation": {
+      "count": 7,
+      "fingerprint": "0472b42b701983e43dedf37eff6e3e1d"
+    }
+  },
+  "afterEvidence": {
+    "workflow_log": {
+      "count": 311,
+      "fingerprint": "23a83d1ab9d5c31d7776ac1f5ffc0695"
+    },
+    "workflow_delivery_claim": {
+      "count": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "form_due_diligence_field_mapping_workflow_outbox": {
+      "count": 0,
+      "fingerprint": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "member_group": {
+      "count": 26,
+      "fingerprint": "16e086badc9d6111b30acb074aa9c126"
+    },
+    "member_login_session_revocation": {
+      "count": 7,
+      "fingerprint": "0472b42b701983e43dedf37eff6e3e1d"
+    }
+  },
+  "schemaHash": "25bca9e81c549357ad414302f8c430bd6069d7f26c3f7ede217f8cc799382638",
+  "activity": "attached_assets/gfi-ahecs-import-activity.csv"
+}
