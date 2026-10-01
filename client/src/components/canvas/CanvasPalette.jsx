@@ -1,10 +1,13 @@
 import { useDraggable } from '@dnd-kit/core';
 import { listPaletteBlocks, BLOCK_CATEGORIES } from './blocks/registry';
+import { getSymbolEditUnsupportedReason } from '@/lib/canvasSymbolEditorState';
+import { getBlockDefaults } from '@/lib/canvasDesign';
 
-function PaletteItem({ item }) {
+function PaletteItem({ item, interactionEnabled }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `palette-${item.type}`,
     data: { fromPalette: true, type: item.type },
+    disabled: !interactionEnabled,
   });
   const Icon = item.icon;
   return (
@@ -16,6 +19,7 @@ function PaletteItem({ item }) {
         isDragging ? 'opacity-50' : ''
       }`}
       data-testid={`palette-item-${item.type}`}
+      aria-disabled={!interactionEnabled}
     >
       {Icon && <Icon className="w-4 h-4 text-slate-500 shrink-0" />}
       <div className="flex flex-col min-w-0">
@@ -25,8 +29,13 @@ function PaletteItem({ item }) {
   );
 }
 
-export default function CanvasPalette() {
-  const items = listPaletteBlocks();
+export default function CanvasPalette({ interactionEnabled = true, symbolEditing = false }) {
+  const items = listPaletteBlocks().filter((item) => !symbolEditing || !getSymbolEditUnsupportedReason({
+    version: 1,
+    root: { sections: [{ id: 'symbol-content', children: [{
+      id: 'palette-candidate', type: item.type, content: getBlockDefaults(item.type).content,
+    }] }] },
+  }));
   const grouped = BLOCK_CATEGORIES.map((cat) => ({
     ...cat,
     items: items.filter((i) => i.category === cat.id),
@@ -44,7 +53,7 @@ export default function CanvasPalette() {
           </div>
           <div className="space-y-1">
             {group.items.map((item) => (
-              <PaletteItem key={item.type} item={item} />
+              <PaletteItem key={item.type} item={item} interactionEnabled={interactionEnabled} />
             ))}
           </div>
         </div>

@@ -108,6 +108,7 @@ import {
   generateAutoLayout,
   hasResponsiveGeometryOverrides,
 } from '@/lib/canvasAutoLayout';
+import { getSymbolEditUnsupportedReason } from '@/lib/canvasSymbolEditorState';
 
 const BREAKPOINTS = [
   { id: 'desktop', label: 'Desktop', icon: Monitor },
@@ -308,7 +309,44 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   otherPages = [],
   onUnlinkSymbol,
   micrositeId = null,
+  interactionEnabled = true,
+  symbolEditing = false,
 }, ref) {
+  const builderRootRef = useRef(null);
+  // Read at invocation time as well as render time: delayed measurements and
+  // imperative callbacks from the host must not edit a suspended builder.
+  const interactionEnabledRef = useRef(interactionEnabled);
+  const symbolEditingRef = useRef(symbolEditing);
+  const interactionEpochRef = useRef(0);
+  if (interactionEnabledRef.current !== interactionEnabled) interactionEpochRef.current += 1;
+  interactionEnabledRef.current = interactionEnabled;
+  symbolEditingRef.current = symbolEditing;
+  const [symbolEditError, setSymbolEditError] = useState(null);
+  const acceptSymbolDesign = useCallback((next) => {
+    if (!symbolEditingRef.current) return true;
+    const reason = isFlowDesign(next)
+      ? 'Flow layouts cannot be used while editing shared symbol content.'
+      : getSymbolEditUnsupportedReason(next);
+    setSymbolEditError(reason || null);
+    return !reason;
+  }, []);
+  const acceptsBlocks = useCallback((blocks) => acceptSymbolDesign({
+    version: 1,
+    root: { sections: [{
+      id: 'symbol-content',
+      children: blocks.map((block, index) => block && ({
+        ...block,
+        type: block.type || BLOCK_TYPES.BOX,
+        id: block.id || `symbol-insert-${index}`,
+        // Partial palette/imperative blocks have not received their default
+        // accordion items yet. Validate those defaults without flattening or
+        // repairing any supplied items/nested layout.
+        ...(block.type === BLOCK_TYPES.ADVANCED_ACCORDION && block.content?.items === undefined
+          ? { content: { ...createBlock(block.type).content, ...(block.content || {}) } }
+          : {}),
+      })),
+    }] },
+  }), [acceptSymbolDesign]);
   const [design, setDesignState] = useState(() => normalizeCanvasDesign(initialDesign));
   const [selectedIds, setSelectedIds] = useState([]);
   // Task #2609 — group "focus" (isolation) mode. When set, the rest of the
@@ -401,6 +439,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   // autosaves do NOT change initialDesign in the parent, so undo/redo
   // history and uncommitted edits survive across saves.
   useEffect(() => {
+    if (!interactionEnabled) return;
     if (initialDesign && hydratedFromRef.current !== initialDesign) {
       const normalized = normalizeCanvasDesign(initialDesign);
       setDesignState(normalized);
@@ -413,7 +452,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       authorEditedRef.current = false;
       forceHistTick((n) => n + 1);
     }
-  }, [initialDesign]);
+  }, [initialDesign, interactionEnabled]);
 
   const isDirty = useMemo(
     () => JSON.stringify(design) !== lastSavedSnapshot,
@@ -431,13 +470,16 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   // Only advances the saved-snapshot when the save reports success; on
   // failure the document stays dirty so the user can retry.
   const performSave = useCallback(async () => {
-    if (!onSave) return false;
+    if (!interactionEnabledRef.current || !onSave) return false;
     const snapshot = JSON.stringify(design);
     try {
       const result = onSave(design);
       if (result && typeof result.then === 'function') {
         await result;
       }
+      // A save already requested by this builder may temporarily suspend it
+      // while awaiting the server. That successful save still advances its
+      // baseline; suspension only blocks starting new saves/edits.
       setLastSavedSnapshot(snapshot);
       return true;
     } catch (e) {
@@ -453,9 +495,20 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   // saveNow/isDirty/getDesign handle are all left intact.
 
   const setDesign = useCallback((updater) => {
+    if (!interactionEnabledRef.current) {
+      skipHistoryRef.current = false;
+      return;
+    }
     setDesignState((prev) => {
+      if (!interactionEnabledRef.current) {
+        skipHistoryRef.current = false;
+        return prev;
+      }
       const next = typeof updater === 'function' ? updater(prev) : updater;
-      if (next === prev) return prev;
+      if (next === prev || !acceptSymbolDesign(next)) {
+        skipHistoryRef.current = false;
+        return prev;
+      }
       if (!skipHistoryRef.current) {
         undoStack.current = [...undoStack.current.slice(-(MAX_HISTORY - 1)), prev];
         redoStack.current = [];
@@ -468,9 +521,10 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       skipHistoryRef.current = false;
       return next;
     });
-  }, []);
+  }, [acceptSymbolDesign]);
 
   const handleUndo = useCallback(() => {
+    if (!interactionEnabledRef.current) return;
     if (undoStack.current.length === 0) return;
     const prev = undoStack.current[undoStack.current.length - 1];
     undoStack.current = undoStack.current.slice(0, -1);
@@ -482,6 +536,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   }, []);
 
   const handleRedo = useCallback(() => {
+    if (!interactionEnabledRef.current) return;
     if (redoStack.current.length === 0) return;
     const next = redoStack.current[redoStack.current.length - 1];
     redoStack.current = redoStack.current.slice(0, -1);
@@ -616,13 +671,17 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     // Open the colour swatch palette panel. Called by the shell's top-nav
     // palette icon so it shares the exact same panel as the in-builder
     // "Palette" button (same tenant/microsite scope).
-    openPalettePanel: () => setShowPalettePanel(true),
+    openPalettePanel: () => { if (interactionEnabledRef.current) setShowPalettePanel(true); },
     // Phase 7 — programmatic block insertion used by templates / symbols.
     // Accepts an array of partial block objects which are passed through
     // createBlock so defaults & ids are populated. Returns the ids that
     // were actually inserted.
     addBlocks: (blocks) => {
+      if (!interactionEnabledRef.current) return [];
       const arr = Array.isArray(blocks) ? blocks : [blocks];
+      // Check the original input too: normalization may discard an unsupported
+      // nested structure, and must not turn a forbidden insert into a valid one.
+      if (!acceptsBlocks(arr)) return [];
       // Programmatic inserts (symbols, templates) have no
       // pointer to anchor to. Unless the caller passes an explicit position,
       // drop the block centered on whatever the user is currently looking at
@@ -650,15 +709,16 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
         }
         return createBlock(type, overrides);
       });
+      if (!acceptsBlocks(created)) return [];
       replaceChildren((existing) => [...existing, ...created]);
       const newIds = created.map((c) => c.id);
       setSelectedIds(newIds);
       // Scroll the first inserted block into view and select it (inspector
       // opens), matching setSelection's behavior for programmatic navigation.
-      if (newIds[0] && typeof document !== 'undefined') {
+      if (newIds[0]) {
         setTimeout(() => {
-          const stage = document.querySelector('[data-testid="canvas-stage"]');
-          const el = (stage || document).querySelector(
+          if (!interactionEnabledRef.current) return;
+          const el = stageWrapperRef.current?.querySelector(
             `[data-testid="canvas-block-${newIds[0]}"]`,
           );
           if (el && typeof el.scrollIntoView === 'function') {
@@ -670,19 +730,24 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     },
     getSelectedIds: () => selectedIds,
     getSelectedBlocks: () => children.filter((b) => selectedIds.includes(b.id)),
-    setDesign: (next) => setDesignState(normalizeCanvasDesign(next)),
+    setDesign: (next) => {
+      if (!interactionEnabledRef.current || !acceptSymbolDesign(next)) return false;
+      setDesignState(normalizeCanvasDesign(next));
+      return true;
+    },
     // Phase 7 — jump to a block. Scrolls the block into view inside the
     // editor stage and selects it so the inspector opens automatically.
     setSelection: (ids) => {
+      if (!interactionEnabledRef.current) return;
       const arr = Array.isArray(ids) ? ids : [ids];
       setSelectedIds(arr);
-      if (arr[0] && typeof document !== 'undefined') {
+      if (arr[0]) {
         setTimeout(() => {
           // Scope to the canvas stage — `data-block-id` also appears on
           // a11y panel rows, so a document-wide query can resolve to the
           // wrong element.
-          const stage = document.querySelector('[data-testid="canvas-stage"]');
-          const el = (stage || document).querySelector(
+          if (!interactionEnabledRef.current) return;
+          const el = stageWrapperRef.current?.querySelector(
             `[data-testid="canvas-block-${arr[0]}"]`,
           );
           if (el && typeof el.scrollIntoView === 'function') {
@@ -691,7 +756,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
         }, 50);
       }
     },
-  }), [performSave, design, lastSavedSnapshot, replaceChildren, selectedIds, children, zoom, gridSize, isFlow]);
+  }), [performSave, design, lastSavedSnapshot, replaceChildren, selectedIds, children, zoom, gridSize, isFlow, acceptsBlocks, acceptSymbolDesign]);
 
   const updateBlock = useCallback((id, updater) => {
     replaceChildren((arr) =>
@@ -716,6 +781,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   // not part of the signature, so the effect settles after one pass.
   const aspectBakeSigRef = useRef(null);
   useEffect(() => {
+    if (!interactionEnabled) return;
     if (isFlow) return; // v2 flow pages: geometry is engine-driven, nothing stored to bake
     const sig = children
       .filter((b) => isAspectHeightCarousel(b))
@@ -750,7 +816,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     // the old aspect height — the stored h stays self-consistent either way.
     skipHistoryRef.current = true;
     replaceChildren((arr) => arr.map((b) => bakeAspectCarouselGeometry(b)));
-  }, [children, isFlow, replaceChildren]);
+  }, [children, isFlow, replaceChildren, interactionEnabled]);
 
   // ---- Selection helpers ----
   const selectedBlocks = useMemo(
@@ -759,6 +825,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   );
 
   const handleSelect = useCallback((idsOrId, additive = false) => {
+    if (!interactionEnabledRef.current) return;
     if (Array.isArray(idsOrId)) {
       setSelectedIds(expandSelectionToGroups(idsOrId));
       return;
@@ -778,6 +845,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   }, [expandSelectionToGroups]);
 
   const handleMarqueeSelect = useCallback((ids, additive) => {
+    if (!interactionEnabledRef.current) return;
     if (additive) {
       setSelectedIds((prev) => expandSelectionToGroups(Array.from(new Set([...prev, ...ids]))));
     } else {
@@ -789,12 +857,14 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   // Double-clicking a grouped block enters focus mode for its group and
   // selects that single member. Clicking the scrim / pressing Escape exits.
   const enterGroupFocus = useCallback((groupId, blockId) => {
+    if (!interactionEnabledRef.current) return;
     if (!groupId) return;
     setActiveGroupId(groupId);
     setSelectedIds(blockId ? [blockId] : []);
   }, []);
 
   const exitGroupFocus = useCallback(() => {
+    if (!interactionEnabledRef.current) return;
     setActiveGroupId(null);
   }, []);
 
@@ -904,6 +974,20 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   );
 
   const stageWrapperRef = useRef(null);
+  const bakeAuthorEditedRef = useRef(false);
+  bakeAuthorEditedRef.current = interactionEnabled && authorEditedRef.current;
+  // Invalidate measurements queued before suspension, even if the host is
+  // enabled again before their debounce expires. Do not reset author history.
+  const bakeSetDesign = useMemo(() => {
+    const epoch = interactionEpochRef.current;
+    return (updater) => {
+      if (!interactionEnabledRef.current || epoch !== interactionEpochRef.current) {
+        skipHistoryRef.current = false;
+        return;
+      }
+      setDesign(updater);
+    };
+  }, [setDesign, interactionEnabled]);
 
   // Auto-height bake: settle gate (fonts + images, re-armed per breakpoint),
   // author-intent gate, and content-ready re-check. Extracted so its runtime
@@ -913,9 +997,9 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     breakpoint,
     zoom,
     designRef,
-    setDesign,
+    setDesign: bakeSetDesign,
     skipHistoryRef,
-    authorEditedRef,
+    authorEditedRef: bakeAuthorEditedRef,
     stageWrapperRef,
     getDefinition: getBlockDefinition,
   });
@@ -931,11 +1015,25 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   // the exact same threshold/ramp/speed as the on-canvas block drag.
   const paletteAutoScroll = useEdgeAutoScroll(stageWrapperRef);
   const trackPointer = useCallback((e) => {
+    if (!interactionEnabledRef.current) return;
     lastPointerRef.current = { x: e.clientX, y: e.clientY };
     paletteAutoScroll.update(e.clientX, e.clientY);
   }, [paletteAutoScroll]);
+  useEffect(() => {
+    if (!interactionEnabled) {
+      setActiveDragId(null);
+      setActiveDragType(null);
+      lastPointerRef.current = null;
+    }
+    return () => {
+      window.removeEventListener('pointermove', trackPointer, true);
+      paletteAutoScroll.stop();
+    };
+  }, [interactionEnabled, trackPointer, paletteAutoScroll]);
 
   const handleDragStart = (event) => {
+    if (!interactionEnabledRef.current) return;
+    if (!acceptsBlocks([{ type: event.active.data?.current?.type || BLOCK_TYPES.BOX }])) return;
     setActiveDragId(event.active.id);
     setActiveDragType(event.active.data?.current?.type || null);
     // Seed with the activator position, then follow the live pointer for the
@@ -963,12 +1061,13 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     const { active, over } = event;
     const pointer = lastPointerRef.current;
     lastPointerRef.current = null;
-    if (!over) return;
+    if (!interactionEnabledRef.current || !over) return;
     const fromPalette = active.data?.current?.fromPalette;
     if (!fromPalette) return;
     if (over.id !== 'canvas-drop-zone') return;
 
     const newType = active.data?.current?.type || BLOCK_TYPES.BOX;
+    if (!acceptsBlocks([{ type: newType }])) return;
 
     // Task #2682 — Flow (v2) documents auto-layout their content, so a dropped
     // element must be inserted as a flow node INSIDE a section (not appended to
@@ -1013,7 +1112,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     // default size so the top-left lands roughly under the pointer without a
     // large jump for tall/wide blocks.
     let x = 40, y = 40;
-    const stage = document.querySelector('[data-testid="canvas-stage"]');
+    const stage = stageWrapperRef.current?.querySelector('[data-testid="canvas-stage"]');
     if (stage && pointer) {
       const rect = stage.getBoundingClientRect();
       const zoomFactor = zoom || 1;
@@ -1059,7 +1158,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   // coordinates, or null if the stage isn't mounted yet.
   function computeViewportCenter() {
     const wrap = stageWrapperRef.current;
-    const stage = document.querySelector('[data-testid="canvas-stage"]');
+    const stage = wrap?.querySelector('[data-testid="canvas-stage"]');
     if (!wrap || !stage) return null;
     const wrapRect = wrap.getBoundingClientRect();
     const stageRect = stage.getBoundingClientRect();
@@ -1089,12 +1188,14 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
 
   // ---- Block actions ----
   const deleteSelected = useCallback(() => {
+    if (!interactionEnabledRef.current) return;
     if (selectedIds.length === 0) return;
     replaceChildren((arr) => arr.filter((b) => !selectedIds.includes(b.id) || b.locked));
     setSelectedIds([]);
   }, [selectedIds, replaceChildren]);
 
   const duplicateSelected = useCallback(() => {
+    if (!interactionEnabledRef.current) return;
     if (selectedIds.length === 0) return;
     const newIds = [];
     replaceChildren((arr) => {
@@ -1121,6 +1222,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   }, [selectedIds, replaceChildren]);
 
   const duplicateById = useCallback((id) => {
+    if (!interactionEnabledRef.current) return;
     const b = children.find((c) => c.id === id);
     if (!b) return;
     const source = JSON.parse(JSON.stringify(b));
@@ -1140,6 +1242,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   }, [children, replaceChildren]);
 
   const deleteById = useCallback((id) => {
+    if (!interactionEnabledRef.current) return;
     replaceChildren((arr) => arr.filter((b) => b.id !== id));
     setSelectedIds((prev) => prev.filter((x) => x !== id));
   }, [replaceChildren]);
@@ -1189,6 +1292,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   const canUngroupSelection = selectedGroupIds.length > 0;
 
   const groupSelected = useCallback(() => {
+    if (!interactionEnabledRef.current) return;
     if (selectedIds.length < 2) return;
     const ids = selectedIds.slice();
     setDesign((prev) => {
@@ -1215,6 +1319,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
 
   // Select every member of a group (used by the layers palette group row).
   const selectGroup = useCallback((gid, additive = false) => {
+    if (!interactionEnabledRef.current) return;
     const memberIds = children.filter((b) => b.groupId === gid).map((b) => b.id);
     if (memberIds.length === 0) return;
     if (additive) {
@@ -1237,6 +1342,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   // Collapse/expand is a view-only flag: persisted with the design but does
   // not push an undo step (it would be noise in the history).
   const toggleGroupCollapsed = useCallback((gid) => {
+    if (!interactionEnabledRef.current) return;
     skipHistoryRef.current = true;
     setDesign((prev) => setGroups(prev, getGroups(prev).map((g) =>
       g.id === gid ? { ...g, collapsed: !g.collapsed } : g)));
@@ -1265,7 +1371,12 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
 
   // ---- Keyboard shortcuts ----
   useEffect(() => {
+    if (!interactionEnabled) return;
     const handleKeyDown = (e) => {
+      if (!interactionEnabledRef.current || e.defaultPrevented) return;
+      // A shortcut dispatched inside a sibling builder belongs to that editor.
+      const eventBuilder = e.target?.closest?.('[data-testid="canvas-builder"]');
+      if (eventBuilder && eventBuilder !== builderRootRef.current) return;
       // Ignore when typing in inputs
       const tag = e.target?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable) return;
@@ -1279,6 +1390,11 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       }
 
       const meta = e.metaKey || e.ctrlKey;
+      // Page editors own their save shortcut; the isolated symbol builder has
+      // no page-shell save handler and owns its own shortcut instead.
+      if (symbolEditing && meta && e.key.toLowerCase() === 's') {
+        e.preventDefault(); performSave(); return;
+      }
       if (meta && e.key.toLowerCase() === 'z' && !e.shiftKey) {
         e.preventDefault(); handleUndo(); return;
       }
@@ -1320,6 +1436,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
         const clip = window.__canvasClipboard;
         if (Array.isArray(clip) && clip.length > 0) {
           e.preventDefault();
+          if (!acceptsBlocks(clip)) return;
           const newIds = [];
           replaceChildren((arr) => {
             const copies = clip.map((b) => {
@@ -1369,7 +1486,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleUndo, handleRedo, duplicateSelected, deleteSelected, groupSelected, ungroupSelected, selectedIds, children, breakpoint, applyGeometry, gridSize, activeGroupId, exitGroupFocus]);
+  }, [interactionEnabled, symbolEditing, performSave, acceptsBlocks, handleUndo, handleRedo, duplicateSelected, deleteSelected, groupSelected, ungroupSelected, selectedIds, children, breakpoint, applyGeometry, gridSize, activeGroupId, exitGroupFocus]);
 
   // ---- Align / distribute ----
   // With 2+ blocks selected the most-recently-selected id (last in
@@ -1736,6 +1853,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   }, [setDesign, canvasWidth, stageHeight]);
 
   const beginGuideDrag = useCallback((descriptor, clientX, clientY) => {
+    if (!interactionEnabledRef.current) return;
     setShowGuides(true);
     guideDragRef.current = descriptor;
     setGuideDrag(descriptor);
@@ -1761,7 +1879,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   // Window listeners while a guide is being dragged. Bound only on the
   // immutable descriptor so per-move value updates don't re-subscribe.
   useEffect(() => {
-    if (!guideDrag) return;
+    if (!interactionEnabled || !guideDrag) return;
     const descriptor = guideDrag;
     const endDrag = () => {
       guideDragRef.current = null;
@@ -1778,6 +1896,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       endDrag();
     };
     const onKey = (e) => {
+      if (!interactionEnabledRef.current || e.defaultPrevented) return;
       if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault();
         if (descriptor.kind === 'move') removeGuideAt(descriptor.orientation, descriptor.index);
@@ -1795,7 +1914,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('keydown', onKey);
     };
-  }, [guideDrag, computeGuideValue, commitGuide, removeGuideAt]);
+  }, [interactionEnabled, guideDrag, computeGuideValue, commitGuide, removeGuideAt]);
 
   const guideMoving = guideDrag && guideDrag.kind === 'move'
     ? { orientation: guideDrag.orientation, index: guideDrag.index }
@@ -1809,6 +1928,14 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   const panStateRef = useRef(null);
 
   useEffect(() => {
+    if (!interactionEnabled) {
+      setSpaceHeld(false);
+      panStateRef.current = null;
+      guideDragRef.current = null;
+      setGuideDrag(null);
+      setGuidePreview(null);
+      return;
+    }
     const isFormField = (el) => {
       if (!el) return false;
       const tag = el.tagName;
@@ -1820,6 +1947,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       );
     };
     const onKeyDown = (e) => {
+      if (!interactionEnabledRef.current || e.defaultPrevented) return;
       if (e.code === 'Space' && !isFormField(e.target)) {
         if (!spaceHeld) setSpaceHeld(true);
         // Prevent page-scroll while panning is armed.
@@ -1835,9 +1963,10 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
     };
-  }, [spaceHeld]);
+  }, [spaceHeld, interactionEnabled]);
 
   const handleStagePanPointerDown = useCallback((e) => {
+    if (!interactionEnabledRef.current) return;
     const middleClick = e.button === 1;
     if (!spaceHeld && !middleClick) return;
     const wrap = stageWrapperRef.current;
@@ -1851,7 +1980,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     };
     const onMove = (ev) => {
       const st = panStateRef.current;
-      if (!st || !stageWrapperRef.current) return;
+      if (!interactionEnabledRef.current || !st || !stageWrapperRef.current) return;
       stageWrapperRef.current.scrollLeft = st.scrollLeft - (ev.clientX - st.startX);
       stageWrapperRef.current.scrollTop = st.scrollTop - (ev.clientY - st.startY);
     };
@@ -1864,8 +1993,8 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
     window.addEventListener('pointerup', onUp);
   }, [spaceHeld]);
 
-  const canUndo = undoStack.current.length > 0;
-  const canRedo = redoStack.current.length > 0;
+  const canUndo = interactionEnabled && undoStack.current.length > 0;
+  const canRedo = interactionEnabled && redoStack.current.length > 0;
   const hasAnySelect = selectedIds.length >= 1;
   const anchorName = anchorBlock?.name || 'anchor';
   const alignTarget = effectiveAlignRef === 'canvas'
@@ -1883,7 +2012,15 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
   return (
     <DndContext sensors={sensors} autoScroll={false} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={handleDragCancel}>
       <CanvasSwatchProvider micrositeId={micrositeId}>
-      <div className="flex flex-col h-full" data-testid="canvas-builder">
+      <div
+        ref={builderRootRef}
+        className="flex flex-col h-full"
+        data-testid="canvas-builder"
+        aria-disabled={!interactionEnabled}
+        inert={!interactionEnabled ? '' : undefined}
+        style={!interactionEnabled ? { pointerEvents: 'none' } : undefined}
+      >
+        {symbolEditError && <p role="alert" className="px-3 py-2 text-sm text-destructive" data-testid="symbol-edit-error">{symbolEditError}</p>}
         {/* Sub-toolbar with alignment + undo/redo + grid */}
         <div className="shrink-0 flex flex-wrap items-center gap-x-2 gap-y-2 px-3 py-2 border-b border-slate-200 bg-white">
           <Button size="icon" variant="ghost" onClick={handleUndo} disabled={!canUndo} title="Undo" data-testid="button-undo">
@@ -2103,7 +2240,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
             data-testid="panel-palette"
           >
             <h2 className="text-sm font-semibold text-slate-900 mb-2">Blocks</h2>
-            <CanvasPalette />
+            <CanvasPalette interactionEnabled={interactionEnabled} symbolEditing={symbolEditing} />
           </aside>
 
           {/* Stage */}
@@ -2184,8 +2321,8 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
                       onApplyGeometry={applyGeometry}
                       onMarqueeSelect={handleMarqueeSelect}
                       onPreviewBottomChange={setLivePreviewBottom}
-                      onCommitAutoHeight={commitAutoHeight}
-                      onCommitAutoSize={commitAutoSize}
+                      onCommitAutoHeight={interactionEnabled ? commitAutoHeight : undefined}
+                      onCommitAutoSize={interactionEnabled ? commitAutoSize : undefined}
                       scrollContainerRef={stageWrapperRef}
                       activeGroupId={activeGroupId}
                       onEnterGroupFocus={enterGroupFocus}
@@ -2232,7 +2369,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
               onToggleHidden={toggleHiddenById}
               onClearOverride={clearOverrideById}
               onReorderBlock={moveBlockInReadingOrder}
-              onUnlinkSymbol={onUnlinkSymbol}
+               onUnlinkSymbol={interactionEnabled && !symbolEditing ? onUnlinkSymbol : undefined}
               readingOrderIndex={
                 selectedBlocks.length === 1
                   ? findReadingOrderPosition(children, selectedBlocks[0].id).index

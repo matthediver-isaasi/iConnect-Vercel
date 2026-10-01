@@ -141,12 +141,12 @@ export function TemplatesDialog({ open, onOpenChange, canvasRef, mode = 'pick', 
 // Symbols
 // ===========================================================================
 
-export function SymbolsDialog({ open, onOpenChange, canvasRef }) {
+export function SymbolsDialog({ open, onOpenChange, canvasRef, onEditContent }) {
   const queryClient = useQueryClient();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error: loadError, refetch } = useQuery({
     queryKey: ['canvas-symbols'],
     queryFn: async () => {
       const r = await fetch('/api/canvas-symbols', { credentials: 'include' });
@@ -225,6 +225,7 @@ export function SymbolsDialog({ open, onOpenChange, canvasRef }) {
   const replaceDesignFromSelection = (id) => {
     const selected = canvasRef?.current?.getSelectedBlocks?.() || [];
     if (selected.length === 0) { toast.error('Select blocks on the page first'); return; }
+    if (!window.confirm('Replace this shared symbol with the selected page blocks? This updates all linked instances, including published pages.')) return;
     // Task #3465 — translate all breakpoint frames (not just desktop) to the
     // symbol-local origin; see saveSelectionMut above.
     const symChildren = selected.map((b) => JSON.parse(JSON.stringify(b)));
@@ -251,7 +252,7 @@ export function SymbolsDialog({ open, onOpenChange, canvasRef }) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-5xl">
         <DialogHeader>
           <DialogTitle>Symbols</DialogTitle>
           <DialogDescription>
@@ -271,6 +272,9 @@ export function SymbolsDialog({ open, onOpenChange, canvasRef }) {
           </div>
           <div className="space-y-2 max-h-[40vh] overflow-y-auto">
             {isLoading && <p className="text-sm text-slate-500">Loading…</p>}
+            {loadError && <div role="alert" className="text-sm text-red-700">
+              {loadError.message} <Button size="sm" variant="outline" onClick={() => refetch()}>Retry</Button>
+            </div>}
             {(data?.symbols || []).map((s) => (
               <div key={s.id} className="rounded-md border border-slate-200 p-3 hover-elevate" data-testid={`symbol-row-${s.id}`}>
                 <div className="flex items-start justify-between gap-3">
@@ -291,13 +295,16 @@ export function SymbolsDialog({ open, onOpenChange, canvasRef }) {
                     )}
                     {s.description && <p className="text-xs text-slate-500 mt-1">{s.description}</p>}
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-2 flex-wrap justify-end">
                     <Button size="sm" onClick={() => insertSymbol(s)} data-testid={`button-insert-symbol-${s.id}`}>Insert</Button>
-                    <Button size="icon" variant="ghost" onClick={() => { setEditId(s.id); setEditName(s.name); }} data-testid={`button-rename-symbol-${s.id}`} title="Rename">
-                      <Pencil className="w-4 h-4" />
+                    {onEditContent && <Button size="sm" variant="outline" onClick={() => { onOpenChange(false); onEditContent(s.id); }} data-testid={`button-edit-symbol-content-${s.id}`}>
+                      <Pencil className="w-4 h-4 mr-1" />Edit content
+                    </Button>}
+                    <Button size="sm" variant="ghost" onClick={() => { setEditId(s.id); setEditName(s.name); }} data-testid={`button-rename-symbol-${s.id}`} title="Rename">
+                      Rename
                     </Button>
-                    <Button size="icon" variant="ghost" onClick={() => replaceDesignFromSelection(s.id)} data-testid={`button-update-symbol-${s.id}`} title="Replace design with current selection">
-                      <SaveIcon className="w-4 h-4" />
+                    <Button size="sm" variant="ghost" disabled={updateMut.isPending} onClick={() => replaceDesignFromSelection(s.id)} data-testid={`button-update-symbol-${s.id}`} title="Replace design with current selection">
+                      Replace from selection
                     </Button>
                     <Button size="icon" variant="ghost" onClick={() => deleteMut.mutate(s.id)} data-testid={`button-delete-symbol-${s.id}`} title="Delete">
                       <Trash2 className="w-4 h-4" />
@@ -306,7 +313,7 @@ export function SymbolsDialog({ open, onOpenChange, canvasRef }) {
                 </div>
               </div>
             ))}
-            {!isLoading && (data?.symbols || []).length === 0 && (
+            {!isLoading && !loadError && (data?.symbols || []).length === 0 && (
               <p className="text-sm text-slate-500">No symbols yet.</p>
             )}
           </div>

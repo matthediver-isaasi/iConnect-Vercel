@@ -36,6 +36,7 @@ import {
 } from "@/lib/canvasDesign";
 import { auditCanvasDesign, getBlockingIssues } from "@/lib/canvasA11y";
 import CanvasBuilder from "@/components/canvas/CanvasBuilder";
+import CanvasSymbolContentEditor from "@/components/canvas/CanvasSymbolContentEditor";
 import CanvasA11yPanel from "@/components/canvas/CanvasA11yPanel";
 import {
   TemplatesDialog, SymbolsDialog, VersionsDialog,
@@ -148,6 +149,11 @@ export default function CanvasPageEditorPage() {
   // a global keyboard shortcut (?).
   const [showTemplates, setShowTemplates] = useState(false);
   const [showSymbols, setShowSymbols] = useState(false);
+  const [editingSymbolId, setEditingSymbolId] = useState(null);
+  const symbolEditorRef = useRef(null);
+  const editingSymbolRef = useRef(null);
+  editingSymbolRef.current = editingSymbolId;
+  const guardActive = isDirty || !!editingSymbolId;
   const [showVersions, setShowVersions] = useState(false);
   const [showFileRepo, setShowFileRepo] = useState(false);
   // Internal-page picker modal (Task #2719): opened by the shared LinkField's
@@ -662,10 +668,17 @@ export default function CanvasPageEditorPage() {
   // becomes clean (a normal Save) we unwind the leftover sentinel so we never
   // pollute the back stack — but not when we are intentionally navigating away.
   useEffect(() => {
-    if (!isDirty) return undefined;
+    if (!guardActive) return undefined;
     window.history.pushState(null, '');
     backSentinelRef.current = true;
     const onPopState = () => {
+      if (editingSymbolRef.current) {
+        // Browser Back closes the isolated editor first. Keep the host's
+        // sentinel in place, including when the host itself has no edits.
+        window.history.pushState(null, '');
+        symbolEditorRef.current?.requestClose();
+        return;
+      }
       backSentinelRef.current = false; // sentinel consumed by this Back press
       setPendingNav({ back: true });
     };
@@ -678,7 +691,7 @@ export default function CanvasPageEditorPage() {
         window.history.back();
       }
     };
-  }, [isDirty]);
+  }, [guardActive]);
 
   // Resume a pending leave once the author has decided. For an intercepted
   // browser Back we replay the real POP (history.back) so the author lands on
@@ -847,6 +860,7 @@ export default function CanvasPageEditorPage() {
   // ? shortcut overlay — global shortcut at the editor shell level so it
   // also fires when no block is selected.
   useEffect(() => {
+    if (editingSymbolId) return undefined;
     const onKey = (e) => {
       const tag = e.target?.tagName;
       const inField = tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable;
@@ -876,7 +890,7 @@ export default function CanvasPageEditorPage() {
       window.removeEventListener('canvas:open-file-repository', onOpenFileRepo);
       window.removeEventListener('canvas:open-page-picker', onOpenPagePicker);
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [editingSymbolId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Switch the preview iframe to a target view and resolve when the new
   // document has loaded. Used by the dual-pass audit runner to flip
@@ -1561,6 +1575,7 @@ export default function CanvasPageEditorPage() {
         <div className="flex-1 flex flex-col min-w-0 min-h-0">
           <CanvasBuilder
             ref={canvasRef}
+            interactionEnabled={!editingSymbolId}
             initialDesign={initialDesign}
             breakpoint={breakpoint}
             onBreakpointChange={setBreakpoint}
@@ -2245,7 +2260,19 @@ export default function CanvasPageEditorPage() {
 
       {/* Phase 7 dialogs */}
       <TemplatesDialog open={showTemplates} onOpenChange={setShowTemplates} canvasRef={canvasRef} />
-      <SymbolsDialog open={showSymbols} onOpenChange={setShowSymbols} canvasRef={canvasRef} />
+      <SymbolsDialog open={showSymbols} onOpenChange={setShowSymbols} canvasRef={canvasRef} onEditContent={setEditingSymbolId} />
+      {editingSymbolId && <CanvasSymbolContentEditor
+        key={editingSymbolId} ref={symbolEditorRef} symbolId={editingSymbolId}
+        onClose={() => setEditingSymbolId(null)} otherPages={otherPages}
+        micrositeId={page?.microsite_id || null}
+        onSaved={() => {
+          setAxeStale(true);
+          setEditsSinceAudit((n) => n + 1);
+          setPreviewNonce((n) => n + 1);
+          setLiveDesignTick((n) => n + 1);
+          lastAxeDesignRef.current = null;
+        }}
+      />}
       <VersionsDialog open={showVersions} onOpenChange={setShowVersions} pageId={pageId} onRestored={() => {
         queryClient.invalidateQueries({ queryKey: ['canvas-page', pageId] });
       }} />
