@@ -64,15 +64,24 @@ function invoiceSubscriptionId(invoice) {
 }
 
 /**
- * Classify a verified Stripe event before any payload is persisted. Invoice
- * ownership is always read from the authoritative Subscription using the
- * already mode-bound Stripe client; payload metadata is not trusted for it.
+ * Classify a verified Stripe event before any payload is persisted. Unused
+ * event types need no ownership lookup. For supported invoices, ownership is
+ * read from the authoritative Subscription using the already mode-bound
+ * Stripe client; payload metadata is not trusted for it.
  */
 export async function classifyStripeMembershipEventTenant(event, {
   expectedTenantId,
   stripe,
 } = {}) {
   const type = event?.type;
+  if (typeof type !== 'string' || !/^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$/.test(type)) {
+    return { status: 'unknown', message: 'Stripe event type is missing or invalid.' };
+  }
+  // Use the same contract as endpoint configuration and dispatch. In particular,
+  // an unused invoice notification must not retrieve its subscription or become
+  // eligible for payload storage merely because it has membership metadata.
+  if (!STRIPE_MEMBERSHIP_WEBHOOK_EVENTS.includes(type)) return { status: 'irrelevant' };
+
   const object = event?.data?.object || {};
   let metadata;
 
@@ -87,7 +96,7 @@ export async function classifyStripeMembershipEventTenant(event, {
   } else if (type === 'customer.subscription.deleted') {
     if (object?.metadata?.kind !== CARD_PLAN_KIND) return { status: 'irrelevant' };
     metadata = object.metadata;
-  } else if (type?.startsWith('invoice.')) {
+  } else if (type.startsWith('invoice.')) {
     const subscriptionId = invoiceSubscriptionId(object);
     if (!subscriptionId) {
       return invoiceHasExplicitCardPlanMetadata(object)

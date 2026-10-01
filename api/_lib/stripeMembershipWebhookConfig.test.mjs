@@ -299,3 +299,115 @@ test('explicit card-plan invoice without subscription fails closed as relevant u
   assert.equal(result.status, 'unknown');
   assert.match(result.message, /membership invoice/);
 });
+
+test('unused types are irrelevant before ownership checks, regardless of metadata or mode', async () => {
+  const unusedTypes = [
+    'customer.created',
+    'customer.updated',
+    'payment_intent.created',
+    'payment_intent.requires_action',
+    'customer.subscription.created',
+    'customer.subscription.updated',
+    'invoice.created',
+    'invoice.finalized',
+    'invoice.future_notification',
+    'future_product.notification_created',
+  ];
+  let retrievals = 0;
+  const stripe = { subscriptions: { retrieve: async () => {
+    retrievals += 1;
+    throw new Error('unused notifications must not retrieve subscriptions');
+  } } };
+  for (const type of unusedTypes) {
+    assert.equal(STRIPE_MEMBERSHIP_WEBHOOK_EVENTS.includes(type), false);
+    for (const livemode of [true, false]) {
+      for (const metadata of [
+        {},
+        { kind: 'monthly_card_plan' },
+        {
+          kind: 'monthly_card_plan',
+          tenant_id: 'tenant-1',
+          member_id: 'member-1',
+          membership_year: '2026',
+          catch_up_intent_key: 'intent-1',
+        },
+        { kind: 'monthly_card_plan', tenant_id: 'tenant-2' },
+      ]) {
+        for (const subscription of [undefined, 'sub_unused']) {
+          const event = {
+            type,
+            livemode,
+            data: { object: { mode: 'subscription', subscription, metadata } },
+          };
+          assert.deepEqual(
+            await classifyStripeMembershipEventTenant(event, { expectedTenantId: 'tenant-1', stripe }),
+            { status: 'irrelevant' },
+            `${type}, live=${livemode}, subscription=${subscription}`,
+          );
+        }
+      }
+    }
+  }
+  assert.equal(retrievals, 0);
+});
+
+test('malformed event types fail closed rather than becoming unused notifications', async () => {
+  for (const type of [undefined, null, '', ' ', 42, true, [], {}, ['invoice.paid'],
+    ' invoice.created', 'invoice.created ', 'invoice', 'invoice.', '.created', 'invoice..created']) {
+    const result = await classifyStripeMembershipEventTenant({ type }, { expectedTenantId: 'tenant-1' });
+    assert.deepEqual(result, { status: 'unknown', message: 'Stripe event type is missing or invalid.' });
+  }
+});
+
+test('every canonical supported event still requires membership ownership', async () => {
+  for (const type of STRIPE_MEMBERSHIP_WEBHOOK_EVENTS) {
+    for (const tenantId of ['tenant-1', 'tenant-2']) {
+      let retrievals = 0;
+      const metadata = {
+        kind: 'monthly_card_plan',
+        tenant_id: tenantId,
+        membership_year: '2026',
+        member_id: 'member-1',
+      };
+      const result = await classifyStripeMembershipEventTenant({
+        type,
+        data: { object: {
+          mode: 'subscription',
+          subscription: 'sub_supported',
+          metadata: type.startsWith('invoice.') ? { tenant_id: 'untrusted' } : metadata,
+        } },
+      }, {
+        expectedTenantId: 'tenant-1',
+        stripe: { subscriptions: { retrieve: async (id) => {
+          assert.equal(id, 'sub_supported');
+          retrievals += 1;
+          return { metadata };
+        } } },
+      });
+      assert.deepEqual(result, { status: tenantId === 'tenant-1' ? 'own' : 'foreign' }, type);
+      assert.equal(retrievals, type.startsWith('invoice.') ? 1 : 0, type);
+    }
+  }
+});
+
+test('supported invoices retain missing identity and unavailable ownership errors', async () => {
+  for (const type of STRIPE_MEMBERSHIP_WEBHOOK_EVENTS.filter((value) => value.startsWith('invoice.'))) {
+    const event = { type, data: { object: { metadata: { kind: 'monthly_card_plan' } } } };
+    assert.deepEqual(
+      await classifyStripeMembershipEventTenant(event, { expectedTenantId: 'tenant-1' }),
+      { status: 'unknown', message: 'Stripe membership invoice has no subscription identity.' },
+    );
+    event.data.object.subscription = 'sub_supported';
+    assert.deepEqual(
+      await classifyStripeMembershipEventTenant(event, { expectedTenantId: 'tenant-1' }),
+      { status: 'unavailable', message: 'The Stripe API key for this event mode is unavailable.' },
+    );
+    assert.deepEqual(
+      await classifyStripeMembershipEventTenant(event, {
+        expectedTenantId: 'tenant-1',
+        stripe: { subscriptions: { retrieve: async () => ({ metadata: { kind: 'monthly_card_plan' } }) } },
+      }),
+      { status: 'unknown', message: 'Stripe event has no tenant identity.' },
+    );
+  }
+});
