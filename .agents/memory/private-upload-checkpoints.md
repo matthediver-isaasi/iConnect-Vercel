@@ -20,3 +20,16 @@ Completion checkpoints can include pre-existing edits; completion can also rebas
 **Why:** Tests passing on a locally isolated tree do not prove the subsequently rebased tree passes, and a diff against an old base can misattribute upstream work.
 
 **How to apply:** Record the starting dirty paths. Preserve unrelated work before authorized separation. After completion reports unexpected changes or failures, inspect the reflog and current upstream diff before removing anything; never revert newly merged shared work merely to reproduce an older isolated test result.
+
+Treat monitoring screenshots as potentially credential-bearing uploads before
+completion, even during read-only investigations.
+
+**Why:** A heartbeat reporting URL is a bearer capability to submit success or
+failure, and a screenshot can expose it without any secret appearing in text.
+Removing the image from the current tree does not revoke the capability or purge
+older checkpoints.
+
+**How to apply:** Exclude the original sensitive upload from commits. If task
+separation is authorized, preserve unrelated work in a clean-parent branch that
+omits the sensitive upload, not a branch of the contaminated commit. Disclose
+retained-history limits and obtain separate authorization for endpoint rotation.
