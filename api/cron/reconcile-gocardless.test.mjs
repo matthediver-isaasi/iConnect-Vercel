@@ -6,12 +6,16 @@ import {
   createReconcileGocardlessHandler,
   reconcileStalePayments,
   runReconciliationPhases,
+  COLLECTION_BUDGET_MS,
+  RECONCILIATION_WORK_BUDGET_MS,
 } from './reconcile-gocardless.js';
 
 test('reconciliation runs every five UTC minutes, including the London-midnight BNMS gate', () => {
   const config = JSON.parse(readFileSync(new URL('../../vercel.json', import.meta.url), 'utf8'));
   const entries = config.crons.filter(cron => cron.path === '/api/cron/reconcile-gocardless');
   assert.deepEqual(entries.map(cron => cron.schedule), ['*/5 * * * *']);
+  assert.equal(config.functions['api/cron/reconcile-gocardless.js'].maxDuration, 300);
+  assert.equal(config.functions['api/**/*.js'].maxDuration, 60, 'other API allowances must not change');
   const gate = new Date('2026-09-30T23:00:00Z');
   assert.equal(gate.getUTCMinutes() % 5, 0);
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-GB', {
@@ -19,6 +23,59 @@ test('reconciliation runs every five UTC minutes, including the London-midnight 
     hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
   }).formatToParts(gate).map(part => [part.type, part.value]));
   assert.equal(`${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`, '2026-10-01 00:00');
+});
+
+test('cron allocates 180s collections and shares a bounded absolute deadline with later stages', async () => {
+  const results = { repaired: 0, flagged: 0, skipped: 0, errors: 0, details: [] };
+  let elapsed = 0;
+  const clock = () => elapsed;
+  const visited = [];
+  await runReconciliationPhases(results, {
+    clock,
+    complete: async options => {
+      assert.equal(options.budgetMs, 5000);
+      assert.equal(options.limit, 10);
+      elapsed += 5000;
+      return { completed: 0, notified: 0, errors: 0 };
+    },
+    collect: async options => {
+      assert.equal(options.budgetMs, 180000);
+      assert.equal(options.budgetMs, COLLECTION_BUDGET_MS);
+      assert.equal(options.limit, 100);
+      assert.equal(options.clock, clock);
+      elapsed += options.budgetMs;
+      return { processed: 50, blocked: 0 };
+    },
+    stages: [{ id: 'first' }, { id: 'second' }, { id: 'deferred' }],
+    runStage: async (stage, options) => {
+      assert.equal(options.deadline, RECONCILIATION_WORK_BUDGET_MS);
+      assert.equal(options.clock, clock);
+      visited.push(stage.id);
+      elapsed += 30000;
+    },
+  });
+  assert.deepEqual(visited, ['first', 'second']);
+  assert.equal(elapsed, 245000);
+  assert.equal(results.errors, 0);
+  assert.deepEqual(results.details.map(d => [d.stage, d.deferred]), [['deferred', true]]);
+});
+
+test('completion overrun clamps collection allowance to the same absolute deadline', async () => {
+  const results = { repaired: 0, flagged: 0, skipped: 0, errors: 0, details: [] };
+  let elapsed = 0;
+  await runReconciliationPhases(results, {
+    clock: () => elapsed,
+    complete: async () => { elapsed = 120000; return { completed: 0, notified: 0, errors: 0 }; },
+    collect: async ({ budgetMs }) => {
+      assert.equal(budgetMs, 150000);
+      elapsed += budgetMs;
+      return { processed: 1, blocked: 0 };
+    },
+    stages: [{ id: 'deferred' }],
+    runStage: async () => assert.fail('no new work after deadline'),
+  });
+  assert.equal(results.errors, 0);
+  assert.equal(results.details[0].deferred, true);
 });
 
 test('failed completion and failed reconciliation stage cannot abort eligible collections or later stages', async () => {
@@ -116,6 +173,24 @@ test('cron rejects an invalid bearer token before reconciliation', { concurrency
     assert.equal(res.statusCode, 401);
     assert.deepEqual(res.body, { error: 'Unauthorized' });
     assert.equal(reconciliationCalls, 0);
+  } finally {
+    if (original === undefined) delete process.env.CRON_SECRET;
+    else process.env.CRON_SECRET = original;
+  }
+});
+
+test('cron accepts the configured bearer token exactly once', { concurrency: false }, async () => {
+  const original = process.env.CRON_SECRET;
+  process.env.CRON_SECRET = 'configured-test-secret';
+  try {
+    let calls = 0;
+    const handler = createReconcileGocardlessHandler({
+      execute: async (_req, res) => { calls++; return res.status(200).json({ ok: true }); },
+    });
+    const res = responseRecorder();
+    await handler({ headers: { authorization: 'Bearer configured-test-secret' } }, res);
+    assert.equal(calls, 1);
+    assert.equal(res.statusCode, 200);
   } finally {
     if (original === undefined) delete process.env.CRON_SECRET;
     else process.env.CRON_SECRET = original;
@@ -330,4 +405,39 @@ test('bounded confirmed scan rotates 100 completed rows so a newer obligation is
   assert.equal(processed.length, 1);
   assert.equal(processed[0].links.payment, 'PM-UNFINISHED');
   assert.equal(second.repaired, 1);
+});
+
+test('downstream row budget finishes in-flight work and leaves unattempted payments untouched and resumable', async () => {
+  const old = '2020-01-01T00:00:00.000Z';
+  const db = fakeDb({
+    gocardless_payments: Array.from({ length: 4 }, (_, i) => ({
+      id: `row-${i}`, tenant_id: 'tenant', gocardless_payment_id: `PM-${i}`,
+      status: 'confirmed', updated_at: old,
+    })),
+  });
+  let elapsed = 0;
+  const read = [];
+  const deps = {
+    db, clock: () => elapsed, deadline: 60000,
+    gcForTenant: async () => ({
+      getPayment: async id => {
+        read.push(id);
+        elapsed += 20000;
+        return { id, status: 'confirmed' };
+      },
+    }),
+  };
+  const first = { repaired: 0, flagged: 0, skipped: 0, errors: 0, details: [] };
+  await reconcileStalePayments(first, deps);
+  assert.equal(first.skipped, 2);
+  assert.equal(first.errors, 0);
+  assert.deepEqual(read, ['PM-0', 'PM-1']);
+  assert.equal(first.details[0].deferred, true);
+  assert.equal(db.tables.gocardless_payments[2].updated_at, old);
+  assert.equal(db.tables.gocardless_payments[3].updated_at, old);
+  assert.notEqual(db.tables.gocardless_payments[1].updated_at, old, 'started row finishes its fairness write');
+  const second = { repaired: 0, flagged: 0, skipped: 0, errors: 0, details: [] };
+  await reconcileStalePayments(second, { ...deps, deadline: elapsed + 60000 });
+  assert.deepEqual(read, ['PM-0', 'PM-1', 'PM-2', 'PM-3']);
+  assert.equal(second.skipped, 2);
 });

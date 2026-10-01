@@ -49,3 +49,9 @@ An unstarted stage deferred by its minimum-time reserve is pending work, not a w
 **Why:** The caller timed out just before the processor recorded success, leaving a paid member without a membership. Increasing the transport timeout alone does not close that race.
 
 **How to apply:** Persist observation identity before dispatch and preserve it across owner-fenced completion retries. While the operation is running, wait without re-sending it; stop on identity loss, explicit ambiguity, or expiry. Leave historical attention receipts closed even if their operations later report success. Keep known partial-action followups distinct from transport retries.
+
+**Rule:** For financial collection throughput, prefer a larger deployment allowance with coordinated phase budgets over shrinking the per-record safety reserve or introducing parallel submissions.
+
+**Why:** A collection phase whose allowance barely exceeded its record-start reserve made only a few submissions per invocation. The reserve protects completion of already-started financial effects; removing it would trade slow processing for ambiguous outcomes.
+
+**How to apply:** Keep collection eligibility and immutable payment identity unchanged, budget downstream reconciliation and audit work too, and test deferred records and ambiguous-response replay. These remain cooperative deadlines, not guarantees against a slow in-flight provider or database operation.

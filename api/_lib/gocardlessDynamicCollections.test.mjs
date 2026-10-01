@@ -7,6 +7,7 @@ import {
 import { resolveInstalmentInvoiceContext } from './membershipInstalmentInvoicing.js';
 import { BNMS_ALPHA_TENANT, BNMS_ALPHA_MANIFEST, BNMS_ALPHA_PROCESSING_NOT_BEFORE } from './bnmsAlphaAccounting.js';
 import { selectDynamicCollections } from './directDebitDynamicPipeline.js';
+import { COLLECTION_BUDGET_MS, runReconciliationPhases } from '../cron/reconcile-gocardless.js';
 
 function fixture({ amount = 12.5, firstDate = '2027-04-02', providerDate = '2027-04-06', end = '2028-03-31' } = {}) {
   const config = { id: 'config', tenant_id: 'tenant', start_mode: 'immediate', structure_scope_type: 'member',
@@ -386,6 +387,104 @@ function addOtherTenant(f) {
   }
   return other.plan;
 }
+
+function batchFixture(count, latencyMs = 2500) {
+  const f = fixture();
+  for (let i = 1; i < count; i++) {
+    f.rows.membership_payment_plans.push({ ...structuredClone(f.plan), id: `plan-${i}` });
+  }
+  let elapsed = 0, active = 0;
+  const payments = new Map();
+  f.clock = () => elapsed;
+  f.gc.createPayment = async request => {
+    assert.equal(active++, 0, 'provider submissions must remain sequential');
+    await Promise.resolve();
+    elapsed += latencyMs;
+    f.calls.push(structuredClone(request));
+    if (!payments.has(request.idempotencyKey)) payments.set(request.idempotencyKey, {
+      id: `PM-${payments.size}`, amount: request.amountMinor, currency: request.currency,
+      charge_date: request.chargeDate, status: 'pending_submission', links: { mandate: request.mandateId },
+    });
+    active--;
+    return payments.get(request.idempotencyKey);
+  };
+  return { ...f, payments, clientForTenant: async () => f.gc };
+}
+
+test('production cron budget submits beyond three sequentially, retains 30s reserve and resumes untouched rows', async () => {
+  const old = batchFixture(70);
+  assert.equal((await reconcileDynamicCollections({ ...old, budgetMs: 35000 })).processed, 3);
+
+  const f = batchFixture(70);
+  const held = [
+    { ...structuredClone(f.plan), id: 'held-beta', metadata: {
+      ...f.plan.metadata, bnms_beta_held: true, bnms_release_required: true,
+    } },
+    { ...structuredClone(f.plan), id: 'stopped', collection_stopped_at: '2027-03-28T00:00:00Z' },
+  ];
+  const heldBefore = structuredClone(held);
+  f.rows.membership_payment_plans.unshift(...held);
+  const unattempted = f.rows.membership_payment_plans.slice(63);
+  const before = structuredClone(unattempted);
+  const results = { repaired: 0, flagged: 0, skipped: 0, errors: 0, details: [] };
+  await runReconciliationPhases(results, {
+    clock: f.clock,
+    complete: async () => ({ completed: 0, notified: 0, errors: 0 }),
+    collect: options => reconcileDynamicCollections({ ...f, ...options }),
+    stages: [],
+  });
+  assert.equal(results.repaired, 61);
+  assert.equal(results.errors, 0);
+  assert.equal(f.clock(), 152500, 'stop starting plans once less than 30s remains');
+  assert.deepEqual(unattempted, before, 'no reservations, errors or next-check changes for unattempted plans');
+  assert.deepEqual(held, heldBefore);
+  assert.equal(f.rows.gocardless_collection_reservations.length, 61);
+  const next = await reconcileDynamicCollections({ ...f, budgetMs: COLLECTION_BUDGET_MS });
+  assert.equal(next.processed, 9);
+  assert.equal(f.payments.size, 70);
+  assert.equal(f.calls.length, 70);
+  assert.deepEqual(held, heldBefore);
+  assert.equal((await reconcileDynamicCollections({ ...f, budgetMs: COLLECTION_BUDGET_MS })).processed, 0);
+  assert.equal(f.calls.length, 70, 'replaying a completed batch cannot create duplicates');
+});
+
+test('larger time allowance still caps a batch at 100 even when caller requests more', async () => {
+  const f = batchFixture(105, 0);
+  const before = structuredClone(f.rows.membership_payment_plans.slice(100));
+  const first = await reconcileDynamicCollections({ ...f, limit: 1000, budgetMs: COLLECTION_BUDGET_MS });
+  assert.equal(first.processed, 100);
+  assert.equal(f.calls.length, 100);
+  assert.deepEqual(f.rows.membership_payment_plans.slice(100), before);
+  assert.equal((await reconcileDynamicCollections({ ...f, budgetMs: COLLECTION_BUDGET_MS })).processed, 5);
+  assert.equal(f.payments.size, 105);
+});
+
+test('larger batch continues after ambiguous acceptance and replays the same provider identity after backoff', async () => {
+  const f = batchFixture(8);
+  const rpc = f.db.rpc;
+  let failAttach = true;
+  f.db.rpc = (name, params) => name === 'attach_gocardless_dynamic_payment'
+    && params.p_reservation_id === 'reservation' && failAttach
+    ? Promise.resolve({ error: { message: 'attachment unavailable' } }) : rpc(name, params);
+  const first = await reconcileDynamicCollections({ ...f, budgetMs: COLLECTION_BUDGET_MS });
+  assert.equal(first.processed, 7);
+  assert.equal(first.blocked, 1);
+  assert.equal(first.errors, 1);
+  assert.equal(f.payments.size, 8, 'provider accepted even though attachment failed');
+  assert.equal(f.rows.gocardless_collection_reservations[0].status, 'reserved');
+  assert.equal((await reconcileDynamicCollections({ ...f, budgetMs: COLLECTION_BUDGET_MS })).processed, 0);
+  assert.equal(f.calls.length, 8, 'failure retains retry backoff');
+  failAttach = false;
+  f.config.dd_monthly_amount = 99;
+  f.now = () => new Date('2027-03-29T13:00:00Z');
+  const retry = await reconcileDynamicCollections({ ...f, budgetMs: COLLECTION_BUDGET_MS });
+  assert.equal(retry.processed, 1);
+  assert.equal(retry.errors, 0);
+  assert.deepEqual(f.calls[8], f.calls[0], 'reserved amount/date/idempotency key survive retry');
+  assert.equal(f.payments.size, 8);
+  assert.equal(f.rows.gocardless_collection_reservations.length, 8);
+  assert.equal(f.rows.gocardless_collection_reservations[0].status, 'submitted');
+});
 
 test('held plans are filtered before limit; released provenance and another tenant still submit', async () => {
   const f = fixture();

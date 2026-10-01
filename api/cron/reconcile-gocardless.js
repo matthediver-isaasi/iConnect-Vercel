@@ -13,6 +13,17 @@ import {
 } from '../_lib/directDebitReconciliationPipeline.js';
 
 const MAX_ROWS_PER_GROUP = 100;
+// This cron alone has a 300s deployment allowance. Leave 30s for audit and
+// heartbeat, and stop starting rows with less than another 30s of work time.
+// These are cooperative deadlines: an in-flight provider/DB write is not cancelled.
+export const COLLECTION_BUDGET_MS = 180000;
+export const RECONCILIATION_WORK_BUDGET_MS = 270000;
+const ROW_RESERVE_MS = 30000;
+
+function deferForBudget(results, stage) {
+  results.details.push({ stage, deferred: true, reason: 'Time budget exhausted; unattempted work remains eligible for a later run' });
+}
+
 const clientCache = new Map();
 async function gcFor(tenantId) {
   const key = tenantId || '__platform__';
@@ -50,13 +61,22 @@ export function liveReconciliationEffects({
 async function runLiveStage(results, stage, {
   db = supabase, gcForTenant = gcFor, processEvent = processGocardlessEvent,
   now = new Date(), effects = liveReconciliationEffects({ db, getGc: gcForTenant, processEvent }),
+  deadline = Infinity, clock = Date.now,
 } = {}) {
   const ctx = { db, now, getGc: gcForTenant, effects };
   for (const selector of stage.selectors) {
+    if (deadline - clock() < ROW_RESERVE_MS) {
+      deferForBudget(results, stage.id);
+      return;
+    }
     const { data: rows, error } = await reconciliationSelection(db, selector, now)
       .order('updated_at', { ascending: true }).limit(MAX_ROWS_PER_GROUP);
     if (error) throw new Error(`load ${selector} failed: ${error.message}`);
     for (const row of rows || []) {
+      if (deadline - clock() < ROW_RESERVE_MS) {
+        deferForBudget(results, stage.id);
+        return;
+      }
       try {
         const outcome = await stage.run(ctx, row);
         for (const key of ['repaired', 'flagged', 'skipped']) results[key] += outcome?.[key] || 0;
@@ -80,31 +100,37 @@ export async function reconcileStalePayments(results, deps = {}) {
 }
 
 export async function runReconciliationPhases(results, {
-  complete = () => reconcileDynamicTermCompletions({ db: supabase, limit: 10, budgetMs: 5000 }),
-  collect = () => reconcileDynamicCollections({ db: supabase, clientForTenant: gcFor, budgetMs: 35000 }),
+  complete = options => reconcileDynamicTermCompletions({ db: supabase, ...options }),
+  collect = options => reconcileDynamicCollections({ db: supabase, clientForTenant: gcFor, ...options }),
   stages = reconciliationStages,
-  runStage = stage => runLiveStage(results, stage),
+  runStage = (stage, options) => runLiveStage(results, stage, options),
+  clock = Date.now, deadline = clock() + RECONCILIATION_WORK_BUDGET_MS,
 } = {}) {
   // Independent phases must still run after selection/RPC/outcome-write errors.
   // Preserve failure reporting: a partial run must never send a success heartbeat.
   const phases = [
     ['dynamic-completion', async () => {
-      const completion = await complete();
+      const completion = await complete({ limit: 10, budgetMs: 5000, clock });
       results.repaired += completion.completed + completion.notified;
       results.errors += completion.errors;
       results.details.push(...(completion.details || []));
     }],
     ['dynamic-collections', async () => {
-      const dynamic = await collect();
+      const dynamic = await collect({ limit: 100,
+        budgetMs: Math.min(COLLECTION_BUDGET_MS, Math.max(0, deadline - clock())), clock });
       results.repaired += dynamic.processed;
       results.flagged += dynamic.blocked;
       results.skipped += dynamic.skipped || 0;
       results.errors += dynamic.errors || 0;
       results.details.push(...(dynamic.details || []));
     }],
-    ...stages.map(stage => [stage.id, () => runStage(stage)]),
+    ...stages.map(stage => [stage.id, () => runStage(stage, { deadline, clock })]),
   ];
   for (const [stage, run] of phases) {
+    if (deadline - clock() < ROW_RESERVE_MS) {
+      deferForBudget(results, stage);
+      continue;
+    }
     try { await run(); }
     catch (error) {
       results.errors++;
@@ -123,7 +149,7 @@ async function executeReconciliation(_req, res) {
   clientCache.clear();
   const startTime = Date.now();
   const results = { repaired: 0, flagged: 0, skipped: 0, errors: 0, details: [] };
-  await runReconciliationPhases(results);
+  await runReconciliationPhases(results, { deadline: startTime + RECONCILIATION_WORK_BUDGET_MS });
   const duration = Date.now() - startTime;
   try {
     const { error } = await supabase.from('scheduled_task_log').insert({
