@@ -152,13 +152,15 @@ test('publish validation rejects empty headings and unusable structures', () => 
   assert.ok(validateBlock({ type: BLOCK_TYPES.DATA_TABLE, content: { columns: [], rows: [] } }).some((error) => error.includes('at least one column')));
 });
 
-test('shared renderer keeps semantic table headers and a horizontal scroll boundary', () => {
+test('shared renderer keeps semantic headers and width-constrained wrapping', () => {
   const registrySource = readFileSync(new URL('../components/canvas/blocks/registry.jsx', import.meta.url), 'utf8');
   const renderer = registrySource.slice(
     registrySource.indexOf('function DataTableRender'),
     registrySource.indexOf('function DataTableInspector'),
   );
-  assert.match(renderer, /overflow-x-auto/);
+  assert.match(renderer, /table-fixed/);
+  assert.doesNotMatch(renderer, /min-w-max|overflow-x-auto/);
+  assert.equal((renderer.match(/overflow-wrap:anywhere/g) || []).length, 2);
   assert.match(renderer, /<table\b/);
   assert.match(renderer, /<thead>/);
   assert.match(renderer, /<tbody>/);
@@ -229,4 +231,70 @@ test('flow static table footprint includes wrapper chrome and current responsive
     bodyStyle: liveStyles[1],
   });
   assert.ok(nextTop >= tableTop + expectedContent + 30 + 24 + 8);
+});
+
+const schedule = {
+  columns: [{ id: 'time', heading: 'Time' }, { id: 'session', heading: 'Session and presenter information' }],
+  rows: [
+    { id: 's1', cells: { time: '09:00 – 09:30', session: 'Martin Edmondson, opening address and conference welcome' } },
+    { id: 's2', cells: { time: '10:45 – 11:30', session: 'Parallel Sessions (Rotating workshops and discussion)' } },
+  ],
+};
+
+test('table estimate wraps headings, words and unbroken tokens within the available column width', () => {
+  const height = (content, width) => estimateDataTableHeight(content, 'desktop', { contentWidth: width });
+  assert.ok(height(schedule, 320) > height(schedule, 900));
+  for (const value of ['A long heading that needs several lines', 'W'.repeat(100)]) {
+    const heading = { columns: [{ id: 'a', heading: value }], rows: [] };
+    const body = { columns: [{ id: 'a', heading: 'A' }], rows: [{ id: 'r', cells: { a: value } }] };
+    assert.ok(height(heading, 160) > height(heading, 1000));
+    assert.ok(height(body, 160) > height(body, 1000));
+  }
+  assert.ok(Number.isFinite(height(schedule, 0)), 'transient zero width must not loop or produce Infinity');
+});
+
+test('explicit newlines add lines even in a wide table; no scrollbar gutter is reserved', () => {
+  const single = { columns: [{ id: 'a', heading: 'A' }], rows: [{ id: 'r', cells: { a: 'B' } }] };
+  const multiline = { ...single, rows: [{ id: 'r', cells: { a: 'B\r\nC\nD' } }] };
+  assert.equal(estimateDataTableHeight(single), 83);
+  assert.equal(estimateDataTableHeight(multiline) - estimateDataTableHeight(single), 48);
+});
+
+test('wrapping estimates use current responsive font size, line height and letter spacing without changing content', () => {
+  const before = JSON.stringify(schedule);
+  const styles = {
+    contentWidth: 400,
+    headerStyle: { font_size: 16, font_size_tablet: 22, font_size_mobile: 28, line_height: 1.5 },
+    bodyStyle: { font_size: 16, font_size_tablet: 22, font_size_mobile: 28, line_height: 1.5, line_height_mobile: 1.8 },
+  };
+  assert.ok(estimateDataTableHeight(schedule, 'mobile', styles) > estimateDataTableHeight(schedule, 'tablet', styles));
+  assert.ok(estimateDataTableHeight(schedule, 'tablet', styles) > estimateDataTableHeight(schedule, 'desktop', styles));
+  assert.ok(estimateDataTableHeight(schedule, 'desktop', {
+    ...styles, bodyStyle: { ...styles.bodyStyle, letter_spacing: 4 },
+  }) > estimateDataTableHeight(schedule, 'desktop', styles));
+  assert.equal(JSON.stringify(schedule), before);
+});
+
+test('static footprint uses parent column width and wrapper chrome rather than stale stored width', () => {
+  let design = createFlowDesign();
+  const tableNode = createFlowNode(BLOCK_TYPES.DATA_TABLE, {
+    id: 'column-table', content: schedule,
+    style: { paddingLeft: 12, paddingRight: 18, paddingTop: 7, paddingBottom: 9, borderWidth: 2 },
+    flow: { basis: '30%' },
+  });
+  const row = createFlowNode(BLOCK_TYPES.ROW, {
+    id: 'schedule-row',
+    flow: { gap: 20, padLeft: 10, padRight: 10 },
+    children: [tableNode, createFlowNode(BLOCK_TYPES.SPACER, { id: 'other-column' })],
+  });
+  design = insertFlowNode(design, row);
+  design = insertFlowNode(design, createFlowNode(BLOCK_TYPES.BUTTON, { id: 'below-row' }));
+  const before = JSON.stringify(design);
+  const { boxes } = resolveFlowLayout(design, { breakpoint: 'desktop', containerWidth: 1200 });
+  assert.ok(boxes['column-table'].w < 400);
+  const expected = estimateDataTableHeight(schedule, 'desktop', { contentWidth: boxes['column-table'].w - 34 }) + 20;
+  const css = buildFlowCanvasCss(design, '#scope');
+  const top = (id) => Number(css.match(new RegExp(`\\[data-cb="${id}"\\]\\{[^}]*top:(\\d+)px`))[1]);
+  assert.ok(top('below-row') >= top('column-table') + expected);
+  assert.equal(JSON.stringify(design), before, 'first-paint estimation must remain read-only');
 });

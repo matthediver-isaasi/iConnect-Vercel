@@ -40,6 +40,9 @@ export function makeTableTypographyMetrics(style, fallbackFontSize = 16) {
     lineHeight: finite(style?.line_height) ?? 1.5,
     lineHeightTablet: finite(style?.line_height_tablet),
     lineHeightMobile: finite(style?.line_height_mobile),
+    letterSpacing: finite(style?.letter_spacing) ?? 0,
+    letterSpacingTablet: finite(style?.letter_spacing_tablet),
+    letterSpacingMobile: finite(style?.letter_spacing_mobile),
   };
 }
 
@@ -82,31 +85,59 @@ function metricAtBreakpoint(metrics, key, breakpoint) {
   return metrics?.[key];
 }
 
-function explicitLineCount(value) {
-  return Math.max(1, String(value ?? '').split(/\r\n|\r|\n/).length);
+function wrappedLineCount(value, width, fontSize, letterSpacing, transform) {
+  let text = String(value ?? '');
+  if (transform === 'uppercase') text = text.toUpperCase();
+  else if (transform === 'lowercase') text = text.toLowerCase();
+  // A deterministic font-independent approximation for first paint only.
+  // Keep word boundaries, preserved whitespace/newlines, and anywhere breaks
+  // for long tokens. Live ResizeObserver measurements remain authoritative.
+  const advance = Math.max(1, fontSize * 0.6 + letterSpacing);
+  const capacity = Math.max(1, Math.floor(width / advance));
+  return text.split(/\r\n|\r|\n/).reduce((total, line) => {
+    let lines = 1;
+    let used = 0;
+    for (const token of line.replace(/\t/g, '        ').match(/\s+|\S+/gu) || []) {
+      let length = Array.from(token).length;
+      if (!/^\s/u.test(token) && used > 0 && used + length > capacity) {
+        lines += 1;
+        used = 0;
+      }
+      while (length > 0) {
+        if (used === capacity) { lines += 1; used = 0; }
+        const take = Math.min(length, capacity - used);
+        used += take;
+        length -= take;
+      }
+    }
+    return total + lines;
+  }, 0);
 }
 
 // Server-computable footprint used by Canvas v2's static first-paint CSS.
-// The rendered table has max-content width inside a horizontal scroller, so
-// ordinary text does not wrap; only explicit line breaks increase row height.
+// Fixed-layout tables share the available content width equally among columns.
+// Width excludes the block wrapper's padding/border; cell padding is 12px/side.
 export function estimateDataTableHeight(content, breakpoint = 'desktop', styles = {}) {
   const table = normalizeTableContent(content);
-  const rowHeight = (values, metrics) => {
+  const width = Number.isFinite(styles.contentWidth) ? Math.max(0, styles.contentWidth) : 1200;
+  const cellWidth = Math.max(1, width / Math.max(1, table.columns.length) - 24);
+  const rowHeight = (values, metrics, style) => {
     const fontSize = Math.max(8, Number(metricAtBreakpoint(metrics, 'fontSize', breakpoint)) || 16);
     const lineHeight = Math.max(0.5, Number(metricAtBreakpoint(metrics, 'lineHeight', breakpoint)) || 1.5);
-    const lines = Math.max(1, ...values.map(explicitLineCount));
+    const letterSpacing = Number(metricAtBreakpoint(metrics, 'letterSpacing', breakpoint)) || 0;
+    const lines = Math.max(1, ...values.map((value) =>
+      wrappedLineCount(value, cellWidth, fontSize, letterSpacing, style?.text_transform)));
     return Math.ceil(fontSize * lineHeight * lines) + 17; // 16px y-padding + border
   };
   const headerMetrics = makeTableTypographyMetrics(styles.headerStyle, 16);
   const bodyMetrics = makeTableTypographyMetrics(styles.bodyStyle, 16);
-  const headerHeight = rowHeight(table.columns.map((column) => column.heading), headerMetrics);
+  const headerHeight = rowHeight(table.columns.map((column) => column.heading), headerMetrics, styles.headerStyle);
   const bodyHeight = table.rows.reduce(
-    (sum, row) => sum + rowHeight(table.columns.map((column) => row.cells?.[column.id] ?? ''), bodyMetrics),
+    (sum, row) => sum + rowHeight(table.columns.map((column) => row.cells?.[column.id] ?? ''), bodyMetrics, styles.bodyStyle),
     0,
   );
-  // Reserve a conservative native horizontal-scrollbar gutter. Overlay
-  // scrollbar platforms use less, never more.
-  return headerHeight + bodyHeight + 19;
+  // Header has a 2px collapsed border instead of the body's 1px border.
+  return headerHeight + bodyHeight + 1;
 }
 
 export function addTableColumn(content, heading = 'Column') {

@@ -430,6 +430,13 @@ export function buildFlowCanvasCss(design, scope, options = {}) {
 
   const staticMeasurements = (breakpoint) => {
     const measured = {};
+    // Widths depend on parent rows, gaps, padding and basis, not leaf heights.
+    // Resolve them through the same engine rather than using the stored frame
+    // (which need not match a flow leaf's allotted width).
+    const { boxes } = resolveFlowLayout(design, {
+      breakpoint,
+      containerWidth: BREAKPOINT_WIDTHS[breakpoint],
+    });
     forEachFlowNode(design, (node) => {
       if (
         node.type === BLOCK_TYPES.DATA_TABLE &&
@@ -441,10 +448,15 @@ export function buildFlowCanvasCss(design, scope, options = {}) {
           Math.max(0, Number(style.paddingTop) || 0) +
           Math.max(0, Number(style.paddingBottom) || 0);
         const verticalBorder = Math.max(0, Number(style.borderWidth) || 0) * 2;
+        const contentWidth = Math.max(0,
+          (boxes[node.id]?.w ?? resolveBlockAtBreakpoint(node, breakpoint).w) -
+          Math.max(0, Number(style.paddingLeft) || 0) -
+          Math.max(0, Number(style.paddingRight) || 0) - verticalBorder);
         measured[node.id] = {
           height: Math.max(
             Number.isFinite(storedHeight) ? storedHeight : 0,
             estimateDataTableHeight(node.content, breakpoint, {
+              contentWidth,
               headerStyle: typographyById.get(String(node.content?.headerTypographyStyleId || '')),
               bodyStyle: typographyById.get(String(node.content?.bodyTypographyStyleId || '')),
             }) + verticalPadding + verticalBorder,

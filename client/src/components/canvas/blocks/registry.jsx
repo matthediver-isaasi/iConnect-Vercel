@@ -10437,19 +10437,21 @@ function DataTableRender({ block, breakpoint, asEditor = false }) {
   ].filter(Boolean).join('') : '';
   const tableRef = useReportReflowHeight(
     block.id,
-    (block.style?.paddingTop || 0) + (block.style?.paddingBottom || 0),
+    (block.style?.paddingTop || 0) + (block.style?.paddingBottom || 0) +
+      (block.style?.borderWidth || 0) * 2,
+    { includeExtraHeightPublic: true },
   );
   const headerInline = headerStyle ? buildTypographyInlineStyle(headerStyle, { breakpoint: bp }) : {};
   const bodyInline = bodyStyle ? buildTypographyInlineStyle(bodyStyle, { breakpoint: bp }) : {};
   return (
     <>
       {responsiveCss && <style dangerouslySetInnerHTML={{ __html: responsiveCss }} />}
-      <div ref={tableRef} className="w-full overflow-x-auto" style={{ visibility: headerAwaiting || bodyAwaiting ? 'hidden' : undefined }}>
-        <table className="w-full min-w-max border-collapse text-left" data-testid="canvas-data-table">
+      <div ref={tableRef} className="w-full min-w-0" style={{ visibility: headerAwaiting || bodyAwaiting ? 'hidden' : undefined }}>
+        <table className="w-full table-fixed border-collapse text-left" data-testid="canvas-data-table">
           <thead>
             <tr className="border-b-2 border-slate-300">
               {c.columns.map((column) => (
-                <th key={column.id} scope="col" data-tg-r="table-header" className="px-3 py-2 font-semibold align-top" style={headerInline}>
+                <th key={column.id} scope="col" data-tg-r="table-header" className="px-3 py-2 font-semibold align-top whitespace-pre-wrap [overflow-wrap:anywhere]" style={headerInline}>
                   {column.heading}
                 </th>
               ))}
@@ -10459,7 +10461,7 @@ function DataTableRender({ block, breakpoint, asEditor = false }) {
             {c.rows.map((row) => (
               <tr key={row.id} className="border-b border-slate-200">
                 {c.columns.map((column) => (
-                  <td key={column.id} data-tg-r="table-cell" className="px-3 py-2 align-top whitespace-pre-wrap" style={bodyInline}>
+                  <td key={column.id} data-tg-r="table-cell" className="px-3 py-2 align-top whitespace-pre-wrap [overflow-wrap:anywhere]" style={bodyInline}>
                     {row.cells?.[column.id] || ''}
                   </td>
                 ))}
@@ -10641,7 +10643,9 @@ const REGISTRY = {
   [BLOCK_TYPES.LOGO_STRIP]:   { label: 'Logo strip',     icon: Images,         category: 'ui',       Editor: LogoStripRender,    Renderer: LogoStripRender,    Inspector: LogoStripInspector },
   [BLOCK_TYPES.MAP]:          { label: 'Map',            icon: MapIcon,        category: 'media',    Editor: MapRender,          Renderer: MapRender,          Inspector: MapInspector },
   [BLOCK_TYPES.PRICING_TABLE]:    { label: 'Pricing table',   icon: TableIcon,         category: 'content',  Editor: PricingTableRender,    Renderer: PricingTableRender,    Inspector: PricingTableInspector },
-  [BLOCK_TYPES.DATA_TABLE]:       { label: 'Table',           icon: TableIcon,         category: 'content',  Editor: DataTableRender,       Renderer: DataTableRender,       Inspector: DataTableInspector, allowOverflow: true, autoHeight: true, widthResizeOnly: true },
+  // Wrapping can outgrow historical no-wrap frames on first open. Reuse live
+  // reflow in BOTH surfaces without baking those measurements into saved pages.
+  [BLOCK_TYPES.DATA_TABLE]:       { label: 'Table',           icon: TableIcon,         category: 'content',  Editor: DataTableRender,       Renderer: DataTableRender,       Inspector: DataTableInspector, allowOverflow: true, autoHeight: true, widthResizeOnly: true, renderOnlyAutoHeight: true },
   [BLOCK_TYPES.TESTIMONIAL_GRID]: { label: 'Testimonial grid',icon: MessageSquareQuote,category: 'content',  Editor: TestimonialGridRender, Renderer: TestimonialGridRender, Inspector: TestimonialGridInspector },
   [BLOCK_TYPES.NEWS_TICKER]:      { label: 'News Ticker',     icon: Megaphone,         category: 'content',  Editor: NewsTickerRender,      Renderer: NewsTickerRender,      Inspector: NewsTickerInspector },
   [BLOCK_TYPES.MEGA_MENU]:        { label: 'Mega Menu',       icon: Menu,              category: 'content',  Editor: MegaMenuRender,        Renderer: MegaMenuRender,        Inspector: MegaMenuInspector, allowOverflow: true },
