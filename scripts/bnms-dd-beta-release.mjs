@@ -175,6 +175,8 @@ export function betaReleaseManifest(report,proof){
       ||member.accounting.revenueCode!==mapping.revenue_account_code)fail('Beta reviewed accounting mapping mismatch');
   }
   if(!proof?.sourceHashes||!proof.deploymentId||!proof.commit)fail('Verified active deployment proof required');
+  if(proof.provenance?.kind==='user-supplied-local-vercel-attestation')
+    fail('Beta requires machine-verified Vercel evidence; manual attestation commit freshness is not supported');
   return {version:1,batchHash:BATCH_HASH,tenantId:TENANT_ID,processingNotBefore:PROCESSING_START,
     stateHash:report.stateHash,production:proof,handover:report.handover,
     members:report.members.map(m=>({adoptionId:m.adoptionId,memberId:m.memberId,planId:m.planId,

@@ -3,14 +3,15 @@ import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {verifyUserDeploymentAttestation,REQUIRED_SOURCES,assertUserAttestationFresh} from './bnms-dd-pilot-deployment-proof.mjs';
 import {parseAlphaReleaseArgs,safeAlphaReadinessError} from './run-bnms-dd-alpha-release.mjs';
-const content=Buffer.from('BNMS pilot processing-not-before accounting_migration nominated_day');
-const sha=createHash('sha256').update(content).digest('hex');
+const content=Buffer.from('BNMS_AUTOMATIC_PROCESSING_NOT_BEFORE BNMS beta reviewed release and processing gate are required accounting_migration nominated_day');
+const config=Buffer.from(JSON.stringify({crons:[{path:'/api/cron/reconcile-gocardless',schedule:'*/5 * * * *'}]}));
+const source=path=>path==='vercel.json'?config:content;
 const proof={version:1,projectId:'prj_iPFlb9rOOVNVtbobMRR1vyV934lf',
   teamId:'team_6nULXm5hUGvUCNwvc7Axz6GF',deploymentId:'dpl_example',commit:'a'.repeat(40),
-  sourceHashes:Object.fromEntries(REQUIRED_SOURCES.map(p=>[p,sha]))};
+  sourceHashes:Object.fromEntries(REQUIRED_SOURCES.map(p=>[p,createHash('sha256').update(source(p)).digest('hex')]))};
 const project={id:proof.projectId,productionDeploymentId:proof.deploymentId,cronDeploymentId:proof.deploymentId,
   cronDisabledAtPresent:true,cronDisabledAt:null,
-  goCardlessSchedules:[{path:'/api/cron/reconcile-gocardless',schedule:'15 */6 * * *'}]};
+  goCardlessSchedules:[{path:'/api/cron/reconcile-gocardless',schedule:'*/5 * * * *'}]};
 const deployment={id:proof.deploymentId,projectId:proof.projectId,target:'production',state:'READY',
   gitSource:{type:'github',repoId:1104295583,sha:proof.commit}};
 const original={observedAt:'2026-09-21T09:36:45.532200+00:00',teamId:proof.teamId,
@@ -18,7 +19,7 @@ const original={observedAt:'2026-09-21T09:36:45.532200+00:00',teamId:proof.teamI
   baselineDeployment:{...deployment,id:'dpl_6hEq9mdejDLdB9eUukppK419dPWt',
     gitSource:{...deployment.gitSource,sha:'83ceae1732fb5b63e7312fe5c0baf438831b31f2'}},
   configurationUnchangedDuringCheck:true};
-const deps={now:new Date('2026-09-21T09:40:00Z'),readSource:async()=>content,gitSource:()=>content};
+const deps={now:new Date('2026-09-21T09:40:00Z'),readSource:async path=>source(path),gitSource:(_commit,path)=>source(path)};
 test('manual provenance preserves original timestamp and digest, rechecks freshness',async()=>{
   const raw=JSON.stringify(original),v=await verifyUserDeploymentAttestation(proof,raw,deps);
   assert.equal(v.provenance.agentLiveVerified,false);
@@ -32,6 +33,8 @@ test('rejects identity, cron, baseline, before/after and time changes',async()=>
     a=>a.teamId='wrong',a=>a.projectBefore.id='wrong',a=>a.projectAfter.id='wrong',
     a=>a.projectAfter.productionDeploymentId='wrong',a=>a.projectBefore.cronDeploymentId='wrong',
     a=>a.projectAfter.goCardlessSchedules[0].schedule='* * * * *',
+    a=>{for(const p of [a.projectBefore,a.projectAfter])p.goCardlessSchedules[0].schedule='15 */6 * * *';},
+    a=>{for(const p of [a.projectBefore,a.projectAfter])p.goCardlessSchedules.push({...p.goCardlessSchedules[0]});},
     a=>a.projectBefore.cronDisabledAtPresent=false,a=>a.projectAfter.cronDisabledAt=123,
     a=>a.productionDeployment.gitSource.repoId=1,a=>a.productionDeployment.gitSource.sha='b'.repeat(40),
     a=>a.productionDeployment.state='BUILDING',a=>a.productionDeployment.target='preview',
@@ -45,7 +48,7 @@ test('rejects identity, cron, baseline, before/after and time changes',async()=>
     await assert.rejects(verifyUserDeploymentAttestation(proof,JSON.stringify(a),deps));
   }
 });
-test('requires seven reviewed sources, deployed git equality and capability markers',async()=>{
+test('requires all reviewed sources, deployed git equality and current pipeline capability markers',async()=>{
   const p=structuredClone(proof);delete p.sourceHashes[REQUIRED_SOURCES[0]];
   await assert.rejects(verifyUserDeploymentAttestation(p,JSON.stringify(original),deps),/proof required/);
   await assert.rejects(verifyUserDeploymentAttestation(proof,JSON.stringify(original),

@@ -5,7 +5,12 @@ import { isDeepStrictEqual } from 'node:util';
 const BASELINE='dpl_6hEq9mdejDLdB9eUukppK419dPWt';
 const BASELINE_SHA='83ceae1732fb5b63e7312fe5c0baf438831b31f2';
 const GITHUB_REPOSITORY_ID=1104295583;
+const CRON_PATH='/api/cron/reconcile-gocardless';
+const REVIEWED_CRON_SCHEDULE='*/5 * * * *';
 export const REQUIRED_SOURCES=[
+  'vercel.json','api/cron/reconcile-gocardless.js',
+  'api/_lib/directDebitDynamicPipeline.js','api/_lib/directDebitReconciliationPipeline.js',
+  'api/_lib/gocardlessDdRenewalsCore.js','api/_lib/ddRenewalPipeline.js','api/_lib/ddRenewalCapabilities.js',
   'api/_lib/bnmsBetaAccounting.js',
   'api/_lib/bnmsAlphaAccounting.js',
   'api/_lib/gocardlessAccounting.js','api/_lib/membershipInstalmentInvoicing.js',
@@ -19,6 +24,9 @@ function assertProofShape(proof){
     ||!/^prj_[A-Za-z0-9]+$/.test(proof.projectId||'')||!/^[a-f0-9]{40}$/.test(proof.commit||'')
     ||!proof.sourceHashes||REQUIRED_SOURCES.some(p=>!proof.sourceHashes[p]))
     throw Error('Complete reviewed deployment/source proof required');
+}
+function matchingCrons(definitions){
+  return Array.isArray(definitions)?definitions.filter(item=>item?.path===CRON_PATH):[];
 }
 export const USER_ATTESTATION_MAX_AGE_MS=15*60*1000;
 export function assertUserAttestationFresh(proof,now=new Date()){
@@ -41,6 +49,7 @@ export function assertUserAttestationFresh(proof,now=new Date()){
 export async function verifyUserDeploymentAttestation(proof,raw,{now=new Date(),readSource=readFile,
   gitSource=(commit,path)=>execFileSync('git',['show',`${commit}:${path}`],{maxBuffer:4*1024*1024})}={}){
   assertProofShape(proof);
+  const reviewedCron=await verifyReviewedSources(proof,{readSource,gitSource});
   const a=JSON.parse(raw),provenance={kind:'user-supplied-local-vercel-attestation',
     agentLiveVerified:false,observedAt:a.observedAt,attestationSha256:hash(raw)};
   assertUserAttestationFresh({provenance},now);
@@ -57,20 +66,20 @@ export async function verifyUserDeploymentAttestation(proof,raw,{now=new Date(),
     if(p?.id!==proof.projectId||p.productionDeploymentId!==proof.deploymentId
       ||p.cronDeploymentId!==proof.deploymentId||p.cronDisabledAtPresent!==true||p.cronDisabledAt!==null
       ||!Array.isArray(p.goCardlessSchedules)||p.goCardlessSchedules.length!==1
-      ||p.goCardlessSchedules[0]?.path!=='/api/cron/reconcile-gocardless'
-      ||p.goCardlessSchedules[0]?.schedule!=='15 */6 * * *')
+      ||p.goCardlessSchedules[0]?.path!==reviewedCron.path
+      ||p.goCardlessSchedules[0]?.schedule!==reviewedCron.schedule)
       throw Error('User attestation before/after active production cron mismatch');
   }
-  await verifyReviewedSources(proof,{readSource,gitSource});
   return {version:1,projectId:proof.projectId,deploymentId:proof.deploymentId,commit:proof.commit,
     teamId:proof.teamId,sourceHashes:proof.sourceHashes,provenance,
-    cron:{deploymentId:proof.deploymentId,path:'/api/cron/reconcile-gocardless',
-      schedule:'15 */6 * * *',disabledAt:null}};
+    cron:{deploymentId:proof.deploymentId,...reviewedCron,disabledAt:null}};
 }
 export async function verifyDeploymentProof(proof,{token=process.env.VERCEL_API_TOKEN,vercelRequest,transport=fetch,readSource=readFile,gitSource=(commit,path)=>execFileSync('git',['show',`${commit}:${path}`],{maxBuffer:4*1024*1024})}={}){
-  if((!token&&typeof vercelRequest!=='function')||proof?.version!==1||!/^dpl_[A-Za-z0-9]+$/.test(proof.deploymentId||'')
-    ||!/^prj_[A-Za-z0-9]+$/.test(proof.projectId||'')||!/^[a-f0-9]{40}$/.test(proof.commit||'')
-    ||!proof.sourceHashes||REQUIRED_SOURCES.some(p=>!proof.sourceHashes[p]))throw Error('Complete reviewed deployment/source proof required');
+  assertProofShape(proof);
+  if(!token&&typeof vercelRequest!=='function')throw Error('Complete reviewed deployment/source proof required');
+  // Both worktree and deployed git bytes must match the review, including cron
+  // configuration. Never trust a schedule supplied separately in proof JSON.
+  const reviewedCron=await verifyReviewedSources(proof,{readSource,gitSource});
   const get=async path=>{
     const u=new URL(`https://api.vercel.com${path}`);
     if(proof.teamId)u.searchParams.set('teamId',proof.teamId);
@@ -88,15 +97,14 @@ export async function verifyDeploymentProof(proof,{token=process.env.VERCEL_API_
     ||(baseline.projectId||baseline.project?.id)!==proof.projectId)throw Error('Known production project anchor mismatch');
   const project=await get(`/v9/projects/${proof.projectId}`);
   const deployment=await get(`/v13/deployments/${proof.deploymentId}`);
-  const cron=project.crons?.definitions?.find(item=>item?.path==='/api/cron/reconcile-gocardless');
+  const crons=matchingCrons(project.crons?.definitions),cron=crons[0];
   if(project.id!==proof.projectId||project.targets?.production?.id!==proof.deploymentId
-    ||project.crons?.deploymentId!==proof.deploymentId||!cron
-    ||cron.schedule!=='15 */6 * * *'||project.crons.disabledAt!==null
+    ||project.crons?.deploymentId!==proof.deploymentId||crons.length!==1
+    ||cron.schedule!==reviewedCron.schedule||project.crons.disabledAt!==null
     ||deployment.id!==proof.deploymentId||(deployment.projectId||deployment.project?.id)!==proof.projectId
     ||deployment.target!=='production'||(deployment.readyState||deployment.state)!=='READY'
     ||!isPinnedGitHubSource(deployment,proof.commit))
     throw Error('Reviewed commit is not the active READY git-backed production deployment');
-  await verifyReviewedSources(proof,{readSource,gitSource});
   return {version:1,projectId:proof.projectId,deploymentId:proof.deploymentId,commit:proof.commit,
     cron:{deploymentId:project.crons.deploymentId,path:cron.path,schedule:cron.schedule,disabledAt:project.crons.disabledAt},
     ...(proof.teamId?{teamId:proof.teamId}:{}),sourceHashes:proof.sourceHashes};
@@ -104,15 +112,23 @@ export async function verifyDeploymentProof(proof,{token=process.env.VERCEL_API_
 async function verifyReviewedSources(proof,{readSource,gitSource}){
   const contents={};
   for(const [path,expected]of Object.entries(proof.sourceHashes)){
-    if(!/^(api|shared)\/[A-Za-z0-9_./-]+\.(js|mjs)$/.test(path)||path.includes('..')
+    if((path!=='vercel.json'&&!/^(api|shared)\/[A-Za-z0-9_./-]+\.(js|mjs)$/.test(path))||path.includes('..')
       ||!/^[a-f0-9]{64}$/.test(expected))throw Error('Invalid reviewed source path/hash');
     const current=await readSource(path);
     if(hash(current)!==expected||hash(await gitSource(proof.commit,path))!==expected)
       throw Error(`Reviewed/deployed source differs: ${path}`);
     contents[path]=current.toString();
   }
-  if(!contents['api/_lib/gocardlessDynamicCollections.js'].includes('BNMS pilot processing-not-before')
+  // Capability markers supplement (never replace) full-file, commit-bound hashes.
+  if(!contents['api/_lib/directDebitDynamicPipeline.js'].includes('BNMS_AUTOMATIC_PROCESSING_NOT_BEFORE')
+    ||!contents['api/_lib/directDebitDynamicPipeline.js'].includes('BNMS beta reviewed release and processing gate are required')
     ||!contents['api/_lib/gocardlessAccounting.js'].includes('accounting_migration')
-    ||!contents['api/_lib/gocardlessDdRenewals.js'].includes('accounting_migration')
-    ||!contents['api/_lib/gocardlessDdRenewals.js'].includes('nominated_day'))throw Error('Reviewed source lacks required pilot accounting/renewal/exact-date capabilities');
+    ||!contents['api/_lib/gocardlessDdRenewalsCore.js'].includes('accounting_migration')
+    ||!contents['api/_lib/gocardlessDdRenewalsCore.js'].includes('nominated_day'))throw Error('Reviewed source lacks required pilot accounting/renewal/exact-date capabilities');
+  let config;
+  try{config=JSON.parse(contents['vercel.json']);}catch{throw Error('Reviewed vercel.json must be valid JSON');}
+  const crons=matchingCrons(config?.crons);
+  if(crons.length!==1||crons[0].schedule!==REVIEWED_CRON_SCHEDULE)
+    throw Error('Reviewed vercel.json requires exactly one five-minute GoCardless cron');
+  return {path:CRON_PATH,schedule:crons[0].schedule};
 }

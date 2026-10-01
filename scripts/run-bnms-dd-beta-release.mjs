@@ -3,6 +3,11 @@
 // --schema: offline hash review; --apply --review-sha256=... applies schema only.
 // --out /tmp/new.json [--proof /tmp/verified-input.json]: fresh readiness/dry run.
 // Data apply also requires --proof and the exact dry-run manifest hash.
+// Beta intentionally does NOT accept Alpha's --attestation path: its transaction
+// does not enforce manual-attestation freshness at commit. A valid VERCEL_API_TOKEN
+// (or authenticated vercelRequest connector) with read access to the pinned
+// project and baseline/production deployments is required; a claimed commit or
+// an old local Vercel report is never an automatic fallback for failed access.
 import { readFile, open } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';

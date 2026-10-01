@@ -17,6 +17,8 @@ const accountingFor=memberId=>{const mapping=betaAccountingMapping(memberId);ret
 test('release CLI/scope/readiness refuse identity overrides, ambiguous handover and unreviewed apply',()=>{
   for(const args of [['--apply'],['--out','/tmp/a','--member','x'],['--schema','--out','/tmp/a'],['--out','/tmp/a','--replay','/tmp/old'],['--apply','--out','/tmp/a',`--review-sha256=${'a'.repeat(64)}`]])assert.throws(()=>parseBetaReleaseArgs(args));
   assert.equal(parseBetaReleaseArgs(['--schema']).apply,false);
+  assert.throws(()=>parseBetaReleaseArgs(['--out','/tmp/a','--proof','/tmp/p','--attestation','/tmp/a']),/Unsupported/);
+  assert.throws(()=>parseBetaReleaseArgs(['--out','/tmp/a','--deployed']),/Unsupported/);
   assert.throws(()=>validateBetaScope({tenant_id:TENANT_ID,evidence_sha256:BATCH_HASH,evidence:{}},Array(10).fill({})),/immutable/);
   assert.throws(()=>validateBetaHandover({tenantId:TENANT_ID,batchHash:BATCH_HASH,automaticLegacyCollectionsDisabled:true},[uuid(1)]));
   const memberIds=betaIds;
@@ -28,6 +30,8 @@ test('release CLI/scope/readiness refuse identity overrides, ambiguous handover 
     members:memberIds.map(memberId=>({memberId,accounting:accountingFor(memberId),blockers:[],provider:{mandate:{next_possible_charge_date:'2026-09-24'}}}))};
   assert.throws(()=>betaReleaseManifest(report,null),/deployment proof/);
   const proof={deploymentId:'fixture',commit:'fixture',sourceHashes:{}};
+  assert.throws(()=>betaReleaseManifest(report,{...proof,
+    provenance:{kind:'user-supplied-local-vercel-attestation'}}),/machine-verified/);
   const manifest=betaReleaseManifest(report,proof);
   assert.equal(manifest.processingNotBefore,'2026-09-30T23:00:00Z');
   assert.equal(manifest.members.length,10);
