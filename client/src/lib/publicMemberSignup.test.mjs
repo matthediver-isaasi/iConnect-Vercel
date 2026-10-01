@@ -63,14 +63,16 @@ test('only stable owner-required error code triggers verified-owner guidance', (
   assert.equal(memberOwnerRequired({ errorData: { code: 'UNSAFE_EXISTING_RECORD_MUTATION_CONTRACT' } }), false);
 });
 
-test('builder and both public layouts wire guidance and owner errors', async () => {
+test('builder and owner errors remain wired without the public signup notice', async () => {
   const [builder, view] = await Promise.all([
     readFile(new URL('../pages/FormBuilder.jsx', import.meta.url), 'utf8'),
     readFile(new URL('../pages/FormView.jsx', import.meta.url), 'utf8'),
   ]);
   assert.match(builder, /value=\{PUBLIC_MEMBER_SIGNUP_MODE\}[\s\S]*?disabled=\{!publicMemberSignupEligible\}/);
-  assert.match(builder, /mutation_access_policy: mode === 'none'[\s\S]*?\{ version: 1, mode \}/);
-  assert.equal((view.match(/<PublicMemberSignupNotice loginUrl=/g) || []).length, 2);
+  assert.match(builder, /mutation_access_policy: resolveFormAccessOverride\(prev, mode\)/);
+  assert.doesNotMatch(view, /PublicMemberSignupNotice|public-member-signup-notice|public-member-signin/);
+  assert.doesNotMatch(view, /New members can complete and submit this form|Sign in as an existing member/);
   assert.match(view, /setSubmissionError\(memberOwnerRequired\(error\)/);
+  // The existing server-rejection guidance is distinct from the removed banner.
   assert.match(view, /If you have unsaved answers, save a draft/);
 });
