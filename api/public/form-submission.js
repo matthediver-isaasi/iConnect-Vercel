@@ -337,12 +337,11 @@ export default async function handler(req, res, dependencies = {}) {
     }
     const hasCurrentSetProcessing = !!currentSetConfiguration;
 
-    // Forms that require authentication cannot be submitted publicly —
-    // EXCEPT surveys with a verified same-tenant session: surveys always
-    // submit through this endpoint (it's the only scoring path), so an
-    // authenticated member with a valid session for this tenant is allowed.
-    // Current-set forms are likewise session-only; their per-Department
-    // responder check happens in the dedicated preflight/RPC below.
+    // Standard forms and surveys both submit through this public endpoint.
+    // A verified same-tenant member session satisfies the login requirement,
+    // not audience access or mutation ownership (checked separately).
+    // Preserve the scoped certificate-survey and applicant exceptions below.
+    // Current-set forms remain session-only, with a separate responder check.
     let certificateInvitation = null;
     if (certificate_survey_grant) {
       if (!assignment_token || form.form_type !== 'survey') {
@@ -382,7 +381,7 @@ export default async function handler(req, res, dependencies = {}) {
           code: 'CURRENT_SET_AUTHENTICATION_REQUIRED',
         });
       }
-      if (!isAuthedSurvey && !isAuthedCurrentSet && !isAuthedApplicant) {
+      if (!hasTenantSession && !isAuthedSurvey && !isAuthedCurrentSet && !isAuthedApplicant) {
         return res.status(403).json({ error: 'This form requires authentication' });
       }
     }

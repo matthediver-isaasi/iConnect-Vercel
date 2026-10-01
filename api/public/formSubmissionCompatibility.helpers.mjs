@@ -76,6 +76,7 @@ function makeBoundaryDatabase(form, organization = null, {
 } = {}) {
   const insertedSubmissions = [];
   const deletedSubmissionIds = [];
+  const writes = [];
   let submission = null;
 
   class Query {
@@ -103,12 +104,21 @@ function makeBoundaryDatabase(form, organization = null, {
     limit() { return this; }
     range() { return this; }
     insert(payload) {
+      writes.push({ table: this.table, operation: 'insert', payload });
       this.insertPayload = payload;
       if (this.table === 'form_submission') insertedSubmissions.push(payload);
       return this;
     }
-    update(payload) { this.updatePayload = payload; return this; }
-    delete() { this.deleteRequested = true; return this; }
+    update(payload) {
+      writes.push({ table: this.table, operation: 'update', payload });
+      this.updatePayload = payload;
+      return this;
+    }
+    delete() {
+      writes.push({ table: this.table, operation: 'delete' });
+      this.deleteRequested = true;
+      return this;
+    }
     async single() {
       if (this.table === 'form') return { data: structuredClone(form), error: null };
       if (this.table === 'form_submission' && this.insertPayload) {
@@ -189,12 +199,14 @@ function makeBoundaryDatabase(form, organization = null, {
   return {
     insertedSubmissions,
     deletedSubmissionIds,
+    writes,
     patchSubmission(patch) {
       if (submission) Object.assign(submission, structuredClone(patch));
     },
     client: {
       from(table) { return new Query(table); },
       async rpc(name, args) {
+        writes.push({ operation: 'rpc', name, args });
         if (name === 'bind_form_applicant_continuation') {
           if (!continuationGrant || continuationGrant.id !== args.p_grant_id
             || (continuationGrant.submission_id
@@ -236,6 +248,8 @@ export async function submitThroughRealProcessor({
   form,
   submissionData,
   sessionMember = null,
+  getSessionMember = async () => sessionMember,
+  requestBodyOverrides = {},
   adminTenantId = null,
   processorOptions = {},
   tamperProcessorBody = null,
@@ -273,6 +287,7 @@ export async function submitThroughRealProcessor({
       prefill_organization_id: prefillOrganizationId,
       prefill_member_id: prefillMemberId,
       idempotency_key: idempotencyKey,
+      ...requestBodyOverrides,
     },
   };
   const dependencies = {
@@ -280,7 +295,7 @@ export async function submitThroughRealProcessor({
     tenantData: { id: form.tenant_id, slug: 'compatibility', domain: 'compatibility.test' },
     publicBaseUrl: 'https://compatibility.test',
     internalApiBaseUrl: 'https://processor.invalid',
-    getSessionMember: async () => sessionMember,
+    getSessionMember,
     getTenantContext: async () => adminTenantId ? { tenantId: adminTenantId } : null,
     hasAdminAccess: async () => !!adminTenantId,
     sendSubmissionEmailsGuarded: async () => {
@@ -353,6 +368,7 @@ export async function submitThroughRealProcessor({
     processorResults,
     insertedSubmissions: boundary.insertedSubmissions,
     deletedSubmissionIds: boundary.deletedSubmissionIds,
+    writes: boundary.writes,
     emailInvocations,
     emailDeliveries,
   };
