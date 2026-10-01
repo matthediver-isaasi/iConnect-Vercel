@@ -1,5 +1,6 @@
 // No provider mutations. Reviewed per-member arming of the exact held beta batch.
 import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { fingerprint } from './bnms-dd-pilot-history.mjs';
 import { TENANT_ID, BATCH_HASH, XERO_TENANT_ID, assertHistoricalInvoicesComplete } from './bnms-dd-beta-invoices.mjs';
 import { alphaProviderReader } from './bnms-dd-alpha-review.mjs';
@@ -7,6 +8,8 @@ import { readAllProviderPages } from './bnms-dd-pilot.mjs';
 import { getTenantGocardlessCredentials } from '../api/_lib/gocardlessCredentials.js';
 import { resolveDynamicCollectionPrice } from '../api/_lib/gocardlessDynamicCollections.js';
 import { BNMS_BETA_BANK, betaAccountingMapping, assertBnmsBetaAccountingContext } from '../api/_lib/bnmsBetaAccounting.js';
+import { assertUserAttestationProvenance, assertUserAttestationFresh } from './bnms-dd-pilot-deployment-proof.mjs';
+import { inspectContract } from './apply-gocardless-manual-collection.mjs';
 export const PROCESSING_START='2026-09-30T23:00:00Z';
 export const MAX_EVIDENCE_AGE_MS=15*60*1000;
 export const MAX_HANDOVER_AGE_MS=24*60*60*1000;
@@ -175,8 +178,8 @@ export function betaReleaseManifest(report,proof){
       ||member.accounting.revenueCode!==mapping.revenue_account_code)fail('Beta reviewed accounting mapping mismatch');
   }
   if(!proof?.sourceHashes||!proof.deploymentId||!proof.commit)fail('Verified active deployment proof required');
-  if(proof.provenance?.kind==='user-supplied-local-vercel-attestation')
-    fail('Beta requires machine-verified Vercel evidence; manual attestation commit freshness is not supported');
+  // Validate shape even on replay, but do not re-age immutable completed evidence.
+  if(Object.hasOwn(proof,'provenance'))assertUserAttestationProvenance(proof);
   return {version:1,batchHash:BATCH_HASH,tenantId:TENANT_ID,processingNotBefore:PROCESSING_START,
     stateHash:report.stateHash,production:proof,handover:report.handover,
     members:report.members.map(m=>({adoptionId:m.adoptionId,memberId:m.memberId,planId:m.planId,
@@ -184,7 +187,26 @@ export function betaReleaseManifest(report,proof){
       adoptionHash:m.adoptionHash,price:m.price,accounting:m.accounting,processingNotBefore:PROCESSING_START,
       providerEarliestDate:m.provider.mandate.next_possible_charge_date,historicalInvoiceCount:m.historicalInvoiceCount}))};
 }
+export const BETA_MANUAL_MIGRATION_SHA256='edc2a71473c90d6404d846f962ce6aa7aa799f4fab7cc0149599374f9dae738f';
+export function betaManualHoldBody(original,manualSql){
+  if(createHash('sha256').update(manualSql).digest('hex')!==BETA_MANUAL_MIGRATION_SHA256)
+    fail('Reviewed beta manual timing migration hash differs');
+  let body=original;
+  for(const gate of ['clock_timestamp()<released.processing_not_before',
+    "(NEW.provider_evidence->>'checked_at')::timestamptz<released.processing_not_before"]){
+    if(body.split(gate).length!==2)fail('Reviewed beta timing gate source differs');
+    body=body.replace(gate,`(${gate} AND NOT public.gocardless_manual_reservation_authorized(NEW,TG_OP='UPDATE'))`);
+  }
+  return body;
+}
+export function betaGuardMatches(r,name,body){
+  const config=name==='bnms_dd_reject_history_mutation'?null:['search_path=public'];
+  return !!r&&r.prosrc===body&&!r.prosecdef&&fingerprint(r.proconfig)===fingerprint(config)
+    &&r.nspname==='public'&&r.lanname==='plpgsql'&&r.returns_trigger===true&&r.provolatile==='v'&&r.owner==='postgres';
+}
 export async function verifyBetaReleaseSchema(c){
+  // Collect independent catalog discrepancies in one read-only pass.
+  const mismatches=[],reject=m=>mismatches.push(m);
   const sql=await readFile(MIGRATION,'utf8');
   const oldBeta=await readFile(new URL('../supabase/migrations/20261112_bnms_dd_beta_held.sql',import.meta.url),'utf8');
   const oldHistory=await readFile(new URL('../supabase/migrations/20261108_bnms_dd_pilot_history.sql',import.meta.url),'utf8');
@@ -194,15 +216,26 @@ export async function verifyBetaReleaseSchema(c){
     if(!match)fail('Canonical historical guard source missing');sources.push(match);
   }
   const functions={};
+  let manualSql=null;
   for(const match of sources){
     const r=(await c.query(`SELECT p.oid,p.prosrc,p.prosecdef,p.proconfig,p.provolatile,
       n.nspname,l.lanname,p.prorettype='trigger'::regtype AS returns_trigger,pg_get_userbyid(p.proowner) AS owner
       FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace JOIN pg_language l ON l.oid=p.prolang
       WHERE p.oid=to_regprocedure($1)`,[`public.${match[1]}()`])).rows[0];
-    const config=match[1]==='bnms_dd_reject_history_mutation'?null:['search_path=public'];
-    if(!r||r.prosrc!==match[2]||r.prosecdef||fingerprint(r.proconfig)!==fingerprint(config)
-      ||r.nspname!=='public'||r.lanname!=='plpgsql'||!r.returns_trigger||r.provolatile!=='v'||r.owner!=='postgres')fail(`Installed beta guard function/security differs: ${match[1]}`);
-    functions[match[1]]=r.oid;
+    let body=match[2];
+    if(match[1]==='bnms_dd_beta_hold_guard'&&r?.prosrc!==body){
+      const candidate=await readFile(new URL('../supabase/migrations/20261123_gocardless_manual_collection.sql',import.meta.url),'utf8');
+      const patched=betaManualHoldBody(body,candidate);
+      if(r?.prosrc===patched){body=patched;manualSql=candidate;}
+    }
+    if(!betaGuardMatches(r,match[1],body))reject(`Installed beta guard function/security differs: ${match[1]}`);
+    functions[match[1]]=r?.oid;
+  }
+  if(manualSql){
+    // Exact timing extension is acceptable only with its complete reviewed
+    // helper/financial/trigger/security contract, never by substring matching.
+    try{await inspectContract(c,manualSql,{requireManual:true,allowExistingAuditRows:true});}
+    catch(error){reject(`Beta manual timing contract differs: ${error.message}`);}
   }
   const expected=[
     ['beta_release_owner','bnms_dd_beta_release','bnms_dd_beta_release_owner_guard',7],
@@ -218,12 +251,12 @@ export async function verifyBetaReleaseSchema(c){
     encode(t.tgargs,'hex') AS args,n.nspname,c.relname
     FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
     WHERE t.tgname=ANY($1)`,[expected.map(t=>t[0])])).rows;
-  if(triggers.length!==expected.length)fail('Beta guard trigger set differs');
+  if(triggers.length!==expected.length)reject('Beta guard trigger set differs');
   for(const [name,table,fn,type] of expected){
     const t=triggers.find(t=>t.tgname===name);
     if(!t||t.nspname!=='public'||t.relname!==table||t.tgfoid!==functions[fn]||t.tgtype!==type
       ||!['O','A'].includes(t.tgenabled)||t.tgisinternal||t.tgconstraint!==0||t.tgdeferrable||t.tginitdeferred
-      ||t.columns!==''||t.tgqual!==null||t.args!=='')fail(`Beta trigger binding/timing/events differ: ${name}`);
+      ||t.columns!==''||t.tgqual!==null||t.args!=='')reject(`Beta trigger binding/timing/events differ: ${name}`);
   }
   const access=(await c.query(`SELECT c.relrowsecurity,c.relforcerowsecurity,c.relkind,pg_get_userbyid(c.relowner) AS owner,
     NOT EXISTS(SELECT FROM aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a
@@ -233,7 +266,7 @@ export async function verifyBetaReleaseSchema(c){
     NOT EXISTS(SELECT FROM pg_policy WHERE polrelid=c.oid) AS no_policies
     FROM pg_class c WHERE c.oid='public.bnms_dd_beta_release'::regclass`)).rows[0];
   if(!access?.relrowsecurity||access.relforcerowsecurity||access.relkind!=='r'||access.owner!=='postgres'
-    ||!access.safe_acl||!access.service_read||!access.no_policies)fail('Beta journal RLS/privileges/owner differ');
+    ||!access.safe_acl||!access.service_read||!access.no_policies)reject('Beta journal RLS/privileges/owner differ');
   const columns=(await c.query(`SELECT a.attname,format_type(a.atttypid,a.atttypmod) AS type,a.attnotnull,
     pg_get_expr(d.adbin,d.adrelid) AS default_value FROM pg_attribute a
     LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum
@@ -242,7 +275,7 @@ export async function verifyBetaReleaseSchema(c){
     evidence_sha256:'text',evidence:'jsonb',processing_not_before:'timestamp with time zone',created_at:'timestamp with time zone'};
   if(columns.length!==9||columns.some(a=>columnSpec[a.attname]!==a.type||!a.attnotnull
     ||(a.attname==='id'?a.default_value!=='gen_random_uuid()':a.attname==='created_at'?a.default_value!=='now()':
-      a.attname==='processing_not_before'?!/^'2026-09-30 23:00:00\+00'::timestamp with time zone$/.test(a.default_value):a.default_value!==null)))fail('Beta journal columns/defaults differ (verify in UTC)');
+      a.attname==='processing_not_before'?!/^'2026-09-30 23:00:00\+00'::timestamp with time zone$/.test(a.default_value):a.default_value!==null)))reject('Beta journal columns/defaults differ (verify in UTC)');
   const constraints=(await c.query(`SELECT k.contype,k.convalidated,k.condeferrable,k.condeferred,
     pg_get_constraintdef(k.oid) AS definition,k.confrelid::regclass::text AS referenced_table,k.confupdtype,k.confdeltype,k.confmatchtype,
     ARRAY(SELECT a.attname::text FROM unnest(k.conkey) WITH ORDINALITY x(num,ord)
@@ -257,17 +290,34 @@ export async function verifyBetaReleaseSchema(c){
   ]);
   const keys=new Set(['p:id','u:adoption_id','u:member_id','u:plan_id']);
   const fks=new Set(['plan_id:membership_payment_plans:id','adoption_id,tenant_id,member_id:bnms_dd_beta_adoption:id,tenant_id,member_id']);
-  if(constraints.length!==9)fail('Beta journal constraint set differs');
+  if(constraints.length!==9)reject('Beta journal constraint set differs');
   for(const k of constraints){
-    if(!k.convalidated||k.condeferrable||k.condeferred)fail('Beta journal constraints must be validated and immediate');
-    if(k.contype==='c'){if(!checks.delete(k.definition))fail('Beta journal CHECK differs');}
-    else if(k.contype==='p'||k.contype==='u'){if(!keys.delete(`${k.contype}:${k.columns.join(',')}`))fail('Beta journal unique owner key differs');}
+    if(!k.convalidated||k.condeferrable||k.condeferred)reject('Beta journal constraints must be validated and immediate');
+    if(k.contype==='c'){if(!checks.delete(k.definition))reject('Beta journal CHECK differs');}
+    else if(k.contype==='p'||k.contype==='u'){if(!keys.delete(`${k.contype}:${k.columns.join(',')}`))reject('Beta journal unique owner key differs');}
     else if(k.contype==='f'){
       if(k.confupdtype!=='a'||k.confdeltype!=='a'||k.confmatchtype!=='s'
-        ||!fks.delete(`${k.columns.join(',')}:${k.referenced_table.replace(/^public\./,'')}:${k.referenced_columns.join(',')}`))fail('Beta journal foreign key owner link differs');
-    }else fail('Unexpected beta journal constraint');
+        ||!fks.delete(`${k.columns.join(',')}:${k.referenced_table.replace(/^public\./,'')}:${k.referenced_columns.join(',')}`))reject('Beta journal foreign key owner link differs');
+    }else reject('Unexpected beta journal constraint');
   }
-  if(checks.size||keys.size||fks.size)fail('Beta journal constraints incomplete');
+  if(checks.size||keys.size||fks.size)reject('Beta journal constraints incomplete');
+  if(mismatches.length)throw Object.assign(Error(mismatches.join('; ')),{betaSchemaMismatches:mismatches});
+  return {manualTimingExtension:!!manualSql};
+}
+export function assertBetaReleaseFresh(report,proof,instant){
+  assertBetaEvidenceFresh(report,instant);
+  if(Object.hasOwn(proof,'provenance'))assertUserAttestationFresh(proof,instant);
+}
+export async function assertBetaReleaseCommitFresh(c,report,proof){
+  const dbClock=(await c.query('SELECT clock_timestamp() AS checked_at')).rows[0].checked_at;
+  assertBetaReleaseFresh(report,proof,new Date(dbClock));
+}
+export function assertBetaReleaseReplay(prior,manifest,hash,report,proof){
+  if(prior.length!==10||new Set(prior.map(p=>p.adoption_id)).size!==10
+    ||prior.some(p=>p.evidence_sha256!==hash||!manifest.members.some(m=>m.adoptionId===p.adoption_id
+      &&m.memberId===p.member_id&&m.planId===p.plan_id
+      &&fingerprint(p.evidence)===fingerprint({...m,production:proof,handover:report.handover,readinessObservedAt:report.observedAt}))))
+    fail('Partial/different beta release requires reconciliation');
 }
 export async function releaseBeta(c,report,proof,{apply=false,reviewSha256,verifiedDestination=false,now=()=>new Date()}={}){
   const manifest=betaReleaseManifest(report,proof),hash=fingerprint(manifest);
@@ -280,10 +330,10 @@ export async function releaseBeta(c,report,proof,{apply=false,reviewSha256,verif
     await verifyBetaReleaseSchema(c);
     const prior=(await c.query('SELECT * FROM bnms_dd_beta_release WHERE tenant_id=$1',[TENANT_ID])).rows;
     if(prior.length){
-      if(prior.length!==10||prior.some(p=>p.evidence_sha256!==hash||!manifest.members.some(m=>m.adoptionId===p.adoption_id&&m.memberId===p.member_id&&m.planId===p.plan_id)))fail('Partial/different beta release requires reconciliation');
+      assertBetaReleaseReplay(prior,manifest,hash,report,proof);
       await c.query('ROLLBACK');return {mode:'release_replay',hash,writes:0,readinessRevalidated:false};
     }
-    assertBetaEvidenceFresh(report,now());
+    assertBetaReleaseFresh(report,proof,now());
     await c.query(`LOCK TABLE member,preference_field,member_preference_value,membership_tier_config,
       membership_billing_agreements,membership_payment_plans,member_membership_history,
       gocardless_collection_reservations,gocardless_payments,system_settings,tenant_accounting_settings,membership_tier_vat_override,
@@ -311,7 +361,7 @@ export async function releaseBeta(c,report,proof,{apply=false,reviewSha256,verif
     const histories=(await c.query('SELECT * FROM bnms_dd_beta_provider_history WHERE tenant_id=$1 AND member_id=ANY($2::uuid[])',[TENANT_ID,ids])).rows;
     const links=(await c.query('SELECT * FROM bnms_dd_beta_invoice_link WHERE tenant_id=$1 AND member_id=ANY($2::uuid[])',[TENANT_ID,ids])).rows;
     assertHistoricalInvoicesComplete(histories,links);
-    assertBetaEvidenceFresh(report,now());
+    assertBetaReleaseFresh(report,proof,now());
     if(!apply){await c.query('ROLLBACK');return {mode:'scheduled_beta_release_dry_run',hash,manifest,writes:0};}
     for(const m of manifest.members){
       await c.query(`INSERT INTO bnms_dd_beta_release(adoption_id,tenant_id,member_id,plan_id,evidence_sha256,evidence)
@@ -323,8 +373,7 @@ export async function releaseBeta(c,report,proof,{apply=false,reviewSha256,verif
       if(agreement.rowCount!==1||plan.rowCount!==1)fail('Concurrent beta release conflict');
     }
     // Lock waits and the arming transaction consume the same evidence budget.
-    const dbClock=(await c.query('SELECT clock_timestamp() AS checked_at')).rows[0].checked_at;
-    assertBetaEvidenceFresh(report,new Date(dbClock));
+    await assertBetaReleaseCommitFresh(c,report,proof);
     await c.query('COMMIT');return {mode:'beta_armed_for_october_processing',hash,writes:30,providerWrites:0,membershipActivated:false};
   }catch(e){await c.query('ROLLBACK');throw e;}
 }

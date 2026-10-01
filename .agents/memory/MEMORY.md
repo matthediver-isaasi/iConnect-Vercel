@@ -13,6 +13,7 @@
 - [Member-content reindex operation authority](member-content-reindex-operations.md) — CRON_SECRET is fail-closed; use the dedicated service-only operations singleton/RPCs, never browser-writable system_settings.
 - [Platform manual backup orchestration](platform-manual-backup-orchestration.md) — manual R2 backup completes via a browser loop re-invoking a single-chunk resumable /run endpoint, not server self-chaining (stays within serverless maxDuration).
 - [Workspace DB targets](workspace-db-targets.md) — runtime SUPABASE_URL here == legacy SOURCE (stale); prod/migrations target DEST. Apply feature migrations to DEST only.
+- [Release evidence validation](release-evidence-validation.md) — keep curl attestations explicit and fresh through commit; accept guard evolution only against exact reviewed migration contracts.
 - [Private subsets of a tenant entity](private-subset-of-tenant-entity.md) — client-side hiding of group-private rows isn't access control; add server-side filter on entity list + by-id reads, exempt admins.
 - [Workflow trigger types & scheduled workflows](workflow-trigger-types.md) — trigger_type is free-text (no migration to add one); operator comparison centralized in evaluateConditionOperator; scheduled path has no before-value, date ops are UTC.
 - [Hybrid public/by-slug page registration](hybrid-byslug-page-registration.md) — a new /prefix/:slug hybrid page must be wired in 4 places (_getCurrentPage prefix + Route + PAGES map + Layout hybridPages) or it renders with wrong auth/chrome.

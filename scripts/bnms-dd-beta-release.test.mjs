@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import pg from 'pg';
 import { createLocalPostgresHarness } from './test-support/local-postgres-harness.mjs';
-import { betaReleaseManifest, validateBetaScope, validateBetaHandover, verifyBetaReleaseSchema, releaseBeta, readBetaReleaseEvidence, assertBetaEvidenceFresh, stateHash, MIGRATION } from './bnms-dd-beta-release.mjs';
-import { parseBetaReleaseArgs } from './run-bnms-dd-beta-release.mjs';
+import { betaReleaseManifest, validateBetaScope, validateBetaHandover, verifyBetaReleaseSchema, releaseBeta, readBetaReleaseEvidence, assertBetaEvidenceFresh, assertBetaReleaseFresh, assertBetaReleaseCommitFresh, assertBetaReleaseReplay, betaManualHoldBody, betaGuardMatches, stateHash, MIGRATION } from './bnms-dd-beta-release.mjs';
+import { parseBetaReleaseArgs, safeBetaReleaseError, main as betaReleaseMain } from './run-bnms-dd-beta-release.mjs';
 import { TENANT_ID,BATCH_HASH } from './bnms-dd-beta-invoices.mjs';
 import { fingerprint } from './bnms-dd-pilot-history.mjs';
 import { BNMS_BETA_REVENUE, betaAccountingMapping } from '../api/_lib/bnmsBetaAccounting.js';
@@ -17,7 +18,7 @@ const accountingFor=memberId=>{const mapping=betaAccountingMapping(memberId);ret
 test('release CLI/scope/readiness refuse identity overrides, ambiguous handover and unreviewed apply',()=>{
   for(const args of [['--apply'],['--out','/tmp/a','--member','x'],['--schema','--out','/tmp/a'],['--out','/tmp/a','--replay','/tmp/old'],['--apply','--out','/tmp/a',`--review-sha256=${'a'.repeat(64)}`]])assert.throws(()=>parseBetaReleaseArgs(args));
   assert.equal(parseBetaReleaseArgs(['--schema']).apply,false);
-  assert.throws(()=>parseBetaReleaseArgs(['--out','/tmp/a','--proof','/tmp/p','--attestation','/tmp/a']),/Unsupported/);
+  assert.equal(parseBetaReleaseArgs(['--out','/tmp/a','--proof','/tmp/p','--attestation','/tmp/attestation']).attestation,'/tmp/attestation');
   assert.throws(()=>parseBetaReleaseArgs(['--out','/tmp/a','--deployed']),/Unsupported/);
   assert.throws(()=>validateBetaScope({tenant_id:TENANT_ID,evidence_sha256:BATCH_HASH,evidence:{}},Array(10).fill({})),/immutable/);
   assert.throws(()=>validateBetaHandover({tenantId:TENANT_ID,batchHash:BATCH_HASH,automaticLegacyCollectionsDisabled:true},[uuid(1)]));
@@ -31,7 +32,7 @@ test('release CLI/scope/readiness refuse identity overrides, ambiguous handover 
   assert.throws(()=>betaReleaseManifest(report,null),/deployment proof/);
   const proof={deploymentId:'fixture',commit:'fixture',sourceHashes:{}};
   assert.throws(()=>betaReleaseManifest(report,{...proof,
-    provenance:{kind:'user-supplied-local-vercel-attestation'}}),/machine-verified/);
+    provenance:{kind:'user-supplied-local-vercel-attestation'}}),/provenance/);
   const manifest=betaReleaseManifest(report,proof);
   assert.equal(manifest.processingNotBefore,'2026-09-30T23:00:00Z');
   assert.equal(manifest.members.length,10);
@@ -55,6 +56,148 @@ test('readiness captures its oldest timestamp before its first database read',as
   await assert.rejects(readBetaReleaseEvidence({from(){order.push('database');throw Error('fixture stop');}},
     {now(){order.push('clock');return new Date('2026-09-20T10:00:00Z');}}),/fixture stop/);
   assert.deepEqual(order,['clock','database']);
+});
+
+test('beta attestation CLI is explicit, proof-bound and separate from schema/replay',()=>{
+  const base=['--out','/tmp/beta.json','--proof','/tmp/proof.json'];
+  assert.equal(parseBetaReleaseArgs(base).attestation,undefined);
+  assert.equal(parseBetaReleaseArgs([...base,'--attestation','/tmp/curl.json']).apply,false);
+  assert.equal(parseBetaReleaseArgs([...base,'--attestation','/tmp/curl.json','--apply',
+    `--review-sha256=${'a'.repeat(64)}`]).apply,true);
+  for(const args of [
+    ['--out','/tmp/beta.json','--attestation','/tmp/curl.json'],
+    ['--schema','--attestation','/tmp/curl.json'],
+    [...base,'--attestation'],[...base,'--attestation','--apply'],
+    [...base,'--attestation','a','--attestation','b'],
+    [...base,'--attestation','a','--apply'],
+    ['--out','/tmp/replay.json','--replay','/tmp/original.json',`--review-sha256=${'a'.repeat(64)}`,'--attestation','a'],
+    ['--out','/tmp/replay.json','--replay','/tmp/original.json',`--review-sha256=${'a'.repeat(64)}`,'--proof','a'],
+  ])assert.throws(()=>parseBetaReleaseArgs(args));
+  assert.equal(parseBetaReleaseArgs(['--out','/tmp/replay.json','--replay','/tmp/original.json',
+    `--review-sha256=${'a'.repeat(64)}`]).apply,false);
+  // Both verifier calls are exclusive branches, not a catch/fallback. Attestation
+  // is passed as raw bytes/text and proof is checked before mutable readiness GETs.
+  const source=betaReleaseMain.toString();
+  assert.match(source,/proof=o.attestation\s*\?await verifyUserDeploymentAttestation\(reviewedProof,await readFile\(resolve\(o.attestation\),'utf8'\)\)\s*:await verifyDeploymentProof\(reviewedProof,\{vercelRequest\}\)/);
+  assert.ok(source.indexOf('verifyUserDeploymentAttestation(reviewedProof')<source.indexOf('report=await readBetaReleaseEvidence'));
+});
+
+function attestedBetaFixture(){
+  const proof={deploymentId:'dpl_fixture',commit:'a'.repeat(40),sourceHashes:{'vercel.json':'b'.repeat(64)},
+    provenance:{kind:'user-supplied-local-vercel-attestation',agentLiveVerified:false,
+      observedAt:'2026-10-01T10:57:12.044613+00:00',attestationSha256:'c'.repeat(64)}};
+  const report={tenantId:TENANT_ID,batchHash:BATCH_HASH,globalBlockers:[],stateHash:'fixture',
+    observedAt:'2026-10-01T11:10:00.000Z',completedAt:'2026-10-01T11:11:00.000Z',
+    handover:{tenantId:TENANT_ID,batchHash:BATCH_HASH,memberIds:betaIds,automaticLegacyCollectionsDisabled:true,
+      confirmedAt:'2026-10-01T10:50:00.000Z',confirmedBy:'Mock reviewer',evidenceReference:'Mock handover'},
+    members:betaIds.map((memberId,index)=>({memberId,adoptionId:uuid(index+1),planId:uuid(index+21),
+      accounting:accountingFor(memberId),blockers:[],provider:{mandate:{next_possible_charge_date:'2026-10-08'}}}))};
+  return {report,proof};
+}
+test('beta attestation provenance is strict and original digest/time remain in the review hash',()=>{
+  const {report,proof}=attestedBetaFixture(),manifest=betaReleaseManifest(report,proof);
+  assert.deepEqual(manifest.production.provenance,proof.provenance);
+  const reviewed=fingerprint(manifest);
+  for(const patch of [
+    {observedAt:'2026-10-01T10:58:12.044613+00:00'},{attestationSha256:'d'.repeat(64)},
+  ])assert.notEqual(fingerprint(betaReleaseManifest(report,{...proof,provenance:{...proof.provenance,...patch}})),reviewed);
+  for(const provenance of [null,{},false,{...proof.provenance,kind:'machine-verified'},
+    {...proof.provenance,agentLiveVerified:true},{...proof.provenance,attestationSha256:'invalid'},
+    {...proof.provenance,observedAt:'2026-02-30T10:57:12.044Z'},{...proof.provenance,observedAt:'not-a-date'}])
+    assert.throws(()=>betaReleaseManifest(report,{...proof,provenance}),/provenance|timestamp/);
+  const machine={...proof};delete machine.provenance;
+  assert.doesNotThrow(()=>betaReleaseManifest(report,machine));
+});
+test('beta attestation original freshness cannot be renewed by readiness and includes lock waits',()=>{
+  const {report,proof}=attestedBetaFixture();
+  assertBetaReleaseFresh(report,proof,new Date('2026-10-01T11:12:12.043Z'));
+  for(const instant of ['2026-10-01T11:12:12.044Z','2026-10-01T11:12:13.000Z']){
+    assertBetaEvidenceFresh(report,new Date(instant));
+    assert.throws(()=>assertBetaReleaseFresh(report,proof,new Date(instant)),/attestation.*15 minutes/);
+  }
+  assert.throws(()=>assertBetaReleaseFresh(report,{...proof,provenance:{...proof.provenance,
+    observedAt:'2026-10-01T11:13:00.000Z'}},new Date('2026-10-01T11:12:00.000Z')),/future-dated/);
+  // Keep the existing readiness and handover budgets as independent gates.
+  assert.throws(()=>assertBetaReleaseFresh({...report,observedAt:'2026-10-01T10:00:00.000Z'},
+    proof,new Date('2026-10-01T11:12:00.000Z')),/Oldest readiness/);
+  assert.throws(()=>assertBetaReleaseFresh({...report,handover:{...report.handover,
+    confirmedAt:'2026-09-30T10:00:00.000Z'}},proof,new Date('2026-10-01T11:12:00.000Z')),/24 hours/);
+  const source=releaseBeta.toString();
+  assert.match(source,/assertBetaReleaseFresh\(report,proof,now\(\)\);\s*await c.query\(`LOCK TABLE/);
+  assert.match(source,/assertHistoricalInvoicesComplete\(histories,links\);\s*assertBetaReleaseFresh\(report,proof,now\(\)\);\s*if\(!apply\)/);
+});
+test('beta attestation expires against final database clock and rolls back rather than committing',async()=>{
+  const {report,proof}=attestedBetaFixture();
+  for(const [clock,expired] of [['2026-10-01T11:12:12.043Z',false],['2026-10-01T11:12:12.044Z',true]]){
+    const seen=[],c={query:async sql=>{seen.push(sql);return {rows:[{checked_at:clock}]};}};
+    const transaction=async()=>{
+      try{await assertBetaReleaseCommitFresh(c,report,proof);await c.query('COMMIT');}
+      catch(error){await c.query('ROLLBACK');throw error;}
+    };
+    if(expired)await assert.rejects(transaction(),/attestation.*15 minutes/);
+    else await transaction();
+    assert.deepEqual(seen,['SELECT clock_timestamp() AS checked_at',expired?'ROLLBACK':'COMMIT']);
+  }
+  assert.match(releaseBeta.toString(),/await assertBetaReleaseCommitFresh\(c,report,proof\);\s*await c.query\('COMMIT'\)/);
+  assert.match(releaseBeta.toString(),/catch\(e\)\{await c.query\('ROLLBACK'\);throw e;\}/);
+});
+test('beta attestation completed replay validates immutable provenance without historical freshness recheck',()=>{
+  const {report,proof}=attestedBetaFixture(),manifest=betaReleaseManifest(report,proof),hash=fingerprint(manifest);
+  const prior=manifest.members.map(m=>({adoption_id:m.adoptionId,member_id:m.memberId,plan_id:m.planId,
+    evidence_sha256:hash,evidence:{...m,production:proof,handover:report.handover,readinessObservedAt:report.observedAt}}));
+  assert.doesNotThrow(()=>assertBetaReleaseReplay(prior,manifest,hash,report,proof));
+  assert.throws(()=>assertBetaReleaseFresh(report,proof,new Date('2026-10-02T11:00:00.000Z')));
+  for(const mutate of [
+    rows=>rows.pop(),rows=>rows[1]=rows[0],
+    rows=>rows[0].evidence.production.provenance.attestationSha256='d'.repeat(64),
+    rows=>rows[0].evidence.production.provenance.observedAt='2026-10-01T11:00:00.000Z',
+    rows=>rows[0].evidence.production.provenance.agentLiveVerified=true,
+    rows=>rows[0].evidence_sha256='d'.repeat(64),rows=>rows[0].member_id='wrong',
+  ]){
+    const changed=structuredClone(prior);mutate(changed);
+    assert.throws(()=>assertBetaReleaseReplay(changed,manifest,hash,report,proof),/reconciliation/);
+  }
+  const source=releaseBeta.toString();
+  assert.match(source,/if\(prior.length\)\{\s*assertBetaReleaseReplay\(prior,manifest,hash,report,proof\);\s*await c.query\('ROLLBACK'\);return \{mode:'release_replay',hash,writes:0,readinessRevalidated:false\};\s*\}\s*assertBetaReleaseFresh/);
+});
+
+test('beta schema accepts only exact pinned manual timing evolution and unchanged guard security',()=>{
+  const sql=readFileSync(MIGRATION,'utf8'),name='bnms_dd_beta_hold_guard';
+  const original=[...sql.matchAll(/CREATE (?:OR REPLACE )?FUNCTION public\.(\w+)\(\) RETURNS trigger[\s\S]*?AS \$\$([\s\S]*?)\$\$;/g)].find(m=>m[1]===name)[2];
+  const manualSql=readFileSync(new URL('../supabase/migrations/20261123_gocardless_manual_collection.sql',import.meta.url),'utf8');
+  const patched=betaManualHoldBody(original,manualSql);
+  assert.equal(createHash('sha256').update(patched).digest('hex'),'f49d2c772cbcdfaea56a866d9c6e34cce54b6e07ada4ee35524fd8854e71bfba');
+  const row={prosrc:patched,prosecdef:false,proconfig:['search_path=public'],nspname:'public',lanname:'plpgsql',
+    returns_trigger:true,provolatile:'v',owner:'postgres'};
+  assert.equal(betaGuardMatches(row,name,patched),true);
+  assert.equal(betaGuardMatches({...row,prosrc:original},name,original),true);
+  for(const patch of [{prosrc:patched+' '},{prosrc:patched.replace('AND NOT public.gocardless_manual_reservation_authorized','OR public.gocardless_manual_reservation_authorized')},
+    {prosecdef:true},{proconfig:['search_path=public, pg_temp']},{owner:'service_role'},
+    {nspname:'other'},{lanname:'sql'},{returns_trigger:false},{provolatile:'s'}])
+    assert.equal(betaGuardMatches({...row,...patch},name,patched),false);
+  assert.throws(()=>betaManualHoldBody(original,manualSql+' '),/hash differs/);
+  assert.throws(()=>betaManualHoldBody(original.replace('clock_timestamp()<released.processing_not_before','true'),manualSql),/gate source/);
+  assert.match(verifyBetaReleaseSchema.toString(),/inspectContract\(c,manualSql,\{requireManual:true,allowExistingAuditRows:true\}\)/);
+});
+test('beta schema diagnostics collect independent mismatches in one mock-only read pass',async()=>{
+  const seen=[],c={query:async sql=>{assert.match(sql,/^\s*SELECT/);seen.push(sql);return {rows:[]};}};
+  await assert.rejects(verifyBetaReleaseSchema(c),error=>{
+    assert.ok(error.betaSchemaMismatches.some(m=>m.includes('function/security')));
+    assert.ok(error.betaSchemaMismatches.some(m=>m.includes('trigger')));
+    assert.ok(error.betaSchemaMismatches.some(m=>m.includes('RLS')));
+    assert.ok(error.betaSchemaMismatches.some(m=>m.includes('columns')));
+    assert.ok(error.betaSchemaMismatches.some(m=>m.includes('constraints')));
+    const safe=safeBetaReleaseError(error);
+    assert.deepEqual(safe.schemaMismatches,error.betaSchemaMismatches);return true;
+  });
+  assert.ok(seen.length>=9);
+});
+test('beta diagnostic output preserves completed readiness before SQL and sanitizes failures',()=>{
+  const source=betaReleaseMain.toString();
+  assert.ok(source.indexOf("mode:'readiness_collected_pending_validation'")<source.indexOf("stage='sql_release_validation'"));
+  assert.match(source,/mode:'beta_readiness_stopped',stage,\.\.\.safeBetaReleaseError\(error\)/);
+  assert.deepEqual(safeBetaReleaseError({code:'42501'}),{reason:'Database validation failed',sqlState:'42501'});
+  assert.ok(!JSON.stringify(safeBetaReleaseError(Error('Bearer private-token member@example.test'))).includes('private-token'));
 });
 
 test('isolated PostgreSQL beta arming is atomic, immutable, October-gated and first-confirmed-payment activated',{timeout:60000},async()=>{
@@ -139,6 +282,7 @@ test('isolated PostgreSQL beta arming is atomic, immutable, October-gated and fi
       await assert.rejects(verifyBetaReleaseSchema(c),/differs|differ/);await c.query('ROLLBACK');
     }
     const replayMembers=Array.from({length:10},(_,index)=>({memberId:uuid(index+11),adoptionId:uuid(index+1),planId:uuid(index+21),
+      mandateId:`MD${index+1}`,customerId:`CU${index+1}`,price:{monthly_amount_minor:1300,currency:'GBP'},
       accounting:accountingFor(uuid(index+11)),blockers:[],provider:{mandate:{next_possible_charge_date:'2026-09-24'}}}));
     const replayReport={tenantId:TENANT_ID,batchHash:BATCH_HASH,globalBlockers:[],members:replayMembers,
       handover:{tenantId:TENANT_ID,batchHash:BATCH_HASH,memberIds:replayMembers.map(m=>m.memberId),automaticLegacyCollectionsDisabled:true,
@@ -149,8 +293,8 @@ test('isolated PostgreSQL beta arming is atomic, immutable, October-gated and fi
     reject(`UPDATE membership_payment_plans SET collection_stopped_at=NULL WHERE id='${uuid(21)}';`,/reviewed release/);
     reject(`UPDATE member_membership_history SET status='active' WHERE id='${uuid(41)}';`,/cannot activate/);
     const arm=n=>{
-      const evidence={adoptionId:uuid(n),memberId:uuid(n+10),planId:uuid(n+20),mandateId:`MD${n}`,customerId:`CU${n}`,
-        processingNotBefore:'2026-09-30T23:00:00Z',price:{monthly_amount_minor:1300,currency:'GBP'}};
+      const evidence={...betaReleaseManifest(replayReport,replayProof).members[n-1],production:replayProof,
+        handover:replayReport.handover,readinessObservedAt:replayReport.observedAt};
       return `INSERT INTO bnms_dd_beta_release(adoption_id,tenant_id,member_id,plan_id,evidence_sha256,evidence)
         VALUES('${uuid(n)}','${TENANT_ID}','${uuid(n+10)}','${uuid(n+20)}','${releaseHash}','${JSON.stringify(evidence)}');
         UPDATE membership_billing_agreements SET needs_attention=false,attention_reason=NULL WHERE id='${uuid(n+30)}';

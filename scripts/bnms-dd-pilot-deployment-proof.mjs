@@ -29,19 +29,22 @@ function matchingCrons(definitions){
   return Array.isArray(definitions)?definitions.filter(item=>item?.path===CRON_PATH):[];
 }
 export const USER_ATTESTATION_MAX_AGE_MS=15*60*1000;
-export function assertUserAttestationFresh(proof,now=new Date()){
+export function assertUserAttestationProvenance(proof){
   const p=proof?.provenance;
   if(p?.kind!=='user-supplied-local-vercel-attestation'||p.agentLiveVerified!==false
     ||!/^[a-f0-9]{64}$/.test(p.attestationSha256||'')
     ||typeof p.observedAt!=='string'||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3,6}Z$/.test(p.observedAt)
     &&!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3,6}\+00:00$/.test(p.observedAt))
     throw Error('Explicit user-supplied attestation provenance required');
-  const age=now.getTime()-Date.parse(p.observedAt);
+  const normalized=p.observedAt.replace(/\+00:00$/,'Z').replace(/\.(\d{3})\d*Z$/,'.$1Z');
+  if(!Number.isFinite(Date.parse(p.observedAt))||new Date(p.observedAt).toISOString()!==normalized)
+    throw Error('Malformed user attestation timestamp');
+}
+export function assertUserAttestationFresh(proof,now=new Date()){
+  assertUserAttestationProvenance(proof);
+  const age=now.getTime()-Date.parse(proof.provenance.observedAt);
   if(!Number.isFinite(age)||age<0||age>=USER_ATTESTATION_MAX_AGE_MS)
     throw Error('User-supplied Vercel attestation is future-dated or exceeds 15 minutes');
-  const normalized=p.observedAt.replace(/\+00:00$/,'Z').replace(/\.(\d{3})\d*Z$/,'.$1Z');
-  if(new Date(p.observedAt).toISOString()!==normalized)
-    throw Error('Malformed user attestation timestamp');
 }
 // Explicit manual handover only: never an automatic fallback from a failed API
 // request. The original observation and raw-file digest remain in the review hash.

@@ -44,7 +44,8 @@ function timingPatched(name, body) {
 
 // SELECT-only. Full reviewed financial routine bodies, not just a substring
 // presence check, select the supported installed cadence contract.
-export async function inspectContract(client, manualSql, { requireManual = false, transformSource = value => value } = {}) {
+export async function inspectContract(client, manualSql, { requireManual = false, transformSource = value => value,
+  allowExistingAuditRows = false } = {}) {
   const bodies = new Map(), bindings = new Map();
   const tables = new Set(['membership_payment_plans', 'membership_billing_agreements',
     'member_membership_history', 'gocardless_collection_reservations', 'gocardless_payments']);
@@ -156,7 +157,9 @@ export async function inspectContract(client, manualSql, { requireManual = false
         has_table_privilege('authenticated',c.oid,'SELECT,INSERT,UPDATE,DELETE') authenticated_access
         FROM pg_class c WHERE c.oid=$1::regclass`, [`public.${table}`])).rows[0];
       if (!contract?.relrowsecurity || !contract.readable || contract.mutable || contract.anon_access || contract.authenticated_access) throw new Error('Manual audit table privileges mismatch');
-      if ((await client.query(`SELECT count(*)::integer n FROM public.${table}`)).rows[0].n !== 0) throw new Error('Manual audit rows exist; do not reapply during active use');
+      // Existing immutable authorizations are legitimate during SELECT-only
+      // release validation; migration/apply callers retain the empty-table gate.
+      if (!allowExistingAuditRows && (await client.query(`SELECT count(*)::integer n FROM public.${table}`)).rows[0].n !== 0) throw new Error('Manual audit rows exist; do not reapply during active use');
     }
     const manualTriggers = (await client.query(`SELECT tgname,tgenabled FROM pg_trigger WHERE NOT tgisinternal AND tgname=ANY($1)`,
       [['guard_gocardless_manual_reservation', 'manual_collection_audit_immutable', 'manual_collection_revocation_immutable']])).rows;

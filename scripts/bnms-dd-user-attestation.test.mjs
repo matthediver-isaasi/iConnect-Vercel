@@ -28,6 +28,26 @@ test('manual provenance preserves original timestamp and digest, rechecks freshn
   assert.throws(()=>assertUserAttestationFresh(v,new Date('2026-09-21T09:52:00Z')),/15 minutes/);
   assert.throws(()=>assertUserAttestationFresh({...v,provenance:{...v.provenance,agentLiveVerified:true}},deps.now),/provenance/);
 });
+test('beta curl snapshot format retains microsecond observation and pinned deployment identity with mock sources',async()=>{
+  // Only fixture bytes are verified here; this is not a production attestation.
+  const p={...proof,deploymentId:'dpl_2JfqmyM89nFUhCChRFKfDpV157L5',
+    commit:'1859c950e8ff61958d7072dd21438ccc25b0d163'};
+  const a=structuredClone(original);
+  a.observedAt='2026-10-01T10:57:12.044613+00:00';
+  for(const project of [a.projectBefore,a.projectAfter]){
+    project.productionDeploymentId=p.deploymentId;project.cronDeploymentId=p.deploymentId;
+  }
+  a.productionDeployment.id=p.deploymentId;a.productionDeployment.gitSource.sha=p.commit;
+  const raw=JSON.stringify(a),verified=await verifyUserDeploymentAttestation(p,raw,
+    {...deps,now:new Date('2026-10-01T11:00:00.000Z')});
+  assert.equal(verified.deploymentId,p.deploymentId);
+  assert.equal(verified.commit,p.commit);
+  assert.equal(verified.provenance.observedAt,a.observedAt);
+  assert.equal(verified.provenance.agentLiveVerified,false);
+  assert.equal(verified.provenance.attestationSha256,createHash('sha256').update(raw).digest('hex'));
+  assertUserAttestationFresh(verified,new Date('2026-10-01T11:12:12.043Z'));
+  assert.throws(()=>assertUserAttestationFresh(verified,new Date('2026-10-01T11:12:12.044Z')),/15 minutes/);
+});
 test('rejects identity, cron, baseline, before/after and time changes',async()=>{
   const changes=[
     a=>a.teamId='wrong',a=>a.projectBefore.id='wrong',a=>a.projectAfter.id='wrong',
