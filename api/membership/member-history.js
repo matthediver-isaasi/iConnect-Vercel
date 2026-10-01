@@ -7,6 +7,7 @@ import {
   hasFeatureAccess,
 } from '../_lib/tenantContext.js';
 import { enrichMembershipHistoryPrices } from '../_lib/membershipHistoryPrice.js';
+import { attachExpiryRenewalPolicyDisplay } from '../_lib/membershipRenewalPolicyDisplay.js';
 
 const HISTORY_PERMISSION = 'commerce.history';
 
@@ -49,6 +50,8 @@ const PERSONAL_COLUMNS = [
   'vat_rate_percent',
   'vat_amount',
   'total_with_vat',
+  // Used internally to recognize reviewed legacy history, never policy authority.
+  'notes',
 ].join(', ');
 
 const ORGANISATION_COLUMNS = [
@@ -166,6 +169,7 @@ export function createMemberHistoryHandler(dependencies = {}) {
   const checkAdmin = dependencies.hasAdminAccess || hasAdminAccess;
   const checkFeature = dependencies.hasFeatureAccess || hasFeatureAccess;
   const enrichPrices = dependencies.enrichMembershipHistoryPrices || enrichMembershipHistoryPrices;
+  const loadExpiryPolicy = dependencies.loadExpiryOnlyRenewalPolicy;
 
   return async function handler(req, res) {
     if (req.method !== 'GET') {
@@ -277,6 +281,11 @@ export function createMemberHistoryHandler(dependencies = {}) {
           membership_source: 'organisation',
         }))
         : [];
+      await attachExpiryRenewalPolicyDisplay(db, {
+        tenantId, memberId, history: personalRows, loadPolicy: loadExpiryPolicy,
+      });
+      // Approval/backfill evidence is service-side only on this portal endpoint.
+      for (const record of personalRows) delete record.notes;
       const records = [...personalRows, ...organisationRows];
 
       const bandIds = [...new Set(records.map((record) => record.band_id).filter(Boolean))];

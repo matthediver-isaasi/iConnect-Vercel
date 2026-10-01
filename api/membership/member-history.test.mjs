@@ -203,7 +203,7 @@ test('returns personal history for a member without an organisation', async () =
   assert.equal(db.calls.filter((call) => call.table === 'organisation_membership_history').length, 0);
 });
 
-test('returns narrow BNMS legacy upfront display fields without consulting notes', async () => {
+test('returns narrow BNMS legacy upfront display fields without trusting or exposing notes', async () => {
   const legacy = {
     id: 'bnms-current-2025',
     tenant_id: 'tenant-1',
@@ -247,7 +247,8 @@ test('returns narrow BNMS legacy upfront display fields without consulting notes
   assert.equal(res.payload[0].membership_source, 'personal');
   const historyRead = db.calls.find((call) => call.table === 'member_membership_history');
   assert.match(historyRead.columns, /payment_status/);
-  assert.doesNotMatch(historyRead.columns, /\bnotes\b/);
+  assert.equal(res.payload[0].notes, undefined);
+  assert.equal(res.payload[0].expiry_renewal_policy, undefined);
 });
 
 test('returns organisation-only history for a member linked to an organisation', async () => {

@@ -18,6 +18,7 @@ import { loadMigratedMandatePresentation, migratedMandatePresentation } from '..
 import { enrichMembershipHistoryPrices } from '../_lib/membershipHistoryPrice.js';
 import { signupMonthlyPriceFromAgreement, completedPendingBankActivation } from '../_lib/membershipSignupEvidence.js';
 import { loadCanvasRenewalEligibility } from '../_lib/canvasRenewalEligibility.js';
+import { attachExpiryRenewalPolicyDisplay, legacyRenewalPolicyDisplay } from '../_lib/membershipRenewalPolicyDisplay.js';
 
 const INSTALMENT_PAGE_SIZE = 25;
 const INSTALMENT_MAX_PAGE = 1000;
@@ -109,6 +110,7 @@ export function shapeLegacyCurrentMembership(record, tenantId, now = new Date())
     paymentMethod: 'upfront',
     paymentStatus: 'paid',
     readOnly: true,
+    ...legacyRenewalPolicyDisplay(record),
   };
 }
 
@@ -905,6 +907,7 @@ export function createMemberMembershipHandler(dependencies = {}) {
   const resolveActiveConfigs = dependencies.getAllActiveConfigs || getAllActiveConfigsStrict;
   const simulateMember = dependencies.simulateMembershipForMember || simulateMembershipForMember;
   const enrichHistoryPrices = dependencies.enrichMembershipHistoryPrices || enrichMembershipHistoryPrices;
+  const loadExpiryPolicy = dependencies.loadExpiryOnlyRenewalPolicy;
   const getNow = dependencies.getNow || (() => new Date());
 
   return async function handler(req, res) {
@@ -943,6 +946,7 @@ export function createMemberMembershipHandler(dependencies = {}) {
           resolveActiveConfigs,
           simulateMember,
           enrichHistoryPrices,
+          loadExpiryPolicy,
           now: getNow(),
         });
       }
@@ -1083,6 +1087,7 @@ async function handleGet(req, res, tenantId, db = supabase, {
   resolveActiveConfigs = getAllActiveConfigsStrict,
   simulateMember = simulateMembershipForMember,
   enrichHistoryPrices = enrichMembershipHistoryPrices,
+  loadExpiryPolicy,
   now = new Date(),
 } = {}) {
   const { memberId } = req.query;
@@ -1199,6 +1204,9 @@ async function handleGet(req, res, tenantId, db = supabase, {
       console.log('[Member Membership] Organisation history table may not exist yet:', err.message);
     }
   }
+  await attachExpiryRenewalPolicyDisplay(db, {
+    tenantId, memberId, history: personalHistory, loadPolicy: loadExpiryPolicy,
+  });
   const history = [...personalHistory, ...organisationHistory].sort((left, right) => {
     const leftTermStart = dateValue(left.term_start_date);
     const rightTermStart = dateValue(right.term_start_date);
@@ -1223,10 +1231,12 @@ async function handleGet(req, res, tenantId, db = supabase, {
   await enrichHistoryPrices(history, { db, tenantId });
   await attachAlphaMembershipRecognition(db, tenantId, memberId, history);
   let legacyCurrentMembership = findLegacyCurrentMembership(personalHistory, tenantId, now);
-  // Display only: retain the paid term, not a fabricated successor or price.
+  // Retain the paid term, not a fabricated successor or price. Verified
+  // renewal policy is projected separately from that historical purchase.
   const today = new Date(now).toISOString().slice(0, 10);
   for (const record of personalHistory) {
     if (!record.term_end_date || record.term_end_date >= today) continue;
+    if (record.expiry_renewal_policy_error) continue;
     const grace = await loadCanvasRenewalEligibility(db, {
       selected: { record }, owner: { ...member, membership_paused: pause?.paused },
       history: personalHistory, today,
@@ -1239,6 +1249,10 @@ async function handleGet(req, res, tenantId, db = supabase, {
       paidAmount: record.total_with_vat ?? record.final_cost ?? null,
       currency: record.currency || 'GBP', paymentMethod: record.payment_method,
       paymentStatus: 'paid', readOnly: true, grace,
+      historicalStructureName: record.commitment_snapshot?.config?.name
+        || record.commitment_snapshot?.structure_name
+        || (record.config_id ? `Structure ${record.config_id}` : null),
+      ...legacyRenewalPolicyDisplay(record),
     };
     break;
   }

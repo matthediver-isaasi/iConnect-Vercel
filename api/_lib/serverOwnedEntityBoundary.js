@@ -8,6 +8,7 @@ const SERVER_OWNED_ENTITY_NAMES = new Set([
   // /api/stage-field-mapping-actions, never through the generic entity API
   // (whose table fallback would otherwise expose an unlisted table).
   'stagefieldmappingaction',
+  'membershipexpirypolicyassignment',
 ]);
 
 const GENERIC_SERVER_OWNED_FIELDS = new Map([

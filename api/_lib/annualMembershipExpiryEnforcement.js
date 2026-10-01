@@ -1,5 +1,7 @@
 import { normalizeAnnualRenewalConfig, resolveAnnualRenewal, isAnnualNonRecurring } from './annualRenewalPolicy.js';
 import { isRollingCommitment } from '../../shared/rollingMembershipTerm.js';
+import { isAttestedExpiryOnlyHistory, loadExpiryOnlyRenewalPolicy, prepareExpiryOnlyRenewalPolicies,
+  expiryOnlyPolicyConfig, expiryOnlyLifecycle } from './expiryOnlyRenewalPolicy.js';
 
 async function isTenantAdmin(client, tenantId, member) {
   if (!member?.role_id) return false;
@@ -65,34 +67,6 @@ const PAGE_SIZE = 100;
 const MEMBER_FIELDS = 'id, tenant_id, identity_id, login_enabled, role_id, organization_id, membership_paused';
 const TABLES = { member: 'member_membership_history', organisation: 'organisation_membership_history' };
 
-// This attestation establishes only a legacy paid-through date, not an access
-// policy or commencement. Never use today's structure as expiry authority.
-function isAttestedExpiryOnlyHistory(history, tenantId) {
-  if (tenantId !== 'ff2df806-b321-4254-b651-3af11fccf1db' || history.tenant_id !== tenantId
-      || !history.member_id || history.organization_id
-      || history.membership_year !== '2025/2026' || history.status !== 'active'
-      || history.payment_status !== 'paid' || history.payment_method !== 'upfront'
-      || history.billing_period !== 'annual' || history.currency !== 'GBP'
-      || !history.tier_label || history.config_id != null || history.term_start_date != null
-      || history.membership_renewal_date != null || history.term_key != null
-      || history.term_duration_months != null || history.commitment_snapshot != null
-      || history.billing_agreement_id != null) return false;
-  const expiry = history.term_end_date;
-  if (typeof expiry !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(expiry)
-      || !Number.isFinite(Date.parse(expiry))
-      || new Date(expiry).toISOString().slice(0, 10) !== expiry || expiry > '2026-12-31') return false;
-  let notes = history.notes;
-  if (typeof notes === 'string') {
-    try { notes = JSON.parse(notes); } catch { return false; }
-  }
-  if (notes?.source !== 'bnms_non_dd_current_backfill') return false;
-  const missingCost = history.final_cost == null;
-  const missingTotal = history.total_with_vat == null;
-  return missingCost === missingTotal && (missingCost
-    || (Number.isFinite(Number(history.final_cost)) && Number(history.final_cost) >= 0
-      && Number(history.total_with_vat) === Number(history.final_cost)));
-}
-
 // Live capability is constructed by the cron with its injected DB/session
 // dispatcher. The preview passes only a recording effect capability.
 export function annualExpiryEffects(client, invalidateSessions) {
@@ -129,6 +103,7 @@ export async function processTenantAnnualExpirySweep(client, tenantId, results =
   let enforced = 0;
   let examined = 0;
   const configs = new Map();
+  const assignedPolicies = new Map();
   const today = now.toISOString().slice(0, 10);
   const deferred = new Error('Annual expiry budget deferred');
   function guard() {
@@ -236,7 +211,11 @@ export async function processTenantAnnualExpirySweep(client, tenantId, results =
         login_disabled: policy.disableLogin && member.login_enabled !== false,
         assigned_role_id: policy.changeRole ? policy.fallbackRoleId : null,
         applied_at: now.toISOString(), action_state: 'pending',
-        details: { source: 'annual_membership_expiry_sweep' },
+        details: { source: 'annual_membership_expiry_sweep',
+          ...(assignedPolicies.get(history.id) ? {
+            expiry_policy_assignment_id: assignedPolicies.get(history.id).assignmentId,
+            renewal_policy_config_id: assignedPolicies.get(history.id).configId,
+          } : {}) },
       } });
       action = await read(identity, 'Could not reload expiry journal');
       if (!action) throw new Error('Prepared expiry journal was not found');
@@ -272,7 +251,14 @@ export async function processTenantAnnualExpirySweep(client, tenantId, results =
   }
   async function processHistory(history) {
     if (!candidate(history)) { skip(`History ${history.id} is not an expired annual non-recurring candidate.`); return; }
-    const config = history.commitment_snapshot?.config || configs.get(history.config_id);
+    if (cursor.historyType === 'member' && isAttestedExpiryOnlyHistory(history, tenantId)
+        && !assignedPolicies.has(history.id)) {
+      guard();
+      assignedPolicies.set(history.id, await loadExpiryOnlyRenewalPolicy(client, { tenantId, history }));
+    }
+    const assignedPolicy = assignedPolicies.get(history.id);
+    const config = assignedPolicy ? expiryOnlyPolicyConfig(assignedPolicy)
+      : history.commitment_snapshot?.config || configs.get(history.config_id);
     if (!config && cursor.historyType === 'member' && isAttestedExpiryOnlyHistory(history, tenantId)) {
       const detail = { tenantId, historyId: history.id, memberId: history.member_id,
         stage: 'annual-expiry', status: 'review_required', code: 'legacy_expiry_policy_unassigned',
@@ -306,7 +292,8 @@ export async function processTenantAnnualExpirySweep(client, tenantId, results =
     }
     const policy = normalizeAnnualRenewalConfig(config);
     if (!policy.disableLogin && !policy.changeRole) { skip('Expiry policy does not disable login or change roles.'); return; }
-    const lifecycle = await resolveAnnualRenewal(client, { tenantId, history, config, now });
+    const lifecycle = assignedPolicy ? expiryOnlyLifecycle(assignedPolicy, now)
+      : await resolveAnnualRenewal(client, { tenantId, history, config, now });
     if (!lifecycle.applicable || lifecycle.state !== 'expired') { skip(`Annual lifecycle is ${lifecycle.state || 'not applicable'}.`); return; }
     if (await renewed(history, lifecycle.term)) {
       await markHistory(history, 'renewed');
@@ -345,6 +332,7 @@ export async function processTenantAnnualExpirySweep(client, tenantId, results =
     // assigned policy must successfully pass normal expiry processing first.
     const reviewIds = options.reviewHistoryIds || [];
     const reviewRows = new Map();
+    let reviewPolicyReaders = new Map();
     if (reviewIds.length) {
       await anyPage(() => client.from(TABLES.member).select('*')
         .eq('tenant_id', tenantId).in('id', reviewIds), history => {
@@ -352,18 +340,28 @@ export async function processTenantAnnualExpirySweep(client, tenantId, results =
         return false;
       }, 'Could not reload expiry policy reviews');
       await prepareConfigs([...reviewRows.values()]);
+      guard();
+      reviewPolicyReaders = await prepareExpiryOnlyRenewalPolicies(client, {
+        tenantId, histories: [...reviewRows.values()], guard,
+      });
     }
     for (const historyId of reviewIds) {
       const history = reviewRows.get(historyId);
       if (!history) throw new Error(`Expiry policy review history missing: ${historyId}`);
+      if (reviewPolicyReaders.has(historyId)) {
+        guard();
+        const load = reviewPolicyReaders.get(historyId);
+        assignedPolicies.set(historyId, load ? await load() : null);
+      }
+      const assignedPolicy = assignedPolicies.get(history.id);
       const config = history.commitment_snapshot?.config || configs.get(history.config_id);
-      const explicitPolicy = config && config.tenant_id === tenantId
+      const explicitPolicy = assignedPolicy || (config && config.tenant_id === tenantId
         && typeof config.renewal_disable_login === 'boolean'
         && typeof config.renewal_change_role === 'boolean'
         && Number.isInteger(config.renewal_grace_days) && config.renewal_grace_days >= 0
         && config.renewal_grace_days <= 366
         && (!config.renewal_change_role || !!config.renewal_fallback_role_id)
-        && !(config.start_mode === 'immediate' && !history.commitment_snapshot);
+        && !(config.start_mode === 'immediate' && !history.commitment_snapshot));
       if (!explicitPolicy) continue;
       const traversalCursor = cursor;
       try {

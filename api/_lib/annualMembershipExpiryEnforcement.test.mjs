@@ -13,7 +13,7 @@ before(async () => {
   await mkdir(lib, { recursive: true });
   await mkdir(path.join(root, 'shared'));
   await writeFile(path.join(root, 'package.json'), '{"type":"module"}');
-  for (const file of ['annualMembershipExpiryEnforcement.js', 'annualRenewalPolicy.js', 'membershipYear.js']) {
+  for (const file of ['annualMembershipExpiryEnforcement.js', 'annualRenewalPolicy.js', 'membershipYear.js', 'expiryOnlyRenewalPolicy.js']) {
     await cp(new URL(file, import.meta.url), path.join(lib, file));
   }
   await cp(new URL('../../shared/rollingMembershipTerm.js', import.meta.url), path.join(root, 'shared/rollingMembershipTerm.js'));
@@ -98,6 +98,61 @@ const legacyExpiry = () => history('legacy', { tenant_id: bnms, config_id: null,
   currency: 'GBP', tier_label: 'Reviewed tier', term_start_date: null,
   term_end_date: '2026-09-25', notes: JSON.stringify({ source: 'bnms_non_dd_current_backfill' }),
   final_cost: null, total_with_vat: null });
+
+function assignedLegacyTables() {
+  const legacy = legacyExpiry();
+  return {
+    member_membership_history: [legacy],
+    member: [member(legacy.member_id, { tenant_id: bnms })],
+    membership_tier_config: [{ ...config, tenant_id: bnms, start_mode: 'immediate',
+      structure_scope_type: 'member', renewal_open_days: 90, renewal_grace_days: 90 }],
+    membership_expiry_policy_assignment: [{
+      id: 'authority', tenant_id: bnms, history_id: legacy.id, member_id: legacy.member_id,
+      config_id: config.id, config_name: '2026-2027 Full member', expiry_date: '2026-09-25',
+      approval_source: 'operator', policy_snapshot: {
+        renewal_open_days: 90, renewal_grace_days: 90, renewal_disable_login: true,
+        renewal_change_role: false, renewal_fallback_role_id: null,
+      },
+    }],
+  };
+}
+
+test('operator expiry-only policy retains grace through Dec 24 and enforces Dec 25 without purchased-term changes', async () => {
+  const tables = assignedLegacyTables(), db = database(tables);
+  const legacy = tables.member_membership_history[0], original = structuredClone(legacy);
+  const resolved = [];
+  await sweep(db, bnms, { details: [] }, new Date('2026-12-24'), {
+    cursor: { historyType: 'organisation' }, reviewHistoryIds: [legacy.id],
+    reviewResolved: async id => resolved.push(id),
+  });
+  assert.deepEqual(resolved, [legacy.id]);
+  assert.deepEqual(legacy, original);
+  assert.equal(tables.member[0].login_enabled, true);
+  assert.deepEqual(db.writes, []);
+  const outcome = await sweep(db, bnms, { details: [] }, new Date('2026-12-25'), {
+    invalidateSessions: async () => ({ success: true }),
+  });
+  assert.equal(outcome.enforced, 1);
+  assert.equal(tables.member[0].login_enabled, false);
+  assert.equal(tables.member[0].role_id, 'original');
+  const preserved = structuredClone(legacy);
+  delete preserved.annual_renewal_state;
+  delete preserved.expiry_enforcement_key;
+  preserved.expiry_enforced_at = null;
+  assert.deepEqual(preserved, original);
+  assert.equal(tables.membership_expiry_action[0].details.expiry_policy_assignment_id, 'authority');
+  assert.equal(tables.membership_expiry_action[0].config_id, null, 'no historical purchase config is assigned');
+});
+
+test('mismatched assigned expiry cannot clear retained review or mutate access', async () => {
+  const tables = assignedLegacyTables(), db = database(tables), resolved = [];
+  tables.membership_expiry_policy_assignment[0].expiry_date = '2026-09-26';
+  await assert.rejects(sweep(db, bnms, { details: [] }, new Date('2026-12-25'), {
+    reviewHistoryIds: ['legacy'], reviewResolved: async id => resolved.push(id),
+  }), /binding.*invalid/);
+  assert.deepEqual(resolved, []);
+  assert.deepEqual(db.writes, []);
+});
 
 test('attested expiry-only history records durable actionable review before advancing to valid rows', async () => {
   const legacy = legacyExpiry(), original = structuredClone(legacy);

@@ -82,6 +82,28 @@ function formatMembershipDate(value) {
   return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+function ExpiryRenewalPolicy({ record }) {
+  if (record?.expiry_renewal_policy_error) {
+    return (
+      <p role="alert" className="text-xs text-amber-700 dark:text-amber-400 mt-3" data-testid={`renewal-policy-unavailable-${record.id}`}>
+        {record.expiry_renewal_policy_error}
+      </p>
+    );
+  }
+  const policy = record?.expiry_renewal_policy;
+  if (policy?.policySource !== 'operator_assigned_expiry_only') return null;
+  return (
+    <div className="mt-3 rounded-md border p-3 text-sm" data-testid={`renewal-policy-${record.id}`}>
+      <p className="font-medium">Renewal policy: {policy.configName}</p>
+      <p>Grace through {formatMembershipDate(policy.graceEndDate)} ({policy.renewalGraceDays}-day grace period)</p>
+      <p className="text-xs text-muted-foreground mt-1">
+        Operator-approved policy for the next renewal, not the historical purchased structure or price.
+        {' '}Paid-through date remains {formatMembershipDate(policy.paidThroughDate)}; renewal payment is separate.
+      </p>
+    </div>
+  );
+}
+
 function formatBillingDuration(commitment) {
   const months = Number(commitment?.durationMonths);
   if (Number.isInteger(months) && months > 0) {
@@ -1376,7 +1398,9 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
           <CardContent>
             {legacyCurrentMembership.grace && <p className="text-sm mb-4">
               Grace ends {formatMembershipDate(legacyCurrentMembership.grace.graceEndDate)}.
-              {legacyCurrentMembership.grace.policySource === 'display_only_renewal_boundary'
+              {legacyCurrentMembership.expiry_renewal_policy?.policySource === 'operator_assigned_expiry_only'
+                ? ' Operator-approved renewal policy.'
+                : legacyCurrentMembership.grace.policySource === 'display_only_renewal_boundary'
                 ? ' DISPLAY ONLY — policy matched at the renewal boundary; historical policy unavailable.'
                 : ' Saved renewal policy.'}
               {' '}Paid-through date is unchanged; renewal payment is separate.
@@ -1395,6 +1419,10 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
               <div>
                 <dt className="text-muted-foreground">Membership Type</dt>
                 <dd className="font-medium">{legacyCurrentMembership.tierLabel || 'Unknown'}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">Historical Structure</dt>
+                <dd className="font-medium">{legacyCurrentMembership.historicalStructureName || 'Structure unknown'}</dd>
               </div>
               <div>
                 <dt className="text-muted-foreground">Recorded Paid Amount</dt>
@@ -1416,6 +1444,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
             <p className="text-xs text-muted-foreground mt-4">
               Persisted paid membership. No start date, renewal date, or future commitment was recorded.
             </p>
+            <ExpiryRenewalPolicy record={legacyCurrentMembership} />
           </CardContent>
         </Card>
       )}
@@ -1769,6 +1798,7 @@ export default function MemberMembershipTab({ memberId, memberEmail }) {
                               || record.commitment_snapshot?.structure_name
                               || (record.config_id ? `Structure ${record.config_id}` : 'Structure unknown')}
                           </div>
+                          <ExpiryRenewalPolicy record={record} />
                         </td>
                         <td className="p-3 text-right">
                           <div>{pricing.agreed.text}</div>

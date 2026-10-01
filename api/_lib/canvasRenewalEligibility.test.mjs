@@ -102,6 +102,7 @@ function fixtureDb(tables) {
       select() { return query; },
       eq(key, value) { filters.push(row => row[key] === value); return query; },
       order() { return query; },
+      maybeSingle() { return Promise.resolve({ data: (tables[table] || []).filter(row => filters.every(f => f(row)))[0] || null, error: null }); },
       range() { return Promise.resolve({ data: (tables[table] || []).filter(row => filters.every(f => f(row))), error: null }); },
     };
     return query;
@@ -129,6 +130,35 @@ test('legacy fallback is labelled display-only, matched at boundary not today; n
     assert.equal(result.policySource, 'display_only_renewal_boundary');
   }
   assert.equal(JSON.stringify(legacyRecord), before);
+});
+
+test('explicit expiry-only authority wins over inferred structure and missing/forged authority does not override it', async () => {
+  const row = { ...legacyRecord, term_end_date: '2026-09-25' };
+  const tables = {
+    member: [fixtureOwner], member_membership_history: [row],
+    membership_tier_config: [{ ...boundaryConfig, billing_period: 'annual', renewal_grace_days: 0 }],
+    membership_expiry_policy_assignment: [{
+      id: 'approved', tenant_id: tenant, history_id: row.id, member_id: row.member_id,
+      config_id: boundaryConfig.id, config_name: 'Approved renewal structure',
+      expiry_date: row.term_end_date, approval_source: 'operator',
+      policy_snapshot: { renewal_open_days: 90, renewal_grace_days: 90,
+        renewal_disable_login: true, renewal_change_role: false, renewal_fallback_role_id: null },
+    }],
+  };
+  for (const [today, eligible] of [['2026-12-24', true], ['2026-12-25', false]]) {
+    const result = await loadCanvasRenewalEligibility(fixtureDb(tables), {
+      selected: { record: row }, owner: fixtureOwner, history: [row], today,
+    });
+    assert.equal(result.eligible, eligible);
+    assert.equal(result.graceEndDate, '2026-12-24');
+    assert.equal(result.policySource, 'operator_assigned_expiry_only');
+  }
+  tables.membership_expiry_policy_assignment[0].expiry_date = '2026-09-26';
+  const invalid = await loadCanvasRenewalEligibility(fixtureDb(tables), {
+    selected: { record: row }, owner: fixtureOwner, history: [row], today: '2026-09-24',
+  });
+  assert.equal(invalid.eligible, false);
+  assert.equal(invalid.reason, 'eligibility_evidence_unavailable');
 });
 test('ambiguous or missing selector and excluded evidence never create grace display', async () => {
   for (const input of [

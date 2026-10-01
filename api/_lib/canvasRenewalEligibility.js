@@ -1,5 +1,6 @@
 import { addDays, normalizeAnnualRenewalConfig } from './annualRenewalPolicy.js';
 import { shapeLegacyCurrentMembership } from '../membership/member-membership.js';
+import { loadExpiryOnlyRenewalPolicy, expiryOnlyPolicyConfig } from './expiryOnlyRenewalPolicy.js';
 
 const day = value => {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
@@ -88,6 +89,13 @@ export async function loadCanvasRenewalEligibility(db, { selected, owner, histor
       config = configs[0];
     }
     if (!config) {
+      const assignedPolicy = await loadExpiryOnlyRenewalPolicy(db, { tenantId, history: record });
+      if (assignedPolicy) {
+        const result = canvasRenewalEligibility({
+          record, config: expiryOnlyPolicyConfig(assignedPolicy), history, today,
+        });
+        return result.graceEndDate ? { ...result, policySource: assignedPolicy.policySource } : result;
+      }
       policySource = 'display_only_renewal_boundary';
       const expiry = day(record.term_end_date);
       if (!expiry || !shapeLegacyCurrentMembership(record, tenantId, new Date(`${expiry}T00:00:00Z`))) return hidden();

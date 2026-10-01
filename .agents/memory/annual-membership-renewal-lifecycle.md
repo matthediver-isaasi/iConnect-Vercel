@@ -16,3 +16,9 @@ Legacy expiry-only attestation is not authority to apply today's login, role or 
 **Why:** Advancing past a review row and resetting per-run errors can report a healthy continuation while the underlying access-policy decision remains unresolved.
 
 **How to apply:** Keep the review identity durable independently of traversal position; missing history or failed reads cannot count as resolution. Do not clear monitoring failures by inventing dates or attaching a current policy.
+
+An operator may explicitly approve a renewal/access policy for an expiry-only historical term without asserting that the member purchased that structure.
+
+**Why:** Retrofitting the historical purchased configuration or commitment snapshot can imply invented commencement and financial commitments, and violate rolling-term completeness constraints.
+
+**How to apply:** Keep the approved expiry policy in separate server-owned authority, validate its tenant/member/history/paid-expiry binding, and display it separately from the historical membership type and unknown purchase structure. Preserve all original financial and term fields.
