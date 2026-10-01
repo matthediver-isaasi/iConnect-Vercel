@@ -22,6 +22,7 @@ Use the focused topic that matches the change:
 - [Block style render surfaces](canvas-block-style-render-surfaces.md)
 - [Unsaved-changes guard](canvas-unsaved-changes-guard.md)
 - [Editor zoom versus reflow](canvas-editor-zoom-reflow.md)
+- [Embedded breakpoints](canvas-embedded-breakpoints.md) — mobile stages retain desktop browser media queries; embedded layouts must follow element width.
 - [Flow section backgrounds](canvas-flow-section-backgrounds.md)
 - [Reusable footer fallback](canvas-footer-fallback.md)
 - [Route-owned chrome decisions](route-owned-chrome.md)

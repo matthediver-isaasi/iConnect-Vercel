@@ -98,7 +98,7 @@ export default function EventSponsorsCard({
                 {group.categoryName}
               </h3>
             )}
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+            <div className="event-sponsors-grid grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
               {group.sponsors.map(sponsor => (
                 <SponsorItem key={sponsor.id} sponsor={sponsor} />
               ))}

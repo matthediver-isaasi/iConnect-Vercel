@@ -1,0 +1,64 @@
+/* Canvas previews resize the element, not the browser viewport. Keep embedded
+   breakpoints local; standalone event pages retain their viewport utilities. */
+.event-registration-embed {
+  container: event-registration / inline-size;
+  min-width: 0;
+}
+
+.event-registration-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.event-registration-main,
+.event-registration-sidebar {
+  min-width: 0;
+}
+
+.event-registration-speakers,
+.event-registration-options {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.event-registration-embed .event-sponsors-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@container event-registration (min-width: 640px) {
+  .event-registration-embed .event-sponsors-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .event-registration-speakers {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container event-registration (min-width: 768px) {
+  .event-registration-embed .event-sponsors-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .event-registration-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container event-registration (min-width: 1024px) {
+  .event-registration-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: start;
+  }
+  .event-registration-main {
+    grid-column: span 2 / span 2;
+  }
+  .event-registration-sidebar {
+    grid-column: span 1 / span 1;
+  }
+  .event-registration-scroll {
+    position: sticky;
+    top: 1rem;
+    max-height: calc(100dvh - 2rem);
+    overflow-y: auto;
+  }
+  .event-registration-main.event-registration-scroll {
+    padding-right: 0.5rem;
+  }
+}

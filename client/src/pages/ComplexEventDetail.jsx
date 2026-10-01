@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import PublicDocumentsSection from "@/components/events/PublicDocumentsSection";
+import "@/components/events/eventRegistrationLayout.css";
 import JoinGroupToBookCard from "@/components/events/JoinGroupToBookCard";
 import { useMyGroupIds } from "@/hooks/useEventsData";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -1545,7 +1546,7 @@ export function ComplexEventDetailExperience({
 
   return (
     <div
-      className={embedded ? "w-full" : "min-h-screen bg-white"}
+      className={embedded ? "w-full event-registration-embed" : "min-h-screen bg-white"}
       onClickCapture={editorMode ? (interactionEvent) => {
         if (interactionEvent.target.closest?.('a, button')) {
           interactionEvent.preventDefault();
@@ -1602,8 +1603,8 @@ export function ComplexEventDetailExperience({
         </div>
         )}
 
-        <div className="grid lg:grid-cols-3 gap-8 mb-8 lg:items-start">
-          <div className="min-w-0 lg:col-span-2 space-y-6 lg:sticky lg:top-4 lg:max-h-[calc(100dvh-2rem)] lg:overflow-y-auto lg:pr-2">
+        <div className={`grid gap-8 mb-8 ${embedded ? "event-registration-grid" : "lg:grid-cols-3 lg:items-start"}`}>
+          <div className={`min-w-0 space-y-6 ${embedded ? "event-registration-main event-registration-scroll" : "lg:col-span-2 lg:sticky lg:top-4 lg:max-h-[calc(100dvh-2rem)] lg:overflow-y-auto lg:pr-2"}`}>
             {event.image_url && (
               <div className="rounded-xl overflow-hidden shadow-lg aspect-video max-h-[28rem] mx-auto w-full">
                 <img
@@ -1797,7 +1798,7 @@ export function ComplexEventDetailExperience({
                   id={`complex-event-speakers-${event.id}`}
                   hidden={!speakerDisclosure.expanded}
                 >
-                  <div className="grid sm:grid-cols-2 gap-4">
+                  <div className={`grid gap-4 ${embedded ? "event-registration-speakers" : "sm:grid-cols-2"}`}>
                     {visibleSpeakers.map(speaker => {
                       const displayName = speaker.full_name || speaker.name || '?';
                       const speakerSessions = speakerSessionsMap[speaker.id] || [];
@@ -1840,7 +1841,7 @@ export function ComplexEventDetailExperience({
             )}
           </div>
 
-          <div className="space-y-6 lg:sticky lg:top-4 lg:max-h-[calc(100dvh-2rem)] lg:overflow-y-auto">
+          <div className={`space-y-6 ${embedded ? "event-registration-sidebar event-registration-scroll" : "lg:sticky lg:top-4 lg:max-h-[calc(100dvh-2rem)] lg:overflow-y-auto"}`}>
             {/* Task #3508: group events are viewable by everyone but bookable
                 only by members of the linked group — non-members get a
                 join-the-group dialogue instead of the booking section. */}

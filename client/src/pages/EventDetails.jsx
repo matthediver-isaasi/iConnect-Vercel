@@ -7,6 +7,7 @@ import { isImmediateEvent as isImmediateEventTiming } from "@shared/eventTiming"
 import { useQuery } from "@tanstack/react-query";
 import { useEventData, useEventDataBySlug, useMyGroupIds } from "@/hooks/useEventsData";
 import PublicDocumentsSection from "@/components/events/PublicDocumentsSection";
+import "@/components/events/eventRegistrationLayout.css";
 import JoinGroupToBookCard from "@/components/events/JoinGroupToBookCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -1682,7 +1683,7 @@ export function EventDetailsExperience({
   return (
     <div
       className={isEmbedMode
-        ? "w-full"
+        ? "w-full event-registration-embed"
         : "min-h-full bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8"}
       onClickCapture={editorMode ? (interactionEvent) => {
         if (interactionEvent.target.closest?.('a, button')) {
@@ -1716,8 +1717,8 @@ export function EventDetailsExperience({
           </div>
         )}
 
-        <div className="grid lg:grid-cols-3 gap-8 mb-8">
-          <div className="lg:col-span-2 space-y-6">
+        <div className={`grid gap-8 mb-8 ${embedded ? "event-registration-grid" : "lg:grid-cols-3"}`}>
+          <div className={`space-y-6 ${embedded ? "event-registration-main" : "lg:col-span-2"}`}>
             {event.image_url && (
               <div className="rounded-xl overflow-hidden shadow-lg aspect-video max-h-[28rem] mx-auto w-full">
                 <img
@@ -1987,7 +1988,7 @@ export function EventDetailsExperience({
                   </EventDisclosureHeading>
                   <div
                     id={`event-speakers-${event.id}`}
-                    className={speakerDisclosure.expanded ? "grid grid-cols-1 sm:grid-cols-2 gap-4" : "hidden"}
+                    className={speakerDisclosure.expanded ? `grid gap-4 ${embedded ? "event-registration-speakers" : "grid-cols-1 sm:grid-cols-2"}` : "hidden"}
                     hidden={!speakerDisclosure.expanded}
                   >
                     {eventSpeakers.map((speaker) => (
@@ -2102,7 +2103,7 @@ export function EventDetailsExperience({
                       </div>
                     )}
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className={`grid gap-4 ${embedded ? "event-registration-options" : "grid-cols-1 md:grid-cols-2"}`}>
                       <div className="space-y-2">
                         <Label htmlFor="guest-first-name" className={isGuestFormDisabled ? "text-slate-400" : ""}>
                           First Name <span className="text-red-500">*</span>
@@ -2174,7 +2175,7 @@ export function EventDetailsExperience({
                       />
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className={`grid gap-4 ${embedded ? "event-registration-options" : "grid-cols-1 md:grid-cols-2"}`}>
                       <div className="space-y-2">
                         <Label htmlFor="guest-job-title" className={isGuestFormDisabled ? "text-slate-400" : ""}>
                           Job Title
@@ -2435,7 +2436,7 @@ export function EventDetailsExperience({
             )}
           </div>
 
-          <div className="lg:col-span-1 space-y-6">
+          <div className={`space-y-6 ${embedded ? "event-registration-sidebar" : "lg:col-span-1"}`}>
             {/* Registration closed notice */}
             {isRegistrationClosed && (
               <Card className="border-red-200 bg-red-50 shadow-sm mb-4" data-testid="notice-registration-closed">
