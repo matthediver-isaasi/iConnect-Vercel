@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   STRIPE_MEMBERSHIP_WEBHOOK_EVENTS,
+  CARD_PLAN_EVENT_TYPES,
   buildStripeMembershipWebhookUrl,
   checkStripeMembershipWebhookConfiguration,
   classifyStripeMembershipEventTenant,
@@ -188,7 +189,7 @@ test('tenant classifier skips known foreign events and accepts own direct metada
     type: 'checkout.session.completed',
     data: { object: {
       mode: 'subscription',
-      metadata: { tenant_id: 'tenant-2', kind: 'monthly_card_plan' },
+      metadata: { tenant_id: 'tenant-2', kind: 'monthly_card' },
     } },
   }, { expectedTenantId: 'tenant-1' });
   assert.deepEqual(foreign, { status: 'foreign' });
@@ -203,7 +204,7 @@ test('invoice classifier retrieves authoritative subscription for current and le
         return {
           metadata: {
             tenant_id: id === 'sub_own' ? 'tenant-1' : 'tenant-2',
-            kind: 'monthly_card_plan',
+            kind: 'monthly_card',
           },
         };
       },
@@ -230,7 +231,7 @@ test('invoice classifier retrieves authoritative subscription for current and le
 test('unknown subscription ownership fails closed without provider details', async () => {
   const missing = await classifyStripeMembershipEventTenant({
     type: 'customer.subscription.deleted',
-    data: { object: { metadata: { kind: 'monthly_card_plan' } } },
+    data: { object: { metadata: { kind: 'monthly_card' } } },
   }, { expectedTenantId: 'tenant-1' });
   assert.equal(missing.status, 'unknown');
 
@@ -323,15 +324,15 @@ test('unused types are irrelevant before ownership checks, regardless of metadat
     for (const livemode of [true, false]) {
       for (const metadata of [
         {},
-        { kind: 'monthly_card_plan' },
+        { kind: 'monthly_card' },
         {
-          kind: 'monthly_card_plan',
+          kind: 'monthly_card',
           tenant_id: 'tenant-1',
           member_id: 'member-1',
           membership_year: '2026',
           catch_up_intent_key: 'intent-1',
         },
-        { kind: 'monthly_card_plan', tenant_id: 'tenant-2' },
+        { kind: 'monthly_card', tenant_id: 'tenant-2' },
       ]) {
         for (const subscription of [undefined, 'sub_unused']) {
           const event = {
@@ -364,7 +365,7 @@ test('every canonical supported event still requires membership ownership', asyn
     for (const tenantId of ['tenant-1', 'tenant-2']) {
       let retrievals = 0;
       const metadata = {
-        kind: 'monthly_card_plan',
+        kind: 'monthly_card',
         tenant_id: tenantId,
         membership_year: '2026',
         member_id: 'member-1',
@@ -392,7 +393,7 @@ test('every canonical supported event still requires membership ownership', asyn
 
 test('supported invoices retain missing identity and unavailable ownership errors', async () => {
   for (const type of STRIPE_MEMBERSHIP_WEBHOOK_EVENTS.filter((value) => value.startsWith('invoice.'))) {
-    const event = { type, data: { object: { metadata: { kind: 'monthly_card_plan' } } } };
+    const event = { type, data: { object: { metadata: { kind: 'monthly_card' } } } };
     assert.deepEqual(
       await classifyStripeMembershipEventTenant(event, { expectedTenantId: 'tenant-1' }),
       { status: 'unknown', message: 'Stripe membership invoice has no subscription identity.' },
@@ -405,9 +406,69 @@ test('supported invoices retain missing identity and unavailable ownership error
     assert.deepEqual(
       await classifyStripeMembershipEventTenant(event, {
         expectedTenantId: 'tenant-1',
-        stripe: { subscriptions: { retrieve: async () => ({ metadata: { kind: 'monthly_card_plan' } }) } },
+        stripe: { subscriptions: { retrieve: async () => ({ metadata: { kind: 'monthly_card' } }) } },
       }),
       { status: 'unknown', message: 'Stripe event has no tenant identity.' },
     );
+  }
+});
+
+test('classifier-only typo is not a provider alias and other subscription products remain excluded', async () => {
+  for (const kind of ['monthly_card_plan', 'other_product', undefined]) {
+    const metadata = { kind, tenant_id: 'tenant-1', member_id: 'member-1', membership_year: '2026' };
+    for (const type of CARD_PLAN_EVENT_TYPES) {
+      let retrievals = 0;
+      const result = await classifyStripeMembershipEventTenant({
+        type,
+        data: { object: {
+          mode: 'subscription',
+          // Membership-looking invoice payload cannot override the provider's
+          // authoritative Subscription product.
+          metadata: type.startsWith('invoice.') ? { ...metadata, kind: 'monthly_card' } : metadata,
+          subscription: 'sub_other',
+        } },
+      }, {
+        expectedTenantId: 'tenant-1',
+        stripe: { subscriptions: { retrieve: async () => {
+          retrievals += 1;
+          return { metadata };
+        } } },
+      });
+      assert.deepEqual(result, { status: 'irrelevant' }, `${type}: ${kind}`);
+      assert.equal(retrievals, type.startsWith('invoice.') ? 1 : 0);
+    }
+  }
+});
+
+test('monthly card metadata still requires subscription-mode checkout and excludes other-product PIs', async () => {
+  const metadata = {
+    kind: 'monthly_card', tenant_id: 'tenant-1', member_id: 'member-1', membership_year: '2026',
+  };
+  for (const mode of ['payment', 'setup', undefined]) {
+    assert.deepEqual(await classifyStripeMembershipEventTenant({
+      type: 'checkout.session.completed', data: { object: { mode, metadata } },
+    }, { expectedTenantId: 'tenant-1' }), { status: 'irrelevant' });
+  }
+  for (const excludedKey of ['booking_id', 'job_posting_id']) {
+    assert.deepEqual(await classifyStripeMembershipEventTenant({
+      type: 'payment_intent.succeeded',
+      data: { object: { metadata: { ...metadata, [excludedKey]: 'other-product-1' } } },
+    }, { expectedTenantId: 'tenant-1' }), { status: 'irrelevant' });
+  }
+});
+
+test('all invoice metadata locations identify a canonical monthly-card invoice missing its subscription', async () => {
+  const metadata = { kind: 'monthly_card', tenant_id: 'tenant-1' };
+  for (const shape of [
+    { metadata },
+    { subscription_details: { metadata } },
+    { parent: { subscription_details: { metadata } } },
+    { lines: { data: [{ metadata }] } },
+  ]) {
+    assert.deepEqual(await classifyStripeMembershipEventTenant({
+      type: 'invoice.paid', data: { object: shape },
+    }, { expectedTenantId: 'tenant-1' }), {
+      status: 'unknown', message: 'Stripe membership invoice has no subscription identity.',
+    });
   }
 });

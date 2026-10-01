@@ -1,4 +1,5 @@
 import { isIP } from 'node:net';
+import { CARD_PLAN_KIND } from './stripeMonthlyCardMetadata.js';
 
 export const STRIPE_MEMBERSHIP_WEBHOOK_EVENTS = Object.freeze([
   'payment_intent.succeeded',
@@ -14,8 +15,6 @@ export const STRIPE_MEMBERSHIP_WEBHOOK_EVENTS = Object.freeze([
 export const CARD_PLAN_EVENT_TYPES = new Set(
   STRIPE_MEMBERSHIP_WEBHOOK_EVENTS.filter((type) => type !== 'payment_intent.succeeded'),
 );
-
-const CARD_PLAN_KIND = 'monthly_card_plan';
 
 function isMembershipPaymentIntent(object) {
   const metadata = object?.metadata || {};

@@ -9,6 +9,7 @@
     "start": "NODE_ENV=production node dist/index.js",
     "check": "tsc",
     "test": "node scripts/run-regression-suite.mjs test",
+    "test:stripe-membership-webhook": "node scripts/run-regression-suite.mjs stripe-membership-webhook",
     "test:ai-assistant": "node scripts/run-regression-suite.mjs ai-assistant-tests",
     "test:stripe-address-mappings": "node scripts/run-regression-suite.mjs stripe-address-mappings",
     "test:monthly-membership-activation": "node scripts/run-regression-suite.mjs monthly-membership-activation",

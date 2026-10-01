@@ -23,7 +23,7 @@ const CREDENTIALS = {
   test_secret_key: API_KEYS.test,
 };
 const MEMBERSHIP_METADATA = {
-  kind: 'monthly_card_plan',
+  kind: 'monthly_card',
   tenant_id: TENANT_ID,
   membership_year: '2026',
   member_id: 'member-1',
@@ -468,13 +468,13 @@ test('supported events with missing ownership return 422 before storage', async 
       id: 'in_no_subscription', object: 'invoice', metadata: { ...MEMBERSHIP_METADATA },
     }), {}, 'Stripe membership invoice has no subscription identity.'],
     ['authoritative subscription without tenant', invoiceEvent(), {
-      retrieve: true, subscription: { metadata: { kind: 'monthly_card_plan' } },
+      retrieve: true, subscription: { metadata: { kind: 'monthly_card' } },
     }, 'Stripe event has no tenant identity.'],
     ['membership checkout without tenant', eventFor('checkout.session.completed', {
-      object: 'checkout.session', mode: 'subscription', metadata: { kind: 'monthly_card_plan' },
+      object: 'checkout.session', mode: 'subscription', metadata: { kind: 'monthly_card' },
     }), {}, 'Stripe event has no tenant identity.'],
     ['deleted membership subscription without tenant', eventFor('customer.subscription.deleted', {
-      object: 'subscription', metadata: { kind: 'monthly_card_plan' },
+      object: 'subscription', metadata: { kind: 'monthly_card' },
     }), {}, 'Stripe event has no tenant identity.'],
   ];
   for (const [name, event, options, error] of fixtures) {

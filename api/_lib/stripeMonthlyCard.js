@@ -58,7 +58,8 @@ import {
   captureFormStripeBillingAddressOnce,
 } from './formStripeAddressMappingProcessing.js';
 
-export const CARD_PLAN_KIND = 'monthly_card';
+import { CARD_PLAN_KIND } from './stripeMonthlyCardMetadata.js';
+export { CARD_PLAN_KIND } from './stripeMonthlyCardMetadata.js';
 
 /** Finite Stripe Schedule duration derived only from immutable consent terms. */
 export function stripeScheduleDurationForCardSnapshot(snapshot) {
