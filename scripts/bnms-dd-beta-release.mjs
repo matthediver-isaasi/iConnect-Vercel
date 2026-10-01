@@ -10,6 +10,7 @@ import { resolveDynamicCollectionPrice } from '../api/_lib/gocardlessDynamicColl
 import { BNMS_BETA_BANK, betaAccountingMapping, assertBnmsBetaAccountingContext } from '../api/_lib/bnmsBetaAccounting.js';
 import { assertUserAttestationProvenance, assertUserAttestationFresh } from './bnms-dd-pilot-deployment-proof.mjs';
 import { inspectContract } from './apply-gocardless-manual-collection.mjs';
+import {validateBetaXeroException,assertBetaXeroAudit,assertBetaPriorXeroMember} from './bnms-dd-beta-xero-exception.mjs';
 export const PROCESSING_START='2026-09-30T23:00:00Z';
 export const MAX_EVIDENCE_AGE_MS=15*60*1000;
 export const MAX_HANDOVER_AGE_MS=24*60*60*1000;
@@ -53,9 +54,18 @@ export function assertBetaEvidenceFresh(report,instant){
     ||start>timestamp||end<start||end>timestamp||timestamp-start>MAX_EVIDENCE_AGE_MS)fail('Oldest readiness evidence must be within 15 minutes, including reads and transaction time');
   if(!Number.isFinite(attested)||attested>timestamp||timestamp-attested>MAX_HANDOVER_AGE_MS)fail('Legacy handover must be reattested within 24 hours of arming');
 }
-export async function readBetaReleaseEvidence(db,{transport=fetch,now=()=>new Date(),handover=null}={}){
+export async function readBetaFreshProviderEvidence(get,a){
+  const mandate=(await get(`mandates/${a.mandate_id}`)).mandates;
+  const customer=(await get(`customers/${a.customer_id}`)).customers;
+  const mandates=await readAllProviderPages(get,'mandates',{customer:a.customer_id});
+  const subscriptions=await readAllProviderPages(get,'subscriptions',{mandate:a.mandate_id});
+  const payments=await readAllProviderPages(get,'payments',{mandate:a.mandate_id});
+  return {mandate,customer,mandates,subscriptions,payments};
+}
+export async function readBetaReleaseEvidence(db,{transport=fetch,now=()=>new Date(),handover=null,xeroException=null}={}){
   // Capture BEFORE the first database/provider request, not after a long scan.
   const observedAt=now().toISOString();
+  const priorXero=xeroException?validateBetaXeroException(xeroException.raw,xeroException.approval,{now:new Date(observedAt)}):null;
   const batch=await checked(db.from('bnms_dd_beta_batch').select('*').eq('tenant_id',TENANT_ID).eq('evidence_sha256',BATCH_HASH).single(),'batch');
   const adoptions=await rows(db,'bnms_dd_beta_adoption',q=>q.eq('tenant_id',TENANT_ID).eq('batch_id',batch.id));
   validateBetaScope(batch,adoptions);
@@ -78,24 +88,25 @@ export async function readBetaReleaseEvidence(db,{transport=fetch,now=()=>new Da
   const canonicalPayments=await rows(db,'gocardless_payments',q=>q.eq('tenant_id',TENANT_ID).in('gocardless_mandate_id',adoptions.map(a=>a.mandate_id)));
   const settings=await rows(db,'system_settings',q=>q.eq('tenant_id',TENANT_ID).in('setting_key',['xero_gocardless_bank_account_code','membership_nominal_ledger','xero_sales_account_code']));
   const provider=await checked(db.from('tenant_accounting_settings').select('active_provider').eq('tenant_id',TENANT_ID).maybeSingle(),'accounting provider');
-  const tokens=await checked(db.from('xero_token').select('tenant_id,access_token,expires_at').eq('app_tenant_id',TENANT_ID),'Xero token');
-  if(tokens.length!==1||tokens[0].tenant_id!==XERO_TENANT_ID||Date.parse(tokens[0].expires_at)<now().getTime()+60000)fail('Pinned unexpired Xero authentication required');
+  const tokens=priorXero?null:await checked(db.from('xero_token').select('tenant_id,access_token,expires_at').eq('app_tenant_id',TENANT_ID),'Xero token');
+  if(!priorXero&&(tokens.length!==1||tokens[0].tenant_id!==XERO_TENANT_ID||Date.parse(tokens[0].expires_at)<now().getTime()+60000))fail('Pinned unexpired Xero authentication required');
   const xero=async(resource,query={})=>{
+    if(priorXero)fail('Live Xero request forbidden in explicit prior-evidence mode');
     const url=new URL(`https://api.xero.com/api.xro/2.0/${resource}`);
     for(const [k,v] of Object.entries(query))url.searchParams.set(k,v);
     const r=await transport(url,{method:'GET',redirect:'error',signal:AbortSignal.timeout(30000),
       headers:{Authorization:`Bearer ${tokens[0].access_token}`,'Xero-tenant-id':XERO_TENANT_ID,Accept:'application/json'}});
     if(!r.ok)fail(`Xero read HTTP ${r.status}`);return r.json();
   };
-  const accounts=(await xero('Accounts')).Accounts;
-  if(!Array.isArray(accounts))fail('Complete Xero account evidence required');
-  const banks=accounts.filter(a=>a.AccountID===BNMS_BETA_BANK.bank_account_id&&a.Type==='BANK'&&a.Status==='ACTIVE'&&a.CurrencyCode==='GBP');
+  const accounts=priorXero?null:(await xero('Accounts')).Accounts;
+  if(!priorXero&&!Array.isArray(accounts))fail('Complete Xero account evidence required');
+  const banks=accounts?.filter(a=>a.AccountID===BNMS_BETA_BANK.bank_account_id&&a.Type==='BANK'&&a.Status==='ACTIVE'&&a.CurrencyCode==='GBP');
   const globalBlockers=[];
   try{validateBetaHandover(handover,ids);const age=now().getTime()-Date.parse(handover.confirmedAt);
     if(age<0||age>MAX_HANDOVER_AGE_MS)fail('Reattest handover within 24 hours');}
   catch{globalBlockers.push('Explicit exact-beta legacy automatic collector handover confirmation required; empty provider schedules alone are not proof');}
   if(provider?.active_provider!=='xero')globalBlockers.push('Dedicated Xero accounting provider must be explicitly configured');
-  if(banks.length!==1)globalBlockers.push('Approved beta existing bank must resolve to the pinned ACTIVE GBP BANK');
+  if(!priorXero&&banks.length!==1)globalBlockers.push('Approved beta existing bank must resolve to the pinned ACTIVE GBP BANK');
   const get=alphaProviderReader(await getTenantGocardlessCredentials(TENANT_ID,{db}),transport);
   const members=[];
   for(const a of adoptions){
@@ -124,12 +135,8 @@ export async function readBetaReleaseEvidence(db,{transport=fetch,now=()=>new Da
       ||settings.find(s=>s.setting_key==='xero_sales_account_code')?.setting_value||'200');
     const mapping=betaAccountingMapping(a.member_id);
     if(revenueCode!==mapping.revenue_account_code)blockers.push('Beta revenue code differs from approved scoped mapping');
-    if(accounts.filter(x=>x.Code===revenueCode&&x.Status==='ACTIVE'&&x.Type==='REVENUE').length!==1)blockers.push('Current Xero revenue account unavailable');
-    const mandate=(await get(`mandates/${a.mandate_id}`)).mandates;
-    const customer=(await get(`customers/${a.customer_id}`)).customers;
-    const mandates=await readAllProviderPages(get,'mandates',{customer:a.customer_id});
-    const subscriptions=await readAllProviderPages(get,'subscriptions',{mandate:a.mandate_id});
-    const payments=await readAllProviderPages(get,'payments',{mandate:a.mandate_id});
+    if(!priorXero&&accounts.filter(x=>x.Code===revenueCode&&x.Status==='ACTIVE'&&x.Type==='REVENUE').length!==1)blockers.push('Current Xero revenue account unavailable');
+    const {mandate,customer,mandates,subscriptions,payments}=await readBetaFreshProviderEvidence(get,a);
     if(mandates.length!==1||mandates[0].id!==a.mandate_id||mandate?.id!==a.mandate_id||mandate.status!=='active'
       ||mandate.links?.customer!==a.customer_id||mandate.links?.creditor!=='CR0000B50W1Y2R'||customer?.id!==a.customer_id
       ||!/^\d{4}-\d{2}-\d{2}$/.test(mandate.next_possible_charge_date||'')
@@ -139,9 +146,11 @@ export async function readBetaReleaseEvidence(db,{transport=fetch,now=()=>new Da
     if(payments.length!==stored.length||payments.some(p=>p.status!=='paid_out'||p.charge_date>='2026-10-01'
       ||p.links?.mandate!==a.mandate_id||!stored.some(h=>h.provider_payment_id===p.id&&h.amount_minor===p.amount&&h.currency===p.currency&&h.charge_date===p.charge_date)))blockers.push('Provider payment history/future schedule requires reconciliation');
     const contactIds=[...new Set(links.filter(l=>l.member_id===a.member_id).map(l=>l.xero_contact_id))];
+    const priorMember=priorXero?.report.members.find(m=>m.memberId===a.member_id);
+    if(priorXero)assertBetaPriorXeroMember(priorMember,a,contactIds,stored.length,revenueCode);
     let futureInvoices=[];
     if(contactIds.length!==1)blockers.push('Historical Xero contact ownership ambiguous');
-    else{
+    else if(!priorXero){
       let complete=false;
       for(let page=1;page<=100;page++){
         const invoices=(await xero('Invoices',{where:`Contact.ContactID==Guid("${contactIds[0]}")`,page:String(page)})).Invoices;
@@ -158,13 +167,15 @@ export async function readBetaReleaseEvidence(db,{transport=fetch,now=()=>new Da
     members.push({adoptionId:a.id,memberId:a.member_id,planId:a.plan_id,agreementId:a.agreement_id,historyId:a.history_id,
       mandateId:a.mandate_id,customerId:a.customer_id,adoptionHash:fingerprint(a),price,blockers,
       provider:{mandate,customer,subscriptions,payments,mandateCount:mandates.length},futureInvoices,
-      accounting:{xeroTenantId:XERO_TENANT_ID,bankAccountId:banks[0]?.AccountID||null,bankCode:banks[0]?.Code||null,revenueCode,contactId:contactIds[0]||null,mapping},
+      accounting:{xeroTenantId:XERO_TENANT_ID,bankAccountId:priorMember?.accounting.bankAccountId||banks?.[0]?.AccountID||null,
+        bankCode:priorMember?.accounting.bankCode||banks?.[0]?.Code||null,revenueCode,contactId:contactIds[0]||null,mapping},
       historicalInvoiceCount:stored.length});
   }
   const completedAt=now().toISOString();
   if(Date.parse(completedAt)-Date.parse(observedAt)>MAX_EVIDENCE_AGE_MS)globalBlockers.push('Readiness scan exceeded 15 minutes; repeat all evidence');
   return {version:1,batchHash:BATCH_HASH,batchId:batch.id,tenantId:TENANT_ID,observedAt,completedAt,
-    stateHash:stateHash(state),state,globalBlockers,members,settings,provider,handover};
+    stateHash:stateHash(state),state,globalBlockers,members,settings,provider,handover,
+    ...(priorXero?{xeroException:priorXero.audit}:{})};
 }
 export function betaReleaseManifest(report,proof){
   if(report.tenantId!==TENANT_ID||report.batchHash!==BATCH_HASH||report.members?.length!==10
@@ -180,8 +191,10 @@ export function betaReleaseManifest(report,proof){
   if(!proof?.sourceHashes||!proof.deploymentId||!proof.commit)fail('Verified active deployment proof required');
   // Validate shape even on replay, but do not re-age immutable completed evidence.
   if(Object.hasOwn(proof,'provenance'))assertUserAttestationProvenance(proof);
+  if(report.xeroException)assertBetaXeroAudit(report.xeroException,report.members.map(m=>m.memberId));
   return {version:1,batchHash:BATCH_HASH,tenantId:TENANT_ID,processingNotBefore:PROCESSING_START,
     stateHash:report.stateHash,production:proof,handover:report.handover,
+    ...(report.xeroException?{xeroException:report.xeroException}:{}),
     members:report.members.map(m=>({adoptionId:m.adoptionId,memberId:m.memberId,planId:m.planId,
       agreementId:m.agreementId,historyId:m.historyId,mandateId:m.mandateId,customerId:m.customerId,
       adoptionHash:m.adoptionHash,price:m.price,accounting:m.accounting,processingNotBefore:PROCESSING_START,
@@ -307,6 +320,7 @@ export async function verifyBetaReleaseSchema(c){
 export function assertBetaReleaseFresh(report,proof,instant){
   assertBetaEvidenceFresh(report,instant);
   if(Object.hasOwn(proof,'provenance'))assertUserAttestationFresh(proof,instant);
+  if(report.xeroException)assertBetaXeroAudit(report.xeroException,report.members.map(m=>m.memberId),instant);
 }
 export async function assertBetaReleaseCommitFresh(c,report,proof){
   const dbClock=(await c.query('SELECT clock_timestamp() AS checked_at')).rows[0].checked_at;
@@ -316,7 +330,8 @@ export function assertBetaReleaseReplay(prior,manifest,hash,report,proof){
   if(prior.length!==10||new Set(prior.map(p=>p.adoption_id)).size!==10
     ||prior.some(p=>p.evidence_sha256!==hash||!manifest.members.some(m=>m.adoptionId===p.adoption_id
       &&m.memberId===p.member_id&&m.planId===p.plan_id
-      &&fingerprint(p.evidence)===fingerprint({...m,production:proof,handover:report.handover,readinessObservedAt:report.observedAt}))))
+      &&fingerprint(p.evidence)===fingerprint({...m,production:proof,handover:report.handover,readinessObservedAt:report.observedAt,
+        ...(report.xeroException?{xeroException:report.xeroException}:{})}))))
     fail('Partial/different beta release requires reconciliation');
 }
 export async function releaseBeta(c,report,proof,{apply=false,reviewSha256,verifiedDestination=false,now=()=>new Date()}={}){
@@ -365,7 +380,8 @@ export async function releaseBeta(c,report,proof,{apply=false,reviewSha256,verif
     if(!apply){await c.query('ROLLBACK');return {mode:'scheduled_beta_release_dry_run',hash,manifest,writes:0};}
     for(const m of manifest.members){
       await c.query(`INSERT INTO bnms_dd_beta_release(adoption_id,tenant_id,member_id,plan_id,evidence_sha256,evidence)
-        VALUES($1,$2,$3,$4,$5,$6)`,[m.adoptionId,TENANT_ID,m.memberId,m.planId,hash,{...m,production:proof,handover:report.handover,readinessObservedAt:report.observedAt}]);
+        VALUES($1,$2,$3,$4,$5,$6)`,[m.adoptionId,TENANT_ID,m.memberId,m.planId,hash,{...m,production:proof,handover:report.handover,readinessObservedAt:report.observedAt,
+          ...(report.xeroException?{xeroException:report.xeroException}:{})}]);
       const agreement=await c.query(`UPDATE membership_billing_agreements SET status='first_payment_pending',needs_attention=false,attention_reason=NULL,updated_at=now()
         WHERE id=$1 AND tenant_id=$2 AND member_id=$3`,[m.agreementId,TENANT_ID,m.memberId]);
       const plan=await c.query(`UPDATE membership_payment_plans SET collection_stopped_at=NULL,metadata=jsonb_set(metadata,'{bnms_release_required}','false'),updated_at=now()

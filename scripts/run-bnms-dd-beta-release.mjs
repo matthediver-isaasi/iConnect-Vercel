@@ -17,12 +17,14 @@ export function parseBetaReleaseArgs(args){
   for(let n=0;n<args.length;n++){
     const a=args[n];
     if(['--schema','--apply'].includes(a)&&!o[a.slice(2)])o[a.slice(2)]=true;
-    else if(['--out','--proof','--replay','--handover','--attestation'].includes(a)&&!o[a.slice(2)]&&args[n+1]&&!args[n+1].startsWith('--'))o[a.slice(2)]=args[++n];
+    else if(['--out','--proof','--replay','--handover','--attestation','--xero-evidence','--xero-exception'].includes(a)&&!o[a.slice(2)]&&args[n+1]&&!args[n+1].startsWith('--'))o[a.slice(2)]=args[++n];
     else if(/^--review-sha256=[a-f0-9]{64}$/.test(a)&&!o.reviewSha256)o.reviewSha256=a.split('=')[1];
     else throw Error('Unsupported beta release argument; identity overrides and provider writes forbidden');
   }
   if(o.schema?(o.out||o.proof||o.replay||o.handover||o.attestation):(!o.out||!resolve(o.out).startsWith('/tmp/')))throw Error('Separate schema mode or new private /tmp report required');
   if(o.attestation&&!o.proof)throw Error('Explicit attestation requires --proof');
+  if(!!o['xero-evidence']!==!!o['xero-exception']||((o.schema||o.replay)&&o['xero-evidence']))
+    throw Error('Prior Xero evidence and explicit exception must be paired, separate from schema/replay');
   if(o.apply&&!o.reviewSha256)throw Error('Exact reviewed hash required');
   if(o.apply&&!o.schema&&!o.proof)throw Error('Active deployment proof required for release');
   if(o.replay&&(o.apply||!o.reviewSha256||o.proof||o.handover||o.attestation))throw Error('Replay is read-only and requires only original report/hash and new output');
@@ -77,7 +79,10 @@ export async function main(args=process.argv.slice(2),env=process.env,{vercelReq
           :await verifyDeploymentProof(reviewedProof,{vercelRequest});
       }
       stage='provider_readiness';
-      report=await readBetaReleaseEvidence(db,{handover:o.handover?JSON.parse(await readFile(resolve(o.handover),'utf8')):null});
+      const xeroException=o['xero-evidence']?{
+        raw:await readFile(resolve(o['xero-evidence']),'utf8'),
+        approval:JSON.parse(await readFile(resolve(o['xero-exception']),'utf8'))}:null;
+      report=await readBetaReleaseEvidence(db,{handover:o.handover?JSON.parse(await readFile(resolve(o.handover),'utf8')):null,xeroException});
     }
     // Preserve completed GET evidence even if the subsequent SQL/schema phase
     // fails. This is diagnostic evidence, never renewed release authorization.
