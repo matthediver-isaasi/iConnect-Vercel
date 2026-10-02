@@ -148,3 +148,4 @@
 - [Live import snapshot boundaries](live-import-snapshot-boundaries.md) — distinguish exact cohort invariants from concurrent production activity; disclose drift without weakening core checks.
 - [Team and portal dual access](team-portal-dual-access.md) — team revocation must preserve member access; shared status cannot independently suspend both access types.
 - [Event invoice recovery](event-invoice-recovery-authority.md) — immutable checkout evidence, provider-ID reconciliation, payment ownership and completed-sweep health.
+- [Shared accounting request queue](shared-accounting-request-queue.md) — agreed central recovery direction includes both Xero and QuickBooks from the outset.
