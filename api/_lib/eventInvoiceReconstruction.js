@@ -1,4 +1,5 @@
 import { recoveryRpc, validRecoverySnapshot, EventInvoiceRecoveryError } from './eventInvoiceRecovery.js';
+import { eventTicketLineAmountType, eventTicketTaxAmount } from './eventInvoiceProducer.js';
 
 const fail = code => { throw new EventInvoiceRecoveryError(`historical_${code}`); };
 const unique = (rows, key) => {
@@ -37,6 +38,7 @@ export function reconstructHistoricalEventInvoice(input) {
   const Contact = buyer.xero_contact_id ? { ContactID: buyer.xero_contact_id } : { Name: name, ...(email ? { EmailAddress: email } : {}) };
   const lines = [];
   const currencies = [];
+  const policies = [];
   let total = 0;
   for (const b of bookings) {
     const matches = tickets.filter(t => String(t.id) === String(b.ticket_class_id));
@@ -44,8 +46,13 @@ export function reconstructHistoricalEventInvoice(input) {
     const ticket = matches[0];
     // Missing is not zero, even where Xero previously supplied an account default.
     if (!ticket.vat_rate_key || ticket.vat_rate_percentage == null
-      || ticket.vat_rate_percentage === '' || !Number.isFinite(Number(ticket.vat_rate_percentage))) fail('tax_evidence_missing');
-    if (Number(ticket.vat_rate_percentage) !== 0) fail('tax_total_requires_review');
+      || ticket.vat_rate_percentage === '' || !Number.isFinite(Number(ticket.vat_rate_percentage))
+      || Number(ticket.vat_rate_percentage) < 0) fail('tax_evidence_missing');
+    let policy;
+    try { policy = eventTicketLineAmountType(ticket); }
+    catch { fail('line_amount_policy_invalid'); }
+    policies.push(policy);
+    if (policy !== 'Inclusive' && Number(ticket.vat_rate_percentage) !== 0) fail('tax_total_requires_review');
     if (!event.xero_account_code?.trim()) fail('sales_account_missing');
     for (const key of ['voucher_amount', 'training_fund_amount', 'discount_code_amount']) {
       if (b[key] != null && money(b[key]) !== 0) fail('credit_allocation_requires_review');
@@ -58,9 +65,11 @@ export function reconstructHistoricalEventInvoice(input) {
     currencies.push(String(currency).toUpperCase());
     total += amount;
     lines.push({ Description: `Event: ${event.title}\nTicket: ${ticket.name}\nBooking: ${candidate.bookingGroupReference}`,
-      Quantity: 1, UnitAmount: amount, TaxAmount: 0, TaxType: ticket.vat_rate_key, AccountCode: event.xero_account_code.trim() });
+      Quantity: 1, UnitAmount: amount, TaxAmount: eventTicketTaxAmount(amount, ticket.vat_rate_percentage, policy),
+      TaxType: ticket.vat_rate_key, AccountCode: event.xero_account_code.trim() });
   }
   if (new Set(currencies).size !== 1) fail('currency_ambiguous');
+  if (new Set(policies).size !== 1) fail('line_amount_policy_ambiguous');
   if (providers?.length !== 1 || !providers[0].id || !providers[0].tenant_id
     || providers[0].tenant_id === 'PENDING_SELECTION') fail('provider_binding_ambiguous');
   const date = dates[0];
@@ -73,7 +82,7 @@ export function reconstructHistoricalEventInvoice(input) {
       purchaser: contact.provenance },
     provider: { connectionId: providers[0].id, xeroTenantId: providers[0].tenant_id }, settlement: null,
     invoice: { Type: 'ACCREC', Status: 'DRAFT', Contact, Date: date, DueDate: due.toISOString().slice(0, 10),
-      CurrencyCode: currency, LineAmountTypes: 'Exclusive', LineItems: lines,
+      CurrencyCode: currency, LineAmountTypes: policies[0], LineItems: lines,
       Reference: unique(bookings, 'po_to_follow') ? 'TBC' : (unique(bookings, 'purchase_order_number') || 'TBC') },
     legacyDiscovery: { version: 1, fromDate: date, toDate: searchEnd.toISOString().slice(0, 10),
       bookingReference: candidate.bookingGroupReference, conservativeHistorical: true, eventTitle: event.title },

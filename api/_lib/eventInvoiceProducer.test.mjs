@@ -184,6 +184,62 @@ test('captured card invoices are authorised even when account invoice default is
   assert.equal(f.queued[0].snapshot.invoice.Status, 'AUTHORISED');
 });
 
+test('explicit Inclusive 20% checkout freezes gross 200 and VAT 33.33 before provider work', async () => {
+  for (const paymentMethod of ['account', 'card']) {
+    const f = fixture();
+    Object.assign(f.event.pricing_config.ticket_classes[0], {
+      invoice_line_amount_type: 'Inclusive', vat_rate_key: 'OUTPUT2', vat_rate_percentage: 20,
+    });
+    Object.assign(f.input, { amount: 200, paymentMethod });
+    if (paymentMethod === 'card') Object.assign(f.input, { paymentIntentId: 'pi_original',
+      paymentIntent: paymentIntent({ amount: 20000, amount_received: 20000,
+        latest_charge: { ...paymentIntent().latest_charge, amount_captured: 20000 } }) });
+    f.input.buildLines = accountCode => simpleEventInvoiceLines({
+      event: f.event, bookingAttendees: [{ first_name: 'Actual attendee' }], ticketsRequired: 1,
+      ticketClassName: 'Early bird', ticketClassId: 'ticket-a', ticketClassPrice: 200,
+      totalCost: 200, validatedRemainingBalance: 200,
+    }, accountCode);
+    const result = await enqueueCheckoutEventInvoice(f.input, f.deps);
+    assert.equal(result.status, 'pending');
+    const s = f.queued[0].snapshot;
+    assert.equal(validRecoverySnapshot(s), true);
+    assert.equal(s.amount, 200);
+    assert.equal(s.invoice.LineAmountTypes, 'Inclusive');
+    assert.equal(s.invoice.LineItems[0].UnitAmount, 200);
+    assert.equal(s.invoice.LineItems[0].TaxType, 'OUTPUT2');
+    assert.equal(s.invoice.LineItems[0].TaxAmount, 33.33);
+    assert.equal(s.invoice.LineItems[0]._invoiceLineAmountType, undefined);
+    f.event.pricing_config.ticket_classes[0].invoice_line_amount_type = 'Exclusive';
+    assert.equal(s.invoice.LineAmountTypes, 'Inclusive', 'frozen evidence never follows later catalogue edits');
+  }
+});
+
+test('missing or invalid VAT policy never implies inclusive; builder failures preserve partial original intent', async () => {
+  const f = fixture();
+  f.event.pricing_config.ticket_classes[0].vat_rate_percentage = 20;
+  await enqueueCheckoutEventInvoice(f.input, f.deps);
+  const original = structuredClone(f.queued[0].snapshot);
+  assert.equal(original.invoice, null);
+  assert.equal(original.originalInvoice.LineAmountTypes, 'Exclusive');
+  f.event.pricing_config.ticket_classes[0].invoice_line_amount_type = 'Inclusive';
+  assert.deepEqual(f.queued[0].snapshot, original, 'policy changes never repair/overwrite frozen invalid snapshots');
+  const broken = fixture();
+  broken.input.buildLines = () => { throw new Error('line evidence unavailable'); };
+  await enqueueCheckoutEventInvoice(broken.input, broken.deps);
+  assert.equal(broken.queued[0].snapshot.originalInvoice.Contact.Name, 'Actual Purchaser');
+  assert.equal(broken.queued[0].snapshot.originalInvoice.Date, '2026-01-01');
+});
+
+test('simple ticket editors retain explicit line-amount policy through load/save', async () => {
+  const edit = await readFile(new URL('../../client/src/pages/EditEvent.jsx', import.meta.url), 'utf8');
+  const create = await readFile(new URL('../../client/src/pages/CreateEvent.jsx', import.meta.url), 'utf8');
+  assert.match(edit, /invoice_line_amount_type: tc\.invoice_line_amount_type/);
+  for (const source of [edit, create]) {
+    assert.match(source, /invoice_line_amount_type: ticket\.invoice_line_amount_type/);
+    assert.match(source, /ticket\.vat_rate_percentage \?\? null/);
+  }
+});
+
 for (const [label, change] of [
   ['test-mode payment', { livemode: false }],
   ['unknown payment mode', { livemode: undefined }],

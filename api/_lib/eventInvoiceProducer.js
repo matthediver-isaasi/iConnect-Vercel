@@ -3,11 +3,26 @@
 const clone = value => JSON.parse(JSON.stringify(value));
 const minor = value => Math.round(Number(value) * 100);
 
+export function eventTicketLineAmountType(ticket) {
+  const policy = ticket?.invoice_line_amount_type ?? 'Exclusive';
+  if (!['Exclusive', 'Inclusive'].includes(policy)) throw new Error('Ticket invoice line amount policy is invalid');
+  return policy;
+}
+
+export function eventTicketTaxAmount(amount, percentage, policy) {
+  return minor(policy === 'Inclusive'
+    ? amount * Number(percentage) / (100 + Number(percentage))
+    : amount * Number(percentage) / 100) / 100;
+}
+
 function freezeLineTax(line, ticket) {
+  const policy = eventTicketLineAmountType(ticket);
+  // Producer-only metadata is consumed before persisting/sending Xero lines.
+  line._invoiceLineAmountType = policy;
   const percentage = ticket?.vat_rate_percentage;
   if (line.TaxType && percentage !== null && percentage !== undefined && percentage !== ''
     && Number.isFinite(Number(percentage)) && Number(percentage) >= 0) {
-    line.TaxAmount = minor(Number(line.Quantity) * Number(line.UnitAmount) * Number(percentage) / 100) / 100;
+    line.TaxAmount = eventTicketTaxAmount(Number(line.Quantity) * Number(line.UnitAmount), percentage, policy);
   }
   return line;
 }
@@ -196,20 +211,29 @@ export async function enqueueCheckoutEventInvoice({
       Contact: invoiceContactPayload(contact),
       Date: invoiceDate.toISOString().split('T')[0], DueDate: dueDate.toISOString().split('T')[0],
       CurrencyCode: snapshot.currency,
-      // The original API omitted this field; Xero's default is Exclusive.
-      // Freeze that historical treatment rather than reading future settings.
+      // Preserve the historical Exclusive convention unless the purchased
+      // ticket explicitly declares Inclusive. Never infer from a VAT rate.
       LineAmountTypes: 'Exclusive',
-      LineItems: buildLines(accountCode),
+      LineItems: [],
       Reference: poToFollow ? 'TBC' : (purchaseOrderNumber || 'TBC'),
       Status: paymentMethod === 'card' ? 'AUTHORISED' : (context.settings.xero_invoice_status || 'DRAFT'),
     };
+    const builtLines = buildLines(accountCode);
+    const policies = [...new Set(builtLines.map(line => line._invoiceLineAmountType || 'Exclusive'))];
+    snapshot.invoice.LineItems = builtLines.map(({ _invoiceLineAmountType, ...line }) => line);
+    snapshot.invoiceLineAmountPolicies = policies;
+    if (policies.length !== 1 || !['Exclusive', 'Inclusive'].includes(policies[0])) {
+      throw new Error('Mixed ticket invoice line amount policies require review');
+    }
+    snapshot.invoice.LineAmountTypes = policies[0];
     if (!contact?.name || !contact?.provenance) reviewReasons.push('Checkout purchaser provenance is missing');
     if (!Number.isFinite(snapshot.amount) || snapshot.amount <= 0 || !/^[A-Z]{3}$/.test(snapshot.currency)) reviewReasons.push('Checkout amount or currency is invalid');
     if (snapshot.invoice.LineItems.some(line => !line.TaxType || !Number.isFinite(line.TaxAmount))) {
       reviewReasons.push('Historical VAT evidence is missing; current account tax defaults must not be inferred');
     } else {
       const grossMinor = snapshot.invoice.LineItems.reduce((sum, line) =>
-        sum + minor(Number(line.Quantity) * Number(line.UnitAmount)) + minor(line.TaxAmount), 0);
+        sum + minor(Number(line.Quantity) * Number(line.UnitAmount))
+          + (snapshot.invoice.LineAmountTypes === 'Exclusive' ? minor(line.TaxAmount) : 0), 0);
       if (grossMinor !== minor(snapshot.amount)) reviewReasons.push('Historical invoice gross total does not match the checkout amount');
     }
     if (paymentMethod === 'card') {

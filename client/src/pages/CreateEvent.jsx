@@ -1240,7 +1240,8 @@ export default function CreateEvent() {
           // VAT rate fields for Xero invoice generation (free tickets carry none)
           vat_rate_key: isGroupLimited ? null : (ticket.vat_rate_key || null),
           vat_rate_label: isGroupLimited ? null : (ticket.vat_rate_label || null),
-          vat_rate_percentage: isGroupLimited ? null : (ticket.vat_rate_percentage || null),
+          vat_rate_percentage: isGroupLimited ? null : (ticket.vat_rate_percentage ?? null),
+          ...(ticket.invoice_line_amount_type != null ? { invoice_line_amount_type: ticket.invoice_line_amount_type } : {}),
           is_group_ticket: isGroupLimited ? false : (ticket.is_group_ticket || false),
           group_size: !isGroupLimited && ticket.is_group_ticket && ticket.group_size ? parseInt(ticket.group_size) : null,
           group_cutoff_date: !isGroupLimited && ticket.is_group_ticket && ticket.group_cutoff_date ? ticket.group_cutoff_date : null

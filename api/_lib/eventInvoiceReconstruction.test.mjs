@@ -30,9 +30,26 @@ test('automatic original-row reconstruction preserves early bird amount and orga
   assert.deepEqual(original, copy);
 });
 
+test('explicit Inclusive 20% ticket reconstructs booked gross 200 as net 166.67 plus VAT 33.33, never catalogue 300', () => {
+  const original = input();
+  Object.assign(original.tickets[0], {
+    invoice_line_amount_type: 'Inclusive', vat_rate_key: 'OUTPUT2', vat_rate_percentage: 20,
+  });
+  const s = reconstructHistoricalEventInvoice(original);
+  assert.equal(validRecoverySnapshot(s), true);
+  assert.equal(s.amount, 200);
+  assert.equal(s.invoice.LineAmountTypes, 'Inclusive');
+  assert.equal(s.invoice.LineItems[0].UnitAmount, 200);
+  assert.equal(s.invoice.LineItems[0].TaxAmount, 33.33);
+  assert.equal(Number((s.amount - s.invoice.LineItems[0].TaxAmount).toFixed(2)), 166.67);
+  assert.equal(s.reconstruction.ticketEvidence[0].invoice_line_amount_type, 'Inclusive');
+});
+
 for (const [label, change, reason] of [
   ['missing VAT', i => { i.tickets[0].vat_rate_key = null; i.tickets[0].vat_rate_percentage = null; }, 'tax_evidence_missing'],
   ['nonzero VAT without reconciled gross', i => { i.tickets[0].vat_rate_percentage = 20; }, 'tax_total_requires_review'],
+  ['invalid amount policy', i => { i.tickets[0].invoice_line_amount_type = 'gross'; }, 'line_amount_policy_invalid'],
+  ['inclusive without VAT rate', i => { i.tickets[0].invoice_line_amount_type = 'Inclusive'; i.tickets[0].vat_rate_percentage = null; }, 'tax_evidence_missing'],
   ['missing buyer', i => { i.organization = null; }, 'purchaser_missing'],
   ['missing currency', i => { delete i.tickets[0].currency; }, 'currency_missing'],
   ['missing account', i => { delete i.event.xero_account_code; }, 'sales_account_missing'],

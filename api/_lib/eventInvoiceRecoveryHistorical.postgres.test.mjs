@@ -175,6 +175,8 @@ test('isolated historical hydration: original IDs/journal, stale checks, permiss
       SELECT event_invoice_recovery_enqueue('${tenant}','booking','auto-history',NULL,false);`);
     const automaticMigration = readFileSync(new URL('../../supabase/migrations/202611300003_event_invoice_automatic_reconstruction.sql', import.meta.url), 'utf8');
     sql(automaticMigration); sql(automaticMigration);
+    const inclusiveMigration = readFileSync(new URL('../../supabase/migrations/202611300004_event_invoice_inclusive_policy_provenance.sql', import.meta.url), 'utf8');
+    sql(inclusiveMigration); sql(inclusiveMigration);
     for (const role of ['anon','authenticated']) {
       sql(`SET ROLE ${role}; SELECT event_invoice_recovery_automatic_candidates();`,true);
       sql(`SET ROLE ${role}; SELECT event_invoice_recovery_automatic_commit('{}');`,true);
@@ -199,6 +201,100 @@ test('isolated historical hydration: original IDs/journal, stale checks, permiss
     assert.equal(sql(`SELECT snapshot->>'amount' FROM event_invoice_recovery WHERE id='${autoId}';`),'200');
     assert.equal(sql(`SELECT invoice_id IS NULL AND settlement_payment_intent_id IS NULL
       FROM event_invoice_recovery WHERE id='${autoId}';`),'t');
+    sql(`UPDATE event SET pricing_config=jsonb_set(pricing_config,'{ticket_classes,0}',
+      '{"id":"ticket","name":"Early bird","price":300,"early_bird_price":200,"currency":"GBP",
+      "vat_rate_key":"OUTPUT2","vat_rate_percentage":20,"invoice_line_amount_type":"Inclusive"}') WHERE id='${tenant}';
+      INSERT INTO booking(tenant_id,booking_group_reference,payment_method,ticket_price,account_amount,
+        event_id,organization_id,ticket_class_id)
+      VALUES('${tenant}','inclusive-history','account',200,200,'${tenant}','${tenant}','ticket');
+      SELECT event_invoice_recovery_enqueue('${tenant}','booking','inclusive-history',NULL,false);`);
+    const inclusiveId = candidate('inclusive-history').operationId;
+    const inclusiveInput = JSON.parse(sql(`SET ROLE service_role; SELECT event_invoice_recovery_automatic_candidates(1,'${inclusiveId}');`))[0];
+    const inclusiveSnapshot = reconstructHistoricalEventInvoice(inclusiveInput);
+    assert.equal(inclusiveSnapshot.invoice.LineItems[0].TaxAmount,33.33);
+    assert.equal(commit(inclusiveInput,inclusiveSnapshot).status,'approved');
+    assert.equal(hydrate(inclusiveId),'1');
+    assert.equal(sql(`SELECT snapshot#>>'{invoice,LineAmountTypes}' FROM event_invoice_recovery WHERE id='${inclusiveId}';`),'Inclusive');
+    assert.match(sql(`SELECT evidence->'provenance' FROM event_invoice_recovery_historical_evidence WHERE operation_id='${inclusiveId}';`),/invoice_line_amount_type=Inclusive/);
+    assert.equal(sql(`SELECT snapshot#>>'{invoice,LineAmountTypes}' FROM event_invoice_recovery WHERE id='${autoId}';`),'Exclusive',
+      'existing frozen evidence never changes with ticket policy');
+    // Reproduce the production survey trigger interaction using its actual SQL.
+    sql(`ALTER TABLE booking ADD COLUMN survey_invitation_revision bigint NOT NULL DEFAULT 0;
+      ALTER TABLE complex_event_booking ADD COLUMN survey_invitation_revision bigint NOT NULL DEFAULT 0;`);
+    const surveyMigration = readFileSync(new URL('../../supabase/migrations/20261125_survey_invitation_attendee.sql', import.meta.url), 'utf8');
+    const triggerStart = surveyMigration.indexOf('CREATE OR REPLACE FUNCTION public.bump_survey_invitation_revision()');
+    sql(surveyMigration.slice(triggerStart, surveyMigration.indexOf('REVOKE ALL ON FUNCTION public.bump_survey_invitation_revision()',triggerStart)));
+    for (const table of ['booking','complex_event_booking']) sql(`CREATE TRIGGER survey_invitation_revision
+      BEFORE UPDATE ON ${table} FOR EACH ROW EXECUTE FUNCTION public.bump_survey_invitation_revision();`);
+    sql(`INSERT INTO booking(tenant_id,booking_group_reference,payment_method,ticket_price,account_amount,
+      event_id,organization_id,ticket_class_id)
+      VALUES('${tenant}','survey-stale','account',200,200,'${tenant}','${tenant}','ticket');
+      SELECT event_invoice_recovery_enqueue('${tenant}','booking','survey-stale',NULL,false);`);
+    const surveyCandidate = candidate('survey-stale');
+    const surveyId = surveyCandidate.operationId;
+    const oldRevisions = JSON.parse(sql(`SELECT jsonb_object_agg(id,survey_invitation_revision) FROM booking WHERE booking_group_reference='survey-stale';`));
+    const surveyInput = JSON.parse(sql(`SELECT event_invoice_recovery_automatic_candidates(1,'${surveyId}');`))[0];
+    const surveySnapshot = reconstructHistoricalEventInvoice(surveyInput);
+    approve(surveyCandidate,surveySnapshot,accountEvidence);
+    assert.equal(hydrate(surveyId),'0','003 approval no-op mirror reproduces actual survey revision rejection');
+    const rejected = JSON.parse(sql(`SELECT to_jsonb(h) FROM event_invoice_recovery_historical_evidence h WHERE operation_id='${surveyId}';`));
+    assert.equal(rejected.reason_code,'historical_candidate_stale');
+    const surveyFix = readFileSync(new URL('../../supabase/migrations/202611300005_event_invoice_survey_revision_fencing.sql', import.meta.url), 'utf8');
+    sql(surveyFix); sql(surveyFix);
+    const readmit = (expected = rejected,revisions = oldRevisions,fail = false) => sql(`SET ROLE service_role;
+      SELECT event_invoice_recovery_readmit_survey_stale('${surveyId}',${json(expected)},${json(revisions)},'isolated-reviewed-repair');`,fail);
+    for (const role of ['anon','authenticated']) {
+      sql(`SET ROLE ${role}; SELECT event_invoice_recovery_readmit_survey_stale('${surveyId}','{}','{}','forbidden');`,true);
+      sql(`SET ROLE ${role}; SELECT * FROM event_invoice_recovery_readmission_audit;`,true);
+    }
+    readmit({...rejected,evidence:{}},oldRevisions,true);
+    readmit(rejected,{},true);
+    readmit(rejected,Object.fromEntries(Object.keys(oldRevisions).map(id => [id,0])),true);
+    for (const [field,value] of [['account_amount','201'],['organization_id',"'00000000-0000-4000-8000-000000000099'"]]) {
+      sql(`UPDATE booking SET ${field}=${value} WHERE booking_group_reference='survey-stale';`);
+      readmit(rejected,oldRevisions,true);
+      sql(`UPDATE booking SET ${field}=${field==='account_amount'?'200':`'${tenant}'`} WHERE booking_group_reference='survey-stale';`);
+    }
+    for (const [field,value] of [['invoice_write_started_at','now()'],['payment_write_started_at','now()'],
+      ['invoice_id',"'existing-invoice'"],['invoice_number',"'INV-EXISTING'"],['payment_id',"'existing-payment'"],
+      ['lease_token',"'00000000-0000-4000-8000-000000000099'"],['lease_expires_at','now()']]) {
+      sql(`UPDATE event_invoice_recovery SET ${field}=${value} WHERE id='${surveyId}';`);
+      readmit(rejected,oldRevisions,true);
+      sql(`UPDATE event_invoice_recovery SET ${field}=NULL WHERE id='${surveyId}';`);
+    }
+    const readmitted = JSON.parse(readmit());
+    assert.equal(readmitted.status,'approved');
+    assert.equal(sql(`SELECT rejected_record=${json(rejected)} FROM event_invoice_recovery_readmission_audit
+      WHERE id='${readmitted.auditId}';`),'t','the full rejected record is preserved without deletion');
+    sql(`SET ROLE service_role; DELETE FROM event_invoice_recovery_readmission_audit;`,true);
+    sql(`UPDATE event_invoice_recovery_readmission_audit SET repair_reference='changed';`,true);
+    readmit(rejected,oldRevisions,true);
+    assert.equal(hydrate(surveyId),'1','survey-only stale evidence is promoted through unchanged fenced hydration');
+    assert.equal(sql(`SELECT snapshot#>>'{invoice,LineItems,0,TaxAmount}' FROM event_invoice_recovery WHERE id='${surveyId}';`),'33.33');
+    readmit(rejected,oldRevisions,true);
+    // New explicit approvals do not issue a no-op mirror write at all; actual
+    // survey revisions still increment on real booking updates.
+    sql(`INSERT INTO booking(tenant_id,booking_group_reference,payment_method,ticket_price,account_amount,
+      event_id,organization_id,ticket_class_id)
+      VALUES('${tenant}','survey-fixed','account',200,200,'${tenant}','${tenant}','ticket');
+      SELECT event_invoice_recovery_enqueue('${tenant}','booking','survey-fixed',NULL,false);`);
+    const fixedCandidate = candidate('survey-fixed');
+    const revBefore = sql(`SELECT survey_invitation_revision FROM booking WHERE booking_group_reference='survey-fixed';`);
+    sql(`UPDATE booking SET ticket_price=ticket_price WHERE booking_group_reference='survey-fixed';`);
+    assert.equal(Number(sql(`SELECT survey_invitation_revision FROM booking WHERE booking_group_reference='survey-fixed';`)),Number(revBefore)+1);
+    assert.equal(candidate('survey-fixed').bookingFingerprint,fixedCandidate.bookingFingerprint);
+    approve(fixedCandidate,surveySnapshot,accountEvidence);
+    assert.equal(Number(sql(`SELECT survey_invitation_revision FROM booking WHERE booking_group_reference='survey-fixed';`)),Number(revBefore)+1,
+      'approval no longer invalidates survey invitations via a no-op booking UPDATE');
+    assert.equal(hydrate(fixedCandidate.operationId),'1');
+    sql(`INSERT INTO booking(tenant_id,booking_group_reference,payment_method,ticket_price,account_amount,
+      event_id,organization_id,ticket_class_id)
+      VALUES('${tenant}','survey-auto','account',200,200,'${tenant}','${tenant}','ticket');
+      SELECT event_invoice_recovery_enqueue('${tenant}','booking','survey-auto',NULL,false);`);
+    const surveyAutoId = candidate('survey-auto').operationId;
+    const surveyAutoInput = JSON.parse(sql(`SELECT event_invoice_recovery_automatic_candidates(1,'${surveyAutoId}');`))[0];
+    assert.equal(commit(surveyAutoInput,reconstructHistoricalEventInvoice(surveyAutoInput)).status,'approved');
+    assert.equal(hydrate(surveyAutoId),'1','automatic approval also works with the real survey bump trigger');
   } finally {
     if (started) run('pg_ctl',['-D',h.data,'-m','immediate','-w','stop']);
     await h.cleanup();

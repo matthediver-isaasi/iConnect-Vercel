@@ -36,3 +36,15 @@ Unchanged event and ticket information is useful reconstruction evidence, but ab
 **Why:** Historical checkout omitted Xero's line-amount treatment, relying on its Exclusive default. A recorded amount can therefore conflict with the provider's tax-inclusive invoice total. The user wants reconstruction from booking/event/ticket evidence, not permanent rejection merely because a snapshot is absent.
 
 **How to apply:** Preserve original economic intent and purchaser authority. Resolve explicit tax evidence or obtain the missing net/gross decision; never silently switch to Inclusive or use today's account default as historical proof.
+
+Historical invoice evidence must ignore unrelated survey invitation revisions, while preserving every financial and purchaser field.
+
+**Why:** A recovery-status mirror update caused the survey trigger to increment its revision and invalidate the very evidence just approved. This was reproduced against the actual trigger before a narrowly scoped audited repair was added.
+
+**How to apply:** Avoid no-op mirror updates. For previously rejected evidence, prove that only the survey revision differs and retain the original rejection in append-only audit; never reset ambiguous provider writes to retry.
+
+The user confirmed the BNMS £200 account-event ticket is VAT-inclusive at 20% (£166.67 net, £33.33 VAT).
+
+**Why:** Explicit user confirmation resolved missing historical ticket tax evidence; it does not establish tax policy for other tickets.
+
+**How to apply:** Keep inclusive treatment scoped to that ticket. Publish code that understands the explicit ticket policy before enabling the live policy, or an older Exclusive checkout can add VAT on top.
