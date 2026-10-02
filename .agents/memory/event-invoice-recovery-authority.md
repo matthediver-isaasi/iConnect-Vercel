@@ -54,3 +54,9 @@ The user confirmed the BNMS £200 account-event ticket is VAT-inclusive at 20% (
 **Why:** Explicit user confirmation resolved missing historical ticket tax evidence; it does not establish tax policy for other tickets.
 
 **How to apply:** Keep inclusive treatment scoped to that ticket. Publish code that understands the explicit ticket policy before enabling the live policy, or an older Exclusive checkout can add VAT on top.
+
+GFI does not charge VAT on event tickets. Its existing ticket settings and VAT charging behaviour must not change as a consequence of BNMS VAT work.
+
+**Why:** The user explicitly required checking GFI compatibility before enabling the BNMS change.
+
+**How to apply:** Keep BNMS data changes tenant/event/ticket scoped. Test legacy exempt/no-VAT ticket metadata without rewriting GFI tickets; no added VAT and uninterrupted invoice generation are separate requirements.
