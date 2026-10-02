@@ -1,4 +1,6 @@
 - [Form archive history](form-archive-history.md) — deprecated forms should be archived, preserving submissions; restoring must not automatically republish.
+- [Better Stack subhourly timezone](better-stack-subhourly-timezone.md) — a server-timezone adjustment must be cleared with approval before setting a subhourly interval.
+- [BNMS historical test subscriptions](bnms-historical-test-subscriptions.md) — owner confirmed the four sandbox-labelled subscriptions linked to anonymised members were tests.
 - [Router consistency in client/](router-consistency.md) — app uses react-router-dom; new pages built with wouter look like they navigate but break SPA routing.
 - [Supabase realtime publication](supabase-realtime-publication.md) — realtime subscriptions silently get no events until the table is added to the supabase_realtime publication.
 - [Membership tier scheduling](membership-tier-scheduling.md) — a config is "in effect" by date range, not just effective_to IS NULL; switch-over caps the old config to newStart-1.
