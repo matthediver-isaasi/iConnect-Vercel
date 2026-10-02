@@ -1,6 +1,10 @@
 import { enqueueAccountingRequest, processAccountingRequest } from './accountingRequestQueue.js';
 import { createAccountingRequestProviders, prepareAccountingRequestEnvelope } from './accountingRequestProviders.js';
 import { linkAccountingProductSource } from './accountingQueueProductLinks.js';
+import {
+  GO_CARDLESS_ACCOUNTING_SOURCE, assertGoCardlessAccountingSource,
+  linkGoCardlessAccountingSource, prepareGoCardlessSourceRequest,
+} from './accountingQueueGoCardless.js';
 
 export const accountingQueueEnabled = () => process.env.ACCOUNTING_REQUEST_QUEUE_ENABLED === 'true';
 export const accountingMembershipQueueEnabled = sourceType => accountingQueueEnabled()
@@ -25,6 +29,7 @@ function membershipQuery(db, row) {
     .eq('tenant_id', row.tenant_id).eq(ownerColumn, link.ownerId);
 }
 export async function assertAccountingSource({ db, row }) {
+  if (row.source_type === GO_CARDLESS_ACCOUNTING_SOURCE) return assertGoCardlessAccountingSource({ db, row });
   if (memberTables.has(row.source_type)) {
     const source = await one(membershipQuery(db, row));
     // These have independent settlement/instalment ownership.
@@ -108,8 +113,9 @@ export async function getAccountingQueueAdapter(row, controls = {}, dependencies
   const db = dependencies.db || (await import('./database.js')).supabase;
   if (typeof controls.beforeRequest !== 'function') fail('ACCOUNTING_QUEUE_MISSING_FENCE');
   const beforeRequest = async (candidate, stage) => {
-    await controls.beforeRequest(candidate, stage);
+    const budget = await controls.beforeRequest(candidate, stage);
     await assertAccountingSource({ db, row: candidate });
+    return budget;
   };
   const resolveConnection = dependencies.resolveConnection || (async (candidate, transport) => {
     let binding = await resolveAccountingQueueBinding({ db, tenantId: candidate.tenant_id, provider: candidate.provider });
@@ -127,8 +133,43 @@ export async function getAccountingQueueAdapter(row, controls = {}, dependencies
   });
   const adapter = createAccountingRequestProviders({ resolveConnection, beforeRequest, deadlineAt: controls.deadlineAt,
     ...(dependencies.fetchImpl ? { fetchImpl: dependencies.fetchImpl } : {}) });
-  return { ...adapter, linkSource: async candidate => {
+  return { ...adapter,
+    ...(row.source_type === GO_CARDLESS_ACCOUNTING_SOURCE ? {
+      prepare: async candidate => {
+        // Provider transport constrains preparation to bound reads/contacts;
+        // financial writes cannot masquerade as an unfenced preparation call.
+        const transport = adapter.preparationTransport(candidate);
+        const scopedFetch = transport.fetch;
+        let preparationFailure = null;
+        transport.fetch = async (...args) => {
+          if (preparationFailure) throw preparationFailure;
+          try {
+            const response = await scopedFetch(...args);
+            if (!response.ok) throw Object.assign(new Error('ACCOUNTING_QUEUE_PREPARATION_PROVIDER_FAILED'), { status: response.status });
+            return response;
+          } catch (error) {
+            preparationFailure = error;
+            throw error;
+          }
+        };
+        transport.resolveConnection = async () => {
+          await adapter.assertBinding(candidate);
+          return resolveAccountingQueueBinding({ db, tenantId: candidate.tenant_id, provider: candidate.provider });
+        };
+        let prepared;
+        try {
+          prepared = await prepareGoCardlessSourceRequest({ row: candidate, db, providers: adapter, transport },
+            dependencies.preparation || {});
+        } catch (error) { throw preparationFailure || error; }
+        // Legacy contact/tax resolvers sometimes catch "non-fatal" reads. A
+        // swallowed 429 must not lose its embargo or authorize further calls.
+        if (preparationFailure) throw preparationFailure;
+        return prepared;
+      },
+    } : {}),
+    linkSource: async candidate => {
     await beforeRequest(candidate, { kind: 'link', method: 'PATCH' });
+    if (candidate.source_type === GO_CARDLESS_ACCOUNTING_SOURCE) return linkGoCardlessAccountingSource({ db, row: candidate });
     return memberTables.has(candidate.source_type)
       ? linkAccountingMembershipSource({ db, row: candidate })
       : linkAccountingProductSource({ db, row: candidate });

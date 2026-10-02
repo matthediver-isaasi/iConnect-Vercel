@@ -30,6 +30,10 @@ import {
 } from './accountingProvider.js';
 import { membershipHistoryTableForAgreement } from './gocardlessDirectDebit.js';
 import {
+  findGoCardlessAccountingRequest, goCardlessAccountingQueueEnabled,
+  queueGoCardlessAccountingPayment, resumeGoCardlessAccountingRequest,
+} from './accountingQueueGoCardless.js';
+import {
   isPerInstalmentAgreement,
   mintOrPayInstalmentInvoice,
   buildInstalmentOutcomePatch,
@@ -68,11 +72,13 @@ export async function postDdArrearsPeriodToAccounting({
   return { status: 'posted', invoiceId: outcome.invoiceId || null };
 }
 
-async function setSyncStatus(db, paymentRowId, patch) {
-  const { error } = await db
+async function setSyncStatus(db, paymentRowId, patch, { preservePosted = false } = {}) {
+  let query = db
     .from('gocardless_payments')
     .update({ ...patch, updated_at: new Date().toISOString() })
     .eq('id', paymentRowId);
+  if (preservePosted) query = query.or('accounting_sync_status.is.null,accounting_sync_status.neq.posted');
+  const { error } = await query;
   if (error) console.error('[gocardlessAccounting] update sync status failed:', error.message);
 }
 
@@ -97,6 +103,13 @@ export async function postDdInstalmentToAccounting({ agreement, paymentRow }, de
   }
 
   try {
+    // Accepted queue ownership survives flag/provider changes and is checked
+    // before reconstructing any current accounting preparation.
+    const owned = await (deps.findQueuedRequest || findGoCardlessAccountingRequest)({
+      db, tenantId: agreement.tenant_id, paymentId: paymentRow.id,
+      allowMissingQueue: !goCardlessAccountingQueueEnabled(),
+    });
+    if (owned) return resumeGoCardlessAccountingRequest({ db, row: owned, adapters: deps.adapters });
     const migration = agreement.metadata?.dd?.accounting_migration;
     const betaContext = await resolveBetaAccountingContext(agreement, db);
     const isPilot = agreement.tenant_id === BNMS_BETA_TENANT
@@ -141,6 +154,18 @@ export async function postDdInstalmentToAccounting({ agreement, paymentRow }, de
     }
 
     const instAmountMinor = paymentRow.amount_minor;
+    const queued = await (deps.queueAccounting || queueGoCardlessAccountingPayment)({
+      db, agreement, paymentRow, provider, ddAccountingMigration,
+    }, deps.queueDependencies || {});
+    if (queued !== undefined) {
+      // Only the verified queue source linker can mark this payment posted.
+      // Failed remains eligible for the accounting-only reconciliation sweep.
+      if (queued.status !== 'posted') await setSyncStatus(db, paymentRow.id, {
+        accounting_sync_status: 'failed',
+        accounting_sync_error: queued.reason || 'Accounting request pending central reconciliation',
+      }, { preservePosted: true });
+      return queued;
+    }
 
     // Task #3633: per-instalment invoicing mode — this instalment gets its
     // OWN small paid invoice instead of being applied to an annual invoice.
@@ -241,8 +266,8 @@ export async function postDdInstalmentToAccounting({ agreement, paymentRow }, de
     const invoiceId = historyRow?.accounting_invoice_id || historyRow?.xero_invoice_id || null;
     const invoiceNumber = historyRow?.accounting_invoice_number || historyRow?.xero_invoice_number || null;
     if (!invoiceId) {
-      await setSyncStatus(db, paymentRow.id, { accounting_sync_status: 'skipped', accounting_sync_error: 'no invoice linked on membership history row' });
-      return { status: 'skipped', reason: 'no linked invoice' };
+      await setSyncStatus(db, paymentRow.id, { accounting_sync_status: 'failed', accounting_sync_error: 'waiting for invoice linked on membership history row' });
+      return { status: 'pending', reason: 'waiting for linked invoice' };
     }
 
     const amountMinor = paymentRow.amount_minor;
@@ -261,6 +286,11 @@ export async function postDdInstalmentToAccounting({ agreement, paymentRow }, de
       bankAccountSettingKey: BANK_SETTING_KEYS[provider.name] || null,
       paidAt: paymentRow.confirmed_at || new Date().toISOString(),
     });
+    if (result?.payment_recorded !== true && result?.raw?.payment_recorded !== true) {
+      await setSyncStatus(db, paymentRow.id, { accounting_sync_status: 'invoice_unpaid',
+        accounting_sync_error: 'provider did not verify payment recording' });
+      return { status: 'invoice_unpaid', reason: 'payment not recorded' };
+    }
 
     const patch = {
       accounting_sync_status: 'posted',
@@ -283,6 +313,6 @@ export async function postDdInstalmentToAccounting({ agreement, paymentRow }, de
       accounting_sync_status: 'failed',
       accounting_sync_error: String(err.message || err).slice(0, 500),
     });
-    return { status: 'failed', reason: err.message };
+    return { status: err.code === 'GC_QUEUE_WAITING_FOR_INVOICE' ? 'pending' : 'failed', reason: err.message };
   }
 }

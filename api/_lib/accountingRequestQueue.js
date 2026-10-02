@@ -43,7 +43,9 @@ export async function enqueueAccountingRequest({
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tenantId || '')
     || !['xero', 'quickbooks'].includes(provider) || !text(connectionId, 200) || connectionId === 'PENDING_SELECTION' || !text(companyId, 200)
     || companyId === 'PENDING_SELECTION' || !text(sourceType, 100) || !text(sourceId, 200)
-    || operation !== 'invoice' || !validAccountingRequestSnapshot(snapshot)) {
+    || !['invoice', 'payment'].includes(operation) || !validAccountingRequestSnapshot(snapshot)
+    || (operation === 'payment' && (sourceType !== 'gocardless_payment' || !snapshot.payment
+      || !text(snapshot.existingInvoice?.id, 500) || snapshot.preparation !== true))) {
     throw new AccountingRequestQueueError('ACCOUNTING_QUEUE_INVALID_AUTHORITY');
   }
   return rpc(db, 'enqueue', {
@@ -64,10 +66,10 @@ async function advance({ db, row, adapters, deadlineAt }) {
     if (Date.now() >= deadlineAt || ++requests > 40) {
       throw new AccountingRequestQueueError('ACCOUNTING_QUEUE_REQUEST_BUDGET_EXHAUSTED');
     }
-    for (const key of ['id', 'tenant_id', 'provider', 'connection_id', 'company_id', 'source_type', 'source_id', 'lease_token']) {
+    for (const key of ['id', 'tenant_id', 'provider', 'connection_id', 'company_id', 'source_type', 'source_id', 'operation', 'lease_token', 'preparation_status']) {
       if (candidate?.[key] !== row[key]) throw new AccountingRequestQueueError('ACCOUNTING_QUEUE_BINDING_CHANGED');
     }
-    for (const key of ['snapshot', 'invoice_result', 'payment_result']) {
+    for (const key of ['snapshot', 'resolved_snapshot', 'invoice_result', 'payment_result']) {
       if (JSON.stringify(candidate?.[key]) !== JSON.stringify(row[key])) {
         throw new AccountingRequestQueueError('ACCOUNTING_QUEUE_AUTHORITY_CHANGED');
       }
@@ -101,11 +103,31 @@ async function advance({ db, row, adapters, deadlineAt }) {
   let adapter;
   try {
     adapter = await adapters(structuredClone(row), { beforeRequest, deadlineAt });
-    if (!adapter?.assertBinding || !adapter?.linkSource || !adapter?.createInvoice
+    if (!adapter?.assertBinding || !adapter?.linkSource || (row.operation !== 'payment' && !adapter?.createInvoice)
       || (row.snapshot.payment && !adapter.createPayment)) throw new Error('Missing adapter');
     await adapter.assertBinding(structuredClone(row));
   } catch (error) {
     return bindingFailure(error);
+  }
+  if (row.preparation_status === 'pending') {
+    if (Date.now() >= deadlineAt) return finish('retry', 'ACCOUNTING_QUEUE_BATCH_BUDGET_EXHAUSTED');
+    let resolved;
+    try {
+      if (!adapter.prepare) throw Object.assign(new Error('Missing preparation adapter'), { permanent: true });
+      resolved = await adapter.prepare(structuredClone(row));
+      if (!validAccountingRequestSnapshot(resolved)) {
+        throw Object.assign(new Error('Invalid prepared snapshot'), { permanent: true });
+      }
+    } catch (error) {
+      const cooldown = Number(error?.status ?? error?.statusCode) === 429
+        ? accountingRetryAfterSeconds(error.retryAfter) : 0;
+      return finish(error?.permanent || (!cooldown && error?.retry !== true) ? 'review' : 'retry',
+        'ACCOUNTING_PREPARATION_NOT_COMPLETED', Math.max(60, cooldown), cooldown);
+    }
+    // Fenced, atomic handoff; failure leaves the original evidence intact.
+    row = await rpc(db, 'prepare', {
+      p_id: row.id, p_lease_token: row.lease_token, p_snapshot: resolved,
+    });
   }
   for (const [stage, method, discovery] of [
     ['invoice', 'createInvoice', 'discoverInvoice'],

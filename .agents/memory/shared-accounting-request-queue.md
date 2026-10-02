@@ -26,3 +26,9 @@ A direct documented invoice/payment POST throttle rejection can be retried with 
 **Why:** Xero applies limits before idempotency processing, and Intuit instructs retrying rejected 429 requests with the same request ID. Treating every 429 as an uncertain creation strands genuinely rejected invoices, while treating post-success readback throttles as rejection can duplicate them.
 
 **How to apply:** Preserve the provider-write/readback boundary and original keys. Timeouts, server failures and QuickBooks duplicate-request faults remain discovery-only. Provider key retention limits never authorize retrying an older uncertain write.
+
+GoCardless recovery must freeze the dedicated bank setting before accepting the accounting request; provider preparation may resolve that saved value to a provider account ID, never reload today's setting.
+
+**Why:** A rate-limit delay can span a bank-setting change. Replaying against the changed account misstates where an already collected payment was received, even when its amount and invoice are correct.
+
+**How to apply:** Preserve original collection amount, currency, date, reference and bank setting alongside invoice authority. Xero's configured bank code needs bound account lookup; it is not an AccountID. Keep arrears allocation and migration-managed accounting ownership intact rather than treating their aggregate collections as ordinary instalments.

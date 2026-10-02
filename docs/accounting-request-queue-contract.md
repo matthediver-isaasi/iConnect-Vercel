@@ -1,5 +1,15 @@
 # Accounting request queue integration contract
 
+## GC extension contract (additive migration 202612050002, NOT applied)
+
+Core API is extended without changing legacy invoice callers. GC uses `sourceType: 'gocardless_payment'`, `sourceId: <original GC payment id>` for BOTH invoice+payment and payment-only operations: one unique tenant/source authority across operations prevents competing writers. `operation: 'payment'` requires `snapshot.existingInvoice: { id: <exact provider invoice id>, ...original evidence }`, non-null payment, and this source type. Invoice stage starts done using that exact evidence; createInvoice is NEVER called. Adapter `assertBinding` must validate original source and exact existing invoice binding/economics before payment (and before every provider request).
+
+Durable preparation: enqueue the ORIGINAL evidence snapshot (usual version/invoice/payment/linkage shape) with `snapshot.preparation: true` BEFORE any contact/tax/provider call. Original `snapshot` never changes. Rows expose `preparation_status: pending|done`, and immutable-once-set `resolved_snapshot`. Adapter adds `prepare(row)` returning a complete resolved snapshot (same version/linkage/existingInvoice/payment-presence; preparation marker removed or false). Core calls prepare under the live lease before financial writes, atomically stores the result using `accounting_request_prepare`, then supplies the refreshed row to ALL adapter methods. Adapter must select `row.resolved_snapshot || row.snapshot` for provider envelopes; original source evidence remains at `row.snapshot`. `prepare` may retry read/contact/tax work but MUST NOT create invoices/payments. Prep 429 schedules retry and shared cooldown, preserving original evidence; contact creation must itself be discovery/idempotency safe. Core financial fence rejects invoice/payment POST during prep. Preparation may be partially replayed after crash: integration must use existing contact discovery, not blindly duplicate contacts.
+
+Payment-only MUST opt into preparation. Its prepare result retains the original existingInvoice.id and may add provider-verified invoice evidence (contact ID, totals, etc.); SQL atomically hands that enriched existingInvoice to invoice_result with resolved_snapshot. A changed invoice ID or linkage is rejected. Resolved financial stages require valid provider envelopes. Core guards BOTH snapshot and resolved_snapshot, operation and preparation status: never replace row.snapshot with the resolved version when calling guards/providers.
+
+No source/catalogue reconstruction on retry. Original source exclusivity and event/form guards stay in integration. New SQL must run AFTER 202612050001; BOTH migrations remain unapplied. No live provider writes or migration application are part of this change.
+
 Core owned by queue agent: `api/_lib/accountingRequestQueue.js`, SQL migration, cron and tests. Integration agent should own `api/_lib/accountingQueueIntegration.js` (not queue-prefixed).
 
 ## Public API

@@ -10,7 +10,7 @@ import { recordingEffects, isDryRunEffectBoundary } from './directDebitDryRunRun
 const now = new Date('2026-10-01T00:00:00Z');
 const plan = { id: 'plan', tenant_id: 'tenant', billing_agreement_id: 'agreement',
   gocardless_mandate_id: 'MD1', gocardless_subscription_id: 'SB1', status: 'active' };
-const agreement = { id: 'agreement', tenant_id: 'tenant', updated_at: '2026-01-01',
+const agreement = { id: 'agreement', tenant_id: 'tenant', provider: 'gocardless', updated_at: '2026-01-01',
   gocardless_billing_request_id: 'BR1', metadata: { dd: { kind: 'monthly_direct_debit', invoicing_mode: 'per_instalment' } } };
 const payment = { id: 'payment', plan_id: 'plan', tenant_id: 'tenant', gocardless_payment_id: 'PM1',
   status: 'submitted', amount_minor: 1234, currency: 'GBP', charge_date: '2026-09-01' };
@@ -67,7 +67,7 @@ test('failed lifecycle response cannot proceed to freshness write', async () => 
   assert.equal(ops[0].type, 'reconciliation.replay');
 });
 
-test('dynamic plans and annual accounting have explicit no-action reasons', async () => {
+test('dynamic plans and accounting without a linked agreement have explicit no-action reasons', async () => {
   const stages = [];
   const ctx = { now, db: database(), trace: s => stages.push(s),
     getGc: () => assert.fail('No provider read'), effects: { perform: () => assert.fail('No effect') } };

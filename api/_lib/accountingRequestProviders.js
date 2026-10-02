@@ -72,7 +72,7 @@ function subset(actual, expected) {
 }
 
 function envelope(row, kind) {
-  const value = row?.snapshot?.[kind]?.envelope;
+  const value = (row?.resolved_snapshot || row?.snapshot)?.[kind]?.envelope;
   if (!value || value.version !== 1 || value.provider !== row.provider || value.kind !== kind
       || value.marker !== markerFor(value.operationKey, kind)) permanent('MISSING_OR_INVALID_FROZEN_ENVELOPE');
   // Revalidate without re-appending the marker. Never mutate the stored JSON.
@@ -129,6 +129,12 @@ export function validateAccountingRequestResult(row, kind, record) {
   }
   if (xero && !payment && record.Type !== 'ACCREC') fail('WRONG_INVOICE_TYPE', { permanent: true });
   if (payment) {
+    if (e.expected.date) {
+      const raw = xero ? record.Date : record.TxnDate;
+      const match = typeof raw === 'string' && raw.match(/^\/Date\((\d+)(?:[+-]\d{4})?\)\/$/);
+      const date = match ? new Date(Number(match[1])).toISOString().slice(0, 10) : String(raw || '').slice(0, 10);
+      if (date !== e.expected.date) fail('PAYMENT_DATE_MISMATCH', { permanent: true });
+    }
     const invoiceId = row.invoice_result?.id;
     if (invoiceId !== e.expected.invoiceId) fail('PAYMENT_INVOICE_MISMATCH', { permanent: true });
     if (xero) {
@@ -167,8 +173,9 @@ export function createAccountingRequestProviders({
       || !Number.isSafeInteger(maxResponseBytes) || maxResponseBytes < 1
       || (deadlineAt !== Infinity && !Number.isFinite(deadlineAt))) throw new Error('Invalid accounting adapter dependencies');
 
-  async function boundedFetch(url, init) {
-    const requestTimeoutMs = Math.min(timeoutMs, deadlineAt - Date.now());
+  async function boundedFetch(url, init, budget = {}) {
+    const requestTimeoutMs = Math.min(timeoutMs, budget?.timeoutMs ?? Infinity,
+      (budget?.deadlineAt ?? Infinity) - Date.now(), deadlineAt - Date.now());
     if (requestTimeoutMs <= 0) fail('REQUEST_BUDGET_EXHAUSTED', { retry: true, definitelyNotWritten: true });
     const controller = new AbortController();
     let timer;
@@ -213,19 +220,22 @@ export function createAccountingRequestProviders({
         || row.company_id === 'PENDING_SELECTION') permanent('INVALID_BINDING');
     await beforeRequest(row, { kind: 'binding', method: 'GET' });
     const connection = await resolveConnection(row, { fetch: async (url, init) => {
-      await beforeRequest(row, { kind: 'authentication', method: init?.method || 'GET' });
-      return boundedFetch(url, init);
+      const budget = await beforeRequest(row, { kind: 'authentication', method: init?.method || 'GET' });
+      return boundedFetch(url, init, budget);
     }, timeoutMs });
     if (connection?.tenantId !== row.tenant_id || connection?.provider !== row.provider
         || connection?.connectionId !== row.connection_id || connection?.companyId !== row.company_id
         || !nonempty(connection.accessToken)) permanent('CONNECTION_CHANGED');
-    if (row.provider === 'quickbooks' && connection.environment !== envelope(row, 'invoice').environment) permanent('ENVIRONMENT_CHANGED');
+    const snapshot = row.resolved_snapshot || row.snapshot;
+    const environment = snapshot?.invoice?.envelope?.environment || snapshot?.payment?.envelope?.environment
+      || row.snapshot?.environment;
+    if (row.provider === 'quickbooks' && connection.environment !== environment) permanent('ENVIRONMENT_CHANGED');
     return connection;
   }
 
   async function request(row, kind, method, path, body, e) {
     const c = await binding(row);
-    await beforeRequest(row, { kind, method });
+    const budget = await beforeRequest(row, { kind, method });
     const xero = row.provider === 'xero';
     const base = xero ? 'https://api.xero.com/api.xro/2.0'
       : `https://${c.environment === 'sandbox' ? 'sandbox-' : ''}quickbooks.api.intuit.com/v3/company/${encodeURIComponent(c.companyId)}`;
@@ -241,7 +251,7 @@ export function createAccountingRequestProviders({
     // Xero otherwise rounds unit prices to two decimal places on both writes
     // and reads, which can change or falsely reject accepted sales economics.
     if (xero && kind === 'invoice') path += `${path.includes('?') ? '&' : '?'}unitdp=4`;
-    const response = await boundedFetch(`${base}${path}`, { method, headers, ...(body ? { body: JSON.stringify(body) } : {}) });
+    const response = await boundedFetch(`${base}${path}`, { method, headers, ...(body ? { body: JSON.stringify(body) } : {}) }, budget);
     const retryAfter = response.headers.get('retry-after')
       || (response.status === 429 && !xero ? '60' : null);
     // Provider-documented throttle rejection, not a transport timeout:
@@ -281,6 +291,17 @@ export function createAccountingRequestProviders({
     const e = envelope(row, kind), xero = row.provider === 'xero';
     if (row[`${kind}_status`] === 'unknown' || row[`${kind}_result`]?.id) permanent('RECREATION_FORBIDDEN');
     if (kind === 'payment' && row.invoice_result?.id !== e.expected.invoiceId) permanent('PAYMENT_INVOICE_MISMATCH');
+    if (kind === 'payment' && row.source_type === 'gocardless_payment') {
+      const data = await request(row, 'invoice', 'GET',
+        `/${xero ? 'Invoices' : 'invoice'}/${encodeURIComponent(e.expected.invoiceId)}`);
+      const invoice = xero ? data?.Invoices?.[0] : data?.Invoice;
+      const remaining = minor(xero ? invoice?.AmountDue : invoice?.Balance);
+      if (invoice?.[xero ? 'InvoiceID' : 'Id'] !== e.expected.invoiceId
+        || (xero ? invoice?.Contact?.ContactID : invoice?.CustomerRef?.value) !== e.expected.contactId
+        || (xero ? invoice?.CurrencyCode : invoice?.CurrencyRef?.value) !== e.expected.currency
+        || (xero && (invoice?.Type !== 'ACCREC' || invoice?.Status !== 'AUTHORISED'))
+        || !Number.isSafeInteger(remaining) || remaining < e.expected.totalMinor) permanent('PAYMENT_INVOICE_REMAINING_MISMATCH');
+    }
     const entity = kind === 'invoice' ? 'Invoice' : 'Payment';
     const data = await request(row, kind, 'POST', `/${xero ? `${entity}s` : entity.toLowerCase()}`,
       xero ? { [`${entity}s`]: [e.payload] } : e.payload, e);
@@ -332,6 +353,39 @@ export function createAccountingRequestProviders({
   }
 
   return Object.freeze({
+    // Preparation has no authority to create invoices/payments. Every read and
+    // contact write remains connection-bound and fenced on the ORIGINAL row.
+    preparationTransport: row => ({
+      resolveConnection: () => binding(row),
+      fetch: async (url, init = {}) => {
+        const c = await binding(row);
+        const parsed = new URL(url);
+        const xero = row.provider === 'xero';
+        const base = xero ? 'https://api.xero.com/api.xro/2.0/'
+          : `https://${c.environment === 'sandbox' ? 'sandbox-' : ''}quickbooks.api.intuit.com/v3/company/${encodeURIComponent(c.companyId)}/`;
+        const method = (init.method || 'GET').toUpperCase();
+        if (!parsed.href.startsWith(base) || !['GET', 'POST', 'PUT'].includes(method)
+          || (method !== 'GET' && !(xero ? /\/Contacts\/?$/.test(parsed.pathname)
+            : /\/customer\/?$/.test(parsed.pathname)))) permanent('PREPARATION_ENDPOINT_FORBIDDEN');
+        const headers = new Headers(init.headers);
+        headers.set('Authorization', `Bearer ${c.accessToken}`);
+        if (xero) headers.set('Xero-tenant-id', c.companyId);
+        const budget = await beforeRequest(row, { kind: 'preparation', method });
+        const response = await boundedFetch(parsed.href, { ...init, method, headers }, budget);
+        if (response.status === 429) fail('RATE_LIMITED', { status: 429,
+          retryAfter: response.headers.get('retry-after') || (!xero ? '60' : null),
+          definitelyNotWritten: true });
+        return response;
+      }, timeoutMs, deadlineAt,
+    }),
+    readExistingInvoice: async (row, id) => {
+      if (!nonempty(id)) permanent('INVALID_EXISTING_INVOICE_ID');
+      const xero = row.provider === 'xero';
+      const data = await request(row, 'invoice', 'GET', `/${xero ? 'Invoices' : 'invoice'}/${encodeURIComponent(id)}`);
+      const record = xero ? data?.Invoices?.[0] : data?.Invoice;
+      if (record?.[xero ? 'InvoiceID' : 'Id'] !== id) permanent('READBACK_ID_MISMATCH');
+      return record;
+    },
     assertBinding: async row => {
       await binding(row);
       return { provider: row.provider, connectionId: row.connection_id, companyId: row.company_id };

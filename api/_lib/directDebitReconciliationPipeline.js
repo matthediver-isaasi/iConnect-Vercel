@@ -176,9 +176,12 @@ export async function reconcilePayment(ctx, payment) {
 export async function reconcileAccounting(ctx, payment) {
   const stage = 'accounting-retry';
   const { agreement } = await paymentAgreement(ctx.db, payment);
-  if (!agreement || !perInstalment(agreement)) { emit(ctx, stage, 'Only linked per-instalment agreements are retried; annual application is excluded'); return { skipped: 1 }; }
+  // Selection is limited to failed/unpaid or stale in-flight accounting rows;
+  // include annual payment-only obligations without replaying historical
+  // confirmations, collecting again, or re-running activation.
+  if (!agreement || agreement.provider !== 'gocardless') { emit(ctx, stage, 'A linked GoCardless agreement is required'); return { skipped: 1 }; }
   const outcome = await effect(ctx, stage, 'reconciliation.accounting',
-    'Claim/reclaim per-instalment posting, then resume idempotent invoice and payment posting',
+    'Resume accounting-only instalment invoicing or annual invoice payment',
     { agreement, paymentRow: payment, reclaimStale: true },
     { amountMinor: payment.amount_minor, currency: payment.currency, date: payment.charge_date, conditional: true });
   return outcome.status === 'posted' ? { repaired: 1 } : { skipped: 1 };

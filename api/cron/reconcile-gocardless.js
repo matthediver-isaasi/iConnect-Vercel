@@ -51,7 +51,7 @@ export function liveReconciliationEffects({
         case 'reconciliation.transition': return transition(p);
         case 'reconciliation.replay': return processEvent(p.event, { db, gc: await getGc(p.tenantId) });
         case 'reconciliation.accounting': return postAccounting(
-          { agreement: p.agreement, paymentRow: p.paymentRow }, { reclaimStale: p.reclaimStale });
+          { agreement: p.agreement, paymentRow: p.paymentRow }, { db, reclaimStale: p.reclaimStale });
         default: throw new Error(`Unsupported reconciliation effect ${operation.type}`);
       }
     },

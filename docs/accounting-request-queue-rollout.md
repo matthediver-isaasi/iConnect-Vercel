@@ -6,6 +6,33 @@
 
 The new cron is explicitly OFF unless `ACCOUNTING_REQUEST_QUEUE_ENABLED` equals the literal string `true`. A valid `CRON_SECRET` is still required while disabled; an authorized disabled run returns `enabled: false` without querying the queue or invoking reconciliation. The schedule alone does not activate processing.
 
+## GoCardless source (staged, not enabled)
+
+GoCardless new-request adoption requires **both** `ACCOUNTING_REQUEST_QUEUE_ENABLED=true`
+and the exact singular source `gocardless_payment` in the comma-separated
+`ACCOUNTING_REQUEST_QUEUE_SOURCES` allowlist. Do not enable production until
+`202612050001_accounting_request_queue.sql` and then
+`202612050002_accounting_request_gc_preparation.sql` have been separately reviewed
+and applied through the approved migration process. Neither migration was applied
+by this implementation; no environment settings were changed.
+
+Standard confirmed instalments create their own invoice plus payment; annual
+collections use only the exact provider invoice linked to their original history.
+The original provider/company, canonical collection, economic context and dedicated
+bank setting are durably frozen before provider preparation. Xero bank codes are
+resolved to actual account IDs only inside fenced preparation. Retries never use
+today's bank setting. Accepted requests retain central ownership even if flags are
+later disabled. The accounting-only retry selector includes failed/unpaid and
+stale-posting annual obligations; it does not replay historical confirmations,
+collect Direct Debits, activate memberships or award benefits.
+
+Missing annual invoices remain failed/waiting without provider calls. A legacy
+failed/in-flight writer with uncertain external effects is held for review instead
+of assigning it a fresh provider identity. Catch-up arrears retain their existing
+allocation owner and cannot be aggregate-posted by this source. BNMS imported
+accounting retains its independent invoice-operation/bank/contact authority; its
+queue requests are held for review, not released through generic payment posting.
+
 ## Activation checklist
 
 1. Review and apply `supabase/migrations/202612050001_accounting_request_queue.sql` separately through the approved destination migration process. It is replay-safe and does not backfill or reconstruct requests.
@@ -29,11 +56,13 @@ before migration; fresh sources without queue ownership retain the legacy path.
 
 Manual unpaid membership adoption requires the same enable flag plus
 `member_membership_history` or `organisation_membership_history` in the source
-allowlist. Paid, form, instalment and add-on paths retain their existing owners.
-Contact/tax preparation happens before the durable prepared request, so preparation
-rate limits are not yet recovered by this queue. GoCardless collection invoicing,
-renewals, workflows, training-fund purchases and existing event recovery have not
-been migrated. This stage must not be described as universal accounting recovery.
+allowlist. Other paid/form/card-instalment/add-on membership paths retain their
+existing owners. Manual membership contact/tax preparation still happens before
+its durable prepared request; the GoCardless source described above instead
+persists preparation evidence and recovers preparation rate limits. Renewals,
+workflows, training-fund purchases, existing event recovery and the independent
+BNMS/arrears owners have not been transferred wholesale. This stage must not be
+described as universal accounting recovery.
 
 Health reports counts for pending/retry/running/unknown/review/complete, overdue work, expired leases and provider cooldown waiting. Unknown writes and review cases yield attention/503; a valid cooldown alone yields waiting_provider. It is not a cron heartbeat: an empty healthy queue does not prove a successful sweep.
 

@@ -13,6 +13,7 @@ test('isolated queue SQL: service-only RPC, immutable authority, concurrent leas
     assert.equal(result.status, 0, result.stderr);
   };
   const migration = readFileSync(new URL('../../supabase/migrations/202612050001_accounting_request_queue.sql', import.meta.url), 'utf8');
+  const extension = readFileSync(new URL('../../supabase/migrations/202612050002_accounting_request_gc_preparation.sql', import.meta.url), 'utf8');
   const snapshot = { version: 1, invoice: { amount: 100 }, payment: { amount: 100 }, linkage: { source: 'real-source' } };
   const tenant = '00000000-0000-4000-8000-000000000001';
   let started = false;
@@ -30,6 +31,7 @@ test('isolated queue SQL: service-only RPC, immutable authority, concurrent leas
     const [admin, worker, second] = clients;
     await admin.query('CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;');
     await admin.query(migration);
+    await admin.query(extension);
     await worker.query('SET ROLE service_role');
     await second.query('SET ROLE service_role');
     assert.equal((await worker.query('SELECT accounting_request_health() AS health')).rows[0].health.status, 'healthy');
@@ -119,6 +121,7 @@ test('isolated queue SQL: service-only RPC, immutable authority, concurrent leas
     assert.equal((await claim(row.id)).id, null);
     const before = (await admin.query('SELECT jsonb_agg(to_jsonb(q) ORDER BY id) AS rows FROM accounting_request_queue q')).rows[0].rows;
     await admin.query(migration);
+    await admin.query(extension);
     const after = (await admin.query('SELECT jsonb_agg(to_jsonb(q) ORDER BY id) AS rows FROM accounting_request_queue q')).rows[0].rows;
     assert.deepEqual(after, before, 'migration replay cannot reset financial authority or progress');
     // QBO uses the same state machine, no-payment requests skip settlement.
@@ -146,6 +149,74 @@ test('isolated queue SQL: service-only RPC, immutable authority, concurrent leas
     assert.equal((await admin.query(`SELECT cooldown_until::text AS embargo
       FROM accounting_request_binding WHERE provider='xero' AND company_id='company'`)).rows[0].embargo, 'infinity');
     assert.equal((await claim(sibling.id)).id, null);
+    // GC payment-only is one authority, with a durable original evidence stage.
+    for (const provider of ['xero', 'quickbooks']) {
+      const originalEvidence = { ...snapshot, preparation: true, existingInvoice: { id: `${provider}-existing` },
+        original: { gcPaymentId: `PM-${provider}`, amountMinor: 10000, currency: 'GBP', date: '2026-01-01' } };
+      const gcOverrides = { 1: provider, 3: `${provider}-gc`, 4: 'gocardless_payment', 6: 'payment', 7: originalEvidence };
+      let gc = await enqueue(`PM-${provider}`, gcOverrides);
+      assert.equal(gc.invoice_status, 'done');
+      assert.deepEqual(gc.invoice_result, originalEvidence.existingInvoice);
+      assert.equal(gc.preparation_status, 'pending');
+      assert.equal((await enqueue(`PM-${provider}`, gcOverrides)).id, gc.id);
+      await assert.rejects(enqueue(`PM-${provider}`, { ...gcOverrides, 6: 'invoice' }), /conflicts/);
+      gc = await claim(gc.id);
+      await assert.rejects(checkpoint(gc, 'invoice', 'writing'), /transition/);
+      await assert.rejects(checkpoint(gc, 'payment', 'writing'), /preparation prerequisites/);
+      const envelope = kind => ({ version: 1, provider, kind, operationKey: `PM-${provider}-${kind}`,
+        payload: { amount: 100 }, expected: { amount: 100 } });
+      const resolved = { ...originalEvidence, preparation: false,
+        payment: { envelope: envelope('payment') }, existingInvoice: { ...originalEvidence.existingInvoice, verified: true } };
+      const prepare = (r, value) => worker.query('SELECT * FROM accounting_request_prepare($1,$2,$3)',
+        [r.id, r.lease_token, value]);
+      await assert.rejects(prepare(gc, { ...resolved, existingInvoice: { id: 'wrong-invoice' } }), /Invalid/);
+      await assert.rejects(prepare(gc, { ...resolved, linkage: { source: 'changed' } }), /Invalid/);
+      await assert.rejects(prepare(gc, { ...resolved, payment: { envelope: { ...envelope('payment'), provider: 'wrong' } } }), /Invalid/);
+      const staleGc = gc;
+      await expire(gc);
+      gc = await claim(gc.id);
+      await assert.rejects(prepare(staleGc, resolved), /lease/);
+      gc = (await prepare(gc, resolved)).rows[0];
+      assert.deepEqual(gc.snapshot, originalEvidence);
+      assert.deepEqual(gc.resolved_snapshot, resolved);
+      assert.equal(gc.invoice_result.verified, true);
+      await assert.rejects(prepare(gc, resolved), /Invalid/);
+      await assert.rejects(admin.query('UPDATE accounting_request_queue SET resolved_snapshot=$1 WHERE id=$2', [{}, gc.id]), /immutable/);
+      await assert.rejects(admin.query('UPDATE accounting_request_queue SET invoice_result=$1 WHERE id=$2', [{ id: 'changed' }, gc.id]), /immutable/);
+      gc = await checkpoint(gc, 'payment', 'writing');
+      await expire(gc);
+      gc = await claim(gc.id);
+      assert.equal(gc.payment_status, 'unknown');
+      await assert.rejects(checkpoint(gc, 'payment', 'writing'), /transition/);
+      gc = await checkpoint(gc, 'payment', 'done', { id: `${provider}-payment` });
+      gc = await checkpoint(gc, 'link', 'writing');
+      gc = await checkpoint(gc, 'link', 'done', { linked: true });
+      assert.equal((await finish(gc, 'complete')).state, 'complete');
+      // Invoice+payment preparation shares the same immutable GC source lock.
+      const invoiceEvidence = { ...originalEvidence };
+      delete invoiceEvidence.existingInvoice;
+      let preparedInvoice = await enqueue(`PM-${provider}-new`, {
+        ...gcOverrides, 6: 'invoice', 7: invoiceEvidence,
+      });
+      preparedInvoice = await claim(preparedInvoice.id);
+      await assert.rejects(checkpoint(preparedInvoice, 'invoice', 'writing'), /preparation prerequisites/);
+      preparedInvoice = await finish(preparedInvoice, 'retry', 120);
+      await admin.query("UPDATE accounting_request_queue SET next_attempt_at=now()-interval '1 second' WHERE id=$1", [preparedInvoice.id]);
+      assert.equal((await claim(preparedInvoice.id)).id, null, 'preparation throttles obey company embargo');
+      await admin.query("UPDATE accounting_request_binding SET cooldown_until=now()-interval '1 second' WHERE company_id=$1", [`${provider}-gc`]);
+      preparedInvoice = await claim(preparedInvoice.id);
+      const preparedPayload = { ...invoiceEvidence, preparation: false,
+        invoice: { envelope: envelope('invoice') }, payment: { envelope: envelope('payment') } };
+      preparedInvoice = (await prepare(preparedInvoice, preparedPayload)).rows[0];
+      assert.deepEqual(preparedInvoice.snapshot, invoiceEvidence);
+      preparedInvoice = await checkpoint(preparedInvoice, 'invoice', 'writing');
+      preparedInvoice = await checkpoint(preparedInvoice, 'invoice', 'done', { id: `${provider}-new-invoice` });
+      preparedInvoice = await checkpoint(preparedInvoice, 'payment', 'writing');
+      preparedInvoice = await checkpoint(preparedInvoice, 'payment', 'done', { id: `${provider}-new-payment` });
+      preparedInvoice = await checkpoint(preparedInvoice, 'link', 'writing');
+      preparedInvoice = await checkpoint(preparedInvoice, 'link', 'done', { linked: true });
+      assert.equal((await finish(preparedInvoice, 'complete')).state, 'complete');
+    }
   } finally {
     await Promise.all(clients.map(client => client.end()));
     if (started) command('pg_ctl', ['-D', h.data, '-m', 'immediate', '-w', 'stop']);

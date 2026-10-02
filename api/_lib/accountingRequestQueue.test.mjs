@@ -13,6 +13,11 @@ function fixture(overrides = {}) {
   const db = { async rpc(name, args) {
     calls.push([name, args]);
     if (name.endsWith('_guard')) return { data: true };
+    if (name.endsWith('_prepare')) {
+      row.preparation_status = 'done';
+      row.resolved_snapshot = structuredClone(args.p_snapshot);
+      if (row.operation === 'payment') row.invoice_result = structuredClone(args.p_snapshot.existingInvoice);
+    }
     if (name.endsWith('_checkpoint')) {
       row[`${args.p_stage}_status`] = args.p_status;
       if (args.p_status === 'done') row[`${args.p_stage}_result`] = args.p_result;
@@ -149,4 +154,84 @@ test('rate limits during binding/auth preserve company cooldown and existing unk
   assert.equal((await f.run()).state, 'unknown');
   assert.equal(f.calls.at(-1)[1].p_cooldown_seconds, 90);
   assert.deepEqual(f.writes, []);
+});
+
+test('both providers preserve original preparation evidence and skip prelinked invoice on retry', async () => {
+  for (const provider of ['xero', 'quickbooks']) {
+    const original = { ...snapshot, preparation: true, existingInvoice: { id: 'inv' } };
+    const resolved = { ...original, preparation: false, payment: { envelope: { payload: { Total: 100 } } },
+      existingInvoice: { id: 'inv', verified: true } };
+    const f = fixture({ provider, operation: 'payment', snapshot: original, preparation_status: 'pending',
+      invoice_status: 'done', invoice_result: { id: 'inv' } });
+    delete f.adapter.createInvoice;
+    let preparations = 0;
+    f.adapter.prepare = async row => {
+      assert.deepEqual(row.snapshot, original);
+      if (++preparations === 1) throw Object.assign(new Error('tax/contact limited'), { status: 429, retryAfter: 95 });
+      return resolved;
+    };
+    assert.equal((await f.run()).state, 'retry');
+    assert.equal(f.calls.at(-1)[1].p_cooldown_seconds, 95);
+    assert.deepEqual(f.writes, []);
+    const payment = f.adapter.createPayment;
+    let payments = 0;
+    f.adapter.createPayment = async row => {
+      assert.deepEqual(row.snapshot, original);
+      assert.deepEqual(row.resolved_snapshot, resolved);
+      assert.equal(row.invoice_result.verified, true);
+      if (++payments === 1) throw Object.assign(new Error('payment limited'), {
+        status: 429, retryAfter: 120, definitelyNotWritten: true,
+      });
+      return payment(row);
+    };
+    assert.equal((await f.run()).state, 'retry');
+    assert.equal((await f.run()).state, 'complete');
+    assert.equal(preparations, 2, 'prepared snapshot is not rebuilt on payment retry');
+    assert.deepEqual(f.writes, ['payment', 'link']);
+    assert.equal(f.calls.some(([, args]) => args?.p_stage === 'invoice'), false);
+  }
+});
+
+test('prepared authority is guarded independently of immutable original evidence', async () => {
+  const resolved = { ...snapshot, invoice: { amount: 100, resolved: true } };
+  const f = fixture({ resolved_snapshot: resolved, preparation_status: 'done' });
+  await processAccountingRequest({ db: f.db, requestId: 'request', adapters: async (row, controls) => {
+    await assert.rejects(controls.beforeRequest({ ...row, resolved_snapshot: snapshot }), /AUTHORITY_CHANGED/);
+    await assert.rejects(controls.beforeRequest({ ...row, snapshot: resolved }), /AUTHORITY_CHANGED/);
+    return f.adapter;
+  } });
+});
+
+test('preparation persistence failure never starts a financial write', async () => {
+  const f = fixture({ snapshot: { ...snapshot, preparation: true }, preparation_status: 'pending' });
+  f.adapter.prepare = async () => snapshot;
+  const rpc = f.db.rpc;
+  f.db.rpc = async (name, args) => name.endsWith('_prepare') ? { error: { code: 'down' } } : rpc(name, args);
+  await assert.rejects(f.run(), /PERSISTENCE_PREPARE/);
+  assert.deepEqual(f.writes, []);
+});
+
+test('Xero and QBO retry exact resolved financial stages after direct throttle rejection only', async () => {
+  for (const provider of ['xero', 'quickbooks']) {
+    for (const stage of ['invoice', 'payment']) {
+      const f = fixture({ provider, preparation_status: 'pending', snapshot: { ...snapshot, preparation: true } });
+      const resolved = { ...snapshot, invoice: { amount: 100, operationKey: 'original-invoice-key' },
+        payment: { amount: 100, operationKey: 'original-payment-key' } };
+      let preparations = 0, throttles = 0;
+      f.adapter.prepare = async () => { preparations++; return structuredClone(resolved); };
+      const method = stage === 'invoice' ? 'createInvoice' : 'createPayment';
+      const originalMethod = f.adapter[method];
+      f.adapter[method] = async row => {
+        assert.deepEqual(row.resolved_snapshot, resolved);
+        if (++throttles === 1) throw Object.assign(new Error(), {
+          status: 429, retryAfter: 60, definitelyNotWritten: true,
+        });
+        return originalMethod(row);
+      };
+      assert.equal((await f.run()).state, 'retry');
+      assert.equal((await f.run()).state, 'complete');
+      assert.equal(preparations, 1);
+      assert.deepEqual(f.writes, ['invoice', 'payment', 'link']);
+    }
+  }
 });

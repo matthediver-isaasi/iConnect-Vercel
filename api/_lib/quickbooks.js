@@ -263,21 +263,22 @@ export async function revokeQuickBooksToken(appTenantId, refreshToken) {
 // Settings helpers
 // ---------------------------------------------------------------------------
 
-async function getTenantSetting(appTenantId, key) {
-  if (!supabase) return null;
-  const { data } = await supabase
+async function getTenantSetting(appTenantId, key, database = supabase) {
+  if (!database) return null;
+  const { data, error } = await database
     .from('system_settings')
     .select('setting_value')
     .eq('setting_key', key)
     .eq('tenant_id', appTenantId)
     .maybeSingle();
+  if (error) throw new Error('QuickBooks tenant setting lookup failed');
   return data?.setting_value || null;
 }
 
-async function resolveMembershipItemId(appTenantId) {
+async function resolveMembershipItemId(appTenantId, database = supabase) {
   const itemId =
-    (await getTenantSetting(appTenantId, 'quickbooks_membership_item_id')) ||
-    (await getTenantSetting(appTenantId, 'accounting_membership_item_id'));
+    (await getTenantSetting(appTenantId, 'quickbooks_membership_item_id', database)) ||
+    (await getTenantSetting(appTenantId, 'accounting_membership_item_id', database));
   if (!itemId) {
     throw new Error(
       'QuickBooks membership Item not configured. Set system_settings key ' +
@@ -660,7 +661,7 @@ export async function createQuickBooksMembershipInvoice({
     transport,
   });
 
-  const itemId = await resolveMembershipItemId(appTenantId);
+  const itemId = await resolveMembershipItemId(appTenantId, dependencies.supabase || supabase);
   let { taxCodeId } = parseTaxCodeRef(vatRate);
 
   if (!taxCodeId) {
@@ -682,7 +683,7 @@ export async function createQuickBooksMembershipInvoice({
     }
   }
   if (!taxCodeId) {
-    const defaultTaxCode = await getTenantSetting(appTenantId, 'quickbooks_default_tax_code_id');
+    const defaultTaxCode = await getTenantSetting(appTenantId, 'quickbooks_default_tax_code_id', dependencies.supabase || supabase);
     if (defaultTaxCode) {
       taxCodeId = String(defaultTaxCode);
       console.log(`[QBO] Falling back to tenant default tax code ${taxCodeId} for invoice line`);
