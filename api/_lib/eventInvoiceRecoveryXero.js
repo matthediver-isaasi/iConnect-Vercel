@@ -158,10 +158,15 @@ export async function createEventInvoiceRecoveryXero({
     const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     return new RegExp(`(^|[^A-Za-z0-9_-])${escaped}($|[^A-Za-z0-9_-])`).test(String(text || ''));
   };
-  const invoiceIdentity = invoice => snapshot.paymentMethod === 'stripe'
+  const invoiceIdentity = invoice => discovery?.conservativeHistorical && (
+    Number(invoice.Total) === snapshot.amount
+    || invoice.Contact?.ContactID && invoice.Contact.ContactID === snapshot.invoice.Contact.ContactID
+    || snapshot.invoice.Contact.Name && invoice.Contact?.Name === snapshot.invoice.Contact.Name
+    || discovery.eventTitle && invoice.LineItems?.some(line => String(line.Description).includes(discovery.eventTitle)))
+    || (snapshot.paymentMethod === 'stripe'
     ? invoice.LineItems?.some(line => hasToken(line.Description, snapshot.settlement.paymentIntentId))
     : invoice.Reference === discovery.bookingReference
-      || invoice.LineItems?.some(line => hasToken(line.Description, discovery.bookingReference));
+      || invoice.LineItems?.some(line => hasToken(line.Description, discovery.bookingReference)));
   const paginated = async (path, field) => {
     const found = new Map();
     // Xero's accounting endpoint page size is 100. An empty terminal page is
@@ -332,6 +337,7 @@ export async function createEventInvoiceRecoveryXero({
       }
     },
     async createPayment(invoice) {
+      if (snapshot.settlement?.livemode !== true) throw new EventInvoiceRecoveryError('settlement_live_mode_unverified');
       if (discovery && (await discover()).payments.length) throw new EventInvoiceRecoveryError('payment_creation_ambiguous');
       const code = snapshot.settlement.accountCode;
       if (!/^[A-Za-z0-9._ -]{1,50}$/.test(code)) throw new EventInvoiceRecoveryError('settlement_account_invalid');

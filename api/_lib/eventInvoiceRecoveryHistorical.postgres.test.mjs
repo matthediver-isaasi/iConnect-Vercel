@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import pg from 'pg';
 import { createLocalPostgresHarness } from '../../scripts/test-support/local-postgres-harness.mjs';
+import { reconstructHistoricalEventInvoice } from './eventInvoiceReconstruction.js';
 
 test('isolated historical hydration: original IDs/journal, stale checks, permissions, live-only and ownership', { timeout: 120_000 }, async () => {
   const h = await createLocalPostgresHarness('event-invoice-recovery-historical-');
@@ -155,6 +156,49 @@ test('isolated historical hydration: original IDs/journal, stale checks, permiss
     const before = sql(`SELECT jsonb_agg(to_jsonb(h) ORDER BY operation_id) FROM event_invoice_recovery_historical_evidence h;`);
     sql(migration);
     assert.equal(sql(`SELECT jsonb_agg(to_jsonb(h) ORDER BY operation_id) FROM event_invoice_recovery_historical_evidence h;`),before);
+    // Automatic collection and promotion use this same isolated database only.
+    sql(`ALTER TABLE booking ADD COLUMN event_id uuid, ADD COLUMN organization_id uuid,
+      ADD COLUMN member_id uuid, ADD COLUMN ticket_class_id text, ADD COLUMN account_amount numeric;
+      CREATE TABLE event(id uuid PRIMARY KEY,tenant_id uuid,title text,xero_account_code text,pricing_config jsonb);
+      CREATE TABLE complex_event(LIKE event INCLUDING ALL);
+      CREATE TABLE complex_event_ticket_class(id uuid,complex_event_id uuid,tenant_id uuid);
+      CREATE TABLE organization(id uuid PRIMARY KEY,tenant_id uuid,name text,invoicing_email text);
+      CREATE TABLE member(id uuid PRIMARY KEY,tenant_id uuid,first_name text,last_name text,email text);
+      CREATE TABLE xero_token(id text,app_tenant_id uuid,tenant_id text,access_token text);
+      INSERT INTO xero_token VALUES('auto-connection','${tenant}','org','must-not-leak');
+      INSERT INTO organization VALUES('${tenant}','${tenant}','Original buyer',NULL);
+      INSERT INTO event VALUES('${tenant}','${tenant}','Original event','201',
+        '{"ticket_classes":[{"id":"ticket","name":"Early bird","price":300,"early_bird_price":200,"currency":"GBP","vat_rate_key":"NONE","vat_rate_percentage":0}]}');
+      INSERT INTO booking(tenant_id,booking_group_reference,payment_method,ticket_price,account_amount,
+        event_id,organization_id,ticket_class_id)
+      VALUES('${tenant}','auto-history','account',200,200,'${tenant}','${tenant}','ticket');
+      SELECT event_invoice_recovery_enqueue('${tenant}','booking','auto-history',NULL,false);`);
+    const automaticMigration = readFileSync(new URL('../../supabase/migrations/202611300003_event_invoice_automatic_reconstruction.sql', import.meta.url), 'utf8');
+    sql(automaticMigration); sql(automaticMigration);
+    for (const role of ['anon','authenticated']) {
+      sql(`SET ROLE ${role}; SELECT event_invoice_recovery_automatic_candidates();`,true);
+      sql(`SET ROLE ${role}; SELECT event_invoice_recovery_automatic_commit('{}');`,true);
+    }
+    const autoId = candidate('auto-history').operationId;
+    const collect = () => JSON.parse(sql(`SET ROLE service_role; SELECT event_invoice_recovery_automatic_candidates(1,'${autoId}');`))[0];
+    const commit = (i,s,reason=null) => JSON.parse(sql(`SET ROLE service_role; SELECT
+      event_invoice_recovery_automatic_commit(${json(i)},${s ? json(s) : 'NULL'},${reason ? `'${reason}'` : 'NULL'});`));
+    let collected = collect();
+    assert.doesNotMatch(JSON.stringify(collected),/must-not-leak|access_token/);
+    const reconstructed = reconstructHistoricalEventInvoice(collected);
+    assert.equal(reconstructed.amount,200);
+    sql(`UPDATE event SET title='Changed event' WHERE id='${tenant}';`);
+    assert.equal(commit(collected,reconstructed).status,'stale','supporting evidence change vetoes approval');
+    collected = collect();
+    assert.equal(commit(collected,null,'historical_tax_evidence_missing').status,'needs_review');
+    assert.equal(sql(`SELECT reason_code FROM event_invoice_recovery WHERE id='${autoId}';`),'historical_tax_evidence_missing');
+    collected = collect();
+    assert.equal(commit(collected,reconstructHistoricalEventInvoice(collected)).status,'approved');
+    assert.equal(commit(collected,reconstructed).status,'stale','duplicate promotion never overwrites approved evidence');
+    assert.equal(hydrate(autoId),'1');
+    assert.equal(sql(`SELECT snapshot->>'amount' FROM event_invoice_recovery WHERE id='${autoId}';`),'200');
+    assert.equal(sql(`SELECT invoice_id IS NULL AND settlement_payment_intent_id IS NULL
+      FROM event_invoice_recovery WHERE id='${autoId}';`),'t');
   } finally {
     if (started) run('pg_ctl',['-D',h.data,'-m','immediate','-w','stop']);
     await h.cleanup();

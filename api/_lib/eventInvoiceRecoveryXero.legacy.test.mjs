@@ -105,6 +105,21 @@ test('processor adopts paid legacy evidence and journals both IDs without starti
   assert.equal(f.db.journal.at(-1)[1].p_payment_id, 'old-payment');
 });
 
+test('automatic historical discovery considers unmarked same-amount invoices before any creation', async () => {
+  const row = job();
+  row.snapshot.paymentMethod = 'invoice';
+  row.snapshot.settlement = null;
+  Object.assign(row.snapshot.legacyDiscovery, {
+    bookingReference: row.booking_group_reference, conservativeHistorical: true, eventTitle: 'Original event',
+  });
+  const existing = oldInvoice({ Status: 'AUTHORISED', AmountPaid: 0, AmountDue: 166.67,
+    LineItems: [{ ...oldInvoice().LineItems[0], Description: 'Old unmarked invoice without booking reference' }] });
+  const f = await fixture({ row, invoicePages: [[existing], []], paymentPages: [[]] });
+  assert.equal((await f.adapter.findInvoices())[0].InvoiceID, 'old-invoice');
+  await assert.rejects(f.adapter.createInvoice(), /invoice_creation_ambiguous/);
+  assert.ok(f.calls.every(call => call.init.method === 'GET'));
+});
+
 test('second-page evidence is adopted and exact duplicate invoices fail closed', async () => {
   const unrelated = oldInvoice({ InvoiceID: 'other', Total: 200, AmountPaid: 166.67,
     LineItems: [{ ...oldInvoice().LineItems[0], Description: 'Same event pi_Unrelated' }] });

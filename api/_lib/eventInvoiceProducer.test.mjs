@@ -7,12 +7,12 @@ import {
 } from './eventInvoiceProducer.js';
 import { validRecoverySnapshot } from './eventInvoiceRecovery.js';
 
-function fixture({ provider = 'xero', enabled = 'true', settingsError = false, tokens, enqueueError = false } = {}) {
+function fixture({ provider = 'xero', enabled = 'true', invoiceStatus = 'AUTHORISED', settingsError = false, tokens, enqueueError = false } = {}) {
   const calls = [], queued = [];
   const rows = {
     system_settings: [
       ['xero_invoice_enabled', enabled], ['xero_sales_account_code', '200'],
-      ['xero_invoice_status', 'AUTHORISED'], ['xero_stripe_bank_account_code', '090'],
+      ['xero_invoice_status', invoiceStatus], ['xero_stripe_bank_account_code', '090'],
     ].map(([setting_key, setting_value]) => ({ setting_key, setting_value })),
     tenant_accounting_settings: { active_provider: provider },
     xero_token: tokens || [{ id: 'connection-a', tenant_id: 'xero-org-a' }],
@@ -68,11 +68,11 @@ function fixture({ provider = 'xero', enabled = 'true', settingsError = false, t
 
 function paymentIntent(overrides = {}) {
   return {
-    id: 'pi_original', status: 'succeeded', amount: 2500, amount_received: 2500,
+    id: 'pi_original', status: 'succeeded', livemode: true, amount: 2500, amount_received: 2500,
     currency: 'gbp', metadata: { event_id: 'event-a' }, capture_method: 'automatic',
     created: 1700000000,
     latest_charge: {
-      id: 'ch_original', status: 'succeeded', paid: true, captured: true,
+      id: 'ch_original', status: 'succeeded', livemode: true, paid: true, captured: true,
       amount_captured: 2500, currency: 'gbp', created: 1767225900,
       payment_intent: 'pi_original', amount_refunded: 0,
     },
@@ -177,7 +177,17 @@ test('captured Stripe settlement is exact, uses charge date and never PI initiat
   assert.equal(settlement.accountCode, '090');
 });
 
+test('captured card invoices are authorised even when account invoice default is draft', async () => {
+  const f = fixture({ invoiceStatus: 'DRAFT' });
+  Object.assign(f.input, { paymentMethod: 'card', paymentIntentId: 'pi_original', paymentIntent: paymentIntent() });
+  assert.equal((await enqueueCheckoutEventInvoice(f.input, f.deps)).status, 'pending');
+  assert.equal(f.queued[0].snapshot.invoice.Status, 'AUTHORISED');
+});
+
 for (const [label, change] of [
+  ['test-mode payment', { livemode: false }],
+  ['unknown payment mode', { livemode: undefined }],
+  ['test-mode charge', { latest_charge: { ...paymentIntent().latest_charge, livemode: false } }],
   ['uncaptured authorization', { status: 'requires_capture', amount_received: 0 }],
   ['wrong captured amount including unattributed donation', { amount: 3000, amount_received: 3000 }],
   ['wrong currency', { currency: 'eur' }],

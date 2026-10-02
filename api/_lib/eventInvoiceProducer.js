@@ -111,6 +111,7 @@ export function complexEventInvoiceLines({ event, resolvedItems, actualVoucherAp
 export function capturedEventSettlement({ paymentIntent, paymentIntentId, amount, currency, accountCode, eventId }) {
   const charge = paymentIntent?.latest_charge;
   if (!paymentIntentId || paymentIntent?.id !== paymentIntentId || paymentIntent.status !== 'succeeded'
+    || paymentIntent.livemode !== true || charge?.livemode !== true
     || paymentIntent.metadata?.event_id !== eventId
     || !Number.isSafeInteger(paymentIntent.amount_received) || paymentIntent.amount_received !== minor(amount)
     || paymentIntent.amount !== paymentIntent.amount_received
@@ -122,7 +123,7 @@ export function capturedEventSettlement({ paymentIntent, paymentIntentId, amount
     || String(charge.currency || '').toUpperCase() !== currency
     || (charge.payment_intent && charge.payment_intent !== paymentIntentId)
     || !Number.isFinite(charge.created) || charge.created <= 0 || !accountCode) {
-    throw new Error('Captured Stripe amount, currency, purchaser payment binding, bank mapping or payment date is missing or inconsistent');
+    throw new Error('Captured Stripe live mode, amount, currency, purchaser payment binding, bank mapping or payment date is missing or inconsistent');
   }
   // PI.created is initiation, not payment time. A charge created at a different
   // time from manual capture is not sufficient evidence of the capture date.
@@ -133,6 +134,7 @@ export function capturedEventSettlement({ paymentIntent, paymentIntentId, amount
     chargeId: charge.id,
     amountReceived: paymentIntent.amount_received,
     captured: true,
+    livemode: true,
   };
 }
 
@@ -199,7 +201,7 @@ export async function enqueueCheckoutEventInvoice({
       LineAmountTypes: 'Exclusive',
       LineItems: buildLines(accountCode),
       Reference: poToFollow ? 'TBC' : (purchaseOrderNumber || 'TBC'),
-      Status: context.settings.xero_invoice_status || 'DRAFT',
+      Status: paymentMethod === 'card' ? 'AUTHORISED' : (context.settings.xero_invoice_status || 'DRAFT'),
     };
     if (!contact?.name || !contact?.provenance) reviewReasons.push('Checkout purchaser provenance is missing');
     if (!Number.isFinite(snapshot.amount) || snapshot.amount <= 0 || !/^[A-Z]{3}$/.test(snapshot.currency)) reviewReasons.push('Checkout amount or currency is invalid');

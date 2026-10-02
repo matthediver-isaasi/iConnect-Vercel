@@ -41,12 +41,13 @@ test('historical approval requires explicit provenance/live mode/exact PI and gr
   assert.equal(calls[0][1].p_snapshot.invoice.LineAmountTypes, 'Inclusive');
 });
 
-test('bounded runner consumes persisted approval after sweep then uses sole writer; no in-run reconstruction', async () => {
+test('bounded runner reconstructs then consumes persisted approval before sole writer', async () => {
   const calls = [];
   let claim = 0;
   const db = { rpc: async (name, args) => {
     calls.push([name, args]);
     if (name.endsWith('_sweep')) return { data: 3 };
+    if (name.endsWith('_automatic_candidates')) return { data: [] };
     if (name.endsWith('_hydrate_historical')) return { data: 1 };
     if (name.endsWith('_claim')) {
       if (claim++) return { data: null };
@@ -63,16 +64,17 @@ test('bounded runner consumes persisted approval after sweep then uses sole writ
   }) });
   assert.deepEqual(result, { swept: 3, hydrated: 1, complete: 1, retry: 0, needs_review: 0 });
   assert.equal(invoices, 1); assert.equal(payments, 1);
-  assert.deepEqual(calls.slice(0, 4).map(([name]) => name), [
+  assert.deepEqual(calls.slice(0, 5).map(([name]) => name), [
     'event_invoice_recovery_heartbeat', 'event_invoice_recovery_sweep',
-    'event_invoice_recovery_hydrate_historical', 'event_invoice_recovery_claim',
+    'event_invoice_recovery_automatic_candidates', 'event_invoice_recovery_hydrate_historical', 'event_invoice_recovery_claim',
   ]);
-  assert.deepEqual(calls[2][1], { p_limit: 20, p_id: null });
+  assert.deepEqual(calls[3][1], { p_limit: 20, p_id: null });
   assert.ok(!calls.some(([name]) => name.endsWith('_approve_historical')));
 });
 
 test('targeted resolver preserves operation scope and surfaces migration/persistence failures', async () => {
   const db = { rpc: async (name, args) => {
+    if (name.endsWith('_automatic_candidates')) return { data: [] };
     assert.equal(name, 'event_invoice_recovery_hydrate_historical');
     assert.deepEqual(args, { p_limit: 1, p_id: 'original-id' });
     return { error: new Error('RPC missing') };

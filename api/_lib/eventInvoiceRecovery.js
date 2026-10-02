@@ -47,7 +47,7 @@ export function validRecoverySnapshot(s) {
   if (s.paymentMethod === 'invoice') return s.settlement == null;
   const p = s.settlement;
   return Boolean(p && /^pi_[A-Za-z0-9]+$/.test(p.paymentIntentId || '')
-    && p.status === 'succeeded' && p.amount === s.amount && p.currency === s.currency
+    && p.livemode === true && p.status === 'succeeded' && p.amount === s.amount && p.currency === s.currency
     && Number.isFinite(Date.parse(p.paidAt)) && typeof p.accountCode === 'string' && p.accountCode.trim());
 }
 
@@ -95,6 +95,8 @@ export async function approveHistoricalEventInvoiceRecovery({ db, candidate, sna
 export async function resolveHistoricalEventInvoiceRecovery({
   db, limit = 20, operationId = null, deadlineAt = Date.now() + 5000,
 }) {
+  const { reconstructHistoricalEventInvoices } = await import('./eventInvoiceReconstruction.js');
+  await reconstructHistoricalEventInvoices({ db, limit, operationId, deadlineAt });
   return recoveryRpc(db, 'hydrate_historical', { p_limit: limit, p_id: operationId }, deadlineAt);
 }
 
@@ -124,6 +126,10 @@ export async function processEventInvoiceRecovery({
   let invoice = null;
   let activeWrite = null;
   try {
+    if (row.snapshot?.paymentMethod === 'stripe' && row.snapshot?.settlement
+      && row.snapshot.settlement.livemode !== true) {
+      throw new EventInvoiceRecoveryError('settlement_live_mode_unverified');
+    }
     if (!validRecoverySnapshot(row.snapshot)) throw new EventInvoiceRecoveryError('snapshot_unavailable');
     await guard();
     const factory = providerFactory || (await import('./eventInvoiceRecoveryXero.js')).createEventInvoiceRecoveryXero;

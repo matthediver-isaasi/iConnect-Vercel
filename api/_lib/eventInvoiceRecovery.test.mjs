@@ -12,7 +12,7 @@ const snapshot = () => ({
     Contact: { ContactID: 'contact' }, Date: '2026-01-01', DueDate: '2026-01-31',
     LineItems: [{ Description: 'Event ticket', Quantity: 1, UnitAmount: 20, AccountCode: '200', TaxType: 'NONE', TaxAmount: 0 }] },
   contact: { email: 'buyer@example.test' }, currency: 'GBP', amount: 20, paymentMethod: 'stripe',
-  settlement: { paymentIntentId: 'pi_123', status: 'succeeded', amount: 20, currency: 'GBP',
+  settlement: { paymentIntentId: 'pi_123', status: 'succeeded', livemode: true, amount: 20, currency: 'GBP',
     paidAt: '2026-01-01T10:00:00Z', accountCode: '090' },
 });
 const row = () => ({ id: 'job', tenant_id: 'tenant', source: 'booking', booking_group_reference: 'group',
@@ -49,6 +49,20 @@ test('snapshot fail-closed; separate stable tenant/source operation identities',
   assert.equal(recoveryIdentity('t', 'booking', 'g'), recoveryIdentity('t', 'booking', 'g'));
   assert.notEqual(recoveryIdentity('t', 'booking', 'g'), recoveryIdentity('u', 'booking', 'g'));
   assert.notEqual(recoveryIdentity('t', 'booking', 'g'), recoveryIdentity('t', 'complex_event_booking', 'g'));
+});
+
+test('old or test Stripe evidence cannot reach the accounting provider without live-mode proof', async () => {
+  for (const livemode of [undefined, false]) {
+    const s = snapshot();
+    s.settlement.livemode = livemode;
+    assert.equal(validRecoverySnapshot(s), false);
+    const db = mockDb({ id: 'mode-operation', tenant_id: 't', source: 'booking',
+      booking_group_reference: 'g', lease_token: 'lease', snapshot: s });
+    const result = await processEventInvoiceRecovery({ db,
+      providerFactory: async () => assert.fail('unverified mode must not invoke Xero') });
+    assert.equal(result.status, 'needs_review');
+    assert.equal(db.calls.at(-1)[1].p_reason, 'settlement_live_mode_unverified');
+  }
 });
 
 test('remote exact invoice and settlement reconciliation precedes creates', async () => {
