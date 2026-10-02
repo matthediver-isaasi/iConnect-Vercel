@@ -57,7 +57,7 @@ test('bounded runner reconstructs then consumes persisted approval before sole w
     return { data: true };
   } };
   let invoices = 0; let payments = 0;
-  const result = await reconcileEventInvoices({ db, providerFactory: async () => ({
+  const result = await reconcileEventInvoices({ db, includeHistorical: true, providerFactory: async () => ({
     findInvoices: async () => [], findPayments: async () => [], validateInvoice() {}, validatePayment() {},
     createInvoice: async () => { invoices++; return { InvoiceID: 'invoice', InvoiceNumber: 'number', AmountPaid: 0, AmountDue: 166.67 }; },
     createPayment: async () => { payments++; return { PaymentID: 'payment' }; },

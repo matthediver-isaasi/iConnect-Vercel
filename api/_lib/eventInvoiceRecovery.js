@@ -68,8 +68,24 @@ export async function enqueueEventInvoiceRecovery({ db, tenantId, source, bookin
     || bookingGroupReference.length > 200) throw new Error('Invalid event invoice recovery scope');
   return recoveryRpc(db, 'enqueue', {
     p_tenant_id: tenantId, p_source: source, p_group: bookingGroupReference,
-    p_snapshot: snapshot, p_valid: validRecoverySnapshot(snapshot),
+    p_snapshot: snapshot, p_valid: validRecoverySnapshot(snapshot) || validRecoveryTaxIntent(snapshot),
   });
+}
+
+// Validate the entire checkout envelope without pretending absent VAT is zero.
+// The temporary projection is never persisted or sent to an accounting provider.
+export function validRecoveryTaxIntent(s) {
+  if (s?.taxResolution?.version !== 1 || s.taxResolution.kind !== 'future_checkout_provider_tax'
+    || !Number.isFinite(Date.parse(s.taxResolution.capturedAt)) || s.legacyDiscovery
+    || s.reviewReasons?.length || !s.invoice?.LineItems?.length) return false;
+  const projected = structuredClone(s);
+  for (const line of projected.invoice.LineItems) {
+    if (line.TaxType != null && (typeof line.TaxType !== 'string' || !line.TaxType)) return false;
+    if (line.TaxAmount != null && !Number.isFinite(line.TaxAmount)) return false;
+    line.TaxType ||= '__unresolved__';
+    line.TaxAmount = 0;
+  }
+  return validRecoverySnapshot(projected);
 }
 
 export function validHistoricalRecoveryEvidence(snapshot, evidence) {
@@ -114,7 +130,8 @@ export async function processEventInvoiceRecovery({
   providerFactory = null, now = Date.now, random = Math.random, deadlineAt = now() + 35_000,
 } = {}) {
   const rpc = (name, args) => recoveryRpc(db, name, args, deadlineAt);
-  const row = await rpc('claim', { p_tenant_id: tenantId, p_source: source, p_group: bookingGroupReference });
+  const row = await rpc('claim', { p_tenant_id: tenantId, p_source: source, p_group: bookingGroupReference,
+    p_tax_resolution: true });
   if (!row?.id) return { status: 'idle' };
   const identity = recoveryIdentity(row.tenant_id, row.source, row.booking_group_reference);
   const guard = async () => {
@@ -130,10 +147,29 @@ export async function processEventInvoiceRecovery({
       && row.snapshot.settlement.livemode !== true) {
       throw new EventInvoiceRecoveryError('settlement_live_mode_unverified');
     }
-    if (!validRecoverySnapshot(row.snapshot)) throw new EventInvoiceRecoveryError('snapshot_unavailable');
+    const unresolved = validRecoveryTaxIntent(row.snapshot);
+    if (!validRecoverySnapshot(row.snapshot) && !unresolved) throw new EventInvoiceRecoveryError('snapshot_unavailable');
     await guard();
     const factory = providerFactory || (await import('./eventInvoiceRecoveryXero.js')).createEventInvoiceRecoveryXero;
-    const provider = await factory({ db, row, identity, guard, deadlineAt });
+    let provider;
+    if (unresolved) {
+      const saved = await rpc('tax_authority', { p_id: row.id, p_token: row.lease_token });
+      let resolved = saved;
+      if (!resolved) {
+        if (row.invoice_id || row.payment_id || row.invoice_write_started_at || row.payment_write_started_at) {
+          throw new EventInvoiceRecoveryError('tax_resolution_after_write');
+        }
+        provider = await factory({ db, row, identity, guard, deadlineAt });
+        resolved = await provider.resolveTaxIntent();
+        if (!validRecoverySnapshot(resolved)) throw new EventInvoiceRecoveryError('tax_total_requires_review');
+        await guard();
+        resolved = await rpc('tax_authority', { p_id: row.id, p_token: row.lease_token, p_resolved: resolved });
+      }
+      if (!validRecoverySnapshot(resolved)) throw new EventInvoiceRecoveryError('tax_authority_unavailable');
+      row.snapshot = resolved;
+      provider = null;
+    }
+    provider ||= await factory({ db, row, identity, guard, deadlineAt });
     // Exact operation lookup always precedes writes, including after ambiguous timeouts.
     const invoices = await provider.findInvoices();
     if (!Array.isArray(invoices) || invoices.length > 1) throw new EventInvoiceRecoveryError('invoice_identity_ambiguous');
@@ -202,11 +238,14 @@ export async function processEventInvoiceRecovery({
   }
 }
 
-export async function reconcileEventInvoices({ db, providerFactory, now = Date.now, maxItems = 8, budgetMs = 45_000 } = {}) {
+export async function reconcileEventInvoices({ db, providerFactory, now = Date.now, maxItems = 8, budgetMs = 45_000,
+  includeHistorical = false } = {}) {
   const deadlineAt = now() + Math.min(45_000, Math.max(1000, budgetMs));
   await recoveryRpc(db, 'heartbeat', { p_success: false });
-  const swept = await recoveryRpc(db, 'sweep', { p_limit: 100 });
-  const hydrated = await resolveHistoricalEventInvoiceRecovery({ db, deadlineAt });
+  // Current rollout is future checkout only. Historical discovery/reconstruction
+  // remains an explicit administrative operation, never an implicit cron action.
+  const swept = includeHistorical ? await recoveryRpc(db, 'sweep', { p_limit: 100 }) : 0;
+  const hydrated = includeHistorical ? await resolveHistoricalEventInvoiceRecovery({ db, deadlineAt }) : 0;
   const counts = { complete: 0, retry: 0, needs_review: 0 };
   for (let i = 0; i < Math.min(8, maxItems) && now() < deadlineAt - 5000; i++) {
     const result = await processEventInvoiceRecovery({ db, providerFactory, now, deadlineAt: Math.min(deadlineAt, now() + 35_000) });

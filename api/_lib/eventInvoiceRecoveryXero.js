@@ -278,6 +278,44 @@ export async function createEventInvoiceRecoveryXero({
     return { invoices: [...invoices.values()], payments };
   })();
   return {
+    async resolveTaxIntent() {
+      if (snapshot.taxResolution?.kind !== 'future_checkout_provider_tax' || discovery) {
+        throw new EventInvoiceRecoveryError('tax_intent_invalid');
+      }
+      const resolved = structuredClone(snapshot);
+      const needsAccounts = snapshot.invoice.LineItems.some(line => !line.TaxType);
+      const accounts = needsAccounts ? (await api('Accounts')).Accounts : [];
+      const rates = (await api('TaxRates')).TaxRates;
+      if (!Array.isArray(accounts) || !Array.isArray(rates)) {
+        throw new EventInvoiceRecoveryError('tax_lookup_invalid', { retry: true });
+      }
+      const evidence = [];
+      const digits = new Intl.NumberFormat('en', { style: 'currency', currency: snapshot.currency }).resolvedOptions().maximumFractionDigits;
+      for (const [index, line] of resolved.invoice.LineItems.entries()) {
+        let account = null;
+        if (!line.TaxType) {
+          const matches = accounts.filter(a => a.Code === String(line.AccountCode) && a.Status === 'ACTIVE');
+          if (matches.length !== 1 || !matches[0].TaxType) throw new EventInvoiceRecoveryError('account_tax_unverified');
+          account = matches[0];
+          line.TaxType = account.TaxType;
+        }
+        const matches = rates.filter(rate => rate.TaxType === line.TaxType && rate.Status === 'ACTIVE');
+        const rate = matches[0];
+        if (matches.length !== 1 || rate.CanApplyToRevenue !== true
+          || typeof rate.EffectiveRate !== 'number' || !Number.isFinite(rate.EffectiveRate)
+          || rate.EffectiveRate < 0) throw new EventInvoiceRecoveryError('provider_tax_unverified');
+        const base = recoveryLineAmount(line, snapshot.currency);
+        const tax = Number((snapshot.invoice.LineAmountTypes === 'Inclusive'
+          ? base * rate.EffectiveRate / (100 + rate.EffectiveRate)
+          : base * rate.EffectiveRate / 100).toFixed(digits));
+        if (line.TaxAmount != null && line.TaxAmount !== tax) throw new EventInvoiceRecoveryError('checkout_tax_changed');
+        line.TaxAmount = tax;
+        evidence.push({ index, accountDefault: account ? { AccountID: account.AccountID, Code: account.Code, TaxType: account.TaxType } : null,
+          taxRate: rate });
+      }
+      resolved.resolvedTaxEvidence = { version: 1, provider: snapshot.provider, observedAt: new Date().toISOString(), lines: evidence };
+      return resolved;
+    },
     async findInvoices() {
       if (discovery) return (await discover()).invoices;
       if (row.invoice_id) {

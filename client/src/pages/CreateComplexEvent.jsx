@@ -37,6 +37,7 @@ import { createFilterTagKey, parseFilterTagKey, normalizeFilterTags, parseEventT
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { base44 } from "@/api/base44Client";
+import { preserveTicketVatMetadata } from "@/lib/ticketVatMetadata.mjs";
 import { createPageUrl } from "@/utils";
 import EventImageUpload from "@/components/events/EventImageUpload";
 import EventDocumentsManager from "@/components/events/EventDocumentsManager";
@@ -610,9 +611,9 @@ const createEmptyTicketClass = (isDefault = false, defaultVatRate = null) => ({
   bulk_discount_percentage: "",
   available_count: "",
   is_unlimited_tickets: true,
-  vat_rate_key: defaultVatRate?.taxType || null,
-  vat_rate_label: defaultVatRate?.name || null,
-  vat_rate_percentage: defaultVatRate?.effectiveRate || null,
+  vat_rate_key: defaultVatRate?.taxType ?? null,
+  vat_rate_label: defaultVatRate?.name ?? null,
+  vat_rate_percentage: defaultVatRate?.effectiveRate ?? null,
   is_group_ticket: false,
   group_size: "",
   group_cutoff_date: "",
@@ -1150,9 +1151,7 @@ export default function CreateComplexEvent() {
         bulk_discount_percentage: tc.bulk_discount_percentage != null ? String(tc.bulk_discount_percentage) : "",
         available_count: tc.available_count != null ? String(tc.available_count) : "",
         is_unlimited_tickets: tc.is_unlimited_tickets !== false,
-        vat_rate_key: tc.vat_rate_key || null,
-        vat_rate_label: tc.vat_rate_label || null,
-        vat_rate_percentage: tc.vat_rate_percentage || null,
+        ...preserveTicketVatMetadata(tc),
         is_group_ticket: tc.is_group_ticket || false,
         group_size: tc.group_size != null ? String(tc.group_size) : "",
         group_cutoff_date: tc.group_cutoff_date || "",
@@ -2234,9 +2233,7 @@ export default function CreateComplexEvent() {
           is_group_ticket: isGroupLimited ? false : (ticket.is_group_ticket || false),
           group_size: !isGroupLimited && ticket.is_group_ticket && ticket.group_size ? parseInt(ticket.group_size) : null,
           group_cutoff_date: !isGroupLimited && ticket.is_group_ticket && ticket.group_cutoff_date ? ticket.group_cutoff_date : null,
-          vat_rate_key: ticket.vat_rate_key || null,
-          vat_rate_label: ticket.vat_rate_label || null,
-          vat_rate_percentage: ticket.vat_rate_percentage || null,
+          ...preserveTicketVatMetadata(ticket),
           visibility_mode: ticket.visibility_mode || 'members_only',
           role_ids: ticket.role_ids || [],
           member_group_ids: ticket.member_group_ids || [],

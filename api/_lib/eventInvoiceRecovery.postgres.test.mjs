@@ -43,6 +43,93 @@ test('isolated PostgreSQL recovery: grants, immutable authority, fence, mirrors,
     `);
     const migration = readFileSync(new URL('../../supabase/migrations/202611300001_event_invoice_recovery.sql', import.meta.url), 'utf8');
     sql(migration);
+    const taxMigration = readFileSync(new URL('../../supabase/migrations/202612040001_event_invoice_future_tax_authority.sql', import.meta.url), 'utf8');
+    sql(taxMigration);
+    // New future authority preserves the original JSON and accepts tax-only
+    // enrichment under a live booking/connection lease, never unfenced edits.
+    const taxIntent = {
+      version: 1, provider: { connectionId: 'tax-connection', xeroTenantId: 'tax-org' },
+      paymentMethod: 'invoice', amount: 20, taxResolution: { kind: 'future_checkout_provider_tax' },
+      invoice: { Type: 'ACCREC', LineAmountTypes: 'Exclusive',
+        LineItems: [{ Quantity: 1, UnitAmount: 20, AccountCode: '200', TaxType: 'NONE' }] },
+    };
+    sql(`INSERT INTO booking(tenant_id,booking_group_reference) VALUES('${tenant}','future-tax');`);
+    assert.equal(sql(enqueue('future-tax', `'${JSON.stringify(taxIntent)}'`)), 'pending');
+    for (const args of ['', `'${tenant}'`, `'${tenant}','booking'`, `'${tenant}','booking','future-tax'`,
+      `'${tenant}','booking','future-tax',false`, `'${tenant}','booking','future-tax',NULL`]) {
+      assert.equal(sql(`SELECT (event_invoice_recovery_claim(${args})).id IS NULL;`), 't');
+    }
+    assert.equal(sql(`SELECT attempts FROM event_invoice_recovery WHERE booking_group_reference='future-tax';`), '0');
+    const taxClaim = JSON.parse(sql(`SELECT row_to_json(event_invoice_recovery_claim('${tenant}','booking','future-tax',true));`));
+    assert.ok(taxClaim.lease_token);
+    assert.equal(sql(`SELECT (event_invoice_recovery_claim('${tenant}','booking','future-tax')).id IS NULL;`), 't');
+    assert.equal(sql(`SELECT (event_invoice_recovery_claim('${tenant}','booking','future-tax',true)).id IS NULL;`), 't');
+    const resolved = structuredClone(taxIntent);
+    resolved.invoice.LineItems[0].TaxAmount = 0;
+    resolved.resolvedTaxEvidence = { provider: taxIntent.provider };
+    const saveTax = value => `SELECT event_invoice_recovery_tax_authority('${taxClaim.id}','${taxClaim.lease_token}','${JSON.stringify(value)}');`;
+    const changed = structuredClone(resolved);
+    changed.invoice.LineItems[0].UnitAmount = 19;
+    sql(saveTax(changed), true);
+    assert.deepEqual(JSON.parse(sql(saveTax(resolved))), resolved);
+    assert.deepEqual(JSON.parse(sql(saveTax(resolved))), resolved);
+    sql(saveTax(changed), true);
+    sql(`UPDATE event_invoice_recovery_tax_authority SET resolved_snapshot='{}';`, true);
+    sql(`DELETE FROM event_invoice_recovery_tax_authority;`, true);
+    sql(`SET ROLE authenticated; SELECT event_invoice_recovery_tax_authority('${taxClaim.id}','${taxClaim.lease_token}');`, true);
+    assert.deepEqual(JSON.parse(sql(`SELECT snapshot FROM event_invoice_recovery WHERE id='${taxClaim.id}';`)), taxIntent);
+    const taxState = () => sql(`SELECT jsonb_build_object('operation',to_jsonb(q),'authority',to_jsonb(a),'connection',to_jsonb(c))
+      FROM event_invoice_recovery q JOIN event_invoice_recovery_tax_authority a ON a.operation_id=q.id
+      JOIN event_invoice_recovery_connection c ON c.connection_id=q.connection_id WHERE q.id='${taxClaim.id}';`);
+    const beforeTaxReplay = taxState();
+    sql(taxMigration);
+    assert.equal(taxState(), beforeTaxReplay, 'migration replay preserves existing authority, lease and attempts');
+    sql(`SELECT event_invoice_recovery_finish('${taxClaim.id}','${taxClaim.lease_token}','retry',now()+interval '1 minute');`);
+    sql(`UPDATE event_invoice_recovery SET next_attempt_at=now()-interval '1 second' WHERE id='${taxClaim.id}';`);
+    sql(`SELECT event_invoice_recovery_tax_authority('${taxClaim.id}','${taxClaim.lease_token}');`, true);
+    // Even resolved retries must skip old workers: their original snapshot is
+    // deliberately still unresolved. An ordinary sibling remains claimable.
+    const ordinary = { ...taxIntent };
+    delete ordinary.taxResolution;
+    sql(`INSERT INTO booking(tenant_id,booking_group_reference) VALUES('${tenant}','tax-ordinary');`);
+    assert.equal(sql(enqueue('tax-ordinary', `'${JSON.stringify(ordinary)}'`)), 'pending');
+    const mixedWorkers = [0, 1].map(() => new pg.Client({
+      host: h.socket, port: h.port, user: 'postgres', database: 'postgres',
+    }));
+    try {
+      await Promise.all(mixedWorkers.map(client => client.connect()));
+      // Hold transaction locks, not just committed leases: exercise both
+      // acquisition orders against simultaneous old/new worker connections.
+      for (const newFirst of [false, true]) {
+        await mixedWorkers[0].query('BEGIN');
+        const firstSql = newFirst
+          ? `SELECT (event_invoice_recovery_claim('${tenant}','booking','future-tax',true)).booking_group_reference AS value`
+          : `SELECT (event_invoice_recovery_claim('${tenant}','booking')).booking_group_reference AS value`;
+        const first = await mixedWorkers[0].query(firstSql);
+        assert.equal(first.rows[0].value, newFirst ? 'future-tax' : 'tax-ordinary');
+        const secondSql = newFirst
+          ? `SELECT (event_invoice_recovery_claim('${tenant}','booking')).id AS value`
+          : `SELECT (event_invoice_recovery_claim('${tenant}','booking','future-tax',true)).id AS value`;
+        const second = await mixedWorkers[1].query(secondSql);
+        assert.equal(second.rows[0].value, null);
+        await mixedWorkers[0].query('ROLLBACK');
+      }
+    } finally {
+      await Promise.all(mixedWorkers.map(client => client.end()));
+    }
+    const oldClaim = JSON.parse(sql(`SELECT row_to_json(event_invoice_recovery_claim('${tenant}','booking'));`));
+    assert.equal(oldClaim.booking_group_reference, 'tax-ordinary');
+    assert.equal(sql(`SELECT (event_invoice_recovery_claim('${tenant}','booking','future-tax',true)).id IS NULL;`), 't');
+    sql(`SELECT event_invoice_recovery_finish('${oldClaim.id}','${oldClaim.lease_token}','needs_review');`);
+    assert.equal(sql(`SELECT (event_invoice_recovery_claim('${tenant}','booking','future-tax')).id IS NULL;`), 't');
+    const taxRetry = JSON.parse(sql(`SELECT row_to_json(event_invoice_recovery_claim('${tenant}','booking','future-tax',true));`));
+    assert.equal(taxRetry.id, taxClaim.id);
+    assert.notEqual(taxRetry.lease_token, taxClaim.lease_token);
+    assert.deepEqual(JSON.parse(sql(`SELECT event_invoice_recovery_tax_authority('${taxRetry.id}','${taxRetry.lease_token}');`)), resolved);
+    sql(`SELECT event_invoice_recovery_finish('${taxRetry.id}','${taxRetry.lease_token}','needs_review');`);
+    for (const role of ['anon', 'authenticated']) {
+      sql(`SET ROLE ${role}; SELECT event_invoice_recovery_claim(NULL,NULL,NULL,true);`, true);
+    }
     assert.equal(JSON.parse(sql('SELECT event_invoice_recovery_health();')).status, 'never_succeeded');
     for (const role of ['anon', 'authenticated']) {
       sql(`SET ROLE ${role}; SELECT event_invoice_recovery_claim();`, true);
@@ -192,6 +279,7 @@ test('isolated PostgreSQL recovery: grants, immutable authority, fence, mirrors,
       .map(table => sql(`SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) FROM ${table} t;`));
     const beforeReplay = state();
     sql(migration);
+    sql(taxMigration);
     assert.deepEqual(state(), beforeReplay);
     sql('SET ROLE anon; SELECT event_invoice_recovery_claim();', true);
     sql('SET ROLE authenticated; SELECT * FROM event_invoice_recovery;', true);

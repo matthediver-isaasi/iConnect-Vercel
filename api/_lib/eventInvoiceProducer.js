@@ -219,7 +219,7 @@ export async function enqueueCheckoutEventInvoice({
       Status: paymentMethod === 'card' ? 'AUTHORISED' : (context.settings.xero_invoice_status || 'DRAFT'),
     };
     const builtLines = buildLines(accountCode);
-    const policies = [...new Set(builtLines.map(line => line._invoiceLineAmountType || 'Exclusive'))];
+    const policies = [...new Set(builtLines.filter(line => line._invoiceLineAmountType).map(line => line._invoiceLineAmountType))];
     snapshot.invoice.LineItems = builtLines.map(({ _invoiceLineAmountType, ...line }) => line);
     snapshot.invoiceLineAmountPolicies = policies;
     if (policies.length !== 1 || !['Exclusive', 'Inclusive'].includes(policies[0])) {
@@ -229,7 +229,7 @@ export async function enqueueCheckoutEventInvoice({
     if (!contact?.name || !contact?.provenance) reviewReasons.push('Checkout purchaser provenance is missing');
     if (!Number.isFinite(snapshot.amount) || snapshot.amount <= 0 || !/^[A-Z]{3}$/.test(snapshot.currency)) reviewReasons.push('Checkout amount or currency is invalid');
     if (snapshot.invoice.LineItems.some(line => !line.TaxType || !Number.isFinite(line.TaxAmount))) {
-      reviewReasons.push('Historical VAT evidence is missing; current account tax defaults must not be inferred');
+      snapshot.taxResolution = { version: 1, kind: 'future_checkout_provider_tax', capturedAt: invoiceDate.toISOString() };
     } else {
       const grossMinor = snapshot.invoice.LineItems.reduce((sum, line) =>
         sum + minor(Number(line.Quantity) * Number(line.UnitAmount))

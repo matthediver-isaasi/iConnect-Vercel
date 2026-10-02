@@ -46,6 +46,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { base44 } from "@/api/base44Client";
+import { preserveTicketVatMetadata } from "@/lib/ticketVatMetadata.mjs";
 import { format } from "date-fns";
 import { TimezoneAwareDateTimeInput } from "@/components/events/TimezoneAwareDateTimeInput";
 import TicketReleaseFields, { hydrateTicketRelease, serializeTicketRelease, validateTicketReleases } from "@/components/events/TicketReleaseFields";
@@ -143,9 +144,9 @@ const createEmptyTicketClass = (isDefault = false, defaultVatRate = null) => ({
   bulk_discount_percentage: "",
   available_count: "", // Empty = unlimited, number = limited availability
   is_unlimited_tickets: true, // When true, ticket has no quantity limit
-  vat_rate_key: defaultVatRate?.taxType || null, // Xero TaxType identifier
-  vat_rate_label: defaultVatRate?.name || null, // Display name (e.g., "Standard Rate (20%)")
-  vat_rate_percentage: defaultVatRate?.effectiveRate || null, // Percentage value (e.g., 20)
+  vat_rate_key: defaultVatRate?.taxType ?? null, // Xero TaxType identifier
+  vat_rate_label: defaultVatRate?.name ?? null, // Display name (e.g., "Standard Rate (20%)")
+  vat_rate_percentage: defaultVatRate?.effectiveRate ?? null, // Percentage value (e.g., 20)
   is_group_ticket: false,
   group_size: "",
   group_cutoff_date: ""
@@ -1237,11 +1238,7 @@ export default function CreateEvent() {
           // Ticket availability: null = unlimited, number = limited
           available_count: ticket.is_unlimited_tickets ? null : (ticket.available_count ? parseInt(ticket.available_count) : null),
           is_unlimited_tickets: ticket.is_unlimited_tickets !== false,
-          // VAT rate fields for Xero invoice generation (free tickets carry none)
-          vat_rate_key: isGroupLimited ? null : (ticket.vat_rate_key || null),
-          vat_rate_label: isGroupLimited ? null : (ticket.vat_rate_label || null),
-          vat_rate_percentage: isGroupLimited ? null : (ticket.vat_rate_percentage ?? null),
-          ...(ticket.invoice_line_amount_type != null ? { invoice_line_amount_type: ticket.invoice_line_amount_type } : {}),
+          ...preserveTicketVatMetadata(ticket, true),
           is_group_ticket: isGroupLimited ? false : (ticket.is_group_ticket || false),
           group_size: !isGroupLimited && ticket.is_group_ticket && ticket.group_size ? parseInt(ticket.group_size) : null,
           group_cutoff_date: !isGroupLimited && ticket.is_group_ticket && ticket.group_cutoff_date ? ticket.group_cutoff_date : null

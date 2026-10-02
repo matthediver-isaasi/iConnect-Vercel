@@ -60,3 +60,9 @@ GFI does not charge VAT on event tickets. Its existing ticket settings and VAT c
 **Why:** The user explicitly required checking GFI compatibility before enabling the BNMS change.
 
 **How to apply:** Keep BNMS data changes tenant/event/ticket scoped. Test legacy exempt/no-VAT ticket metadata without rewriting GFI tickets; no added VAT and uninterrupted invoice generation are separate requirements.
+
+Legacy ticket tax metadata can be incomplete without being invalid: exempt codes may have no stored numeric percentage. Resolve missing invoice tax evidence against the tenant's provider, not by rewriting its catalogue.
+
+**Why:** Requiring an explicit stored percentage stranded otherwise valid no-VAT invoices; treating every blank as zero would instead misinvoice taxable tenants.
+
+**How to apply:** Preserve the checkout intent and amounts. Resolve provider evidence under the same retry/cooldown authority, freeze the result before any financial write, and reuse it on replay. Older workers must skip unresolved intents they cannot understand during mixed-version rollout.

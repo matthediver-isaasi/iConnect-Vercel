@@ -52,6 +52,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { base44 } from "@/api/base44Client";
+import { preserveTicketVatMetadata } from "@/lib/ticketVatMetadata.mjs";
 import { format } from "date-fns";
 import { formatInTimeZone } from "date-fns-tz";
 import { TimezoneAwareDateTimeInput } from "@/components/events/TimezoneAwareDateTimeInput";
@@ -154,9 +155,9 @@ const createEmptyTicketClass = (isDefault = false, defaultVatRate = null) => ({
   bulk_discount_percentage: "",
   available_count: "", // Empty = unlimited, number = limited availability
   is_unlimited_tickets: true, // When true, ticket has no quantity limit
-  vat_rate_key: defaultVatRate?.taxType || null, // Xero TaxType identifier
-  vat_rate_label: defaultVatRate?.name || null, // Display name (e.g., "Standard Rate (20%)")
-  vat_rate_percentage: defaultVatRate?.effectiveRate || null, // Percentage value (e.g., 20)
+  vat_rate_key: defaultVatRate?.taxType ?? null, // Xero TaxType identifier
+  vat_rate_label: defaultVatRate?.name ?? null, // Display name (e.g., "Standard Rate (20%)")
+  vat_rate_percentage: defaultVatRate?.effectiveRate ?? null, // Percentage value (e.g., 20)
   is_group_ticket: false,
   group_size: "",
   group_cutoff_date: "",
@@ -1305,11 +1306,7 @@ export default function EditEvent() {
               available_count: tc.available_count !== null && tc.available_count !== undefined 
                 ? String(tc.available_count) : "",
               is_unlimited_tickets: tc.available_count === null || tc.available_count === undefined || tc.is_unlimited_tickets === true,
-              // VAT rate fields for Xero invoice generation
-              vat_rate_key: tc.vat_rate_key || null,
-              vat_rate_label: tc.vat_rate_label || null,
-              vat_rate_percentage: tc.vat_rate_percentage ?? null,
-              ...(tc.invoice_line_amount_type != null ? { invoice_line_amount_type: tc.invoice_line_amount_type } : {}),
+              ...preserveTicketVatMetadata(tc, true),
               is_group_ticket: tc.is_group_ticket || false,
               group_size: tc.group_size !== null && tc.group_size !== undefined ? String(tc.group_size) : "",
               group_cutoff_date: tc.group_cutoff_date || "",
@@ -1914,11 +1911,7 @@ export default function EditEvent() {
           // Ticket availability: null = unlimited, number = limited
           available_count: ticket.is_unlimited_tickets ? null : (ticket.available_count ? parseInt(ticket.available_count) : null),
           is_unlimited_tickets: ticket.is_unlimited_tickets !== false,
-          // VAT rate fields for Xero invoice generation (free tickets carry none)
-          vat_rate_key: isGroupLimited ? null : (ticket.vat_rate_key || null),
-          vat_rate_label: isGroupLimited ? null : (ticket.vat_rate_label || null),
-          vat_rate_percentage: isGroupLimited ? null : (ticket.vat_rate_percentage ?? null),
-          ...(ticket.invoice_line_amount_type != null ? { invoice_line_amount_type: ticket.invoice_line_amount_type } : {}),
+          ...preserveTicketVatMetadata(ticket, true),
           is_group_ticket: isGroupLimited ? false : (ticket.is_group_ticket || false),
           group_size: !isGroupLimited && ticket.is_group_ticket && ticket.group_size ? parseInt(ticket.group_size) : null,
           group_cutoff_date: !isGroupLimited && ticket.is_group_ticket && ticket.group_cutoff_date ? ticket.group_cutoff_date : null,

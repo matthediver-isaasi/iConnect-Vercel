@@ -5,7 +5,7 @@ import {
   enqueueCheckoutEventInvoice, eventInvoiceContact, simpleEventInvoiceLines,
   complexEventInvoiceLines, capturedEventSettlement,
 } from './eventInvoiceProducer.js';
-import { validRecoverySnapshot } from './eventInvoiceRecovery.js';
+import { validRecoverySnapshot, validRecoveryTaxIntent } from './eventInvoiceRecovery.js';
 
 function fixture({ provider = 'xero', enabled = 'true', invoiceStatus = 'AUTHORISED', settingsError = false, tokens, enqueueError = false } = {}) {
   const calls = [], queued = [];
@@ -41,7 +41,7 @@ function fixture({ provider = 'xero', enabled = 'true', invoiceStatus = 'AUTHORI
     enqueue: async args => {
       queued.push(args);
       if (enqueueError) throw new Error('queue unavailable');
-      return { status: validRecoverySnapshot(args.snapshot) ? 'pending' : 'needs_review' };
+      return { status: validRecoverySnapshot(args.snapshot) || validRecoveryTaxIntent(args.snapshot) ? 'pending' : 'needs_review' };
     },
   };
   const event = {
@@ -124,16 +124,15 @@ test('complex checkout preserves original org address and each ticket/credit lin
     event: f.event, resolvedItems: items, actualVoucherApplied: 10, actualTfApplied: 5,
   }, account);
   const result = await enqueueCheckoutEventInvoice(f.input, f.deps);
-  // Old credit lines relied on mutable account tax defaults. Keep evidence but
-  // do not send an invoice with invented tax treatment.
-  assert.equal(result.status, 'needs_review');
+  // Future credit defaults are resolved under the durable provider lease.
+  assert.equal(result.status, 'pending');
   const snapshot = f.queued[0].snapshot;
-  const invoice = snapshot.originalInvoice;
+  const invoice = snapshot.invoice;
   assert.equal(invoice.Contact.Name, 'Historical company');
   assert.deepEqual(invoice.Contact.Addresses, [{ AddressType: 'POBOX', AddressLine1: 'Street', City: 'Town', PostalCode: 'AA1 1AA' }]);
   assert.deepEqual(invoice.LineItems.map(line => [line.Quantity, line.UnitAmount]), [[2, 20], [1, -10], [1, -5]]);
   assert.match(invoice.LineItems[0].Description, /Early ticket/);
-  assert.match(snapshot.reviewReasons.join(' '), /VAT/);
+  assert.equal(snapshot.taxResolution.kind, 'future_checkout_provider_tax');
 });
 
 test('complex paid cart preserves historical currency and enqueues one operation for multiple attendees', async () => {
@@ -233,11 +232,25 @@ test('missing or invalid VAT policy never implies inclusive; builder failures pr
 test('simple ticket editors retain explicit line-amount policy through load/save', async () => {
   const edit = await readFile(new URL('../../client/src/pages/EditEvent.jsx', import.meta.url), 'utf8');
   const create = await readFile(new URL('../../client/src/pages/CreateEvent.jsx', import.meta.url), 'utf8');
-  assert.match(edit, /invoice_line_amount_type: tc\.invoice_line_amount_type/);
+  const helper = await readFile(new URL('../../client/src/lib/ticketVatMetadata.mjs', import.meta.url), 'utf8');
+  assert.match(helper, /invoice_line_amount_type/);
   for (const source of [edit, create]) {
-    assert.match(source, /invoice_line_amount_type: ticket\.invoice_line_amount_type/);
-    assert.match(source, /ticket\.vat_rate_percentage \?\? null/);
+    assert.match(source, /preserveTicketVatMetadata\(ticket(?:, true)?\)/);
   }
+});
+
+for (const taxKey of ['EXEMPTOUTPUT', 'NONE', null]) test(`unchanged legacy ${taxKey || 'default'} checkout persists unresolved invoice intent`, async () => {
+  const f = fixture();
+  f.event.pricing_config.ticket_classes[0].vat_rate_percentage = null;
+  if (taxKey) f.event.pricing_config.ticket_classes[0].vat_rate_key = taxKey;
+  else delete f.event.pricing_config.ticket_classes[0].vat_rate_key;
+  const before = structuredClone(f.event);
+  assert.equal((await enqueueCheckoutEventInvoice(f.input, f.deps)).status, 'pending');
+  assert.equal(validRecoveryTaxIntent(f.queued[0].snapshot), true);
+  assert.equal(f.queued[0].snapshot.invoice.LineItems[0].UnitAmount, 25);
+  assert.equal(f.queued[0].snapshot.invoice.LineAmountTypes, 'Exclusive');
+  assert.equal(f.queued[0].snapshot.invoice.LineItems[0].TaxAmount, undefined);
+  assert.deepEqual(f.event, before);
 });
 
 for (const [label, change] of [
@@ -269,11 +282,10 @@ test('refunded or missing-bank capture cannot become settlement evidence', () =>
   assert.throws(() => capturedEventSettlement({ ...args, paymentIntent: paymentIntent(), accountCode: null }));
 });
 
-test('missing purchaser, VAT and context evidence are durably reviewable', async () => {
-  for (const failure of ['contact', 'tax', 'gross', 'context', 'connection']) {
+test('missing purchaser, inconsistent gross and missing context evidence are durably reviewable', async () => {
+  for (const failure of ['contact', 'gross', 'context', 'connection']) {
     const f = fixture({ settingsError: failure === 'context', tokens: failure === 'connection' ? [] : undefined });
     if (failure === 'contact') f.input.contact = null;
-    if (failure === 'tax') delete f.event.pricing_config.ticket_classes[0].vat_rate_percentage;
     if (failure === 'gross') f.event.pricing_config.ticket_classes[0].vat_rate_percentage = 20;
     assert.equal((await enqueueCheckoutEventInvoice(f.input, f.deps)).status, 'needs_review');
     assert.equal(validRecoverySnapshot(f.queued[0].snapshot), false);
