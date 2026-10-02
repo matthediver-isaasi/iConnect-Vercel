@@ -7,7 +7,7 @@ import { connectDestination } from './annual-meeting-destination.mjs';
 import { TENANT, XERO_TENANT, TARGETS, hash, invariantView } from './prepare-bnms-paid-invoice-renumber.mjs';
 
 export const APPROVED = TARGETS.map((t, n) => Object.freeze({ ...t,
-  assigned: ['INV-8956', 'INV-8957'][n],
+  assigned: ['INV-8956', 'INV-8958'][n],
   group: ['OOE-1790198684011-DC5F1', 'OOE-1790198918339-82WJL'][n] }));
 const requireThat = (condition, code) => { if (!condition) throw Error(code); };
 export function checkInvoice(invoice, target, number = target.number) {
@@ -92,6 +92,9 @@ export async function main(args = process.argv.slice(2)) {
         && b.stripe_payment_intent_id === r.settlement_payment_intent_id, 'local_binding_failed');
       const invoice = await exact(target);
       checkInvoice(invoice, target);
+      requireThat(invoice.Status === 'PAID' && invoice.Total === 166.67
+        && invoice.AmountPaid === 166.67 && invoice.AmountDue === 0,
+      'newly_approved_paid_state_changed');
       requireThat(invoice.Payments.some(p => p.PaymentID === r.payment_id), 'payment_binding_failed');
       await unused(target);
       before.push(invoice);
