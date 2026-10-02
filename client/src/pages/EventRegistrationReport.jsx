@@ -2144,18 +2144,18 @@ export default function EventRegistrationReport() {
                               <TooltipContent>Ticket total after discounts, before voucher and training fund credits.</TooltipContent>
                             </Tooltip>
                           </th>
-                          <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap text-right">
+                          {paymentPolicy?.allowVoucherPayment && <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap text-right">
                             <Tooltip>
                               <TooltipTrigger asChild><span className="cursor-help border-b border-dotted">Voucher</span></TooltipTrigger>
                               <TooltipContent>Voucher credit applied after discounts.</TooltipContent>
                             </Tooltip>
-                          </th>
-                          <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap text-right">
+                          </th>}
+                          {paymentPolicy?.allowTrainingFundPayment && <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap text-right">
                             <Tooltip>
                               <TooltipTrigger asChild><span className="cursor-help border-b border-dotted">Fund</span></TooltipTrigger>
                               <TooltipContent>Training fund credit applied after discounts.</TooltipContent>
                             </Tooltip>
-                          </th>
+                          </th>}
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap text-right">Price Paid</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap text-right">
                             <Tooltip>
@@ -2235,12 +2235,12 @@ export default function EventRegistrationReport() {
                                   {gp.discountCode && <div className="text-xs text-muted-foreground" data-testid={`text-discount-code-${attendee.id}`}>{gp.discountCode}</div>}
                                 </td>
                                 <td className="py-3 pr-3 text-right whitespace-nowrap font-medium">{formatCurrency(gp.totalAfterDiscount)}</td>
-                                <td className="py-3 pr-3 text-right whitespace-nowrap">
+                                {paymentPolicy?.allowVoucherPayment && <td className="py-3 pr-3 text-right whitespace-nowrap">
                                   {gp.voucherAmount == null ? 'Unavailable' : gp.voucherAmount > 0 ? formatCurrency(gp.voucherAmount) : '-'}
-                                </td>
-                                <td className="py-3 pr-3 text-right whitespace-nowrap">
+                                </td>}
+                                {paymentPolicy?.allowTrainingFundPayment && <td className="py-3 pr-3 text-right whitespace-nowrap">
                                   {gp.trainingFundAmount == null ? 'Unavailable' : gp.trainingFundAmount > 0 ? formatCurrency(gp.trainingFundAmount) : '-'}
-                                </td>
+                                </td>}
                                 <td className="py-3 pr-3 text-right whitespace-nowrap" data-testid={`text-price-paid-${attendee.id}`}>
                                   {formatRegistrationPricePaid(attendee)}
                                 </td>
@@ -2343,12 +2343,12 @@ export default function EventRegistrationReport() {
                               <td className="py-2 pr-3 text-right whitespace-nowrap font-medium" rowSpan={groupRowCount}>
                                 {formatCurrency(gp.totalAfterDiscount)}
                               </td>
-                              <td className="py-2 pr-3 text-right whitespace-nowrap" rowSpan={groupRowCount}>
+                              {paymentPolicy?.allowVoucherPayment && <td className="py-2 pr-3 text-right whitespace-nowrap" rowSpan={groupRowCount}>
                                 {gp.voucherAmount == null ? 'Unavailable' : gp.voucherAmount > 0 ? formatCurrency(gp.voucherAmount) : '-'}
-                              </td>
-                              <td className="py-2 pr-3 text-right whitespace-nowrap" rowSpan={groupRowCount}>
+                              </td>}
+                              {paymentPolicy?.allowTrainingFundPayment && <td className="py-2 pr-3 text-right whitespace-nowrap" rowSpan={groupRowCount}>
                                 {gp.trainingFundAmount == null ? 'Unavailable' : gp.trainingFundAmount > 0 ? formatCurrency(gp.trainingFundAmount) : '-'}
-                              </td>
+                              </td>}
                             </>
                           );
 
@@ -2546,12 +2546,12 @@ export default function EventRegistrationReport() {
                             <td className="pt-3 pr-3 text-right whitespace-nowrap">
                               {filteredSummary.hasUnavailableAfterDiscount ? 'Unavailable' : formatCurrency(filteredSummary.totalAfterDiscount)}
                             </td>
-                            <td className="pt-3 pr-3 text-right whitespace-nowrap">
+                            {paymentPolicy?.allowVoucherPayment && <td className="pt-3 pr-3 text-right whitespace-nowrap">
                               {filteredSummary.hasUnavailableVoucher ? 'Unavailable' : formatCurrency(filteredSummary.totalVoucher)}
-                            </td>
-                            <td className="pt-3 pr-3 text-right whitespace-nowrap">
+                            </td>}
+                            {paymentPolicy?.allowTrainingFundPayment && <td className="pt-3 pr-3 text-right whitespace-nowrap">
                               {filteredSummary.hasUnavailableFund ? 'Unavailable' : formatCurrency(filteredSummary.totalTrainingFund)}
-                            </td>
+                            </td>}
                             <td className="pt-3 pr-3 text-right whitespace-nowrap">
                               {filteredSummary.hasUnavailablePricePaid ? 'Unavailable' : formatCurrency(filteredSummary.totalPricePaid)}
                             </td>
