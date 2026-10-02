@@ -14,3 +14,9 @@ Use native root/edge ordering and indexed prefix seeks for durable occurrence cu
 **Why:** A LIMIT on concatenated occurrence strings can still sort the entire graph on every page. One count request per row can exhaust serverless time even when row paging is bounded. Nullable left-join branches also need a final strict cursor check so a filtered-out child does not become an invented empty row.
 
 **How to apply:** Verify query plans with large fanout and a midpoint cursor, not just first-page timing. Test empty intermediates and cursor exhaustion alongside ordinary rows.
+
+Treat a relationship designation as evidence on the final relationship occurrence, not on the shared endpoint record.
+
+**Why:** The Department survey-responder designation describes the Department–Member link; a shared Member can be designated for one Department but not another. It is not survey-submission evidence.
+
+**How to apply:** Combine a related-record filter's conditions against one endpoint and final edge together. None-match includes empty parents; never combine independently matching siblings or infer a submission from a designation.

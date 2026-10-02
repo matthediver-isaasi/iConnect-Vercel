@@ -4,6 +4,7 @@ import {
   resolveRelationshipPickerPath,
   relationshipFields,
 } from "./relationshipHelpers.js";
+import { validateReportFilters } from "./reportFilterHelpers.mjs";
 
 export const REPORT_CONFIG_VERSION = 2;
 export const SUPPORTED_REPORT_CONFIG_VERSIONS = [1, 2];
@@ -92,6 +93,7 @@ export const reconcileReportConfig = ({
   objectId,
   definitions = [],
   fieldsByEndpoint = {},
+  metadataLoading = false,
 }) => {
   // `makeReportConfig` is the builder for new V2 definitions and therefore
   // accepts partial V2 overrides. Persisted versionless input is different:
@@ -140,7 +142,7 @@ export const reconcileReportConfig = ({
   });
   const stale = [];
   if (!SUPPORTED_REPORT_CONFIG_VERSIONS.includes(version)) {
-    stale.push(`Report version ${normalized.version ?? "unknown"} is not supported and must be repaired.`);
+    stale.push(`Report version ${view.version ?? "unknown"} is not supported and must be repaired.`);
   }
   if (String(view.start_object_id) !== String(objectId)) stale.push("This report belongs to another object.");
   if (!grainPathIsValid) stale.push("The related row path is malformed.");
@@ -196,7 +198,14 @@ export const reconcileReportConfig = ({
       stale.push(`Field column "${column.label || fieldReference}" is unavailable.`);
     }
   }
-  return { config: normalized, stale, rowEndpoint: pathCheck.endpoint, rowPathError: pathCheck.error };
+  const filterCheck = version === 2 ? validateReportFilters({
+    filters: view.filters, start: pathCheck.endpoint, definitions, fieldsByEndpoint, metadataLoading,
+  }) : { stale: [], pending: false };
+  stale.push(...filterCheck.stale);
+  return {
+    config: normalized, stale, rowEndpoint: pathCheck.endpoint, rowPathError: pathCheck.error,
+    filtersPending: filterCheck.pending,
+  };
 };
 
 export const moveReportColumn = (columns, index, amount) => {

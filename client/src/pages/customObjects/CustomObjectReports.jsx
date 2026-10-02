@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { loadCustomObjectFields, relationshipRequest } from "./relationshipApi";
 import { resolveRelationshipPickerPath } from "./relationshipHelpers";
+import { ReportRelationshipFilters } from "./ReportRelationshipFilters";
 import {
   endpointKey, endpointLabel, loadReportConfig, makeReportConfig, moveReportColumn,
   reconcileReportConfig, reportPathLabel,
@@ -79,6 +80,7 @@ export function CustomObjectReports({
   const [preview, setPreview] = useState(null);
   const [exportProgress, setExportProgress] = useState(null);
   const graph = Array.isArray(definitions) ? definitions : definitions?.data || [];
+  const graphLoading = definitions == null;
   const graphObjects = Array.isArray(definitions) ? [] : definitions?.objects || [];
   const configView = config && typeof config === "object" && !Array.isArray(config) ? config : {};
   const renderedColumns = Array.isArray(configView.columns)
@@ -102,18 +104,22 @@ export function CustomObjectReports({
     queries: customEndpoints.map((endpoint) => ({
       queryKey: ["custom-object-report-fields", endpoint.customObjectId],
       queryFn: () => loadCustomObjectFields(endpoint.customObjectId, { request: relationshipRequest }),
-      enabled: Boolean(endpoint.customObjectId),
+      enabled: Boolean(endpoint.customObjectId) && String(endpoint.customObjectId) !== String(objectId),
     })),
   });
-  const fieldsByEndpoint = useMemo(() => Object.fromEntries(customEndpoints.map((endpoint, index) => [
-    endpointKey(endpoint),
-    String(endpoint.customObjectId) === String(objectId)
-      ? fields.filter((field) => field.is_active !== false)
-      : ((fieldQueries[index]?.data?.data || fieldQueries[index]?.data || []).filter((field) => field.is_active !== false)),
-  ])), [customEndpoints, fieldQueries, fields, objectId]);
+  const fieldsByEndpoint = useMemo(() => Object.fromEntries(customEndpoints.flatMap((endpoint, index) => {
+    const isOwner = String(endpoint.customObjectId) === String(objectId);
+    if (!isOwner && fieldQueries[index]?.isError) return [];
+    const loaded = isOwner ? fields : fieldQueries[index]?.data?.data || fieldQueries[index]?.data;
+    if (!Array.isArray(loaded)) return [];
+    return [[
+      endpointKey(endpoint),
+      loaded.filter((field) => field.is_active !== false),
+    ]];
+  })), [customEndpoints, fieldQueries, fields, objectId]);
   const reconciled = useMemo(() => reconcileReportConfig({
-    config, objectId, definitions: graph, fieldsByEndpoint,
-  }), [config, objectId, graph, fieldsByEndpoint]);
+    config, objectId, definitions: graph, fieldsByEndpoint, metadataLoading: graphLoading,
+  }), [config, objectId, graph, fieldsByEndpoint, graphLoading]);
 
   useEffect(() => {
     setConfig((current) => current == null || typeof current !== "object"
@@ -287,8 +293,20 @@ export function CustomObjectReports({
             {paths.map((path) => <SelectItem key={JSON.stringify(path)} value={JSON.stringify(path)}>{reportPathLabel(path, graph, graphObjects, object, selectedStart)}</SelectItem>)}
           </SelectContent></Select><p className="mt-1 text-xs text-slate-500">One row per {endpointLabel(selectedEndpoint, graphObjects, object)}. Values reached through to-many paths are joined with semicolons.</p>
           {isV2 && <label className="mt-3 flex items-center gap-2 text-sm"><input data-testid="report-include-empty" type="checkbox" disabled={!canManage} checked={configView.include_empty === true} onChange={(event) => editConfig((current) => ({ ...current, include_empty: event.target.checked }))} />Include starting records with no related row</label>}</div>
-          <Button className="self-end" disabled={!canManage || reconciled.stale.length > 0 || !renderedColumns.length || previewMutation.isPending} onClick={() => previewMutation.mutate(1)}>{previewMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Preview</Button>
+          <Button className="self-end" disabled={!canManage || reconciled.stale.length > 0 || reconciled.filtersPending || !renderedColumns.length || previewMutation.isPending} onClick={() => previewMutation.mutate(1)}>{previewMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Preview</Button>
         </div>
+        {isV2 && <ReportRelationshipFilters filters={configView.filters}
+          onChange={(filters) => editConfig((current) => ({ ...current, filters }))}
+          canManage={canManage} paths={countPaths} start={selectedEndpoint}
+          definitions={graph} objects={graphObjects} object={object} fieldsByEndpoint={fieldsByEndpoint}
+          metadataLoading={graphLoading} metadataError={fieldQueries.some((query) => query.isError)}
+          onRetry={() => fieldQueries.filter((query) => query.isError).forEach((query) => query.refetch())} />}
+        {configView.version === 1 && <div className="rounded-md border bg-slate-50/50 p-3 text-sm text-slate-600">
+          This legacy V1 report is retained unchanged. Create a new current-version report to use relationship filters; existing reports are not automatically converted.
+          {canManage && <Button type="button" size="sm" variant="outline" className="ml-3" onClick={() => {
+            editConfig(makeReportConfig(objectId)); setColumnPath([]); saved.setActiveReportId(null);
+          }}>Start a new current-version report</Button>}
+        </div>}
         <div className="grid gap-3 rounded-md border bg-slate-50/50 p-3">
           <div><Label>Field path (from start entity)</Label><Select disabled={!canManage} value={JSON.stringify(columnPath)} onValueChange={(value) => setColumnPath(JSON.parse(value))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{paths.map((path) => <SelectItem key={JSON.stringify(path)} value={JSON.stringify(path)}>{reportPathLabel(path, graph, graphObjects, object, selectedStart)}</SelectItem>)}</SelectContent></Select><p className="mt-1 text-xs text-slate-500">Field paths are relative to the selected start entity.</p></div>
           <div><Label>Add a field from this path</Label><div className="mt-2 flex flex-wrap gap-2">{availableFields.length ? availableFields.map((field) => <Button key={field.id} type="button" size="sm" variant="outline" disabled={!canManage} onClick={() => addColumn(field)}><Plus className="mr-1 h-3 w-3" />{field.label}</Button>) : <p className="text-sm text-slate-500">No selectable fields are available on this endpoint.</p>}</div></div>
@@ -304,7 +322,7 @@ export function CustomObjectReports({
             <div className="flex items-center"><Button type="button" size="sm" variant="ghost" disabled={!canManage || index === 0} onClick={() => setColumns((items) => moveReportColumn(items, index, -1))}>↑</Button><Button type="button" size="sm" variant="ghost" disabled={!canManage || index === renderedColumns.length - 1} onClick={() => setColumns((items) => moveReportColumn(items, index, 1))}>↓</Button><Button type="button" size="sm" variant="ghost" disabled={!canManage} onClick={() => setColumns((items) => items.filter((_, itemIndex) => itemIndex !== index))}><Trash2 className="h-4 w-4" /></Button></div>
           </div>;
         })}</div>
-        <div className="flex items-center justify-end gap-3">{exportMutation.isPending && <span className="text-sm text-slate-500">Preparing CSV… {exportProgress?.total ? `${exportProgress.processed} of ${exportProgress.total} rows` : "counting rows"}</span>}{exportMutation.isError && <span className="text-sm text-red-600">Export failed: {exportMutation.error?.message}</span>}<Button variant="outline" disabled={!canManage || reconciled.stale.length > 0 || !renderedColumns.length || exportMutation.isPending} onClick={() => exportMutation.mutate()}>{exportMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}Export CSV</Button></div>
+        <div className="flex items-center justify-end gap-3">{exportMutation.isPending && <span className="text-sm text-slate-500">Preparing CSV… {exportProgress?.total ? `${exportProgress.processed} of ${exportProgress.total} rows` : "counting rows"}</span>}{exportMutation.isError && <span className="text-sm text-red-600">Export failed: {exportMutation.error?.message}</span>}<Button variant="outline" disabled={!canManage || reconciled.stale.length > 0 || reconciled.filtersPending || !renderedColumns.length || exportMutation.isPending} onClick={() => exportMutation.mutate()}>{exportMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}Export CSV</Button></div>
       </CardContent>
     </Card>
     {preview && <Card><CardHeader><CardTitle className="text-base">Preview</CardTitle><CardDescription>{preview.total ?? 0} matching row{preview.total === 1 ? "" : "s"} · page {page}</CardDescription></CardHeader><CardContent className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b text-left">{headers.map((header, index) => <th className="p-2 font-medium" key={index}>{typeof header === "string" ? header : header.label}</th>)}</tr></thead><tbody>{rows.map((row, rowIndex) => <tr className="border-b" key={row.id || row.row_id || rowIndex}>{(Array.isArray(row) ? row : (row.values || Object.values(row))).map((value, index) => <td className="p-2" key={index}>{Array.isArray(value) ? value.join(", ") : String(value ?? "")}</td>)}</tr>)}</tbody></table>{!rows.length && <p className="p-3 text-sm text-slate-500">No rows match this report.</p>}<div className="mt-3 flex justify-end gap-2"><Button size="sm" variant="outline" disabled={page <= 1 || previewMutation.isPending} onClick={() => previewMutation.mutate(page - 1)}>Previous</Button><Button size="sm" variant="outline" disabled={!preview.has_more && !(preview.total > page * 50) || previewMutation.isPending} onClick={() => previewMutation.mutate(page + 1)}>Next</Button></div></CardContent></Card>}

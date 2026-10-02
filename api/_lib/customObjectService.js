@@ -4422,8 +4422,73 @@ export function createCustomObjectService({
         });
       }
     }
+    if (report.filters !== undefined && (!Array.isArray(report.filters) || report.filters.length > 10)) {
+      throw new CustomObjectHttpError(400, 'Report filters must be an array of at most 10 filters');
+    }
+    const filters = [];
+    for (const filter of report.filters || []) {
+      if (!filter || !['any', 'none'].includes(filter.mode)
+        || !Array.isArray(filter.path) || !filter.path.length
+        || !Array.isArray(filter.conditions) || filter.conditions.length > 10) {
+        throw new CustomObjectHttpError(400, 'Report filter requires Any/None, a nonempty path, and at most 10 conditions');
+      }
+      const path = await resolvePath(filter.path, 'Report filter path', grain.endpoint);
+      for (const hop of path.hops) {
+        if (hop.definition[`show_on_${hop.fromSide}`] === false) {
+          throw new CustomObjectHttpError(403, 'Report filter relationship is unavailable');
+        }
+      }
+      const conditions = [];
+      for (const condition of filter.conditions) {
+        if (!condition || !['field', 'relationship_field'].includes(condition.kind)) {
+          throw new CustomObjectHttpError(400, 'Report filter condition kind is invalid');
+        }
+        let type;
+        let key;
+        if (condition.kind === 'relationship_field') {
+          const hop = path.hops.at(-1);
+          const field = relationshipFieldDefinitions(hop.definition)
+            .find((item) => String(item.id) === String(condition.relationship_field_id || ''));
+          if (!field || field[`display_on_${hop.fromSide}`] === false) {
+            throw new CustomObjectHttpError(409, 'Report filter relationship field is unavailable; repair the filter');
+          }
+          ({ type, key } = field);
+        } else if (path.endpoint.kind === 'custom_object') {
+          const available = await fields(path.endpoint.customObjectId, true);
+          const access = await fieldAccess(path.endpoint.customObjectId, available);
+          const field = available.find((item) => String(item.id) === String(condition.field_id || ''));
+          if (!field || access.get(String(field.id)) === 'none') {
+            throw new CustomObjectHttpError(403, 'Report filter field is unavailable; repair the filter');
+          }
+          ({ type, key } = getCustomObjectFieldMetadata(field));
+        } else {
+          const allowed = path.endpoint.kind === 'member'
+            ? ['first_name', 'last_name', 'full_name', 'email', 'organization_id']
+            : ['name', 'email'];
+          if (!allowed.includes(condition.field)) {
+            throw new CustomObjectHttpError(403, 'Report filter core field is unavailable');
+          }
+          type = 'text';
+          key = condition.field;
+        }
+        const text = ['text', 'textarea', 'email', 'url'].includes(type);
+        const number = ['number', 'decimal'].includes(type);
+        const empty = ['is_empty', 'is_not_empty'].includes(condition.op);
+        if ((!text && !number && type !== 'boolean')
+          || !['equals', 'contains', 'gt', 'gte', 'lt', 'lte', 'is_empty', 'is_not_empty'].includes(condition.op)
+          || (condition.op === 'contains' && !text)
+          || (['gt', 'gte', 'lt', 'lte'].includes(condition.op) && !number)
+          || (!empty && ((text && typeof condition.value !== 'string')
+            || (number && (typeof condition.value !== 'number' || !Number.isFinite(condition.value)))
+            || (type === 'boolean' && typeof condition.value !== 'boolean')))) {
+          throw new CustomObjectHttpError(400, 'Report filter operator or value is invalid for this field type');
+        }
+        conditions.push({ ...condition, type, key });
+      }
+      filters.push({ mode: filter.mode, path: reportRpcPath(path.hops), conditions });
+    }
     return {
-      version: 2, report, startEndpoint, grain, columns: resolvedColumns,
+      version: 2, report, startEndpoint, grain, columns: resolvedColumns, filters,
     };
   }
 
@@ -4433,6 +4498,10 @@ export function createCustomObjectService({
       try { report = JSON.parse(supplied); } catch { throw new CustomObjectHttpError(400, 'Report definition must be valid JSON'); }
     }
     if (report?.version === 2) return validateReportDefinitionV2(objectId, report);
+    if (report?.filters !== undefined
+      && (!Array.isArray(report.filters) || report.filters.length)) {
+      throw new CustomObjectHttpError(400, 'Related-record filters require an explicit version 2 report');
+    }
     if (!report || typeof report !== 'object' || Array.isArray(report) || report.version !== 1) {
       throw new CustomObjectHttpError(400, 'Report definition must use version 1');
     }
@@ -4653,7 +4722,8 @@ export function createCustomObjectService({
     const p = requestedPage ? pagination(requestedPage, 500) : pagination({}, 500);
     const exportMode = Boolean(requestedPage && Object.hasOwn(requestedPage, 'exportCursor'));
     const afterCursor = exportMode ? (requestedPage.exportCursor || null) : null;
-    const { data: summary, error } = await db.rpc('custom_object_report_summary_page', {
+    const { data: summary, error } = await db.rpc(validated.filters.length
+      ? 'custom_object_report_filtered_summary_page' : 'custom_object_report_summary_page', {
       p_tenant_id: tenantId,
       p_start_kind: validated.startEndpoint.kind,
       p_start_custom_object_id: validated.startEndpoint.customObjectId,
@@ -4663,8 +4733,17 @@ export function createCustomObjectService({
       p_limit: p.pageSize,
       p_after_cursor: afterCursor,
       p_include_total: !exportMode || requestedPage.includeTotal === true,
+      ...(validated.filters.length ? { p_filters: validated.filters } : {}),
     });
+    if (validated.filters.length && (error?.code === 'PGRST202'
+      || /custom_object_report_filtered_summary_page.*(schema cache|could not find|does not exist)/i.test(error?.message || ''))) {
+      throw new CustomObjectHttpError(503, 'Related-record report filters require migration 20261011_custom_object_report_filters.sql on the destination database');
+    }
     throwReportV2RpcDb(error);
+    if (validated.filters.length && (!summary || !Array.isArray(summary.rows)
+      || typeof summary.has_more !== 'boolean')) {
+      throw new CustomObjectHttpError(503, 'Filtered report query returned a malformed result');
+    }
     const summaryRows = Array.isArray(summary?.rows) ? summary.rows : [];
     const endpoints = [validated.startEndpoint, ...validated.grain.hops.map((hop) => hop.endpoint)];
     const ancestryMaps = await Promise.all(endpoints.map((endpoint_, index) =>

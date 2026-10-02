@@ -12,6 +12,11 @@ globalThis.localStorage = dom.window.localStorage;
 globalThis.Node = dom.window.Node;
 globalThis.Element = dom.window.Element;
 globalThis.HTMLElement = dom.window.HTMLElement;
+globalThis.HTMLInputElement = dom.window.HTMLInputElement;
+globalThis.Event = dom.window.Event;
+globalThis.CustomEvent = dom.window.CustomEvent;
+globalThis.KeyboardEvent = dom.window.KeyboardEvent;
+globalThis.NodeFilter = dom.window.NodeFilter;
 globalThis.DocumentFragment = dom.window.DocumentFragment;
 globalThis.MutationObserver = dom.window.MutationObserver;
 globalThis.getComputedStyle = dom.window.getComputedStyle;
@@ -28,6 +33,7 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
 const { CustomObjectReports } = await import("./CustomObjectReports.jsx");
+const { ReportRelationshipFilters } = await import("./ReportRelationshipFilters.jsx");
 const { makeReportConfig } = await import("./reportHelpers.mjs");
 
 const object = {
@@ -75,12 +81,21 @@ const savedReports = {
   async deleteReport() {},
 };
 
-async function mount(initialConfig, suppliedDefinitions = definitions) {
+async function mount(initialConfig, suppliedDefinitions = definitions, suppliedSaved = savedReports) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
   const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { retry: false } },
+  });
+  // These component fixtures never contact a tenant API. Seed authorised
+  // connected-object metadata explicitly, including an intentionally empty schema.
+  const graph = Array.isArray(suppliedDefinitions) ? suppliedDefinitions : suppliedDefinitions?.data || [];
+  graph.forEach((definition) => {
+    for (const side of ["source", "target"]) {
+      const id = definition[`${side}_custom_object_id`];
+      if (id && id !== object.id) queryClient.setQueryData(["custom-object-report-fields", id], []);
+    }
   });
   let latest;
   const onConfigChange = (value) => { latest = value; };
@@ -93,7 +108,7 @@ async function mount(initialConfig, suppliedDefinitions = definitions) {
           definitions={suppliedDefinitions}
           canManage
           initialConfig={initialConfig}
-          savedReports={savedReports}
+          savedReports={suppliedSaved}
           onConfigChange={onConfigChange}
         />
       </QueryClientProvider>,
@@ -325,5 +340,169 @@ test("explicit Add field repairs malformed persisted columns without mutating th
   assert.equal(view.config.columns[0].kind, "field");
   assert.equal(view.config.columns[0].field_id, "department_name");
   assert.deepEqual(view.config.columns[0].path, []);
+  await view.cleanup();
+});
+
+test("relationship filters add/remove conditions, edit values, and reload opaque saved configuration", async () => {
+  const initial = makeReportConfig("department", {
+    filters: [{
+      id: "no-responders", mode: "none", path: departmentMemberPath,
+      conditions: [{ kind: "field", field: "email", op: "contains", value: "example.test" }],
+    }],
+  });
+  const view = await mount(initial);
+  assert.match(view.container.querySelector("[data-testid=report-filter-0]").textContent, /None match/);
+  await act(async () => changeText(view.container.querySelector("[data-testid=filter-0-value-0]"), "literal%_"));
+  assert.equal(view.config.filters[0].conditions[0].value, "literal%_");
+  await act(async () => click(view.container.querySelector("[data-testid=add-filter-condition-0]")));
+  assert.equal(view.config.filters[0].conditions.length, 2);
+  await act(async () => click(view.container.querySelector('[aria-label="Remove filter 1 condition 2"]')));
+  assert.equal(view.config.filters[0].conditions.length, 1);
+  await act(async () => click(view.container.querySelector("[data-testid=add-report-filter]")));
+  assert.equal(view.config.filters.length, 2);
+  assert.equal(view.config.filters[1].conditions.length, 0);
+  assert.match(view.container.querySelector("[data-testid=report-filter-1]").textContent, /require existence/);
+  await act(async () => click(view.container.querySelector('[aria-label="Remove filter 2"]')));
+  assert.equal(view.config.filters.length, 1);
+  assert.equal(initial.filters[0].conditions[0].value, "example.test");
+  const snapshot = JSON.parse(JSON.stringify(view.config));
+  await view.cleanup();
+  const reloaded = await mount(snapshot);
+  assert.deepEqual(reloaded.config, snapshot);
+  assert.equal(reloaded.container.querySelector("[data-testid=filter-0-value-0]").value, "literal%_");
+  await reloaded.cleanup();
+});
+
+test("stale and unsupported filter selections remain visible and block execution until explicit removal", async () => {
+  const schema = [{
+    ...definitions[0],
+    relationship_fields: [
+      { id: "responder", key: "responder", label: "Responder", type: "boolean" },
+      { id: "tags", key: "tags", label: "Tags", type: "picklist" },
+    ],
+  }];
+  for (const condition of [
+    { kind: "field", field: "deleted", op: "equals", value: "keep" },
+    { kind: "relationship_field", relationship_field_id: "tags", op: "equals", value: "keep" },
+    { kind: "relationship_field", relationship_field_id: "responder", op: "equals", value: "Yes" },
+  ]) {
+    const initial = makeReportConfig("department", {
+      columns: [{ kind: "field", path: [], field_id: "department_name", label: "Name" }],
+      filters: [{ mode: "none", path: departmentMemberPath, conditions: [condition] }],
+    });
+    const view = await mount(initial, schema);
+    assert.equal(view.config, initial);
+    assert.match(view.container.textContent, /unavailable|unsupported|boolean/i);
+    assert.equal([...view.container.querySelectorAll("button")].find((button) => button.textContent === "Preview").disabled, true);
+    await act(async () => click(view.container.querySelector('[aria-label="Remove filter 1 condition 1"]')));
+    assert.equal(view.config.filters[0].conditions.length, 0);
+    assert.equal([...view.container.querySelectorAll("button")].find((button) => button.textContent === "Preview").disabled, false);
+    await view.cleanup();
+  }
+});
+
+test("malformed filter arrays and conditions require explicit repair; reload never rewrites", async () => {
+  for (const filters of ["invalid", [null], [{ mode: "any", path: [null], conditions: [null] }],
+    [{ mode: "none", path: departmentMemberPath, conditions: "invalid" }]]) {
+    const initial = makeReportConfig("department", { filters });
+    const view = await mount(initial);
+    assert.equal(view.config, initial);
+    assert.match(view.container.textContent, /malformed|nonempty/);
+    const reset = [...view.container.querySelectorAll("button")].find((button) => /Reset relationship filters|Remove malformed filter|Reset conditions/.test(button.textContent));
+    if (reset) {
+      await act(async () => click(reset));
+      assert.notEqual(view.config, initial);
+      assert.equal(initial.filters, filters);
+    }
+    await view.cleanup();
+  }
+});
+
+test("filter and condition limits disable add actions and legacy report explains explicit new report", async () => {
+  const initial = makeReportConfig("department", {
+    filters: Array.from({ length: 10 }, (_, index) => ({
+      id: `saved-${index}`, mode: "any", path: departmentMemberPath,
+      conditions: Array.from({ length: 10 }, () => ({ kind: "field", field: "email", op: "equals", value: "" })),
+    })),
+  });
+  const view = await mount(initial);
+  assert.equal(view.container.querySelector("[data-testid=add-report-filter]").disabled, true);
+  assert.equal(view.container.querySelector("[data-testid=add-filter-condition-0]").disabled, true);
+  await view.cleanup();
+  const legacy = { version: 1, start_object_id: "department", grain_path: [], columns: [] };
+  const old = await mount(legacy);
+  assert.equal(old.container.querySelector("[data-testid=report-relationship-filters]"), null);
+  assert.match(old.container.textContent, /Create a new current-version report/);
+  assert.equal(old.config, legacy);
+  await act(async () => click([...old.container.querySelectorAll("button")].find((button) => button.textContent === "Start a new current-version report")));
+  assert.equal(old.config.version, 2);
+  assert.ok(old.container.querySelector("[data-testid=report-relationship-filters]"));
+  assert.deepEqual(legacy, { version: 1, start_object_id: "department", grain_path: [], columns: [] });
+  await old.cleanup();
+});
+
+test("pending and error field metadata preserve saved filter selections with retry and loaded stale repair", async () => {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  const filters = [{ mode: "none", path: departmentMemberPath, conditions: [
+    { kind: "field", field_id: "title", op: "equals", value: "Original" },
+  ] }];
+  const snapshot = JSON.stringify(filters);
+  const graph = [{ ...definitions[0], target_kind: "custom_object", target_custom_object_id: "project" }];
+  let changes = 0;
+  let retries = 0;
+  const props = {
+    filters, onChange: () => { changes += 1; }, canManage: true,
+    paths: [departmentMemberPath], start: { kind: "custom_object", customObjectId: "department" },
+    definitions: graph, objects: [], object, onRetry: () => { retries += 1; },
+  };
+  await act(async () => root.render(<ReportRelationshipFilters {...props} fieldsByEndpoint={{}} />));
+  assert.match(container.textContent, /metadata is not yet available/);
+  assert.match(container.textContent, /title/);
+  assert.equal(container.querySelector("[data-testid=add-filter-condition-0]").disabled, true);
+  await act(async () => root.render(<ReportRelationshipFilters {...props} fieldsByEndpoint={{}} metadataError />));
+  const retry = [...container.querySelectorAll("button")].find((button) => button.textContent === "Retry metadata");
+  assert.ok(retry);
+  await act(async () => click(retry));
+  assert.equal(retries, 1);
+  await act(async () => root.render(<ReportRelationshipFilters {...props} fieldsByEndpoint={{
+    "custom_object:project": [{ id: "title", label: "Project title", field_type: "text" }],
+  }} />));
+  assert.match(container.textContent, /Project title/);
+  assert.equal(container.querySelector("[data-testid=filter-0-value-0]").value, "Original");
+  await act(async () => root.render(<ReportRelationshipFilters {...props} fieldsByEndpoint={{ "custom_object:project": [] }} />));
+  assert.match(container.textContent, /Unavailable or unsupported saved field.*title/);
+  assert.equal(changes, 0);
+  assert.equal(JSON.stringify(filters), snapshot);
+  await act(async () => root.unmount());
+  container.remove();
+});
+
+test("editing filters marks a saved report dirty and Update saves the current typed definition", async () => {
+  const initial = makeReportConfig("department", {
+    filters: [{ mode: "none", path: departmentMemberPath, conditions: [] }],
+  });
+  const report = { id: "departments-without-response", name: "Departments without response", config: initial };
+  let updated;
+  const saved = {
+    ...savedReports, reports: [report], activeReportId: report.id, activeReport: report,
+    async updateReport(id, config) { updated = { id, config }; },
+  };
+  const view = await mount(initial, definitions, saved);
+  assert.doesNotMatch(view.container.textContent, /Modified/);
+  await act(async () => click(view.container.querySelector("[data-testid=add-filter-condition-0]")));
+  assert.match(view.container.textContent, /Modified/);
+  const trigger = view.container.querySelector("[data-testid=button-custom-object-report-switcher]");
+  await act(async () => trigger.dispatchEvent(new window.MouseEvent("pointerdown", {
+    bubbles: true, cancelable: true, button: 0, ctrlKey: false,
+  })));
+  const update = document.querySelector("[data-testid=menuitem-custom-object-report-update]");
+  assert.ok(update);
+  await act(async () => click(update));
+  assert.equal(updated.id, report.id);
+  assert.deepEqual(updated.config.filters, view.config.filters);
+  assert.equal(updated.config.filters[0].conditions[0].value, "");
+  assert.deepEqual(initial.filters[0].conditions, []);
   await view.cleanup();
 });

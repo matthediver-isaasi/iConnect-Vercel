@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createCustomObjectRouteHandler } from './customObjectRoute.js';
 import { CustomObjectHttpError } from './customObjectService.js';
+
+process.env.ROLE_ACCESS_OVERLAY_SKIP_PRIME = '1';
+const { __setRoleAccessOverlayForTests } = await import('./roleVisibility.js');
+__setRoleAccessOverlayForTests([]);
+const { createCustomObjectRouteHandler } = await import('./customObjectRoute.js');
 
 function response() {
   return {
@@ -79,6 +83,7 @@ test('dedicated nested route dispatches object-scoped record reads', async () =>
       roleId: 'role-1',
     }),
     hasAdminAccess: async () => false,
+    hasFeatureAccess: async () => false,
     createCustomObjectService: () => ({
       getRecord: async (objectId, recordId) => ({ objectId, recordId }),
     }),
@@ -298,6 +303,11 @@ test('report routes preserve the version 2 owner and endpoint contract at servic
     grain_path: [],
     include_empty: true,
     columns: [{ kind: 'field', field: 'full_name', path: [], empty_label: 'Unknown' }],
+    filters: [{
+      id: 'saved-filter', mode: 'none',
+      path: [{ relationship_definition_id: 'relationship-1', from_side: 'target' }],
+      conditions: [{ kind: 'relationship_field', relationship_field_id: 'responder', op: 'equals', value: true }],
+    }],
   };
   const preview = response();
   await handler({
@@ -317,6 +327,31 @@ test('report routes preserve the version 2 owner and endpoint contract at servic
     ['preview', 'object-1', { definition, page: 1, pageSize: 25 }],
     ['export', 'object-1', { action: 'start', definition }],
   ]);
+});
+
+test('filtered preview and export routes preserve fail-closed repair and permission errors', async () => {
+  for (const resource of ['report-preview', 'report-export']) {
+    for (const status of [400, 403, 409, 503]) {
+      const handler = createCustomObjectRouteHandler('resource', {
+        getTenantContext: async () => ({ isAuthenticated: true, tenantId: 'tenant-1', roleId: 'role-1' }),
+        hasAdminAccess: async () => false,
+        hasFeatureAccess: async () => false,
+        createCustomObjectService: () => ({
+          [resource === 'report-preview' ? 'previewReport' : 'exportReport']: async () => {
+            throw new CustomObjectHttpError(status, 'Report filter requires repair');
+          },
+        }),
+      });
+      const res = response();
+      await handler({
+        method: 'POST', query: { objectId: 'object-1', resource },
+        body: { definition: { version: 2, filters: [{ mode: 'none' }] } },
+      }, res);
+      assert.equal(res.statusCode, status);
+      assert.equal(res.payload.error, 'Report filter requires repair');
+      assert.equal(res.payload.total, undefined);
+    }
+  }
 });
 
 test('collection reads reach service record-grant fallback when schema view is unavailable', async () => {

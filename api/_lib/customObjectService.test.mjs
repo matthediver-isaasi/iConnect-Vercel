@@ -774,6 +774,167 @@ function field(overrides = {}) {
   };
 }
 
+function relatedFilterFixture() {
+  const relationship = {
+    id: 'filter-relationship', tenant_id: tenantId, status: 'active', archived_at: null,
+    source_kind: 'custom_object', source_custom_object_id: objectId,
+    target_kind: 'member', target_custom_object_id: null,
+    configuration: { relationship_fields: [{ id: 'responder', key: 'responder', type: 'boolean' }] },
+  };
+  const definition = {
+    version: 2, start_object_id: objectId,
+    start_endpoint: { kind: 'custom_object', customObjectId: objectId },
+    grain_path: [], include_empty: true,
+    columns: [{ kind: 'field', field: 'id', path: [] }],
+    filters: [{
+      id: 'filter-1', mode: 'none',
+      path: [{ relationship_definition_id: relationship.id, from_side: 'source' }],
+      conditions: [{ kind: 'relationship_field', relationship_field_id: 'responder', op: 'equals', value: true }],
+    }],
+  };
+  return { relationship, definition, seed: {
+    custom_object_definition: [object()], preference_field: [],
+    custom_object_record: [{ id: 'matching-root', tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: {} }],
+    custom_object_relationship_definition: [relationship],
+  } };
+}
+
+test('related filters normalize once per execution and survive preview and durable CSV export', async () => {
+  const { definition, seed } = relatedFilterFixture();
+  const db = mockDb(seed, {
+    custom_object_report_filtered_summary_page: { mockData: {
+      total: 1, rows: [{ id: 'matching-root', record_ids: ['matching-root'], edges: [] }],
+      has_more: false, last_cursor: 'matching-root',
+    } },
+  });
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const preview = await service.previewReport(objectId, { definition, page: 1, pageSize: 25 });
+  assert.equal(preview.total, 1);
+  let job = await service.exportReport(objectId, { action: 'start', definition });
+  assert.deepEqual(job.definition.filters, definition.filters);
+  job = await service.exportReport(objectId, { action: 'process', job_id: job.id });
+  assert.equal(job.status, 'complete');
+  assert.equal(job.processed, 1);
+  const pages = db.calls.filter((call) => call.name === 'custom_object_report_filtered_summary_page');
+  assert.equal(pages.length, 2);
+  assert.ok(pages.every(({ args }) => args.p_tenant_id === tenantId && args.p_filters[0].conditions[0].key === 'responder'));
+  assert.deepEqual(pages[0].args.p_filters, pages[1].args.p_filters);
+  assert.equal(pages[0].args.p_filters[0].path[0].endpoint_kind, 'member');
+  assert.equal(db.calls.some((call) => call.name === 'custom_object_report_summary_page'), false);
+  assert.ok(db.tables.custom_object_report_export_chunk[0].csv_text.includes('matching-root'));
+});
+
+test('related filters reject unsupported values, stale schema and V1 without executing absence queries', async () => {
+  const { definition, seed } = relatedFilterFixture();
+  const db = mockDb(seed);
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  for (const change of [
+    (r) => { r.version = 1; },
+    (r) => { r.filters = {}; },
+    (r) => { r.filters = Array(11).fill(r.filters[0]); },
+    (r) => { r.filters[0].path = []; },
+    (r) => { r.filters[0].path[0].relationship_definition_id = 'removed'; },
+    (r) => { r.filters[0].conditions[0].value = 'true'; },
+    (r) => { r.filters[0].conditions[0].op = 'contains'; },
+    (r) => { r.filters[0].conditions[0].relationship_field_id = 'removed'; },
+    (r) => { r.filters[0].conditions = Array(11).fill(r.filters[0].conditions[0]); },
+  ]) {
+    const invalid = structuredClone(definition); change(invalid);
+    await assert.rejects(() => service.previewReport(objectId, invalid), CustomObjectHttpError);
+    await assert.rejects(() => service.exportReport(objectId, { action: 'start', definition: invalid }), CustomObjectHttpError);
+  }
+  assert.equal(db.calls.some((call) => call.name?.includes('summary_page')), false);
+});
+
+test('filtered exports resume across bounded pages with identical predicates and no duplicated CSV rows', async () => {
+  const { definition, seed } = relatedFilterFixture();
+  seed.custom_object_record = Array.from({ length: 501 }, (_, i) => ({
+    id: `filtered-${String(i).padStart(4, '0')}`, tenant_id: tenantId,
+    custom_object_id: objectId, archived_at: null, data: {},
+  }));
+  const db = mockDb(seed);
+  const originalRpc = db.rpc.bind(db);
+  const requests = [];
+  db.rpc = (name, args) => {
+    if (name !== 'custom_object_report_filtered_summary_page') return originalRpc(name, args);
+    requests.push(structuredClone(args));
+    const eligible = seed.custom_object_record.filter((r) => !args.p_after_cursor || r.id > args.p_after_cursor);
+    const rows = eligible.slice(0, args.p_limit).map((r) => ({ id: r.id, record_ids: [r.id], edges: [] }));
+    return Promise.resolve({ data: {
+      rows, total: args.p_include_total ? 501 : null,
+      has_more: eligible.length > rows.length, last_cursor: rows.at(-1)?.id || args.p_after_cursor,
+    }, error: null });
+  };
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  let job = await service.exportReport(objectId, { action: 'start', definition });
+  job = await service.exportReport(objectId, { action: 'process', job_id: job.id });
+  assert.equal(job.processed, 500);
+  assert.equal(job.status, 'processing');
+  job = await service.exportReport(objectId, { action: 'process', job_id: job.id });
+  assert.equal(job.status, 'complete');
+  assert.equal(job.processed, 501);
+  assert.equal(job.total, 501);
+  assert.deepEqual(requests.map((r) => r.p_after_cursor), [null, 'filtered-0499']);
+  assert.deepEqual(requests[0].p_filters, requests[1].p_filters);
+  const csv = db.tables.custom_object_report_export_chunk.map((chunk) => chunk.csv_text).join('');
+  for (const row of seed.custom_object_record) assert.equal(csv.split(row.id).length - 1, 1);
+});
+
+test('related-filter queries and permission changes fail closed on preview and export resumption', async () => {
+  const { definition, seed } = relatedFilterFixture();
+  for (const error of [{ code: 'PGRST202' }, { message: 'query failed' }]) {
+    const db = mockDb(seed, { custom_object_report_filtered_summary_page: error });
+    const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+    await assert.rejects(() => service.previewReport(objectId, definition), CustomObjectHttpError);
+    const job = await service.exportReport(objectId, { action: 'start', definition });
+    await assert.rejects(() => service.exportReport(objectId, { action: 'process', job_id: job.id }), CustomObjectHttpError);
+    assert.equal(db.tables.custom_object_report_export_job[0].status, 'failed');
+  }
+  const db = mockDb(seed);
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const job = await service.exportReport(objectId, { action: 'start', definition });
+  db.tables.custom_object_relationship_definition[0].show_on_source = false;
+  await assert.rejects(() => service.previewReport(objectId, definition), /unavailable/);
+  await assert.rejects(() => service.exportReport(objectId, { action: 'process', job_id: job.id }), /unavailable/);
+  assert.equal(db.calls.some((call) => call.name?.includes('summary_page')), false);
+});
+
+test('related filters enforce endpoint grants and field ACLs and normalize supported custom scalars', async () => {
+  const { definition, seed } = relatedFilterFixture();
+  const targetId = '44444444-4444-4444-8444-444444444444';
+  seed.custom_object_definition.push(object({ id: targetId }));
+  Object.assign(seed.custom_object_relationship_definition[0], {
+    target_kind: 'custom_object', target_custom_object_id: targetId,
+  });
+  seed.preference_field = [field({ id: 'filter-number', custom_object_id: targetId })];
+  seed.custom_object_role_permission = [{
+    tenant_id: tenantId, custom_object_id: objectId, role_id: roleId, can_view_records: true,
+  }];
+  definition.filters[0].conditions = [{ kind: 'field', field_id: 'filter-number', op: 'gte', value: 3.5 }];
+  const deniedEndpoint = createCustomObjectService({ db: mockDb(seed), context: context() });
+  await assert.rejects(() => deniedEndpoint.validateReportDefinition(objectId, definition), /Access denied/);
+  seed.custom_object_role_permission.push({
+    tenant_id: tenantId, custom_object_id: targetId, role_id: roleId, can_view_records: true,
+  });
+  seed.custom_object_field_role_permission = [{
+    tenant_id: tenantId, custom_object_id: targetId, role_id: roleId, field_id: 'filter-number', access_level: 'none',
+  }];
+  const deniedField = createCustomObjectService({ db: mockDb(seed), context: context() });
+  await assert.rejects(() => deniedField.validateReportDefinition(objectId, definition), /unavailable/);
+  seed.custom_object_field_role_permission = [];
+  const service = createCustomObjectService({ db: mockDb(seed), context: context() });
+  const validated = await service.validateReportDefinition(objectId, definition);
+  assert.equal(validated.filters[0].conditions[0].type, 'number');
+  assert.equal(validated.filters[0].conditions[0].key, 'headcount');
+  for (const value of ['3.5', NaN, Infinity, null]) {
+    definition.filters[0].conditions[0].value = value;
+    await assert.rejects(() => service.validateReportDefinition(objectId, definition), /invalid/);
+  }
+  definition.filters[0].conditions[0].op = 'is_empty';
+  delete definition.filters[0].conditions[0].value;
+  await service.validateReportDefinition(objectId, definition);
+});
+
 const chainEndpoint = (kind, customObjectId = null) => ({
   kind,
   custom_object_id: customObjectId,
