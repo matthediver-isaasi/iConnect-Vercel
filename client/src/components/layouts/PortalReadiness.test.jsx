@@ -45,3 +45,58 @@ test('readiness and retry preserve mounted content and unsaved input', async () 
     await act(async () => root.unmount());
   }
 });
+
+test('blocked recovery announces progress, disables retry, and preserves its content subtree', async () => {
+  const container = document.createElement('div');
+  const root = createRoot(container);
+  const render = recovering => act(async () => root.render(
+    <PortalReadiness ready={false} error={new Error('Unable to verify your session.')}
+      recovering={recovering} onRetry={() => {}} retryLabel="Retry">
+      <input defaultValue="draft" />
+    </PortalReadiness>,
+  ));
+  try {
+    await render(false);
+    const input = container.querySelector('input');
+    input.value = 'retained';
+    await render(true);
+    assert.match(container.querySelector('[role="status"]').textContent, /Reconnecting to your session/);
+    assert.equal(container.querySelector('button').disabled, true);
+    assert.equal(container.querySelector('button').textContent, 'Retrying…');
+    assert.equal(container.querySelector('input'), input);
+    assert.ok(input.closest('[hidden]'));
+    await render(false);
+    assert.equal(input.value, 'retained');
+    assert.equal(container.querySelector('button').disabled, false);
+    assert.equal(container.querySelector('button').textContent, 'Retry');
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test('transient and offline feedback leaves retained content visible and successful initial checks quiet', async () => {
+  const container = document.createElement('div');
+  const root = createRoot(container);
+  const render = (recovering, offline = false) => act(async () => root.render(
+    <PortalReadiness ready recovering={recovering} offline={offline}>
+      <input defaultValue="draft" />
+    </PortalReadiness>,
+  ));
+  try {
+    await render(false);
+    const input = container.querySelector('input');
+    assert.equal(container.querySelector('[role="status"]'), null);
+    input.value = 'live draft';
+    await render(true);
+    assert.match(container.querySelector('[role="status"]').textContent, /Reconnecting to your session/);
+    assert.equal(input.closest('[hidden]'), null);
+    await render(true, true);
+    assert.match(container.querySelector('[role="status"]').textContent, /offline/);
+    assert.equal(container.querySelector('input'), input);
+    assert.equal(input.value, 'live draft');
+    await render(false);
+    assert.equal(container.querySelector('[role="status"]'), null);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

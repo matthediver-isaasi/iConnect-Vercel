@@ -15,8 +15,19 @@ import {
 } from "@/lib/viewerSessionPreload";
 import {
   resolveRoutineSessionRole,
+  recoverViewerSession,
+  viewerSessionCanRecover,
+  mayStartViewerSessionRecovery,
+  VIEWER_SESSION_RETENTION_MS,
+  VIEWER_SESSION_RECOVERY_COOLDOWN_MS,
   useViewerSessionRevalidation,
 } from "@/lib/viewerSessionLifecycle";
+import {
+  installViewerProtectedWorkGate,
+  setViewerProtectedWorkPaused,
+  fetchViewerSessionRole,
+  viewerSessionFailureRetainsWorkPause,
+} from "@/lib/viewerProtectedWorkGate";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
 import { BUILTIN_MEMBER_ALIASES } from "@shared/memberAliases.js";
@@ -1108,6 +1119,16 @@ export default function Layout({ children, currentPageName }) {
   const [authRevision, setAuthRevision] = useState(0);
   const [sessionError, setSessionError] = useState(null);
   const [sessionValidatedAt, setSessionValidatedAt] = useState(0);
+  const [sessionRecoveryBlocked, setSessionRecoveryBlocked] = useState(false);
+  const [sessionRecovering, setSessionRecovering] = useState(false);
+  const retentionDeadlineRef = useRef(0);
+  const recoveryCooldownRef = useRef(0);
+  const { setSessionWorkPaused } = useLayoutContext();
+  const pauseSessionWork = React.useCallback(value => {
+    setViewerProtectedWorkPaused(value);
+    setSessionWorkPaused(value);
+  }, [setSessionWorkPaused]);
+  useEffect(() => installViewerProtectedWorkGate(), []);
   const routineRevalidationRef = useRef(false);
   const routineRevalidationInFlightRef = useRef(false);
   const viewerSessionScope = getViewerSessionScope({
@@ -1115,7 +1136,8 @@ export default function Layout({ children, currentPageName }) {
     hostname: window.location.hostname,
     authRevision,
   });
-  useViewerSessionPreload(viewerSessionScope);
+  useViewerSessionPreload(viewerSessionScope,
+    !retentionDeadlineRef.current || viewerSessionCanRecover());
   const { memberRole, roleStatus, roleError, retryRole } = useSessionMemberRole();
 
   const retrySessionRoleValidation = React.useCallback(() => {
@@ -1126,20 +1148,48 @@ export default function Layout({ children, currentPageName }) {
     setSessionValidated(false);
     setAuthResolved(false);
     setSessionValidatedAt(0);
+    retentionDeadlineRef.current = 0;
+    setSessionRecoveryBlocked(false);
+    setSessionRecovering(false);
+    pauseSessionWork(true);
     setAuthRevision(value => value + 1);
-  }, [viewerSessionScope, setSessionValidated, setAuthResolved]);
+  }, [viewerSessionScope, setSessionValidated, setAuthResolved, pauseSessionWork]);
 
   const revalidateViewerSession = React.useCallback(() => {
     // A routine check is not an authentication boundary. Keep the currently
     // verified, identity-matched portal and role mounted while the bounded
     // request is in flight; its authoritative outcome is committed below.
-    if (routineRevalidationInFlightRef.current) return;
+    if (!mayStartViewerSessionRecovery({
+      inFlight: routineRevalidationInFlightRef.current,
+      cooldownUntil: recoveryCooldownRef.current,
+      // The first due check must start its retention clock even offline.
+      // Subsequent blocked recovery requires an available transport.
+      available: !retentionDeadlineRef.current || viewerSessionCanRecover(),
+    })) return;
+    recoveryCooldownRef.current = Date.now() + VIEWER_SESSION_RECOVERY_COOLDOWN_MS;
+    if (!retentionDeadlineRef.current) {
+      retentionDeadlineRef.current = Date.now() + VIEWER_SESSION_RETENTION_MS;
+    }
+    if (sessionRecoveryBlocked) setSessionRecovering(true);
     routineRevalidationRef.current = true;
     routineRevalidationInFlightRef.current = true;
     authGenerationRef.current += 1;
     invalidateViewerSessionRequest(viewerSessionScope);
     setAuthRevision(value => value + 1);
-  }, [viewerSessionScope]);
+  }, [viewerSessionScope, sessionRecoveryBlocked]);
+
+  useEffect(() => {
+    if (!sessionError || !memberInfo || !retentionDeadlineRef.current) return undefined;
+    const recover = () => revalidateViewerSession();
+    window.addEventListener('focus', recover);
+    window.addEventListener('online', recover);
+    document.addEventListener('visibilitychange', recover);
+    return () => {
+      window.removeEventListener('focus', recover);
+      window.removeEventListener('online', recover);
+      document.removeEventListener('visibilitychange', recover);
+    };
+  }, [sessionError, memberInfo, revalidateViewerSession]);
 
   const queryClient = useQueryClient();
   useEffect(() => subscribeRoleSettingsCopy(() => {
@@ -1766,6 +1816,12 @@ useEffect(() => {
     setSessionValidated(false);
     setAuthResolved(false);
     setSessionValidatedAt(0);
+    routineRevalidationRef.current = false;
+    routineRevalidationInFlightRef.current = false;
+    retentionDeadlineRef.current = 0;
+    setSessionRecoveryBlocked(false);
+    setSessionRecovering(false);
+    pauseSessionWork(true);
     setAuthRevision(value => value + 1);
     const storedMember = localStorage.getItem('agcas_member');
     if (storedMember) {
@@ -1850,6 +1906,12 @@ useEffect(() => {
       setSessionValidated(false);
       setAuthResolved(false);
       setSessionValidatedAt(0);
+      routineRevalidationRef.current = false;
+      routineRevalidationInFlightRef.current = false;
+      retentionDeadlineRef.current = 0;
+      setSessionRecoveryBlocked(false);
+      setSessionRecovering(false);
+      pauseSessionWork(true);
       setAuthRevision(value => value + 1);
       const storedMember = localStorage.getItem('agcas_member');
       if (storedMember) {
@@ -1945,7 +2007,8 @@ useEffect(() => {
           const previous = JSON.parse(event.oldValue);
           const next = JSON.parse(event.newValue);
           if (previous.id === next.id && previous.tenant_id === next.tenant_id
-            && previous.organization_id === next.organization_id) return;
+            && previous.organization_id === next.organization_id
+            && previous.role_id === next.role_id) return;
         } catch { /* Malformed storage cannot retain a validated viewer. */ }
       }
       authGenerationRef.current += 1;
@@ -1953,25 +2016,91 @@ useEffect(() => {
       setSessionValidated(false);
       setAuthResolved(false);
       setSessionValidatedAt(0);
+      routineRevalidationRef.current = false;
+      routineRevalidationInFlightRef.current = false;
+      retentionDeadlineRef.current = 0;
+      setSessionRecoveryBlocked(false);
+      setSessionRecovering(false);
+      pauseSessionWork(true);
       setAuthRevision(value => value + 1);
     };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
-  }, [setSessionValidated, setAuthResolved, viewerSessionScope]);
+  }, [setSessionValidated, setAuthResolved, viewerSessionScope, pauseSessionWork]);
 
   useEffect(() => {
     const lease = createViewerRequestLease(authGenerationRef);
     const isCancelled = () => !lease.isCurrent();
-    const sessionRequest = acquireViewerSessionRequest(viewerSessionScope);
     const isRoutineRevalidation = routineRevalidationRef.current;
+    let sessionRequest = !isRoutineRevalidation || viewerSessionCanRecover()
+      ? acquireViewerSessionRequest(viewerSessionScope) : null;
     routineRevalidationRef.current = false;
-    const validationStartedAt = Date.now();
+    let retentionTimeout;
+    const blockRecovery = () => {
+      if (isCancelled()) return;
+      setSessionRecoveryBlocked(true);
+      pauseSessionWork(true);
+      setSessionError(new Error('Unable to verify your session. Your page is saved here; reconnect or retry.'));
+    };
+    if (isRoutineRevalidation) {
+      const remaining = retentionDeadlineRef.current - Date.now();
+      if (remaining <= 0) blockRecovery();
+      else retentionTimeout = setTimeout(blockRecovery, remaining);
+    }
 
     // Check server session first for multi-tab persistence
     const checkServerSession = async () => {
       let timeout;
       try {
-        const { response, member } = await Promise.race([
+        let attempt = 0;
+        const readSession = async isAttemptCurrent => {
+          if (attempt++) {
+            sessionRequest?.cancel();
+            invalidateViewerSessionRequest(viewerSessionScope);
+            sessionRequest = acquireViewerSessionRequest(viewerSessionScope);
+          }
+          if (!sessionRequest) sessionRequest = acquireViewerSessionRequest(viewerSessionScope);
+          const result = await sessionRequest.promise;
+          if (!isAttemptCurrent()) throw new Error('Session validation timed out.');
+          if (!result.response.ok && result.response.status !== 401 && result.response.status !== 403) {
+            const error = new Error(`Session validation failed (${result.response.status}).`);
+            error.status = result.response.status;
+            throw error;
+          }
+          if (result.response.ok && result.member?.id) {
+            // A different identity cannot keep the old page while its role loads.
+            if (memberInfo && (memberInfo.id !== result.member.id
+              || memberInfo.tenant_id !== result.member.tenant_id
+              || memberInfo.role_id !== result.member.role_id
+              || memberInfo.organization_id !== result.member.organization_id)) {
+              setSessionValidated(false);
+              setContextMemberInfo(null);
+              pauseSessionWork(true);
+            }
+            result.refreshedSessionRole = await resolveRoutineSessionRole(
+              result.member, fetchViewerSessionRole, 2500,
+            );
+          }
+          if (!isAttemptCurrent()) throw new Error('Session validation timed out.');
+          return result;
+        };
+        const recovery = isRoutineRevalidation ? await recoverViewerSession({
+          request: readSession,
+          isCurrent: () => !isCancelled(),
+          retentionDeadline: retentionDeadlineRef.current,
+          onTransient: () => {
+            sessionRequest?.cancel();
+            invalidateViewerSessionRequest(viewerSessionScope);
+            pauseSessionWork(true);
+            setSessionRecovering(true);
+          },
+          onDeadline: blockRecovery,
+        }) : null;
+        if (recovery?.cancelled) return { cancelled: true };
+        if (recovery?.error) return {
+          valid: false, serverResponded: !!recovery.authoritative,
+        };
+        const { response, member, refreshedSessionRole: routineRole } = recovery?.value || await Promise.race([
           sessionRequest.promise,
           new Promise((_, reject) => {
             timeout = setTimeout(() => reject(new Error('Session validation timed out.')), 10000);
@@ -1989,11 +2118,7 @@ useEffect(() => {
               sessionExpiry,
             };
             const refreshedSessionRole = isRoutineRevalidation
-              ? await resolveRoutineSessionRole(
-                member,
-                roleId => base44.entities.Role.get(roleId),
-                10000 - (Date.now() - validationStartedAt),
-              )
+              ? routineRole
               : member.sessionRole;
             if (isCancelled()) return { valid: false, serverResponded: false, cancelled: true };
             localStorage.setItem('agcas_member', JSON.stringify(memberData));
@@ -2036,6 +2161,10 @@ useEffect(() => {
             // SECURITY: Mark session as validated - this enables authenticated API access
             setSessionValidated(true);
             setSessionValidatedAt(Date.now());
+            retentionDeadlineRef.current = 0;
+            clearTimeout(retentionTimeout);
+            setSessionRecoveryBlocked(false);
+            pauseSessionWork(false);
             
             // Fetch organization info for regular members
             if (member.organization_id && !member.is_team_member) {
@@ -2076,6 +2205,9 @@ useEffect(() => {
       if (!isRoutineRevalidation) {
         setAuthResolved(false);
         setSessionValidated(false);
+      } else if (!viewerSessionCanRecover()) {
+        pauseSessionWork(true);
+        setSessionRecovering(true);
       }
       setSessionError(null);
 
@@ -2085,7 +2217,9 @@ useEffect(() => {
       // Session validation is independent of route metadata. Redirect decisions
       // below are made by a separate effect only after visibility has resolved.
       setSessionError(!sessionResult.valid && !sessionResult.serverResponded
-        ? new Error('Unable to verify your session. Please try again.')
+        ? new Error(isRoutineRevalidation
+          ? 'Unable to verify your session. Your page is saved here; reconnect or retry.'
+          : 'Unable to verify your session. Please try again.')
         : null);
       if (!sessionResult.valid) {
         // A transport failure is not proof of logout, but cached authorization
@@ -2096,8 +2230,17 @@ useEffect(() => {
           setOrganizationInfo(null);
           setContextMemberInfo(null);
         }
-        setSessionValidated(false);
+        // A retained same-identity page must not observe a guest transition:
+        // Canvas renderers would tear down live form/iframe state. Its view
+        // projection stays validated, but the fetch gate forbids new work.
+        if (sessionResult.serverResponded || !isRoutineRevalidation) setSessionValidated(false);
+        pauseSessionWork(viewerSessionFailureRetainsWorkPause(
+          isRoutineRevalidation, sessionResult.serverResponded,
+        ));
         if (sessionResult.serverResponded) {
+          retentionDeadlineRef.current = 0;
+          clearTimeout(retentionTimeout);
+          setSessionRecoveryBlocked(false);
           localStorage.removeItem('agcas_member');
           localStorage.removeItem('agcas_organization');
           clearInboxPopupSessionFlags();
@@ -2105,17 +2248,20 @@ useEffect(() => {
       }
       setAuthResolved(true);
       routineRevalidationInFlightRef.current = false;
+      setSessionRecovering(false);
     };
 
     handleAuth();
     return () => {
       lease.cancel();
-      sessionRequest.cancel();
+      sessionRequest?.cancel();
+      clearTimeout(retentionTimeout);
     };
   }, [authRevision, viewerSessionScope]); // Routes and visibility metadata are not session boundaries.
 
   useViewerSessionRevalidation({
-    enabled: authResolved && sessionValidated,
+    enabled: authResolved && sessionValidated && !sessionError && !sessionRecovering
+      && !routineRevalidationInFlightRef.current,
     validatedAt: sessionValidatedAt,
     onRevalidate: revalidateViewerSession,
   });
@@ -2256,6 +2402,12 @@ useEffect(() => {
     setSessionValidated(false);
     setAuthResolved(false);
     setSessionValidatedAt(0);
+    routineRevalidationRef.current = false;
+    routineRevalidationInFlightRef.current = false;
+    retentionDeadlineRef.current = 0;
+    setSessionRecoveryBlocked(false);
+    setSessionRecovering(false);
+    pauseSessionWork(true);
     try {
       // Clear server session first
       await fetch('/api/auth/logout', { 
@@ -2269,6 +2421,10 @@ useEffect(() => {
     localStorage.removeItem('agcas_member');
     localStorage.removeItem('agcas_organization');
     clearInboxPopupSessionFlags();
+    setMemberInfo(null);
+    setOrganizationInfo(null);
+    setContextMemberInfo(null);
+    pauseSessionWork(false);
     window.location.href = createPageUrl('Home');
   };
 
@@ -2712,9 +2868,12 @@ useEffect(() => {
 
   return (
     <PortalReadiness
-      ready={!visibilitySettingsError && authResolved && sessionValidated}
+      ready={!visibilitySettingsError && authResolved && sessionValidated && !sessionRecoveryBlocked}
       error={visibilitySettingsError || sessionError}
-      onRetry={visibilitySettingsError ? retryVisibilitySettings : retrySessionRoleValidation}
+      onRetry={visibilitySettingsError ? retryVisibilitySettings
+        : retentionDeadlineRef.current ? revalidateViewerSession : retrySessionRoleValidation}
+      recovering={sessionRecovering}
+      offline={window.navigator.onLine === false}
       retryLabel="Retry"
     >
     <div style={{
@@ -3348,6 +3507,12 @@ useEffect(() => {
                     authGenerationRef.current += 1;
                     invalidateViewerSessionRequest(viewerSessionScope);
                     setSessionValidated(false);
+                    routineRevalidationRef.current = false;
+                    routineRevalidationInFlightRef.current = false;
+                    retentionDeadlineRef.current = 0;
+                    setSessionRecoveryBlocked(false);
+                    setSessionRecovering(false);
+                    pauseSessionWork(true);
                     setAuthResolved(false);
                     setSessionValidatedAt(0);
                     try {

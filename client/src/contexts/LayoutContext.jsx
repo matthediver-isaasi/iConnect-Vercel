@@ -34,6 +34,9 @@ const LayoutContext = createContext({
   // Hooks should require BOTH memberInfo AND sessionValidated to treat user as authenticated
   sessionValidated: false,
   setSessionValidated: () => {},
+  // View identity can remain validated while recovery prohibits new API work.
+  sessionWorkPaused: false,
+  setSessionWorkPaused: () => {},
   // SECURITY: Auth resolution flag - true once /api/auth/me completes (success OR failure)
   // This tells hooks that auth check is complete and they can safely gate queries
   authResolved: false,
@@ -65,6 +68,7 @@ export function LayoutProvider({ children }) {
   const [reloadMemberInfoFn, setReloadMemberInfoFn] = useState(() => () => {});
   // SECURITY: Session validation flag - starts false, set true only after /api/auth/me succeeds
   const [sessionValidated, setSessionValidatedState] = useState(false);
+  const [sessionWorkPaused, setSessionWorkPaused] = useState(false);
   // SECURITY: Auth resolution flag - true once /api/auth/me completes (success OR failure)
   const [authResolved, setAuthResolvedState] = useState(false);
   // Deliberately separate from memberInfo/organizationInfo: those can be
@@ -198,6 +202,8 @@ export function LayoutProvider({ children }) {
       // SECURITY: Session validation flag
       sessionValidated,
       setSessionValidated,
+      sessionWorkPaused,
+      setSessionWorkPaused,
       // SECURITY: Auth resolution flag
       authResolved,
       setAuthResolved,

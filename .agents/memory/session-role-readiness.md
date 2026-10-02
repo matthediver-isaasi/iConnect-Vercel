@@ -50,3 +50,30 @@ Equivalent legacy snapshots are not evidence that permissions remain unchanged.
 **Why:** A legacy auth response omits the role projection; preserving its session key with an infinitely fresh fallback query can retain revoked permissions indefinitely.
 
 **How to apply:** Resolve legacy permissions afresh within the routine check's bounded budget before comparing authoritative projections. Never use equality of legacy metadata to suppress role revalidation.
+
+Routine transport recovery must preserve view state separately from permission to
+start protected work, and retries must share the original retention deadline.
+
+**Why:** Making a retained Canvas page observe a guest transition destroys its
+live controls; treating the retained view as renewed authorization instead lets
+cached grants survive a failed check. Resetting the deadline on each retry has
+the same security failure.
+
+**How to apply:** Keep same-identity view state only behind the readiness boundary
+after the deadline, reject new protected requests without queuing mutations, and
+restore interaction only after fresh authoritative verification. Offline expiry
+must establish that deadline even though it cannot start a network request.
+Always distinguish fixture verification from a confirmed production cause.
+
+Recovery request gates must not turn confirmed guests into permanently blocked
+viewers, and online/visible events must wake recovery within its current deadline.
+
+**Why:** Public job and booking flows share the functions transport with member
+operations. A blanket pause after a cold null session blocks legitimate guest
+actions. Waiting until a deadline without observing early connectivity events can
+strand an already-online user behind the recovery screen.
+
+**How to apply:** Test cold guest public actions and early reconnect transitions,
+not only signed-in failures and reconnects after the deadline. Keep mixed-access
+operations blocked for retained members while allowing normal confirmed-guest
+flows under server authorization.

@@ -21,6 +21,7 @@ function startRequest(scope, fetchImpl) {
   };
   entry.promise = fetchImpl('/api/auth/me', {
     credentials: 'include',
+    cache: 'no-store',
     signal: controller.signal,
   }).then(async (response) => {
     if (entry.invalidated) throw cancelledError();
@@ -108,9 +109,10 @@ export function isViewerSessionRevalidationDue(
  * settings. Auth state is deliberately not committed here; Layout's guarded
  * auth effect remains the only consumer allowed to apply the response.
  */
-export function useViewerSessionPreload(scope) {
+export function useViewerSessionPreload(scope, enabled = true) {
   useEffect(() => {
+    if (!enabled) return undefined;
     const lease = acquireViewerSessionRequest(scope);
     return () => lease.cancel();
-  }, [scope]);
+  }, [scope, enabled]);
 }

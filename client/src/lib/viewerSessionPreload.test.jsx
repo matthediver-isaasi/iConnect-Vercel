@@ -68,6 +68,28 @@ test('mounted preload starts before delayed settings and shares one parsed respo
   }
 });
 
+test('offline routine preload is suppressed until transport is available', async () => {
+  const originalFetch = globalThis.fetch;
+  let requests = 0;
+  globalThis.fetch = async () => { requests += 1; return response({ id: 'member-a' }); };
+  function Harness({ available }) {
+    useViewerSessionPreload('offline-routine-test', available);
+    return null;
+  }
+  const root = createRoot(document.createElement('div'));
+  try {
+    await act(async () => root.render(<Harness available={false} />));
+    assert.equal(requests, 0);
+    await act(async () => root.render(<Harness available={false} />));
+    assert.equal(requests, 0, 'blocked readiness renders must not accidentally start a preload');
+    await act(async () => root.render(<Harness available />));
+    assert.equal(requests, 1);
+  } finally {
+    await act(async () => root.unmount());
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('initial branding resolution keeps the host-derived request scope stable', async () => {
   const originalFetch = globalThis.fetch;
   const pending = deferred();

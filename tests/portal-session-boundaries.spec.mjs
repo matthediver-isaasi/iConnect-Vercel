@@ -110,6 +110,7 @@ async function installFixture(page) {
     documents: 0,
     authReads: 0,
     authStatus: 200,
+    authAbort: false,
     authBody: sessionBody(),
     authGate: deferred(true),
     authAttempts: [],
@@ -120,10 +121,13 @@ async function installFixture(page) {
     logoutGate: deferred(false),
     logoutReads: 0,
     writes: [],
+    guestActions: [],
+    allowGuestActions: false,
     unexpected: [],
     external: [],
-    setAuth({ status = 200, body = sessionBody(), hold = false } = {}) {
+    setAuth({ status = 200, body = sessionBody(), hold = false, abort = false } = {}) {
       state.authStatus = status;
+      state.authAbort = abort;
       state.authBody = body;
       state.authGate = deferred(!hold);
     },
@@ -173,6 +177,12 @@ async function installFixture(page) {
     }
 
     const key = `${method} ${url.pathname}${url.search}`;
+    if (state.allowGuestActions && method === "POST"
+      && ["/api/functions/createJobPostingNonMember", "/api/functions/getStripePublishableKey",
+        "/api/functions/createJobPostingPaymentIntent"].includes(url.pathname)) {
+      state.guestActions.push(url.pathname);
+      return json(route, { success: true, fixture: true });
+    }
     // Layout legitimately records navigation activity. Keep this exact write
     // entirely in the fixture; all other writes remain blocked below.
     if (method === "PATCH" && url.pathname === `/api/entities/Member/${MEMBER.id}`
@@ -192,9 +202,11 @@ async function installFixture(page) {
       state.authReads += 1;
       const gate = state.authGate;
       const status = state.authStatus;
+      const abort = state.authAbort;
       const body = state.authBody;
       state.authAttempts.push({ gate, status, body });
       await gate.promise;
+      if (abort) return route.abort("internetdisconnected");
       return json(route, body, status);
     }
     if (url.pathname === "/api/auth/tenant-user-me") {
@@ -271,6 +283,7 @@ async function installFixture(page) {
     if (url.pathname === "/api/public/favicon-url") return json(route, { faviconUrl: null });
     if (url.pathname === "/api/public/platform-defaults") return json(route, {});
     if (url.pathname === "/api/public/ai-help-persona") return json(route, { enabled: false });
+    if (url.pathname === "/api/member-ai/config") return json(route, { enabled: false });
     if (url.pathname === "/api/public/form-consent-message") return json(route, { message: null });
     if (url.pathname === "/api/tenant-canvas-theme") return json(route, { theme: null });
     if (url.pathname === "/api/public/canvas-symbols") return json(route, { symbols: [] });
@@ -513,7 +526,7 @@ test("legacy routine checks retain content while refreshing role permissions and
   await expect(page.getByText("Session boundary content: session-boundary", { exact: true })).toBeVisible();
   await page.clock.fastForward(10_000);
   await expect(page.getByRole("alert")).toContainText("Unable to verify your session");
-  await expect(page.getByText("Session boundary content: session-boundary", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Session boundary content: session-boundary", { exact: true })).toBeHidden();
   expectReadOnlyClean(state);
 });
 
@@ -532,14 +545,19 @@ test("routine timeout closes access and explicit retry restores the route", asyn
 
   await page.clock.fastForward(10_000);
   await expect(page.getByRole("alert")).toContainText("Unable to verify your session");
-  await expect(page.getByText("Session boundary content: session-boundary", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Session boundary content: session-boundary", { exact: true })).toBeHidden();
   await expect(page.getByRole("link", { name: "Fixture workspace", exact: true })).toBeHidden();
 
-  state.setAuth();
+  const beforeRetry = state.authReads;
+  state.setAuth({ hold: true });
   await page.getByRole("button", { name: "Retry", exact: true }).click();
-  await expect.poll(() => state.authReads).toBe(3);
+  await expect.poll(() => state.authReads).toBe(beforeRetry + 1);
+  state.releaseAuthAttempt(2);
+  await expect(input).toBeHidden();
+  state.releaseAuth();
   await expect(page.getByText("Session boundary content: session-boundary", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "Fixture workspace", exact: true })).toBeVisible();
+  await expectRetentionState(page, input, "timeout draft", scrollTop);
   expectReadOnlyClean(state);
 });
 
@@ -585,7 +603,7 @@ test("tenant account change supersedes a held routine response and rejects its l
   expectReadOnlyClean(state);
 });
 
-test("failed expiry revalidation stays closed and Try again recovers", async ({ page }) => {
+test("failed expiry revalidation closes at the original deadline and Retry recovers", async ({ page }) => {
   await page.clock.install({ time: new Date("2026-01-01T00:00:00Z") });
   const state = await installFixture(page);
   await page.goto("/session-boundary");
@@ -594,17 +612,153 @@ test("failed expiry revalidation stays closed and Try again recovers", async ({ 
   state.setAuth({ status: 503, body: { error: "Synthetic auth outage" } });
   await page.clock.fastForward(FIVE_MINUTES);
   await expect.poll(() => state.authReads).toBe(2);
+  await expect(page.getByText("Session boundary content: session-boundary", { exact: true })).toBeVisible();
+  await page.clock.runFor(10_000);
   await expect(page.getByRole("alert")).toContainText("Unable to verify your session");
-  await expect(page.getByText("Session boundary content: session-boundary", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Session boundary content: session-boundary", { exact: true })).toBeHidden();
   await expect(page.getByRole("link", { name: "Fixture workspace", exact: true })).toBeHidden();
 
+  const reads = state.authReads;
   state.setAuth();
   await page.getByRole("button", { name: "Retry", exact: true }).click();
-  await expect.poll(() => state.authReads).toBe(3);
+  await expect.poll(() => state.authReads).toBe(reads + 1);
   await expect(page.getByText("Session boundary content: session-boundary", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "Fixture workspace", exact: true })).toBeVisible();
   expectReadOnlyClean(state);
 });
+
+for (const [slug, abort] of [["session-boundary", false], ["session-boundary-next", true]]) {
+  test(`transient ${abort ? "transport" : "server"} failure automatically recovers exact state on ${slug}`, async ({ page }) => {
+    await page.clock.install({ time: new Date("2026-01-01T00:00:00Z") });
+    const state = await installFixture(page);
+    await page.goto(`/${slug}`);
+    await expect(page.getByText(`Session boundary content: ${slug}`, { exact: true })).toBeVisible();
+    const draft = `unsaved ${slug} recovery draft`;
+    const input = await prepareRetentionState(page, draft);
+    state.setAuth({ status: 503, abort });
+    await page.clock.fastForward(FIVE_MINUTES);
+    await expect.poll(() => state.authReads).toBe(2);
+    await expect(page.getByText(/Reconnecting to your session/)).toBeVisible();
+    await expectRetentionState(page, input, draft, 120);
+    state.setAuth();
+    await page.clock.runFor(500);
+    await expect.poll(() => state.authReads).toBe(3);
+    await expect(page.getByText(/Reconnecting to your session/)).toHaveCount(0);
+    await expectRetentionState(page, input, draft, 120);
+    expect(state.documents).toBe(1);
+    expectReadOnlyClean(state);
+  });
+}
+
+test("exhausted recovery is bounded and concurrent return events cannot extend access or storm requests", async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-01-01T00:00:00Z") });
+  const state = await installFixture(page);
+  await page.goto("/session-boundary");
+  await expect(page.getByText("Session boundary content: session-boundary", { exact: true })).toBeVisible();
+  const input = await prepareRetentionState(page, "bounded retry draft");
+  state.setAuth({ status: 503 });
+  await page.clock.fastForward(FIVE_MINUTES);
+  await expect.poll(() => state.authReads).toBe(2);
+  await page.clock.runFor(500);
+  await expect.poll(() => state.authReads).toBe(3);
+  await page.clock.runFor(1000);
+  await expect.poll(() => state.authReads).toBe(4);
+  await page.clock.runFor(8500);
+  await expect(page.getByRole("alert")).toContainText("Unable to verify");
+  await expect(input).toBeHidden();
+  expect(await page.evaluate(async () => {
+    const results = [];
+    for (const method of ["GET", "POST"]) {
+      try {
+        await fetch("/api/entities/Booking", { method });
+        results.push("unexpected request");
+      } catch (error) {
+        results.push(error.code);
+      }
+    }
+    return results;
+  })).toEqual(["VIEWER_SESSION_WORK_PAUSED", "VIEWER_SESSION_WORK_PAUSED"]);
+  await page.clock.fastForward(60_000);
+  expect(state.authReads).toBe(4);
+  state.setAuth({ hold: true });
+  await page.evaluate(() => {
+    for (let i = 0; i < 20; i++) {
+      dispatchEvent(new Event("focus"));
+      dispatchEvent(new Event("online"));
+      document.dispatchEvent(new Event("visibilitychange"));
+    }
+  });
+  await expect.poll(() => state.authReads).toBe(5);
+  await expect(input).toBeHidden();
+  state.releaseAuth();
+  await expectRetentionState(page, input, "bounded retry draft", 120);
+  expect(state.authReads).toBe(5);
+  expectReadOnlyClean(state);
+});
+
+for (const early of [false, true]) {
+test(`offline return ${early ? "reconnects before" : "blocks at"} ten seconds and preserves state`, async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-01-01T00:00:00Z") });
+  const state = await installFixture(page);
+  await page.goto("/session-boundary-next");
+  await expect(page.getByText("Session boundary content: session-boundary-next", { exact: true })).toBeVisible();
+  const input = await prepareRetentionState(page, "offline draft");
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "onLine", { configurable: true, value: false });
+    dispatchEvent(new Event("offline"));
+  });
+  await page.clock.fastForward(FIVE_MINUTES);
+  await expect(page.getByText(/offline/i).first()).toBeVisible();
+  await page.clock.runFor(early ? 1000 : 10_000);
+  if (early) await expect(input).toBeVisible();
+  else await expect(input).toBeHidden();
+  const reads = state.authReads;
+  if (!early) await page.clock.fastForward(60_000);
+  expect(state.authReads).toBe(reads);
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "onLine", { configurable: true, value: true });
+    dispatchEvent(new Event("online"));
+    dispatchEvent(new Event("focus"));
+  });
+  await expectRetentionState(page, input, "offline draft", 120);
+  expect(state.authReads).toBe(reads + 1);
+  expectReadOnlyClean(state);
+});
+}
+
+test("cold guest public actions reach transport after authoritative null session", async ({ page }) => {
+  const state = await installFixture(page);
+  state.setAuth({ body: null });
+  state.allowGuestActions = true;
+  await page.goto("/session-boundary-public");
+  await expect(page.getByText("Session boundary content: session-boundary-public", { exact: true })).toBeVisible();
+  expect(await page.evaluate(async () => {
+    const { base44 } = await import("/src/api/base44Client.js");
+    return Promise.all(["createJobPostingNonMember", "getStripePublishableKey",
+      "createJobPostingPaymentIntent"].map(async name => {
+      const response = await base44.functions.invoke(name, { fixture: true });
+      return response.data.fixture;
+    }));
+  })).toEqual([true, true, true]);
+  expect(state.guestActions).toHaveLength(3);
+  expectReadOnlyClean(state);
+});
+
+for (const status of [200, 401, 403]) {
+  test(`confirmed invalid session (${status}) cancels recovery immediately`, async ({ page }) => {
+    await page.clock.install({ time: new Date("2026-01-01T00:00:00Z") });
+    const state = await installFixture(page);
+    await page.goto("/session-boundary");
+    await expect(page.getByText("Session boundary content: session-boundary", { exact: true })).toBeVisible();
+    state.setAuth({ status, body: null });
+    await page.clock.fastForward(FIVE_MINUTES);
+    await expect.poll(() => state.authReads).toBe(2);
+    await expect(page.getByText("Session boundary content: session-boundary", { exact: true })).toBeHidden();
+    await page.clock.runFor(10_000);
+    expect(state.authReads).toBe(2);
+    expectReadOnlyClean(state);
+  });
+}
 
 test("logout closes the protected workspace before the intercepted request settles", async ({ page }) => {
   const state = await installFixture(page);
