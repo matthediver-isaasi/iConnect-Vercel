@@ -12,3 +12,15 @@ Event invoice retries must use the durable operation authority, not rerun checko
 Health monitoring must read persisted completed-sweep evidence and eligibility-aware delays, never call Xero or trigger recovery. `needs_review` is not automatic recovery.
 
 **Why:** Monitoring must not consume the quota it monitors; a successful empty sweep differs from a never-run worker, and permitted cooldowns differ from overdue work.
+
+The user clarified that the sweep's purpose includes creating missing historical invoices, not merely identifying them. A missing checkout snapshot alone must not be treated as permanently unrepairable when original booking/provider evidence can support recovery.
+
+**Why:** A discovery-only historical sweep did not meet the intended product requirement.
+
+**How to apply:** Reconcile existing provider invoices first, reconstruct from verified evidence under an explicit accounting policy where necessary, then use the same fenced writer. Keep genuinely ambiguous tax, purchaser, payment and duplicate cases distinct from recoverable failures.
+
+Historical Stripe lookup may find a payment in test mode while the tenant currently uses live mode.
+
+**Why:** The fallback between Stripe modes can successfully retrieve test payments from real booking rows; a successful capture alone does not prove live settlement.
+
+**How to apply:** Verify provider livemode before posting live accounting settlement; never reinterpret test payments as live receipts.
