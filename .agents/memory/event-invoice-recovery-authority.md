@@ -19,6 +19,12 @@ The user clarified that the sweep's purpose includes creating missing historical
 
 **How to apply:** Reconcile existing provider invoices first, reconstruct from verified evidence under an explicit accounting policy where necessary, then use the same fenced writer. Keep genuinely ambiguous tax, purchaser, payment and duplicate cases distinct from recoverable failures.
 
+As of 2026-10-02, the user narrowed the current recovery scope: bookings before this point can be manually resolved; focus on automatic recovery for new bookings.
+
+**Why:** The user explicitly said historical bookings do not need attention currently.
+
+**How to apply:** Do not expand current rollout work into historical cleanup or treat existing historical review records as blockers for new-booking recovery. Retain existing safety checks and manual recovery capabilities.
+
 Historical Stripe lookup may find a payment in test mode while the tenant currently uses live mode.
 
 **Why:** The fallback between Stripe modes can successfully retrieve test payments from real booking rows; a successful capture alone does not prove live settlement.
