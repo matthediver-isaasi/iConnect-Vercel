@@ -521,9 +521,9 @@ Better Stack GET /api/health/event-invoice-recovery
 
 ### Xero
 
-The dedicated adapter sends frozen contact/invoice lines, dates, currency, account/tax/tracking mappings and purchaser PO reference. It uses `event-` plus the first 48 hex characters of SHA-256 over JSON `[tenantId, source, group]` as the provider-unique invoice number.
+The dedicated adapter sends frozen contact/invoice lines, dates, currency, account/tax/tracking mappings and purchaser PO reference. New invoices omit `InvoiceNumber`, allowing Xero to assign its normal number. The deterministic operation identity is retained in idempotency keys and an exact marker appended to the first line description, not in the customer-facing invoice number.
 
-Before first linkage, invoice lookup is exact `InvoiceNumber == identity`; after linkage it fetches `Invoices/{invoice_id}`. The purchaser-editable invoice `Reference` is never used as the journal. Stripe payment lookup uses exact `Reference == identity + ":" + paymentIntentId`.
+Before first linkage, invoice lookup exhausts bounded issue-date pages and matches the exact operation marker, also recognizing older `InvoiceNumber == identity` invoices. After linkage it fetches `Invoices/{invoice_id}`. Incomplete or ambiguous searches never authorize creation. The purchaser-editable invoice `Reference` is never used as the journal. Stripe payment lookup uses exact `Reference == identity + ":" + paymentIntentId`.
 
 Invoice creation uses POST `Invoices` and idempotency key `{identity}-invoice`; payment creation uses PUT `Payments` and `{identity}-payment`. Invoice/payment responses are verified rather than trusted merely because HTTP succeeded. A Xero serialized `/Date(...)/`-style date is normalized to an ISO day for comparison; payment date uses the captured settlement day.
 

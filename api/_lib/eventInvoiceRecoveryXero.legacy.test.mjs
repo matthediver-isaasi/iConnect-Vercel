@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createEventInvoiceRecoveryXero } from './eventInvoiceRecoveryXero.js';
+import { createEventInvoiceRecoveryXero, recoveryInvoiceMarker } from './eventInvoiceRecoveryXero.js';
 import { processEventInvoiceRecovery, recoveryIdentity } from './eventInvoiceRecovery.js';
 
 const job = () => ({
@@ -291,9 +291,10 @@ test('only complete absence authorizes journaled writes with stable deterministi
   const db = database(row);
   const identity = recoveryIdentity(row.tenant_id, row.source, row.booking_group_reference);
   const calls = [];
-  const createdInvoice = { ...row.snapshot.invoice, InvoiceID: 'new-invoice', InvoiceNumber: identity,
+   const createdInvoice = { ...row.snapshot.invoice, InvoiceID: 'new-invoice', InvoiceNumber: 'INV-0042',
     Total: 166.67, AmountPaid: 0, AmountDue: 166.67,
-    LineItems: [{ ...row.snapshot.invoice.LineItems[0], LineAmount: 166.67 }] };
+     LineItems: [{ ...row.snapshot.invoice.LineItems[0], LineAmount: 166.67,
+       Description: row.snapshot.invoice.LineItems[0].Description + recoveryInvoiceMarker(identity) }] };
   const result = await processEventInvoiceRecovery({ db,
     providerFactory: options => createEventInvoiceRecoveryXero({ ...options,
       fetchImpl: async (url, init) => {
@@ -303,6 +304,10 @@ test('only complete absence authorizes journaled writes with stable deterministi
           assert.equal(calls.slice(0, -1).every(([, prior]) => prior.method === 'GET'), true);
           assert.equal(calls.length, 4, 'exact invoice, terminal invoice and terminal payment scans precede write');
           assert.equal(init.headers['Idempotency-Key'], `${identity}-invoice`);
+           const payload = JSON.parse(init.body).Invoices[0];
+           assert.equal(Object.hasOwn(payload, 'InvoiceNumber'), false);
+           assert.equal(payload.Reference, 'TBC');
+           assert.equal(payload.LineItems[0].Description, createdInvoice.LineItems[0].Description);
           data = { Invoices: [createdInvoice] };
         } else if (init.method === 'PUT') {
           assert.equal(init.headers['Idempotency-Key'], `${identity}-payment`);

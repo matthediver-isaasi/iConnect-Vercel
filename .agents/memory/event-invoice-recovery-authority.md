@@ -24,3 +24,9 @@ Historical Stripe lookup may find a payment in test mode while the tenant curren
 **Why:** The fallback between Stripe modes can successfully retrieve test payments from real booking rows; a successful capture alone does not prove live settlement.
 
 **How to apply:** Verify provider livemode before posting live accounting settlement; never reinterpret test payments as live receipts.
+
+Use Xero's normal invoice numbering, not the internal recovery identifier.
+
+**Why:** The user explicitly requested correcting recovery invoices whose internal event hashes appeared as customer-facing invoice numbers. Existing paid invoices must be renamed in place, never recreated or repaid.
+
+**How to apply:** Keep duplicate-prevention identity separate from numbering and retain provider invoice/payment IDs. Xero auto-numbering on creation does not establish that omitting the number on an update regenerates it; do not experiment on paid invoices.

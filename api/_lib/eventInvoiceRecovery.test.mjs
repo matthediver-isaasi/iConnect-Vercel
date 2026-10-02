@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { enqueueEventInvoiceRecovery, processEventInvoiceRecovery, providerCooldown,
   recoveryIdentity, validRecoverySnapshot } from './eventInvoiceRecovery.js';
-import { createEventInvoiceRecoveryXero } from './eventInvoiceRecoveryXero.js';
+import { createEventInvoiceRecoveryXero, recoveryInvoiceMarker } from './eventInvoiceRecoveryXero.js';
 import { eventRecoveryCronHandler, validEventRecoveryCronSecret } from '../cron/reconcile-event-invoices.js';
 import { eventInvoiceRecoveryHealthHandler } from '../health/event-invoice-recovery.js';
 
@@ -144,9 +144,10 @@ test('actual adapter pins organization, bounds transport, uses exact where and s
       calls.push({ url, init });
       assert.equal(init.headers['xero-tenant-id'], 'org');
       assert.ok(init.signal);
-      return { ok: true, status: 200, json: async () => url.includes('Accounts?')
+       return { ok: true, status: 200, json: async () => url.includes('Accounts?')
         ? { Accounts: [{ Code: '090', Status: 'ACTIVE', Type: 'BANK', CurrencyCode: 'GBP' }] }
-        : url.includes('Payments') ? { Payments: [{ PaymentID: 'p' }] } : { Invoices: [invoice()] } };
+         : url.includes('Payments') ? { Payments: [{ PaymentID: 'p' }] }
+           : { Invoices: init.method === 'POST' ? [invoice()] : [] } };
     },
   });
   await adapter.findInvoices();
@@ -157,6 +158,9 @@ test('actual adapter pins organization, bounds transport, uses exact where and s
   assert.equal(calls[2].init.headers['Idempotency-Key'], `${identity}-invoice`);
   assert.equal(calls[4].init.headers['Idempotency-Key'], `${identity}-payment`);
   assert.notEqual(calls[2].init.headers['Idempotency-Key'], calls[4].init.headers['Idempotency-Key']);
+  const payload = JSON.parse(calls[2].init.body).Invoices[0];
+  assert.equal(Object.hasOwn(payload, 'InvoiceNumber'), false);
+  assert.equal(payload.LineItems[0].Description, 'Event ticket' + recoveryInvoiceMarker(identity));
 });
 
 test('provider 429 is persisted once and stops further requests in that attempt', async () => {
@@ -226,6 +230,173 @@ test('persisted invoice ID wins over renamed visible number; never search/create
   assert.deepEqual(await adapter.findInvoices(), [remote]);
   assert.doesNotThrow(() => adapter.validateInvoice(remote));
   assert.deepEqual(calls, [['https://api.xero.com/api.xro/2.0/Invoices/known-id', 'GET']]);
+});
+
+function numberedXeroFixture({ method = 'invoice', failure = null } = {}) {
+  const job = row();
+  job.snapshot.invoice.Reference = 'CUSTOMER-PO-123';
+  if (method === 'invoice') {
+    job.snapshot.paymentMethod = 'invoice';
+    job.snapshot.settlement = null;
+  }
+  const identity = recoveryIdentity(job.tenant_id, job.source, job.booking_group_reference);
+  const db = Object.assign(mockDb(job), tokenDb());
+  const rpc = db.rpc;
+  let failed = false;
+  db.rpc = async (name, args) => {
+    const result = await rpc(name, args);
+    if (name.endsWith('_start_write')) job[`${args.p_kind}_write_started_at`] = '2026-01-01T00:00:00Z';
+    if (name.endsWith('_record_invoice')) {
+      if (failure === 'record' && !failed) { failed = true; return { error: new Error('local journal lost') }; }
+      job.invoice_id = args.p_invoice_id;
+    }
+    if (name.endsWith('_finish') && args.p_status === 'complete') {
+      if (failure === 'link' && !failed) { failed = true; return { data: false }; }
+      job.payment_id = args.p_payment_id;
+    }
+    return result;
+  };
+  const calls = [];
+  const remote = { invoice: null, payment: null };
+  const fetchImpl = async (url, init) => {
+    const parsed = new URL(url);
+    calls.push({ url: decodeURIComponent(url), init });
+    let data;
+    if (init.method === 'POST') {
+      const payload = JSON.parse(init.body).Invoices[0];
+      assert.equal(Object.hasOwn(payload, 'InvoiceNumber'), false);
+      assert.equal(payload.Reference, 'CUSTOMER-PO-123');
+      remote.invoice = { ...payload, InvoiceID: 'sequential-id', InvoiceNumber: 'INV-0099',
+        Total: 20, AmountPaid: 0, AmountDue: 20,
+        LineItems: payload.LineItems.map(line => ({ ...line, LineAmount: 20 })) };
+      if (failure === 'response' && !failed) { failed = true; throw new Error('response lost after success'); }
+      data = { Invoices: [remote.invoice] };
+    } else if (init.method === 'PUT') {
+      remote.payment = { ...JSON.parse(init.body).Payments[0], PaymentID: 'settlement-id', Status: 'AUTHORISED' };
+      remote.invoice = { ...remote.invoice, Status: 'PAID', AmountPaid: 20, AmountDue: 0 };
+      data = { Payments: [remote.payment] };
+    } else if (parsed.pathname.endsWith('/Accounts')) {
+      data = { Accounts: [{ Code: '090', Status: 'ACTIVE', Type: 'BANK', CurrencyCode: 'GBP' }] };
+    } else if (parsed.pathname.includes('/Payments')) {
+      data = { Payments: remote.payment ? [remote.payment] : [] };
+    } else {
+      data = { Invoices: parsed.searchParams.get('page') === '2' ? []
+        : remote.invoice ? [remote.invoice] : [] };
+    }
+    return { ok: true, status: 200, json: async () => data };
+  };
+  const run = () => processEventInvoiceRecovery({ db,
+    providerFactory: options => createEventInvoiceRecoveryXero({ ...options, fetchImpl }) });
+  return { job, identity, db, calls, remote, run };
+}
+
+test('normal Xero auto-numbered creation journals INV number and links on retry without rewriting PO', async () => {
+  const f = numberedXeroFixture({ failure: 'link' });
+  assert.equal((await f.run()).status, 'retry');
+  assert.equal(f.job.invoice_id, 'sequential-id');
+  assert.equal((await f.run()).status, 'complete');
+  assert.equal(f.calls.filter(call => call.init.method === 'POST').length, 1);
+  assert.equal(f.db.calls.at(-1)[1].p_invoice_number, 'INV-0099');
+  assert.equal(f.remote.invoice.Reference, 'CUSTOMER-PO-123');
+  assert.ok(f.calls.at(-1).url.endsWith('/Invoices/sequential-id'));
+});
+
+test('exact description marker recovers auto-numbered remote success after response or local record loss', async () => {
+  for (const failure of ['response', 'record']) {
+    const f = numberedXeroFixture({ failure });
+    assert.equal((await f.run()).status, 'retry');
+    assert.equal(f.job.invoice_id, undefined);
+    // Customer-visible PO and number can change; neither is our operation identity.
+    f.remote.invoice.Reference = 'UPDATED-PO';
+    f.remote.invoice.InvoiceNumber = 'INV-0100';
+    assert.equal((await f.run()).status, 'complete');
+    assert.equal(f.calls.filter(call => call.init.method === 'POST').length, 1);
+    assert.equal(f.db.calls.at(-1)[1].p_invoice_id, 'sequential-id');
+    assert.equal(f.db.calls.at(-1)[1].p_invoice_number, 'INV-0100');
+    assert.equal(f.remote.invoice.Reference, 'UPDATED-PO');
+    assert.equal(f.remote.invoice.LineItems[0].Description, 'Event ticket' + recoveryInvoiceMarker(f.identity));
+  }
+});
+
+test('missing or merely similar operation marker after an ambiguous write stops without duplicates', async () => {
+  for (const description of ['Event ticket', 'Event ticket\n[Event invoice recovery: event-unrelated]',
+    'Event ticket\n[Event invoice recovery: event-prefix] extra']) {
+    const f = numberedXeroFixture({ failure: 'response' });
+    assert.equal((await f.run()).status, 'retry');
+    f.remote.invoice.LineItems[0].Description = description;
+    assert.equal((await f.run()).status, 'needs_review');
+    assert.equal(f.db.calls.at(-1)[1].p_reason, 'invoice_creation_ambiguous');
+    assert.equal(f.calls.filter(call => call.init.method === 'POST').length, 1);
+  }
+});
+
+test('pre-marker event-hash numbered operation is discovered without creating another invoice', async () => {
+  const f = numberedXeroFixture();
+  f.remote.invoice = { ...f.job.snapshot.invoice, InvoiceID: 'legacy-event-id', InvoiceNumber: f.identity,
+    Total: 20, AmountDue: 20, AmountPaid: 0,
+    LineItems: [{ ...f.job.snapshot.invoice.LineItems[0], LineAmount: 20 }] };
+  assert.equal((await f.run()).status, 'complete');
+  assert.equal(f.calls.every(call => call.init.method === 'GET'), true);
+  assert.equal(f.db.calls.at(-1)[1].p_invoice_id, 'legacy-event-id');
+});
+
+test('auto-numbered paid invoice renamed in place retains its exact settlement and uses known IDs first', async () => {
+  const f = numberedXeroFixture({ method: 'stripe' });
+  assert.equal((await f.run()).status, 'complete');
+  assert.equal(f.remote.invoice.Status, 'PAID');
+  const originalPayment = structuredClone(f.remote.payment);
+  f.remote.invoice.InvoiceNumber = 'INV-RENAMED';
+  f.remote.invoice.Reference = 'NEW-CUSTOMER-PO';
+  const prior = f.calls.length;
+  assert.equal((await f.run()).status, 'complete');
+  assert.deepEqual(f.calls.slice(prior).map(call => new URL(call.url).pathname.split('/').at(-1)),
+    ['sequential-id', 'settlement-id']);
+  assert.deepEqual(f.remote.payment, originalPayment);
+  assert.equal(f.calls.filter(call => call.init.method === 'POST').length, 1);
+  assert.equal(f.calls.filter(call => call.init.method === 'PUT').length, 1);
+  assert.equal(f.db.calls.at(-1)[1].p_invoice_number, 'INV-RENAMED');
+  f.job.invoice_id = null;
+  const paymentOnlyPrior = f.calls.length;
+  assert.equal((await f.run()).status, 'complete');
+  assert.deepEqual(f.calls.slice(paymentOnlyPrior).map(call => new URL(call.url).pathname.split('/').at(-1)),
+    ['settlement-id', 'sequential-id']);
+  assert.deepEqual(f.remote.payment, originalPayment);
+});
+
+test('paid pre-marker invoice renamed from event-hash keeps invoice/payment IDs and settlement unchanged', async () => {
+  const f = numberedXeroFixture({ method: 'stripe' });
+  f.job.invoice_id = 'paid-legacy-id';
+  f.job.payment_id = 'paid-legacy-settlement';
+  f.remote.invoice = { ...f.job.snapshot.invoice, InvoiceID: f.job.invoice_id, InvoiceNumber: 'INV-0123',
+    Status: 'PAID', Total: 20, AmountPaid: 20, AmountDue: 0,
+    LineItems: [{ ...f.job.snapshot.invoice.LineItems[0], LineAmount: 20 }] };
+  f.remote.payment = { PaymentID: f.job.payment_id, Invoice: { InvoiceID: f.job.invoice_id },
+    Reference: `${f.identity}:pi_123`, Amount: 20, Date: '2026-01-01',
+    Account: { Code: '090' }, Status: 'AUTHORISED' };
+  const before = structuredClone(f.remote);
+  assert.equal((await f.run()).status, 'complete');
+  assert.deepEqual(f.remote, before);
+  assert.deepEqual(f.calls.map(call => new URL(call.url).pathname.split('/').at(-1)),
+    ['paid-legacy-id', 'paid-legacy-settlement']);
+  assert.equal(f.calls.every(call => call.init.method === 'GET'), true);
+  assert.equal(f.db.calls.at(-1)[1].p_invoice_number, 'INV-0123');
+});
+
+test('multiple invoices with our exact operation marker fail closed before writes', async () => {
+  const f = numberedXeroFixture({ failure: 'response' });
+  assert.equal((await f.run()).status, 'retry');
+  const originalFactory = await createEventInvoiceRecoveryXero({
+    db: tokenDb(), row: f.job, identity: f.identity, guard: async () => {}, deadlineAt: Date.now() + 10000,
+    fetchImpl: async url => ({ ok: true, json: async () => ({
+      Invoices: new URL(url).searchParams.get('page') === '2' ? [] : [
+        f.remote.invoice, { ...f.remote.invoice, InvoiceID: 'duplicate-id', InvoiceNumber: 'INV-OTHER' },
+      ],
+    }) }),
+  });
+  assert.equal((await processEventInvoiceRecovery({ db: f.db, providerFactory: async () => originalFactory })).status,
+    'needs_review');
+  assert.equal(f.db.calls.at(-1)[1].p_reason, 'invoice_identity_ambiguous');
+  assert.equal(f.calls.filter(call => call.init.method === 'POST').length, 1);
 });
 
 test('unknown success remains fail-closed after idempotency expiry for invoice and payment', async () => {

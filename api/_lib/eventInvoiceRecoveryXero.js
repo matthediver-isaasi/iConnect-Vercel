@@ -18,7 +18,9 @@ function credential(value) {
     return decipher.update(encrypted, 'hex', 'utf8') + decipher.final('utf8');
   } catch { throw new EventInvoiceRecoveryError('provider_reconnect_required'); }
 }
-export function verifyRecoveryInvoiceFinancials(invoice, snapshot, { legacy = false } = {}) {
+export const recoveryInvoiceMarker = identity => `\n[Event invoice recovery: ${identity}]`;
+
+export function verifyRecoveryInvoiceFinancials(invoice, snapshot, { legacy = false, identity = null } = {}) {
   if (day(invoice.DateString || invoice.Date) !== snapshot.invoice.Date
     || day(invoice.DueDateString || invoice.DueDate) !== snapshot.invoice.DueDate
     || invoice.LineAmountTypes !== snapshot.invoice.LineAmountTypes
@@ -33,7 +35,8 @@ export function verifyRecoveryInvoiceFinancials(invoice, snapshot, { legacy = fa
       && Number(actual.LineAmount) === lineAmount
       && Number(actual.DiscountRate || 0) === Number(expected.DiscountRate || 0)
       && (expected.DiscountAmount == null || Number(actual.DiscountAmount) === Number(expected.DiscountAmount))
-      && (legacy || String(actual.Description || '') === String(expected.Description || ''))
+      && (legacy || String(actual.Description || '') === String(expected.Description || '')
+        + (i === 0 && identity ? recoveryInvoiceMarker(identity) : ''))
       && tracking(actual.Tracking) === tracking(expected.Tracking);
   });
 }
@@ -144,6 +147,11 @@ export async function createEventInvoiceRecoveryXero({
     return data[field][0];
   };
   const legacyInvoiceIds = new Set();
+  // Keep operation identity out of both Xero's sequential number and the buyer's
+  // editable PO Reference. The exact first-line suffix survives a lost response.
+  const marker = recoveryInvoiceMarker(identity);
+  const marked = invoice => invoice?.LineItems?.[0]?.Description?.endsWith(marker) === true;
+  let durablePayment = null;
   const legacyPaymentReference = `Stripe: ${snapshot.settlement?.paymentIntentId || ''}`;
   const hasToken = (text, token) => {
     if (!token) return false;
@@ -205,7 +213,7 @@ export async function createEventInvoiceRecoveryXero({
       const invoice = await knownInvoice(row.invoice_id);
       invoices.set(invoice.InvoiceID, invoice);
       // A previously adopted invoice stays legacy after its ID is journaled.
-      if (invoice.InvoiceNumber !== identity) legacyInvoiceIds.add(invoice.InvoiceID);
+      if (invoice.InvoiceNumber !== identity && !marked(invoice)) legacyInvoiceIds.add(invoice.InvoiceID);
     } else if (row.payment_id) {
       // A durable payment ID also supplies durable invoice identity. Do not
       // let an unrelated broad search override it or consume its request budget.
@@ -214,7 +222,7 @@ export async function createEventInvoiceRecoveryXero({
       if (!id) throw new EventInvoiceRecoveryError('payment_without_invoice');
       const invoice = await knownInvoice(id);
       invoices.set(id, invoice);
-      if (invoice.InvoiceNumber !== identity) legacyInvoiceIds.add(id);
+      if (invoice.InvoiceNumber !== identity && !marked(invoice)) legacyInvoiceIds.add(id);
     } else {
       const exact = await api(`Invoices${query('InvoiceNumber', identity)}`);
       if (!Array.isArray(exact?.Invoices) || exact.Invoices.some(item => !item?.InvoiceID
@@ -225,9 +233,9 @@ export async function createEventInvoiceRecoveryXero({
       for (const invoice of exact.Invoices) invoices.set(invoice.InvoiceID, invoice);
       const where = `Type=="ACCREC"&&Date>=DateTime(${discovery.fromDate.replaceAll('-', ',')})&&Date<=DateTime(${discovery.toDate.replaceAll('-', ',')})`;
       const scanned = await paginated(`Invoices?where=${encodeURIComponent(where)}`, 'Invoices');
-      for (const invoice of scanned.filter(invoiceIdentity)) {
+      for (const invoice of scanned.filter(invoice => marked(invoice) || invoiceIdentity(invoice))) {
         invoices.set(invoice.InvoiceID, invoice);
-        if (invoice.InvoiceNumber !== identity) legacyInvoiceIds.add(invoice.InvoiceID);
+        if (invoice.InvoiceNumber !== identity && !marked(invoice)) legacyInvoiceIds.add(invoice.InvoiceID);
       }
     }
     if (snapshot.paymentMethod === 'stripe') {
@@ -245,7 +253,7 @@ export async function createEventInvoiceRecoveryXero({
         if (!id) throw new EventInvoiceRecoveryError('payment_without_invoice');
         if (row.invoice_id && id !== row.invoice_id) throw new EventInvoiceRecoveryError('payment_evidence_mismatch');
         if (!invoices.has(id)) invoices.set(id, await knownInvoice(id));
-        if (invoices.get(id).InvoiceNumber !== identity) legacyInvoiceIds.add(id);
+        if (invoices.get(id).InvoiceNumber !== identity && !marked(invoices.get(id))) legacyInvoiceIds.add(id);
       }
     }
     if (invoices.size > 1) throw new EventInvoiceRecoveryError('invoice_identity_ambiguous');
@@ -270,39 +278,51 @@ export async function createEventInvoiceRecoveryXero({
       if (row.invoice_id) {
         // Durable ID outranks every mutable human-visible field, including the
         // invoice number. A missing/deleted known invoice NEVER permits create.
-        const data = await api(`Invoices/${encodeURIComponent(row.invoice_id)}`);
-        if (data?.Invoices?.length !== 1 || data.Invoices[0].InvoiceID !== row.invoice_id) {
-          throw new EventInvoiceRecoveryError('known_invoice_unavailable');
-        }
-        return data.Invoices;
+        return [await knownInvoice(row.invoice_id)];
       }
-      // InvoiceNumber is provider-unique. Reference belongs to the purchaser's PO
-      // and is mutable through existing PO tooling; never use it as the journal.
-      const data = await api(`Invoices${query('InvoiceNumber', identity)}`);
-      if (!Array.isArray(data?.Invoices)) throw new EventInvoiceRecoveryError('invoice_lookup_invalid', { retry: true });
-      return data.Invoices;
+      if (row.payment_id) {
+        durablePayment = await knownPayment();
+        const id = durablePayment.Invoice?.InvoiceID;
+        if (!id) throw new EventInvoiceRecoveryError('payment_without_invoice');
+        return [await knownInvoice(id)];
+      }
+      // Xero cannot filter on line descriptions. Exhaust the bounded invoice-date
+      // scope, including the old provider-unique number for pre-marker operations.
+      // Incomplete/ambiguous pages stop recovery; absence after a started write
+      // is NEVER permission to create again (enforced by the recovery journal).
+      const date = snapshot.invoice.Date.replaceAll('-', ',');
+      const where = `InvoiceNumber==${JSON.stringify(identity)}||(Type=="ACCREC"&&Date==DateTime(${date}))`;
+      const invoices = await paginated(`Invoices?where=${encodeURIComponent(where)}`, 'Invoices');
+      return invoices.filter(invoice => invoice.InvoiceNumber === identity || marked(invoice));
     },
     async findPayments() {
       if (discovery) return (await discover()).payments;
-      if (row.payment_id) return [await knownPayment()];
+      if (row.payment_id) return [durablePayment || await knownPayment()];
       const data = await api(`Payments${query('Reference', paymentReference)}`);
       if (!Array.isArray(data?.Payments)) throw new EventInvoiceRecoveryError('payment_lookup_invalid', { retry: true });
       return data.Payments;
     },
     async createInvoice() {
       if (discovery && (await discover()).invoices.length) throw new EventInvoiceRecoveryError('invoice_creation_ambiguous');
+      if (row.invoice_id || row.payment_id) {
+        throw new EventInvoiceRecoveryError('invoice_creation_ambiguous');
+      }
       return single(await api('Invoices', 'POST', {
-        Invoices: [{ ...snapshot.invoice, InvoiceNumber: identity }],
+        Invoices: [{ ...snapshot.invoice, LineItems: snapshot.invoice.LineItems.map((line, i) =>
+          i === 0 ? { ...line, Description: String(line.Description || '') + marker } : { ...line }) }],
       }, `${identity}-invoice`), 'Invoices');
     },
     validateInvoice(invoice) {
       const legacy = legacyInvoiceIds.has(invoice?.InvoiceID);
-      if (!invoice?.InvoiceID || (row.invoice_id ? invoice.InvoiceID !== row.invoice_id : !legacy && invoice.InvoiceNumber !== identity)
+      const knownId = row.invoice_id || durablePayment?.Invoice?.InvoiceID;
+      if (!invoice?.InvoiceID || (knownId ? invoice.InvoiceID !== knownId
+        : !legacy && invoice.InvoiceNumber !== identity && !marked(invoice))
         || invoice.Type !== 'ACCREC'
         || !(snapshot.paymentMethod === 'stripe' ? ['AUTHORISED', 'PAID']
           : [snapshot.invoice.Status, 'AUTHORISED', 'PAID']).includes(invoice.Status)
         || invoice.CurrencyCode !== snapshot.currency
-        || Number(invoice.Total) !== snapshot.amount || !verifyRecoveryInvoiceFinancials(invoice, snapshot, { legacy })
+        || Number(invoice.Total) !== snapshot.amount || !verifyRecoveryInvoiceFinancials(invoice, snapshot,
+          { legacy, identity: marked(invoice) ? identity : null })
         || (snapshot.invoice.Contact.ContactID && invoice.Contact?.ContactID !== snapshot.invoice.Contact.ContactID)
         || (!snapshot.invoice.Contact.ContactID
           && (String(invoice.Contact?.Name || '').trim() !== snapshot.invoice.Contact.Name.trim()
