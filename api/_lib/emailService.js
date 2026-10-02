@@ -50,6 +50,10 @@ export function isAmbiguousDeliveryFailure(error) {
     || /\b(timeout|timed out|network error|connection reset)\b/i.test(details);
 }
 
+export function isDeliveryRateLimit(error) {
+  return Number(error?.status || error?.statusCode || error?.response?.status) === 429;
+}
+
 async function getTenantEmailConfig(tenantId) {
   if (!tenantId) {
     return null;
@@ -502,7 +506,7 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
                           primaryError.status === 401 ||
                           primaryError.status === 403;
       
-      if (isAuthError && domain !== fallbackDomain) {
+      if (isAuthError && !isDeliveryRateLimit(primaryError) && !isAmbiguousDeliveryFailure(primaryError) && domain !== fallbackDomain) {
         if (campaignDeadlineAt != null && campaignDeadlineAt - Date.now() < campaignTimeout + 2000) {
           return { success: false, notSubmitted: true, error: 'Campaign deadline exhausted before fallback delivery' };
         }
@@ -530,7 +534,7 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
       throw primaryError;
     }
   } catch (error) {
-    const status = error?.status || error?.statusCode;
+    const status = error?.status || error?.statusCode || error?.response?.status;
     const errMsg = error?.message || String(error) || 'Unknown error sending email';
     console.error(
       `[Email Service] Failed to send email: status=${status || 'n/a'} domain=${domain} message="${errMsg}"`
@@ -546,6 +550,7 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
       // message, so callers must surface it for manual review rather than
       // automatically replaying the send.
       ambiguousEffect: isAmbiguousDeliveryFailure(error),
+      rateLimited: isDeliveryRateLimit(error),
     };
   }
 }

@@ -86,3 +86,48 @@ test('actual service batch completes ordinary fast recipients without an inline 
   assert.equal(result.remaining, 0);
   assert.equal(result.status, 'sent');
 });
+
+test('actual worker batch defaults to two overlapping slots with immutable render reuse', async t => {
+  const { campaign, rows } = install(t, 6);
+  let active = 0, peak = 0;
+  const renderSnapshots = [];
+  const result = await sendBatch('campaign', 'tenant', campaign, 'tenant', null, 5, {
+    sendRecipient: async (recipient, ...args) => {
+      const options = args.at(-1);
+      renderSnapshots.push(options.batchRender);
+      peak = Math.max(peak, ++active);
+      await new Promise(resolve => setImmediate(resolve));
+      rows.find(row => row.id === recipient.id).status = 'sent';
+      active--;
+      return 'sent';
+    },
+  });
+  assert.equal(peak, 2);
+  assert.equal(result.batchSent, 5);
+  assert.equal(result.queued, 1);
+  assert.ok(renderSnapshots.every(snapshot => snapshot === renderSnapshots[0] && Object.isFrozen(snapshot)));
+});
+
+test('default worker-scaled cap of 200 is shared across both actual service slots, not 200 per slot', async t => {
+  const { campaign, rows } = install(t, 205);
+  let active = 0, peak = 0;
+  const sentIds = new Set();
+  const result = await sendBatch('campaign', 'tenant', campaign, 'tenant', null, 200, {
+    sendRecipient: async recipient => {
+      peak = Math.max(peak, ++active);
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(sentIds.has(recipient.id), false);
+      sentIds.add(recipient.id);
+      rows.find(row => row.id === recipient.id).status = 'sent';
+      active--;
+      return 'sent';
+    },
+  });
+  assert.equal(peak, 2);
+  assert.equal(sentIds.size, 200);
+  assert.equal(result.batchSent, 200);
+  assert.equal(result.batchMetrics.attempted, 200);
+  assert.equal(result.batchMetrics.stopReason, 'batch_cap');
+  assert.equal(result.queued, 5);
+  assert.ok(rows.every(row => row.status !== 'processing'));
+});

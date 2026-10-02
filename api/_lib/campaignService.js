@@ -8,6 +8,7 @@ import {
 import { resolvePreparationChunk } from './campaignPreparationStream.js';
 import { discoverAudienceCustomObjects, resolveCustomObjectConditions, validateCustomObjectCondition, validateAudienceCustomObjects } from './audienceCustomObjects.js';
 import { sendEmail, replacePlaceholders } from './emailService.js';
+import { drainCampaignRecipients as drainRecipients, campaignSendConcurrency } from './campaignDrain.js';
 import { replaceBookingPlaceholders } from './eventConfirmationEmail.js';
 import { resolveCampaignAttendeeContent } from './campaignAttendeeContent.js';
 import { prepareCampaignSurveyDelivery, finishCampaignSurveyDelivery } from './campaignSurveyDelivery.js';
@@ -40,6 +41,10 @@ const supabase = preparationDatabase(rawSupabase);
 
 export function campaignHasTime(deadline, now = Date.now()) {
   return now < deadline;
+}
+
+export async function drainCampaignRecipients(options) {
+  return drainRecipients(options);
 }
 
 // Only read queries are abortable. Mutations (survey grants, QR token writes,
@@ -79,33 +84,6 @@ export function campaignReadBudget(db, deadline) {
       return target[key];
     },
   }), signal: controller.signal, dispose: () => clearTimeout(timer) };
-}
-
-// Claims are deliberately single-row and conditional; callers must not pass a
-// preselected audience into the provider loop. Injectable operations allow the
-// slow-provider and concurrent-worker boundaries to be exercised without mail.
-export async function drainCampaignRecipients({
-  batchSize, deadline, now = Date.now, claim, gate, release, send,
-}) {
-  let sent = 0;
-  let failed = 0;
-  let stoppedGate = null;
-  for (let attempted = 0; attempted < batchSize; attempted++) {
-    if (deadline != null && !campaignHasTime(deadline, now())) break;
-    const [recipient] = await claim();
-    if (!recipient) break;
-    const currentGate = await gate();
-    if (!currentGate.allowed || (deadline != null && !campaignHasTime(deadline, now()))) {
-      await release(recipient, currentGate.cancelled ? 'cancelled' : 'pending');
-      if (!currentGate.allowed) stoppedGate = currentGate;
-      break;
-    }
-    const result = await send(recipient);
-    if (result === 'sent') sent++;
-    else if (result === 'failed') failed++;
-    else if (result === 'stopped') break;
-  }
-  return { sent, failed, stoppedGate };
 }
 
 async function fetchAllRows(queryBuilder) {
@@ -789,9 +767,9 @@ export async function cancelCampaign(campaignId, tenantId, cancelledBy = null) {
 // current 'pending'/'processing' state — they are NOT cancelled, so the
 // operator can resume from the exact same point with resumeCampaign().
 //
-// Note about in-flight sends: sendBatch owns at most one claimed recipient
-// per invocation at a time. An already-submitted Mailgun call cannot be
-// interrupted; other rows stay pending for a later resume.
+// Note about in-flight sends: sendBatch owns at most its bounded slot count
+// (default two, maximum four) per invocation. An already-submitted Mailgun
+// call cannot be interrupted; other rows stay pending for a later resume.
 export async function pauseCampaign(campaignId, tenantId, pausedBy = null) {
   if (!supabase) {
     return { success: false, error: 'Database not configured' };
@@ -3135,6 +3113,11 @@ export async function processSendingCampaigns(options = {}) {
 
   try {
     const deadline = options.deadline ?? Date.now() + CAMPAIGN_WORK_BUDGET_MS;
+    const concurrency = campaignSendConcurrency(options.concurrency ?? process.env.CAMPAIGN_SEND_CONCURRENCY ?? 2);
+    // A faster drain must not merely finish the same 100 rows earlier and
+    // wait for the next cron tick. Still bounded: default 200, maximum 400,
+    // shared across slots, with the unchanged invocation-wide 38s deadline.
+    const workerBatchSize = BATCH_SIZE * concurrency;
     // Legacy preparations without a completion proof require review. Modern
     // generations are resumed only by their checkpointed preparation worker.
     await recoverStuckPreparingCampaigns(deadline);
@@ -3247,7 +3230,14 @@ export async function processSendingCampaigns(options = {}) {
       const tenantHost = /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(tenant?.domain || '')
         ? tenant.domain : null;
 
-      const batchResult = await sendBatch(sc.id, sc.tenant_id, campaign, tenantSlug, tenantHost, BATCH_SIZE, { deadline });
+      const batchResult = await sendBatch(sc.id, sc.tenant_id, campaign, tenantSlug, tenantHost, workerBatchSize, { deadline, concurrency });
+      if (batchResult.batchMetrics?.stopReason === 'rate_limit') {
+        results.push({ campaignId: sc.id, ...batchResult });
+        // Shared provider pressure: do not move on to another campaign during
+        // this invocation. No durable Retry-After/backoff is implied here.
+        return { success: true, processed: results.length, campaigns: results,
+          stopReason: 'rate_limit', budgetExhausted: !campaignHasTime(deadline) };
+      }
 
       if (batchResult.blocked) {
         console.error(`[Campaign Service] Campaign ${sc.id} (${sc.name}) blocked before submission: ${batchResult.error}`);
@@ -3646,7 +3636,34 @@ async function preparedRecipientStillConsents(db, recipient, campaign, tenantId)
       row.communication_category_id === campaign.communication_category_id));
 }
 
+// Reuse only pure transformations of the immutable campaign snapshot. Event,
+// survey, QR, booking, consent and authorization remain fresh per recipient.
+export function prepareCampaignBatchRender(campaign, designInfo) {
+  let html = stripHiddenDynamicRegions(campaign.html_content || '', designInfo?.hiddenSlots);
+  let subject = campaign.subject || '';
+  if (designInfo?.slotValues) {
+    html = applyDynamicSlotValues(html, designInfo.slotValues, { html: true, richSlots: designInfo.richSlots });
+    subject = applyDynamicSlotValues(subject, designInfo.slotValues, { richSlots: designInfo.richSlots });
+  }
+  return Object.freeze({ html, subject });
+}
+
+export function campaignNeedsRecipientOrganization(html, subject) {
+  // replacePlaceholders supports both scoped and direct field aliases. Keep
+  // enrichment for every token which could read the organization object.
+  return /(?:\[\[|\{\{)(?:organization(?:[._]|\]\]|\}\})|member\.organization|record\.organization|(?:(?:member|record)\.)?(?:name|phone|invoicing_email)(?:\]\]|\}\}))/i.test(`${subject || ''}\n${html || ''}`);
+}
+
 export async function sendToRecipient(recipient, campaign, tenantId, tenantSlug, requestHost, designInfo, testDestination = null, options = {}) {
+  const timingStartedAt = Date.now();
+  let timingStage = 'renderMs';
+  let timingStageAt = timingStartedAt;
+  const stageTimings = { renderMs: 0, preProviderGateMs: 0, providerMs: 0, persistenceMs: 0 };
+  const nextTimingStage = stage => {
+    stageTimings[timingStage] += Math.max(0, Date.now() - timingStageAt);
+    timingStage = stage;
+    timingStageAt = Date.now();
+  };
   let surveyDelivery = null;
   let providerAccepted = false;
   let deliveryUncertain = false;
@@ -3655,17 +3672,17 @@ export async function sendToRecipient(recipient, campaign, tenantId, tenantSlug,
     ? campaignReadBudget(supabase, options.deadline) : null;
   const recipientDb = budget?.db || supabase;
   try {
-    let html = campaign.html_content || '';
-    let subject = campaign.subject || '';
+    let html = options.batchRender?.html ?? campaign.html_content ?? '';
+    let subject = options.batchRender?.subject ?? campaign.subject ?? '';
 
     // Hidden dynamic elements: remove their whole DYN_BLOCK region (and clean up
     // the remaining non-hidden markers) BEFORE filling in slot values, so a
     // hidden element never appears — and its tokens never resolve — in the send.
-    html = stripHiddenDynamicRegions(html, designInfo?.hiddenSlots);
+    if (!options.batchRender) html = stripHiddenDynamicRegions(html, designInfo?.hiddenSlots);
 
     // Dynamic Text slots: single per-send values, identical for every recipient.
     // Resolve before any per-recipient placeholder substitution.
-    if (designInfo?.slotValues) {
+    if (!options.batchRender && designInfo?.slotValues) {
       html = applyDynamicSlotValues(html, designInfo.slotValues, { html: true, richSlots: designInfo.richSlots });
       subject = applyDynamicSlotValues(subject, designInfo.slotValues, { richSlots: designInfo.richSlots });
     }
@@ -3734,7 +3751,7 @@ export async function sendToRecipient(recipient, campaign, tenantId, tenantSlug,
     // {{set_password_url}} is intentionally not minted in bulk campaigns
     // (see docs/email-placeholder-audit.md caveats).
     let recipientOrg = null;
-    if (recipient.member_id) {
+    if (recipient.member_id && campaignNeedsRecipientOrganization(html, subject)) {
       try {
         const { data: memberRow } = await recipientDb
           .from('member')
@@ -3791,6 +3808,7 @@ export async function sendToRecipient(recipient, campaign, tenantId, tenantSlug,
     // Survey/booking personalization can take seconds. Recheck immediately
     // before the provider call so a pause/cancellation during rendering wins.
     if (!testDestination && options.recheckBeforeProvider) {
+      nextTimingStage('preProviderGateMs');
       try {
         if (budget?.signal.aborted) throw new Error('Campaign preparation deadline exhausted');
         if (!await preparedRecipientStillConsents(recipientDb, recipient, campaign, tenantId)) {
@@ -3799,7 +3817,7 @@ export async function sendToRecipient(recipient, campaign, tenantId, tenantSlug,
           return 'stopped';
         }
         const gate = await checkCampaignBatchGate(campaign.id, tenantId, campaign);
-        if (!gate.allowed || (options.deadline != null && !campaignHasTime(options.deadline))) {
+        if (!gate.allowed || options.shouldStop?.() || (options.deadline != null && !campaignHasTime(options.deadline))) {
           if (surveyDelivery?.deliveryId) await finishCampaignSurveyDelivery(supabase, surveyDelivery.deliveryId, false);
           await releaseClaimedRecipients([recipient], gate.cancelled ? 'cancelled' : 'pending');
           return 'stopped';
@@ -3821,6 +3839,7 @@ export async function sendToRecipient(recipient, campaign, tenantId, tenantSlug,
       }
     }
     providerSubmitted = true;
+    nextTimingStage('providerMs');
     const result = await sendEmail({
       to: testDestination || recipient.email,
       subject: testDestination ? `[TEST] ${subject}` : subject,
@@ -3839,12 +3858,31 @@ export async function sendToRecipient(recipient, campaign, tenantId, tenantSlug,
       campaignDeadlineAt: testDestination ? null : options.deadline,
       testMode: testDestination ? false : !!campaign.is_test_mode
     });
+    nextTimingStage('persistenceMs');
 
-    if (result.notSubmitted) {
+    if (result.rateLimited && !testDestination) options.stop?.('rate_limit');
+    if (result.notSubmitted || (result.rateLimited && !result.ambiguousEffect)) {
+      if (testDestination) {
+        // Source-recipient tests may record survey provenance, but must never
+        // change the real campaign recipient's delivery state, even on 429 or
+        // a transport admission/deadline refusal.
+        if (surveyDelivery?.deliveryId) await finishCampaignSurveyDelivery(supabase, surveyDelivery.deliveryId, false);
+        return result;
+      }
       try {
         if (surveyDelivery?.deliveryId) await finishCampaignSurveyDelivery(supabase, surveyDelivery.deliveryId, false);
-        await releaseClaimedRecipients([recipient]);
-        return 'stopped';
+        if (result.rateLimited) {
+          // Confirmed provider rejection, not an ambiguous acceptance. Without
+          // a durable retry embargo, pending would automatically replay on the
+          // next cron tick. Preserve failed semantics and require operator action.
+          const { error } = await supabase.from('email_campaign_recipient')
+            .update({ status: 'failed', error_message: result.error || 'Provider rate limit (429)' })
+            .eq('id', recipient.id).eq('status', 'processing');
+          if (error) throw error;
+        } else {
+          await releaseClaimedRecipients([recipient]);
+        }
+        return result.rateLimited ? 'rate_limited' : 'stopped';
       } catch (releaseError) {
         console.error(`[Campaign Service] Could not release unsubmitted recipient ${recipient.id}:`, releaseError);
         return 'stopped';
@@ -3896,14 +3934,14 @@ export async function sendToRecipient(recipient, campaign, tenantId, tenantSlug,
         return 'stopped'; // row remains processing for reconciliation
       }
     }
-    // Unknown acceptance must remain pending, not falsely marked failed.
-    if (!providerAccepted && !deliveryUncertain && surveyDelivery) {
+    // Unknown acceptance must remain processing, not falsely marked failed.
+    if (!providerSubmitted && !providerAccepted && !deliveryUncertain && surveyDelivery) {
       try { await finishCampaignSurveyDelivery(supabase, surveyDelivery.deliveryId, false); } catch {}
     }
     console.error(`[Campaign Service] Error sending to ${recipient.email}:`, err);
     if (testDestination) return { success: false, error: err.message };
     if (surveyDelivery?.alreadyAccepted) return 'processing';
-    if (deliveryUncertain || /campaign survey delivery acceptance is unresolved/i.test(err.message || '')) return 'processing';
+    if (providerSubmitted || deliveryUncertain || /campaign survey delivery acceptance is unresolved/i.test(err.message || '')) return 'processing';
     if (providerAccepted || deliveryUncertain) return 'processing';
     const { error } = await supabase
       .from('email_campaign_recipient')
@@ -3917,6 +3955,8 @@ export async function sendToRecipient(recipient, campaign, tenantId, tenantSlug,
     return 'failed';
   } finally {
     budget?.dispose();
+    nextTimingStage('persistenceMs');
+    options.onTiming?.(stageTimings);
   }
 }
 
@@ -4218,15 +4258,25 @@ export async function sendBatch(campaignId, tenantId, campaign, tenantSlug, requ
   }
 
   const designInfo = getCampaignEmailComposition(campaign);
-  const { sent: sentCount, failed: failedCount, stoppedGate } = await drainCampaignRecipients({
+  const batchRender = prepareCampaignBatchRender(campaign, designInfo);
+  const stageTimings = { renderMs: 0, preProviderGateMs: 0, providerMs: 0, persistenceMs: 0 };
+  const { sent: sentCount, failed: failedCount, stoppedGate, metrics } = await drainCampaignRecipients({
     batchSize,
+    concurrency: campaignSendConcurrency(options.concurrency ?? process.env.CAMPAIGN_SEND_CONCURRENCY ?? 2),
     deadline: options.deadline,
     now: options.now || Date.now,
     claim: () => claimPendingRecipients(campaignId, 1),
     gate: () => checkCampaignBatchGate(campaignId, tenantId, campaign),
     release: (recipient, status) => releaseClaimedRecipients([recipient], status),
-    send: recipient => (options.sendRecipient || sendToRecipient)(recipient, campaign, tenantId, tenantSlug, requestHost, designInfo, null, {
-      deadline: options.deadline, recheckBeforeProvider: true,
+    onMetrics: metrics => {
+      Object.assign(metrics, stageTimings);
+      console.log('[Campaign Service] Batch aggregate', metrics);
+    },
+    send: (recipient, control) => (options.sendRecipient || sendToRecipient)(recipient, campaign, tenantId, tenantSlug, requestHost, designInfo, null, {
+      deadline: options.deadline, recheckBeforeProvider: true, batchRender, ...control,
+      onTiming: timings => {
+        for (const key of Object.keys(stageTimings)) stageTimings[key] += timings[key] || 0;
+      },
     }),
   });
 
@@ -4242,6 +4292,7 @@ export async function sendBatch(campaignId, tenantId, campaign, tenantSlug, requ
     // above describe the campaign as a whole.
     batchSent: sentCount,
     batchFailed: failedCount,
+    batchMetrics: metrics,
     remaining: outcome.pending,
     ...(stoppedGate ? { success: false, ...stoppedGate } : {}),
   };

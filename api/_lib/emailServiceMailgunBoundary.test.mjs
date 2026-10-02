@@ -2,6 +2,26 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { deliverMailgunMessage, mailgunSuccessMetadata, sendEmail } from './emailService.js';
 
+test('explicit 429 signals rate limit without fallback; transport uncertainty remains ambiguous', async () => {
+  for (const ambiguous of [false, true]) {
+    let calls = 0;
+    const result = await sendEmail({
+      to: 'test@example.invalid', subject: 'test', html: '<p>test</p>', tenantId: 'rate-limit-test',
+      resolveTransactionalPreferences: false, skipFooter: true,
+    }, {
+      client: { messages: { create: async () => {
+        calls++;
+        throw { status: 429, message: ambiguous ? 'ETIMEDOUT Unauthorized' : 'Unauthorized rate limited' };
+      } } },
+      getTenantEmailConfig: async () => ({ domain: 'tenant.invalid' }),
+      getEmailFooter: async () => null,
+    });
+    assert.equal(result.rateLimited, true);
+    assert.equal(result.ambiguousEffect, ambiguous);
+    assert.equal(calls, 1);
+  }
+});
+
 test('Mailgun boundary sends exactly one final domain and envelope', async () => {
   const calls = [];
   const client = {

@@ -7,6 +7,7 @@ import { JSDOM } from 'jsdom';
 import { resolveCampaignEventSponsors, replaceEventSponsors } from './eventEmailSponsors.js';
 import { resolveCampaignEventSurvey, replaceEventSurvey, resolveEventEmailSurvey } from './campaignEventSurvey.js';
 import { resolveCampaignAttendeeContent } from './campaignAttendeeContent.js';
+import { prepareCampaignSurveyDelivery, finishCampaignSurveyDelivery } from './campaignSurveyDelivery.js';
 import { isStandaloneCampaignPreferencePlaceholder } from './campaignEmailComposition.js';
 import { sanitizeSlotHtml } from './slotHtmlSanitizer.js';
 import { resolveEventEmailPreview } from '../../client/src/lib/eventEmailPreview.js';
@@ -125,10 +126,12 @@ test('actual send adapter resolves current sponsors before tracking, rejects sta
   const submissions = [];
   const source = (await readFile(new URL('./campaignService.js', import.meta.url), 'utf8'))
     .replace(/import\s+[\s\S]*?\s+from\s+['"][^'"]+['"];?/g, '')
+    .replace('const supabase = preparationDatabase(rawSupabase);', '')
     .replace(/export (async )?function /g, '$1function ');
   const { sendToRecipient } = vm.runInNewContext(`${source}\n;({sendToRecipient})`, {
     process: { env: {} }, crypto, Buffer, supabase: f.db, isStandaloneCampaignPreferencePlaceholder,
     resolveCampaignEventSurvey, replaceEventSurvey, resolveCampaignEventSponsors, replaceEventSponsors, resolveCampaignAttendeeContent,
+    prepareCampaignSurveyDelivery, finishCampaignSurveyDelivery,
     replacePlaceholders: text => text,
     sendEmail: async payload => { submissions.push(payload); return { success: true }; },
     console: { error() {}, warn() {}, log() {} },

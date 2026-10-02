@@ -34,3 +34,17 @@ Queue delivery rather than waiting for provider sends in the interactive request
 **Why:** A count-limited sequential batch exceeded the serverless deadline after accepting some emails. Cancellation raced acceptance recording; recipient status alone could not establish which emails were unsent.
 
 **How to apply:** Claim only immediately needed recipients, budget read-only personalization, await started writes, and retain ambiguous processing outcomes for provider reconciliation. Never reset them based on age or sweep them to cancelled. Ordinary noncampaign mail must not inherit campaign-only transport limits.
+
+## Parallel campaign admission
+
+Parallel sending must keep serialized single-row claims, a shared attempt cap
+and deadline, and await every started operation before returning on any failure.
+An in-flight rate-limit result must remain visible even if another slot has
+already stopped for cancellation or budget exhaustion.
+
+**Why:** fail-fast promise handling can abandon accepted sends; first-stop-wins
+reporting can hide a later 429 and let the worker start another campaign.
+
+**How to apply:** retain fresh per-recipient checks immediately before submission,
+give rate-limit signals invocation-wide priority, and preserve source-recipient
+test isolation on rejection/non-submission branches as well as success.
