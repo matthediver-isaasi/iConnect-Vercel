@@ -1,5 +1,7 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { base44 } from "@/api/base44Client";
+import { resolveEventPaymentPolicy } from "../../../shared/eventPaymentPolicy.js";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -317,6 +319,26 @@ export default function EventRegistrationReport() {
   const { isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
   const queryClient = useQueryClient();
   const [accessChecked, setAccessChecked] = useState(false);
+  const paymentSettingsQuery = useQuery({
+    // Prefix matches Event Settings save invalidation; identity prevents reuse
+    // of another tenant/viewer's settings.
+    queryKey: ['system-settings', 'event-report-payment-policy', memberInfo?.tenant_id, memberInfo?.id],
+    queryFn: async ({ signal }) => {
+      const rows = await base44.entities.SystemSettings.list({ signal });
+      if (!Array.isArray(rows)) throw new Error('Unable to load event payment settings');
+      return rows;
+    },
+    enabled: isAccessReady && !!memberInfo?.tenant_id,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    retry: false,
+  });
+  // Missing keys default on only after a successful load, never while loading,
+  // revalidating saved settings, or after a failed request (including refetch).
+  const paymentPolicy = paymentSettingsQuery.isSuccess && !paymentSettingsQuery.isFetching
+    && isAccessReady && !!memberInfo?.tenant_id
+    ? resolveEventPaymentPolicy(paymentSettingsQuery.data)
+    : null;
 
   const [filterEventName, setFilterEventName] = useState("");
   const [selectedEvent, setSelectedEvent] = useState(null);
@@ -1973,7 +1995,7 @@ export default function EventRegistrationReport() {
 
       {reportGenerated && !isLoading && (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-3">
             <Card>
               <CardContent className="pt-4 pb-4">
                 <div className="flex items-center gap-2 mb-1">
@@ -1995,7 +2017,7 @@ export default function EventRegistrationReport() {
                 <p className="text-xl font-bold" data-testid="text-total-revenue">{filteredSummary.hasUnavailableRevenue ? 'Unavailable' : formatCurrency(filteredSummary.totalRevenue)}</p>
               </CardContent>
             </Card>
-            <Card>
+            {paymentPolicy?.allowVoucherPayment && <Card>
               <CardContent className="pt-4 pb-4">
                 <div className="flex items-center gap-2 mb-1">
                   <Ticket className="w-4 h-4 text-muted-foreground" />
@@ -2003,8 +2025,8 @@ export default function EventRegistrationReport() {
                 </div>
                 <p className="text-xl font-bold" data-testid="text-total-vouchers">{filteredSummary.hasUnavailableVoucher ? 'Unavailable' : formatCurrency(filteredSummary.totalVoucher)}</p>
               </CardContent>
-            </Card>
-            <Card>
+            </Card>}
+            {paymentPolicy?.allowTrainingFundPayment && <Card>
               <CardContent className="pt-4 pb-4">
                 <div className="flex items-center gap-2 mb-1">
                   <Building2 className="w-4 h-4 text-muted-foreground" />
@@ -2012,7 +2034,7 @@ export default function EventRegistrationReport() {
                 </div>
                 <p className="text-xl font-bold" data-testid="text-total-fund">{filteredSummary.hasUnavailableFund ? 'Unavailable' : formatCurrency(filteredSummary.totalTrainingFund)}</p>
               </CardContent>
-            </Card>
+            </Card>}
             <Card>
               <CardContent className="pt-4 pb-4">
                 <div className="flex items-center gap-2 mb-1">

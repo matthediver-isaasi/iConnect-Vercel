@@ -544,7 +544,7 @@ function json(route, body, status = 200) {
   });
 }
 
-async function installFixture(page, { bookingGroups } = {}) {
+async function installFixture(page, { bookingGroups, paymentSettings = [], paymentSettingsStatus = 200 } = {}) {
   const state = { writes: [], unexpectedExternal: [] };
   const reportGroups = bookingGroups
     || [bookingGroup(NET_ATTENDEE), bookingGroup(PENDING_ATTENDEE)];
@@ -593,6 +593,7 @@ async function installFixture(page, { bookingGroups } = {}) {
     }
 
     if (url.pathname === "/api/auth/me") return json(route, ADMIN);
+    if (url.pathname === "/api/entities/SystemSettings") return json(route, paymentSettings, paymentSettingsStatus);
     if (url.pathname === "/api/auth/tenant-user-me") return json(route, { authenticated: false }, 401);
     if (url.pathname === "/api/reports/event-registration-report") {
       if (url.searchParams.get("generate") === "true") {
@@ -657,6 +658,32 @@ async function openGeneratedReport(page, options = {}) {
   await expect(page.getByTestId(`row-booking-${readyId}`)).toBeVisible();
   return state;
 }
+
+for (const width of [390, 1440]) {
+  for (const [voucher, fund] of [[true, true], [true, false], [false, true], [false, false]]) {
+    test(`payment summary policy ${voucher}/${fund} at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 1000 });
+      await openGeneratedReport(page, { paymentSettings: [
+        { setting_key: 'event_allow_voucher_payment', setting_value: String(voucher) },
+        { setting_key: 'event_allow_training_fund_payment', setting_value: fund },
+      ] });
+      await expect(page.getByTestId('text-total-vouchers')).toHaveCount(voucher ? 1 : 0);
+      await expect(page.getByTestId('text-total-fund')).toHaveCount(fund ? 1 : 0);
+      const grid = page.getByTestId('text-total-registrations').locator('../../..');
+      await expect(grid.locator(':scope > div')).toHaveCount(4 + Number(voucher) + Number(fund));
+      const bounds = await grid.boundingBox();
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+      await grid.screenshot({ path: `/tmp/event-policy-${width}-${voucher}-${fund}.png` });
+    });
+  }
+}
+
+test('failed payment settings leave the generated report usable without optional cards', async ({ page }) => {
+  await openGeneratedReport(page, { paymentSettings: { error: 'Unavailable' }, paymentSettingsStatus: 503 });
+  await expect(page.getByTestId('text-total-vouchers')).toHaveCount(0);
+  await expect(page.getByTestId('text-total-fund')).toHaveCount(0);
+  await expect(page.getByTestId('text-total-revenue')).toBeVisible();
+});
 
 async function readDownload(download) {
   const stream = await download.createReadStream();
