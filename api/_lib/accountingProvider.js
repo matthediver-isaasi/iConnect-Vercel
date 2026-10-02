@@ -23,6 +23,7 @@ import { supabase } from './database.js';
 import * as xero from './xero.js';
 import * as qbo from './quickbooks.js';
 import { resolveMembershipInvoiceReference } from './membershipInvoiceReference.js';
+import { queueMembershipInvoice } from './accountingQueueIntegration.js';
 
 export const PROVIDER_XERO = 'xero';
 export const PROVIDER_QUICKBOOKS = 'quickbooks';
@@ -352,6 +353,10 @@ function makeXeroProvider() {
     },
 
     async createMembershipInvoice(args) {
+      if (args?.accountingSource) {
+        const queued = await queueMembershipInvoice({ db: supabase, provider: PROVIDER_XERO, args });
+        if (queued !== undefined) return queued;
+      }
       const result = await xero.createXeroMembershipInvoice({
         ...args,
         reference: resolveMembershipInvoiceReference(args?.reference),
@@ -381,6 +386,7 @@ function makeXeroProvider() {
         invoiceId: result.invoice_id,
         invoiceNumber: result.invoice_number,
         onlineInvoiceUrl: result.online_invoice_url || null,
+        payment_recorded: result.payment_recorded === true,
         raw: result,
         invoice_id: result.invoice_id,
         invoice_number: result.invoice_number,
@@ -466,6 +472,10 @@ function makeQuickBooksProvider() {
     },
 
     async createMembershipInvoice(args) {
+      if (args?.accountingSource) {
+        const queued = await queueMembershipInvoice({ db: supabase, provider: PROVIDER_QUICKBOOKS, args });
+        if (queued !== undefined) return queued;
+      }
       const result = await qbo.createQuickBooksMembershipInvoice({
         ...args,
         reference: resolveMembershipInvoiceReference(args?.reference),
@@ -494,6 +504,7 @@ function makeQuickBooksProvider() {
         invoiceId: result.invoice_id,
         invoiceNumber: result.invoice_number,
         onlineInvoiceUrl: result.online_invoice_url || null,
+        payment_recorded: result.payment_recorded === true,
         raw: result,
         invoice_id: result.invoice_id,
         invoice_number: result.invoice_number,

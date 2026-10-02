@@ -338,6 +338,9 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
       ? `Membership ${membershipYear.label} - PO: ${poNumber}`
       : `Membership ${membershipYear.label}`;
     xeroInvoice = await provider.createMembershipInvoice({
+      accountingSource: { sourceType: 'member_membership_history', sourceId: record.id,
+        totalMinor: Math.round(Number(record.total_with_vat) * 100),
+        linkage: { recordId: record.id, ownerId: memberId } },
       appTenantId: tenantId,
       organizationName: memberName,
       invoicingEmail: member.email || null,
@@ -352,6 +355,11 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
       invoiceDescription: simResult.config?.invoice_description || null,
     });
 
+    if (xeroInvoice?.accounting_pending) {
+      return res.status(202).json({ success: true, record, accounting_pending: true,
+        accounting_request_id: xeroInvoice.accounting_request_id,
+        message: 'Membership invoice accepted for accounting reconciliation. No invoice email has been sent.' });
+    }
     if (xeroInvoice) {
       const { error: linkError } = await supabase
         .from('member_membership_history')

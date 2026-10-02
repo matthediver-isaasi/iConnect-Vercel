@@ -8,3 +8,21 @@ The user approved a central durable accounting-request queue for both Xero and Q
 **Why:** Same-day GoCardless collection notifications can produce accounting bursts. Saving original invoice details and iConnect source links gives recovery one authoritative source.
 
 **How to apply:** Persist requests before provider calls; retain original financial details and intended provider/company binding. Track invoice creation, local linkage and payment posting independently, with provider-specific cooldown and ambiguous-outcome reconciliation. Include QuickBooks from the outset, not as a later Xero-only extension. This is an agreed design direction, not authorization by itself to implement or migrate.
+
+Rollout controls may govern new queue adoption, but must never release an already accepted operation back to a legacy invoice writer.
+
+**Why:** Turning a flag off after an uncertain provider outcome otherwise lets a manual retry create a second invoice outside the durable operation's ownership.
+
+**How to apply:** Check existing ownership before reconstructing prices or selecting a writer, including when adoption is disabled. Tolerate an absent queue table only for unactivated installations; permission, timeout or column failures are not evidence of absent ownership.
+
+Preparing an invoice and completing its business effects are separate integration obligations, not solved merely by adding a provider adapter.
+
+**Why:** Contact/tax resolution may hit rate limits before a prepared payload is saved; later completion may need source-specific activation, notifications or benefit bookkeeping. Replaying the old combined helper can repeat these effects.
+
+**How to apply:** Explicitly distinguish prepared-invoice coverage from durable preparation and business continuation. Do not claim collection recovery or universal coverage until those paths have one durable owner and verified continuations.
+
+A direct documented invoice/payment POST throttle rejection can be retried with the identical frozen request and original provider key; a throttle response during readback after successful creation cannot.
+
+**Why:** Xero applies limits before idempotency processing, and Intuit instructs retrying rejected 429 requests with the same request ID. Treating every 429 as an uncertain creation strands genuinely rejected invoices, while treating post-success readback throttles as rejection can duplicate them.
+
+**How to apply:** Preserve the provider-write/readback boundary and original keys. Timeouts, server failures and QuickBooks duplicate-request faults remain discovery-only. Provider key retention limits never authorize retrying an older uncertain write.

@@ -1,0 +1,35 @@
+# Accounting request queue integration contract
+
+Core owned by queue agent: `api/_lib/accountingRequestQueue.js`, SQL migration, cron and tests. Integration agent should own `api/_lib/accountingQueueIntegration.js` (not queue-prefixed).
+
+## Public API
+
+`enqueueAccountingRequest({ db, tenantId, provider, connectionId, companyId, sourceType, sourceId, operation = 'invoice', snapshot })` persists BEFORE any provider write and returns the durable row. Duplicate identity with different payload/binding throws. No fallback if database/migration unavailable.
+
+Snapshot is JSON `{ version: 1, invoice: { ...original provider/helper arguments... }, payment: null | { ...original payment arguments... }, linkage: { ...original source linkage authority... } }`. Invoice and linkage must be nonempty objects. Do not include tokens. Identity is tenant + sourceType + sourceId + operation (provider changes cannot create a second request). Provider is `xero` or `quickbooks`; connectionId/companyId are nonempty strings, never PENDING_SELECTION. Integration must resolve original binding and preserve existing validation/economic/tax/payment safeguards BEFORE enqueue.
+
+`processAccountingRequest({ db, requestId, adapters })` claims one row and advances independently persisted invoice, payment and source linkage. `reconcileAccountingRequests({ db, adapters, limit = 10 })` claims due rows. Both return row/results, never silently fall back.
+
+`adapters` is an async function `(row, { beforeRequest, deadlineAt }) => adapter`. Cron/default dynamically imports `getAccountingQueueAdapter` from `./accountingQueueIntegration.js`. Integration agent must export this function. Pass core `beforeRequest(candidateRow, {kind, method})` through to `createAccountingRequestProviders` before EVERY provider/auth/pagination request, composed with integration's source-specific authority checks. ALSO pass `deadlineAt: controls.deadlineAt` to the provider factory so each network timeout is capped by the remaining absolute budget. Core checks identity, live lease, company cooldown, stage write fence and a 40-request budget. The entire cron batch shares a 40-second provider-work deadline, reserving time for persistence; standalone requests have a 45-second provider-work deadline. `beforeRequest` returns `{deadlineAt, timeoutMs}` after persistence checks. Provider timeout must not exceed 30 seconds or the remaining deadline. No direct provider network calls may bypass that guard.
+
+Adapter methods:
+
+- `assertBinding(row)` **required**: resolve live connection and assert tenant, provider, connection and company still match; reject on disconnect/switch.
+- `createInvoice(row)` returns nonempty JSON object with `id` (provider invoice ID) plus any normalized facade fields needed for compatibility. Use original `row.snapshot.invoice`, not today's source/catalogue.
+- `createPayment(row)` returns nonempty JSON object with `id`; only called when snapshot.payment exists. Invoice result is `row.invoice_result`.
+- `linkSource(row)` **required**, idempotently links the genuine source using original `row.snapshot.linkage`; validates affected rows and throws on failure. Return `{ linked: true, ...evidence }` ONLY after verified persisted linkage. Invoice/payment results are on row.
+- optional `discoverInvoice(row)` / `discoverPayment(row)` read-only discovery return `{ outcome: 'found', result: { id, ... } }` ONLY for uniquely proven matching identity/economics. Missing/ambiguous/no result stays quarantined; never authorizes blind retry.
+
+An exception from a provider write is **unknown by default**, including timeout/5xx and QuickBooks Fault code 600. Only error with `definitelyNotWritten === true` permits retry, and adapter must have positive evidence. `retryAfter` supports Retry-After seconds or HTTP date; `status === 429` applies shared provider/company cooldown. A directly received HTTP 429 from the bound Xero/QuickBooks create endpoint is the documented throttle-rejection exception: retry the identical frozen payload with the identical original provider idempotency key after cooldown. A successful POST followed by a GET/readback 429 remains unknown, never safe to recreate. Unknown is discovered, never blindly retried. Error `permanent === true` quarantines. Do not mark generic provider errors safe.
+
+Provider evidence: [Xero idempotency limitations](https://developer.xero.com/documentation/guides/idempotent-requests/idempotency/#limitations) explicitly apply rate limits before idempotency processing; [Xero limits](https://developer.xero.com/documentation/guides/oauth2/limits/) specify HTTP 429 and Retry-After. [Intuit limits](https://developer.intuit.com/app/developer/qbo/docs/learn/limits-and-throttles) instruct waiting 60 seconds before retrying HTTP 429; [Intuit Developer Support](https://help.developer.intuit.com/s/question/0D5TR00000RKcOS0A1/api-returning-429-error) explicitly instruct resending the same request with the same requestId after 429. This is not indefinite idempotency-cache protection: Xero keys expire after six minutes, so uncertain timeout/5xx outcomes still require discovery rather than retries even with the same key.
+
+Retry-After embargoes are never shortened. Up to 2147483647 seconds is stored exactly; larger numeric/date delays use SQL cooldown `infinity` via the internal `-1` sentinel, requiring manual review of the embargo. The independent per-row retry schedule is bounded but cannot bypass shared company cooldown.
+
+SQL columns snake_case: id, tenant_id, provider, connection_id, company_id, source_type, source_id, operation, snapshot, invoice_status/payment_status/link_status (`pending|writing|done|unknown|skipped`), invoice_result/payment_result/link_result, state (`pending|retry|running|unknown|complete|review`), lease_token, lease_until, attempts, next_attempt_at, last_error. Lease/fence and shared company cooldown are database authoritative. Source links can retry independently after invoice/payment succeeded.
+
+Existing event recovery and form/BNMS guards must remain authoritative: do not route the same financial operation through two writers. Integration must intentionally choose one owner. Core does not reconstruct historical payloads or fabricate links. Cron only processes enqueued requests.
+
+Cron is OFF unless `ACCOUNTING_REQUEST_QUEUE_ENABLED === 'true'`; authorization is required even while OFF, and OFF performs no reconciliation/database access. Read-only aggregate health: `GET /api/health/accounting-requests`, Bearer CRON_SECRET required. See `docs/accounting-request-queue-rollout.md`; migration remains unapplied.
+
+Provider adapter implementation uses frozen `snapshot.invoice.envelope` / `snapshot.payment.envelope` from `prepareAccountingRequestEnvelope`; original helper inputs may also be retained, but must never be replayed through legacy combined invoice/payment/link writers. Do not return a pending queue row as a completed invoice facade result: throw an explicit pending exception unless completion/linkage is established, then return normalized `invoice_result`.

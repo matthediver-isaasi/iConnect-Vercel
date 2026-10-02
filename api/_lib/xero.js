@@ -692,6 +692,19 @@ export async function createXeroMembershipInvoice({
     }]
   };
 
+  // Queue preparation stops before the first invoice/payment write. Contacts
+  // and configuration are resolved above; replay must never run this helper.
+  if (dependencies.prepareOnly === true) {
+    if (ddAccountingMigration || deferStripeSettlement) {
+      throw new Error('ACCOUNTING_QUEUE_EXISTING_SETTLEMENT_OWNER');
+    }
+    return {
+      provider: 'xero', companyId: xeroTenantId,
+      payload: { ...invoicePayload.Invoices[0], CurrencyCode: currency },
+      contactId,
+    };
+  }
+
   console.log(`[Xero] Creating membership invoice for ${organizationName}, ${membershipYear}, ${currency} ${finalCost}`);
 
   const createHeaders = {

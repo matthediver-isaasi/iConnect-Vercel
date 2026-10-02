@@ -815,6 +815,13 @@ export async function createQuickBooksMembershipInvoice({
   }
   if (currency) invoicePayload.CurrencyRef = { value: currency };
 
+  // Return resolved JSON, never credentials or a closure over mutable config.
+  if (dependencies.prepareOnly === true) {
+    if (deferStripeSettlement) throw new Error('ACCOUNTING_QUEUE_EXISTING_SETTLEMENT_OWNER');
+    return { provider: 'quickbooks', companyId: realmId, environment,
+      payload: invoicePayload, contactId: customerId };
+  }
+
   console.log(
     `[QBO] Creating membership invoice for ${organizationName}, ${membershipYear}, ${currency} ${finalCost}`
   );

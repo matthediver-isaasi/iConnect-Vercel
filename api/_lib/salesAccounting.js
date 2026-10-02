@@ -4,6 +4,10 @@ import {
   getAccountingProvider, getAccountingProviderByName, getActiveAccountingProvider, PROVIDER_NONE,
 } from './accountingProvider.js';
 import { SalesHttpError } from './salesAccess.js';
+import { prepareSalesAccountingEnvelope, productAccountingQueueEnabled } from './accountingProductProducer.js';
+import {
+  resumeAccountingSource, resolveAccountingQueueBinding, submitPreparedAccountingRequest,
+} from './accountingQueueIntegration.js';
 
 export function buildSalesProviderIdempotencyKey(tenantId, saleId, provider) {
   const digest = createHash('sha256').update(`${tenantId}:${saleId}:${provider}`).digest('hex');
@@ -384,6 +388,36 @@ export async function buildInvoice(db, tenantId, sale, version, lines, providerN
 }
 
 export async function createSalesInvoice(db, tenantId, actor, saleId, command = {}, dependencies = {}) {
+  const queue = dependencies.accountingQueue || {
+    enabled: productAccountingQueueEnabled,
+    resume: resumeAccountingSource,
+    resolveBinding: resolveAccountingQueueBinding,
+    submit: submitPreparedAccountingRequest,
+  };
+  const sourceType = 'sales_commercial_sale';
+  const queued = queue.enabled(sourceType);
+  const queueResult = async result => {
+    if (result.accounting_pending) {
+      const pending = new SalesHttpError(409, 'Invoice request was accepted and is awaiting accounting reconciliation; retry this sale, not a new invoice');
+      pending.code = 'ACCOUNTING_REQUEST_PENDING';
+      pending.accountingAccepted = true;
+      pending.details = { requestId: result.accounting_request_id, state: result.accounting_state, saleId };
+      throw pending;
+    }
+    const link = await existingLink(db, tenantId, saleId, result.provider);
+    if (!link || link.provider_invoice_id !== String(result.id || result.invoiceId)) {
+      const error = new SalesHttpError(503, 'Accepted invoice linkage is awaiting reconciliation');
+      error.accountingAccepted = true;
+      throw error;
+    }
+    return { invoice: mapSalesInvoiceLink(link), existing: true, accountingRequestId: result.accounting_request_id };
+  };
+  // Resume the accepted snapshot/claim before loading live provider settings,
+  // customer mappings, tax mappings or accepted quote line assemblies.
+  // Rollout flags control NEW ownership only. An accepted request remains the
+  // sole writer after rollback; only an absent table in OFF mode is optional.
+  const resumed = await queue.resume({ db, tenantId, sourceType, sourceId: saleId, allowMissingQueue: !queued });
+  if (resumed) return queueResult(resumed);
   const getProvider = dependencies.getAccountingProvider || getAccountingProvider;
   const provider = await getProvider(tenantId);
   if (!provider || provider.name === PROVIDER_NONE) throw new SalesHttpError(409, 'No active accounting provider is configured');
@@ -409,6 +443,7 @@ export async function createSalesInvoice(db, tenantId, actor, saleId, command = 
     throw new SalesHttpError(503, 'Sales invoice linkage is being finalized');
   }
   const attempt = { id: claim.attemptId };
+  let accountingAccepted = false;
   try {
     const customer = customerFrom(version);
     const customerId = await resolveCustomer(db, provider, tenantId, actor, customer, command);
@@ -416,6 +451,19 @@ export async function createSalesInvoice(db, tenantId, actor, saleId, command = 
     // RPC owns the durable canonical key. This assignment deliberately
     // replaces the locally derived convenience key on retries/crash recovery.
     payload.idempotencyKey = claim.providerIdempotencyKey;
+    if (queued) {
+      const binding = await queue.resolveBinding({ db, tenantId, provider: provider.name });
+      const invoiceEnvelope = prepareSalesAccountingEnvelope({
+        provider: provider.name, payload, environment: binding.environment,
+      });
+      const result = await queue.submit({
+        db, tenantId, provider: provider.name, connectionId: binding.connectionId, companyId: binding.companyId,
+        sourceType, sourceId: sale.id, invoiceEnvelope, paymentEnvelope: null,
+        linkage: { saleId: sale.id, quoteVersionId: version.id, attemptId: attempt.id, actorId: actor.actorId },
+      });
+      accountingAccepted = true;
+      return await queueResult(result);
+    }
     const external = await provider.createSalesInvoice(tenantId, payload);
     const linkRow = {
       tenant_id: tenantId, sale_id: sale.id, quote_version_id: version.id, provider: provider.name,
@@ -446,6 +494,9 @@ export async function createSalesInvoice(db, tenantId, actor, saleId, command = 
     }).eq('id', attempt.id).eq('tenant_id', tenantId);
     return { invoice: mapSalesInvoiceLink(link), existing: Boolean(linkError) };
   } catch (error) {
+    // A durable request, including a completed invoice awaiting source linkage,
+    // owns this claim now. Never mark it failed or fall back to the old writer.
+    if (accountingAccepted || error.accountingAccepted || error.accountingSourceRetained) throw error;
     await db.from('sales_accounting_invoice_attempt').update({
       state: 'failed', error_code: error.code || 'ACCOUNTING_ERROR',
       error_message: String(error.message || 'Accounting failure').slice(0, 2000),

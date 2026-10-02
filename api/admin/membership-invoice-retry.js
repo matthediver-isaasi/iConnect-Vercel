@@ -22,6 +22,7 @@ import {
 } from '../_lib/membershipInstalmentInvoicing.js';
 import { retrieveTenantPaymentIntent } from '../_lib/stripeCredentials.js';
 import { recoverPaymentIntentInvoiceAddress } from '../_lib/stripeInvoiceAddress.js';
+import { accountingQueueEnabled, resumeAccountingSource } from '../_lib/accountingQueueIntegration.js';
 
 const ORG_TABLE = 'organisation_membership_history';
 const MEMBER_TABLE = 'member_membership_history';
@@ -55,6 +56,20 @@ export default async function handler(req, res) {
   }
   if (!row) return res.status(404).json({ error: 'Record not found' });
   if (row.tenant_id !== appTenantId) return res.status(403).json({ error: 'Cross-tenant access denied' });
+  // An accepted operation owns its original economics even if today's
+  // configuration, payment status or selected provider has changed.
+  {
+    try {
+      const queued = await resumeAccountingSource({ db: supabase, tenantId: appTenantId,
+        sourceType: table, sourceId: recordId, allowMissingQueue: !accountingQueueEnabled() });
+      if (queued) return res.status(queued.accounting_pending ? 202 : 200).json({
+        ok: true, ...queued, recovery: 'accounting_request_queue',
+      });
+    } catch {
+      return res.status(503).json({ ok: false,
+        error: 'Accounting queue ownership could not be verified. No replacement invoice was created.' });
+    }
+  }
   if (row.stripe_payment_intent_id && !isStripePaymentIntentId(row.stripe_payment_intent_id)) {
     return res.status(409).json({
       error: 'This retry has a Stripe invoice/reference rather than a verified PaymentIntent. No accounting invoice was created; recover it through the monthly Stripe reconciliation flow.',

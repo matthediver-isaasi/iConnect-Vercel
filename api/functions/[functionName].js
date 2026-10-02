@@ -912,8 +912,7 @@ const functionHandlers = {
         invoiceDescription: `Training Fund top-up${poSuffix}`,
       });
     } catch (err) {
-      // Roll back the purchase row so the org isn't left with an orphan.
-      await supabase.from('training_fund_purchase').delete().eq('id', purchase.id);
+      // Preserve the source: the remote outcome may be unknown or queued.
       throw new Error(`Failed to create invoice: ${err.message}`);
     }
 
@@ -927,7 +926,6 @@ const functionHandlers = {
       // Create a Stripe PaymentIntent. Funds released on confirm.
       const stripe = await getStripeClient(tenantId, 'events');
       if (!stripe) {
-        await supabase.from('training_fund_purchase').delete().eq('id', purchase.id);
         throw new Error('Stripe is not configured for this tenant');
       }
 
@@ -1069,8 +1067,7 @@ const functionHandlers = {
 
     const paidAt = new Date().toISOString();
 
-    // Best-effort: mark the accounting invoice paid. The card payment has
-    // already succeeded, so a failure here must NOT block crediting funds.
+    // Existing OFF-rollout behavior: credit remains independently idempotent.
     const invoiceId = purchase.accounting_invoice_id || purchase.xero_invoice_id;
     if (invoiceId) {
       try {
@@ -5993,6 +5990,18 @@ const functionHandlers = {
 
   async createXeroInvoice(params, req) {
     if (!supabase) throw new Error('Supabase not configured');
+    const context = await getTenantContext(req);
+    if (!context?.isAuthenticated || !context.tenantId || context.tenantMismatch
+        || !(await hasAdminAccess(context))) {
+      const error = new Error('Tenant administrator authority is required');
+      error.statusCode = 403;
+      throw error;
+    }
+    if (params?.appTenantId && params.appTenantId !== context.tenantId) {
+      const error = new Error('Invoice tenant does not match authenticated tenant');
+      error.statusCode = 403;
+      throw error;
+    }
 
     const {
       organizationName,
@@ -6016,15 +6025,8 @@ const functionHandlers = {
       throw new Error('Missing required parameters: organizationName, programName, totalCost, totalTickets');
     }
     
-    // Derive appTenantId from session if not provided (backward compatibility)
-    let appTenantId = providedTenantId;
-    if (!appTenantId && req) {
-      const sessionMember = await getSessionMember(req);
-      if (sessionMember?.tenant_id) {
-        appTenantId = sessionMember.tenant_id;
-        console.log('[createXeroInvoice] Derived appTenantId from session:', appTenantId);
-      }
-    }
+    // Only authenticated tenant authority may select the accounting company.
+    const appTenantId = context.tenantId;
     
     if (!appTenantId) {
       throw new Error('Missing required parameter: appTenantId for Xero tenant scoping (or authenticated session with tenant context)');
