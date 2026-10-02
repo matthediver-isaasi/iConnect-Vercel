@@ -2181,7 +2181,11 @@ export function resolveSymbolsInDesign(design, symbolsById) {
             ...childFrame,
             x: (childFrame.x || 0) + (hostFrame.x || 0),
             y: (childFrame.y || 0) + (hostFrame.y || 0),
-            hidden: childFrame.hidden ?? hostFrame.hidden ?? false,
+            // Public rendering removes the instance wrapper. Carry its
+            // visibility onto every child, using the same breakpoint cascade
+            // as the editor (desktop -> tablet -> mobile).
+            hidden: !!(resolveBlockAtBreakpoint(b, key).hidden
+              || resolveBlockAtBreakpoint(c, key).hidden),
           };
         }
         return {

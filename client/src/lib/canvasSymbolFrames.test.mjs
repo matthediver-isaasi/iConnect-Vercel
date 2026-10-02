@@ -13,6 +13,7 @@ import {
   resolveSymbolsInDesign,
   resolveBlockAtBreakpoint,
   BLOCK_TYPES,
+  buildCanvasCss,
 } from './canvasDesign.js';
 
 const design = (children) => ({
@@ -21,6 +22,34 @@ const design = (children) => ({
 });
 
 const kidsOf = (d) => d?.root?.sections?.[0]?.children || [];
+
+test('symbol instance visibility gates children with the editor breakpoint cascade', () => {
+  const cases = [
+    [{ mobile: { hidden: true } }, {}, [false, false, true]],
+    [{ mobile: { hidden: true } }, { mobile: { hidden: false } }, [false, false, true]],
+    [{ tablet: { hidden: true } }, {}, [false, true, true]],
+    [{ tablet: { hidden: true }, mobile: { hidden: false } }, {}, [false, true, false]],
+    [{ desktop: { hidden: true }, mobile: { hidden: false } }, {}, [true, true, false]],
+    [{}, { mobile: { hidden: true } }, [false, false, true]],
+    [{ mobile: { hidden: false } }, { tablet: { hidden: true } }, [false, true, true]],
+    [{}, {}, [false, false, false]],
+  ];
+  for (const [hostBp, childBp, expected] of cases) {
+    const page = design([{ id: 'instance', type: BLOCK_TYPES.SYMBOL,
+      content: { symbolId: 'symbol' },
+      bp: { desktop: { x: 0, y: 0, w: 300, h: 100 }, ...hostBp } }]);
+    const symbol = { design: design([{ id: 'child', type: BLOCK_TYPES.TEXT,
+      bp: { desktop: { x: 0, y: 0, w: 300, h: 100, hidden: false }, ...childBp } }]) };
+    const before = JSON.stringify({ page, symbol });
+    const children = kidsOf(resolveSymbolsInDesign(page, new Map([['symbol', symbol]])))[0].__symbolChildren;
+    assert.deepEqual(['desktop', 'tablet', 'mobile'].map(bp =>
+      resolveBlockAtBreakpoint(children[0], bp).hidden), expected);
+    const css = buildCanvasCss(children, 'visibility-test');
+    assert.equal(css.includes('display:none'), expected.some(Boolean),
+      'the public responsive stylesheet must carry the resolved visibility');
+    assert.equal(JSON.stringify({ page, symbol }), before, 'saved designs remain unchanged');
+  }
+});
 
 test('translates every breakpoint by its own bounding origin', () => {
   const d = design([

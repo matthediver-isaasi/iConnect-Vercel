@@ -287,6 +287,25 @@ for (const version of [1, 2]) {
   });
 }
 
+test('public symbol children respect instance mobile visibility without hiding desktop content', async () => {
+  const mounted = await mount();
+  const instance = block('symbol', { symbolId: 'visibility-symbol' }, 'visibility-instance');
+  instance.bp = { mobile: { hidden: true } };
+  const symbols = [{ id: 'visibility-symbol', design: design(1, [
+    block('text', { html: '<p>Symbol visibility regression</p>' }, 'visibility-text'),
+  ]) }];
+  const page = { id: 'visibility-page', canvas_design: design(1, [instance]) };
+  try {
+    for (const breakpoint of ['desktop', 'mobile', 'tablet', 'mobile', 'desktop']) {
+      await mounted.render(<CanvasPageRenderer page={page} symbols={symbols} embedded forceBreakpoint={breakpoint} />);
+      const stage = mounted.container.querySelector('[data-testid="canvas-page-stage"]');
+      assert.equal(stage.textContent.includes('Symbol visibility regression'), breakpoint !== 'mobile');
+    }
+  } finally {
+    await mounted.close();
+  }
+});
+
 test('public symbol expansion resolves rich text without personalizing page or shared symbol definitions', async () => {
   const mounted = await mount();
   const symbols = [{ id: 'member-symbol', design: design(1, [block('text', { html: HTML }, 'symbol-text')]) }];
