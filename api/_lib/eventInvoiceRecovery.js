@@ -72,6 +72,32 @@ export async function enqueueEventInvoiceRecovery({ db, tenantId, source, bookin
   });
 }
 
+export function validHistoricalRecoveryEvidence(snapshot, evidence) {
+  return validRecoverySnapshot(snapshot) && evidence?.version === 1
+    && ['approved_repair_manifest', 'original_booking_verified_provider'].includes(evidence.kind)
+    && evidence.environment === 'live'
+    && ['approvalReference', 'approvedBy'].every(key => typeof evidence[key] === 'string' && evidence[key].trim())
+    && Number.isFinite(Date.parse(evidence.approvedAt))
+    && Array.isArray(evidence.provenance) && evidence.provenance.length > 0
+    && evidence.provenance.every(item => typeof item === 'string' && item.trim())
+    && (snapshot.paymentMethod !== 'stripe' || (snapshot.settlement.livemode === true
+      && evidence.paymentIntentId === snapshot.settlement.paymentIntentId));
+}
+
+/** Persist reviewed original evidence; never reconstruct historical purchaser/VAT from current settings. */
+export async function approveHistoricalEventInvoiceRecovery({ db, candidate, snapshot, evidence }) {
+  if (!candidate?.operationId || !validHistoricalRecoveryEvidence(snapshot, evidence)) {
+    throw new Error('Invalid approved historical event invoice evidence');
+  }
+  return recoveryRpc(db, 'approve_historical', { p_candidate: candidate, p_snapshot: snapshot, p_evidence: evidence });
+}
+
+export async function resolveHistoricalEventInvoiceRecovery({
+  db, limit = 20, operationId = null, deadlineAt = Date.now() + 5000,
+}) {
+  return recoveryRpc(db, 'hydrate_historical', { p_limit: limit, p_id: operationId }, deadlineAt);
+}
+
 export function providerCooldown(retryAfter, now = Date.now(), random = Math.random) {
   const seconds = Number(retryAfter);
   const until = retryAfter != null && String(retryAfter).trim() !== '' && Number.isFinite(seconds)
@@ -174,6 +200,7 @@ export async function reconcileEventInvoices({ db, providerFactory, now = Date.n
   const deadlineAt = now() + Math.min(45_000, Math.max(1000, budgetMs));
   await recoveryRpc(db, 'heartbeat', { p_success: false });
   const swept = await recoveryRpc(db, 'sweep', { p_limit: 100 });
+  const hydrated = await resolveHistoricalEventInvoiceRecovery({ db, deadlineAt });
   const counts = { complete: 0, retry: 0, needs_review: 0 };
   for (let i = 0; i < Math.min(8, maxItems) && now() < deadlineAt - 5000; i++) {
     const result = await processEventInvoiceRecovery({ db, providerFactory, now, deadlineAt: Math.min(deadlineAt, now() + 35_000) });
@@ -181,5 +208,5 @@ export async function reconcileEventInvoices({ db, providerFactory, now = Date.n
     counts[result.status]++;
   }
   await recoveryRpc(db, 'heartbeat', { p_success: true });
-  return { swept, ...counts };
+  return { swept, hydrated, ...counts };
 }

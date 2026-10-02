@@ -83,7 +83,7 @@ Members see a neutral **Invoice awaited** state while recovery is pending, retry
 3. One connection lease serializes accounting work, so overlapping workers and future targeted processing share the same authority.
 4. Each captured Stripe intent has one event-operation owner per application tenant, so changing groups, sources or connections cannot fund another invoice.
 5. Every provider request is guarded and every write is journaled first, so a lost lease or ambiguous response cannot silently trigger another create.
-6. Historical discovery creates review work rather than reconstructing an invoice, because current settings are not historical evidence.
+6. Historical discovery can consume validated original-provider evidence or an explicitly approved repair manifest through service-only approval and hydration RPCs. It preserves the existing operation and uses the same fenced invoice writer; missing historical evidence is not permission to invent tax or purchaser details.
 7. Monitoring exposes only aggregate status, so public health checks cannot disclose purchaser or financial details.
 
 ---
@@ -757,7 +757,7 @@ Do not replace these tests with live Stripe/Xero calls, production checkouts or 
 
 **Cause:** Historical discovery deliberately lacks trustworthy captured invoice intent.
 
-**Fix:** Finance/admin historical review is required; neither repeated enqueue nor current prices/taxes repair the snapshot. This is not a failed automatic invoice backlog.
+**Fix:** Obtain the scoped candidate with `event_invoice_recovery_historical_candidates`, then use `approveHistoricalEventInvoiceRecovery` to persist validated original evidence or an explicitly approved repair manifest. The sweep consumes that evidence through `resolveHistoricalEventInvoiceRecovery` and resumes the existing operation. Apply `202611300002_event_invoice_recovery_historical.sql` first. Candidate fingerprints prevent stale approvals; test-mode payments cannot fund live invoices. Neither repeated enqueue nor direct queue edits repair the snapshot. `scripts/prepare-event-historical-recovery.mjs` provides a narrowly pinned repair path for the reviewed incident, not general permission to infer missing accounting policy.
 
 ### Problem: Invoice Is Paid or a Write Timed Out, but Recovery Cannot Complete
 

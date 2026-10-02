@@ -18,7 +18,7 @@ function credential(value) {
     return decipher.update(encrypted, 'hex', 'utf8') + decipher.final('utf8');
   } catch { throw new EventInvoiceRecoveryError('provider_reconnect_required'); }
 }
-export function verifyRecoveryInvoiceFinancials(invoice, snapshot) {
+export function verifyRecoveryInvoiceFinancials(invoice, snapshot, { legacy = false } = {}) {
   if (day(invoice.DateString || invoice.Date) !== snapshot.invoice.Date
     || day(invoice.DueDateString || invoice.DueDate) !== snapshot.invoice.DueDate
     || invoice.LineAmountTypes !== snapshot.invoice.LineAmountTypes
@@ -33,7 +33,7 @@ export function verifyRecoveryInvoiceFinancials(invoice, snapshot) {
       && Number(actual.LineAmount) === lineAmount
       && Number(actual.DiscountRate || 0) === Number(expected.DiscountRate || 0)
       && (expected.DiscountAmount == null || Number(actual.DiscountAmount) === Number(expected.DiscountAmount))
-      && String(actual.Description || '') === String(expected.Description || '')
+      && (legacy || String(actual.Description || '') === String(expected.Description || ''))
       && tracking(actual.Tracking) === tracking(expected.Tracking);
   });
 }
@@ -43,6 +43,19 @@ export async function createEventInvoiceRecoveryXero({
   db, row, identity, guard, deadlineAt, fetchImpl = fetch, credentialsLoader = null,
 }) {
   const snapshot = row.snapshot;
+  const discovery = snapshot.legacyDiscovery;
+  if (discovery) {
+    const from = day(discovery.fromDate);
+    const to = day(discovery.toDate);
+    if (discovery.version !== 1 || from !== discovery.fromDate || to !== discovery.toDate
+      || !from || !to || to < from || Date.parse(to) - Date.parse(from) > 366 * 86400_000
+      || snapshot.invoice.Date < from || snapshot.invoice.Date > to
+      || (snapshot.paymentMethod === 'stripe' && !/^pi_[A-Za-z0-9]+$/.test(snapshot.settlement?.paymentIntentId || ''))
+      || (snapshot.paymentMethod !== 'stripe'
+        && (!discovery.bookingReference || discovery.bookingReference !== row.booking_group_reference))) {
+      throw new EventInvoiceRecoveryError('legacy_discovery_scope_invalid');
+    }
+  }
   let requests = 0;
   const databaseQuery = async query => {
     const remaining = deadlineAt - Date.now();
@@ -123,15 +136,137 @@ export async function createEventInvoiceRecoveryXero({
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
   const paymentReference = `${identity}:${snapshot.settlement?.paymentIntentId || ''}`;
-  const query = (field, value) => `?where=${encodeURIComponent(`${field}=="${value}"`)}`;
+  const query = (field, value) => `?where=${encodeURIComponent(`${field}==${JSON.stringify(value)}`)}`;
   const single = (data, field) => {
     if (data?.[field]?.length !== 1 || data[field][0].HasErrors || data[field][0].ValidationErrors?.length) {
       throw new EventInvoiceRecoveryError('provider_result_ambiguous', { retry: true });
     }
     return data[field][0];
   };
+  const legacyInvoiceIds = new Set();
+  const legacyPaymentReference = `Stripe: ${snapshot.settlement?.paymentIntentId || ''}`;
+  const hasToken = (text, token) => {
+    if (!token) return false;
+    const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(^|[^A-Za-z0-9_-])${escaped}($|[^A-Za-z0-9_-])`).test(String(text || ''));
+  };
+  const invoiceIdentity = invoice => snapshot.paymentMethod === 'stripe'
+    ? invoice.LineItems?.some(line => hasToken(line.Description, snapshot.settlement.paymentIntentId))
+    : invoice.Reference === discovery.bookingReference
+      || invoice.LineItems?.some(line => hasToken(line.Description, discovery.bookingReference));
+  const paginated = async (path, field) => {
+    const found = new Map();
+    // Xero's accounting endpoint page size is 100. An empty terminal page is
+    // required; a short page alone is not treated as proof of completeness.
+    for (let page = 1; page <= 3; page++) {
+      const data = await api(`${path}${path.includes('?') ? '&' : '?'}page=${page}&pageSize=100`);
+      const items = data?.[field];
+      if (!Array.isArray(items) || items.length > 100) {
+        throw new EventInvoiceRecoveryError('legacy_lookup_invalid', { retry: true });
+      }
+      if (items.length === 0) return [...found.values()];
+      for (const item of items) {
+        const id = item?.[field === 'Invoices' ? 'InvoiceID' : 'PaymentID'];
+        if (!id || item.HasErrors || item.ValidationErrors?.length || found.has(id)) {
+          throw new EventInvoiceRecoveryError('legacy_lookup_ambiguous');
+        }
+        if (field === 'Invoices' && (item.Type !== 'ACCREC'
+          || !day(item.DateString || item.Date) || !Array.isArray(item.LineItems)
+          || item.LineItems.some(line => typeof line.Description !== 'string'))) {
+          // Summary-only invoices cannot prove that the full PI is absent.
+          throw new EventInvoiceRecoveryError('legacy_lookup_incomplete');
+        }
+        found.set(id, item);
+      }
+    }
+    throw new EventInvoiceRecoveryError('legacy_lookup_incomplete');
+  };
+  const knownInvoice = async id => {
+    const data = await api(`Invoices/${encodeURIComponent(id)}`);
+    if (data?.Invoices?.length !== 1 || data.Invoices[0].InvoiceID !== id
+      || data.Invoices[0].HasErrors || data.Invoices[0].ValidationErrors?.length) {
+      throw new EventInvoiceRecoveryError('known_invoice_unavailable');
+    }
+    return data.Invoices[0];
+  };
+  const knownPayment = async () => {
+    const data = await api(`Payments/${encodeURIComponent(row.payment_id)}`);
+    if (data?.Payments?.length !== 1 || data.Payments[0].PaymentID !== row.payment_id
+      || data.Payments[0].HasErrors || data.Payments[0].ValidationErrors?.length) {
+      throw new EventInvoiceRecoveryError('known_payment_unavailable');
+    }
+    return data.Payments[0];
+  };
+  let historicalLookup = null;
+  const discover = () => historicalLookup ||= (async () => {
+    const invoices = new Map();
+    let payments = [];
+    if (row.invoice_id) {
+      const invoice = await knownInvoice(row.invoice_id);
+      invoices.set(invoice.InvoiceID, invoice);
+      // A previously adopted invoice stays legacy after its ID is journaled.
+      if (invoice.InvoiceNumber !== identity) legacyInvoiceIds.add(invoice.InvoiceID);
+    } else if (row.payment_id) {
+      // A durable payment ID also supplies durable invoice identity. Do not
+      // let an unrelated broad search override it or consume its request budget.
+      payments = [await knownPayment()];
+      const id = payments[0].Invoice?.InvoiceID;
+      if (!id) throw new EventInvoiceRecoveryError('payment_without_invoice');
+      const invoice = await knownInvoice(id);
+      invoices.set(id, invoice);
+      if (invoice.InvoiceNumber !== identity) legacyInvoiceIds.add(id);
+    } else {
+      const exact = await api(`Invoices${query('InvoiceNumber', identity)}`);
+      if (!Array.isArray(exact?.Invoices) || exact.Invoices.some(item => !item?.InvoiceID
+        || item.InvoiceNumber !== identity || item.HasErrors || item.ValidationErrors?.length)) {
+        throw new EventInvoiceRecoveryError('invoice_lookup_invalid', { retry: true });
+      }
+      if (exact.Invoices.length > 1) throw new EventInvoiceRecoveryError('invoice_identity_ambiguous');
+      for (const invoice of exact.Invoices) invoices.set(invoice.InvoiceID, invoice);
+      const where = `Type=="ACCREC"&&Date>=DateTime(${discovery.fromDate.replaceAll('-', ',')})&&Date<=DateTime(${discovery.toDate.replaceAll('-', ',')})`;
+      const scanned = await paginated(`Invoices?where=${encodeURIComponent(where)}`, 'Invoices');
+      for (const invoice of scanned.filter(invoiceIdentity)) {
+        invoices.set(invoice.InvoiceID, invoice);
+        if (invoice.InvoiceNumber !== identity) legacyInvoiceIds.add(invoice.InvoiceID);
+      }
+    }
+    if (snapshot.paymentMethod === 'stripe') {
+      if (row.payment_id) {
+        if (!payments.length) payments = [await knownPayment()];
+      } else {
+        const where = `Reference==${JSON.stringify(paymentReference)}||Reference==${JSON.stringify(legacyPaymentReference)}`;
+        payments = await paginated(`Payments?where=${encodeURIComponent(where)}`, 'Payments');
+        if (payments.some(payment => ![paymentReference, legacyPaymentReference].includes(payment.Reference))) {
+          throw new EventInvoiceRecoveryError('payment_lookup_invalid');
+        }
+      }
+      for (const payment of payments) {
+        const id = payment.Invoice?.InvoiceID;
+        if (!id) throw new EventInvoiceRecoveryError('payment_without_invoice');
+        if (row.invoice_id && id !== row.invoice_id) throw new EventInvoiceRecoveryError('payment_evidence_mismatch');
+        if (!invoices.has(id)) invoices.set(id, await knownInvoice(id));
+        if (invoices.get(id).InvoiceNumber !== identity) legacyInvoiceIds.add(id);
+      }
+    }
+    if (invoices.size > 1) throw new EventInvoiceRecoveryError('invoice_identity_ambiguous');
+    if (payments.length > 1) throw new EventInvoiceRecoveryError('payment_identity_ambiguous');
+    for (const [id, invoice] of invoices) {
+      if (!invoice.LineItems || !invoice.Contact || !invoice.Date && !invoice.DateString) {
+        invoices.set(id, await knownInvoice(id));
+      }
+      const candidate = invoices.get(id);
+      if (legacyInvoiceIds.has(id) && !snapshot.invoice.Contact.ContactID && !candidate.Contact?.EmailAddress) {
+        if (!candidate.Contact?.ContactID) throw new EventInvoiceRecoveryError('invoice_purchaser_unavailable');
+        const contact = single(await api(`Contacts/${encodeURIComponent(candidate.Contact.ContactID)}`), 'Contacts');
+        if (contact.ContactID !== candidate.Contact.ContactID) throw new EventInvoiceRecoveryError('invoice_purchaser_unavailable');
+        candidate.Contact = contact;
+      }
+    }
+    return { invoices: [...invoices.values()], payments };
+  })();
   return {
     async findInvoices() {
+      if (discovery) return (await discover()).invoices;
       if (row.invoice_id) {
         // Durable ID outranks every mutable human-visible field, including the
         // invoice number. A missing/deleted known invoice NEVER permits create.
@@ -148,29 +283,36 @@ export async function createEventInvoiceRecoveryXero({
       return data.Invoices;
     },
     async findPayments() {
+      if (discovery) return (await discover()).payments;
+      if (row.payment_id) return [await knownPayment()];
       const data = await api(`Payments${query('Reference', paymentReference)}`);
       if (!Array.isArray(data?.Payments)) throw new EventInvoiceRecoveryError('payment_lookup_invalid', { retry: true });
       return data.Payments;
     },
     async createInvoice() {
+      if (discovery && (await discover()).invoices.length) throw new EventInvoiceRecoveryError('invoice_creation_ambiguous');
       return single(await api('Invoices', 'POST', {
         Invoices: [{ ...snapshot.invoice, InvoiceNumber: identity }],
       }, `${identity}-invoice`), 'Invoices');
     },
     validateInvoice(invoice) {
-      if (!invoice?.InvoiceID || (row.invoice_id ? invoice.InvoiceID !== row.invoice_id : invoice.InvoiceNumber !== identity)
+      const legacy = legacyInvoiceIds.has(invoice?.InvoiceID);
+      if (!invoice?.InvoiceID || (row.invoice_id ? invoice.InvoiceID !== row.invoice_id : !legacy && invoice.InvoiceNumber !== identity)
         || invoice.Type !== 'ACCREC'
         || !(snapshot.paymentMethod === 'stripe' ? ['AUTHORISED', 'PAID']
           : [snapshot.invoice.Status, 'AUTHORISED', 'PAID']).includes(invoice.Status)
         || invoice.CurrencyCode !== snapshot.currency
-        || Number(invoice.Total) !== snapshot.amount || !verifyRecoveryInvoiceFinancials(invoice, snapshot)
+        || Number(invoice.Total) !== snapshot.amount || !verifyRecoveryInvoiceFinancials(invoice, snapshot, { legacy })
         || (snapshot.invoice.Contact.ContactID && invoice.Contact?.ContactID !== snapshot.invoice.Contact.ContactID)
         || (!snapshot.invoice.Contact.ContactID
-          && String(invoice.Contact?.Name || '').trim() !== snapshot.invoice.Contact.Name.trim())) {
+          && (String(invoice.Contact?.Name || '').trim() !== snapshot.invoice.Contact.Name.trim()
+            || (legacy && (!snapshot.contact?.email || String(invoice.Contact?.EmailAddress || '').trim().toLowerCase()
+              !== snapshot.contact.email.trim().toLowerCase()))))) {
         throw new EventInvoiceRecoveryError('invoice_evidence_mismatch');
       }
     },
     async createPayment(invoice) {
+      if (discovery && (await discover()).payments.length) throw new EventInvoiceRecoveryError('payment_creation_ambiguous');
       const code = snapshot.settlement.accountCode;
       if (!/^[A-Za-z0-9._ -]{1,50}$/.test(code)) throw new EventInvoiceRecoveryError('settlement_account_invalid');
       const accounts = (await api(`Accounts?where=${encodeURIComponent(`Code=="${code}"`)}`)).Accounts;
@@ -187,13 +329,18 @@ export async function createEventInvoiceRecoveryXero({
       }] }, `${identity}-payment`), 'Payments');
     },
     validatePayment(payment, invoice) {
-      if (!payment?.PaymentID || payment.Reference !== paymentReference
+      const legacyPayment = discovery && payment?.Reference === legacyPaymentReference;
+      if (!payment?.PaymentID || (row.payment_id && payment.PaymentID !== row.payment_id)
+        || (payment.Reference !== paymentReference
+          && !legacyPayment)
         || payment.Invoice?.InvoiceID !== invoice.InvoiceID
         || Number(payment.Amount) !== snapshot.settlement.amount
         || payment.Status !== 'AUTHORISED'
         || payment.Account?.Code !== snapshot.settlement.accountCode
         || day(payment.Date) !== snapshot.settlement.paidAt.slice(0, 10)
-        || (payment.Invoice?.CurrencyCode && payment.Invoice.CurrencyCode !== snapshot.currency)) {
+        || (payment.Invoice?.CurrencyCode && payment.Invoice.CurrencyCode !== snapshot.currency)
+        || (legacyPayment && (invoice.Status !== 'PAID'
+          || Number(invoice.AmountPaid) !== snapshot.settlement.amount || Number(invoice.AmountDue) !== 0))) {
         throw new EventInvoiceRecoveryError('payment_evidence_mismatch');
       }
     },
