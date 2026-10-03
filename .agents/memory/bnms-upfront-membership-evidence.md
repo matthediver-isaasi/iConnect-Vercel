@@ -35,3 +35,15 @@ An expiry-only upfront record may support an explicitly labelled expected renewa
 **Why:** The user approved this reporting projection even when the imported start date and historical structure are unknown. The earlier prohibition on inventing future commitments must not be misread as prohibiting clearly labelled read-only forecasts.
 
 **How to apply:** Prefer a saved renewal date; otherwise derive from trusted persisted expiry. Keep expected renewal and uniquely matched next-structure information separate from scheduled collection evidence. Never use the projection itself to authorise billing or create memberships.
+
+For the reviewed nine BNMS legacy memberships expiring 23 September–1 October
+2026 (five Full UK, two Student, one Associate UK and one Full Overseas), the user
+selected 90-day grace for all nine, then login disabled, with no role changes.
+This is a cohort-specific policy choice, not a change to every BNMS tier.
+
+**Why:** The user explicitly selected the uniform policy rather than matching
+current tier settings, including the differing overseas policy.
+
+**How to apply:** Preserve historical dates, amounts and membership identity.
+The selection authorized preparation only; obtain separate authorization before
+applying production repairs. Do not infer billing consent or future commitments.
