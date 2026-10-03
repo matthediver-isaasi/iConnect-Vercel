@@ -509,6 +509,26 @@ test('legacy rolling history stays review-only; trusted upfront monthly expiry k
   assert.equal(row.membership_renewal_date, '2026-09-01');
 });
 
+test('transport slice exhaustion checkpoints progress, but ordinary read aborts remain failures', async () => {
+  const checkpoints = [];
+  const db = database({ member_membership_history: [
+    { id: 'first', tenant_id: 'tenant', status: 'cancelled' },
+  ] }, { fail: (_query, state) => {
+    if (state.queries.length === 2) throw Object.assign(new Error('slice ended'), { code: 'RENEWAL_BUDGET_EXHAUSTED' });
+    return false;
+  } });
+  const result = await sweep(db, 'tenant', null, now, {
+    checkpoint: async cursor => checkpoints.push(structuredClone(cursor)),
+  });
+  assert.equal(result.complete, false);
+  assert.equal(result.examined, 1);
+  assert.deepEqual(result.cursor, { historyType: 'member', afterId: 'first' });
+  assert.deepEqual(checkpoints.at(-1), result.cursor);
+  assert.equal(db.writes.length, 0);
+  const broken = database({}, { fail: () => { throw new Error('AbortError: independent read timeout'); } });
+  await assert.rejects(sweep(broken, 'tenant', null, now), /independent read timeout/);
+});
+
 test('pending journal never overwrites a later unrelated manual role change', async () => {
   const row = history();
   const tables = tablesFor([row]);

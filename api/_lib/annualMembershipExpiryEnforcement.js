@@ -401,7 +401,7 @@ export async function processTenantAnnualExpirySweep(client, tenantId, results =
       await checkpoint(cursor);
     }
   } catch (error) {
-    if (error !== deferred) throw error;
+    if (error !== deferred && error.code !== 'RENEWAL_BUDGET_EXHAUSTED') throw error;
     await checkpoint(cursor);
     return { enforced, examined, complete: false, cursor };
   }

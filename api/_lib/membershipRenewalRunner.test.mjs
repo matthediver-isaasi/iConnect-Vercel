@@ -473,6 +473,34 @@ test('read deadline aborts and awaits the actual read; mutation transports are n
   assert.equal(signal, undefined, 'Write transport must not receive a read abort signal');
 });
 
+test('slice-limited read cancellation defers only our own abort, not genuine read timeouts', async t => {
+  for (const rejectAbort of [false, true]) {
+    await t.test(rejectAbort ? 'rejected abort' : 'fulfilled abort', async () => {
+      let settled = false;
+      const db = { from() { return { select() { return this; }, abortSignal(signal) {
+        return new Promise((resolve, reject) => signal.addEventListener('abort', () => {
+          settled = true;
+          const error = Object.assign(new Error('AbortError: transport cancelled'), { name: 'AbortError' });
+          if (rejectAbort) reject(error); else resolve({ data: null, error });
+        }, { once: true }));
+      } }; } };
+      const bounded = withRenewalReadDeadline(db, { deadline: 5, clock: () => 0, timeoutMs: 100 });
+      await assert.rejects(async () => await bounded.from('history').select('*'),
+        { code: 'RENEWAL_BUDGET_EXHAUSTED' });
+      assert.equal(settled, true);
+    });
+  }
+  const failed = { from() { return { select() { return this; },
+    abortSignal() { return Promise.resolve({ error: { message: 'AbortError: external cancellation' } }); } }; } };
+  assert.match((await withRenewalReadDeadline(failed, { deadline: 5, clock: () => 0 })
+    .from('history').select('*')).error.message, /external/);
+  let started = false;
+  const expired = { from() { return { select() { return this; }, then() { started = true; } }; } };
+  await assert.rejects(async () => await withRenewalReadDeadline(expired, { deadline: 0, clock: () => 1 })
+    .from('history').select('*'), { code: 'RENEWAL_BUDGET_EXHAUSTED' });
+  assert.equal(started, false);
+});
+
 test('runner awaits every effect and finalization write before resolving', async () => {
   let pending = 0;
   const delayed = async () => {

@@ -13,14 +13,21 @@ export function renewalOutcome(results) {
   return failed ? 'failed' : results.stalled ? 'stalled' : results.deferred ? 'deferred' : 'completed';
 }
 
-async function readWithDeadline(query, timeoutMs) {
+async function readWithDeadline(query, timeoutMs, budgetLimited = false) {
   // PostgREST's signal cancels the actual read transport. Always await its
   // settlement; never race a promise and leave work running after the response.
   if (typeof query.abortSignal !== 'function') return await query;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), Math.max(1, timeoutMs));
+  const budgetAbort = error => budgetLimited && controller.signal.aborted
+    && (error?.name === 'AbortError' || /AbortError/.test(error?.message || ''));
   try {
-    return await query.abortSignal(controller.signal);
+    const result = await query.abortSignal(controller.signal);
+    if (budgetAbort(result?.error)) throw new RenewalBudgetExceeded();
+    return result;
+  } catch (error) {
+    if (budgetAbort(error)) throw new RenewalBudgetExceeded();
+    throw error;
   } finally {
     clearTimeout(timer);
   }
@@ -31,8 +38,10 @@ export function withRenewalReadDeadline(db, { deadline, clock = Date.now, timeou
   const wrap = (query, write = false) => new Proxy(query, {
     get(target, key) {
       if (key === 'then') return (resolve, reject) => {
+        const remaining = deadline - clock();
         const operation = write ? Promise.resolve(target)
-          : readWithDeadline(target, Math.min(timeoutMs, Math.max(1, deadline - clock())));
+          : remaining <= 0 ? Promise.reject(new RenewalBudgetExceeded())
+          : readWithDeadline(target, Math.min(timeoutMs, remaining), remaining <= timeoutMs);
         return operation.then(resolve, reject);
       };
       const value = Reflect.get(target, key);
