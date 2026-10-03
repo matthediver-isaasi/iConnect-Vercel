@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import { isDeepStrictEqual } from 'node:util';
-import { connectDestination } from './annual-meeting-destination.mjs';
+import { connectDestination } from './lib/member-index-destination.mjs';
 import { isAttestedExpiryOnlyHistory } from '../api/_lib/expiryOnlyRenewalPolicy.js';
 
 export const APPROVED_ASSIGNMENT = Object.freeze({

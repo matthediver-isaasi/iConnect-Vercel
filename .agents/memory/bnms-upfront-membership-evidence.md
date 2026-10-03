@@ -45,5 +45,8 @@ This is a cohort-specific policy choice, not a change to every BNMS tier.
 current tier settings, including the differing overseas policy.
 
 **How to apply:** Preserve historical dates, amounts and membership identity.
-The selection authorized preparation only; obtain separate authorization before
-applying production repairs. Do not infer billing consent or future commitments.
+The user separately authorized implementation, validation and production
+application for these nine records, including their narrowly scoped overseas
+exception. That approval does not extend to newly flagged records, the shared
+tier settings or the separate sandbox Direct Debit setup. Do not infer billing
+consent or future commitments.
