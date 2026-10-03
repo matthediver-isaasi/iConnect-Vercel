@@ -50,3 +50,14 @@ application for these nine records, including their narrowly scoped overseas
 exception. That approval does not extend to newly flagged records, the shared
 tier settings or the separate sandbox Direct Debit setup. Do not infer billing
 consent or future commitments.
+
+The user also explicitly approved applying the same 90-day grace, subsequent
+login restriction if unrenewed, and no role change to the Junior Membership UK
+record expiring 2 October 2026.
+
+**Why:** This additional record was presented separately and the user selected
+“Apply the 90-day policy.”
+
+**How to apply:** Treat this as approval for that record only, not an automatic
+policy for other newly flagged legacy memberships. Preserve history and pricing;
+do not create charges or new memberships.
