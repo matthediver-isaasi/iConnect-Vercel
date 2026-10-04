@@ -22,7 +22,8 @@ import { stripTrustedMemberProjections } from "@/lib/memberSessionRole";
  * Props:
  *   className  – extra class on the outer wrapper div
  */
-export default function LoginForm({ className }) {
+export default function LoginForm({ className, completionMode = 'redirect', onAuthenticated, onBusyChange }) {
+  const inPlace = completionMode === 'in-place';
   const {
     authResolved,
     sessionValidated,
@@ -47,6 +48,7 @@ export default function LoginForm({ className }) {
   // window.location on every render would otherwise discard a valid returnTo
   // before the eventual successful login.
   const [navigationContext] = useState(() => {
+    if (inPlace) return { returnTo: getValidatedReturnTo(window.location), resourceId: null, groupId: null };
     const params = new URLSearchParams(window.location.search);
     const rawReturnTo = params.get('returnTo');
     // `rawReturnTo` is already the complete path/query/hash decoded from the
@@ -62,7 +64,7 @@ export default function LoginForm({ className }) {
     };
   });
   const { returnTo, resourceId, groupId } = navigationContext;
-  const urlParams = new URLSearchParams(window.location.search);
+  const urlParams = new URLSearchParams(inPlace ? '' : window.location.search);
   const oauthError = urlParams.get('error');
   const urlMode = urlParams.get('mode');
   const urlToken = urlParams.get('token');
@@ -123,6 +125,11 @@ export default function LoginForm({ className }) {
   }, []);
 
   const redirectToLandingPage = async (member) => {
+    if (inPlace) {
+      if (!onAuthenticated) throw new Error('In-place authentication is unavailable.');
+      await onAuthenticated(member);
+      return;
+    }
     if (redirectingRef.current) return;
     redirectingRef.current = true;
     const sessionExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -176,13 +183,15 @@ export default function LoginForm({ className }) {
   useEffect(() => {
     // Layout owns the parse-once /auth/me request. Reuse only its validated
     // result instead of issuing a second cold-login authentication request.
-    if (authResolved && sessionValidated && memberInfo) {
+    if (!inPlace && authResolved && sessionValidated && memberInfo) {
       redirectToLandingPage({
         ...memberInfo,
         sessionRole: sessionRoleSnapshot,
       });
     }
-  }, [authResolved, sessionValidated, memberInfo, sessionRoleSnapshot]);
+  }, [inPlace, authResolved, sessionValidated, memberInfo, sessionRoleSnapshot]);
+
+  useEffect(() => { onBusyChange?.(loading); }, [loading, onBusyChange]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -198,16 +207,16 @@ export default function LoginForm({ className }) {
       const data = await r.json();
       if (data.success) {
         const sessionExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-        localStorage.setItem('agcas_member', JSON.stringify({ ...data.member, sessionExpiry }));
+        if (!inPlace) localStorage.setItem('agcas_member', JSON.stringify({ ...data.member, sessionExpiry }));
         if (data.requiresPasswordChange) { setMode("set-password"); setPassword(""); }
-        else redirectToLandingPage(data.member);
+        else await redirectToLandingPage(data.member);
       } else if (data.needsPasswordSetup) {
         setMode("set-password"); setPassword("");
       } else {
         setError(data.error || "Invalid email or password");
       }
-    } catch {
-      setError("An error occurred. Please try again.");
+    } catch (err) {
+      setError(inPlace ? (err.message || "An error occurred. Please try again.") : "An error occurred. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -231,13 +240,13 @@ export default function LoginForm({ className }) {
       const data = await r.json();
       if (data.success) {
         const sessionExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-        localStorage.setItem('agcas_member', JSON.stringify({ ...data.member, sessionExpiry }));
-        redirectToLandingPage(data.member);
+        if (!inPlace) localStorage.setItem('agcas_member', JSON.stringify({ ...data.member, sessionExpiry }));
+        await redirectToLandingPage(data.member);
       } else {
         setError(data.error || "Failed to set password");
       }
-    } catch {
-      setError("An error occurred. Please try again.");
+    } catch (err) {
+      setError(inPlace ? (err.message || "An error occurred. Please try again.") : "An error occurred. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -279,6 +288,7 @@ export default function LoginForm({ className }) {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          <fieldset disabled={loading} className="min-w-0">
           {emailSent ? (
             <div className="space-y-4">
               <div className="flex items-start gap-3 p-4 bg-green-50 border border-green-200 rounded-lg">
@@ -297,7 +307,7 @@ export default function LoginForm({ className }) {
           ) : (
             <>
               {error && (
-                <div className="flex items-start gap-3 p-3 mb-4 bg-red-50 border border-red-200 rounded-lg">
+                <div role="alert" className="flex items-start gap-3 p-3 mb-4 bg-red-50 border border-red-200 rounded-lg">
                   <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0" />
                   <p className="text-sm text-red-700 whitespace-pre-line" data-testid="text-login-error">{error}</p>
                 </div>
@@ -406,6 +416,7 @@ export default function LoginForm({ className }) {
               )}
             </>
           )}
+          </fieldset>
         </CardContent>
       </Card>
     </div>

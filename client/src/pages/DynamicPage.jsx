@@ -7,7 +7,7 @@ import IEditElementRenderer from "../components/iedit/IEditElementRenderer";
 import CanvasPageRenderer from "../components/canvas/CanvasPageRenderer";
 import StaticHtmlPageRenderer from "../components/staticpage/StaticHtmlPageRenderer";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
-import { usePageLayoutDecision } from "@/contexts/LayoutContext";
+import { usePageLayoutDecision, useLayoutContext } from "@/contexts/LayoutContext";
 import { RouteLayoutContext } from "@/contexts/RouteLayoutContext";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { useMicrosite } from "@/contexts/MicrositeContext";
@@ -143,6 +143,8 @@ export default function DynamicPage() {
   const resolvedAudienceIdentity = sessionValidated && memberInfo?.id
     ? `member:${memberInfo.id}`
     : 'guest';
+  const { eventLoginReturnPath, setEventLoginReturnPath } = useLayoutContext();
+  const guestEventCanvas = useRef(null);
   const audienceGenerationRef = useRef({
     initialized: false,
     identity: null,
@@ -445,12 +447,27 @@ export default function DynamicPage() {
   const page = pageData?.page;
   const elements = pageData?.elements || [];
   const elementsLoading = pageLoading;
+  const pageQueryPending = pageQueryEnabled && !pageFetched;
+  // Only retain an already-public, guest-redacted event canvas. Never retain a
+  // member response across an identity boundary. Fresh page reads still run.
+  const eventCanvasPath = location.pathname + location.search;
+  if (guestEventCanvas.current?.path !== eventCanvasPath) guestEventCanvas.current = null;
+  if (authResolved && !memberInfo && page?.status === 'published'
+    && page.builder_type === 'canvas'
+    && page.canvas_design?.root?.sections?.some(section => section.children?.some(block => block.type === 'event-registration'))) {
+    guestEventCanvas.current = { path: eventCanvasPath, page, symbols: pageData?.symbols };
+  }
+  useEffect(() => {
+    if (!eventLoginReturnPath) return;
+    if (eventLoginReturnPath !== eventCanvasPath) {
+      setEventLoginReturnPath?.(null);
+    }
+  }, [eventLoginReturnPath, eventCanvasPath, setEventLoginReturnPath]);
 
   // "Not settled" = the query is enabled but hasn't returned yet. During the
   // brief idle→fetching transition React Query's isLoading is still false, so
   // without this guard the `!page` not-found branch would flash for a frame
   // before the real page paints. Treat that window as loading instead.
-  const pageQueryPending = pageQueryEnabled && !pageFetched;
 
   // Set page title and meta description
   useEffect(() => {
@@ -720,6 +737,15 @@ export default function DynamicPage() {
 
   // Task #2426: microsite route gating. Wait for the microsites list, then
   // treat an unknown prefix as a plain 404 (same as the old catch-all).
+  if (eventLoginReturnPath === eventCanvasPath && guestEventCanvas.current
+    && (!routePrerequisitesReady || pageLoading || elementsLoading || pageQueryPending
+      || (!canPreviewDrafts && !!earlyPublicRequest && !earlyPublicPageFetched))) {
+    return (
+      <div className="w-full" data-testid={`dynamic-page-${slug}`}>
+        <CanvasPageRenderer page={guestEventCanvas.current.page} symbols={guestEventCanvas.current.symbols} editorPreview={false} />
+      </div>
+    );
+  }
   if (!routePrerequisitesReady) {
     return <NeutralPageLoading testId="loading-microsite" />;
   }

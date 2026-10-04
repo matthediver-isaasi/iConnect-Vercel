@@ -1019,7 +1019,7 @@ function clearInboxPopupSessionFlags() {
   }
 }
 
-export default function Layout({ children, currentPageName }) {
+export default function Layout({ children, currentPageName, authenticationOnly = false }) {
   const isCanvasEditor = currentPageName === 'CanvasPageEditor';
   const location = useLocation();
   const navigate = useNavigate();
@@ -1808,7 +1808,14 @@ useEffect(() => {
   };
 
   // Function to reload member info from sessionStorage
-  const reloadMemberInfo = () => {
+  const inPlaceLoginShell = useRef(null);
+  useEffect(() => {
+    if (inPlaceLoginShell.current?.path !== location.pathname) inPlaceLoginShell.current = null;
+  }, [location.pathname]);
+  const reloadMemberInfo = (options = {}) => {
+    if (options.preserveLayout) {
+      inPlaceLoginShell.current = { path: location.pathname, public: isPublicPage() };
+    }
     // Storage remains useful for the legacy UI, but never authorises Canvas
     // values. Revalidate after profile/account changes.
     authGenerationRef.current += 1;
@@ -1899,29 +1906,11 @@ useEffect(() => {
   }, [memberInfo, memberRole, roleStatus, isCurrentMemberGroupAdmin, setContextIsFeatureExcluded]);
 
   // Update context with reloadMemberInfo function
+  const latestReloadMemberInfo = useRef(reloadMemberInfo);
+  latestReloadMemberInfo.current = reloadMemberInfo;
   useEffect(() => {
-    const reloadFn = () => {
-      authGenerationRef.current += 1;
-      invalidateViewerSessionRequest(viewerSessionScope);
-      setSessionValidated(false);
-      setAuthResolved(false);
-      setSessionValidatedAt(0);
-      routineRevalidationRef.current = false;
-      routineRevalidationInFlightRef.current = false;
-      retentionDeadlineRef.current = 0;
-      setSessionRecoveryBlocked(false);
-      setSessionRecovering(false);
-      pauseSessionWork(true);
-      setAuthRevision(value => value + 1);
-      const storedMember = localStorage.getItem('agcas_member');
-      if (storedMember) {
-        const member = stripTrustedMemberProjections(JSON.parse(storedMember));
-        setMemberInfo(member);
-        console.log('[Layout] memberInfo reloaded from sessionStorage via context');
-      }
-    };
-    setContextReloadMemberInfo(reloadFn);
-  }, [setContextReloadMemberInfo, setSessionValidated, setAuthResolved, viewerSessionScope]);
+    setContextReloadMemberInfo(options => latestReloadMemberInfo.current(options));
+  }, [setContextReloadMemberInfo]);
 
   // Update context with refreshOrganizationInfo function
   useEffect(() => {
@@ -1976,6 +1965,9 @@ useEffect(() => {
 
   // Check if page is truly public (not hybrid with member logged in)
   const isPublicPage = () => {
+    if (inPlaceLoginShell.current?.path === location.pathname) {
+      return inPlaceLoginShell.current.public;
+    }
     // If a dynamic page signals it should use public layout, respect that
     if (forcePublicLayout) {
       return true;
@@ -2753,6 +2745,7 @@ useEffect(() => {
     rendersPublicShell, forceBlankLayout, visibilitySettingsFetched, visibilitySettingsError]);
 
   // EARLY RETURNS - must come AFTER all hooks to avoid React error #310
+  if (authenticationOnly) return <>{children}</>;
   // Wait for visibility settings to load before rendering layout
   if (!visibilitySettingsFetched && !pageOwned) {
     return (

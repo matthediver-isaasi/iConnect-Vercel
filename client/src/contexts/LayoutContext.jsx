@@ -50,6 +50,7 @@ const LayoutContext = createContext({
 });
 
 export function LayoutProvider({ children }) {
+  const [eventLoginReturnPath, setEventLoginReturnPath] = useState(null);
   const [forcePublicLayout, setForcePublicLayout] = useState(false);
   const [forceBlankLayout, setForceBlankLayoutState] = useState(false);
   // Per-page public chrome control: 'both' | 'none' | 'header' | 'footer'.
@@ -174,6 +175,8 @@ export function LayoutProvider({ children }) {
 
   return (
     <LayoutContext.Provider value={{ 
+      eventLoginReturnPath,
+      setEventLoginReturnPath,
       forcePublicLayout, 
       setForcePublicLayout: setLayout,
       forceBlankLayout,

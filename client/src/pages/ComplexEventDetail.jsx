@@ -43,6 +43,7 @@ import TbcAttendeeControls from "@/components/booking/TbcAttendeeControls.jsx";
 import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useEventLogin } from "@/components/auth/useEventLogin";
 import { useComplexEventTicketAvailabilityRealtime } from "@/hooks/useComplexEventTicketAvailabilityRealtime";
 import PaymentOptions from "@/components/booking/PaymentOptions";
 import EventSponsorsCard from "@/components/events/EventSponsorsCard";
@@ -489,7 +490,7 @@ function CartSummary({ cart, ticketClasses, onRemoveAttendee, onUpdateAttendee, 
   );
 }
 
-function BookingSection({ event, sessions, memberInfo, organizationInfo, memberGroupIds, onBookingComplete, cart, setCart, editorMode = false, allocationContext = null }) {
+function BookingSection({ event, sessions, memberInfo, organizationInfo, memberGroupIds, onBookingComplete, cart, setCart, openLogin, editorMode = false, allocationContext = null }) {
   const [attendeeModalOpen, setAttendeeModalOpen] = useState(false);
   const [modalTicketClassId, setModalTicketClassId] = useState(null);
   const [termsAccepted, setTermsAccepted] = useState(false);
@@ -1190,10 +1191,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
             </div>
             {availableTicketClasses.length === 0 && !isGuest ? null : availableTicketClasses.length === 0 && isGuest ? (
               <Button
-                onClick={() => {
-                  const currentPath = window.location.pathname + window.location.search;
-                  window.location.href = '/login?returnTo=' + encodeURIComponent(currentPath);
-                }}
+                onClick={openLogin}
                 className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700"
                 size="lg"
                 data-testid="button-login-to-register"
@@ -1233,6 +1231,11 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
               </div>
             )}
             {ticketCards}
+            {isGuest && availableTicketClasses.length === 0 && (
+              <Button onClick={openLogin} className="w-full" data-testid="button-login-to-register">
+                <LogIn className="w-5 h-5 mr-2" />Login to register
+              </Button>
+            )}
             {!tbcReplacementActive && (
               <CartSummary cart={cart} ticketClasses={ticketClasses} onRemoveAttendee={handleRemoveAttendee} onUpdateAttendee={handleUpdateAttendee} getEffectiveTicketPrice={getEffectiveTicketPrice} eventOptions={eventOptions} allocationContext={allocationContext} />
             )}
@@ -1290,7 +1293,9 @@ export function ComplexEventDetailExperience({
   editorMode = false,
   allocationToken = null,
 }) {
-  const { memberInfo, organizationInfo, isAdmin, authResolved } = useMemberAccess();
+  const { memberInfo: sessionMember, organizationInfo, isAdmin, authResolved, sessionValidated, roleStatus } = useMemberAccess();
+  const memberInfo = authResolved && sessionValidated && roleStatus === 'ready' ? sessionMember : null;
+  const { openLogin, loginModal } = useEventLogin();
   // Task #3508: canonical ACTIVE-group-membership signal (unexpired assignment
   // + active group, resolved server-side) used for the join-to-book gate.
   const { data: myActiveGroupIds = [], isFetched: myActiveGroupIdsFetched } = useMyGroupIds();
@@ -1558,7 +1563,10 @@ export function ComplexEventDetailExperience({
         interactionEvent.stopPropagation();
       } : undefined}
       data-editor-mode={editorMode ? "true" : undefined}
+      data-event-login-context=""
+      tabIndex={-1}
     >
+      {loginModal}
       <div className={embedded ? "max-w-7xl mx-auto" : "max-w-7xl mx-auto px-4 py-8"}>
         {!embedded && (
         <div className="flex items-center justify-between mb-6 gap-2 flex-wrap">
@@ -1862,6 +1870,7 @@ export function ComplexEventDetailExperience({
               }
               return (
                 <BookingSection
+                  openLogin={openLogin}
                   event={event}
                   sessions={sessions}
                   memberInfo={memberInfo}

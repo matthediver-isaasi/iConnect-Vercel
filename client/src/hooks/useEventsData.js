@@ -58,7 +58,7 @@ export function useMyGroupIds() {
   const { memberInfo, sessionValidated } = useLayoutContext();
   const enabled = !!memberInfo && !!sessionValidated;
   return useQuery({
-    queryKey: ['my-group-ids'],
+    queryKey: ['my-group-ids', memberInfo?.tenant_id, memberInfo?.id],
     enabled,
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
@@ -160,7 +160,8 @@ export function useEventData(eventId, { forcePublic = false } = {}) {
   const isAuthenticated = !!memberInfo && !!sessionValidated && !forcePublicLayout && !forcePublic;
   
   return useQuery({
-    queryKey: ['event', eventId, isAuthenticated ? 'authenticated' : 'public'],
+    queryKey: ['event', eventId, isAuthenticated ? 'authenticated' : 'public', isAuthenticated ? memberInfo?.id : null],
+    placeholderData: (previous, previousQuery) => previousQuery?.queryKey[1] === eventId ? previous : undefined,
     enabled: !!eventId,
     queryFn: async () => {
       try {
@@ -195,7 +196,8 @@ export function useEventDataBySlug(slug, { forcePublic = false } = {}) {
   const isAuthenticated = !!memberInfo && !!sessionValidated && !forcePublicLayout && !forcePublic;
   
   return useQuery({
-    queryKey: ['event-by-slug', slug, isAuthenticated ? 'authenticated' : 'public'],
+    queryKey: ['event-by-slug', slug, isAuthenticated ? 'authenticated' : 'public', isAuthenticated ? memberInfo?.id : null],
+    placeholderData: (previous, previousQuery) => previousQuery?.queryKey[1] === slug ? previous : undefined,
     enabled: !!slug,
     queryFn: async () => {
       try {

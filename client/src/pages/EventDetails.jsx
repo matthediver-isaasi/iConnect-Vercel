@@ -41,6 +41,7 @@ import { EventDisclosureHeading, useEventDisclosure } from "@/components/events/
 import TourButton from "../components/tour/TourButton";
 import { getFocalPointStyle } from "@/components/FocalPointPicker";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
+import { useEventLogin } from "@/components/auth/useEventLogin";
 import { useSpeakerModuleName } from "@/hooks/useSpeakerModuleName";
 import { useEventSeatRealtime } from "@/hooks/useEventSeatRealtime";
 import { useTicketAvailabilityRealtime } from "@/hooks/useTicketAvailabilityRealtime";
@@ -251,13 +252,13 @@ export function EventDetailsExperience({
   debugMode = false,
   allocationToken = null,
 }) {
-  const { memberInfo, organizationInfo, memberRole, authResolved, isFeatureExcluded, reloadMemberInfo, refreshOrganizationInfo } = useMemberAccess();
+  const { memberInfo, organizationInfo, memberRole, authResolved, sessionValidated, roleStatus, isFeatureExcluded, reloadMemberInfo, refreshOrganizationInfo } = useMemberAccess();
+  const { openLogin, loginModal } = useEventLogin();
   const { singular: speakerSingular, plural: speakerPlural } = useSpeakerModuleName();
-  const [memberInfoState, setMemberInfoState] = useState(null);
   const [showTour, setShowTour] = useState(false);
   const [tourAutoShow, setTourAutoShow] = useState(false);
 
-  const currentMemberInfo = memberInfo || memberInfoState;
+  const currentMemberInfo = authResolved && sessionValidated && roleStatus === 'ready' ? memberInfo : null;
 
   const [attendees, setAttendees] = useState([]);
   const [submitting, setSubmitting] = useState(false);
@@ -392,17 +393,6 @@ export function EventDetailsExperience({
       setShowTour(true);
     }
   }, [shouldShowTours, hasSeenTour, currentMemberInfo]);
-
-  useEffect(() => {
-    if (!memberInfo) {
-      const storedMember = localStorage.getItem('agcas_member');
-      if (storedMember) {
-        setMemberInfoState(JSON.parse(storedMember));
-      } else {
-        setMemberInfoState(null);
-      }
-    }
-  }, [memberInfo]);
 
   // Initialization useEffect - now only runs once per eventId change
   // Always defaults to 'colleagues' mode with Attendees card shown
@@ -1696,7 +1686,10 @@ export function EventDetailsExperience({
         interactionEvent.stopPropagation();
       } : undefined}
       data-editor-mode={editorMode ? "true" : undefined}
+      data-event-login-context=""
+      tabIndex={-1}
     >
+      {loginModal}
       {showTour && shouldShowTours && (
         <PageTour
           tourGroupName="EventDetails"
@@ -1750,7 +1743,7 @@ export function EventDetailsExperience({
                 <div className="flex items-start gap-3 mb-2">
                   <h1 className="text-3xl font-bold text-slate-900 flex-1">{event.title}</h1>
                   {memberInfo && event.id && (
-                    <BookmarkButton entityType="event" entityId={event.id} />
+                    <TooltipProvider><BookmarkButton entityType="event" entityId={event.id} /></TooltipProvider>
                   )}
                 </div>
                 
@@ -2091,7 +2084,7 @@ export function EventDetailsExperience({
                       <div className="flex items-center gap-2 p-3 bg-warning/10 border border-warning/30 rounded-lg">
                         <Lock className="w-5 h-5 text-warning" />
                         <p className="text-sm text-warning">
-                          This ticket is for members only. Please <a href="/Login" className="font-medium underline text-warning hover:text-warning">log in</a> to register, or select a public ticket if available.
+                          This ticket is for members only. Please <button type="button" onClick={openLogin} className="font-medium underline text-warning hover:text-warning">log in</button> to register, or select a public ticket if available.
                         </p>
                       </div>
                     ) : (
@@ -2595,7 +2588,7 @@ export function EventDetailsExperience({
                                     href={`/Login?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`}
                                     className="text-blue-600 hover:underline font-medium"
                                     data-testid={`link-login-ticket-${ticketId}`}
-                                    onClick={(e) => e.stopPropagation()}
+                                    onClick={openLogin}
                                   >
                                     log in to book
                                   </a>
@@ -2691,6 +2684,7 @@ export function EventDetailsExperience({
                                   href={`/Login?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`}
                                   className="text-blue-600 hover:underline font-medium"
                                   data-testid="link-login-ticket-single"
+                                  onClick={openLogin}
                                 >
                                   log in to book
                                 </a>
@@ -2748,10 +2742,7 @@ export function EventDetailsExperience({
                   ) : null}
                   {isGuestCheckout && noTicketsForRole ? (
                     <Button
-                      onClick={() => {
-                        const currentPath = window.location.pathname + window.location.search;
-                        window.location.href = '/login?returnTo=' + encodeURIComponent(currentPath);
-                      }}
+                      onClick={openLogin}
                       className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
                       size="lg"
                       data-testid="button-login-to-register"
@@ -2940,10 +2931,7 @@ export function EventDetailsExperience({
           </div>
           <div className="mt-6 pt-4 border-t flex flex-col gap-2">
             <Button
-              onClick={() => {
-                const currentUrl = window.location.pathname + window.location.search;
-                window.location.href = `/login?returnTo=${encodeURIComponent(currentUrl)}`;
-              }}
+              onClick={(event) => { setShowMemberEmailModal(false); openLogin(event); }}
               className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
               data-testid="button-login-redirect"
             >

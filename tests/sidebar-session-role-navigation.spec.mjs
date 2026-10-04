@@ -325,6 +325,7 @@ async function installFixture(page, {
     if (url.pathname === "/api/public/favicon-url") return json(route, { faviconUrl: null });
     if (url.pathname === "/api/public/platform-defaults") return json(route, {});
     if (url.pathname === "/api/public/ai-help-persona") return json(route, { enabled: false });
+    if (url.pathname === "/api/member-ai/config") return json(route, { enabled: false });
     if (url.pathname === "/api/public/form-consent-message") return json(route, { message: null });
     if (url.pathname === "/api/tenant-canvas-theme") return json(route, { theme: null });
     if (url.pathname === "/api/public/canvas-symbols") return json(route, { symbols: [] });

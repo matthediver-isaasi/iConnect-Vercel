@@ -1561,6 +1561,11 @@ function AppRoutes() {
     
     const isAdminPage = location.pathname.toLowerCase().startsWith('/admin');
     const isPlatformPage = location.pathname.toLowerCase().startsWith('/platform');
+
+    // Event iframes need the same session owner as full pages, without chrome.
+    if (hasEmbedParam && ['EventDetails', 'ComplexEventDetail'].includes(_getCurrentPage(location.pathname))) {
+        return <Layout currentPageName={_getCurrentPage(location.pathname)} authenticationOnly><StandaloneRoutes /></Layout>;
+    }
     
     if (isStandalonePage || isEmbedPage || isBookingPage || isDonatePage || isFundraisePage || isFundraiserPage || isMembershipFeePage || isSubmitPoPage || isPublicQuotePage || isGroupBookingPage || isGuestApprovalPage || isGroupRoleInvitePage || isTeamInvitePage || isDdSetupPage || isCampaignsPage || hasEmbedParam) {
         return <StandaloneRoutes />;

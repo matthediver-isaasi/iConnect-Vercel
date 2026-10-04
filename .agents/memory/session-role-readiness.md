@@ -3,6 +3,18 @@ name: Session role readiness
 description: Safe reuse of verified role data, terminal failures, and observer-driven loading loops.
 ---
 
+In-place event sign-in must retain its current layout tree while independently
+revalidating access. Embedded event routes must have the same session owner even
+when they omit page chrome.
+
+**Why:** Switching from public to portal chrome remounts event controls and loses
+valid choices. A modal disappearing can mean its whole page crashed or remounted,
+not that authentication completed. Storage writes cannot establish readiness.
+
+**How to apply:** Refresh through Layout's session owner, wait for a new verified
+identity-matched role epoch, and assert retained controls and rendered event content
+after dismissal. Do not substitute the access hook's member-entity refresh.
+
 A session-supplied role can eliminate a second permissions request, but must remain tied to the verified member, tenant, role and session. It must still participate in explicit role-query invalidation.
 
 **Why:** Permanently preferring an authentication snapshot would leave navigation using old permissions after role changes. Missing role data is especially dangerous in an exclusion-based policy: an empty exclusion list means unrestricted access, not a failed lookup.
