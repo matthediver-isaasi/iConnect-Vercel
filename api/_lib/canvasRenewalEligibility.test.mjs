@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { canvasRenewalEligibility, loadCanvasRenewalEligibility } from './canvasRenewalEligibility.js';
+import { resolveSavedCollectionPolicy } from '../../shared/gocardlessCollectionPolicy.js';
 
 const config = { tenant_id: 'tenant', structure_scope_type: 'member', renewal_open_days: 10, renewal_grace_days: 5 };
 const record = {
@@ -9,6 +10,26 @@ const record = {
   status: 'active', term_start_date: '2026-01-01', term_end_date: '2026-12-31',
 };
 const eligible = (today, patch = {}) => canvasRenewalEligibility({ record, config, today, ...patch }).eligible;
+test('continuing, finite and unknown-consent DD retain existing eligibility without policy reclassification', async () => {
+  for (const [snapshot, end, review] of [
+    [{ collection_policy: { version: 1, end_policy: 'continue', pricing_policy: 'dynamic' } }, 'continue', false],
+    [{ collection_policy: { version: 1, end_policy: 'stop', pricing_policy: 'fixed' } }, 'stop', false],
+    [{}, null, true],
+  ]) {
+    const before = structuredClone(snapshot);
+    const policy = resolveSavedCollectionPolicy(snapshot);
+    assert.equal(policy.end_policy, end);
+    assert.equal(policy.needs_review, review);
+    const dd = { ...record, payment_method: 'direct_debit', billing_period: 'monthly_direct_debit',
+      billing_agreement_id: 'agreement' };
+    assert.equal(eligible('2026-12-31', { record: dd }), false);
+    assert.deepEqual(await loadCanvasRenewalEligibility({ from() { throw Error('Unexpected read'); } }, {
+      selected: { record: dd }, owner: { tenant_id: 'tenant' }, history: [dd], today: '2026-12-31',
+      plan: { membership_billing_agreements: { metadata: { dd: snapshot } } },
+    }), { eligible: false });
+    assert.deepEqual(snapshot, before);
+  }
+});
 test('fixed annual UTC window includes both exact boundaries and excludes adjacent days', () => {
   for (const [today, expected] of [['2026-12-20', false], ['2026-12-21', true],
     ['2026-12-31', true], ['2027-01-05', true], ['2027-01-06', false]]) {

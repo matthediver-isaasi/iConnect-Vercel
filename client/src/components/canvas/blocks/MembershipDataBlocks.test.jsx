@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { createCanvasSummaryHandler } from '../../../../../api/membership/canvas-summary.js';
+import { correctPortalDesign, BLOCK, DESTINATION } from '../../../../../scripts/correct-bnms-portal-renewal-link.mjs';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://tenant.test/' });
 for (const name of ['window', 'document', 'navigator', 'localStorage', 'sessionStorage', 'HTMLElement', 'Element', 'Node', 'DocumentFragment', 'CustomEvent', 'MutationObserver']) {
@@ -216,6 +217,35 @@ test('renewal CTA requires authoritative true eligibility and a safe independent
     assert.doesNotMatch(render({ type: 'payment-details', block: { id: 'renewal', content: { renewalLink } },
       result: { status: 'ready', data } }), /Renew your subscription/);
   }
+});
+
+test('verified BNMS generic renewal misconfiguration and targeted correction respect server eligibility', () => {
+  const original = { id: BLOCK, type: 'payment-details', content: {
+    manageLink: DESTINATION, manageLinkText: 'Renew subscription', manageLinkNewTab: false,
+    renewalLink: '', renewalLinkNewTab: false,
+  } };
+  const corrected = correctPortalDesign({ children: [original] }).design.children[0];
+  const dd = { ...live, renewal: { eligible: false } };
+  assert.match(render({ type: 'payment-details', block: original,
+    result: { status: 'ready', data: dd } }), /Renew subscription/);
+  for (const [payment, eligible, expected] of [
+    [live.payment, false, false],
+    [{ state: 'paid', method: 'upfront' }, true, true],
+    [{ state: 'paid', method: 'upfront' }, false, false],
+    [{ state: 'bank_setup_pending', method: 'monthly_direct_debit' }, true, false],
+  ]) {
+    const doc = new JSDOM(render({ type: 'payment-details', block: corrected,
+      result: { status: 'ready', data: { ...live, payment, renewal: { eligible } } } })).window.document;
+    assert.equal(!!doc.querySelector('a'), expected);
+    if (expected) assert.equal(doc.querySelector('a').getAttribute('href'), DESTINATION);
+  }
+  const management = { ...corrected, content: {
+    ...corrected.content, manageLink: '/payments/manage', manageLinkText: 'Update bank details',
+  } };
+  const html = render({ type: 'payment-details', block: management, result: { status: 'ready', data: dd } });
+  assert.match(html, /Update bank details/);
+  assert.match(html, /href="\/payments\/manage"/);
+  assert.doesNotMatch(html, /membership-renewal-cta/);
 });
 
 test('after-expiry grace renewal remains visible even when payment lifecycle is unavailable', () => {

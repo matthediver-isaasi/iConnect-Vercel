@@ -376,6 +376,7 @@ export function MembershipDataInspector({ block, update, breakpoint = 'desktop' 
       <LinkField label="Manage payments destination" value={c.manageLink} onChange={manageLink => set({ manageLink })}
         newTab={c.manageLinkNewTab} onNewTabChange={manageLinkNewTab => set({ manageLinkNewTab })}
         testId="membership-manage-link" />
+      <p className="text-xs text-slate-500">For payment management only, not membership renewal. This link is not controlled by renewal eligibility and can appear for Direct Debit members. Use Renew subscription destination for renewal, even if you change this link’s text.</p>
       {c.manageLink && !safeMembershipLink(c.manageLink) && <p className="text-xs text-amber-700" role="status">
         Enter a site path beginning with / or an http(s) URL. The link is hidden until the destination is valid.
       </p>}
@@ -390,7 +391,7 @@ export function MembershipDataInspector({ block, update, breakpoint = 'desktop' 
         value={membershipRenewalFormSlug(c.renewalLink)}
         onChange={slug => set({ renewalLink: `/forms/${encodeURIComponent(slug)}` })}
         testId="membership-renewal-form" />}
-      <p className="text-xs text-slate-500">Shown only to upfront payers within their assigned membership schedule’s renewal period. Choose an internal page, enter a full URL, or select a form. A configured link previews an eligible upfront example in the editor.</p>
+       <p className="text-xs text-slate-500">Controlled by the server’s renewal eligibility: shown only to eligible upfront payers within their assigned membership schedule’s renewal period, not members with automatically continuing Direct Debit. Choose an internal page, enter a full URL, or select a form. A configured link previews an eligible upfront example in the editor.</p>
       {c.renewalLink && !safeMembershipLink(c.renewalLink) && <p className="text-xs text-amber-700" role="status">
         Enter a site path beginning with / or an http(s) URL. The renewal button is hidden until the destination is valid.
       </p>}
