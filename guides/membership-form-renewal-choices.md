@@ -86,12 +86,18 @@ effective annual member schedule; none of those 11 has an open billing agreement
 The other **72 lack policy-assignment authority**. These counts describe
 readiness, not payment permission, settlement verification or blanket approval.
 
+These are the **pre-application** counts, not the current assignment state.
 The operator subsequently approved exact schedule mappings and the uniform
 90-day opening/grace policy for those 72 records, including the five Full
 Overseas exceptions. The pinned cohort and approval limits are recorded in
 [`reports/bnms-legacy-renewal-schedule-approval-2026-10-04.md`](../reports/bnms-legacy-renewal-schedule-approval-2026-10-04.md).
-This was review approval only: assignments were not created, database writes
-require separate approval, and rollout remains disabled.
+After separate write authorization, all 72 were applied to DEST, bringing the
+total to 83. See the
+[application report](../reports/bnms-approved-renewal-policies-applied-2026-10-04.md).
+The subsequent [read-only readiness review](../reports/bnms-renewal-readiness-2026-10-04.md)
+found all 83 pass current evidence admission on 4 October 2026; no conflicting
+histories, agreements, pauses or elections were found. This stops before pricing
+and payment authorization. Rollout remains disabled.
 
 The exception is restricted to BNMS member histories from the reviewed
 `bnms_non_dd_current_backfill` import, the `2025/2026` membership year, paid
@@ -209,8 +215,9 @@ continues under its own collection and activation policy.
   `c5467e6e43764a309e95c142c1944fb8245458ac8ab25508bcfd55e385c5cc2d`.
 - Committed expiry-only contract SHA-256:
   `084371823be76028074619a4b078c7a928c848fc7dff7d269562eeaf91d9c685`.
-- The 72 unassigned records require explicit operator-approved assignments,
-  not a bulk inferred migration. No new assignments were made in this work.
+- The separately authorized 72 assignments are now applied to DEST; 83 exist
+  overall. No further assignment or migration is needed for this cohort.
+  Readiness review did not reinstall migrations or reassign records.
 
 - Required and installed: `20261201_membership_successor_election.sql`,
   `20261202_membership_successor_payment_attempts.sql`, and
