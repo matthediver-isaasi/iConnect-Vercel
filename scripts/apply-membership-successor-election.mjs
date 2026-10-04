@@ -2,10 +2,14 @@ import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import pg from 'pg';
 import { isApprovedDestinationSupabaseTarget } from './lib/destinationSupabaseTarget.mjs';
+import { runExpiryOnlyMigration } from './lib/expiry-only-migration.mjs';
 
 // No connection without an explicit command. This runner never falls back to
 // DATABASE_URL, SUPABASE_URL or SOURCE. Do not run --apply without approval.
 const args = process.argv.slice(2);
+if (args.includes('--expiry-only')) {
+  await runExpiryOnlyMigration(args);
+} else {
 const apply = args.includes('--apply');
 const verify = args.includes('--verify-dest');
 const expected = args.find(arg => arg.startsWith('--expected-contract='))?.split('=')[1];
@@ -79,4 +83,5 @@ if (!apply && !verify) {
   } finally {
     if (db) await db.end();
   }
+}
 }

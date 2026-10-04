@@ -186,10 +186,22 @@ continues under its own collection and activation policy.
 ### Migration status
 
 - New expiry-only migration: `20261206_bnms_expiry_only_form_renewal.sql`.
-  Tested in disposable local PostgreSQL only; **not applied to DEST or SOURCE**.
-  Install after the existing expiry-policy and tenant-rollout migrations under
-  separate approval. The application checks its capability before offering this
-  path. It changes no history, assignment, rollout flag or provider state.
+  **Applied to DEST only on 4 October 2026 after explicit approval**; not applied
+  to SOURCE. Installed expiry-policy and tenant-rollout prerequisites were
+  inspected before applying. The application checks its capability before
+  offering this path. It changes no history, assignment, rollout flag or provider state.
+  Transactional checks and a separate committed read-back confirmed both new
+  functions installed, the capability returning true, service-only execution
+  grants, zero enabled tenants, and global/BNMS rollout disabled.
+  All 963 member histories, 365 organisation histories, 11 policy assignments,
+  zero elections and existing rollout records retained identical fingerprints.
+  These are migration safety checks, not provider or authenticated browser acceptance.
+- Expiry-only migration SHA-256:
+  `11c1e64c0bc1a342466718e78ed0b212220d386c48df4f0f282b3ab992c278ee`.
+- Reviewed expiry-only prerequisite contract SHA-256:
+  `c5467e6e43764a309e95c142c1944fb8245458ac8ab25508bcfd55e385c5cc2d`.
+- Committed expiry-only contract SHA-256:
+  `084371823be76028074619a4b078c7a928c848fc7dff7d269562eeaf91d9c685`.
 - The 72 unassigned records require explicit operator-approved assignments,
   not a bulk inferred migration. No new assignments were made in this work.
 
@@ -221,6 +233,14 @@ The runner's default invocation prints its plan without connecting anywhere.
 contracts. Applying requires separate approval and
 `--apply --expected-contract=<reviewed hash>`. There is no SOURCE or default
 database fallback. The hash is a drift check, not evidence of provider behavior.
+
+For the expiry-only migration, select `--expiry-only`. Its inspection uses a
+read-only transaction, verified TLS and independently pinned DEST SQL/REST project
+identities. Application additionally requires `--expected-migration=<reviewed hash>`
+and fingerprints the reservation, prerequisite functions, grants, table constraints
+and assignment trigger. Brief table locks protect history/policy/rollout snapshots;
+unexpected changes abort the transaction. Do not reapply an already-installed
+or partially installed migration. No provider API is called by the installer.
 
 ## Entry points and recovery
 
