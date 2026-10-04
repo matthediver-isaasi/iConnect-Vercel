@@ -1111,3 +1111,17 @@ mtime_ms = 1790841666653
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/e3d51986-5776-432e-b79b-d91d55b18092/83ae2147-e453-4d3e-8d13-7928bdc1225d"
 storage_version_token = "1790841673212239"
 content_type = "text/csv"
+
+[[outputs]]
+id = "zZaehhp6cLkko1aEaj2y9"
+uri = "file://exports/gfi-members-roles-login-communications-2026-10-04.csv"
+type = "table"
+title = "GFI member export — 4 October 2026"
+description = "5,345 members with RBAC role, login enabled/disabled, global opt-out and subscription status for all three communication categories. Deleted/anonymised records excluded."
+logical_id = "39b216b5-6ed2-4206-85c1-9bc211b72d72"
+content_hash = "sha256:6f4e87099fab1519037b3cc57e59a235c1e2f537a3bb631f85861d13a65a4fa4"
+size = 762539
+mtime_ms = 1791134973764
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/39b216b5-6ed2-4206-85c1-9bc211b72d72/d9231843-f6ee-4b1c-a5d9-79919f238ae5"
+storage_version_token = "1791134979537773"
+content_type = "text/csv"
