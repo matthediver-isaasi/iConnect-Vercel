@@ -1125,3 +1125,17 @@ mtime_ms = 1791134973764
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/39b216b5-6ed2-4206-85c1-9bc211b72d72/d9231843-f6ee-4b1c-a5d9-79919f238ae5"
 storage_version_token = "1791134979537773"
 content_type = "text/csv"
+
+[[outputs]]
+id = "WVyeEV2Fk5YiweVaJiqBr"
+uri = "file://exports/bnms-members-roles-login-communications-2026-10-04.csv"
+type = "table"
+title = "BNMS member export — 4 October 2026"
+description = "3,836 members with RBAC role, login status, global opt-out and subscription columns for Newsletter, Society Admin and BNMS Updates. Excludes 116 deleted/anonymised records."
+logical_id = "800d34ae-9571-41b4-915d-e9ca2c0fac27"
+content_hash = "sha256:984447d81786aae5a98a564c86085cd3c2a22881909535822491b7753eb758b7"
+size = 467323
+mtime_ms = 1791135086892
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/800d34ae-9571-41b4-915d-e9ca2c0fac27/29d707bb-8ceb-419c-a9de-702607450173"
+storage_version_token = "1791135092979069"
+content_type = "text/csv"
