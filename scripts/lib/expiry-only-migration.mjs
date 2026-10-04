@@ -36,7 +36,7 @@ export function validateExpiryOnlyArgs(args) {
   return { apply: args.includes('--apply'), verify: args.includes('--verify-dest'), expected, expectedMigration };
 }
 
-async function inspect(db) {
+export async function inspect(db) {
   const functions = (await db.query(`SELECT p.proname,
     pg_get_function_identity_arguments(p.oid) AS args, pg_get_functiondef(p.oid) AS definition,
     p.proacl::text AS acl FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
@@ -77,7 +77,7 @@ async function inspect(db) {
   return { functions, metadata, state, contractHash: sha(JSON.stringify({ functions, metadata })) };
 }
 
-async function assertServiceOnly(db, signatures) {
+export async function assertServiceOnly(db, signatures) {
   for (const signature of signatures) {
     const { rows: [grants] } = await db.query(`SELECT p.prosecdef AS definer,
       has_function_privilege('service_role',p.oid,'EXECUTE') AS service,

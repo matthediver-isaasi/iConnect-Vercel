@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process';
 import pg from 'pg';
 import { APPROVED_ASSIGNMENT as a, assignApprovedPolicy } from '../../scripts/assign-bnms-expiry-only-renewal-policy.mjs';
 import { COHORT, POLICY, REFERENCE, repair } from '../../scripts/repair-bnms-reviewed-expiry-policies.mjs';
+import { verifyApprovedBatch } from '../../scripts/bnms-approved-renewal-policies.postgres-fixture.mjs';
 
 // Disposable local Unix-socket cluster only. Never reads a connection env var.
 test('expiry policy migration and exact assignment: isolated grants, bindings, immutability and idempotency', { timeout: 60000 }, async () => {
@@ -141,6 +142,7 @@ test('expiry policy migration and exact assignment: isolated grants, bindings, i
     await assert.rejects(db.query("UPDATE membership_expiry_policy_assignment SET config_name='forged'"),/permission denied/);
     await db.query('RESET ROLE');
     await assert.rejects(db.query("DELETE FROM membership_expiry_policy_assignment"),/immutable/);
+    await verifyApprovedBatch(db);
   } finally {
     await db?.end();
     if (running) execFileSync('pg_ctl', ['-D', cluster, '-m', 'immediate', '-w', 'stop'], { stdio: 'pipe' });
