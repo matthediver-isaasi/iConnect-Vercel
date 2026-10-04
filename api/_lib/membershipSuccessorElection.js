@@ -2,8 +2,9 @@
  * An unresolved external outcome never expires automatically. Retrying adopts
  * the original quote; changing method requires explicit provider reconciliation.
  */
-export async function membershipSuccessorElectionsEnabled(db) {
-  const { data, error } = await db.rpc('membership_successor_elections_enabled');
+export async function membershipSuccessorElectionsEnabled(db, tenantId) {
+  if (!tenantId) return false;
+  const { data, error } = await db.rpc('membership_successor_elections_enabled', { p_tenant_id: tenantId });
   if (error && ['PGRST202', '42883'].includes(error.code)) return false;
   if (error) throw new Error(`Could not verify successor reservation schema: ${error.message}`);
   return data === true;
@@ -23,7 +24,7 @@ export async function reserveMembershipSuccessor(db, {
 }
 
 export async function reserveWorkerSuccessor(db, { tenantId, memberId, organizationId, previousAgreement, provider, snapshot, termEnd }) {
-  if (!await membershipSuccessorElectionsEnabled(db)) return null;
+  if (!await membershipSuccessorElectionsEnabled(db, tenantId)) return null;
   const { data: previous, error } = await db.from(organizationId ? 'organisation_membership_history' : 'member_membership_history')
     .select('*').eq('tenant_id', tenantId).eq(organizationId ? 'organization_id' : 'member_id', organizationId || memberId)
     .eq('billing_agreement_id', previousAgreement.id).maybeSingle();

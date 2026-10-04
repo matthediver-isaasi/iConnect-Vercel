@@ -126,6 +126,24 @@ test('isolated PostgreSQL successor claims serialize form versus worker and pres
     }
     assert.equal((await a.query('SELECT stripe_payment_intent_id FROM membership_payment_quote WHERE id=$1', [q])).rows[0].stripe_payment_intent_id, 'pi_cancelled',
       'replacement ledger never overwrites the original provider identity');
+    await a.query('RESET ROLE');
+    await a.query('UPDATE membership_successor_rollout SET enabled=false');
+    await a.query(await readFile(new URL('../../supabase/migrations/20261205_membership_successor_tenant_rollout.sql', import.meta.url), 'utf8'));
+    const otherTenant = '00000000-0000-4000-8000-000000000099';
+    await a.query('INSERT INTO tenant(id) VALUES($1)', [otherTenant]);
+    assert.equal((await a.query('SELECT membership_successor_elections_enabled() enabled')).rows[0].enabled, false);
+    assert.equal((await a.query('SELECT membership_successor_elections_enabled($1) enabled', [winner.tenant_id])).rows[0].enabled, false);
+    await a.query('INSERT INTO membership_successor_tenant_rollout(tenant_id,enabled) VALUES($1,true)', [winner.tenant_id]);
+    assert.equal((await a.query('SELECT membership_successor_elections_enabled($1) enabled', [winner.tenant_id])).rows[0].enabled, true);
+    assert.equal((await a.query('SELECT membership_successor_elections_enabled($1) enabled', [otherTenant])).rows[0].enabled, false);
+    for (const role of ['anon', 'authenticated', 'service_role']) {
+      await a.query(`SET ROLE ${role}`);
+      await assert.rejects(a.query('UPDATE membership_successor_tenant_rollout SET enabled=true'), /permission denied/);
+      await a.query('RESET ROLE');
+    }
+    await a.query('SET ROLE service_role');
+    await assert.rejects(a.query(`SELECT reserve_membership_successor($1,NULL,NULL,NULL,current_date,current_date+365,'upfront','form','{}')`, [otherTenant]), /not enabled/i);
+    assert.equal((await a.query('SELECT membership_successor_elections_enabled($1) enabled', [winner.tenant_id])).rows[0].enabled, true);
   } finally {
     await Promise.all(clients.map(client => client.end()));
     if (started) execFileSync('pg_ctl', ['-D', cluster, '-m', 'immediate', '-w', 'stop'], { stdio: 'pipe' });

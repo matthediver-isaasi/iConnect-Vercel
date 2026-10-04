@@ -85,6 +85,21 @@ its initial collection; the form does not advertise that unsupported option.
 
 ## Configuration and rollout
 
+Rollout is now tenant-specific through `membership_successor_tenant_rollout`.
+The scoped capability takes `p_tenant_id`; the legacy no-argument capability
+always returns false. Form quotes, worker reservations and the atomic database
+reservation enforce the same tenant boundary. Missing rows remain disabled.
+The tenant-rollout migration does not enable any tenant and refuses to replace
+an active global rollout. BNMS is the intended first rollout; enablement still
+requires the legacy-history and provider/browser acceptance checks below.
+Deploy tenant-aware application code before enabling a tenant.
+
+The tenant-rollout migration `20261205_membership_successor_tenant_rollout`
+was applied to DEST on 4 October 2026. Read-back confirmed BNMS disabled,
+zero enabled tenants and the legacy global capability disabled. SOURCE was
+not migrated. Targeted tenant isolation and renewal regressions passed; this
+does not establish production application deployment or provider acceptance.
+
 No duplicate renewal-window setting is added to forms. Windows come from the
 purchased policy; supported methods come from the successor structure and
 tenant provider availability.

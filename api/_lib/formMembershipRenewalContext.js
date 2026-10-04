@@ -19,7 +19,7 @@ export async function loadFormMembershipRenewalContext(db, {
 }) {
   // Rollout is schema-gated. Before the reviewed migration is installed, keep
   // existing payment behavior; never enable elections without their DB fence.
-  if (!await membershipSuccessorElectionsEnabled(db)) {
+  if (!await membershipSuccessorElectionsEnabled(db, tenantId)) {
     return { renewal: { state: 'joining', eligible: false, renewalChoicesUnavailable: true }, simulation: null };
   }
   const ownerColumn = organizationId ? 'organization_id' : 'member_id';

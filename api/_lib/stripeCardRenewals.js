@@ -357,7 +357,7 @@ export async function executeCardAutoRenewal({ tenantId, memberId, previousAgree
   let fixedElection = null;
   if (!rolling) {
     const { reserveWorkerSuccessor, membershipSuccessorElectionsEnabled } = await import('./membershipSuccessorElection.js');
-    if (await membershipSuccessorElectionsEnabled(db)) fixedElection = await reserveWorkerSuccessor(db, {
+    if (await membershipSuccessorElectionsEnabled(db, tenantId)) fixedElection = await reserveWorkerSuccessor(db, {
       tenantId, memberId, previousAgreement, provider: 'stripe',
       snapshot: buildCardAgreementSnapshot({ offer, simResult, acceptedAt: d.now().toISOString() }),
       termEnd: new Date(simResult.membershipYear.end).toISOString().slice(0, 10),
