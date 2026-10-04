@@ -103,6 +103,10 @@ test('rolling commitment migration and atomic guards on isolated PostgreSQL', { 
     const migration = await readFile(new URL('../../supabase/migrations/20260920_rolling_membership_commitments.sql', import.meta.url), 'utf8');
     await db.query(migration);
     await db.query(migration); // Repeatable deployment, not only an empty DB.
+    await db.query(await readFile(new URL('../../supabase/migrations/20261201_membership_successor_election.sql', import.meta.url), 'utf8'));
+    for (const name of ['20261202_membership_successor_payment_attempts.sql', '20261203_membership_successor_unused_release.sql', '20261204_membership_successor_attempt_settlement.sql']) {
+      await db.query(await readFile(new URL(`../../supabase/migrations/${name}`, import.meta.url), 'utf8'));
+    }
     const recoveryMigration = await readFile(new URL('../../supabase/migrations/20260921_rolling_membership_recovery.sql', import.meta.url), 'utf8');
     await db.query(recoveryMigration);
     await db.query(recoveryMigration);
@@ -206,6 +210,29 @@ test('rolling commitment migration and atomic guards on isolated PostgreSQL', { 
         await assert.rejects(db.query(`UPDATE membership_billing_agreements SET metadata=jsonb_set(metadata,'{dd,collection_policy,end_policy}','"continue"') WHERE id=$1`, [agreementId]), /immutable/);
         await assert.rejects(db.query(`UPDATE ${historyTable} SET tenant_id=$1 WHERE id=$2`, [uuid(2), bound.history_id]), /immutable/);
         if (pricing !== 'dynamic') continue;
+        // A prepaid successor must not settle or mutate this year's DD debt.
+        let prepaidSuccessor;
+        if (offset === 1) {
+          const election = (await db.query(`INSERT INTO membership_successor_election(
+            tenant_id,member_id,previous_term_id,term_start_date,term_end_date,payment_method,origin,quote)
+            VALUES($1,$2,$3,$4,$5,'upfront','form','{}') RETURNING id`,
+          [tenant, member, stored.id, `${year+1}-01-01`, `${year+1}-12-31`])).rows[0];
+          const quote = (await db.query(`INSERT INTO membership_payment_quote(tenant_id,member_id,quote)
+            VALUES($1,$2,$3) RETURNING id`, [tenant, member, {
+            simResult: { formRenewalElectionId: election.id, paymentSchedule: {
+              term_start_date: `${year+1}-01-01`, term_end_date: `${year+1}-12-31`,
+            } },
+          }])).rows[0];
+          await db.query('UPDATE membership_successor_election SET payment_quote_id=$1 WHERE id=$2', [quote.id, election.id]);
+          prepaidSuccessor = (await rawInsert(historyTable, {
+            tenant_id: tenant, member_id: member, membership_year: `prepaid-${year+1}`,
+            config_id: uuid(33), term_start_date: `${year+1}-01-01`, term_end_date: `${year+1}-12-31`,
+            payment_method: 'stripe', status: 'scheduled', payment_status: 'paid',
+            membership_payment_quote_id: quote.id, membership_successor_election_id: election.id,
+            final_cost: 120, total_with_vat: 120, currency: 'GBP',
+          })).rows[0];
+          assert.deepEqual((await db.query(`SELECT * FROM ${historyTable} WHERE id=$1`, [stored.id])).rows[0], stored);
+        }
         const firstCollectionDate = `${year}-${organization ? '02' : '01'}-05`;
         await db.query(`INSERT INTO membership_payment_plans(id,tenant_id,billing_agreement_id,status,metadata,gocardless_mandate_id,dynamic_next_collection_date)
           VALUES($1,$2,$3,'active',$4,'MD_DYNAMIC',$5)`, [planId, tenant, agreementId, { collection_mode: 'dynamic', dynamic_first_date: firstCollectionDate }, firstCollectionDate]);
@@ -273,6 +300,17 @@ test('rolling commitment migration and atomic guards on isolated PostgreSQL', { 
         const completedPlan = (await db.query('SELECT * FROM membership_payment_plans WHERE id=$1', [planId])).rows[0];
         assert.equal(completedPlan.status, 'expired');
         assert.ok(completedPlan.completed_at);
+        if (prepaidSuccessor) {
+          assert.deepEqual((await db.query(`SELECT * FROM ${historyTable} WHERE id=$1`, [prepaidSuccessor.id])).rows[0], prepaidSuccessor,
+            'old collections, failed retries and completion must not alter the scheduled prepaid successor');
+          assert.equal((await db.query('SELECT count(*)::int count FROM membership_billing_agreements WHERE membership_successor_election_id=$1',
+            [prepaidSuccessor.membership_successor_election_id])).rows[0].count, 0);
+          // Remove only these isolated fixture rows before the next independent
+          // case reuses this owner's subsequent year.
+          await db.query(`DELETE FROM ${historyTable} WHERE id=$1`, [prepaidSuccessor.id]);
+          await db.query('DELETE FROM membership_successor_election WHERE id=$1', [prepaidSuccessor.membership_successor_election_id]);
+          await db.query('DELETE FROM membership_payment_quote WHERE id=$1', [prepaidSuccessor.membership_payment_quote_id]);
+        }
         assert.equal((await db.query('SELECT count(*)::integer AS count FROM membership_payment_status_history WHERE entity_id=$1', [planId])).rows[0].count, 1);
         await assert.rejects(db.query('UPDATE gocardless_dynamic_term_completions SET required_collections=1 WHERE plan_id=$1', [planId]), /immutable/);
         const message = { tenantId: tenant, to: 'completion@example.test', subject: 'Complete', html: 'Completed' };
@@ -421,6 +459,34 @@ test('rolling commitment migration and atomic guards on isolated PostgreSQL', { 
       assert.equal(settled.record.membership_payment_quote_id, saved.id);
       await db.query("UPDATE member_membership_history SET payment_status='paid' WHERE id=$1", [settled.record.id]);
       await assert.rejects(() => db.query(`UPDATE membership_payment_quote SET quote=jsonb_set(quote,'{simResult,commitment,term_start_date}','"2028-03-02"') WHERE id=$1`, [saved.id]), /immutable/);
+    });
+    await t.test('replacement payment settles actual rolling history without overwriting original provider identity', async () => {
+      const row = record('2090-03-01');
+      const consent = Object.fromEntries(Object.entries(row).filter(([key]) => key.startsWith('term_') || ['membership_renewal_date', 'previous_term_id', 'commitment_snapshot'].includes(key)));
+      const prior = (await db.query('SELECT id FROM member_membership_history WHERE tenant_id=$1 AND member_id=$2 LIMIT 1', [tenant, member])).rows[0].id;
+      const eid = (await db.query(`INSERT INTO membership_successor_election(tenant_id,member_id,previous_term_id,
+        term_start_date,term_end_date,payment_method,origin,quote)
+        VALUES($1,$2,$3,$4,$5,'upfront','form',jsonb_build_object('payerMemberId',$2::uuid::text)) RETURNING id`,
+      [tenant, member, prior, consent.term_start_date, consent.term_end_date])).rows[0].id;
+      const quote = { simResult: { formRenewalElectionId: eid, commitment: consent, config,
+        paymentSchedule: { term_start_date: consent.term_start_date, term_end_date: consent.term_end_date },
+        membershipYear: { label: consent.term_key } } };
+      const saved = (await db.query('SELECT save_elected_form_membership_quote($1,$2,$3,$4) AS q',
+        [eid, tenant, member, quote])).rows[0].q;
+      await db.query('SELECT bind_form_membership_payment_quote($1,$2,$3)', [saved.id, tenant, 'pi_old_cancelled']);
+      const attempt = (await db.query('SELECT reserve_successor_payment_attempt($1,$2,$3) AS a',
+        [tenant, saved.id, 'pi_old_cancelled'])).rows[0].a;
+      await db.query('SELECT bind_successor_payment_attempt($1,$2,$3,$4)',
+        [tenant, saved.id, attempt.id, 'pi_replacement_settled']);
+      const paid = { ...row, payment_status: 'paid', membership_payment_quote_id: saved.id,
+        membership_successor_election_id: eid, stripe_payment_intent_id: 'pi_replacement_settled' };
+      await assert.rejects(insert({ ...paid, stripe_payment_intent_id: 'pi_foreign_attempt' }), /does not match/);
+      const result = await insert(paid);
+      assert.equal(result.record.payment_status, 'paid');
+      assert.equal(result.record.stripe_payment_intent_id, 'pi_replacement_settled');
+      const replay = await insert(paid);
+      assert.equal(replay.record.id, result.record.id);
+      assert.equal((await db.query('SELECT stripe_payment_intent_id FROM membership_payment_quote WHERE id=$1', [saved.id])).rows[0].stripe_payment_intent_id, 'pi_old_cancelled');
     });
     await t.test('atomic insert RPC is service-role-only and rejects malformed snapshots', async () => {
       await db.query('SET ROLE authenticated');

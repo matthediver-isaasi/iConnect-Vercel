@@ -183,6 +183,10 @@ test('findReusableCardPaymentMethod null when no saved customer / deleted / no c
 function makeDbSpy() {
   const inserts = [];
   const db = {
+    rpc: async name => {
+      assert.equal(name, 'membership_successor_elections_enabled');
+      return { data: false, error: null };
+    },
     from(table) {
       return {
         select() { return this; },

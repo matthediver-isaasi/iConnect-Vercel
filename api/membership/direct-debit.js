@@ -169,7 +169,8 @@ async function handlePost(req, res, resolvedTenantId) {
     return res.status(400).json({ error: 'Direct Debit is not available for this organisation' });
   }
 
-  const simResult = await simulateMembershipForMember(tenantId, member.id, {
+  const simResult = req.membershipPaymentContext?.source === 'form-renewal'
+    ? req.membershipPaymentContext.simulation : await simulateMembershipForMember(tenantId, member.id, {
     source: 'direct-debit',
     mode: 'manual',
     fieldOverrides,
@@ -268,6 +269,7 @@ async function handlePost(req, res, resolvedTenantId) {
   const scheduleError = newDdConsentScheduleError(snapshot);
   if (scheduleError) return res.status(400).json(scheduleError);
   let agreementInsert = {
+    ...(req.membershipPaymentContext?.electionId ? { membership_successor_election_id: req.membershipPaymentContext.electionId } : {}),
     ...(snapshot.commitment || {}),
     tenant_id: tenantId,
     member_id: member.id,
@@ -399,6 +401,8 @@ async function handlePost(req, res, resolvedTenantId) {
       reusedMandate: true,
       subscriptionCreated: subResult.created,
       activation: actResult.detail,
+      membershipStartDate: snapshot.commitment?.term_start_date || snapshot.membership_year_start,
+      expectedFirstCollectionDate: subResult.plan?.next_charge_date || subResult.plan?.start_date || null,
     });
   }
 

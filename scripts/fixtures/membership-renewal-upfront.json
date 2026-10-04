@@ -1,0 +1,37 @@
+{
+  "evidence": {
+    "tenantId": "example-tenant",
+    "memberId": "example-member",
+    "histories": [{
+      "id": "example-predecessor", "tenant_id": "example-tenant", "member_id": "example-member",
+      "term_start_date": "2026-01-01", "term_end_date": "2026-12-31",
+      "status": "active", "payment_status": "paid",
+      "renewal_policy_snapshot": {
+        "start_mode": "fixed_date", "billing_period": "annual",
+        "renewal_open_days": 60, "renewal_grace_days": 7
+      }
+    }],
+    "agreements": [],
+    "successorConfig": {
+      "id": "example-structure", "tenant_id": "example-tenant", "structure_scope_type": "member",
+      "start_mode": "fixed_date", "billing_period": "annual"
+    }
+  },
+  "simulation": {
+    "success": true,
+    "config": {
+      "id": "example-structure", "tenant_id": "example-tenant", "structure_scope_type": "member",
+      "start_mode": "fixed_date", "billing_period": "annual",
+      "pricing_model": "flat", "online_card_payment": true, "dd_enabled": true, "dd_policy_version": 1,
+      "dd_collection_end_policy": "continue", "dd_pricing_policy": "fixed",
+      "dd_monthly_amount": 10, "dd_instalment_count": 12, "currency": "GBP"
+    },
+    "annualCost": 120, "finalCost": 120, "totalWithVat": 120, "vatAmount": 0, "currency": "GBP",
+    "membershipYear": { "label": "2027", "start": "2027-01-01", "end": "2027-12-31" },
+    "paymentSchedule": {
+      "term_start_date": "2027-01-01", "term_end_date": "2027-12-31",
+      "status": "scheduled", "scheduled_activation_date": "2027-01-01"
+    }
+  },
+  "providerEarliestChargeDate": "2026-11-05"
+}

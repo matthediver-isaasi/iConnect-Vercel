@@ -39,6 +39,11 @@ function memoryDb(seed = {}) {
   const operations = [];
   return {
     tables, operations,
+    // These fixtures exercise the pre-migration renewal contracts.
+    rpc: async name => {
+      assert.equal(name, 'membership_successor_elections_enabled');
+      return { data: false, error: null };
+    },
     from(table) {
       tables[table] ||= [];
       let filters = [], mode = 'select', payload, one = false;
@@ -253,6 +258,7 @@ function dynamicPilotRenewalFixture() {
   const authorizations = [];
   // Models the serialized SQL boundary's pause check, including reauthorization.
   db.rpc = async (name, p) => {
+    if (name === 'membership_successor_elections_enabled') return { data: false, error: null };
     if (name === 'reserve_gocardless_dynamic_collection') {
       authorizations.push(p);
       if (db.tables.member[0].membership_paused) return { error: { message: 'Membership paused' } };

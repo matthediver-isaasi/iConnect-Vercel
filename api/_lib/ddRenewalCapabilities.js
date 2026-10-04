@@ -57,7 +57,22 @@ export function renewalCapabilities(readDb, effects) {
       },
     });
   };
-  const db = Object.freeze({ from: table => builder(table) });
+  const db = Object.freeze({
+    from: table => builder(table),
+    rpc(name, args) {
+      if (!['membership_successor_elections_enabled', 'reserve_membership_successor'].includes(name)) {
+        throw new Error(`Renewal database capability denied: ${name}`);
+      }
+      return perform({
+        ...intent,
+        type: 'renewal.successor', conditional: true,
+        description: name === 'reserve_membership_successor'
+          ? 'Atomically reserve the successor before any provider operation.'
+          : 'Verify the installed successor-reservation contract before renewal.',
+        payload: { name, args },
+      });
+    },
+  });
   const sendEmail = (eventKey, agreement, options = {}) => perform({
     type: 'renewal.email', description: `Send ${eventKey.replaceAll('_', ' ')} email to the membership billing contact.`,
     conditional: true,

@@ -5,6 +5,7 @@ import { buildRollingCommitment } from './rollingMembershipCommitment.js';
 import { calculateMembershipYearWindow } from './membershipYear.js';
 import { monthlySnapshotCommitment, monthlyRenewalIdentity, assertTrustedMonthlyTerm } from './monthlyRenewalTerms.js';
 import { isDryRunEffectBoundary } from './directDebitDryRunRuntime.js';
+import { reserveWorkerSuccessor } from './membershipSuccessorElection.js';
 export { monthlySnapshotCommitment, monthlyRenewalIdentity, assertTrustedMonthlyTerm } from './monthlyRenewalTerms.js';
 
 export function monthlyCommitmentFields({ offer, simResult, paymentMethod }) {
@@ -41,7 +42,11 @@ export function monthlyCommitmentFields({ offer, simResult, paymentMethod }) {
     fields.term_end_date = end.toISOString().slice(0, 10);
     fields.membership_renewal_date = new Date(end.getTime() + 86_400_000).toISOString().slice(0, 10);
     fields.term_key = `fixed:${fields.term_start_date}`;
-    fields.previous_term_id = simResult.previousTerm?.id || null;
+    // Fixed upfront histories can have authoritative start/end dates without
+    // the older monthly commitment chain's renewal/anchor columns. Their
+    // predecessor is held by the election; do not fabricate those old columns.
+    fields.previous_term_id = simResult.previousTerm?.membership_renewal_date
+      && simResult.previousTerm?.term_anchor_date ? simResult.previousTerm.id : null;
     // A successor remains in the original dated commitment chain. Changing
     // its anchor would violate the predecessor guard even at an exact boundary.
     fields.term_anchor_date = simResult.previousTerm?.term_anchor_date || fields.term_anchor_date;
@@ -206,12 +211,19 @@ export function assertMonthlyCollectionsWithinTerm(snapshot, firstDate, count) {
  * is an error, never permission to proceed with an orphan subscription.
  */
 export async function reserveRollingMonthlyRenewal({
-  db, tenantId, memberId, organizationId, previousAgreement, snapshot, provider, idempotencyKey, confirmedCheckout = false,
+  db, tenantId, memberId, organizationId, previousAgreement, snapshot, provider, idempotencyKey, confirmedCheckout = false, electionId = null,
 }) {
   const ownerColumn = organizationId ? 'organization_id' : 'member_id';
   const ownerId = organizationId || memberId;
   const historyTable = organizationId ? 'organisation_membership_history' : 'member_membership_history';
   const rail = provider === 'stripe' ? 'card' : 'dd';
+  let election = null;
+  if (!confirmedCheckout) {
+    election = await reserveWorkerSuccessor(db, {
+      tenantId, memberId, organizationId, previousAgreement, provider, snapshot,
+    });
+    if (election) snapshot = election.quote.snapshot;
+  }
   const commitment = monthlySnapshotCommitment(snapshot);
   if (!commitment) throw new Error('A complete rolling commitment is required for renewal.');
   let predecessorId = commitment.previous_term_id;
@@ -235,6 +247,7 @@ export async function reserveRollingMonthlyRenewal({
   let agreement = found;
   if (!agreement) {
     const { data, error } = await db.from('membership_billing_agreements').insert({
+      ...((election || electionId) ? { membership_successor_election_id: election?.id || electionId } : {}),
       ...snapshot.commitment,
       tenant_id: tenantId, [ownerColumn]: ownerId, agreement_type: organizationId ? 'organization' : 'member', provider,
       ...(organizationId ? {

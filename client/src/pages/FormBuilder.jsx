@@ -5703,6 +5703,11 @@ function MembershipPaymentSettings({ field, originalIndex, allFields, updateFiel
   return (
     <div className="space-y-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
       <Label className="text-xs font-medium">Membership Payment Settings</Label>
+      <p className="text-xs text-slate-500">
+        When renewal choices are enabled on the server, existing members are recognised from their saved membership.
+        Renewal uses the current purchased structure's renewal window and the successor structure's payment options;
+        no separate renewal window is configured on this form. Changes apply to the next term only.
+      </p>
 
       <div className="space-y-2">
         <Label htmlFor={`membership-schedule-${field.id}`} className="text-xs">Membership Schedule</Label>

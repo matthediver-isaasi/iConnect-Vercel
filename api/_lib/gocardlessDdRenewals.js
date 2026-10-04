@@ -13,6 +13,12 @@ export function createLiveDdRenewals(deps = {}) {
   const effects = {
     async perform(operation) {
       const p = operation.payload;
+      if (operation.type === 'renewal.successor') {
+        if (!['membership_successor_elections_enabled', 'reserve_membership_successor'].includes(p.name)) {
+          throw new Error('Unsupported successor reservation operation');
+        }
+        return database.rpc(p.name, p.args);
+      }
       if (operation.type === 'renewal.database') {
         let query = database.from(p.table);
         for (const [method, args] of p.calls) query = query[method](...args);

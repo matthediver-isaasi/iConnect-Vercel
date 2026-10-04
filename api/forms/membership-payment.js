@@ -10,6 +10,8 @@ import { membershipIncentiveSnapshot, incentiveFieldsFromSavedQuote } from '../_
 import { buildInvoiceColumnUpdate } from '../_lib/accountingProvider.js';
 import { resolveDdOffer } from '../_lib/gocardlessDirectDebit.js';
 import { getGocardlessCredentials } from '../_lib/gocardlessCredentials.js';
+import { loadFormMembershipRenewalContext } from '../_lib/formMembershipRenewalContext.js';
+import { reserveMembershipSuccessor } from '../_lib/membershipSuccessorElection.js';
 import { buildExtraLineItems, computeAddonTotals, loadAddonLines } from '../_lib/membershipAddons.js';
 import {
   fireNewZeroDueMembershipPaidWorkflow,
@@ -49,10 +51,10 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: 'Not authorized to access this membership payment' });
     }
     if (req.method === 'GET') {
-      return handleGet(req, res, resolvedTenantId);
+      return await handleGet(req, res, resolvedTenantId);
     }
     if (req.method === 'POST') {
-      return handlePost(req, res, resolvedTenantId);
+      return await handlePost(req, res, resolvedTenantId);
     }
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (error) {
@@ -68,6 +70,33 @@ async function getMemberById(memberId) {
     .eq('id', memberId)
     .single();
   return member;
+}
+
+function renewalContext(tenantId, member) {
+  return loadFormMembershipRenewalContext(supabase, {
+    tenantId, memberId: member.id, organizationId: member.organization_id || null,
+    simulate: member.organization_id ? simulateMembershipForOrg : simulateMembershipForMember,
+  });
+}
+
+async function reserveFormSuccessor(context, tenantId, member, method, addonLines = []) {
+  if (context.renewal.state === 'joining') return null;
+  if (context.election) {
+    if (context.election.origin !== 'form' || context.election.payment_method !== method) {
+      throw new Error('The next term is already reserved by another payment arrangement. Do not pay again.');
+    }
+    return context.election;
+  }
+  if (!context.renewal.eligible || !context.simulation) {
+    throw new Error(context.renewal.message || 'Renewal is not currently available.');
+  }
+  return reserveMembershipSuccessor(supabase, {
+    tenantId, memberId: member.organization_id ? null : member.id,
+    organizationId: member.organization_id || null,
+    predecessorId: context.renewal.predecessorId,
+    start: context.renewal.successorStart, end: context.renewal.successorEnd,
+    paymentMethod: method, quote: { simulation: context.simulation, payerMemberId: member.id, addonLines },
+  });
 }
 
 async function getStripePublishableKey(tenantId) {
@@ -218,10 +247,15 @@ async function handleGet(req, res, resolvedTenantId) {
   }
   if (req.query.configId) explicitConfigId = req.query.configId;
 
+  const context = await renewalContext(tenantId, member);
+  if (context.renewal.state !== 'joining' && !context.simulation) {
+    return res.json({ renewal: context.renewal, memberScoped: isMemberScoped,
+      stripeEnabled: false, directDebit: null, cardMonthly: null });
+  }
   const simOptions = { source: 'form-payment', mode: 'manual', fieldOverrides, configId: explicitConfigId };
-  const simResult = isMemberScoped
+  const simResult = context.simulation || (isMemberScoped
     ? await simulateMembershipForMember(tenantId, member.id, simOptions)
-    : await simulateMembershipForOrg(tenantId, organizationId, simOptions);
+    : await simulateMembershipForOrg(tenantId, organizationId, simOptions));
 
   if (!simResult.success) {
     return res.status(400).json({ error: simResult.error || 'Could not calculate membership fees' });
@@ -235,7 +269,7 @@ async function handleGet(req, res, resolvedTenantId) {
 
   const { data: existingRecord } = await supabase
     .from(historyTable)
-    .select('id, status, payment_method, stripe_payment_intent_id, annual_cost, prorata_cost, free_period_discount, rollover_discount, custom_discount_total, custom_discount_details, final_cost, vat_amount, total_with_vat, tier_label, field_value, currency, billing_period')
+    .select('id, status, payment_status, term_start_date, term_end_date, payment_method, stripe_payment_intent_id, annual_cost, prorata_cost, free_period_discount, rollover_discount, custom_discount_total, custom_discount_details, final_cost, vat_amount, total_with_vat, tier_label, field_value, currency, billing_period')
     .eq('tenant_id', tenantId)
     .eq(historyIdCol, historyIdVal)
     .eq('membership_year', simResult.membershipYear?.label)
@@ -264,6 +298,8 @@ async function handleGet(req, res, resolvedTenantId) {
   }
 
   return res.json({
+    renewal: context.renewal,
+    zeroDue,
     entityName,
     memberScoped: isMemberScoped,
     membershipYear: simResult.membershipYear?.label,
@@ -277,10 +313,14 @@ async function handleGet(req, res, resolvedTenantId) {
     stripeEnabled: !!stripePublishableKey,
     stripePublishableKey,
     directDebit: zeroDue ? null : await resolveDirectDebitOption(isMemberScoped, tenantId, simResult),
-    cardMonthly: zeroDue ? null : await resolveCardMonthlyOption(isMemberScoped, tenantId, simResult),
+    cardMonthly: zeroDue || context.renewal.successorStart > new Date().toISOString().slice(0, 10)
+      ? null : await resolveCardMonthlyOption(isMemberScoped, tenantId, simResult),
     existingRecord: existingRecord ? {
       id: existingRecord.id,
       status: existingRecord.status,
+      paymentStatus: existingRecord.payment_status,
+      termStart: existingRecord.term_start_date,
+      termEnd: existingRecord.term_end_date,
       paymentMethod: existingRecord.payment_method,
     } : null,
     approvalPending: approvalInfo.blocked || false,
@@ -316,7 +356,7 @@ async function resolveCardMonthlyOption(isMemberScoped, tenantId, simResult) {
   try {
     const { getStripeCredentials } = await import('../_lib/stripeCredentials.js');
     const creds = await getStripeCredentials(tenantId, 'membership');
-    if (!creds?.secret_key) return null;
+    if (!creds?.secret_key || creds.is_enabled === false) return null;
   } catch {
     return null;
   }
@@ -345,6 +385,18 @@ async function handlePost(req, res, resolvedTenantId) {
   const organizationId = member.organization_id;
   const isMemberScoped = !organizationId;
 
+  if (action === 'release_unused_renewal') {
+    const context = await renewalContext(tenantId, member);
+    if (!context.election) return res.status(409).json({ error: 'No pending renewal reservation exists.' });
+    const result = await supabase.rpc('release_unused_membership_successor', {
+      p_tenant_id: tenantId, p_election_id: context.election.id, p_payer_member_id: member.id,
+    });
+    if (result.error || result.data !== true) {
+      return res.status(409).json({ error: 'This reservation cannot be safely restarted. Unused reservations can be restarted after 30 minutes. An existing payment or mandate must be resumed or reconciled, not replaced.' });
+    }
+    return res.json({ released: true });
+  }
+
   let fieldOverrides = {};
   let explicitConfigId = null;
   try {
@@ -356,15 +408,48 @@ async function handlePost(req, res, resolvedTenantId) {
   }
   if (req.body.configId) explicitConfigId = req.body.configId;
 
+  if (['start_direct_debit', 'start_monthly_card'].includes(action)) {
+    const context = await renewalContext(tenantId, member);
+    const method = action === 'start_direct_debit' ? 'direct_debit' : 'monthly_card';
+    if (context.renewal.state !== 'joining') {
+      const simulation = context.simulation;
+      if (!simulation) return res.status(409).json({ error: 'Renewal is not currently available.', renewal: context.renewal });
+      const offer = method === 'direct_debit'
+        ? await resolveDirectDebitOption(isMemberScoped, tenantId, simulation)
+        : await resolveCardMonthlyOption(isMemberScoped, tenantId, simulation);
+      if (!offer) return res.status(409).json({ error: 'This payment method is not available for the successor term.' });
+      if (method === 'monthly_card' && context.renewal.successorStart > new Date().toISOString().slice(0, 10)) {
+        return res.status(409).json({ error: 'Monthly card setup is available from the successor start date.' });
+      }
+      const approval = await checkApproval(tenantId, member.id, organizationId, simulation.membershipYear?.label);
+      if (approval.blocked) return res.status(409).json({ error: approval.message });
+      let election;
+      try { election = await reserveFormSuccessor(context, tenantId, member, method); }
+      catch (error) { return res.status(409).json({ error: error.message }); }
+      if (election.quote?.payerMemberId !== member.id) return res.status(409).json({ error: 'Another payer owns this renewal checkout.' });
+      req.membershipPaymentContext = { source: 'form-renewal', electionId: election.id,
+        electionCreatedAt: election.created_at, simulation: election.quote.simulation };
+    }
+    req.body = { ...req.body, action: 'start',
+      ...(organizationId ? { organizationId } : {}) };
+    const endpoint = method === 'monthly_card' ? '../membership/monthly-card.js'
+      : isMemberScoped ? '../membership/direct-debit.js' : '../membership/org-direct-debit.js';
+    return await (await import(endpoint)).default(req, res);
+  }
+
   if (action === 'create_payment') {
+    const context = req.membershipPaymentContext?.source === 'member-portal' ? null : await renewalContext(tenantId, member);
+    if (context && context.renewal.state !== 'joining' && !context.simulation) {
+      return res.status(409).json({ error: 'Renewal is not currently available.', renewal: context.renewal });
+    }
     const simOptions = {
       source: 'form-payment-create', mode: 'manual', fieldOverrides, configId: explicitConfigId,
       ...(req.membershipPaymentContext?.source === 'member-portal'
         ? { targetYear: req.membershipPaymentContext.targetYear } : {}),
     };
-    let simResult = isMemberScoped
+    let simResult = context?.simulation || (isMemberScoped
       ? await simulateMembershipForMember(tenantId, member.id, simOptions)
-      : await simulateMembershipForOrg(tenantId, organizationId, simOptions);
+      : await simulateMembershipForOrg(tenantId, organizationId, simOptions));
 
     if (!simResult.success) {
       return res.status(400).json({ error: simResult.error || 'Could not calculate fees' });
@@ -379,9 +464,10 @@ async function handlePost(req, res, resolvedTenantId) {
       }
       simResult.paymentSchedule = annualRecordSchedule(eligibility);
     }
-    const addonLines = isMemberScoped ? [] : await loadAddonLines(tenantId, organizationId, simResult.membershipYear?.label);
+    const addonLines = context?.election?.quote?.addonLines
+      || (isMemberScoped ? [] : await loadAddonLines(tenantId, organizationId, simResult.membershipYear?.label));
     const addonTotals = computeAddonTotals(addonLines);
-    const paymentSnapshot = snapshotFormMembershipPayment(simResult, addonLines);
+    let paymentSnapshot = snapshotFormMembershipPayment(simResult, addonLines);
     simResult = paymentSnapshot.simResult;
 
     if (simResult.existingRecord) {
@@ -394,6 +480,26 @@ async function handlePost(req, res, resolvedTenantId) {
     const approvalStatus = await checkApproval(tenantId, member.id, organizationId, simResult.membershipYear?.label);
     if (approvalStatus.blocked) {
       return res.status(400).json({ error: approvalStatus.message });
+    }
+
+    if (context && context.renewal.state !== 'joining') {
+      if (!isZeroDueMembership(simResult, addonTotals) && !simResult.config?.online_card_payment) {
+        return res.status(409).json({ error: 'Upfront card payment is not enabled for the successor structure.' });
+      }
+      if (!isZeroDueMembership(simResult, addonTotals)) {
+        const { getStripeCredentials } = await import('../_lib/stripeCredentials.js');
+        const credentials = await getStripeCredentials(tenantId, 'membership');
+        if (!credentials?.secret_key || credentials.is_enabled === false) {
+          return res.status(503).json({ error: 'Payment processing is not available' });
+        }
+      }
+      let election;
+      try { election = await reserveFormSuccessor(context, tenantId, member, 'upfront', addonLines); }
+      catch (error) { return res.status(409).json({ error: error.message }); }
+      if (election.quote?.payerMemberId !== member.id) return res.status(409).json({ error: 'Another payer owns this renewal checkout.' });
+      paymentSnapshot = snapshotFormMembershipPayment(election.quote.simulation, election.quote.addonLines || []);
+      paymentSnapshot.simResult.formRenewalElectionId = election.id;
+      simResult = paymentSnapshot.simResult;
     }
 
     if (isZeroDueMembership(simResult, addonTotals)) {
@@ -435,7 +541,7 @@ async function handlePost(req, res, resolvedTenantId) {
     const Stripe = (await import('stripe')).default;
 
     const stripeCredentials = await getStripeCredentials(tenantId, 'membership');
-    if (!stripeCredentials?.secret_key) {
+    if (!stripeCredentials?.secret_key || stripeCredentials.is_enabled === false) {
       return res.status(503).json({ error: 'Payment processing is not available' });
     }
 
@@ -650,6 +756,8 @@ async function handlePost(req, res, resolvedTenantId) {
         ...savedIncentiveFields,
         ...(simResult.commitment || {}),
         ...(saved?.quoteId ? { membership_payment_quote_id: saved.quoteId } : {}),
+        ...(simResult.formRenewalElectionId ? { membership_successor_election_id: simResult.formRenewalElectionId,
+          renewal_policy_snapshot: simResult.config } : {}),
         tenant_id: tenantId,
         [historyIdCol]: historyIdVal,
         membership_year: simResult.membershipYear?.label || targetYear,
@@ -874,6 +982,8 @@ async function settleFormZeroDueMembership({
   const insertData = {
     ...membershipIncentiveSnapshot(simResult),
     ...(snapshotFormMembershipPayment(simResult, [], 'none').simResult.commitment || {}),
+    ...(simResult.formRenewalElectionId ? { membership_successor_election_id: simResult.formRenewalElectionId,
+      renewal_policy_snapshot: simResult.config } : {}),
     tenant_id: tenantId,
     [idColumn]: idValue,
     membership_year: membershipYear,

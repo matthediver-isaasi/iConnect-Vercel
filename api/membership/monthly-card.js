@@ -177,7 +177,9 @@ async function handlePost(req, res, resolvedTenantId) {
     return res.status(400).json({ error: 'Card payment is not available for this organisation' });
   }
 
-  const simResult = await simulateMembershipForMember(tenantId, member.id, { source: 'monthly-card', mode: 'manual' });
+  const simResult = req.membershipPaymentContext?.source === 'form-renewal'
+    ? req.membershipPaymentContext.simulation
+    : await simulateMembershipForMember(tenantId, member.id, { source: 'monthly-card', mode: 'manual' });
   if (!simResult.success) {
     return res.status(400).json({ error: simResult.error || 'Could not calculate membership fees' });
   }
@@ -225,11 +227,17 @@ async function handlePost(req, res, resolvedTenantId) {
     .eq('idempotency_key', idempotencyKey)
     .maybeSingle();
   const isRolling = simResult.config?.start_mode === 'immediate';
-  if (existingAgreement && !isRolling) {
+  const electedFixed = !!req.membershipPaymentContext?.electionId && !isRolling;
+  if (existingAgreement && !isRolling && !electedFixed) {
     if (existingAgreement.status === STATUS.PAYMENT_SETUP_REQUIRED && existingAgreement.redirect_url) {
       return res.json({ checkoutUrl: existingAgreement.redirect_url, agreementId: existingAgreement.id, resumed: true });
     }
     return res.json({ agreementId: existingAgreement.id, status: existingAgreement.status, resumed: true });
+  }
+  if (req.membershipPaymentContext?.electionId && !existingAgreement
+      && Date.now() - new Date(req.membershipPaymentContext.electionCreatedAt).getTime() >= 20 * 60 * 60 * 1000) {
+    return res.status(409).json({ error: 'The reserved card checkout requires provider reconciliation before retrying.',
+      code: 'elected_checkout_review_required' });
   }
 
   let snapshot = existingAgreement?.metadata?.card || buildCardAgreementSnapshot({ offer, simResult });
@@ -237,12 +245,71 @@ async function handlePost(req, res, resolvedTenantId) {
   const stripe = new Stripe(stripeCredentials.secret_key);
   const environment = stripeCredentials.secret_key.startsWith('sk_test_') ? 'test' : 'live';
   let reservedAgreement = null;
+  if (electedFixed) {
+    reservedAgreement = existingAgreement;
+    if (!reservedAgreement) {
+      const result = await supabase.from('membership_billing_agreements').insert({
+        tenant_id: tenantId, member_id: member.id, agreement_type: 'member',
+        provider: 'stripe', status: STATUS.PAYMENT_SETUP_REQUIRED, environment,
+        membership_successor_election_id: req.membershipPaymentContext.electionId,
+        idempotency_key: idempotencyKey, metadata: { card: snapshot },
+      }).select().single();
+      if (result.error?.code === '23505') {
+        const raced = await supabase.from('membership_billing_agreements').select('*')
+          .eq('tenant_id', tenantId).eq('idempotency_key', idempotencyKey).single();
+        if (raced.error) throw new Error('Could not recover reserved card agreement');
+        reservedAgreement = raced.data;
+      } else {
+        if (result.error) throw new Error('Could not reserve card agreement');
+        reservedAgreement = result.data;
+      }
+    }
+    if (reservedAgreement.membership_successor_election_id !== req.membershipPaymentContext.electionId) {
+      return res.status(409).json({ error: 'This card agreement belongs to another renewal reservation.' });
+    }
+    snapshot = reservedAgreement.metadata.card;
+    // Save the pending obligation BEFORE a Checkout session can exist.
+    if (!existingHistory) {
+      const { error } = await supabase.from('member_membership_history').insert({
+        tenant_id: tenantId, member_id: member.id, membership_year: yearLabel,
+        membership_successor_election_id: req.membershipPaymentContext.electionId,
+        term_start_date: simResult.paymentSchedule.term_start_date,
+        term_end_date: simResult.paymentSchedule.term_end_date,
+        renewal_policy_snapshot: simResult.config,
+        config_id: simResult.config.id, band_id: simResult.matchedBand?.id || null,
+        tier_label: simResult.tierLabel, field_value: simResult.fieldValue,
+        annual_cost: simResult.annualCost, final_cost: snapshot.plan_total,
+        currency: offer.currency, billing_period: 'monthly_card',
+        vat_rate_percent: simResult.vatRatePercent || null, vat_amount: simResult.vatAmount || 0,
+        total_with_vat: snapshot.plan_total, payment_method: 'card_monthly',
+        status: 'pending_payment_setup', payment_status: 'unpaid',
+        billing_agreement_id: reservedAgreement.id,
+      });
+      if (error) {
+        const recovered = await supabase.from('member_membership_history').select('id')
+          .eq('tenant_id', tenantId).eq('member_id', member.id)
+          .eq('membership_year', yearLabel).eq('billing_agreement_id', reservedAgreement.id).maybeSingle();
+        if (recovered.error || !recovered.data) throw new Error('Could not save the reserved card membership');
+      }
+    }
+    if (reservedAgreement.status !== STATUS.PAYMENT_SETUP_REQUIRED) {
+      return res.json({ agreementId: reservedAgreement.id, status: reservedAgreement.status, resumed: true });
+    }
+    if (reservedAgreement.redirect_url) {
+      return res.json({ checkoutUrl: reservedAgreement.redirect_url, agreementId: reservedAgreement.id, resumed: true });
+    }
+    if (Date.now() - new Date(reservedAgreement.created_at).getTime() >= 20 * 60 * 60 * 1000) {
+      return res.status(409).json({ error: 'The interrupted card checkout requires provider reconciliation.',
+        code: 'elected_checkout_review_required' });
+    }
+  }
   if (isRolling) {
     if (snapshot.commitment.term_start_date > new Date().toISOString().slice(0, 10)) {
       return res.status(409).json({ error: `Monthly card payments can begin on ${snapshot.commitment.term_start_date}.`, code: 'rolling_term_not_started' });
     }
     const reservation = await reserveRollingMonthlyRenewal({
       db: supabase, tenantId, memberId: member.id, snapshot, provider: 'stripe', idempotencyKey,
+      electionId: req.membershipPaymentContext?.electionId || null,
       previousAgreement: { id: null, environment }, confirmedCheckout: true,
     });
     reservedAgreement = reservation.agreement;
@@ -259,7 +326,8 @@ async function handlePost(req, res, resolvedTenantId) {
     email: member.email,
     name: [member.first_name, member.last_name].filter(Boolean).join(' ') || undefined,
     metadata: { tenant_id: tenantId, member_id: member.id },
-    ...(reservedAgreement ? { idempotencyKey: `rolling-card-customer:${reservedAgreement.id}` } : {}),
+    ...((reservedAgreement || req.membershipPaymentContext?.electionId)
+      ? { idempotencyKey: `rolling-card-customer:${reservedAgreement?.id || req.membershipPaymentContext.electionId}` } : {}),
   });
   if (!customer?.id) {
     return res.status(502).json({
@@ -312,13 +380,15 @@ async function handlePost(req, res, resolvedTenantId) {
       },
       success_url: `${origin}/membership/monthly-card/complete?member_id=${member.id}&card=success`,
       cancel_url: `${origin}/membership/monthly-card/cancelled?member_id=${member.id}&card=cancelled`,
-    }, reservedAgreement ? { idempotencyKey: `rolling-card-checkout:${reservedAgreement.id}` } : undefined);
+    }, (reservedAgreement || req.membershipPaymentContext?.electionId)
+      ? { idempotencyKey: `rolling-card-checkout:${reservedAgreement?.id || req.membershipPaymentContext.electionId}` } : undefined);
   } catch (err) {
     console.error('[MonthlyCard] Checkout session creation failed:', err.message);
     return res.status(502).json({ error: 'Could not start card checkout. Please try again.' });
   }
 
   const agreementInsert = {
+    ...(req.membershipPaymentContext?.electionId ? { membership_successor_election_id: req.membershipPaymentContext.electionId } : {}),
     ...(snapshot.commitment || {}),
     tenant_id: tenantId,
     member_id: member.id,
@@ -350,8 +420,11 @@ async function handlePost(req, res, resolvedTenantId) {
       if (raced) return res.json({ agreementId: raced.id, status: raced.status, resumed: true });
     }
     console.error('[MonthlyCard] Failed to create agreement:', agreeErr);
-    // Best-effort: expire the orphaned checkout session.
-    try { await stripe.checkout.sessions.expire(session.id); } catch {}
+    // A reserved agreement owns this session even if binding failed. Preserve
+    // it for idempotent recovery; it is not an orphan that can be expired.
+    if (!reservedAgreement) {
+      try { await stripe.checkout.sessions.expire(session.id); } catch {}
+    }
     return res.status(500).json({ error: 'Failed to start card plan set-up' });
   }
 
@@ -390,7 +463,7 @@ async function handlePost(req, res, resolvedTenantId) {
       .eq('id', existingHistory.id);
     if (linkErr) console.error('[MonthlyCard] Failed to link history row:', linkErr);
   }
-  if (reservedAgreement) await completeRollingMonthlySetup(supabase, agreement);
+  if (reservedAgreement && isRolling) await completeRollingMonthlySetup(supabase, agreement);
 
   // Confirm-mode renewal (Task #3621): a member starting a card plan for the
   // renewal year themselves marks any pending 'notice_sent' renewal row

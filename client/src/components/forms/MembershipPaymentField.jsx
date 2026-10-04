@@ -51,6 +51,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
   const elementsRef = useRef(null);
   const redirectHandled = useRef(false);
   const prevOverridesRef = useRef('');
+  const quoteKeyRef = useRef(null);
 
   const memberId = useMemo(() => {
     if (typeof window === 'undefined') return null;
@@ -97,13 +98,21 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
   const latestFetchFeesRef = useRef(null);
 
   useEffect(() => {
+    setPaymentComplete(false);
+    setPaymentMode(null);
+    setPaymentTerm(null);
+    setPaymentYear(null);
+    setHasDdPlan(false);
+    setHasCardPlan(false);
+    setDdStarted(false);
+    quoteKeyRef.current = null;
     if (!memberId) {
       setLoading(false);
       return;
     }
     fetchFees();
     return () => { feeRequestRef.current += 1; };
-  }, [memberId]);
+  }, [memberId, field.membership_config_id]);
 
   useEffect(() => {
     if (!memberId) return;
@@ -156,8 +165,21 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
       })
       .then((result) => {
         if (requestId !== feeRequestRef.current) return;
+        const quoteKey = result.renewal?.quoteKey || `${memberId}:${result.membershipYear}:${result.totalWithVat}:${result.existingRecord?.id || ''}`;
+        if (quoteKeyRef.current && quoteKeyRef.current !== quoteKey) {
+          setPaymentComplete(false);
+          setPaymentMode(null);
+          setPaymentTerm(null);
+          setPaymentYear(null);
+          setDdStarted(false);
+          setPaymentError(null);
+        }
+        quoteKeyRef.current = quoteKey;
         setData(result);
-        if (result.existingRecord?.status === 'active') {
+        // Access/activation and settlement are independent: an active DD
+        // membership can still have outstanding instalments or arrears.
+        if (result.existingRecord?.paymentStatus === 'paid'
+            && ['active', 'scheduled', 'paid'].includes(result.existingRecord.status)) {
           setPaymentComplete(true);
           if (onChange && !value) {
             onChange({
@@ -264,8 +286,8 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
   }, [paymentComplete]);
 
   const initStripe = async () => {
-    if (!data?.stripePublishableKey) return;
-    if (isBelowStripeMinimum(data?.totalWithVat || data?.finalCost, data?.currency)) return;
+    if (!data?.zeroDue && !data?.stripePublishableKey) return;
+    if (!data?.zeroDue && isBelowStripeMinimum(data?.totalWithVat ?? data?.finalCost, data?.currency)) return;
     setCreatingPayment(true);
     setPaymentError(null);
 
@@ -402,6 +424,24 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
     }
   };
 
+  const releaseUnusedRenewal = async () => {
+    setPaymentError(null);
+    setProcessingPayment(true);
+    try {
+      const response = await fetch('/api/forms/membership-payment', {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'release_unused_renewal', memberId }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Could not restart the unused renewal.');
+      fetchFees();
+    } catch (error) {
+      setPaymentError(error.message);
+    } finally {
+      setProcessingPayment(false);
+    }
+  };
+
   const startDirectDebit = async () => {
     const isOrgDd = data?.directDebit?.scope === 'organization';
     if (isOrgDd && ddPayerChoice === 'billing_contact' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(billingContactEmail.trim())) {
@@ -411,11 +451,11 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
     setStartingDd(true);
     setPaymentError(null);
     try {
-      const endpoint = isOrgDd ? '/api/membership/org-direct-debit' : '/api/membership/direct-debit';
+      const endpoint = '/api/forms/membership-payment';
       const overrideBody = getOverrideBody();
       const body = isOrgDd
         ? {
-            action: 'start',
+            action: 'start_direct_debit',
             memberId,
             ...overrideBody,
             payerChoice: ddPayerChoice,
@@ -424,7 +464,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
               billingContactName: billingContactName.trim(),
             } : {}),
           }
-        : { action: 'start', memberId, ...overrideBody };
+        : { action: 'start_direct_debit', memberId, ...overrideBody };
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -474,11 +514,11 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
     setStartingCard(true);
     setPaymentError(null);
     try {
-      const res = await fetch('/api/membership/monthly-card', {
+      const res = await fetch('/api/forms/membership-payment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ action: 'start', memberId }),
+        body: JSON.stringify({ action: 'start_monthly_card', memberId, ...getOverrideBody() }),
       });
       const result = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(result.error || 'Failed to start monthly card set-up');
@@ -544,11 +584,20 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
             <CheckCircle2 className="h-10 w-10 text-green-500" />
             <div className="text-center">
               <p className="font-medium" data-testid="text-payment-success">Membership fee paid</p>
+              {(data?.existingRecord?.status === 'scheduled' || data?.renewal?.successorStart) && (
+                <p className="text-sm text-muted-foreground" data-testid="text-membership-scheduled">
+                  Membership starts on {data?.renewal?.successorStart || data?.existingRecord?.termStart}.
+                </p>
+              )}
               <p className="text-sm text-muted-foreground">
                 {membershipTermLabel(paymentYear || data?.membershipYear)} - {formatCurrency(paymentTerm?.amount ?? data?.totalWithVat ?? data?.finalCost, paymentTerm?.currency || data?.currency)}
               </p>
             </div>
           </div>
+          {data?.renewal?.currentAgreementId && (
+            <p className="text-sm mt-3">This pays the next term only. Remaining instalments and any arrears for the current term through {data.renewal.currentEnd} remain due under your existing payment plan.</p>
+          )}
+          {data?.renewal?.currentAgreementId && <DirectDebitPlanCard memberId={memberId} />}
         </CardContent>
       </Card>
     );
@@ -556,12 +605,57 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
 
   if (!data) return null;
 
-  const payableAmount = data.totalWithVat || data.finalCost;
+  const renewal = data.renewal;
+  const isRenewal = renewal && renewal.state !== 'joining';
+  const resuming = renewal?.state === 'renewal_pending' && renewal?.selectedMethod && data.membershipYear;
+  const canPay = !isRenewal || renewal.eligible || resuming;
+  const renewalMessages = {
+    renewal_not_open: `Renewal opens on ${renewal?.opensOn}.`,
+    renewal_closed: `The renewal window closed on ${renewal?.closesOn}. Please contact an administrator.`,
+    renewal_pending: 'A next-term arrangement is pending. Do not make another payment while it is being confirmed.',
+    next_term_purchased: 'Your next membership term has already been paid for.',
+    current_membership: 'Your current membership is recorded, but payment is not confirmed as fully settled.',
+    continuing_arrangement: 'Your monthly arrangement continues automatically under its existing policy. You do not need to renew manually.',
+    paused: 'Your membership is paused. Please contact an administrator before renewing.',
+    review_required: 'Your saved membership details need review before a renewal can be offered.',
+  };
+  if (isRenewal && !canPay && !data.membershipYear) {
+    return (
+      <Card>
+        <CardContent className="pt-6 space-y-3" data-testid="membership-renewal-summary">
+          <p className="font-medium">{renewalMessages[renewal.state] || 'Membership renewal is not currently available.'}</p>
+          {renewal.currentEnd && <p className="text-sm">Current term ends: {renewal.currentEnd}. Payment status: {renewal.currentPaymentStatus || 'unknown'}.</p>}
+          {renewal.successorStart && <p className="text-sm">Next term: {renewal.successorStart}{renewal.successorEnd ? ` to ${renewal.successorEnd}` : ''}.</p>}
+          {renewal.currentAgreementId && <>
+            <p className="text-sm">Remaining current-term instalments and arrears are unchanged.</p>
+            <DirectDebitPlanCard memberId={memberId} />
+          </>}
+          {renewal.state === 'renewal_pending' && <Button type="button" variant="outline" onClick={fetchFees}>Check renewal status</Button>}
+          {renewal.state === 'renewal_pending' && <Button type="button" variant="outline" disabled={processingPayment} onClick={releaseUnusedRenewal}>Restart unused renewal</Button>}
+          {paymentError && <p role="alert" className="text-sm text-destructive">{paymentError}</p>}
+        </CardContent>
+      </Card>
+    );
+  }
+  const payableAmount = data.totalWithVat ?? data.finalCost;
   const belowMinimum = isBelowStripeMinimum(payableAmount, data.currency);
 
   return (
     <Card data-testid={`membership-payment-${field.id}`}>
       <CardContent className="pt-6 space-y-4">
+        {isRenewal && (
+          <div className="rounded-md border p-3 space-y-2 text-sm" data-testid="membership-renewal-summary">
+            <p className="font-medium">{renewalMessages[renewal.state] || 'Renew your membership for the next term.'}</p>
+            {renewal.state === 'renewal_pending' && <Button type="button" variant="outline" disabled={processingPayment} onClick={releaseUnusedRenewal}>Restart unused renewal</Button>}
+            {renewal.currentEnd && <p>Current term ends: {renewal.currentEnd}. Current payment status: {renewal.currentPaymentStatus || 'unknown'}.</p>}
+            {renewal.successorStart && <p>Next term: {renewal.successorStart}{renewal.successorEnd ? ` to ${renewal.successorEnd}` : ''}.</p>}
+            {renewal.currentAgreementId && <p>Remaining current-term instalments and arrears are unchanged by a next-term purchase.</p>}
+            {renewal.eligible && <p>Paying in full charges the entire next-term price now. Direct Debit setup authorizes the mandate now, with no collection before the next term starts. The provider confirms the actual collection date separately.</p>}
+            {renewal.state === 'renewal_pending' && (
+              <Button type="button" variant="outline" onClick={fetchFees} disabled={loading}>Check renewal status</Button>
+            )}
+          </div>
+        )}
         <div className="space-y-2">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
@@ -648,7 +742,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
           </div>
         )}
 
-        {belowMinimum && !data.approvalPending && (
+        {canPay && belowMinimum && !data.zeroDue && !data.approvalPending && (
           <div className="flex items-start gap-2 p-3 bg-muted rounded-md">
             <Info className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
             <p className="text-sm text-muted-foreground">
@@ -665,10 +759,10 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
         )}
 
         {(() => {
-          const hasAnyPlan = hasDdPlan || hasCardPlan;
-          const showStripeOption = !data.approvalPending && !belowMinimum && data.stripeEnabled && !paymentMode && !hasAnyPlan;
-          const showDdOption = !data.approvalPending && !ddStarted && !hasAnyPlan && data.directDebit && !paymentMode;
-          const showCardMonthlyOption = !data.approvalPending && !ddStarted && !hasAnyPlan && data.cardMonthly && !paymentMode;
+          const hasAnyPlan = !isRenewal && (hasDdPlan || hasCardPlan);
+          const showStripeOption = canPay && (!resuming || renewal.selectedMethod === 'upfront') && !data.approvalPending && (data.zeroDue || (!belowMinimum && data.stripeEnabled)) && !paymentMode && !hasAnyPlan;
+          const showDdOption = canPay && (!resuming || renewal.selectedMethod === 'direct_debit') && !data.approvalPending && !ddStarted && !hasAnyPlan && data.directDebit && !paymentMode;
+          const showCardMonthlyOption = canPay && (!resuming || renewal.selectedMethod === 'monthly_card') && !data.approvalPending && !ddStarted && !hasAnyPlan && data.cardMonthly && !paymentMode;
           if (!showStripeOption && !showDdOption && !showCardMonthlyOption) return null;
           const cardMonthly = data.cardMonthly;
           const cardCurrency = cardMonthly?.currency || data.currency;

@@ -248,7 +248,8 @@ async function handleStart(req, res, resolvedTenantId) {
     return res.status(400).json({ error: 'Direct Debit is not available for this organisation' });
   }
 
-  const simResult = await simulateMembershipForOrg(tenantId, org.id, {
+  const simResult = req.membershipPaymentContext?.source === 'form-renewal'
+    ? req.membershipPaymentContext.simulation : await simulateMembershipForOrg(tenantId, org.id, {
     source: 'direct-debit',
     mode: 'manual',
     fieldOverrides,
@@ -345,6 +346,7 @@ async function handleStart(req, res, resolvedTenantId) {
   const scheduleError = newDdConsentScheduleError(snapshot);
   if (scheduleError) return res.status(400).json(scheduleError);
   const agreementInsert = {
+    ...(req.membershipPaymentContext?.electionId ? { membership_successor_election_id: req.membershipPaymentContext.electionId } : {}),
     ...(snapshot.commitment || {}),
     tenant_id: tenantId,
     organization_id: org.id,

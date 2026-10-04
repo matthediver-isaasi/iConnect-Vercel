@@ -958,6 +958,54 @@ test('mandate cancellation confirmed by API cancels agreement and plans', async 
   assert.equal(db.tables.membership_payment_status_history.length, 2);
 });
 
+test('elected successor revoked before commencement never settles or changes the prepaid predecessor', async () => {
+  const old = { id: 'prepaid', tenant_id: TENANT, status: 'active', payment_status: 'paid',
+    term_start_date: '2098-01-01', term_end_date: '2098-12-31', final_cost: 120 };
+  const next = { id: 'successor', tenant_id: TENANT, billing_agreement_id: 'agr-next',
+    membership_successor_election_id: 'election', status: 'pending_payment_setup',
+    payment_status: 'unpaid', term_start_date: '2099-01-01', term_end_date: '2099-12-31' };
+  const db = makeFakeDb({
+    member_membership_history: [structuredClone(old), structuredClone(next)],
+    membership_billing_agreements: [{
+      id: 'agr-next', tenant_id: TENANT, status: STATUS.FIRST_PAYMENT_PENDING,
+      membership_successor_election_id: 'election', gocardless_mandate_id: 'MD-next',
+    }],
+    membership_payment_plans: [{
+      id: 'plan-next', billing_agreement_id: 'agr-next', tenant_id: TENANT,
+      status: STATUS.FIRST_PAYMENT_PENDING, gocardless_mandate_id: 'MD-next',
+    }],
+    gocardless_mandates: [{ id: 'gm-next', tenant_id: TENANT, gocardless_mandate_id: 'MD-next', status: 'active' }],
+    membership_payment_status_history: [],
+  });
+  await processGocardlessEvent({ id: 'EV_REVOKED', resource_type: 'mandates', action: 'cancelled',
+    links: { mandate: 'MD-next' } }, { db, gc: gcStub({ getMandate: async () => ({ status: 'cancelled' }) }) });
+  assert.deepEqual(db.tables.member_membership_history[0], old);
+  assert.equal(db.tables.member_membership_history[1].payment_status, 'unpaid');
+  assert.equal(db.tables.membership_payment_plans[0].status, STATUS.PAYMENT_PLAN_CANCELLED);
+});
+
+test('failed elected first collection uses arrears policy without marking either term newly settled', async () => {
+  const histories = [
+    { id: 'old-paid', tenant_id: TENANT, status: 'active', payment_status: 'paid', final_cost: 120 },
+    { id: 'new-unpaid', tenant_id: TENANT, billing_agreement_id: 'agr-next',
+      membership_successor_election_id: 'election', status: 'pending_payment_setup', payment_status: 'unpaid' },
+  ];
+  const db = makeFakeDb({
+    member_membership_history: structuredClone(histories),
+    membership_billing_agreements: [{ id: 'agr-next', tenant_id: TENANT,
+      membership_successor_election_id: 'election', status: STATUS.FIRST_PAYMENT_PENDING }],
+    membership_payment_plans: [{ id: 'plan-next', tenant_id: TENANT, billing_agreement_id: 'agr-next',
+      status: STATUS.FIRST_PAYMENT_PENDING, gocardless_subscription_id: 'SB-next', retry_count: 0 }],
+    gocardless_payments: [], membership_payment_status_history: [],
+  });
+  await processGocardlessEvent({ id: 'EV_FIRST_FAILED', resource_type: 'payments', action: 'failed',
+    links: { payment: 'PM-next', subscription: 'SB-next' } }, { db, gc: gcStub() });
+  assert.deepEqual(db.tables.member_membership_history, histories);
+  assert.equal(db.tables.membership_payment_plans[0].status, STATUS.PAYMENT_GRACE_PERIOD);
+  assert.equal(db.tables.membership_payment_plans[0].retry_count, 1);
+  assert.ok(db.tables.membership_payment_plans[0].grace_expires_at);
+});
+
 test('payment confirmed: plan + agreement -> active, retry count reset, payment mirrored', async () => {
   const db = makeFakeDb({
     membership_billing_agreements: [{ id: 'agr-1', tenant_id: TENANT, status: STATUS.FIRST_PAYMENT_PENDING }],

@@ -22,3 +22,44 @@ An operator may explicitly approve a renewal/access policy for an expiry-only hi
 **Why:** Retrofitting the historical purchased configuration or commitment snapshot can imply invented commencement and financial commitments, and violate rolling-term completeness constraints.
 
 **How to apply:** Keep the approved expiry policy in separate server-owned authority, validate its tenant/member/history/paid-expiry binding, and display it separately from the historical membership type and unknown purchase structure. Preserve all original financial and term fields.
+
+Membership-form payment-method elections are for the successor term only. Upfront-to-DD must allow mandate authorization before commencement without collecting for already prepaid time. DD-to-upfront must preserve every current-term instalment, retry, arrears and accounting link; only competing successor collection is suppressed. Continuing DD consent must not become a compulsory manual annual renewal.
+
+**Why:** The user explicitly requires simultaneous current-term obligations and a separately purchased future term, with authorization distinguished from settlement.
+
+**How to apply:** Coordinate form and provider-worker reservations before external effects, preserve the old agreement unchanged, and display commencement separately from the provider's actual expected first collection date.
+
+Enabling new payment elections must be coupled to deployment of the shared
+database ownership contract, not merely the availability of new frontend code.
+Unknown database failures must not be treated as an absent feature.
+
+**Why:** A mixed deployment that exposes cross-method choices before both workers
+share their reservation authority can create competing successor commitments.
+
+**How to apply:** Keep rollout disabled until the database contract is installed
+and all affected workers can use it; verify installed contracts and provider
+evidence separately from disposable-database tests.
+
+Cancelled payment retries must retain the original quote and provider identity;
+use separate payment attempts rather than overwrite the original binding.
+Unused reservation release must serialize with every child creator, and is
+unsafe once any quote/agreement/history exists, regardless of elapsed time.
+
+**Why:** A late provider callback or an in-flight creator can otherwise revive an
+apparently abandoned checkout after a competing successor has been authorized.
+
+**How to apply:** Require confirmed terminal provider evidence for a new payment
+attempt, retain unresolved outcomes for reconciliation, and fence released
+reservations at the database insert boundary as well as in the API.
+
+Replacement payment authority must reach the installed history-settlement guard,
+not just quote loading and provider binding. Pending renewal discovery must
+follow persisted election/child links rather than the latest started history.
+
+**Why:** A bound replacement can still be rejected during paid-history insertion;
+and at commencement a pending successor becomes the newest started history while
+its election still references the predecessor.
+
+**How to apply:** Test real paid-history insertion and replay under the complete
+migration chain, plus form re-entry after child persistence on and after
+commencement. Keep the original quote/provider identity and paused-owner checks.

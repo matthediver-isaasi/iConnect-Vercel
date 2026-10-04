@@ -354,6 +354,19 @@ export async function executeCardAutoRenewal({ tenantId, memberId, previousAgree
 
   const idempotencyKey = `card-agree:${tenantId}:${memberId}:${yearLabel}`;
   let rollingReservation = null;
+  let fixedElection = null;
+  if (!rolling) {
+    const { reserveWorkerSuccessor, membershipSuccessorElectionsEnabled } = await import('./membershipSuccessorElection.js');
+    if (await membershipSuccessorElectionsEnabled(db)) fixedElection = await reserveWorkerSuccessor(db, {
+      tenantId, memberId, previousAgreement, provider: 'stripe',
+      snapshot: buildCardAgreementSnapshot({ offer, simResult, acceptedAt: d.now().toISOString() }),
+      termEnd: new Date(simResult.membershipYear.end).toISOString().slice(0, 10),
+    });
+    // No fixed-date external retry after the provider's idempotency guarantee.
+    if (fixedElection && d.now() - new Date(fixedElection.created_at) >= 20 * 60 * 60 * 1000) {
+      throw new Error('Interrupted card renewal requires provider reconciliation before retry.');
+    }
+  }
   if (rolling) {
     rollingReservation = await reserveRollingMonthlyRenewal({
       db, tenantId, memberId, previousAgreement,
@@ -438,11 +451,11 @@ export async function executeCardAutoRenewal({ tenantId, memberId, previousAgree
       buildRenewalSubscriptionParams({
         customerId: reusable.customerId,
         paymentMethodId: reusable.paymentMethodId,
-        offer: rollingReservation ? {
+        offer: (rollingReservation || fixedElection) ? {
           ...offer,
-          monthlyAmountMinor: rollingReservation.snapshot.monthly_amount_minor,
-          instalmentCount: rollingReservation.snapshot.instalment_count,
-          currency: rollingReservation.snapshot.currency,
+          monthlyAmountMinor: (rollingReservation?.snapshot || fixedElection.quote.snapshot).monthly_amount_minor,
+          instalmentCount: (rollingReservation?.snapshot || fixedElection.quote.snapshot).instalment_count,
+          currency: (rollingReservation?.snapshot || fixedElection.quote.snapshot).currency,
         } : offer,
         tenantId,
         memberId,
@@ -453,7 +466,7 @@ export async function executeCardAutoRenewal({ tenantId, memberId, previousAgree
         agreementId: rollingReservation?.agreement.id,
         // Pin request parameters across retries. Stripe idempotency rejects
         // a moved cancellation timestamp even when all prices are unchanged.
-        now: rollingReservation ? new Date(rollingReservation.snapshot.accepted_at) : d.now(),
+        now: new Date((rollingReservation?.snapshot || fixedElection?.quote.snapshot)?.accepted_at || d.now()),
       }),
       { idempotencyKey: `card-renew-sub:${tenantId}:${memberId}:${yearLabel}` },
     );
@@ -492,11 +505,12 @@ export async function executeCardAutoRenewal({ tenantId, memberId, previousAgree
 
   // Fresh immutable snapshot at CURRENT tier terms — never copied from the
   // previous agreement.
-  const snapshot = buildCardAgreementSnapshot({ offer, simResult });
+  const snapshot = fixedElection?.quote.snapshot || buildCardAgreementSnapshot({ offer, simResult });
 
   const { data: agreement, error: agreeErr } = await db
     .from('membership_billing_agreements')
     .insert({
+      ...(fixedElection ? { membership_successor_election_id: fixedElection.id } : {}),
       tenant_id: tenantId,
       member_id: memberId,
       agreement_type: 'member',

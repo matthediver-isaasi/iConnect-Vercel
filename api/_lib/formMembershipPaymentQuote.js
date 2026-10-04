@@ -37,6 +37,14 @@ export function snapshotFormMembershipPayment(simulation, addonLines = [], payme
 }
 
 export async function saveFormMembershipPaymentQuote(db, { tenantId, memberId, organizationId, snapshot }) {
+  if (snapshot.simResult?.formRenewalElectionId) {
+    const { data, error } = await db.rpc('save_elected_form_membership_quote', {
+      p_election_id: snapshot.simResult.formRenewalElectionId,
+      p_tenant_id: tenantId, p_member_id: memberId, p_quote: snapshot,
+    });
+    if (error || !data?.id) throw new Error(`Could not save elected payment quote: ${error?.message || 'missing quote'}`);
+    return data;
+  }
   const { data, error } = await db.rpc('reserve_form_membership_payment_quote', {
     p_tenant_id: tenantId, p_member_id: memberId, p_organization_id: organizationId || null, p_quote: snapshot,
   });
@@ -54,7 +62,12 @@ export async function bindFormMembershipPaymentQuote(db, quote, pi) {
 export async function createReservedFormMembershipIntent(db, stripe, reservation, now = new Date()) {
   incentiveFieldsFromSavedQuote(reservation.quote?.simResult);
   if (reservation.stripe_payment_intent_id) {
-    return stripe.paymentIntents.retrieve(reservation.stripe_payment_intent_id);
+    const intent = await stripe.paymentIntents.retrieve(reservation.stripe_payment_intent_id);
+    if (intent.status === 'canceled' && reservation.quote?.simResult?.formRenewalElectionId) {
+      const { resumeSuccessorPaymentAttempt } = await import('./successorPaymentAttempt.js');
+      return resumeSuccessorPaymentAttempt(db, stripe, reservation, intent, now);
+    }
+    return intent;
   }
   // Stripe may evict idempotency keys after 24h. An unresolved old reservation
   // is review-only: never create a second intent after that protection expires.
@@ -86,7 +99,11 @@ export async function loadFormMembershipPaymentQuote(db, pi) {
     throw new Error('Saved membership payment terms do not match the payment identity');
   }
   if (data.stripe_payment_intent_id && data.stripe_payment_intent_id !== pi.id) {
-    throw new Error('Saved membership quote belongs to another PaymentIntent');
+    if (!pi.metadata?.membership_attempt_id || !data.quote?.simResult?.formRenewalElectionId) {
+      throw new Error('Saved membership quote belongs to another PaymentIntent');
+    }
+    const { bindSuccessorPaymentAttempt } = await import('./successorPaymentAttempt.js');
+    await bindSuccessorPaymentAttempt(db, data, pi, pi.metadata.membership_attempt_id);
   }
   // Provider confirmation may beat the response-side bind after PI creation.
   // The signed PI's opaque quote metadata safely repairs that crash window.
@@ -102,6 +119,10 @@ export function historyFromFormPaymentSnapshot(snapshot) {
     ...membershipIncentiveSnapshot(sim),
     ...incentiveFieldsFromSavedQuote(sim),
     ...(snapshot.quoteId ? { membership_payment_quote_id: snapshot.quoteId } : {}),
+    ...(sim.formRenewalElectionId ? {
+      membership_successor_election_id: sim.formRenewalElectionId,
+      renewal_policy_snapshot: sim.config,
+    } : {}),
     ...(!sim.commitment && sim.paymentSchedule ? sim.paymentSchedule : {}),
     ...(sim.commitment || {}),
     membership_year: sim.membershipYear?.label,
