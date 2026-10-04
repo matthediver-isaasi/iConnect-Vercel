@@ -21,3 +21,24 @@ unchanged.
 No database migrations are required, created, or applied. No production deployment
 was performed. The unmocked development `/login` preview currently reports
 `Tenant not found`; it does not establish live tenant behavior.
+
+## Restricted ticket regression (2026-10-04)
+
+Before changing rendering, the reported Canvas single-ticket fixture failed because
+`link-login-ticket-single` did not exist. After the fix,
+`npm run test:event-login-modal:browser` passed all 45 tests.
+
+The additional fixtures reproduce the University Member, Partner/Freelance
+partner/Alumni, and AHECS ticket names with `members_and_public`,
+`role_match_only=true`, nonempty role IDs, and `allowGuestsToViewAllTickets=true`.
+Both single and multiple Canvas ticket layouts exercise dismissal/focus, eligible
+and ineligible validated login, preserved URL, and retained valid public selection.
+The matrix also covers group-only restrictions, empty lists, members-only,
+public/public-only, legacy missing visibility, sold-out, future release, and
+malformed release schedules in both layouts.
+
+These results are isolated fixture evidence, not a live-domain acceptance check.
+No fresh live-domain requests or real-account sign-ins were performed for this
+change. The development screenshot still shows the existing tenant-resolution
+error; it is not evidence of the booking UI. No database changes or migrations
+were applied to any database, and none remain to apply for this fix.

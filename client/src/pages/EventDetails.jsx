@@ -7,6 +7,7 @@ import { isImmediateEvent as isImmediateEventTiming } from "@shared/eventTiming"
 import { useQuery } from "@tanstack/react-query";
 import { useEventData, useEventDataBySlug, useMyGroupIds } from "@/hooks/useEventsData";
 import PublicDocumentsSection from "@/components/events/PublicDocumentsSection";
+import TicketRestrictionMessage from "@/components/events/TicketRestrictionMessage";
 import "@/components/events/eventRegistrationLayout.css";
 import JoinGroupToBookCard from "@/components/events/JoinGroupToBookCard";
 import { Button } from "@/components/ui/button";
@@ -49,7 +50,7 @@ import BookmarkButton from "@/components/bookmarks/BookmarkButton";
 import { getSeatStatusLabels } from "@/lib/seatStatusLabels";
 import { normalizeAllocationContext } from "@/lib/eventAllocation.mjs";
 import { useTicketReleaseClock } from "@/hooks/useTicketReleaseClock";
-import { isTicketReleased, ticketReleaseMessage } from "../../../shared/ticketRelease.js";
+import { isTicketReleased } from "../../../shared/ticketRelease.js";
 
 // Training agenda grouped by day with the same collapse behaviour/styling as
 // the complex-event schedule (ComplexEventSchedule.jsx ScheduleGrid): chevron +
@@ -2578,22 +2579,10 @@ export function EventDetailsExperience({
                                   )}
                                 </span>
                               </Label>
-                              {!allocationMode && !isTicketReleased(tc, releaseNowMs) && (
-                                <p className="text-xs text-slate-600 mt-1" data-testid={`ticket-release-${ticketId}`} role="status">{ticketReleaseMessage(tc)}</p>
-                              )}
-                              {!purchasable && !currentMemberInfo && tc.visibility_mode && tc.visibility_mode !== 'public_only' && tc.visibility_mode !== 'members_and_public' && (
-                                <p className="text-xs text-slate-500 mt-0.5" data-testid={`text-members-only-${ticketId}`}>
-                                  Members only —{' '}
-                                  <a
-                                    href={`/Login?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`}
-                                    className="text-blue-600 hover:underline font-medium"
-                                    data-testid={`link-login-ticket-${ticketId}`}
-                                    onClick={openLogin}
-                                  >
-                                    log in to book
-                                  </a>
-                                </p>
-                              )}
+                              <TicketRestrictionMessage ticket={tc} purchasable={purchasable}
+                                released={isTicketReleased(tc, releaseNowMs)} soldOut={getTicketSoldOut(tc)}
+                                registrationClosed={isRegistrationClosed} eventSoldOut={isSoldOut}
+                                authenticated={!!currentMemberInfo} onLogin={openLogin} suffix={ticketId} />
                               {tc.is_group_ticket && tc.group_size && (
                                 <p className="text-xs text-muted-foreground mt-0.5" data-testid={`text-group-info-${ticketId}`}>
                                   Covers {tc.group_size} participants — manage your group after booking
@@ -2674,22 +2663,10 @@ export function EventDetailsExperience({
                                 </Badge>
                               )}
                             </div>
-                            {!allocationMode && !isTicketReleased(selectedTicketClass, releaseNowMs) && (
-                              <p className="text-xs text-slate-600 mt-1" data-testid="ticket-release-single" role="status">{ticketReleaseMessage(selectedTicketClass)}</p>
-                            )}
-                            {!purchasable && !currentMemberInfo && selectedTicketClass.visibility_mode && selectedTicketClass.visibility_mode !== 'public_only' && selectedTicketClass.visibility_mode !== 'members_and_public' && (
-                              <p className="text-xs text-slate-500 mt-0.5" data-testid="text-members-only-single">
-                                Members only —{' '}
-                                <a
-                                  href={`/Login?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`}
-                                  className="text-blue-600 hover:underline font-medium"
-                                  data-testid="link-login-ticket-single"
-                                  onClick={openLogin}
-                                >
-                                  log in to book
-                                </a>
-                              </p>
-                            )}
+                            <TicketRestrictionMessage ticket={selectedTicketClass} purchasable={purchasable}
+                              released={isTicketReleased(selectedTicketClass, releaseNowMs)} soldOut={getTicketSoldOut(selectedTicketClass)}
+                              registrationClosed={isRegistrationClosed} eventSoldOut={isSoldOut}
+                              authenticated={!!currentMemberInfo} onLogin={openLogin} suffix="single" />
                             {singlePricing.isEarlyBird && singlePricing.earlyBirdDeadline && (
                               <EarlyBirdCountdown deadline={singlePricing.earlyBirdDeadline} className="mt-1" onExpired={handleEarlyBirdExpired} />
                             )}

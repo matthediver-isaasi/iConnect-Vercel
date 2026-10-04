@@ -4,13 +4,13 @@ const member = { id: 'modal-member', tenant_id: 'modal-tenant', role_id: 'modal-
 const role = { id: member.role_id, tenant_id: member.tenant_id, excluded_features: [], show_tours: false, default_landing_page: 'Preferences' };
 const ticket = { id: 'member-ticket', name: 'Member ticket', price: 20, visibility_mode: 'members_only', role_match_only: true, role_ids: [role.id], member_group_ids: [], is_unlimited_tickets: true, all_tracks: true };
 
-async function fixture(page, { complex = false, multiple = false, slug = false, embedded = false, canvas = false } = {}) {
+async function fixture(page, { complex = false, multiple = false, slug = false, embedded = false, canvas = false, tickets } = {}) {
   const state = { signedIn: false, reject: false, failSession: false, restricted: false, delay: 0, logins: 0, sessions: 0, documents: 0 };
   const event = {
     id: 'modal-event', slug: 'modal-event', title: 'Modal fixture event', description: '<p>Stay on this event</p>',
     status: 'published', event_state: 'active', type: 'one_off', start_date: '2027-06-10T09:00:00Z', end_date: '2027-06-10T17:00:00Z',
     timezone: 'Europe/London', is_unlimited_registration: true, available_seats: null, tracks: [], speaker_ids: [],
-    pricing_config: { allowGuestsToViewAllTickets: true, ticket_classes: multiple ? [ticket, { ...ticket, id: 'public-ticket', name: 'Public ticket', visibility_mode: 'members_and_public', role_match_only: false, role_ids: [] }] : [ticket] },
+    pricing_config: { allowGuestsToViewAllTickets: true, ticket_classes: tickets || (multiple ? [ticket, { ...ticket, id: 'public-ticket', name: 'Public ticket', visibility_mode: 'members_and_public', role_match_only: false, role_ids: [] }] : [ticket]) },
   };
   await page.context().route('**/*', async route => {
     const request = route.request(), url = new URL(request.url());
@@ -74,6 +74,79 @@ async function signIn(page) {
   await page.getByTestId('input-email').fill(member.email);
   await page.getByTestId('input-password').fill('fixture-password');
   await page.getByTestId('button-login').click();
+}
+
+const reportedTickets = ['University Member', 'Partner/Freelance partner/Alumni', 'AHECS'].map((name, i) => ({
+  ...ticket, id: `restricted-${i}`, name, visibility_mode: 'members_and_public',
+}));
+const publicTicket = { ...ticket, id: 'public-ticket', name: 'Public ticket', visibility_mode: 'members_and_public', role_match_only: false, role_ids: [] };
+
+for (const multiple of [false, true]) {
+  for (const [name, changes, reason, login] of [
+    ['role-only', { visibility_mode: 'members_and_public' }, 'eligible member roles or groups', true],
+    ['group-only', { visibility_mode: 'members_and_public', role_ids: [], member_group_ids: ['fixture-group'] }, 'eligible member roles or groups', true],
+    ['empty restrictions', { visibility_mode: 'members_and_public', role_ids: [], member_group_ids: [] }, null, false],
+    ['members-only', { role_match_only: false }, 'Members only', true],
+    ['public', { ...publicTicket }, null, false],
+    ['public-only', { ...publicTicket, visibility_mode: 'public_only' }, null, false],
+    ['legacy member', { visibility_mode: undefined, role_match_only: false }, 'Members only', true],
+    ['legacy public', { visibility_mode: undefined, is_public: true, role_match_only: false }, null, false],
+    ['sold-out restricted', { is_unlimited_tickets: false, available_count: 1, sold_count: 1, is_sold_out: true }, 'Sold out', false],
+    ['sold-out public', { ...publicTicket, is_unlimited_tickets: false, available_count: 1, sold_count: 1, is_sold_out: true }, 'Sold out', false],
+    ['unreleased restricted', { release_at: '2099-01-01T00:00:00Z', release_timezone: 'Europe/London' }, 'Tickets available from', false],
+    ['unreleased public', { ...publicTicket, release_at: '2099-01-01T00:00:00Z', release_timezone: 'Europe/London' }, 'Tickets available from', false],
+    ['invalid release', { release_at: 'invalid' }, 'not available yet', false],
+  ]) {
+    test(`restriction reasons ${name} multiple=${multiple}`, async ({ page }) => {
+      const candidate = { ...ticket, ...changes, id: 'candidate' };
+      await fixture(page, { tickets: multiple ? [candidate, publicTicket] : [candidate] });
+      const suffix = multiple ? 'candidate' : 'single';
+      const message = page.getByTestId(`${changes.release_at ? 'ticket-release' : 'ticket-disabled'}-${suffix}`);
+      if (reason) await expect(message).toContainText(reason);
+      else await expect(message).toBeHidden();
+      const trigger = page.getByTestId(`link-login-ticket-${suffix}`);
+      if (login) {
+        await expect(trigger).toBeVisible();
+        await trigger.click();
+        await expect(page.getByRole('dialog', { name: 'Sign in to book tickets' })).toBeVisible();
+        await page.keyboard.press('Escape');
+        if (multiple) await expect(page.getByTestId('ticket-class-public-ticket').getByRole('radio')).toBeChecked();
+      } else await expect(trigger).toBeHidden();
+    });
+  }
+}
+
+for (const multiple of [false, true]) {
+  for (const restricted of [false, true]) {
+    test(`reported Canvas restrictions multiple=${multiple} ineligible=${restricted}`, async ({ page }) => {
+      const state = await fixture(page, { canvas: true, tickets: multiple ? [...reportedTickets, publicTicket] : [reportedTickets[0]] });
+      const url = page.url();
+      const trigger = page.getByTestId(`link-login-ticket-${multiple ? 'restricted-0' : 'single'}`);
+      if (multiple) {
+        for (const tc of reportedTickets) await expect(page.getByTestId(`link-login-ticket-${tc.id}`)).toBeVisible();
+        await expect(page.getByTestId('ticket-class-public-ticket').getByRole('radio')).toBeChecked();
+      }
+      await trigger.click();
+      await page.keyboard.press('Escape');
+      await expect(trigger).toBeFocused();
+      await trigger.click();
+      state.restricted = restricted;
+      await signIn(page);
+      await expect(page.getByRole('dialog', { name: 'Sign in to book tickets' })).toBeHidden({ timeout: 25000 });
+      expect(page.url()).toBe(url);
+      await expect(trigger).toBeHidden();
+      if (restricted) {
+        await expect(page.getByText('University Member', { exact: true })).toBeHidden();
+      } else if (multiple) {
+        await expect(page.getByTestId('ticket-class-public-ticket').getByRole('radio')).toBeChecked();
+        await page.getByTestId('ticket-class-restricted-0').click();
+        await expect(page.getByTestId('ticket-class-restricted-0').getByRole('radio')).toBeChecked();
+      } else {
+        await expect(page.getByText('University Member', { exact: true })).toBeVisible();
+        await expect(page.getByTestId('ticket-disabled-single')).toBeHidden();
+      }
+    });
+  }
 }
 
 for (const options of [{}, { multiple: true }, { complex: true }, { slug: true }, { complex: true, slug: true }, { embedded: true }, { complex: true, embedded: true }, { canvas: true, multiple: true }, { canvas: true, complex: true }]) {
