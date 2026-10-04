@@ -111,3 +111,31 @@ test('unused renewal restart uses authenticated request and displays refusal rat
   await act(async () => root.unmount());
   host.remove();
 });
+
+test('legacy renewal summaries label administrator attestation without inventing commencement', async () => {
+  window.history.replaceState({}, '', '/forms/renew');
+  for (const quoted of [false, true]) {
+    globalThis.fetch = async input => new Response(JSON.stringify(String(input).includes('payment-plan')
+      ? { currentPlan: null } : {
+        ...(quoted ? { membershipYear: 'rolling:2026-09-26', finalCost: 120,
+          totalWithVat: 120, currency: 'GBP', stripeEnabled: false } : {}),
+        renewal: { state: quoted ? 'eligible_renewal' : 'renewal_closed', eligible: quoted,
+          currentStart: null, currentEnd: '2026-09-25', currentPaymentStatus: 'paid',
+          successorStart: '2026-09-26', successorEnd: '2027-09-25',
+          evidenceSource: 'operator_attested_expiry_only' },
+      }));
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(<MembershipPaymentField field={{ id: 'payment' }} resolvedMemberId="member" />);
+      await new Promise(resolve => setTimeout(resolve, 10));
+    });
+    assert.match(host.textContent, /administrator attestation, not verified provider settlement/);
+    assert.match(host.textContent, /Historical commencement remains unknown/);
+    assert.match(host.textContent, /2026-09-26/);
+    assert.doesNotMatch(host.textContent, /2025-09-26/);
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});

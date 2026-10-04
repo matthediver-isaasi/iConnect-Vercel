@@ -30,8 +30,8 @@ export async function reserveWorkerSuccessor(db, { tenantId, memberId, organizat
     .eq('billing_agreement_id', previousAgreement.id).maybeSingle();
   if (error || !previous) throw new Error('The renewal worker cannot verify its predecessor term');
   if (!previous.term_start_date || !previous.term_end_date) {
-    // Preserve the existing legacy continuation authority. Forms cannot elect
-    // against undated predecessors, so do not invent dates to enrol them.
+    // Preserve existing legacy continuation authority. The form's separate
+    // expiry-only exception excludes billing agreements; never invent dates here.
     const { data: election, error: electionError } = await db.from('membership_successor_election')
       .select('id').eq('tenant_id', tenantId).eq('previous_term_id', previous.id)
       .eq('status', 'reserved').maybeSingle();

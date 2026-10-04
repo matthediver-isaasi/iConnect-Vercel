@@ -1,6 +1,7 @@
 import { addDays, toDateString } from './annualRenewalPolicy.js';
 import { addCalendarMonths, billingPeriodMonths, rollingDateString } from '../../shared/rollingMembershipTerm.js';
 import { resolveSavedCollectionPolicy } from '../../shared/gocardlessCollectionPolicy.js';
+import { assignedFormExpiryPolicy } from './formExpiryOnlyRenewal.js';
 
 const discarded = new Set(['cancelled', 'canceled', 'void', 'expired_checkout']);
 const date = value => {
@@ -16,7 +17,7 @@ const review = reason => ({ state: 'review_required', eligible: false, reason })
  */
 export function assessFormMembershipRenewalEvidence({
   tenantId, memberId, organizationId = null, histories, agreements,
-  successorConfig = null, paused = false, now = new Date(),
+  successorConfig = null, paused = false, now = new Date(), expiryOnlyPolicies = {},
 }) {
   if (!tenantId || (!!memberId === !!organizationId)
       || !Array.isArray(histories) || !Array.isArray(agreements)) {
@@ -38,20 +39,29 @@ export function assessFormMembershipRenewalEvidence({
         ? { state: 'renewal_pending', eligible: false }
         : { state: 'joining', eligible: false, reason: 'use_joining_checkout' };
     }
-    // Even an approved expiry-only record is not proof of a purchased term.
+    if (retained.some(row => !row.term_start_date
+        && (organizationId || !assignedFormExpiryPolicy(row, tenantId, expiryOnlyPolicies[row.id])))) {
+      return review('expiry_only_policy_unavailable');
+    }
+    // Unknown start is retained, never synthesised. An undated predecessor can
+    // coexist only with strictly later dated terms; older rows are ambiguous.
     const terms = retained.map(row => {
-      const start = date(row.term_start_date);
+      const assigned = !organizationId && assignedFormExpiryPolicy(row, tenantId, expiryOnlyPolicies[row.id]);
+      const start = assigned ? null : date(row.term_start_date);
       const end = date(row.term_end_date);
-      if (!row.id || start > end) throw new Error('Invalid purchased term');
-      return { row, start, end };
-    }).sort((a, b) => b.start.localeCompare(a.start));
+      if (!row.id || (start && start > end)) throw new Error('Invalid purchased term');
+      return { row, start, end, assigned };
+    }).sort((a, b) => (b.start || '').localeCompare(a.start || ''));
+    if (terms.filter(term => !term.start).length > 1) return review('ambiguous_expiry_only_predecessor');
     for (let index = 1; index < terms.length; index++) {
       if (terms[index].end >= terms[index - 1].start) return review('overlapping_membership_terms');
     }
-    const current = terms.find(term => term.start <= today);
+    const current = terms.find(term => !term.start || term.start <= today);
     if (!current) return { state: 'renewal_pending', eligible: false, reason: 'initial_term_not_started' };
-    const { row, start, end } = current;
-    const purchasedConfig = row.renewal_policy_snapshot || row.commitment_snapshot?.config || row.incentive_snapshot?.config;
+    const { row, start, end, assigned } = current;
+    const purchasedConfig = assigned ? {
+      renewal_open_days: assigned.renewalOpenDays, renewal_grace_days: assigned.renewalGraceDays,
+    } : row.renewal_policy_snapshot || row.commitment_snapshot?.config || row.incentive_snapshot?.config;
     if (!purchasedConfig || (purchasedConfig.tenant_id && purchasedConfig.tenant_id !== tenantId)) {
       return review('purchased_policy_unavailable');
     }
@@ -75,6 +85,8 @@ export function assessFormMembershipRenewalEvidence({
       closesOn: toDateString(addDays(anchor, window.renewal_grace_days)),
       currentPaymentStatus: row.payment_status || 'unknown',
       currentAgreementId: row.billing_agreement_id || null,
+      ...(assigned ? { evidenceSource: 'operator_attested_expiry_only',
+        expiryPolicyAssignmentId: assigned.assignmentId } : {}),
     };
     const future = terms.filter(term => term.start > today);
     if (future.length > 1 || (future[0] && (future[0].start !== nextStart
@@ -111,6 +123,7 @@ export function assessFormMembershipRenewalEvidence({
       return { ...common, state: 'current_membership', eligible: false, reason: 'current_payment_not_settled' };
     }
     if (!successorConfig || successorConfig.tenant_id !== tenantId
+        || (assigned && (successorConfig.id !== assigned.configId || successorConfig.billing_period !== 'annual'))
         || successorConfig.structure_scope_type !== (organizationId ? 'organization' : 'member')
         || successorConfig.is_active === false
         || (successorConfig.effective_from && successorConfig.effective_from > nextStart)

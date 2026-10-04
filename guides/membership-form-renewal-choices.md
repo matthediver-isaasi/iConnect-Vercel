@@ -33,6 +33,9 @@ current mandate, forgive arrears, or replace the old term's instalments.
 | File | Purpose |
 |------|---------|
 | `api/_lib/formMembershipRenewalEvidence.js` | Pure assessment of persisted evidence and inclusive windows |
+| `api/_lib/formExpiryOnlyRenewal.js` | Narrow BNMS attestation and assigned-policy evidence checks |
+| `api/_lib/expiryOnlyRenewalPolicy.js` | Reload immutable history/member/config-bound operator assignments |
+| `api/_lib/membershipSimulationCore.js` | Independent successor pricing without fabricated legacy commencement or joining incentives |
 | `api/_lib/formMembershipRenewalContext.js` | Owner-scoped discovery, successor simulation and frozen-quote recovery |
 | `api/_lib/membershipSuccessorElection.js` | Shared service-only claims and rollout capability check |
 | `api/forms/membership-payment.js` | Form quote, upfront creation, and delegation to monthly setup |
@@ -47,6 +50,7 @@ current mandate, forgive arrears, or replace the old term's instalments.
 | `client/src/components/forms/MembershipPaymentField.jsx` | Renewal states, dates, choices and current-obligation explanation |
 | `client/src/pages/FormBuilder.jsx` | Builder guidance |
 | `supabase/migrations/20261201_membership_successor_election.sql` | Ownership, grants, quote binding and write guards |
+| `supabase/migrations/20261206_bnms_expiry_only_form_renewal.sql` | Additive expiry-only reservation admission; does not enable rollout |
 | `scripts/apply-membership-successor-election.mjs` | Explicit DEST-only contract inspection/apply runner |
 | `api/_lib/successorPaymentAttempt.js` | Retry confirmed-cancelled upfront intents without replacing their original quote |
 | `api/_lib/formMembershipRenewalDryRun.js` | Read-only snapshot preview using shared eligibility, price and DD scheduling code |
@@ -72,6 +76,60 @@ eligible dates = [anchor - purchased open days, anchor + purchased grace days]
 Zero-day windows retain their literal meaning. Paused owners, untrusted
 expiry-only records, overlapping histories, absent purchased policy and
 conflicting reservations do not authorize a new payment.
+
+### BNMS attested expiry-only memberships
+
+The read-only DEST audit on 4 October 2026 confirmed **83** non-deleted paid
+histories with expiry but no commencement. All have the approved upfront-paid
+attestation. **11** have an explicit immutable expiry-policy assignment with an
+effective annual member schedule; none of those 11 has an open billing agreement.
+The other **72 lack policy-assignment authority**. These counts describe
+readiness, not payment permission, settlement verification or blanket approval.
+
+The exception is restricted to BNMS member histories from the reviewed
+`bnms_non_dd_current_backfill` import, the `2025/2026` membership year, paid
+upfront annual GBP membership, unknown commencement and no recurring commitment.
+It requires versioned provenance with the original source hash, the explicit
+operator paid attestation, retained expiry authority and unknown-start authority.
+An import note alone is insufficient.
+
+`loadExpiryOnlyRenewalPolicy` reloads and validates the server-owned
+`membership_expiry_policy_assignment` against the history, member, tenant,
+expiry and assigned configuration. Its immutable 90-day opening/grace snapshot
+defines the window. We use **that exact assigned config ID**, effective at expiry
+plus one day; we do not infer a replacement schedule from a tier label or use
+today's default. An unavailable/expired assignment needs separate review.
+
+```text
+verified imported expiry + immutable operator assignment
+  → current commencement remains null; historical amounts remain unchanged
+  → inclusive window: [expiry − 90 days, expiry + 90 days]
+  → successor starts at expiry + 1 day, including checkout during grace
+  → server reloads assignment and prices the full annual successor
+  → shared atomic election reserves the successor before provider effects
+```
+
+The successor establishes its own dated term and anchor. The imported history
+is not passed to rolling commitment builders as though it were a fully dated
+commitment. Its identity remains in the election and `formRenewal.predecessorId`.
+The simulator leaves tenure unknown, does not apply new-joiner incentives or
+invent historical rollover credit, and never stamps a historical price.
+The UI labels the old paid state as **administrator attestation, not verified
+provider settlement**.
+
+Additional undated histories or dated histories overlapping the unknown-start
+record require review. Future paid/pending successors, open agreements, pauses
+and existing elections still block a competing purchase. Frozen election
+recovery remains separate from preparing a new quote. The database independently
+revalidates the attestation, exact assignment/config, expiry, annual successor
+length and conflicting obligations under the existing owner lock. Workers
+cannot use this exception: it is for payer-initiated form renewal only and grants
+no automatic billing consent.
+
+Missing assignments return `expiry_only_policy_unavailable`; a missing database
+capability returns `expiry_only_reservation_migration_required`. Neither state
+can produce a new renewal quote. Provider failures and unexpected database errors
+remain explicit failures, not permission to fall back to joining checkout.
 
 Fixed upfront histories are not converted into rolling commitments.
 Their predecessor relationship belongs to the election rather than fabricated
@@ -110,10 +168,30 @@ and payment behavior remains in use. Other database errors fail explicitly.
 Installing the migration leaves rollout disabled. The application service role
 cannot enable it. Resolve the outstanding work below before enabling rollout.
 Legacy continuing arrangements without canonical history dates retain their
-existing worker path if no election conflicts; forms cannot elect against
-those undated predecessors.
+existing worker path if no election conflicts. The BNMS form exception above
+excludes any history linked to a billing agreement and does not expand worker
+authority.
+
+The old expiry-only grace-end sweep also recognises an elected recurring
+successor. It requires the same tenant/member/predecessor election, matching
+agreement and term dates, canonical current rolling term, active history, and
+confirmed payment (`paid` or the DD/card `partial` progress state). The agreement
+must be active, or completed with a settled term. A pending mandate, scheduled or
+unactivated history, foreign/released election, cancelled agreement, expired
+successor or failed evidence read cannot be treated as renewal protection.
+On success the predecessor receives only its normal `renewed` lifecycle audit;
+historical financial fields and member login/role remain unchanged. The successor
+continues under its own collection and activation policy.
 
 ### Migration status
+
+- New expiry-only migration: `20261206_bnms_expiry_only_form_renewal.sql`.
+  Tested in disposable local PostgreSQL only; **not applied to DEST or SOURCE**.
+  Install after the existing expiry-policy and tenant-rollout migrations under
+  separate approval. The application checks its capability before offering this
+  path. It changes no history, assignment, rollout flag or provider state.
+- The 72 unassigned records require explicit operator-approved assignments,
+  not a bulk inferred migration. No new assignments were made in this work.
 
 - Required and installed: `20261201_membership_successor_election.sql`,
   `20261202_membership_successor_payment_attempts.sql`, and
@@ -201,6 +279,22 @@ failed elected first collections. The existing PostgreSQL DD collection suite
 now asserts that a prepaid successor and the old term remain independent during
 collection retries and completion. Component tests cover restart refusal and
 scheduled/paid versus merely active display.
+
+Expiry-only tests cover inclusive windows, missing/foreign assignments, multiple
+histories, pending/paid successors, pauses, frozen recovery and missing schema.
+The real member simulator is checked with joining incentives enabled: the
+successor still uses the full fee and tenure stays unknown. Disposable PostgreSQL
+tests install the new migration, reject unassigned/forged/conflicting claims,
+race upfront against DD and worker claims, replay the winner, check browser-role
+grants and compare the unchanged predecessor. These are not provider acceptance
+or authenticated browser evidence.
+
+Grace-end regressions cover both DD and card successors with paid and confirmed
+partial payment, unknown historical amounts, one-row response caps, pending
+authorization/activation, ownership and boundary mismatches, completed plans,
+elapsed successors and failed protection reads. They invoke the actual legacy
+expiry sweep and assert that renewed members keep login without rewriting old
+financial evidence.
 
 Still required before production acceptance/enablement:
 

@@ -625,6 +625,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
         <CardContent className="pt-6 space-y-3" data-testid="membership-renewal-summary">
           <p className="font-medium">{renewalMessages[renewal.state] || 'Membership renewal is not currently available.'}</p>
           {renewal.currentEnd && <p className="text-sm">Current term ends: {renewal.currentEnd}. Payment status: {renewal.currentPaymentStatus || 'unknown'}.</p>}
+          {renewal.evidenceSource === 'operator_attested_expiry_only' && <p className="text-sm">Existing membership is recorded as paid by administrator attestation, not verified provider settlement. Historical commencement remains unknown.</p>}
           {renewal.successorStart && <p className="text-sm">Next term: {renewal.successorStart}{renewal.successorEnd ? ` to ${renewal.successorEnd}` : ''}.</p>}
           {renewal.currentAgreementId && <>
             <p className="text-sm">Remaining current-term instalments and arrears are unchanged.</p>
@@ -648,6 +649,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
             <p className="font-medium">{renewalMessages[renewal.state] || 'Renew your membership for the next term.'}</p>
             {renewal.state === 'renewal_pending' && <Button type="button" variant="outline" disabled={processingPayment} onClick={releaseUnusedRenewal}>Restart unused renewal</Button>}
             {renewal.currentEnd && <p>Current term ends: {renewal.currentEnd}. Current payment status: {renewal.currentPaymentStatus || 'unknown'}.</p>}
+            {renewal.evidenceSource === 'operator_attested_expiry_only' && <p>Existing membership is recorded as paid by administrator attestation, not verified provider settlement. Historical commencement remains unknown.</p>}
             {renewal.successorStart && <p>Next term: {renewal.successorStart}{renewal.successorEnd ? ` to ${renewal.successorEnd}` : ''}.</p>}
             {renewal.currentAgreementId && <p>Remaining current-term instalments and arrears are unchanged by a next-term purchase.</p>}
             {renewal.eligible && <p>Paying in full charges the entire next-term price now. Direct Debit setup authorizes the mandate now, with no collection before the next term starts. The provider confirms the actual collection date separately.</p>}

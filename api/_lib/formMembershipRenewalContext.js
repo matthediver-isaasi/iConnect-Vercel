@@ -2,6 +2,8 @@ import { assessFormMembershipRenewalEvidence } from './formMembershipRenewalEvid
 import { addDays, toDateString } from './annualRenewalPolicy.js';
 import { createHash } from 'node:crypto';
 import { membershipSuccessorElectionsEnabled } from './membershipSuccessorElection.js';
+import { loadExpiryOnlyRenewalPolicy } from './expiryOnlyRenewalPolicy.js';
+import { hasFormExpiryOnlyProvenance } from './formExpiryOnlyRenewal.js';
 
 async function allRows(query) {
   const rows = [];
@@ -36,20 +38,31 @@ export async function loadFormMembershipRenewalContext(db, {
   if (evidence.paused) return { renewal: { state: 'paused', eligible: false }, simulation: null };
   const retained = histories.filter(row => !['cancelled', 'canceled', 'void', 'expired_checkout'].includes(row.status));
   if (!retained.length) return { renewal: assessFormMembershipRenewalEvidence(evidence), simulation: null };
+  evidence.expiryOnlyPolicies = {};
+  if (!organizationId) {
+    for (const history of retained.filter(row => row.term_start_date == null)) {
+      if (!hasFormExpiryOnlyProvenance(history, tenantId)) continue;
+      const policy = await loadExpiryOnlyRenewalPolicy(db, { tenantId, history });
+      if (policy) evidence.expiryOnlyPolicies[history.id] = policy;
+    }
+  }
   const today = toDateString(now);
   const previous = retained.filter(row => row.term_start_date && row.term_start_date <= today)
-    .sort((a, b) => b.term_start_date.localeCompare(a.term_start_date))[0];
+    .sort((a, b) => b.term_start_date.localeCompare(a.term_start_date))[0]
+    || retained.find(row => evidence.expiryOnlyPolicies[row.id]);
+  const assigned = evidence.expiryOnlyPolicies[previous?.id];
   const priorConfig = previous?.renewal_policy_snapshot || previous?.commitment_snapshot?.config || previous?.incentive_snapshot?.config;
   let successorConfig = null;
-  if (previous?.term_end_date && priorConfig) {
+  if (previous?.term_end_date && (priorConfig || assigned)) {
     const start = toDateString(addDays(previous.term_end_date, 1));
     const configs = await allRows(db.from('membership_tier_config').select('*').eq('tenant_id', tenantId));
     const equal = (a, b) => String(a ?? '').trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
     const eligible = configs.filter(config => config.is_active !== false
-      && equal(config.start_mode || 'fixed_date', priorConfig.start_mode || 'fixed_date')
+      && (assigned ? config.id === assigned.configId : (
+      equal(config.start_mode || 'fixed_date', priorConfig.start_mode || 'fixed_date')
       && equal(config.structure_scope_type || 'organization', priorConfig.structure_scope_type || 'organization')
       && equal(config.structure_field_id, priorConfig.structure_field_id)
-      && equal(config.structure_match_value, priorConfig.structure_match_value)
+      && equal(config.structure_match_value, priorConfig.structure_match_value)))
       && (!config.effective_from || config.effective_from <= start)
       && (!config.effective_to || config.effective_to >= start));
     if (eligible.length === 1) successorConfig = eligible[0];
@@ -90,10 +103,17 @@ export async function loadFormMembershipRenewalContext(db, {
   };
   if (renewal.state === 'next_term_purchased') return { renewal, simulation: null };
   if (!renewal.eligible) return { renewal, simulation: null };
+  if (assigned) {
+    const { data, error } = await db.rpc('form_expiry_only_renewal_supported');
+    if (error && !['42883', 'PGRST202'].includes(error.code)) throw new Error('Expiry-only reservation capability unavailable');
+    if (error || data !== true) return { renewal: { ...renewal, eligible: false,
+      state: 'review_required', reason: 'expiry_only_reservation_migration_required' }, simulation: null };
+  }
   const simulation = await simulate(tenantId, ownerId, {
     source: 'form-renewal', mode: 'manual', configId: successorConfig.id,
     asOfDate: renewal.successorStart, termStartDate: renewal.successorStart,
-    ...(successorConfig.start_mode === 'immediate' ? { previousTerm: previous } : {}),
+    ...(assigned ? { expiryOnlyHistoryId: previous.id }
+      : successorConfig.start_mode === 'immediate' ? { previousTerm: previous } : {}),
   });
   if (!simulation?.success || simulation.existingRecord) {
     return { renewal: { ...renewal, eligible: false, state: 'review_required',
@@ -105,7 +125,9 @@ export async function loadFormMembershipRenewalContext(db, {
     return { renewal: { ...renewal, eligible: false, state: 'review_required',
       message: 'The successor structure does not produce the saved renewal boundary.' }, simulation: null };
   }
-  simulation.previousTerm = previous;
+  // Election/formRenewal retain predecessor identity. Rolling builders must not
+  // interpret an expiry-only predecessor as a complete historical commitment.
+  simulation.previousTerm = assigned ? null : previous;
   simulation.paymentSchedule = {
     term_start_date: renewal.successorStart, term_end_date: renewal.successorEnd,
     // Fixed upfront histories are not monthly/rolling commitments. The

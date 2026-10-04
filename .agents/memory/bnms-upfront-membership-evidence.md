@@ -36,6 +36,32 @@ An expiry-only upfront record may support an explicitly labelled expected renewa
 
 **How to apply:** Prefer a saved renewal date; otherwise derive from trusted persisted expiry. Keep expected renewal and uniquely matched next-structure information separate from scheduled collection evidence. Never use the projection itself to authorise billing or create memberships.
 
+For payer-initiated form renewal, approved paid attestation and a separate explicit
+operator-assigned renewal policy may support quoting the successor from known
+expiry without filling in historical commencement. The attestation alone is not
+cohort-wide renewal authority.
+
+**Why:** The user requested a narrowly authorised legacy renewal path, while
+forbidding invented commencement, historic prices, settlement and billing consent.
+
+**How to apply:** Preserve historical unknowns and distinguish administrator-paid
+attestation in the UI. Use the exact assigned schedule for new pricing, not a
+label-matched replacement or default. Keep unassigned histories blocked and
+retain shared form/worker payment ownership before any future provider effects.
+
+A legacy expiry policy must not revoke access after a valid elected recurring
+successor has activated with confirmed payment. A confirmed instalment is not
+full annual settlement, but can establish the new plan's active membership.
+
+**Why:** Annual-only expiry protection excludes recurring successors, so an
+unchanged legacy login-disabling assignment can otherwise lock out a renewed
+member at its old grace deadline.
+
+**How to apply:** Bind protection to the persisted owner, predecessor election,
+agreement and current term. Require actual activation and confirmed payment;
+pending authorization alone gives no protection. Leave future access decisions
+to the successor's lifecycle without rewriting the historical financial evidence.
+
 For the reviewed nine BNMS legacy memberships expiring 23 September–1 October
 2026 (five Full UK, two Student, one Associate UK and one Full Overseas), the user
 selected 90-day grace for all nine, then login disabled, with no role changes.

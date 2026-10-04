@@ -63,6 +63,45 @@ export function isCurrentMembershipProtection(row, now = new Date()) {
   return ['active', 'scheduled'].includes(row.status) && row.term_end_date >= today;
 }
 
+// A recurring successor belongs to its own activation/collection lifecycle.
+// The imported predecessor's expiry policy must not revoke a successfully
+// activated renewal. An election or authorised mandate alone is insufficient.
+async function isElectedExpiryOnlyRecurringSuccessor(client, tenantId, history, row, now, read) {
+  if (!isAttestedExpiryOnlyHistory(history, tenantId) || !row.billing_agreement_id
+      || !row.membership_successor_election_id || row.tenant_id !== tenantId
+      || row.member_id !== history.member_id || row.organization_id
+      || row.status !== 'active' || !isRollingCommitment(row)
+      || !row.commitment_snapshot || !validAgreedAmount(row)) return false;
+  const today = now.toISOString().slice(0, 10);
+  const next = new Date(`${history.term_end_date}T00:00:00Z`);
+  next.setUTCDate(next.getUTCDate() + 1);
+  if (row.term_start_date !== next.toISOString().slice(0, 10)
+      || row.term_start_date > today || row.term_end_date < today) return false;
+  const settled = hasSettledRollingPayment(row);
+  // Both DD and monthly card record 'partial' only after confirmed payment.
+  // Do not treat arbitrary paid_at text, scheduled activation or unpaid setup
+  // as proof that the recurring membership has successfully begun.
+  if (!settled && !(row.payment_status === 'partial'
+      && Number(row.total_with_vat ?? row.final_cost) > 0)) return false;
+  const election = await read(() => client.from('membership_successor_election').select('*')
+    .eq('tenant_id', tenantId).eq('member_id', history.member_id)
+    .eq('id', row.membership_successor_election_id).maybeSingle(),
+  'Could not verify expiry-only successor election');
+  if (!election || election.organization_id || election.status !== 'reserved'
+      || election.origin !== 'form' || election.previous_term_id !== history.id
+      || election.term_start_date !== row.term_start_date || election.term_end_date !== row.term_end_date
+      || !['direct_debit', 'monthly_card'].includes(election.payment_method)) return false;
+  const agreement = await read(() => client.from('membership_billing_agreements').select('*')
+    .eq('tenant_id', tenantId).eq('member_id', history.member_id)
+    .eq('id', row.billing_agreement_id).maybeSingle(),
+  'Could not verify expiry-only successor agreement');
+  return !!agreement && !agreement.organization_id
+    && agreement.membership_successor_election_id === election.id
+    && agreement.term_start_date === row.term_start_date && agreement.term_end_date === row.term_end_date
+    && agreement.provider === (election.payment_method === 'direct_debit' ? 'gocardless' : 'stripe')
+    && (agreement.status === 'active' || (settled && agreement.status === 'completed'));
+}
+
 const PAGE_SIZE = 100;
 const MEMBER_FIELDS = 'id, tenant_id, identity_id, login_enabled, role_id, organization_id, membership_paused';
 const TABLES = { member: 'member_membership_history', organisation: 'organisation_membership_history' };
@@ -130,7 +169,7 @@ export async function processTenantAnnualExpirySweep(client, tenantId, results =
         return query;
       }, message);
       if (!rows?.length) return false;
-      if (rows.some(predicate)) return true;
+      for (const row of rows) if (await predicate(row)) return true;
       after = rows.at(-1).id;
       // Always fetch to an empty page: even a server-side cap below our limit
       // must not silently truncate protections or the sweep.
@@ -174,7 +213,9 @@ export async function processTenantAnnualExpirySweep(client, tenantId, results =
       return history.term_key
         ? query.eq('term_start_date', next).eq('previous_term_id', history.id)
         : query.gte('term_start_date', next);
-    }, isAnnualPaid, 'Could not check renewed membership');
+    }, async row => isAnnualPaid(row) || (assignedPolicies.get(history.id)
+      && await isElectedExpiryOnlyRecurringSuccessor(client, tenantId, history, row, now, read)),
+    'Could not check renewed membership');
   }
   async function protectedMember(member, history) {
     if (member.membership_paused === true) return true;

@@ -5,6 +5,9 @@ import { resolveInvoiceAddress } from './invoiceAddressResolver.js';
 import { matchBand } from './tierBandMatcher.js';
 import { matchesSelections } from './selectionMatcher.js';
 import { calculateMembershipYearWindow, calculateNextMembershipYearWindow, rollingMembershipWindow } from './membershipYear.js';
+import { loadExpiryOnlyRenewalPolicy } from './expiryOnlyRenewalPolicy.js';
+import { hasFormExpiryOnlyProvenance } from './formExpiryOnlyRenewal.js';
+import { addDays, toDateString } from './annualRenewalPolicy.js';
 
 // A saved usage amount is not evidence of the rate/entitlement that produced it.
 // In particular, never substitute the renewal schedule for the joining schedule.
@@ -132,6 +135,26 @@ async function resolveRollingSimulationContext(client, {
     .select('*').eq('tenant_id', tenantId).eq(memberId ? 'member_id' : 'organization_id', memberId || organizationId);
   if (error) throw new Error(`Could not load purchased membership terms: ${error.message}`);
   const histories = (rows || []).filter(row => !['cancelled', 'void', 'expired_checkout'].includes(row.status));
+  if (options.expiryOnlyHistoryId) {
+    const history = histories.find(row => row.id === options.expiryOnlyHistoryId);
+    const policy = memberId && options.source === 'form-renewal'
+      && hasFormExpiryOnlyProvenance(history, tenantId)
+      && await loadExpiryOnlyRenewalPolicy(client, { tenantId, history });
+    const start = policy && toDateString(addDays(policy.expiryDate, 1));
+    if (!policy || history.member_id !== memberId || config?.id !== policy.configId
+        || config.tenant_id !== tenantId || config.structure_scope_type !== 'member'
+        || config.billing_period !== 'annual' || config.is_active === false
+        || (config.effective_from && config.effective_from > start)
+        || (config.effective_to && config.effective_to < start)
+        || options.termStartDate !== start || options.asOfDate !== start
+        || histories.some(row => row.id !== history.id)) {
+      throw new Error('Expiry-only successor requires an unambiguous operator-assigned schedule and boundary.');
+    }
+    // The successor is its own first fully-dated term. Do not pass the imported
+    // history to buildRollingTerm or invent an old anchor/pricing commitment.
+    return { config, previousTerm: null, expiryOnlyRenewal: true,
+      window: rollingMembershipWindow(config, start, null) };
+  }
   const rollingRows = histories.filter(row => String(row.term_key || '').startsWith('rolling:'));
   if (config?.start_mode !== 'immediate'
       && options.previousTerm?.commitment_snapshot?.start_mode === 'fixed_date') return null;
@@ -1433,10 +1456,13 @@ async function simulateMembershipForMember(tenantId, memberId, options = {}) {
   const goLiveDate = await getMemberGoLiveDate(memberId, tenantId);
   const createdDate = member.created_on ? String(member.created_on).split('T')[0] : null;
   const assumedGoLiveDate = goLiveDate || createdDate || clock().toISOString().split('T')[0];
-  const yearNumber = rollingContext ? (rollingContext.previousTerm ? (Number(rollingContext.previousTerm.year_number) || 1) + 1 : 1) : determineMembershipYearNumber(assumedGoLiveDate, membershipYear, config);
+  const yearNumber = rollingContext?.expiryOnlyRenewal ? null
+    : rollingContext ? (rollingContext.previousTerm ? (Number(rollingContext.previousTerm.year_number) || 1) + 1 : 1) : determineMembershipYearNumber(assumedGoLiveDate, membershipYear, config);
   const currentYearNumber = determineMembershipYearNumber(assumedGoLiveDate, currentYearObj, config);
 
-  if (goLiveDate) {
+  if (rollingContext?.expiryOnlyRenewal) {
+    log('Go-Live Date', 'Legacy commencement and tenure are unknown; quote the full successor fee without joining incentives or historical rollover.');
+  } else if (goLiveDate) {
     let yearDesc;
     if (yearNumber === 1) yearDesc = 'First year - pro-rata and free period discounts apply';
     else if (yearNumber === 2) yearDesc = 'Second year - free period spillover may apply';
@@ -1583,7 +1609,7 @@ async function simulateMembershipForMember(tenantId, memberId, options = {}) {
     .eq('member_id', memberId);
 
   const hasCurrentYearRecord = (historyRecords || []).some(h => h.membership_year === currentYearObj.label);
-  const isNewMember = rollingContext ? !rollingContext.previousTerm : (currentYearNumber === 1 || !goLiveDate) && !hasCurrentYearRecord;
+  const isNewMember = rollingContext ? !rollingContext.previousTerm && !rollingContext.expiryOnlyRenewal : (currentYearNumber === 1 || !goLiveDate) && !hasCurrentYearRecord;
   const effectiveJoinDate = rollingContext ? new Date(membershipYear.start) : goLiveDate ? new Date(goLiveDate) : (createdDate ? new Date(createdDate) : clock());
 
   const yearStartMidnight = new Date(membershipYear.start);

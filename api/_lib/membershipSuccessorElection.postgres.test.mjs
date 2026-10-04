@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import pg from 'pg';
+import { verifyExpiryOnlyReservations } from './formExpiryOnlyRenewal.postgres.fixture.mjs';
 
 test('isolated PostgreSQL successor claims serialize form versus worker and preserve old obligations', { timeout: 60000 }, async () => {
   const dir = await mkdtemp(join(tmpdir(), 'successor-election-'));
@@ -135,6 +136,7 @@ test('isolated PostgreSQL successor claims serialize form versus worker and pres
     assert.equal((await a.query('SELECT membership_successor_elections_enabled($1) enabled', [winner.tenant_id])).rows[0].enabled, false);
     await a.query('INSERT INTO membership_successor_tenant_rollout(tenant_id,enabled) VALUES($1,true)', [winner.tenant_id]);
     assert.equal((await a.query('SELECT membership_successor_elections_enabled($1) enabled', [winner.tenant_id])).rows[0].enabled, true);
+    await verifyExpiryOnlyReservations(a, b);
     assert.equal((await a.query('SELECT membership_successor_elections_enabled($1) enabled', [otherTenant])).rows[0].enabled, false);
     for (const role of ['anon', 'authenticated', 'service_role']) {
       await a.query(`SET ROLE ${role}`);

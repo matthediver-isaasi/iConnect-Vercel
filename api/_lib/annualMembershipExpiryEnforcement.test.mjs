@@ -4,6 +4,7 @@ import { cp, mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { buildRollingCommitment } from './rollingMembershipCommitment.js';
 
 let root;
 let sweep;
@@ -116,6 +117,121 @@ function assignedLegacyTables() {
     }],
   };
 }
+
+function electedRecurringLegacyTables({ provider = 'gocardless', paymentStatus = 'paid' } = {}) {
+  const tables = assignedLegacyTables();
+  const legacy = tables.member_membership_history[0];
+  const commitment = buildRollingCommitment({
+    config: { ...tables.membership_tier_config[0], billing_period: 'annual' },
+    startDate: '2026-09-26', paymentMethod: provider === 'stripe' ? 'card' : 'direct_debit',
+    paymentFrequency: 'monthly',
+    amounts: { annual_cost: 120, final_cost: 120, vat_amount: 0, total_with_vat: 120, currency: 'GBP' },
+  });
+  tables.member_membership_history.push({
+    ...commitment, id: 'successor', tenant_id: bnms, member_id: legacy.member_id,
+    status: 'active', payment_status: paymentStatus, billing_agreement_id: 'agreement',
+    membership_successor_election_id: 'election', total_with_vat: 120, final_cost: 120,
+    billing_period: 'monthly_direct_debit',
+  });
+  tables.membership_successor_election = [{
+    id: 'election', tenant_id: bnms, member_id: legacy.member_id, previous_term_id: legacy.id,
+    status: 'reserved', origin: 'form', payment_method: provider === 'stripe' ? 'monthly_card' : 'direct_debit',
+    term_start_date: commitment.term_start_date, term_end_date: commitment.term_end_date,
+  }];
+  tables.membership_billing_agreements = [{
+    id: 'agreement', tenant_id: bnms, member_id: legacy.member_id, provider, status: 'active',
+    membership_successor_election_id: 'election',
+    term_start_date: commitment.term_start_date, term_end_date: commitment.term_end_date,
+  }];
+  return tables;
+}
+
+for (const provider of ['gocardless', 'stripe']) {
+  for (const paymentStatus of ['paid', 'partial']) {
+    test(`${provider} ${paymentStatus}: elected active successor protects login at legacy grace end`, async () => {
+      const tables = electedRecurringLegacyTables({ provider, paymentStatus });
+      const before = structuredClone(tables);
+      const db = database(tables, { cap: 1 });
+      const result = await sweep(db, bnms, { details: [] }, new Date('2026-12-25'), {
+        invalidateSessions: async () => assert.fail('Renewed member sessions must not be revoked'),
+      });
+      assert.equal(result.enforced, 0);
+      assert.equal(tables.member[0].login_enabled, true);
+      assert.equal(tables.member_membership_history[0].annual_renewal_state, 'renewed');
+      const preserved = structuredClone(tables.member_membership_history[0]);
+      delete preserved.annual_renewal_state;
+      delete preserved.expiry_enforcement_key;
+      preserved.expiry_enforced_at = null;
+      assert.deepEqual(preserved, before.member_membership_history[0], 'historical dates, pricing and paid evidence are unchanged');
+      assert.deepEqual(tables.member_membership_history[1], before.member_membership_history[1]);
+      assert.deepEqual(tables.membership_billing_agreements, before.membership_billing_agreements);
+      assert.deepEqual(tables.membership_successor_election, before.membership_successor_election);
+      assert.equal(db.writes.some(write => ['member', 'membership_expiry_action'].includes(write.table)), false);
+    });
+  }
+}
+
+test('pending authorisation, unactivated payment and mismatched recurring successor authority do not protect legacy access', async () => {
+  const mutations = [
+    tables => { tables.member_membership_history[1].payment_status = 'unpaid'; },
+    tables => { tables.member_membership_history[1].status = 'scheduled'; },
+    tables => { tables.member_membership_history[1].status = 'pending_payment_setup'; },
+    tables => { tables.member_membership_history[1].status = 'cancelled'; },
+    tables => { tables.member_membership_history[1].membership_successor_election_id = null; },
+    tables => { tables.member_membership_history[1].term_start_date = '2026-09-27'; },
+    tables => { tables.member_membership_history[1].member_id = 'other'; },
+    tables => { tables.member_membership_history[1].tenant_id = 'other'; },
+    tables => { tables.member_membership_history[1].total_with_vat = null; tables.member_membership_history[1].final_cost = null; },
+    tables => { tables.membership_successor_election[0].previous_term_id = 'other'; },
+    tables => { tables.membership_successor_election[0].member_id = 'other'; },
+    tables => { tables.membership_successor_election[0].tenant_id = 'other'; },
+    tables => { tables.membership_successor_election[0].status = 'released'; },
+    tables => { tables.membership_successor_election[0].payment_method = 'upfront'; },
+    tables => { tables.membership_successor_election[0].term_end_date = '2027-09-26'; },
+    tables => { tables.membership_billing_agreements[0].status = 'first_payment_pending'; },
+    tables => { tables.membership_billing_agreements[0].status = 'cancelled'; },
+    tables => { tables.membership_billing_agreements[0].member_id = 'other'; },
+    tables => { tables.membership_billing_agreements[0].tenant_id = 'other'; },
+    tables => { tables.membership_billing_agreements[0].membership_successor_election_id = 'other'; },
+    tables => { tables.membership_billing_agreements[0].provider = 'other'; },
+  ];
+  for (const mutate of mutations) {
+    const tables = electedRecurringLegacyTables();
+    mutate(tables);
+    const result = await sweep(database(tables), bnms, { details: [] }, new Date('2026-12-25'), {
+      invalidateSessions: async () => ({ success: true }),
+    });
+    assert.equal(result.enforced, 1, String(mutate));
+    assert.equal(tables.member[0].login_enabled, false, String(mutate));
+  }
+});
+
+test('failed successor protection reads stop the sweep without disabling access', async () => {
+  for (const table of ['membership_successor_election', 'membership_billing_agreements']) {
+    const tables = electedRecurringLegacyTables(), before = structuredClone(tables);
+    const db = database(tables, { fail: query => query.table === table });
+    await assert.rejects(sweep(db, bnms, { details: [] }, new Date('2026-12-25')), /Could not verify expiry-only successor/);
+    assert.deepEqual(tables.member, before.member);
+    assert.deepEqual(tables.member_membership_history, before.member_membership_history);
+    assert.deepEqual(db.writes, []);
+  }
+});
+
+test('completed collection protects only a settled, still-current elected term', async () => {
+  for (const paymentStatus of ['paid', 'partial']) {
+    const tables = electedRecurringLegacyTables({ paymentStatus });
+    tables.membership_billing_agreements[0].status = 'completed';
+    const result = await sweep(database(tables), bnms, { details: [] }, new Date('2026-12-25'), {
+      invalidateSessions: async () => ({ success: true }),
+    });
+    assert.equal(result.enforced, paymentStatus === 'paid' ? 0 : 1);
+  }
+  const tables = electedRecurringLegacyTables();
+  const result = await sweep(database(tables), bnms, { details: [] }, new Date('2027-09-26'), {
+    invalidateSessions: async () => ({ success: true }),
+  });
+  assert.equal(result.enforced, 1, 'an elapsed successor cannot extend access indefinitely');
+});
 
 test('operator expiry-only policy retains grace through Dec 24 and enforces Dec 25 without purchased-term changes', async () => {
   const tables = assignedLegacyTables(), db = database(tables);
