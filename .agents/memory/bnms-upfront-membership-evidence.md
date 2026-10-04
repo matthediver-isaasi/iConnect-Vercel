@@ -87,3 +87,17 @@ record expiring 2 October 2026.
 **How to apply:** Treat this as approval for that record only, not an automatic
 policy for other newly flagged legacy memberships. Preserve history and pricing;
 do not create charges or new memberships.
+
+The operator approved the seven schedule mappings and uniform 90-day opening
+and grace policy for the separately reviewed 72 unassigned legacy histories,
+including all five Full Overseas exceptions, with login disabled if unrenewed
+after grace and no role change. Exact cohort boundaries are recorded in
+`reports/bnms-legacy-renewal-schedule-approval-2026-10-04.md`.
+
+**Why:** The operator explicitly selected all seven cohorts and the policy for
+all selected cohorts, including Full Overseas, in a review-only approval form.
+
+**How to apply:** This is schedule/policy approval only. Obtain separate approval
+before database writes; keep rollout disabled. Do not extend it to new records,
+change shared overseas settings, infer historical financial evidence or add
+recurring consent.

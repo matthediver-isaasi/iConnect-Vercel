@@ -86,6 +86,13 @@ effective annual member schedule; none of those 11 has an open billing agreement
 The other **72 lack policy-assignment authority**. These counts describe
 readiness, not payment permission, settlement verification or blanket approval.
 
+The operator subsequently approved exact schedule mappings and the uniform
+90-day opening/grace policy for those 72 records, including the five Full
+Overseas exceptions. The pinned cohort and approval limits are recorded in
+[`reports/bnms-legacy-renewal-schedule-approval-2026-10-04.md`](../reports/bnms-legacy-renewal-schedule-approval-2026-10-04.md).
+This was review approval only: assignments were not created, database writes
+require separate approval, and rollout remains disabled.
+
 The exception is restricted to BNMS member histories from the reviewed
 `bnms_non_dd_current_backfill` import, the `2025/2026` membership year, paid
 upfront annual GBP membership, unknown commencement and no recurring commitment.
