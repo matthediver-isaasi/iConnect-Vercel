@@ -3,7 +3,7 @@ import { ticketReleaseMessage } from '../../../../shared/ticketRelease.js';
 // Presentation only: callers retain the existing purchase and visibility gates.
 export default function TicketRestrictionMessage({
   ticket, purchasable, released, soldOut, registrationClosed, eventSoldOut,
-  authenticated, onLogin, suffix,
+  authenticated, onLogin, suffix, cardLogin = false,
 }) {
   if (purchasable) return null;
   if (!released) {
@@ -18,19 +18,23 @@ export default function TicketRestrictionMessage({
   if (soldOut || eventSoldOut) reason = 'Sold out';
   else if (registrationClosed) reason = 'Registration is closed';
   else if (!authenticated) {
-    reason = restricted ? 'Available only to eligible member roles or groups.' : 'Members only.';
+    reason = '';
     login = true;
   } else {
     reason = restricted ? 'Your membership is not eligible for this ticket.' : 'This ticket is not available to your account.';
   }
   return (
     <p className="text-xs text-slate-600 mt-1" data-testid={`ticket-disabled-${suffix}`}>
-      {reason}{login && <> {' '}
+      {reason}{login && (cardLogin ? (
+        <span className="text-blue-600 font-medium" data-testid={`link-login-ticket-${suffix}`}>
+          Member only - click to login
+        </span>
+      ) : (
         <button type="button" className="text-blue-600 hover:underline font-medium"
           data-testid={`link-login-ticket-${suffix}`} onClick={onLogin}>
-          Log in to check eligibility
+          Member only - click to login
         </button>
-      </>}
+      ))}
     </p>
   );
 }

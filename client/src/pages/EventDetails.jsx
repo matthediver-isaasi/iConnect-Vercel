@@ -8,6 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEventData, useEventDataBySlug, useMyGroupIds } from "@/hooks/useEventsData";
 import PublicDocumentsSection from "@/components/events/PublicDocumentsSection";
 import TicketRestrictionMessage from "@/components/events/TicketRestrictionMessage";
+import { canLoginForTicket, ticketLoginInteraction } from "@/components/events/ticketLoginInteraction";
 import "@/components/events/eventRegistrationLayout.css";
 import JoinGroupToBookCard from "@/components/events/JoinGroupToBookCard";
 import { Button } from "@/components/ui/button";
@@ -2525,6 +2526,9 @@ export function EventDetailsExperience({
                       const ticketId = String(tc.id || '');
                       const ticketPrice = Number(tc.price) || 0;
                       const purchasable = isTicketPurchasable(tc);
+                      const loginEnabled = canLoginForTicket({ purchasable,
+                        authenticated: !!currentMemberInfo, released: isTicketReleased(tc, releaseNowMs),
+                        soldOut: getTicketSoldOut(tc), registrationClosed: isRegistrationClosed, eventSoldOut: isSoldOut });
                       const isSelected = String(selectedTicketClassId) === ticketId;
                       
                       const tcPricing = getEffectiveTicketPrice(tc);
@@ -2533,7 +2537,9 @@ export function EventDetailsExperience({
                         <div 
                           key={ticketId}
                           className={`relative flex items-center justify-between p-4 rounded-lg border-2 transition-colors ${
-                            !purchasable 
+                            loginEnabled
+                              ? 'border-slate-200 bg-white hover:border-blue-400 hover:bg-blue-50 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500'
+                            : !purchasable
                               ? 'border-slate-200 bg-slate-50 opacity-60 cursor-not-allowed' 
                               : isSelected 
                                 ? 'border-blue-500 bg-blue-50 cursor-pointer' 
@@ -2544,6 +2550,7 @@ export function EventDetailsExperience({
                               setSelectedTicketClassId(ticketId);
                             }
                           }}
+                          {...ticketLoginInteraction(loginEnabled, openLogin, tc.name)}
                           data-testid={`ticket-class-${ticketId}`}
                         >
                           <div className="flex items-center gap-3">
@@ -2561,7 +2568,7 @@ export function EventDetailsExperience({
                             <div className="flex-1 min-w-0">
                               <Label 
                                 htmlFor={`ticket-${ticketId}`} 
-                                className={`font-medium ${purchasable ? 'cursor-pointer' : 'cursor-not-allowed'}`}
+                                className={`font-medium ${purchasable || loginEnabled ? 'cursor-pointer' : 'cursor-not-allowed'}`}
                               >
                                 <span className="flex items-center gap-2 flex-wrap">
                                   {String(tc.name || 'Ticket')}
@@ -2582,7 +2589,7 @@ export function EventDetailsExperience({
                               <TicketRestrictionMessage ticket={tc} purchasable={purchasable}
                                 released={isTicketReleased(tc, releaseNowMs)} soldOut={getTicketSoldOut(tc)}
                                 registrationClosed={isRegistrationClosed} eventSoldOut={isSoldOut}
-                                authenticated={!!currentMemberInfo} onLogin={openLogin} suffix={ticketId} />
+                                authenticated={!!currentMemberInfo} onLogin={openLogin} suffix={ticketId} cardLogin={loginEnabled} />
                               {tc.is_group_ticket && tc.group_size && (
                                 <p className="text-xs text-muted-foreground mt-0.5" data-testid={`text-group-info-${ticketId}`}>
                                   Covers {tc.group_size} participants — manage your group after booking
@@ -2644,9 +2651,15 @@ export function EventDetailsExperience({
                 <CardContent>
                   {(() => {
                     const purchasable = isTicketPurchasable(selectedTicketClass);
+                    const loginEnabled = canLoginForTicket({ purchasable,
+                      authenticated: !!currentMemberInfo, released: isTicketReleased(selectedTicketClass, releaseNowMs),
+                      soldOut: getTicketSoldOut(selectedTicketClass), registrationClosed: isRegistrationClosed, eventSoldOut: isSoldOut });
                     const singlePricing = getEffectiveTicketPrice(selectedTicketClass);
                     return (
-                      <div className={`flex items-center justify-between p-4 rounded-lg border border-slate-200 ${purchasable ? 'bg-slate-50' : 'bg-slate-50 opacity-80'}`}>
+                      <div {...ticketLoginInteraction(loginEnabled, openLogin, selectedTicketClass.name)}
+                        className={`flex items-center justify-between p-4 rounded-lg border border-slate-200 ${loginEnabled
+                          ? 'bg-white hover:border-blue-400 hover:bg-blue-50 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500'
+                          : purchasable ? 'bg-slate-50' : 'bg-slate-50 opacity-80'}`}>
                         <div className="flex items-center gap-3">
                           {!purchasable && (
                             <div className="flex items-center justify-center w-5 h-5 flex-shrink-0">
@@ -2654,7 +2667,7 @@ export function EventDetailsExperience({
                             </div>
                           )}
                           <div className="flex-1 min-w-0">
-                            <div className={`font-medium flex items-center gap-2 flex-wrap ${purchasable ? 'text-slate-900' : 'text-slate-500'}`}>
+                            <div className={`font-medium flex items-center gap-2 flex-wrap ${purchasable || loginEnabled ? 'text-slate-900' : 'text-slate-500'}`}>
                               {String(selectedTicketClass.name || 'Ticket')}
                               {singlePricing.isEarlyBird && (
                                 <Badge variant="secondary" className="text-xs bg-warning/10 text-warning border-warning/30" data-testid="badge-early-bird-single">
@@ -2666,7 +2679,7 @@ export function EventDetailsExperience({
                             <TicketRestrictionMessage ticket={selectedTicketClass} purchasable={purchasable}
                               released={isTicketReleased(selectedTicketClass, releaseNowMs)} soldOut={getTicketSoldOut(selectedTicketClass)}
                               registrationClosed={isRegistrationClosed} eventSoldOut={isSoldOut}
-                              authenticated={!!currentMemberInfo} onLogin={openLogin} suffix="single" />
+                              authenticated={!!currentMemberInfo} onLogin={openLogin} suffix="single" cardLogin={loginEnabled} />
                             {singlePricing.isEarlyBird && singlePricing.earlyBirdDeadline && (
                               <EarlyBirdCountdown deadline={singlePricing.earlyBirdDeadline} className="mt-1" onExpired={handleEarlyBirdExpired} />
                             )}
