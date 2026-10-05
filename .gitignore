@@ -52,3 +52,7 @@ attached_assets/Screenshot_2026-10-01_at_17.56.08_1790870173330.png
 attached_assets/AHECS_Members_for_GFI_Import_02.10.26_1790935316849.xlsx
 private/gfi-ahecs-members/
 private/bnms-renewal-policy-2026-10-04/
+
+# Private session-log uploads: retain locally, exclude from published source.
+attached_assets/Pasted-2026-10-05-13-08-48-174-info-Session-getSession-Looking_1791212557010.txt
+attached_assets/Pasted-2026-10-05-13-08-48-174-info-Session-getSession-Looking_1791212611667.txt
