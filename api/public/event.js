@@ -1,3 +1,4 @@
+import { publicTicketMemberPolicy } from '../../shared/publicTicketMemberPolicy.js';
 import { createClient } from '@supabase/supabase-js';
 import { getEventCommercialCapacity, mergeTicketCommercialCapacity } from '../_lib/eventCommercialCapacity.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
@@ -148,6 +149,7 @@ export default async function handler(req, res) {
         price: tc.price,
         currency: tc.currency,
         visibility_mode: tc.visibility_mode,
+        ...publicTicketMemberPolicy(tc),
         is_public: tc.is_public,
         is_group_ticket: tc.is_group_ticket || false,
         group_size: tc.group_size || null,

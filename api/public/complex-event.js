@@ -1,3 +1,4 @@
+import { publicTicketMemberPolicy } from '../../shared/publicTicketMemberPolicy.js';
 import { createClient } from '@supabase/supabase-js';
 import { getEventCommercialCapacity, mergeTicketCommercialCapacity } from '../_lib/eventCommercialCapacity.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
@@ -72,7 +73,7 @@ export default async function handler(req, res) {
 
     const { data: ticketClasses, error: tcError } = await supabase
       .from('complex_event_ticket_class')
-      .select('id, name, price, is_free, early_bird_enabled, early_bird_price, early_bird_deadline, release_at, release_timezone, visibility_mode, linked_track_ids, all_tracks, display_order, is_group_ticket, group_size, role_ids, role_match_only, member_group_ids, available_count, is_unlimited_tickets')
+      .select('id, name, price, is_free, early_bird_enabled, early_bird_price, early_bird_deadline, release_at, release_timezone, visibility_mode, linked_track_ids, all_tracks, display_order, is_group_ticket, group_size, role_ids, role_match_only, member_group_ids, available_count, is_unlimited_tickets, create_member_records, new_member_role_id')
       .eq('complex_event_id', event.id)
       .eq('tenant_id', tenant.id)
       .order('display_order', { ascending: true });
@@ -132,6 +133,7 @@ export default async function handler(req, res) {
           currency: 'gbp',
           is_free: tc.is_free,
           visibility_mode: tc.visibility_mode,
+          ...publicTicketMemberPolicy(tc),
           early_bird_enabled: tc.early_bird_enabled || false,
           early_bird_price: tc.early_bird_price != null ? Number(tc.early_bird_price) : null,
           early_bird_deadline: tc.early_bird_deadline || null,

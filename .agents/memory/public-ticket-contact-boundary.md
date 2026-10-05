@@ -11,6 +11,12 @@ The option must be available for both Public Only and Members & Public tickets.
 
 **How to apply:** Preserve ordinary existing-member checkout without creating duplicate contacts or replacing roles; extend guest provisioning consistently across editor, save validation and checkout.
 
+Checkout policy must survive every public-response projection and frontend ticket normalization, not merely the pricing database and payment helpers.
+
+**Why:** Helper tests passed while both public serialization and the selected-ticket normalizer discarded the policy, preventing purchaser capture and the free-checkout branch.
+
+**How to apply:** Test actual projection expressions through selected-ticket/payment decisions, and separately read back the public endpoint. A helper-only test is not evidence that public checkout receives its inputs.
+
 **Why:** The user explicitly requested contact creation rather than paid membership, automatic account activation, organisation access or marketing opt-in.
 
 **How to apply:** Preserve guest purchase provenance, keep the provisioning role separate from ticket eligibility roles, disable login and directory visibility on new contacts, and never infer an attendee organisation from the buyer. Unpaid Invoice/PO and merely authorized payments must not create records. Replay must use purchase-scoped creation evidence, not adopt unrelated existing tenant/email records.

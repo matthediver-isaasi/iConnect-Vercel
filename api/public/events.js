@@ -1,3 +1,4 @@
+import { publicTicketMemberPolicy } from '../../shared/publicTicketMemberPolicy.js';
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import {
@@ -149,6 +150,7 @@ export default async function handler(req, res) {
           price: tc.price,
           currency: tc.currency,
           visibility_mode: tc.visibility_mode,
+          ...publicTicketMemberPolicy(tc),
           is_public: tc.is_public,
           early_bird_enabled: tc.early_bird_enabled || false,
           early_bird_price: tc.early_bird_price != null ? tc.early_bird_price : null,

@@ -1,10 +1,10 @@
+import { publicTicketMemberPolicy } from '../../../shared/publicTicketMemberPolicy.js';
 export const isProvisionableRole = role => !!role
   && !role.is_admin && !role.is_tenant_admin && !role.requires_effective_from_date
   && role.max_members == null && !role.requires_organization;
 
 export function ticketMemberPolicy(ticket = {}) {
-  const enabled = ["public_only", "members_and_public"].includes(ticket?.visibility_mode) && ticket.create_member_records === true;
-  return { create_member_records: enabled, new_member_role_id: enabled ? ticket.new_member_role_id || null : null };
+  return publicTicketMemberPolicy(ticket);
 }
 
 export function updateTicketMemberField(ticket, field, value) {

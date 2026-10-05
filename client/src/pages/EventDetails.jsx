@@ -799,6 +799,7 @@ export function EventDetailsExperience({
           member_group_ids: Array.isArray(tc.member_group_ids) ? tc.member_group_ids : [],
           is_default: Boolean(tc.is_default),
           visibility_mode: visibilityMode,
+          ...ticketMemberPolicy({ ...tc, visibility_mode: visibilityMode }),
           role_match_only: Boolean(tc.role_match_only),
           offer_type: String(tc.offer_type || 'none'),
           bogo_logic_type: String(tc.bogo_logic_type || 'buy_x_get_y_free'),
