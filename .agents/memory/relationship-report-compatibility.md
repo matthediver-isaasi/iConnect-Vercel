@@ -20,3 +20,14 @@ Treat a relationship designation as evidence on the final relationship occurrenc
 **Why:** The Department survey-responder designation describes the Department–Member link; a shared Member can be designated for one Department but not another. It is not survey-submission evidence.
 
 **How to apply:** Combine a related-record filter's conditions against one endpoint and final edge together. None-match includes empty parents; never combine independently matching siblings or infer a submission from a designation.
+
+The user says deleted members are rarely wanted on reports. The approved change
+is to exclude them from Department members and Organisation department summary,
+including member counts, while retaining historical relationship records.
+
+**Why:** Deleted members were appearing as report rows and inflating Department
+member counts. The user explicitly scoped this change to the two Department reports.
+
+**How to apply:** Preserve this exclusion when changing these reports. Do not
+interpret the preference as permission to rewrite every existing report or
+delete historical relationships; wider default changes need separate scope.
