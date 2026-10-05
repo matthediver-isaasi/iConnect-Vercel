@@ -131,7 +131,7 @@ test('keyboard method switching waits for cancellation then restores all offered
   await expect(page.getByText('Pay monthly by card', { exact: true })).toHaveCount(0);
   await button.focus();
   await page.keyboard.press('Enter');
-  await expect(page.getByRole('status')).toContainText('Checking the provider');
+  await expect(page.getByRole('status')).toContainText('Checking your payment');
   await expect(page.getByRole('button', { name: 'Confirming cancellation…' })).toBeDisabled();
   release();
   await expect(page.getByText('Pay monthly by card', { exact: true })).toBeVisible();
@@ -156,8 +156,9 @@ test('gate-open real FormView preserves assigned structure and original expiry d
   const summary = page.getByTestId('membership-renewal-summary');
   await expect(summary).toContainText('2026-09-25');
   await expect(summary).toContainText('2026-09-26 to 2027-09-25');
-  await expect(summary).toContainText('paid by administrator attestation, not verified provider settlement');
-  await expect(summary).toContainText('Historical commencement remains unknown');
+  await expect(summary).toContainText('Your renewal covers:');
+  await expect(summary).not.toContainText('administrator attestation');
+  await expect(summary).not.toContainText('Historical commencement');
   expect(result.pricing).toHaveLength(1);
   expect(result.mutations).toEqual([]);
   expect(result.errors).toEqual([]);

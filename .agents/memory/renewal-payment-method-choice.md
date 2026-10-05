@@ -22,3 +22,13 @@ can incorrectly reject their personal renewal, or select the wrong owner lock.
 
 **How to apply:** Derive the lock and quote ownership from the persisted election;
 verify current organisation membership only for organisation-owned renewals.
+
+Renewal wording must be friendly and useful to members, not written for admins.
+Keep attestation, provider-settlement provenance and unknown historical
+commencement explanations out of the member-facing renewal summary.
+
+**Why:** The user explicitly rejected these administrative messages in the
+renewal element and requested clear end-user labels.
+
+**How to apply:** Preserve the underlying audit evidence and financial safeguards;
+explain the member's next action without exposing internal reservation terminology.

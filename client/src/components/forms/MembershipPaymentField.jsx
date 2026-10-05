@@ -637,29 +637,28 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
     && (!isRenewal || renewal.eligible || resuming);
   const renewalMessages = {
     renewal_not_open: `Renewal opens on ${renewal?.opensOn}.`,
-    renewal_closed: `The renewal window closed on ${renewal?.closesOn}. Please contact an administrator.`,
-    renewal_pending: 'A next-term arrangement is pending. Do not make another payment while it is being confirmed.',
+    renewal_closed: `Online renewal closed on ${renewal?.closesOn}. Please contact the membership team for help renewing.`,
+    renewal_pending: 'Your renewal is in progress. Continue below, or choose “Change payment method” to use another option. If you have already paid, choose “Check renewal status” instead.',
     next_term_purchased: 'Your next membership term has already been paid for.',
-    current_membership: 'Your current membership is recorded, but payment is not confirmed as fully settled.',
-    continuing_arrangement: 'Your monthly arrangement continues automatically under its existing policy. You do not need to renew manually.',
-    paused: 'Your membership is paused. Please contact an administrator before renewing.',
-    review_required: 'Your saved membership details need review before a renewal can be offered.',
+    current_membership: 'We haven’t confirmed full payment for your current membership. Please contact the membership team if you need help.',
+    continuing_arrangement: 'Your membership renews automatically with your existing monthly payments. You do not need to renew here.',
+    paused: 'Your membership is paused. Please contact the membership team to restart it.',
+    review_required: 'We need to check your membership details before you can renew. Please contact the membership team for help.',
   };
   if (isRenewal && !canPay && !data.membershipYear) {
     return (
       <Card>
         <CardContent className="pt-6 space-y-3" data-testid="membership-renewal-summary">
           <p className="font-medium">{renewalMessages[renewal.state] || 'Membership renewal is not currently available.'}</p>
-          {renewal.currentEnd && <p className="text-sm">Current term ends: {renewal.currentEnd}. Payment status: {renewal.currentPaymentStatus || 'unknown'}.</p>}
-          {renewal.evidenceSource === 'operator_attested_expiry_only' && <p className="text-sm">Existing membership is recorded as paid by administrator attestation, not verified provider settlement. Historical commencement remains unknown.</p>}
-          {renewal.successorStart && <p className="text-sm">Next term: {renewal.successorStart}{renewal.successorEnd ? ` to ${renewal.successorEnd}` : ''}.</p>}
+          {renewal.currentEnd && <p className="text-sm">Current membership ends: {renewal.currentEnd}.</p>}
+          {renewal.successorStart && <p className="text-sm">Your renewal covers: {renewal.successorStart}{renewal.successorEnd ? ` to ${renewal.successorEnd}` : ''}.</p>}
           {renewal.currentAgreementId && <>
-            <p className="text-sm">Remaining current-term instalments and arrears are unchanged.</p>
+            <p className="text-sm">Any remaining payments for your current membership are still due.</p>
             <DirectDebitPlanCard memberId={memberId} />
           </>}
           {renewal.state === 'renewal_pending' && <Button type="button" variant="outline" onClick={fetchFees}>Check renewal status</Button>}
           {renewal.state === 'renewal_pending' && <Button type="button" variant="outline" disabled={disabled || switchingPayment || processingPayment || creatingPayment || startingDd || startingCard} onClick={releaseUnusedRenewal}>{switchingPayment ? 'Confirming cancellation…' : 'Change payment method'}</Button>}
-          {switchingPayment && <p role="status">Checking the provider and cancelling unpaid checkout attempts. Please keep this page open.</p>}
+          {switchingPayment && <p role="status">Checking your payment so you can safely choose another method. Please keep this page open.</p>}
           {paymentError && <p role="alert" className="text-sm text-destructive">{paymentError}</p>}
         </CardContent>
       </Card>
@@ -675,12 +674,11 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
           <div className="rounded-md border p-3 space-y-2 text-sm" data-testid="membership-renewal-summary">
             <p className="font-medium">{renewalMessages[renewal.state] || 'Renew your membership for the next term.'}</p>
             {renewal.state === 'renewal_pending' && <Button type="button" variant="outline" disabled={disabled || switchingPayment || processingPayment || creatingPayment || startingDd || startingCard} onClick={releaseUnusedRenewal}>{switchingPayment ? 'Confirming cancellation…' : 'Change payment method'}</Button>}
-            {switchingPayment && <p role="status">Checking the provider and cancelling unpaid checkout attempts. Please keep this page open.</p>}
-            {renewal.currentEnd && <p>Current term ends: {renewal.currentEnd}. Current payment status: {renewal.currentPaymentStatus || 'unknown'}.</p>}
-            {renewal.evidenceSource === 'operator_attested_expiry_only' && <p>Existing membership is recorded as paid by administrator attestation, not verified provider settlement. Historical commencement remains unknown.</p>}
-            {renewal.successorStart && <p>Next term: {renewal.successorStart}{renewal.successorEnd ? ` to ${renewal.successorEnd}` : ''}.</p>}
-            {renewal.currentAgreementId && <p>Remaining current-term instalments and arrears are unchanged by a next-term purchase.</p>}
-            {renewal.eligible && <p>Paying in full charges the entire next-term price now. Direct Debit setup authorizes the mandate now, with no collection before the next term starts. The provider confirms the actual collection date separately.</p>}
+            {switchingPayment && <p role="status">Checking your payment so you can safely choose another method. Please keep this page open.</p>}
+            {renewal.currentEnd && <p>Current membership ends: {renewal.currentEnd}.</p>}
+            {renewal.successorStart && <p>Your renewal covers: {renewal.successorStart}{renewal.successorEnd ? ` to ${renewal.successorEnd}` : ''}.</p>}
+            {renewal.currentAgreementId && <p>Any remaining payments for your current membership are still due.</p>}
+            {renewal.eligible && <p>Pay in full to pay for your renewal now. If you choose Direct Debit, you’ll set it up now and receive confirmation of your collection dates. No payment will be collected before your new membership period starts.</p>}
             {renewal.state === 'renewal_pending' && (
               <Button type="button" variant="outline" onClick={fetchFees} disabled={loading}>Check renewal status</Button>
             )}

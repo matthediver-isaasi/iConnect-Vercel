@@ -82,7 +82,7 @@ test('active access alone is not reported as paid; explicitly settled scheduled 
   }
 });
 
-test('unused renewal restart uses authenticated request and displays refusal rather than another payment', async () => {
+test('payment method change uses authenticated request and displays refusal rather than another payment', async () => {
   window.history.replaceState({}, '', '/forms/renew');
   const requests = [];
   globalThis.fetch = async (input, options) => {
@@ -101,18 +101,18 @@ test('unused renewal restart uses authenticated request and displays refusal rat
     root.render(<MembershipPaymentField field={{ id: 'payment' }} resolvedMemberId="member" onChange={() => {}} />);
     await new Promise(resolve => setTimeout(resolve, 10));
   });
-  const button = [...host.querySelectorAll('button')].find(button => button.textContent === 'Restart unused renewal');
+  const button = [...host.querySelectorAll('button')].find(button => button.textContent === 'Change payment method');
   assert.ok(button);
   await act(async () => { button.click(); await new Promise(resolve => setTimeout(resolve, 10)); });
   assert.match(host.querySelector('[role="alert"]').textContent, /must be reconciled/);
   const post = requests.find(request => request.options?.method === 'POST');
   assert.equal(post.options.credentials, 'include');
-  assert.deepEqual(JSON.parse(post.options.body), { action: 'release_unused_renewal', memberId: 'member' });
+  assert.deepEqual(JSON.parse(post.options.body), { action: 'change_renewal_payment_method', memberId: 'member', electionId: 'election' });
   await act(async () => root.unmount());
   host.remove();
 });
 
-test('legacy renewal summaries label administrator attestation without inventing commencement', async () => {
+test('legacy renewal summaries show useful dates without administrative evidence wording', async () => {
   window.history.replaceState({}, '', '/forms/renew');
   for (const quoted of [false, true]) {
     globalThis.fetch = async input => new Response(JSON.stringify(String(input).includes('payment-plan')
@@ -131,8 +131,8 @@ test('legacy renewal summaries label administrator attestation without inventing
       root.render(<MembershipPaymentField field={{ id: 'payment' }} resolvedMemberId="member" />);
       await new Promise(resolve => setTimeout(resolve, 10));
     });
-    assert.match(host.textContent, /administrator attestation, not verified provider settlement/);
-    assert.match(host.textContent, /Historical commencement remains unknown/);
+    assert.doesNotMatch(host.textContent, /administrator attestation|provider settlement|Historical commencement/);
+    assert.match(host.textContent, /Your renewal covers: 2026-09-26 to 2027-09-25/);
     assert.match(host.textContent, /2026-09-26/);
     assert.doesNotMatch(host.textContent, /2025-09-26/);
     await act(async () => root.unmount());
