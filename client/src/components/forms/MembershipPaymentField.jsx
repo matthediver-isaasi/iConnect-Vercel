@@ -29,6 +29,8 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
   const [paymentMode, setPaymentMode] = useState(null);
   const [creatingPayment, setCreatingPayment] = useState(false);
   const [processingPayment, setProcessingPayment] = useState(false);
+  const [switchingPayment, setSwitchingPayment] = useState(false);
+  const switchInFlight = useRef(false);
   const [paymentComplete, setPaymentComplete] = useState(false);
   const [paymentError, setPaymentError] = useState(null);
   const [paymentYear, setPaymentYear] = useState(null);
@@ -155,7 +157,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
     pendingRefetchRef.current = false;
     const overrideStr = buildOverrideParams();
     prevOverridesRef.current = JSON.stringify(buildFieldOverrides());
-    fetch(`/api/forms/membership-payment?memberId=${encodeURIComponent(memberId)}${overrideStr}`, { credentials: 'include' })
+    return fetch(`/api/forms/membership-payment?memberId=${encodeURIComponent(memberId)}${overrideStr}`, { credentials: 'include' })
       .then(async (res) => {
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
@@ -315,6 +317,11 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
       }
       const { clientSecret, membershipYear: yr } = prepared;
       setPaymentTerm(prepared);
+      if (prepared.renewalElectionId) {
+        setData(current => ({ ...current, renewal: { ...current.renewal,
+          state: 'renewal_pending', eligible: false, selectedMethod: 'upfront',
+          electionId: prepared.renewalElectionId, switchState: 'idle' } }));
+      }
       setPaymentYear(yr);
       if (yr) {
         sessionStorage.setItem('pending_form_membership_payment_year', yr);
@@ -425,20 +432,38 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
   };
 
   const releaseUnusedRenewal = async () => {
+    if (switchInFlight.current || creatingPayment || processingPayment || startingDd || startingCard) return;
+    switchInFlight.current = true;
     setPaymentError(null);
-    setProcessingPayment(true);
+    setSwitchingPayment(true);
     try {
       const response = await fetch('/api/forms/membership-payment', {
         method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'release_unused_renewal', memberId }),
+        body: JSON.stringify({ action: 'change_renewal_payment_method', memberId,
+          electionId: data?.renewal?.electionId || paymentTerm?.renewalElectionId }),
       });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Could not restart the unused renewal.');
-      fetchFees();
+      if (!response.ok || result.released !== true) throw new Error(result.error || 'Cancellation has not been confirmed. Your renewal remains reserved.');
+      elementsRef.current?.getElement?.('payment')?.destroy();
+      elementsRef.current = null;
+      stripeRef.current = null;
+      setPaymentMode(null);
+      setPaymentTerm(null);
+      setPaymentYear(null);
+      setDdStarted(false);
+      setHasDdPlan(false);
+      setHasCardPlan(false);
+      setDdDropin(null);
+      setDdInviteSent(false);
+      sessionStorage.removeItem('pending_form_membership_payment_year');
+      sessionStorage.removeItem('pending_form_membership_field_overrides');
+      await fetchFees();
     } catch (error) {
+      await fetchFees();
       setPaymentError(error.message);
     } finally {
-      setProcessingPayment(false);
+      switchInFlight.current = false;
+      setSwitchingPayment(false);
     }
   };
 
@@ -608,7 +633,8 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
   const renewal = data.renewal;
   const isRenewal = renewal && renewal.state !== 'joining';
   const resuming = renewal?.state === 'renewal_pending' && renewal?.selectedMethod && data.membershipYear;
-  const canPay = !isRenewal || renewal.eligible || resuming;
+  const canPay = !switchingPayment && renewal?.switchState !== 'reconciling'
+    && (!isRenewal || renewal.eligible || resuming);
   const renewalMessages = {
     renewal_not_open: `Renewal opens on ${renewal?.opensOn}.`,
     renewal_closed: `The renewal window closed on ${renewal?.closesOn}. Please contact an administrator.`,
@@ -632,7 +658,8 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
             <DirectDebitPlanCard memberId={memberId} />
           </>}
           {renewal.state === 'renewal_pending' && <Button type="button" variant="outline" onClick={fetchFees}>Check renewal status</Button>}
-          {renewal.state === 'renewal_pending' && <Button type="button" variant="outline" disabled={processingPayment} onClick={releaseUnusedRenewal}>Restart unused renewal</Button>}
+          {renewal.state === 'renewal_pending' && <Button type="button" variant="outline" disabled={disabled || switchingPayment || processingPayment || creatingPayment || startingDd || startingCard} onClick={releaseUnusedRenewal}>{switchingPayment ? 'Confirming cancellation…' : 'Change payment method'}</Button>}
+          {switchingPayment && <p role="status">Checking the provider and cancelling unpaid checkout attempts. Please keep this page open.</p>}
           {paymentError && <p role="alert" className="text-sm text-destructive">{paymentError}</p>}
         </CardContent>
       </Card>
@@ -647,7 +674,8 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
         {isRenewal && (
           <div className="rounded-md border p-3 space-y-2 text-sm" data-testid="membership-renewal-summary">
             <p className="font-medium">{renewalMessages[renewal.state] || 'Renew your membership for the next term.'}</p>
-            {renewal.state === 'renewal_pending' && <Button type="button" variant="outline" disabled={processingPayment} onClick={releaseUnusedRenewal}>Restart unused renewal</Button>}
+            {renewal.state === 'renewal_pending' && <Button type="button" variant="outline" disabled={disabled || switchingPayment || processingPayment || creatingPayment || startingDd || startingCard} onClick={releaseUnusedRenewal}>{switchingPayment ? 'Confirming cancellation…' : 'Change payment method'}</Button>}
+            {switchingPayment && <p role="status">Checking the provider and cancelling unpaid checkout attempts. Please keep this page open.</p>}
             {renewal.currentEnd && <p>Current term ends: {renewal.currentEnd}. Current payment status: {renewal.currentPaymentStatus || 'unknown'}.</p>}
             {renewal.evidenceSource === 'operator_attested_expiry_only' && <p>Existing membership is recorded as paid by administrator attestation, not verified provider settlement. Historical commencement remains unknown.</p>}
             {renewal.successorStart && <p>Next term: {renewal.successorStart}{renewal.successorEnd ? ` to ${renewal.successorEnd}` : ''}.</p>}
@@ -754,7 +782,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
         )}
 
         {paymentError && (
-          <div className="flex items-start gap-2 p-3 bg-destructive/10 rounded-md border border-destructive/20">
+          <div role="alert" className="flex items-start gap-2 p-3 bg-destructive/10 rounded-md border border-destructive/20">
             <AlertCircle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
             <p className="text-sm text-destructive">{paymentError}</p>
           </div>

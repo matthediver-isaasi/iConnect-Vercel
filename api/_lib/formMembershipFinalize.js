@@ -633,6 +633,7 @@ export async function finalizeFormMembership({ supabase, submission, baseUrl, me
         .eq('tenant_id', tenantId)
         .eq(historyIdCol, entityId)
         .eq('membership_year', quote.membership_year)
+        .neq('status', 'expired_checkout')
         .maybeSingle();
       return data || null;
     };

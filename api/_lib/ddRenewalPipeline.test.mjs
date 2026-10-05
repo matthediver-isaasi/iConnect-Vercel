@@ -45,6 +45,7 @@ function fixture({ paused = false, debt = 0, latest = 'a', planId = 'p', rolling
     const q = {
       select(_columns, options) { count = !!options?.count; return q; },
       eq(k, v) { filters.push(r => field(r, k) === v); return q; },
+      neq(k, v) { filters.push(r => field(r, k) !== v); return q; },
       in(k, v) { filters.push(r => v.includes(field(r, k))); return q; },
       is(k, v) { filters.push(r => (field(r, k) ?? null) === v); return q; },
       gt(k, v) { filters.push(r => field(r, k) > v); return q; },

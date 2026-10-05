@@ -64,11 +64,14 @@ for (const method of ['monthly_card', 'direct_debit']) {
       const options = { ...f.options, now: new Date(date) };
       const restored = await loadFormMembershipRenewalContext(f.db, options);
       assert.equal(restored.election.id, election.id);
-      assert.deepEqual(restored.simulation, simulation);
+      assert.deepEqual(JSON.parse(JSON.stringify(restored.simulation)), JSON.parse(JSON.stringify(simulation)));
       assert.equal(restored.renewal.currentEnd, '2026-12-31');
       let routed = false;
       class Clock extends Date { constructor(value) { super(value ?? `${date}T12:00:00Z`); } }
       const sandbox = vm.createContext({ Date: Clock,
+        supabase: f.db,
+        beginRenewalProviderWork: async () => 'operation',
+        finishRenewalProviderWork: async () => true,
         getMemberById: async () => ({ id: 'member', tenant_id: 'tenant' }),
         renewalContext: () => loadFormMembershipRenewalContext(f.db, options),
         resolveDirectDebitOption: async () => ({}), resolveCardMonthlyOption: async () => ({}),
@@ -79,7 +82,7 @@ for (const method of ['monthly_card', 'direct_debit']) {
         __import: async () => ({ default: async (req, res) => {
           routed = true;
           assert.equal(req.membershipPaymentContext.electionId, election.id);
-          assert.deepEqual(req.membershipPaymentContext.simulation, simulation);
+           assert.deepEqual(JSON.parse(JSON.stringify(req.membershipPaymentContext.simulation)), JSON.parse(JSON.stringify(simulation)));
           return res.json({ resumed: true });
         } }),
       });
@@ -194,7 +197,7 @@ test('early upfront intent takes the full successor amount immediately; callback
       async maybeSingle() { return { data: reservation }; } }; },
   };
   let charged;
-  const stripe = { paymentIntents: { async create(params, options) {
+  const stripe = { accounts: { retrieve: async () => ({ id: 'acct_fixture' }) }, paymentIntents: { async create(params, options) {
     assert.equal(params.amount, 12000);
     assert.equal(params.capture_method, undefined, 'not a deferred/manual capture');
     assert.equal(options.idempotencyKey, 'membership-quote:saved');
@@ -210,8 +213,11 @@ test('early upfront intent takes the full successor amount immediately; callback
     return charged;
   } } };
   assert.equal((await createReservedFormMembershipIntent(db, stripe, reservation, '2026-11-01')).id, 'pi_saved');
-  assert.equal(bindings.length, 2, 'webhook and response bind the same intent');
-  assert.ok(bindings.every(entry => entry.args.p_payment_intent_id === 'pi_saved'));
+  const intentBindings = bindings.filter(entry => entry.name === 'bind_form_membership_payment_quote');
+  assert.equal(intentBindings.length, 2, 'webhook and response bind the same intent');
+  assert.ok(intentBindings.every(entry => entry.args.p_payment_intent_id === 'pi_saved'));
+  assert.equal(bindings[0].name, 'begin_membership_successor_provider_work');
+  assert.equal(bindings.at(-1).name, 'finish_membership_successor_provider_work');
   assert.equal(f.predecessor.term_end_date, '2026-12-31');
 });
 
@@ -223,11 +229,13 @@ test('actual form create request charges the full successor while current paid h
   const start = api.indexOf('async function handlePost(');
   const handler = api.slice(start, api.indexOf('\nasync function ', start + 1)).replaceAll('import(', '__import(');
   let saved, charged;
-  const stripe = { paymentIntents: { async create(params, options) {
+  const stripe = { accounts: { retrieve: async () => ({ id: 'acct_fixture' }) }, paymentIntents: { async create(params, options) {
     charged = { params, options };
     return { id: 'pi_successor', client_secret: 'fixture-only' };
   } } };
   const db = { async rpc(name, args) {
+    if (name === 'begin_membership_successor_provider_work') return { data: 'operation' };
+    if (name === 'finish_membership_successor_provider_work') return { data: true };
     if (name === 'save_elected_form_membership_quote') {
       saved = { id: 'quote', tenant_id: 'tenant', member_id: 'member',
         created_at: new Date().toISOString(), quote: args.p_quote };

@@ -203,6 +203,7 @@ async function handlePost(req, res, resolvedTenantId) {
     .eq('tenant_id', tenantId)
     .eq('member_id', member.id)
     .eq('membership_year', yearLabel)
+    .neq('status', 'expired_checkout')
     .maybeSingle();
   if (existingHistory && existingHistory.payment_method !== 'card_monthly') {
     return res.status(400).json({ error: 'Membership for this year is already recorded with another payment method' });
@@ -218,7 +219,7 @@ async function handlePost(req, res, resolvedTenantId) {
     return res.status(400).json({ error: 'A monthly Direct Debit plan is already set up for this membership year' });
   }
 
-  const idempotencyKey = `card-agree:${tenantId}:${member.id}:${yearLabel}`;
+  const idempotencyKey = `card-agree:${tenantId}:${member.id}:${yearLabel}${req.membershipPaymentContext?.electionId ? `:${req.membershipPaymentContext.electionId}` : ''}`;
 
   // Idempotent re-entry: reuse the in-flight agreement + its Checkout URL.
   const { data: existingAgreement } = await supabase

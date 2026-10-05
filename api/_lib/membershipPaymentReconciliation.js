@@ -280,6 +280,7 @@ export async function recordSucceededMembershipPaymentIntent(
   const { data: existingByPI } = await db
     .from(table)
     .select('*')
+    .neq('status', 'expired_checkout')
     .eq('stripe_payment_intent_id', pi.id)
     .eq('tenant_id', tenantId)
     .eq(entityCol, entityId)
@@ -296,6 +297,7 @@ export async function recordSucceededMembershipPaymentIntent(
   let row = existingByPI || null;
   if (!row && feeToken?.history_record_id) {
     const { data } = await db.from(table).select('*').eq('id', feeToken.history_record_id)
+      .neq('status', 'expired_checkout')
       .eq('tenant_id', tenantId).eq(entityCol, entityId).eq('membership_year', md.membership_year).maybeSingle();
     row = data || null;
   }
@@ -306,6 +308,7 @@ export async function recordSucceededMembershipPaymentIntent(
       .eq('tenant_id', tenantId)
       .eq(entityCol, entityId)
       .eq('membership_year', md.membership_year)
+      .neq('status', 'expired_checkout')
       .maybeSingle();
     row = data || null;
   }
@@ -443,6 +446,7 @@ export async function recordSucceededMembershipPaymentIntent(
           .eq('tenant_id', tenantId)
           .eq(entityCol, entityId)
           .eq('membership_year', md.membership_year)
+          .neq('status', 'expired_checkout')
           .maybeSingle();
         if (raced?.payment_status === 'paid' && raced.stripe_payment_intent_id === pi.id) {
           return { status: 'already-recorded', table, recordId: raced.id, workflowFired: false, detail: 'concurrent confirm recorded this payment' };
@@ -475,6 +479,10 @@ export async function recordSucceededMembershipPaymentIntent(
   if (row.stripe_payment_intent_id && row.stripe_payment_intent_id !== pi.id) {
     console.error(`[MEMBERSHIP-RECONCILE] CONFLICT: ${table}#${row.id} already references a DIFFERENT PI (${row.stripe_payment_intent_id}) than succeeded ${pi.id} — refusing to overwrite, admin attention required`);
     return { status: 'conflict', table, recordId: row.id, detail: `Row references PI ${row.stripe_payment_intent_id}, not ${pi.id}` };
+  }
+  if (md.membership_quote_id && row.membership_payment_quote_id
+      && row.membership_payment_quote_id !== md.membership_quote_id) {
+    return { status: 'conflict', table, recordId: row.id, detail: 'Membership belongs to a different saved payment quote' };
   }
   const rowInvoiceReference = invoiceReferenceFromRow(row);
   if (rowInvoiceReference && tokenInvoiceReference

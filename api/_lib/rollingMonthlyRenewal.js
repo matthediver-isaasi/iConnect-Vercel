@@ -280,6 +280,7 @@ export async function reserveRollingMonthlyRenewal({
   snapshot = agreement.metadata[rail];
   const { data: existing, error: existingError } = await db.from(historyTable)
     .select('id, billing_agreement_id').eq('tenant_id', tenantId).eq(ownerColumn, ownerId)
+    .neq('status', 'expired_checkout')
     .eq('membership_year', snapshot.membership_year || snapshot.commitment.term_key).maybeSingle();
   if (existingError) throw new Error(`Cannot check next membership term: ${existingError.message}`);
   if (existing && existing.billing_agreement_id !== agreement.id) {
@@ -304,6 +305,7 @@ export async function reserveRollingMonthlyRenewal({
       if (error.code !== '23505') throw new Error(`Could not reserve next membership term: ${error.message}`);
         const { data: raced, error: raceError } = await db.from(historyTable)
           .select('id, billing_agreement_id').eq('tenant_id', tenantId).eq(ownerColumn, ownerId)
+          .neq('status', 'expired_checkout')
           .eq('membership_year', snapshot.membership_year || snapshot.commitment.term_key).maybeSingle();
       if (raceError || raced?.billing_agreement_id !== agreement.id) {
         throw new Error('Concurrent next-term membership conflict; no payment was started.');

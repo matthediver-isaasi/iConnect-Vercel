@@ -170,6 +170,10 @@ function makeDb(initial, { onMerge } = {}) {
           operation.filters.push([column, value]);
           return q;
         },
+        neq(column, value) {
+          operation.filters.push([column, value, true]);
+          return q;
+        },
         maybeSingle() {
           return q.execute();
         },
@@ -179,7 +183,7 @@ function makeDb(initial, { onMerge } = {}) {
         async execute() {
           const rows = db.rowsFor(table);
           const matches = rows.filter((row) => operation.filters.every(
-            ([column, value]) => row?.[column] === value,
+            ([column, value, notEqual]) => notEqual ? row?.[column] !== value : row?.[column] === value,
           ));
           if (operation.kind === 'select') {
             db.selectCalls.push({

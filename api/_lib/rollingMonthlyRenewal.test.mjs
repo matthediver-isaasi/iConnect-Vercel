@@ -50,6 +50,7 @@ function memoryDb(seed = {}) {
       const query = {
         select() { return query; },
         eq(key, value) { filters.push((row) => row[key] === value); return query; },
+        neq(key, value) { filters.push((row) => row[key] !== value); return query; },
         is(key, value) { filters.push((row) => (row[key] ?? null) === value); return query; },
         order() { return query; },
         limit() { return query; },
@@ -74,6 +75,7 @@ function memoryDb(seed = {}) {
                   : table === 'membership_dd_renewals'
                     ? row.previous_agreement_id === payload.previous_agreement_id && row.renewal_year === payload.renewal_year
                      : ['member_membership_history', 'organisation_membership_history'].includes(table)
+                       && row.status !== 'expired_checkout'
                        && row.tenant_id === payload.tenant_id && row.member_id === payload.member_id
                        && row.organization_id === payload.organization_id
                       && row.membership_year === payload.membership_year
@@ -381,6 +383,32 @@ test('concurrent reservation creates one history; cross-provider loser cannot re
     snapshot: snapshotFor('gocardless', successor),
   }), /another payment agreement/);
 });
+
+for (const cancelledProvider of ['gocardless', 'stripe']) {
+  test(`retained cancelled ${cancelledProvider} setup does not block rolling monthly-card replacement`, async () => {
+    const { db, previousAgreement, successor } = renewalFixture('stripe');
+    const snapshot = snapshotFor('stripe', successor);
+    const retained = {
+      id: 'cancelled-history', tenant_id: 'tenant', member_id: 'member',
+      membership_year: snapshot.membership_year || snapshot.commitment.term_key,
+      billing_agreement_id: 'cancelled-agreement', status: 'expired_checkout',
+      cancelled_for_switch_at: '2026-10-01T00:00:00Z',
+    };
+    db.tables.member_membership_history.push(structuredClone(retained));
+    db.tables.membership_billing_agreements.push({
+      id:'cancelled-agreement',provider:cancelledProvider,tenant_id:'tenant',member_id:'member',
+      status:'cancelled',cancelled_for_switch_at:retained.cancelled_for_switch_at,
+    });
+    const args = { db,tenantId:'tenant',memberId:'member',previousAgreement,snapshot,
+      provider:'stripe',idempotencyKey:'replacement-election' };
+    const [first,retry] = await Promise.all([reserveRollingMonthlyRenewal(args),reserveRollingMonthlyRenewal(args)]);
+    assert.equal(first.agreement.id,retry.agreement.id);
+    const history = db.tables.member_membership_history;
+    assert.deepEqual(history.find(row=>row.id===retained.id),retained);
+    assert.equal(history.filter(row=>row.billing_agreement_id===first.agreement.id).length,1);
+    assert.equal(history.length,3);
+  });
+}
 
 for (const startMode of ['immediate', 'fixed_date']) {
   for (const pricingPolicy of ['fixed', 'dynamic']) {

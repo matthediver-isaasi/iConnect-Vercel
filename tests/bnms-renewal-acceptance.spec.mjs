@@ -43,7 +43,7 @@ test.beforeAll(async () => {
 });
 test.afterAll(async () => { await server?.close(); });
 
-async function mount(page, { rollout = true, now = '2026-10-05' } = {}) {
+async function mount(page, { rollout = true, now = '2026-10-05', switchFixture = null } = {}) {
   const before = JSON.stringify(tables);
   const pricing = [];
   const context = await loadFormMembershipRenewalContext(snapshotDb(tables, { rollout }),
@@ -67,12 +67,31 @@ async function mount(page, { rollout = true, now = '2026-10-05' } = {}) {
       entityName: 'Synthetic Acceptance', currency: 'GBP', finalCost: 120, totalWithVat: 120,
       tierLabel: config.name, costBreakdown: {} } : {}),
     stripeEnabled: false, directDebit: null, cardMonthly: null };
+  if (switchFixture) Object.assign(response, {
+    renewal: { ...context.renewal, state: 'renewal_pending', eligible: false,
+      electionId: '10000000-0000-4000-8000-000000000001', selectedMethod: 'upfront' },
+    stripeEnabled: true,
+    directDebit: { monthlyAmount: 10, instalmentCount: 12, planTotal: 120, currency: 'GBP' },
+    cardMonthly: { monthlyAmount: 10, instalmentCount: 12, planTotal: 120, currency: 'GBP' },
+  });
   page.on('pageerror', error => { errors.push(error.message); console.error('Browser error:', error.message); });
   await page.context().route('**/*', async route => {
     const req = route.request(), url = new URL(req.url()), p = url.pathname;
     const json = (body, status = 200) => route.fulfill({ status,
       contentType: 'application/json', body: JSON.stringify(body) });
     if (url.origin !== 'http://127.0.0.1:5195') return route.abort();
+    if (switchFixture && p === '/api/forms/membership-payment' && req.method() === 'POST') {
+      const body = req.postDataJSON();
+      switchFixture.calls.push(body);
+      expect(body.action).toBe('change_renewal_payment_method');
+      expect(body.electionId).toBe('10000000-0000-4000-8000-000000000001');
+      expect(body.memberId).toBe(member.id);
+      if (switchFixture.wait) await switchFixture.wait;
+      else await new Promise(resolve => setTimeout(resolve, 100));
+      if (switchFixture.refuse) return json({ error: 'Payment is processing. Check renewal status before making another payment.' }, 409);
+      response.renewal = { ...context.renewal, eligible: true };
+      return json({ released: true });
+    }
     if (!['GET', 'HEAD'].includes(req.method())) {
       // Layout's visit heartbeat is expected but must never leave this fixture.
       if (p === `/api/entities/Member/${member.id}` && req.method() === 'PATCH'
@@ -102,6 +121,35 @@ async function mount(page, { rollout = true, now = '2026-10-05' } = {}) {
   } catch (error) { console.error({ calls, errors, body: await page.locator('body').innerText() }); throw error; }
   return { context, pricing, mutations, errors };
 }
+
+test('keyboard method switching waits for cancellation then restores all offered methods', async ({ page }) => {
+  let release;
+  const fixture = { calls: [], wait: new Promise(resolve => { release = resolve; }) };
+  const result = await mount(page, { switchFixture: fixture });
+  const button = page.getByRole('button', { name: 'Change payment method', exact: true });
+  await expect(button).toBeVisible();
+  await expect(page.getByText('Pay monthly by card', { exact: true })).toHaveCount(0);
+  await button.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('status')).toContainText('Checking the provider');
+  await expect(page.getByRole('button', { name: 'Confirming cancellation…' })).toBeDisabled();
+  release();
+  await expect(page.getByText('Pay monthly by card', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Change payment method', exact: true })).toHaveCount(0);
+  expect(fixture.calls).toHaveLength(1);
+  expect(result.errors).toEqual([]);
+});
+
+test('provider commitment refusal is announced and does not expose a replacement method', async ({ page }) => {
+  const fixture = { calls: [], refuse: true };
+  const result = await mount(page, { switchFixture: fixture });
+  await page.getByRole('button', { name: 'Change payment method', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('Payment is processing');
+  await expect(page.getByText('Pay monthly by card', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Change payment method', exact: true })).toBeEnabled();
+  expect(fixture.calls).toHaveLength(1);
+  expect(result.errors).toEqual([]);
+});
 
 test('gate-open real FormView preserves assigned structure and original expiry during grace', async ({ page }) => {
   const result = await mount(page);

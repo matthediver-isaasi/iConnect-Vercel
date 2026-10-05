@@ -1,3 +1,5 @@
+import { beginRenewalProviderWork, finishRenewalProviderWork } from './renewalPaymentSwitch.js';
+
 /** Called only after retrieving an intent from the tenant's membership provider. */
 export async function resumeSuccessorPaymentAttempt(db, stripe, reservation, cancelled, now) {
   if (cancelled.status !== 'canceled' || !cancelled.id) throw new Error('Confirmed cancellation is required');
@@ -26,10 +28,12 @@ export async function resumeSuccessorPaymentAttempt(db, stripe, reservation, can
     throw new Error('The interrupted payment attempt requires provider reconciliation before retrying');
   }
   const params = reservation.quote.paymentIntentParams;
+  const operation = await beginRenewalProviderWork(db, reservation);
   const intent = await stripe.paymentIntents.create({ ...params, metadata: {
     ...params.metadata, membership_quote_id: reservation.id, membership_attempt_id: attempt.id,
   } }, { idempotencyKey: `membership-attempt:${attempt.id}` });
   await bindSuccessorPaymentAttempt(db, reservation, intent, attempt.id);
+  await finishRenewalProviderWork(db, reservation, operation);
   return intent;
 }
 

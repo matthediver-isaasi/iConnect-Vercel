@@ -278,12 +278,14 @@ async function handleStart(req, res, resolvedTenantId) {
     .eq('tenant_id', tenantId)
     .eq('organization_id', org.id)
     .eq('membership_year', yearLabel)
+    .neq('status', 'expired_checkout')
     .maybeSingle();
   if (existingHistory && existingHistory.payment_method && existingHistory.payment_method !== 'direct_debit') {
     return res.status(400).json({ error: 'Membership for this year is already recorded with another payment method' });
   }
 
-  const baseIdempotencyKey = buildIdempotencyKey('dd-agree-org', tenantId, org.id, yearLabel);
+  const baseIdempotencyKey = buildIdempotencyKey('dd-agree-org', tenantId, org.id, yearLabel,
+    ...(req.membershipPaymentContext?.electionId ? [req.membershipPaymentContext.electionId] : []));
   const replacementKey = monthlyConsentReplacementKey(baseIdempotencyKey);
 
   const { data: replacementAgreement } = await supabase

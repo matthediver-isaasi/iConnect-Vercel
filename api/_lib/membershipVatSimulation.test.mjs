@@ -156,6 +156,10 @@ function createSupabaseMock(state) {
       this.filters.push(row => row?.[column] === value);
       return this;
     }
+    neq(column, value) {
+      this.filters.push(row => row?.[column] !== value);
+      return this;
+    }
     in(column, values) {
       this.filters.push(row => values.includes(row?.[column]));
       return this;

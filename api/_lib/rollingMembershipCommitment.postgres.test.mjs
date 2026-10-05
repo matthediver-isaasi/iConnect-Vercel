@@ -29,7 +29,7 @@ test('rolling commitment migration and atomic guards on isolated PostgreSQL', { 
     await db.query(`
       CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;
       CREATE TABLE tenant (id uuid PRIMARY KEY);
-      CREATE TABLE member (id uuid PRIMARY KEY, tenant_id uuid);
+      CREATE TABLE member (id uuid PRIMARY KEY, tenant_id uuid, organization_id uuid);
       CREATE TABLE organization (id uuid PRIMARY KEY, tenant_id uuid);
       CREATE TABLE membership_tier_config (id uuid PRIMARY KEY, tenant_id uuid, start_mode text, structure_scope_type text);
       CREATE TABLE membership_billing_agreements (
@@ -644,6 +644,74 @@ test('rolling commitment migration and atomic guards on isolated PostgreSQL', { 
       assert.deepEqual(results.map((result) => result.rows[0].data.status).sort(), ['already_recorded', 'recovered']);
       const audit = await db.query('SELECT count(*) FROM rolling_membership_recovery_audit WHERE history_id=$1', [evidence.history.id]);
       assert.equal(audit.rows[0].count, '1');
+    });
+    await t.test('method switching works with the full rolling guard stack and preserves cancelled quotes', async () => {
+      await db.query('RESET ROLE');
+      await db.query(`CREATE TABLE IF NOT EXISTS membership_payment_plans(id uuid,billing_agreement_id uuid)`);
+      await db.query(await readFile(new URL('../../supabase/migrations/20261207_membership_successor_switch.sql', import.meta.url), 'utf8'));
+      const row = record('2190-03-01');
+      const consent = Object.fromEntries(Object.entries(row).filter(([key]) => key.startsWith('term_')
+        || ['membership_renewal_date','previous_term_id','commitment_snapshot'].includes(key)));
+      const prior = (await db.query('SELECT id FROM member_membership_history WHERE tenant_id=$1 AND member_id=$2 LIMIT 1', [tenant, member])).rows[0].id;
+      const makeElection = async method => (await db.query(`INSERT INTO membership_successor_election(
+        tenant_id,member_id,previous_term_id,term_start_date,term_end_date,payment_method,origin,quote)
+        VALUES($1,$2,$3,$4,$5,$6,'form',jsonb_build_object('payerMemberId',$2::uuid::text)) RETURNING id`,
+      [tenant,member,prior,consent.term_start_date,consent.term_end_date,method])).rows[0].id;
+      const eid = await makeElection('upfront');
+      const snapshot = { stripeEnvironment: 'test', simResult: { formRenewalElectionId: eid, commitment: consent, config,
+        paymentSchedule: { term_start_date: consent.term_start_date,term_end_date: consent.term_end_date } } };
+      const saved = (await db.query('SELECT save_elected_form_membership_quote($1,$2,$3,$4) q',
+        [eid,tenant,member,snapshot])).rows[0].q;
+      await db.query('SELECT bind_form_membership_payment_quote($1,$2,$3)', [saved.id,tenant,'pi_switch_original']);
+      const scope = [tenant,eid,member,null];
+      await db.query('SET ROLE service_role');
+      await db.query('SELECT begin_membership_successor_switch($1,$2,$3,$4)',scope);
+      await db.query('SELECT finish_membership_successor_switch($1,$2,$3,$4,$5)',
+        [...scope,JSON.stringify([{id:'pi_switch_original',status:'canceled',livemode:false}])]);
+      await assert.rejects(db.query('SELECT bind_form_membership_payment_quote($1,$2,$3)',
+        [saved.id,tenant,'pi_switch_original']), /released/);
+      await db.query('RESET ROLE');
+      const retained = (await db.query('SELECT * FROM membership_payment_quote WHERE id=$1',[saved.id])).rows[0];
+      assert.deepEqual(retained.quote,snapshot);
+      assert.ok(retained.cancelled_for_switch_at);
+      const next = await makeElection('upfront');
+      const fresh = { ...snapshot,simResult:{...snapshot.simResult,formRenewalElectionId:next} };
+      const replacement = (await db.query('SELECT save_elected_form_membership_quote($1,$2,$3,$4) q',
+        [next,tenant,member,fresh])).rows[0].q;
+      assert.notEqual(replacement.id,saved.id,'a retained quote does not block a fresh checkout');
+      assert.equal(replacement.cancelled_for_switch_at,null);
+      await db.query('SELECT bind_form_membership_payment_quote($1,$2,$3)',[replacement.id,tenant,'pi_switch_second']);
+      await db.query('SELECT finish_membership_successor_switch($1,$2,$3,$4,$5)',
+        [tenant,next,member,null,JSON.stringify([{id:'pi_switch_second',status:'canceled',livemode:false}])]);
+      const ddElection = await makeElection('direct_debit');
+      const ddCommitment = buildRollingCommitment({ config,startDate:consent.term_start_date,
+        paymentMethod:'direct_debit',paymentFrequency:'monthly',
+        amounts:{...amounts,monthly_amount:20,instalment_count:1} });
+      await db.query(`ALTER TABLE membership_billing_agreements
+        ADD COLUMN IF NOT EXISTS environment text, ADD COLUMN IF NOT EXISTS gocardless_billing_request_id text`);
+      const agreement = (await rawInsert('membership_billing_agreements',{
+        ...ddCommitment,tenant_id:tenant,member_id:member,provider:'gocardless',environment:'sandbox',
+        status:'payment_setup_required',membership_successor_election_id:ddElection,
+        gocardless_billing_request_id:'BR_switch',
+        metadata:{commitment:ddCommitment,dd:{commitment:ddCommitment,config_snapshot:config,
+          currency:'GBP',plan_total:20,monthly_amount:20,instalment_count:1}},
+      })).rows[0];
+      const pending = (await rawInsert('member_membership_history',{
+        ...ddCommitment,...amounts,tenant_id:tenant,member_id:member,membership_year:ddCommitment.term_key,
+        config_id:config.id,billing_period:'monthly_direct_debit',
+        billing_agreement_id:agreement.id,payment_method:'direct_debit',status:'pending_payment_setup',payment_status:'unpaid',
+      })).rows[0];
+      await db.query('SELECT finish_membership_successor_switch($1,$2,$3,$4,$5)',
+        [tenant,ddElection,member,null,JSON.stringify([{id:'BR_switch',status:'canceled',provider:'gocardless',environment:'sandbox'}])]);
+      const retired = (await db.query('SELECT * FROM member_membership_history WHERE id=$1',[pending.id])).rows[0];
+      assert.equal(retired.status,'expired_checkout');
+      assert.equal(retired.billing_agreement_id,agreement.id);
+      assert.equal(retired.term_key,pending.term_key);
+      assert.equal(retired.final_cost,pending.final_cost);
+      await assert.rejects(db.query("UPDATE member_membership_history SET payment_status='paid' WHERE id=$1",[pending.id]),/released/);
+      const finalElection = await makeElection('upfront');
+      await db.query('SELECT save_elected_form_membership_quote($1,$2,$3,$4)',
+        [finalElection,tenant,member,{...snapshot,simResult:{...snapshot.simResult,formRenewalElectionId:finalElection}}]);
     });
   } finally {
     await Promise.all(clients.map((client) => client.end().catch(() => {})));

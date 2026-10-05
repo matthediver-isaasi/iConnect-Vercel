@@ -36,6 +36,7 @@ function database(results = []) {
         insert(row) { call.insert = row; return this; },
         select() { return this; },
         eq(...filter) { call.filters.push(filter); return this; },
+        neq(...filter) { call.filters.push(['neq', ...filter]); return this; },
         in(...filter) { call.filters.push(filter); return this; },
         limit() { return this; },
         then(resolve, reject) { return Promise.resolve(results.shift() || {}).then(resolve, reject); },

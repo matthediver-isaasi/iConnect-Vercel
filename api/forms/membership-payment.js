@@ -12,6 +12,7 @@ import { resolveDdOffer } from '../_lib/gocardlessDirectDebit.js';
 import { getGocardlessCredentials } from '../_lib/gocardlessCredentials.js';
 import { loadFormMembershipRenewalContext } from '../_lib/formMembershipRenewalContext.js';
 import { reserveMembershipSuccessor } from '../_lib/membershipSuccessorElection.js';
+import { changeRenewalPaymentMethod, RenewalSwitchError, beginRenewalProviderWork, finishRenewalProviderWork } from '../_lib/renewalPaymentSwitch.js';
 import { buildExtraLineItems, computeAddonTotals, loadAddonLines } from '../_lib/membershipAddons.js';
 import {
   fireNewZeroDueMembershipPaidWorkflow,
@@ -82,6 +83,9 @@ function renewalContext(tenantId, member) {
 async function reserveFormSuccessor(context, tenantId, member, method, addonLines = []) {
   if (context.renewal.state === 'joining') return null;
   if (context.election) {
+    if (context.election.switch_state && context.election.switch_state !== 'idle') {
+      throw new Error('Cancellation is being reconciled. Retry Change payment method before starting another checkout.');
+    }
     if (context.election.origin !== 'form' || context.election.payment_method !== method) {
       throw new Error('The next term is already reserved by another payment arrangement. Do not pay again.');
     }
@@ -273,6 +277,7 @@ async function handleGet(req, res, resolvedTenantId) {
     .eq('tenant_id', tenantId)
     .eq(historyIdCol, historyIdVal)
     .eq('membership_year', simResult.membershipYear?.label)
+    .neq('status', 'expired_checkout')
     .maybeSingle();
 
   const approvalInfo = await checkApproval(tenantId, member.id, organizationId, simResult.membershipYear?.label);
@@ -385,6 +390,36 @@ async function handlePost(req, res, resolvedTenantId) {
   const organizationId = member.organization_id;
   const isMemberScoped = !organizationId;
 
+  if (action === 'change_renewal_payment_method') {
+    try {
+      const stripeForEnvironment = async environment => {
+        const { getStripeIntegrationCredentials } = await import('../_lib/stripeCredentials.js');
+        const credentials = await getStripeIntegrationCredentials(tenantId);
+        const key = environment === 'test' ? credentials?.test_secret_key : credentials?.secret_key;
+        if (!key) throw new Error('The original payment environment is unavailable');
+        const Stripe = (await import('stripe')).default;
+        return new Stripe(key, { timeout: 15000, maxNetworkRetries: 1 });
+      };
+      return res.json(await changeRenewalPaymentMethod({
+        db: supabase, tenantId, memberId: member.id, organizationId: organizationId || null,
+        electionId: req.body.electionId,
+        stripeForQuote: saved => stripeForEnvironment(saved.quote.stripeEnvironment),
+        stripeForAgreement: saved => stripeForEnvironment(saved.environment),
+        gcForAgreement: async saved => {
+          const credentials = await getGocardlessCredentials(tenantId);
+          if (!credentials?.accessToken || credentials.environment !== saved.environment) {
+            throw new Error('The original Direct Debit environment is unavailable');
+          }
+          const { createGocardlessClient } = await import('../_lib/gocardless.js');
+          return createGocardlessClient(credentials);
+        },
+      }));
+    } catch (error) {
+      if (error instanceof RenewalSwitchError) return res.status(error.status).json({ error: error.message, code: error.code });
+      throw error;
+    }
+  }
+
   if (action === 'release_unused_renewal') {
     const context = await renewalContext(tenantId, member);
     if (!context.election) return res.status(409).json({ error: 'No pending renewal reservation exists.' });
@@ -392,7 +427,7 @@ async function handlePost(req, res, resolvedTenantId) {
       p_tenant_id: tenantId, p_election_id: context.election.id, p_payer_member_id: member.id,
     });
     if (result.error || result.data !== true) {
-      return res.status(409).json({ error: 'This reservation cannot be safely restarted. Unused reservations can be restarted after 30 minutes. An existing payment or mandate must be resumed or reconciled, not replaced.' });
+      return res.status(409).json({ error: 'This reservation cannot be safely restarted based on its age. Use Change payment method to reconcile an unpaid checkout, or contact your membership administrator.' });
     }
     return res.json({ released: true });
   }
@@ -434,7 +469,12 @@ async function handlePost(req, res, resolvedTenantId) {
       ...(organizationId ? { organizationId } : {}) };
     const endpoint = method === 'monthly_card' ? '../membership/monthly-card.js'
       : isMemberScoped ? '../membership/direct-debit.js' : '../membership/org-direct-debit.js';
-    return await (await import(endpoint)).default(req, res);
+    const reservation = { tenant_id: tenantId,
+      quote: { simResult: { formRenewalElectionId: req.membershipPaymentContext?.electionId } } };
+    const operation = await beginRenewalProviderWork(supabase, reservation);
+    const result = await (await import(endpoint)).default(req, res);
+    if (res.statusCode < 400) await finishRenewalProviderWork(supabase, reservation, operation);
+    return result;
   }
 
   if (action === 'create_payment') {
@@ -595,6 +635,7 @@ async function handlePost(req, res, resolvedTenantId) {
       description,
     };
     paymentSnapshot.stripeEnvironment = stripeCredentials.secret_key.startsWith('sk_test_') ? 'test' : 'live';
+    paymentSnapshot.stripeAccountId = (await stripe.accounts.retrieve()).id;
     let reservation;
     try {
       reservation = await saveFormMembershipPaymentQuote(supabase, {
@@ -610,6 +651,9 @@ async function handlePost(req, res, resolvedTenantId) {
       return res.status(409).json({ error: 'The Stripe environment changed after this membership payment was prepared. Please contact an administrator; do not start another payment.' });
     }
     simResult = reservation.quote.simResult;
+    if (reservation.quote.stripeAccountId && reservation.quote.stripeAccountId !== paymentSnapshot.stripeAccountId) {
+      return res.status(409).json({ error: 'The original payment account is unavailable. Please contact your membership administrator.' });
+    }
     incentiveFieldsFromSavedQuote(simResult); // Fail closed before payment side effects.
     const paymentIntent = await createReservedFormMembershipIntent(supabase, stripe, reservation);
     const reservedAddonTotals = computeAddonTotals(reservation.quote.addonLines);
@@ -617,6 +661,7 @@ async function handlePost(req, res, resolvedTenantId) {
     return res.json({
       clientSecret: paymentIntent.client_secret,
       paymentIntentId: paymentIntent.id,
+      renewalElectionId: simResult.formRenewalElectionId || null,
       amount: paymentIntent.amount / 100,
       netAmount: isMemberScoped ? simResult.finalCost : Math.round(((Number(simResult.finalCost) || 0) + reservedAddonTotals.subtotal) * 100) / 100,
       vatAmount: isMemberScoped ? (simResult.vatAmount || 0) : Math.round(((Number(simResult.vatAmount) || 0) + reservedAddonTotals.vat) * 100) / 100,
@@ -1059,6 +1104,7 @@ async function settleExistingFormZeroDueMembership({
     .eq('tenant_id', tenantId)
     .eq(idColumn, idValue)
     .eq('membership_year', membershipYear)
+    .neq('status', 'expired_checkout')
     .maybeSingle();
   if (error) {
     console.error('[FormPayment] Could not reload existing zero-due membership:', error.message);

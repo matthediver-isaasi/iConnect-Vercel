@@ -80,7 +80,7 @@ test('concurrent portal preparation uses the shared owner reservation and identi
 for (const source of ['form-membership-payment', 'member-portal']) {
   test(`ambiguous legacy ${source} recovery cannot invent a paid term`, async () => {
     const db = { from(table) { return {
-      select() { return this; }, eq() { return this; },
+      select() { return this; }, eq() { return this; }, neq() { return this; },
       async maybeSingle() { return { data: table === 'member' ? { id: 'member' } : null }; },
       insert() { assert.fail('Legacy recovery must not insert history'); },
       update() { assert.fail('Legacy recovery must not mutate records'); },

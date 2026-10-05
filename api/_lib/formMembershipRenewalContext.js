@@ -97,6 +97,7 @@ export async function loadFormMembershipRenewalContext(db, {
       successorStart: election.term_start_date || renewal.successorStart,
       successorEnd: election.term_end_date || renewal.successorEnd,
       eligible: false, state: 'renewal_pending', electionId: election.id,
+      switchState: election.switch_state || 'idle',
       selectedMethod: election.payment_method, message: 'A next-term payment arrangement is already reserved. Do not pay again.' },
     election,
     simulation: election.quote?.simulation || null,

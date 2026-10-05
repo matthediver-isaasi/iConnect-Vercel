@@ -167,6 +167,7 @@ export async function reserveRollingFeePayment(client, token) {
   }
   const { data: existing, error: lookupError } = await client.from(table).select('*')
     .eq('tenant_id', token.tenant_id).eq(column, token.member_id || token.organization_id)
+    .neq('status', 'expired_checkout')
     .eq('term_key', commitment.term_key).maybeSingle();
   if (lookupError) throw new Error(`Could not verify the membership reservation: ${lookupError.message}`);
   if (!existing || existing.billing_agreement_id

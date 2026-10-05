@@ -64,6 +64,38 @@ function database(f, existing = []) {
   };
 }
 
+for (const member of [true,false]) {
+  test(`cancelled DD to upfront ${member ? 'member' : 'organisation'} settles webhook-first without browser confirmation`, async () => {
+    const f=fixture({method:'stripe',member});
+    delete f.pi.metadata.token_id;
+    f.pi.metadata.membership_quote_id='replacement-quote';
+    if (!member) f.pi.metadata.member_id='payer';
+    const retired={id:'cancelled-dd',tenant_id:'tenant-a',...f.owner,...f.commitment,
+      membership_year:f.commitment.term_key,status:'expired_checkout',payment_status:'unpaid',
+      billing_agreement_id:'cancelled-dd-agreement',cancelled_for_switch_at:'2026-10-01T00:00:00Z'};
+    const db=database(f,[retired]);
+    db.tables.membership_payment_quote=[{
+      id:'replacement-quote',tenant_id:'tenant-a',member_id:f.pi.metadata.member_id,
+      organization_id:member?null:'owner-a',stripe_payment_intent_id:f.pi.id,
+      quote:{simResult:{success:true,commitment:f.commitment,config:{id:'tier-a'},
+        membershipYear:{label:f.commitment.term_key},annualCost:240,finalCost:240,
+        vatAmount:48,totalWithVat:288,currency:'GBP'},addonLines:[]},
+    }];
+    let workflows=0;
+    const options={db,fireWorkflow:async()=>{workflows++;}};
+    const args={tenantId:'tenant-a',paymentIntent:f.pi};
+    const first=await recordSucceededMembershipPaymentIntent(args,options);
+    assert.equal(first.status,'recorded',JSON.stringify(first));
+    assert.equal(db.tables[f.table].length,2);
+    assert.deepEqual(db.tables[f.table][0],retired);
+    assert.equal(db.tables[f.table][1].stripe_payment_intent_id,f.pi.id);
+    assert.equal(db.tables[f.table][1].membership_payment_quote_id,'replacement-quote');
+    assert.equal(db.tables[f.table][1].payment_status,'paid');
+    assert.equal((await recordSucceededMembershipPaymentIntent(args,options)).status,'already-recorded');
+    assert.equal(workflows,1);
+  });
+}
+
 for (const member of [true, false]) {
   test(`${member ? 'member' : 'organisation'} fee-token reconciliation restores frozen commitment, not callback date`, async () => {
     const f = fixture({ member });

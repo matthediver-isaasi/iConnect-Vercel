@@ -425,6 +425,7 @@ async function simulateMembershipForOrg(tenantId, organizationId, options = {}) 
     .eq('tenant_id', tenantId)
     .eq('organization_id', organizationId)
     .eq('membership_year', membershipYear.label)
+    .neq('status', 'expired_checkout')
     .maybeSingle();
 
   if (existingRecord) {
@@ -1478,6 +1479,7 @@ async function simulateMembershipForMember(tenantId, memberId, options = {}) {
     .eq('tenant_id', tenantId)
     .eq('member_id', memberId)
     .eq('membership_year', membershipYear.label)
+    .neq('status', 'expired_checkout')
     .maybeSingle();
 
   if (existingRecord) {

@@ -1,6 +1,7 @@
 import { buildRollingCommitment } from './rollingMembershipCommitment.js';
 import { membershipIncentiveSnapshot, incentiveFieldsFromSavedQuote } from './membershipIncentiveSnapshot.js';
 import { computeAddonTotals } from './membershipAddons.js';
+import { beginRenewalProviderWork, finishRenewalProviderWork } from './renewalPaymentSwitch.js';
 
 /** Freeze server-derived simulation, including addon prices, before charging. */
 export function snapshotFormMembershipPayment(simulation, addonLines = [], paymentMethod = 'stripe') {
@@ -76,10 +77,12 @@ export async function createReservedFormMembershipIntent(db, stripe, reservation
   }
   const params = reservation.quote.paymentIntentParams;
   if (!params) throw new Error('Reserved membership quote has no authoritative payment parameters');
+  const operation = await beginRenewalProviderWork(db, reservation);
   const pi = await stripe.paymentIntents.create({
     ...params, metadata: { ...params.metadata, membership_quote_id: reservation.id },
   }, { idempotencyKey: `membership-quote:${reservation.id}` });
   await bindFormMembershipPaymentQuote(db, reservation, pi);
+  await finishRenewalProviderWork(db, reservation, operation);
   return pi;
 }
 
@@ -94,6 +97,7 @@ export async function loadFormMembershipPaymentQuote(db, pi) {
     .eq('id', id).eq('tenant_id', pi.metadata.tenant_id)
     .eq('member_id', pi.metadata.member_id).maybeSingle();
   if (error || !data) throw new Error(`Saved membership payment terms unavailable: ${error?.message || 'quote not found'}`);
+  if (data.cancelled_for_switch_at) throw new Error('This checkout was cancelled when the payment method changed');
   if ((data.organization_id || null) !== (pi.metadata.organization_id || null)
       || data.quote?.simResult?.membershipYear?.label !== pi.metadata.membership_year) {
     throw new Error('Saved membership payment terms do not match the payment identity');
