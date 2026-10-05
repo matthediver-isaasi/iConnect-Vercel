@@ -438,6 +438,9 @@ import { BrowserRouter as Router, Navigate, Route, Routes, useLocation, useParam
 import { LayoutProvider } from '@/contexts/LayoutContext';
 import { useLayoutContext, usePageLayoutDecision } from '@/contexts/LayoutContext';
 import { RouteLayoutProvider } from '@/contexts/RouteLayoutContext';
+import { PublicPageNavigationProvider } from '@/components/navigation/PublicPageNavigation';
+import { getTenantSlugFromLocation } from '@/api/publicClient';
+import { getEarlyPublicPageRequest } from './dynamicPageFirstLoad';
 import { useTenantBranding } from '@/contexts/TenantBrandingContext';
 import { useMicrosite } from '@/contexts/MicrositeContext';
 import { MicrositeProvider } from '@/contexts/MicrositeContext';
@@ -946,7 +949,7 @@ function PagesContent() {
     const { branding, loading: brandingLoading } = useTenantBranding();
     const { authResolved, sessionValidated, sessionRoleSnapshot, memberInfo, memberRole } = useLayoutContext();
     const { roleStatus } = useSessionMemberRole();
-    const { micrositesLoaded, activeMicrosite, micrositeBrandingLoading } = useMicrosite();
+    const { microsites, micrositesLoaded, activeMicrosite, micrositeBrandingLoading } = useMicrosite();
     const scope = JSON.stringify([
         location.key, location.pathname, location.search, branding?.id,
         memberInfo?.tenant_id, memberInfo?.id, memberInfo?.role_id, memberRole?.id,
@@ -1405,7 +1408,23 @@ function PagesContent() {
     const pageComponent = matches?.at(-1)?.route.element?.type;
     const pageOwned = [DynamicPage, ViewPage, HomePageRedirect, SmartLoginRoute].includes(pageComponent);
     const currentPage = pageComponent === DynamicPage ? '_DynamicPage' : _getCurrentPage(location.pathname);
+    const navigationScope = JSON.stringify([
+        window.location.host, getTenantSlugFromLocation(), branding?.id,
+        authResolved, sessionValidated, memberInfo?.id, memberInfo?.tenant_id,
+        memberInfo?.role_id, memberRole, sessionRoleSnapshot?.session_key,
+    ]);
+    const resolvePublicDestination = pathname => {
+        const match = matchRoutes(createRoutesFromChildren(routes), { pathname })?.at(-1);
+        if (match?.route.element?.type !== DynamicPage) return null;
+        const { slug, micrositePrefix } = match.params;
+        const home = !micrositePrefix
+            ? microsites.find(site => site.path_prefix === slug?.toLowerCase()) : null;
+        return getEarlyPublicPageRequest({ slug, routeMicrositePrefix: micrositePrefix, micrositeHome: home });
+    };
     return (
+        <PublicPageNavigationProvider scope={navigationScope}
+            enabled={!brandingLoading && authResolved && micrositesLoaded && !micrositeBrandingLoading}
+            resolveDestination={resolvePublicDestination}>
         <RouteLayoutProvider scope={scope} shellScope={shellScope} pageOwned={pageOwned}
             prerequisitesReady={!brandingLoading && authResolved && micrositesLoaded && !micrositeBrandingLoading}>
             <ScrollToTop />
@@ -1415,6 +1434,7 @@ function PagesContent() {
                 </RouteLoadingBoundary>
             </Layout>
         </RouteLayoutProvider>
+        </PublicPageNavigationProvider>
     );
 }
 

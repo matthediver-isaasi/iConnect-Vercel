@@ -20,6 +20,7 @@ import { useLayoutContext } from "@/contexts/LayoutContext";
 import { InstalledFontsLoader } from "@/lib/installedFonts";
 import CanvasPageRenderer from "@/components/canvas/CanvasPageRenderer";
 import PlatformBrandingStrip from "./PlatformBrandingStrip";
+import { PublicNavigationPending, usePublicPageNavigation } from "@/components/navigation/PublicPageNavigation";
 
 // Map page names to portal page identifiers for banner matching
 // These identifiers must match the PORTAL_PAGES values in PageBannerManagement.jsx
@@ -55,6 +56,7 @@ const pageToPortalPageMap = {
 };
 
 export default function PublicLayout({ children, currentPageName }) {
+  const publicNavigation = usePublicPageNavigation();
   // The shared route boundary starts unresolved before this component mounts.
   // Gate the components themselves, not their CSS visibility.
   const {
@@ -380,7 +382,8 @@ export default function PublicLayout({ children, currentPageName }) {
 
   return (
     <>
-      <div className="flex flex-col min-h-screen" style={{ fontFamily: 'Poppins, sans-serif' }}>
+      <div className="flex flex-col min-h-[100dvh]" style={{ fontFamily: 'Poppins, sans-serif' }} onClickCapture={publicNavigation?.onClick}>
+        <PublicNavigationPending />
         {/* Base font (Poppins) below; tenant installed fonts loaded dynamically (Task #2549). */}
         <InstalledFontsLoader />
         {/* Google Fonts - Poppins */}

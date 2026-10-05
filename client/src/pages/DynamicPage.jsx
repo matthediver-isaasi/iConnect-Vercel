@@ -23,6 +23,7 @@ import FormView from "./FormView";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { getUnknownPageRedirectTarget, resolveUnknownPage } from "./unknownPageRedirect";
 import { readPublicPage, DYNAMIC_PAGE_PENDING_TIMEOUT_MS } from "./dynamicPageRequest";
+import { usePublicPageNavigation } from "@/components/navigation/PublicPageNavigation";
 import {
   createDynamicPageRequestScope,
   getEarlyPublicPageRequest,
@@ -33,23 +34,26 @@ import {
 function NeutralPageLoading({ testId, label = 'Loading page…' }) {
   return (
     <div
-      className="min-h-screen flex items-center justify-center bg-background"
+      className="mx-auto w-full max-w-5xl px-6 py-10 text-muted-foreground"
       data-testid={testId}
       aria-busy="true"
       aria-live="polite"
     >
       <div className="flex items-center gap-3 text-sm text-muted-foreground" role="status">
-        <span
-          className="h-5 w-5 animate-spin rounded-full border-2 border-current border-r-transparent"
-          aria-hidden="true"
-        />
         <span>{label}</span>
+      </div>
+      <div aria-hidden="true" className="mt-8 space-y-4">
+        <div className="h-7 w-2/5 rounded bg-muted" />
+        <div className="h-3 w-4/5 rounded bg-muted" />
+        <div className="h-3 w-3/5 rounded bg-muted" />
+        <div className="mt-8 h-48 rounded bg-muted/50" />
       </div>
     </div>
   );
 }
 
 export default function DynamicPage() {
+  const publicNavigation = usePublicPageNavigation();
   // Task #2426: this component serves both /:slug (default site) and
   // /:micrositePrefix/:slug (microsite pages). In microsite mode the page is
   // resolved within the microsite and unknown prefixes render not-found.
@@ -309,13 +313,15 @@ export default function DynamicPage() {
     publicTenantRequestIdentity, earlyPublicRequest, resolvedAudienceIdentity,
     audienceGeneration,
   ]);
+  const navigationHandoff = useMemo(() => publicNavigation?.take(earlyPublicRequest),
+    [earlyPublicRequest, publicTenantRequestIdentity, audienceGeneration]);
 
   // This transport intentionally does not wait for auth, branding, article
   // settings, or (for an explicit two-segment URL) the microsite catalogue.
   // Its result remains unconsumed until all route/audience checks below settle.
   const {
     data: earlyPublicPageResult,
-    isFetched: earlyPublicPageFetched,
+    isFetched: earlyPublicTransportFetched,
     error: earlyPublicPageError,
   } = useQuery({
     queryKey: [
@@ -328,7 +334,7 @@ export default function DynamicPage() {
     ],
     queryFn: () => publicPageMisses?.has(publicMissKey)
       ? { data: null }
-      : readPublicPage(() => publicClient.getPage(
+      : navigationHandoff?.promise || readPublicPage(() => publicClient.getPage(
         earlyPublicRequest.slug,
         earlyPublicRequest.micrositePrefix,
       )),
@@ -336,11 +342,15 @@ export default function DynamicPage() {
       && !audienceTransitionPending
       && !storageInvalidationPending
       && (!isCanvasPreview || (!previewAuthPending && !canPreviewDrafts)),
+    initialData: navigationHandoff?.result,
     staleTime: Infinity,
     gcTime: 0,
     retry: false,
     refetchOnWindowFocus: false,
   });
+  // React Query's initialData is successful but isFetched remains false until
+  // a queryFn runs. The single-use handoff is itself a completed transport.
+  const earlyPublicPageFetched = earlyPublicTransportFetched || !!navigationHandoff?.result;
   useLayoutEffect(() => {
     if (routePrerequisitesReady && earlyPublicPageFetched
       && !earlyPublicPageError && earlyPublicPageResult?.data === null) {
@@ -361,7 +371,7 @@ export default function DynamicPage() {
     : (authResolved
       ? (sessionValidated && !!memberInfo ? 'member' : 'guest')
       : 'checking');
-  const { data: pageData, isLoading: pageLoading, isFetching: pageFetching, isFetched: pageFetched, error: pageError } = useQuery({
+  const { data: queriedPageData, isLoading: projectedPageLoading, isFetching: pageFetching, isFetched: projectedPageFetched, error: pageError } = useQuery({
     queryKey: ['iedit-dynamic-page', publicRequestScope, branding?.id, effectivePrefix, effectiveSlug, canPreviewDrafts ? 'preview' : 'live', pageAudience, memberInfo?.id, audienceGeneration],
     queryFn: async () => {
       if (!canPreviewDrafts && earlyPublicPageResult?.data) {
@@ -444,6 +454,15 @@ export default function DynamicPage() {
     retry: false,
   });
 
+  // Public projection is synchronous, not a second loading phase. Prefer the
+  // *current* transport over a previously projected query result: changed
+  // hide_chrome/public_chrome policy must apply on A-B-A before any mount.
+  const publicProjection = useMemo(() => pageQueryEnabled && !canPreviewDrafts && earlyPublicPageResult?.data
+    ? projectPublicPageDataForAudience(earlyPublicPageResult.data, sessionValidated && !!memberInfo)
+    : null, [pageQueryEnabled, canPreviewDrafts, earlyPublicPageResult, sessionValidated, memberInfo]);
+  const pageData = publicProjection || queriedPageData;
+  const pageLoading = !publicProjection && projectedPageLoading;
+  const pageFetched = !!publicProjection || projectedPageFetched;
   const page = pageData?.page;
   const elements = pageData?.elements || [];
   const elementsLoading = pageLoading;
@@ -617,7 +636,10 @@ export default function DynamicPage() {
   });
   const redirectTarget = shouldCheckRedirect ? getUnknownPageRedirectTarget(redirectResult, location.pathname) : null;
 
-  const terminalPage = pageFetched && !pageFetching;
+   // Fresh public discovery already proves this destination's policy. A
+   // projection-only background refresh must not take down its chrome. Keep
+   // the non-fetching gate for protected fallback/editor authority.
+   const terminalPage = pageFetched && (!pageFetching || (!canPreviewDrafts && !!earlyPublicPageResult?.data));
   const fallbackSettled = !formFallbackPending && (!shouldCheckRedirect || redirectResult !== undefined || redirectError);
   const pageRequestError = routeMetadataError || earlyPublicPageError || pageError ||
     redirectRequestError || formFallbackError;

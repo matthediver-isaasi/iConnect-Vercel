@@ -57,6 +57,18 @@ Navigation-loading improvements must cover the tenant main website as well as mi
 
 **How to apply:** Evaluate website navigation continuity separately from session continuity. Do not restrict investigation to microsite routes; preserve destination-specific chrome and access rules.
 
+Keep the old page associated with its old URL while preparing website navigation;
+never carry its chrome decision into an unresolved destination.
+
+**Why:** This preserves website continuity without violating pages deliberately
+configured to hide headers/footers. The user also explicitly requires documented
+rollback capability for these navigation changes if regressions appear.
+
+**How to apply:** Treat prepared results as a bounded one-navigation handoff, not
+long-lived permission evidence. Fence identity changes and late completions.
+Document an isolated source revert that preserves unrelated session and form fixes,
+and distinguish a source rollback check from a deployed rollback rehearsal.
+
 Successful background checks need retention assertions after completion as well as while pending.
 
 **Why:** Equivalent new projection objects can repaint page-owned Canvas content even when the outer portal shell never closes, losing live controls and input state.
