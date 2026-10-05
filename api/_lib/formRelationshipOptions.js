@@ -552,6 +552,8 @@ export function createFormRelationshipService({ db, tenantId }) {
     }
   }
   async function validateSubmission({ form, submissionData = {}, cache = new Map(), rootForm, rootSubmissionData, containerFieldId, allowMissingNotListedText, hiddenFieldIds, visibilityOptions = {}, serverCreatedOrganizations }) {
+    let validationFieldId;
+    try {
     const authoritativeForm = rootForm || form;
     const hidden = hiddenFieldIds || await computeAuthoritativeHiddenFieldIds({
       db,
@@ -570,6 +572,7 @@ export function createFormRelationshipService({ db, tenantId }) {
       throw new FormRelationshipError(400, notListedTextValidation.error);
     }
     for (const field of fields) {
+      validationFieldId = field.id;
       const selected = fieldValue(submissionData, field);
       if (containsFormNotListedValue(selected) && !hasEnabledFormNotListedChoice(field)) {
         throw new FormRelationshipError(400, 'Invalid not-listed selection');
@@ -588,6 +591,7 @@ export function createFormRelationshipService({ db, tenantId }) {
       }
     }
     for (const field of fields.filter(x => x?.type === 'organisation_dropdown')) {
+      validationFieldId = field.id;
       const id = resolveOrganizationReference(
         containerFieldId ? undefined : serverCreatedOrganizations,
         field,
@@ -608,6 +612,7 @@ export function createFormRelationshipService({ db, tenantId }) {
       } catch (error) { if (error instanceof FormRelationshipError) throw error; throwDb(error); }
     }
     for (const field of fields.filter(x => x?.type === 'relationship_dropdown')) {
+      validationFieldId = field.id;
       const selected = fieldValue(submissionData, field);
       // Hidden/default-initialized controls can retain '' until first edited.
       // It is an empty answer in either mode, not a scalar record selection.
@@ -711,6 +716,10 @@ export function createFormRelationshipService({ db, tenantId }) {
         }
         cache.set(key, true);
       }
+    }
+    } catch (error) {
+      if (error instanceof FormRelationshipError && !error.fieldId) error.fieldId = validationFieldId;
+      throw error;
     }
   }
   // A resolver may receive the Not-listed sentinel, so validateSubmission

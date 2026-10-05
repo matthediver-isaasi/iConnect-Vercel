@@ -1,4 +1,5 @@
 import { supabase } from '../_lib/database.js';
+import { prepareSwapAnswers } from './_swapAnswers.js';
 import { getSessionMember } from '../_lib/session.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 
@@ -36,7 +37,8 @@ export default async function handler(req, res) {
           id, 
           form_id, 
           submission_data,
-          organization_id
+          organization_id,
+          tenant_id
         )
       `)
       .eq('id', sourceSubmissionId)
@@ -46,12 +48,15 @@ export default async function handler(req, res) {
     if (sourceError || !sourceDDSubmission) {
       return res.status(404).json({ error: 'Source submission not found' });
     }
+    if (sourceDDSubmission.archived_at) {
+      return res.status(400).json({ error: 'Source submission is already archived' });
+    }
 
     const sourceFormId = sourceDDSubmission.form_submission?.form_id;
 
     const { data: forms, error: formsError } = await supabase
       .from('form')
-      .select('id, name, fields, due_diligence_required')
+      .select('id, name, fields, pages, visibility_rules, due_diligence_required')
       .eq('tenant_id', tenantCtx.tenantId)
       .in('id', [sourceFormId, targetFormId]);
 
@@ -84,64 +89,10 @@ export default async function handler(req, res) {
 
     const sourceFields = sourceForm.fields || [];
     const targetFields = targetForm.fields || [];
-    const sourceData = sourceDDSubmission.reviewed_form_values || 
-                       sourceDDSubmission.original_form_values || 
-                       sourceDDSubmission.form_submission?.submission_data || 
-                       {};
-
-    const mappedFields = [];
-    const newEmptyFields = [];
-    const ignoredFields = [];
-
-    const sourceFieldsByLabel = {};
-    sourceFields.forEach(field => {
-      if (field.label) {
-        sourceFieldsByLabel[field.label.toLowerCase().trim()] = field;
-      }
+    const prepared = await prepareSwapAnswers({
+      db: supabase, tenantId: tenantCtx.tenantId, sourceDDSubmission, sourceForm, targetForm,
     });
-
-    targetFields.forEach(targetField => {
-      const targetLabel = (targetField.label || '').toLowerCase().trim();
-      const matchingSourceField = sourceFieldsByLabel[targetLabel];
-      
-      if (matchingSourceField) {
-        const sourceValue = sourceData[matchingSourceField.id] ?? sourceData[matchingSourceField.label];
-        const hasValue = sourceValue !== undefined && sourceValue !== null && sourceValue !== '';
-        mappedFields.push({
-          targetFieldId: targetField.id,
-          targetFieldLabel: targetField.label,
-          targetFieldType: targetField.type,
-          sourceFieldId: matchingSourceField.id,
-          sourceFieldLabel: matchingSourceField.label,
-          sourceFieldType: matchingSourceField.type,
-          value: sourceValue,
-          hasValue
-        });
-      } else {
-        newEmptyFields.push({
-          fieldId: targetField.id,
-          fieldLabel: targetField.label,
-          fieldType: targetField.type,
-          required: targetField.required || false
-        });
-      }
-    });
-
-    const mappedSourceLabels = new Set(mappedFields.map(f => f.sourceFieldLabel?.toLowerCase().trim()));
-    sourceFields.forEach(sourceField => {
-      const sourceLabel = (sourceField.label || '').toLowerCase().trim();
-      if (!mappedSourceLabels.has(sourceLabel)) {
-        const sourceValue = sourceData[sourceField.id] ?? sourceData[sourceField.label];
-        const hasValue = sourceValue !== undefined && sourceValue !== null && sourceValue !== '';
-        ignoredFields.push({
-          fieldId: sourceField.id,
-          fieldLabel: sourceField.label,
-          fieldType: sourceField.type,
-          value: sourceValue,
-          hasValue
-        });
-      }
-    });
+    const { mapped: mappedFields, newEmpty: newEmptyFields, ignored: ignoredFields } = prepared.fieldMapping;
 
     const sourceContractFields = sourceFields.filter(f => f.type === 'contact' && f.contract_form_id);
     const targetContractFields = targetFields.filter(f => f.type === 'contact' && f.contract_form_id);
@@ -197,12 +148,12 @@ export default async function handler(req, res) {
     return res.status(200).json({
       success: true,
       preview: {
+        canSwap: prepared.canSwap,
+        problems: prepared.problems,
         sourceForm: { id: sourceForm.id, name: sourceForm.name },
         targetForm: { id: targetForm.id, name: targetForm.name },
         fieldMapping: {
-          mapped: mappedFields,
-          newEmpty: newEmptyFields,
-          ignored: ignoredFields
+          ...prepared.fieldMapping
         },
         contractStatus: {
           willRelink: contractMapping,

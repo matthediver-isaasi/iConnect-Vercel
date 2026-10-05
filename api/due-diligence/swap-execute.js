@@ -1,12 +1,8 @@
 import { supabase } from '../_lib/database.js';
+import { prepareSwapAnswers, swapValidationResponse } from './_swapAnswers.js';
 import { getSessionMember } from '../_lib/session.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
-import { createFormRelationshipService, FormRelationshipError } from '../_lib/formRelationshipOptions.js';
 import { executeStageActions } from './_stageActions.js';
-import { computeAuthoritativeHiddenFieldIds } from '../_lib/formFieldVisibility.js';
-import { rulesUseLmicOperators } from '../_lib/formLmicConditions.js';
-import { loadTenantLmicCodes } from '../_lib/tenantLmicCodes.js';
-import { validateFutureDateFields } from '../../shared/formFutureDates.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -96,71 +92,11 @@ export default async function handler(req, res) {
 
     const sourceFields = sourceForm.fields || [];
     const targetFields = targetForm.fields || [];
-    const sourceData = sourceDDSubmission.reviewed_form_values || 
-                       sourceDDSubmission.original_form_values || 
-                       sourceDDSubmission.form_submission?.submission_data || 
-                       {};
-
-    const sourceFieldsByLabel = {};
-    sourceFields.forEach(field => {
-      if (field.label) {
-        sourceFieldsByLabel[field.label.toLowerCase().trim()] = field;
-      }
+    const prepared = await prepareSwapAnswers({
+      db: supabase, tenantId: tenantCtx.tenantId, sourceDDSubmission, sourceForm, targetForm,
     });
-
-    const newFormValues = {};
-    targetFields.forEach(targetField => {
-      const targetLabel = (targetField.label || '').toLowerCase().trim();
-      const matchingSourceField = sourceFieldsByLabel[targetLabel];
-      
-      if (matchingSourceField) {
-        const sourceValue = sourceData[matchingSourceField.id] ?? sourceData[matchingSourceField.label];
-        if (sourceValue !== undefined && sourceValue !== null) {
-          newFormValues[targetField.id] = sourceValue;
-        }
-      }
-    });
-
-    const visibilityOptions = rulesUseLmicOperators(targetForm.visibility_rules)
-      ? { lmicCodes: await loadTenantLmicCodes(supabase, tenantCtx.tenantId) }
-      : {};
-    const hiddenFieldIds = await computeAuthoritativeHiddenFieldIds({
-      db: supabase,
-      tenantId: tenantCtx.tenantId,
-      form: targetForm,
-      formValues: newFormValues,
-      visibilityOptions,
-    });
-    const futureDateErrors = validateFutureDateFields(
-      targetFields,
-      newFormValues,
-      { hiddenFieldIds },
-    );
-    if (futureDateErrors.length) {
-      return res.status(400).json({
-        error: 'Form answers failed validation',
-        code: 'FUTURE_DATE_INVALID',
-        details: futureDateErrors,
-      });
-    }
-
-    try {
-      await createFormRelationshipService({
-        db: supabase,
-        tenantId: tenantCtx.tenantId,
-      }).validateSubmission({
-        form: targetForm,
-        submissionData: newFormValues,
-        hiddenFieldIds,
-        visibilityOptions,
-      });
-    } catch (error) {
-      if (error instanceof FormRelationshipError && error.status < 500) {
-        return res.status(400).json({ error: 'Invalid relationship selection' });
-      }
-      console.error('[DD Swap Execute] Relationship selection validation failed:', error);
-      return res.status(500).json({ error: 'Failed to validate submission' });
-    }
+    if (!prepared.canSwap) return res.status(400).json(swapValidationResponse(prepared));
+    const newFormValues = prepared.values;
 
     const newFormSubmission = {
       form_id: targetFormId,

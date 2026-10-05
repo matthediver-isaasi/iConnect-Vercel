@@ -67,7 +67,9 @@ async function apiRequest(method, url, body = null) {
   const response = await fetch(url, options);
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Request failed' }));
-    throw new Error(error.error || 'Request failed');
+    throw new Error(error.details?.length
+      ? error.details.map(item => `${item.fieldLabel || 'Field'}: ${item.message || 'Invalid answer'}`).join('\n')
+      : error.error || 'Request failed');
   }
   return response.json();
 }
@@ -1535,12 +1537,19 @@ export default function DueDiligenceDashboardPage() {
           ) : null}
 
           <DialogFooter className="mt-4">
+            {swapPreview?.problems?.length > 0 && (
+              <div role="alert" className="text-sm text-destructive">
+                {swapPreview.problems.map((problem, index) => (
+                  <p key={`${problem.fieldId}-${index}`}><strong>{problem.fieldLabel}:</strong> {problem.message}</p>
+                ))}
+              </div>
+            )}
             <Button variant="outline" onClick={handleCancelSwap} disabled={swapMutation.isPending} data-testid="button-cancel-swap">
               Cancel
             </Button>
             <Button 
               onClick={handleConfirmSwap} 
-              disabled={swapPreviewLoading || swapMutation.isPending}
+              disabled={swapPreviewLoading || swapMutation.isPending || !swapPreview || swapPreview.canSwap === false}
               data-testid="button-confirm-swap"
             >
               {swapMutation.isPending ? (

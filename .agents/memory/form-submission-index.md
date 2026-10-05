@@ -1,6 +1,12 @@
 - [Survey nested RPC contracts](survey-nested-rpc-contracts.md) — invitation tests must use the real nested allowlist; generic P0001 is not proof of completion.
 # Form and submission topics
 
+- [Form archive history](form-archive-history.md) — archive rather than delete; restore does not republish.
+- [Due diligence occurrence identity](due-diligence-occurrence-identity.md) — preserve stage-entry identity through retries.
+- [Due Diligence applicant identity](due-diligence-applicant-identity.md) — application type selects the displayed applicant.
+- [Form applicant authority](form-applicant-authority.md) — bare-ID links require scoped server-issued authority.
+- [Due Diligence swap evidence](due-diligence-swap-evidence.md) — review snapshots may retain obsolete organisation references.
+
 Focused index for durable form, submission, mapping, validation, and payment-entry rules:
 
 - [Public form submission idempotency](public-form-idempotency.md) — dup guard = client key + unique index returning the ORIGINAL success payload + keyless 10s backstop; test endpoint in-process against DEST (local DB is pre-tenant).
