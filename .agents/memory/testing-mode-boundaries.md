@@ -56,6 +56,17 @@ Include the application's CSS in isolated browser component fixtures when testin
 
 **How to apply:** Bundle the real stylesheet and assert visible content, not only `aria-expanded` or the `hidden` attribute.
 
+Do not classify authenticated browser navigation as read-only merely because
+the test never presses Submit.
+
+**Why:** Full-page renewal acceptance triggered the application shell's activity
+write before any form interaction. Fixture isolation caught it; a live session
+would have changed a member record.
+
+**How to apply:** Block all mutations in disposable browser acceptance, narrowly
+identify expected telemetry separately from forbidden business writes, and
+account for automatic activity writes before promising a read-only live visit.
+
 Distinguish an unavailable dev server from a blank fixture before changing tests.
 
 **Why:** Restored Vite dependency metadata can reference files from an older installed package layout. A page may initially render and then lose the server during dependency optimization, making unrelated Canvas fixtures all report zero embeds.
