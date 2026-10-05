@@ -57,6 +57,16 @@ Navigation-loading improvements must cover the tenant main website as well as mi
 
 **How to apply:** Evaluate website navigation continuity separately from session continuity. Do not restrict investigation to microsite routes; preserve destination-specific chrome and access rules.
 
+Do not substitute a visible “Loading page… / Cancel” notice or generic homepage
+skeleton for faster website loading.
+
+**Why:** The user explicitly rejected both presentations as odd website UX and
+reported that navigation did not feel quicker.
+
+**How to apply:** Address and measure the time until real page content appears,
+not merely the appearance of the waiting state. Keep loading feedback unobtrusive
+and appropriate to the actual website.
+
 Keep the old page associated with its old URL while preparing website navigation;
 never carry its chrome decision into an unresolved destination.
 
