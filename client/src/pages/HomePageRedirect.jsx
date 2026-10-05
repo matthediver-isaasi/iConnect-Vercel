@@ -1,7 +1,7 @@
 import { useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import IEditElementRenderer from "../components/iedit/IEditElementRenderer";
-import CanvasPageRenderer from "../components/canvas/CanvasPageRenderer";
+import CanvasPageRenderer from "../components/canvas/LazyCanvasPageRenderer";
 import StaticHtmlPageRenderer from "../components/staticpage/StaticHtmlPageRenderer";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { usePageLayoutDecision } from "@/contexts/LayoutContext";

@@ -7,7 +7,7 @@ import { usePageLayoutDecision } from "@/contexts/LayoutContext";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { ScreenReaderProvider } from "@/contexts/ScreenReaderContext";
 import IEditElementRenderer from "../components/iedit/IEditElementRenderer";
-import CanvasPageRenderer from "../components/canvas/CanvasPageRenderer";
+import CanvasPageRenderer from "../components/canvas/LazyCanvasPageRenderer";
 import StaticHtmlPageRenderer from "../components/staticpage/StaticHtmlPageRenderer";
 
 const visibleErrorDecision = {

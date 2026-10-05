@@ -61,3 +61,23 @@ test('page-owned route identity and global stale chunk integration remain intact
   const boundary = readFileSync(new URL('./RouteLoadingBoundary.jsx', import.meta.url), 'utf8');
   assert.match(boundary, /handleStaleChunkError\(error\)/);
 });
+
+test('heavy administration routes stay lazy and public Canvas has a local boundary', () => {
+  const routes = readFileSync(new URL('../../pages/index.jsx', import.meta.url), 'utf8');
+  for (const name of [
+    'WorkflowManagement', 'EmailTemplateManagement', 'CustomObjectsAdmin',
+    'MemberDetail', 'DueDiligenceDashboard', 'MembershipTierManagement',
+    'AdminDashboard', 'PlatformAdmin', 'IEditPageManagement', 'CanvasFooterManagement',
+  ]) {
+    assert.match(routes, new RegExp(`const ${name} = lazy\\(`));
+    assert.doesNotMatch(routes, new RegExp(`import ${name} from`));
+  }
+  for (const path of ['../../pages/DynamicPage.jsx', '../../pages/HomePageRedirect.jsx',
+    '../../pages/ViewPage.jsx', '../layouts/PublicLayout.jsx']) {
+    const source = readFileSync(new URL(path, import.meta.url), 'utf8');
+    assert.match(source, /import CanvasPageRenderer from .*LazyCanvasPageRenderer/);
+  }
+  const canvas = readFileSync(new URL('../canvas/LazyCanvasPageRenderer.jsx', import.meta.url), 'utf8');
+  assert.match(canvas, /const CanvasPageRenderer = lazy/);
+  assert.match(canvas, /<Suspense fallback=\{null\}>/);
+});

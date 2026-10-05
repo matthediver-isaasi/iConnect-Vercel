@@ -1,10 +1,10 @@
-import React, { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { lazy, Suspense, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
 import { getTenantSlugFromLocation, publicClient } from "@/api/publicClient";
 import { useQuery } from "@tanstack/react-query";
 import IEditElementRenderer from "../components/iedit/IEditElementRenderer";
-import CanvasPageRenderer from "../components/canvas/CanvasPageRenderer";
+import CanvasPageRenderer from "../components/canvas/LazyCanvasPageRenderer";
 import StaticHtmlPageRenderer from "../components/staticpage/StaticHtmlPageRenderer";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { usePageLayoutDecision, useLayoutContext } from "@/contexts/LayoutContext";
@@ -17,7 +17,10 @@ import PortalHeroBanner from "@/components/banners/PortalHeroBanner";
 import PageBannerDisplay from "@/components/banners/PageBannerDisplay";
 import Articles from "./Articles";
 import ArticleView from "./ArticleView";
-import ArticleEditor from "./ArticleEditor";
+const LazyArticleEditor = lazy(() => import("./ArticleEditor"));
+function ArticleEditor(props) {
+  return <Suspense fallback={null}><LazyArticleEditor {...props} /></Suspense>;
+}
 import PublicArticles from "./PublicArticles";
 import FormView from "./FormView";
 import ErrorBoundary from "@/components/ErrorBoundary";

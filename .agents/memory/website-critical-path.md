@@ -27,6 +27,17 @@ appear sooner when another request/render dependency dominated.
 into a production-speed claim. Separate touch, warm no-intent clicks, history,
 and direct entry; label intercepted APIs and live-tenant limitations explicitly.
 
+For JavaScript splitting, count the complete static import closure and all
+chunks fetched through visible real content, not only the entry filename.
+Run matched timing phases after compilation finishes, without parallel builds.
+
+**Why:** Deferred renderers shift downloads past provider startup; entry-size
+savings alone can overstate first-content savings. Concurrent compilation also
+contaminates cold-browser CPU timings.
+
+**How to apply:** Retain raw samples (including outliers), report file gzip
+separately from actual transfer encoding, and measure bootstrap plus content.
+
 Early discovery can populate dependent-query keys even when another prerequisite
 has failed. Count a dependent query as pending only while it is eligible to run.
 

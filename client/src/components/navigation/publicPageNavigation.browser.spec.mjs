@@ -188,6 +188,11 @@ for (const entry of ['/', '/nav-a', '/branch', '/branch/nav-a']) {
       };
       await page.goto(`${origin}${entry}`);
       const cold = await waitContent('nav-a');
+      // Include every fetched JS chunk through actual visible content, not
+      // just index.js (splitting alone can otherwise make savings misleading).
+      const javascript = await page.evaluate(() => performance.getEntriesByType('resource')
+        .filter(resource => new URL(resource.name).pathname.endsWith('.js'))
+        .map(resource => ({ file: new URL(resource.name).pathname, bytes: resource.decodedBodySize })));
       const timeline = [...state.timeline];
       await page.waitForTimeout(400);
       state.started = Date.now();
@@ -205,7 +210,7 @@ for (const entry of ['/', '/nav-a', '/branch', '/branch/nav-a']) {
       expect(state.writes).toEqual([]);
       expect(state.authReads).toBe(1);
       expect(state.documents).toBe(1);
-      samples.push({ cold, touch, history, warm, pages: state.pageReads, timeline });
+      samples.push({ cold, touch, history, warm, javascript, pages: state.pageReads, timeline });
       await context.close();
     }
     console.log('FIRST_CONTENT', JSON.stringify({ phase: process.env.FIRST_CONTENT_PHASE || 'candidate', entry, samples }));

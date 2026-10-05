@@ -3,6 +3,9 @@ import Layout from "./Layout.jsx";
 import { BUILTIN_ARTICLE_ALIASES } from "@shared/articleAliases.js";
 import { BUILTIN_MEMBER_ALIASES } from "@shared/memberAliases.js";
 
+// Keep route-policy owners eager and component identities stable. Route-only
+// administration/reporting code loads inside the existing shell boundary.
+// Do not wrap Route elements: PagesContent inspects element.type for policy.
 import CatchAllNotFound from "./CatchAllNotFound";
 
 import Events from "./Events";
@@ -11,7 +14,7 @@ import HomePageRedirect from "./HomePageRedirect";
 
 import Home from "./Home";
 
-import AdminSetup from "./AdminSetup";
+const AdminSetup = lazy(() => import("./AdminSetup"));
 
 import EventDetails from "./EventDetails";
 
@@ -25,16 +28,16 @@ import { getOptionalLoginPage } from "./loginPageQuery";
 
 import ResetPassword from "./ResetPassword";
 
-import Balances from "./Balances";
+const Balances = lazy(() => import("./Balances"));
 
-import Dashboard from "./Dashboard";
-import CpdPoints from "./CpdPoints";
+const Dashboard = lazy(() => import("./Dashboard"));
+const CpdPoints = lazy(() => import("./CpdPoints"));
 
 import UnpackedInternationalEmployability from "./UnpackedInternationalEmployability";
 
 import Articles from "./Articles";
 
-import ArticleEditor from "./ArticleEditor";
+const ArticleEditor = lazy(() => import("./ArticleEditor"));
 
 import ArticleView from "./ArticleView";
 
@@ -47,35 +50,35 @@ import PublicContact from "./PublicContact";
 
 import PublicEvents from "./PublicEvents";
 
-import RoleManagement from "./RoleManagement";
+const RoleManagement = lazy(() => import("./RoleManagement"));
 
-import RoleAccessConfigManagement from "./RoleAccessConfigManagement";
+const RoleAccessConfigManagement = lazy(() => import("./RoleAccessConfigManagement"));
 
-import MemberRoleAssignment from "./MemberRoleAssignment";
+const MemberRoleAssignment = lazy(() => import("./MemberRoleAssignment"));
 
-import TeamMemberManagement from "./TeamMemberManagement";
+const TeamMemberManagement = lazy(() => import("./TeamMemberManagement"));
 
-import DiscountCodeManagement from "./DiscountCodeManagement";
+const DiscountCodeManagement = lazy(() => import("./DiscountCodeManagement"));
 
-import VoucherManagement from "./VoucherManagement";
+const VoucherManagement = lazy(() => import("./VoucherManagement"));
 
-import MonthlyFinanceReport from "./MonthlyFinanceReport";
+const MonthlyFinanceReport = lazy(() => import("./MonthlyFinanceReport"));
 
-import MembershipPaymentReport from "./MembershipPaymentReport";
+const MembershipPaymentReport = lazy(() => import("./MembershipPaymentReport"));
 
-import DirectDebitAdmin from "./DirectDebitAdmin";
+const DirectDebitAdmin = lazy(() => import("./DirectDebitAdmin"));
 
-import TrainingFundManagement from "./TrainingFundManagement";
+const TrainingFundManagement = lazy(() => import("./TrainingFundManagement"));
 
-import WorkflowManagement from "./WorkflowManagement";
+const WorkflowManagement = lazy(() => import("./WorkflowManagement"));
 
-import EmailTemplateManagement from "./EmailTemplateManagement";
+const EmailTemplateManagement = lazy(() => import("./EmailTemplateManagement"));
 
-import EmailPlaceholders from "./EmailPlaceholders";
+const EmailPlaceholders = lazy(() => import("./EmailPlaceholders"));
 
 import MyTickets from "./MyTickets";
 
-import EventSettings from "./EventSettings";
+const EventSettings = lazy(() => import("./EventSettings"));
 
 import Bookings from "./Bookings";
 
@@ -87,19 +90,19 @@ import TourManagement from "./TourManagement";
 
 import History from "./History";
 
-import TicketSalesAnalytics from "./TicketSalesAnalytics";
+const TicketSalesAnalytics = lazy(() => import("./TicketSalesAnalytics"));
 
-import PendingPurchaseOrdersReport from "./PendingPurchaseOrdersReport";
+const PendingPurchaseOrdersReport = lazy(() => import("./PendingPurchaseOrdersReport"));
 
 import Resources from "./Resources";
 
 import PublicResources from "./PublicResources";
 
-import ResourceSettings from "./ResourceSettings";
+const ResourceSettings = lazy(() => import("./ResourceSettings"));
 
-import ResourceManagement from "./ResourceManagement";
+const ResourceManagement = lazy(() => import("./ResourceManagement"));
 
-import FileManagement from "./FileManagement";
+const FileManagement = lazy(() => import("./FileManagement"));
 
 import TagManagement from "./TagManagement";
 
@@ -115,27 +118,27 @@ import DirectDebitReturn from "./DirectDebitReturn";
 import MonthlyCardReturn from "./MonthlyCardReturn";
 import { getMembershipReturnPageName, MEMBERSHIP_RETURN_ROUTES } from "@/lib/membershipPaymentReturn";
 
-import JobBoardSettings from "./JobBoardSettings";
+const JobBoardSettings = lazy(() => import("./JobBoardSettings"));
 
-import JobPostingManagement from "./JobPostingManagement";
+const JobPostingManagement = lazy(() => import("./JobPostingManagement"));
 
 import MyJobPostings from "./MyJobPostings";
 
-import PageBannerManagement from "./PageBannerManagement";
+const PageBannerManagement = lazy(() => import("./PageBannerManagement"));
 
-import IEditPageManagement from "./IEditPageManagement";
+const IEditPageManagement = lazy(() => import("./IEditPageManagement"));
 
-import IEditTemplateManagement from "./IEditTemplateManagement";
+const IEditTemplateManagement = lazy(() => import("./IEditTemplateManagement"));
 
 const IEditPageEditor = lazy(() => import("./IEditPageEditor"));
 
 const CanvasPageEditor = lazy(() => import("./CanvasPageEditor"));
-import CanvasFooterManagement from "./CanvasFooterManagement";
+const CanvasFooterManagement = lazy(() => import("./CanvasFooterManagement"));
 const CanvasFooterEditor = lazy(() => import("./CanvasFooterEditor"));
 
 import testpage from "./testpage";
 
-import NavigationManagement from "./NavigationManagement";
+const NavigationManagement = lazy(() => import("./NavigationManagement"));
 
 import Preferences from "./Preferences";
 
@@ -145,21 +148,21 @@ import PublicArticles from "./PublicArticles";
 
 import MemberHandleManagement from "./MemberHandleManagement";
 
-import ButtonElements from "./ButtonElements";
+const ButtonElements = lazy(() => import("./ButtonElements"));
 
-import ButtonStyleManagement from "./ButtonStyleManagement";
+const ButtonStyleManagement = lazy(() => import("./ButtonStyleManagement"));
 
 import BorderRadiusSettings from "./BorderRadiusSettings";
 
-import AwardManagement from "./AwardManagement";
+const AwardManagement = lazy(() => import("./AwardManagement"));
 
-import BadgeManagement from "./BadgeManagement";
+const BadgeManagement = lazy(() => import("./BadgeManagement"));
 
 import Team from "./Team";
 
 import MemberDirectory from "./MemberDirectory";
 
-import WallOfFameManagement from "./WallOfFameManagement";
+const WallOfFameManagement = lazy(() => import("./WallOfFameManagement"));
 
 import DynamicPage from "./DynamicPage";
 
@@ -178,16 +181,16 @@ import TeamInviteSettings from "./TeamInviteSettings";
 import OrganisationDirectory from "./OrganisationDirectory";
 import OrganisationDirectoryMembers from "./OrganisationDirectoryMembers";
 
-import OrganisationsList from "./OrganisationsList";
+const OrganisationsList = lazy(() => import("./OrganisationsList"));
 
-import OrganisationGroups from "./OrganisationGroups";
+const OrganisationGroups = lazy(() => import("./OrganisationGroups"));
 
-import MembersList from "./MembersList";
-import MemberDetail from "./MemberDetail";
+const MembersList = lazy(() => import("./MembersList"));
+const MemberDetail = lazy(() => import("./MemberDetail"));
 
-import FloaterManagement from "./FloaterManagement";
+const FloaterManagement = lazy(() => import("./FloaterManagement"));
 
-import FormManagement from "./FormManagement";
+const FormManagement = lazy(() => import("./FormManagement"));
 
 const FormBuilder = lazy(() => import("./FormBuilder"));
 
@@ -208,11 +211,11 @@ import MyBookings from "./MyBookings";
 
 import MemberDirectorySettings from "./MemberDirectorySettings";
 
-import FormSubmissions from "./FormSubmissions";
+const FormSubmissions = lazy(() => import("./FormSubmissions"));
 
-import FormSubmissionView from "./FormSubmissionView";
+const FormSubmissionView = lazy(() => import("./FormSubmissionView"));
 
-import FormSettings from "./FormSettings";
+const FormSettings = lazy(() => import("./FormSettings"));
 
 const NewsEditor = lazy(() => import("./NewsEditor"));
 
@@ -228,7 +231,7 @@ import NewsPreview from "./NewsPreview";
 
 import ArticlePreview from "./ArticlePreview";
 
-import DataExport from "./DataExport";
+const DataExport = lazy(() => import("./DataExport"));
 
 const ImportManager = lazy(() => import("./ImportManager"));
 
@@ -238,14 +241,14 @@ import Support from "./Support";
 import Help from "./Help";
 import HelpArticleView from "./HelpArticleView";
 
-import SupportManagement from "./SupportManagement";
+const SupportManagement = lazy(() => import("./SupportManagement"));
 
-import PortalNavigationManagement from "./PortalNavigationManagement";
+const PortalNavigationManagement = lazy(() => import("./PortalNavigationManagement"));
 
 import CategoryManagement from "./CategoryManagement";
 
-import MemberGroupManagement from "./MemberGroupManagement";
-import MemberGroupSettings from "./MemberGroupSettings";
+const MemberGroupManagement = lazy(() => import("./MemberGroupManagement"));
+const MemberGroupSettings = lazy(() => import("./MemberGroupSettings"));
 
 import MemberGroups from "./MemberGroups";
 
@@ -265,14 +268,14 @@ import GuestWriterManagement from "./GuestWriterManagement";
 import SpeakerManagement from "./SpeakerManagement";
 import SponsorManagement from "./SponsorManagement";
 
-import CardDeckManagement from "./CardDeckManagement";
+const CardDeckManagement = lazy(() => import("./CardDeckManagement"));
 
-import OrganisationDirectorySettings from "./OrganisationDirectorySettings";
+const OrganisationDirectorySettings = lazy(() => import("./OrganisationDirectorySettings"));
 
 import InstalledFonts from "./InstalledFonts";
 
-import PortalMenuManagement from "./PortalMenuManagement";
-import CPDCertificateTemplates from "./CPDCertificateTemplates";
+const PortalMenuManagement = lazy(() => import("./PortalMenuManagement"));
+const CPDCertificateTemplates = lazy(() => import("./CPDCertificateTemplates"));
 
 import MemberGroupAssignmentReport from "./MemberGroupAssignmentReport";
 
@@ -286,29 +289,28 @@ import MemberGroupGuestManagement from "./MemberGroupGuestManagement";
 
 import TeamSettings from "./TeamSettings";
 
-import PreferenceSettings from "./PreferenceSettings";
+const PreferenceSettings = lazy(() => import("./PreferenceSettings"));
 
-import CustomFieldsAdmin from "./CustomFieldsAdmin";
-import CustomObjectsAdmin, { CustomObjectDetail } from "./CustomObjectsAdmin";
-import {
-    CustomObjectRecordDetail,
-    CustomObjectRecordForm,
-    CustomObjectRecordList,
-} from "./CustomObjectRecords";
+const CustomFieldsAdmin = lazy(() => import("./CustomFieldsAdmin"));
+const CustomObjectsAdmin = lazy(() => import("./CustomObjectsAdmin"));
+const CustomObjectDetail = lazy(() => import("./CustomObjectsAdmin").then(module => ({ default: module.CustomObjectDetail })));
+const CustomObjectRecordDetail = lazy(() => import("./CustomObjectRecords").then(module => ({ default: module.CustomObjectRecordDetail })));
+const CustomObjectRecordForm = lazy(() => import("./CustomObjectRecords").then(module => ({ default: module.CustomObjectRecordForm })));
+const CustomObjectRecordList = lazy(() => import("./CustomObjectRecords").then(module => ({ default: module.CustomObjectRecordList })));
 
 import ZoomWebinarProvisioning from "./ZoomWebinarProvisioning";
 
-import CreateEvent from "./CreateEvent";
+const CreateEvent = lazy(() => import("./CreateEvent"));
 
-import EditEvent from "./EditEvent";
+const EditEvent = lazy(() => import("./EditEvent"));
 
 import PageVisibilitySettings from "./PageVisibilitySettings";
 
-import CommunicationsManagement from "./CommunicationsManagement";
+const CommunicationsManagement = lazy(() => import("./CommunicationsManagement"));
 
 const EmailCampaignEdit = lazy(() => import("./EmailCampaignEdit"));
 
-import AdminMemberEdit from "./AdminMemberEdit";
+const AdminMemberEdit = lazy(() => import("./AdminMemberEdit"));
 
 import MyOrganisation from "./MyOrganisation";
 
@@ -318,7 +320,7 @@ import MemberPreferences from "./MemberPreferences";
 
 import MemberRoleReport from "./MemberRoleReport";
 
-import DynamicDirectoryManagement from "./DynamicDirectoryManagement";
+const DynamicDirectoryManagement = lazy(() => import("./DynamicDirectoryManagement"));
 
 import DynamicDirectoryView from "./DynamicDirectoryView";
 
@@ -328,9 +330,9 @@ import ProjectBoards from "./ProjectBoards";
 
 import ProjectBoard from "./ProjectBoard";
 
-import ReportsDashboard from "./ReportsDashboard";
-import Sales from "./Sales";
-import EventAllocationManager from "@/components/sales/EventAllocationManager";
+const ReportsDashboard = lazy(() => import("./ReportsDashboard"));
+const Sales = lazy(() => import("./Sales"));
+const EventAllocationManager = lazy(() => import("@/components/sales/EventAllocationManager"));
 
 const AIReports = lazy(() => import("./AIReports"));
 const AccessibilityAudits = lazy(() => import("./AccessibilityAudits"));
@@ -347,9 +349,9 @@ const SurveyReports = lazy(() => import("./SurveyReports"));
 
 const OrganisationEngagementReport = lazy(() => import("./OrganisationEngagementReport"));
 
-import MembershipTierManagement from "./MembershipTierManagement";
+const MembershipTierManagement = lazy(() => import("./MembershipTierManagement"));
 
-import MembershipSettings from "./MembershipSettings";
+const MembershipSettings = lazy(() => import("./MembershipSettings"));
 
 import SearchResults from "./SearchResults";
 
@@ -361,9 +363,9 @@ import ForumThread from "./ForumThread";
 
 import ForumManagement from "./ForumManagement";
 
-import FundraisingManagement from "./FundraisingManagement";
+const FundraisingManagement = lazy(() => import("./FundraisingManagement"));
 
-import CampaignEdit from "./CampaignEdit";
+const CampaignEdit = lazy(() => import("./CampaignEdit"));
 
 import DonatePage from "./DonatePage";
 
@@ -384,9 +386,9 @@ import TeamInvitePage from "./TeamInvitePage";
 import DirectDebitInvitationPage from "./DirectDebitInvitationPage";
 import DirectDebitMigrationPage from "./DirectDebitMigrationPage";
 
-import MembershipFees from "./MembershipFees";
+const MembershipFees = lazy(() => import("./MembershipFees"));
 
-import CreateComplexEvent from "./CreateComplexEvent";
+const CreateComplexEvent = lazy(() => import("./CreateComplexEvent"));
 import PublicComplexEvents from "./PublicComplexEvents";
 import ComplexEventDetail from "./ComplexEventDetail";
 
@@ -396,30 +398,30 @@ import SignupVerify from "./SignupVerify";
 import DomainSettings from "./DomainSettings";
 
 import AdminLogin from "./admin/AdminLogin";
-import AdminDashboard from "./admin/AdminDashboard";
-import AdminSettings from "./admin/AdminSettings";
-import OnboardingWizard from "./admin/OnboardingWizard";
-import PlanUsage from "./admin/PlanUsage";
+const AdminDashboard = lazy(() => import("./admin/AdminDashboard"));
+const AdminSettings = lazy(() => import("./admin/AdminSettings"));
+const OnboardingWizard = lazy(() => import("./admin/OnboardingWizard"));
+const PlanUsage = lazy(() => import("./admin/PlanUsage"));
 const AiDesignStudio = lazy(() => import("./admin/AiDesignStudio"));
-import AdminBranding from "./admin/AdminBranding";
-import MicrositeManagement from "./MicrositeManagement";
-import AdminLmicCountries from "./admin/AdminLmicCountries";
-import AdminDomains from "./admin/AdminDomains";
-import AdminTeam from "./admin/AdminTeam";
-import AdminEmailLogs from "./admin/AdminEmailLogs";
-import AdminScheduledTasks from "./admin/AdminScheduledTasks";
-import AdminIntegrations from "./admin/AdminIntegrations";
-import AdminZohoCrmSync from "./admin/AdminZohoCrmSync";
+const AdminBranding = lazy(() => import("./admin/AdminBranding"));
+const MicrositeManagement = lazy(() => import("./MicrositeManagement"));
+const AdminLmicCountries = lazy(() => import("./admin/AdminLmicCountries"));
+const AdminDomains = lazy(() => import("./admin/AdminDomains"));
+const AdminTeam = lazy(() => import("./admin/AdminTeam"));
+const AdminEmailLogs = lazy(() => import("./admin/AdminEmailLogs"));
+const AdminScheduledTasks = lazy(() => import("./admin/AdminScheduledTasks"));
+const AdminIntegrations = lazy(() => import("./admin/AdminIntegrations"));
+const AdminZohoCrmSync = lazy(() => import("./admin/AdminZohoCrmSync"));
 import SaasLanding from "./admin/SaasLanding";
 
 import PlatformLogin from "./platform/PlatformLogin";
-import PlatformAdmin from "./platform/PlatformAdmin";
-import PlatformSetup from "./platform/PlatformSetup";
+const PlatformAdmin = lazy(() => import("./platform/PlatformAdmin"));
+const PlatformSetup = lazy(() => import("./platform/PlatformSetup"));
 
-import DueDiligenceDashboard from "./DueDiligenceDashboard";
-import DueDiligenceConfig from "./DueDiligenceConfig";
-import ReviewSubmission from "./ReviewSubmission";
-import DueDiligenceReports from "./DueDiligenceReports";
+const DueDiligenceDashboard = lazy(() => import("./DueDiligenceDashboard"));
+const DueDiligenceConfig = lazy(() => import("./DueDiligenceConfig"));
+const ReviewSubmission = lazy(() => import("./ReviewSubmission"));
+const DueDiligenceReports = lazy(() => import("./DueDiligenceReports"));
 
 import BriefManagement from "./BriefManagement";
 import BriefDetail from "./BriefDetail";

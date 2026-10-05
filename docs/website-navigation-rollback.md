@@ -1,5 +1,8 @@
 # Website navigation intent-preloading correction — verification and rollback
 
+Later, separately scoped JavaScript splitting evidence and rollback boundaries:
+[website-javascript-splitting.md](website-javascript-splitting.md).
+
 ## First-content request parallelism (2026-10-05)
 
 This is a **separate, later correction**. Its clean application baseline is

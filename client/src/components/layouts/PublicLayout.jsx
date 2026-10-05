@@ -18,7 +18,7 @@ import { useMicrosite, usePublicChromeBranding } from "@/contexts/MicrositeConte
 import { useResolvedSocialIcons } from "@/hooks/useResolvedSocialIcons";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { InstalledFontsLoader } from "@/lib/installedFonts";
-import CanvasPageRenderer from "@/components/canvas/CanvasPageRenderer";
+import CanvasPageRenderer from "@/components/canvas/LazyCanvasPageRenderer";
 import PlatformBrandingStrip from "./PlatformBrandingStrip";
 import { PublicNavigationPending, usePublicPageNavigation } from "@/components/navigation/PublicPageNavigation";
 
