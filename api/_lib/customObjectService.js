@@ -4605,18 +4605,26 @@ export function createCustomObjectService({
     return output;
   }
 
-  async function reportFollow(rows, hop) {
+  async function reportFollow(rows, hop, pageEdges = false) {
     if (!rows.length) return [];
     const routed = hop.fromSide === 'source' ? 'source_record_id' : 'target_record_id';
     const other = hop.fromSide === 'source' ? 'target_record_id' : 'source_record_id';
     const ids = [...new Set(rows.map((row) => String(row.record.id)))];
     const edges = [];
     for (const batch of chunked(ids, ENDPOINT_ID_BATCH_SIZE)) {
-      const { data, error } = await db.from('custom_object_relationship').select('*')
-        .eq('tenant_id', tenantId).eq('relationship_definition_id', hop.definition.id)
-        .is('archived_at', null).in(routed, batch).order('id', { ascending: true });
-      throwDb(error);
-      edges.push(...(data || []));
+      let afterId = null;
+      for (;;) {
+        let query = db.from('custom_object_relationship').select('*')
+          .eq('tenant_id', tenantId).eq('relationship_definition_id', hop.definition.id)
+          .is('archived_at', null).in(routed, batch).order('id', { ascending: true });
+        if (afterId) query = query.gt('id', afterId);
+        if (pageEdges) query = query.range(0, 999);
+        const { data, error } = await query;
+        throwDb(error);
+        edges.push(...(data || []));
+        if (!pageEdges || (data || []).length < 1000) break;
+        afterId = data.at(-1).id;
+      }
     }
     const endpoints = await reportEndpointRows(hop.endpoint, edges.map((edge) => edge[other]));
     const byRouted = new Map();
@@ -5017,19 +5025,29 @@ export function createCustomObjectService({
         String(hop.definition.id) === String(right[index].definition.id)
         && hop.fromSide === right[index].fromSide);
     const traversalCache = new Map();
-    const traverseRoots = (roots_, hops) => {
-      const cacheKey = [
-        [...roots_.keys()].sort().join(','),
-        hops.map((hop) => `${hop.definition.id}:${hop.fromSide}`).join('/'),
-      ].join('|');
+    // Load each projection path for all roots in this result batch once.
+    // Keep the root provenance so shared endpoints never mix sibling rows.
+    const batchRoots = new Map();
+    for (const grain of grainGroups.values()) {
+      for (const [id, root] of grain.roots) batchRoots.set(id, root);
+    }
+    const traverseRoots = async (roots_, hops) => {
+      const cacheKey = hops.map((hop) => `${hop.definition.id}:${hop.fromSide}`).join('/');
       if (!traversalCache.has(cacheKey)) {
         traversalCache.set(cacheKey, (async () => {
-          let cursor = [...roots_.values()].map((root) => ({ record: root, root, edges: [] }));
-          for (const hop of hops) cursor = await reportFollow(cursor, hop);
-          return cursor;
+          let cursor = [...batchRoots.values()].map((root) => ({ record: root, root, edges: [] }));
+          for (const hop of hops) cursor = await reportFollow(cursor, hop, true);
+          const byRoot = new Map();
+          for (const item of cursor) {
+            const id = String(item.root.id);
+            if (!byRoot.has(id)) byRoot.set(id, []);
+            byRoot.get(id).push(item);
+          }
+          return byRoot;
         })());
       }
-      return traversalCache.get(cacheKey);
+      const byRoot = await traversalCache.get(cacheKey);
+      return [...roots_.keys()].flatMap(id => byRoot.get(id) || []);
     };
     const valuesFor = async (grain, column) => {
       const isGrainPrefix = column.path.hops.length <= validated.grain.hops.length

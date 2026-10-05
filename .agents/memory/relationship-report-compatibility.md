@@ -31,3 +31,14 @@ member counts. The user explicitly scoped this change to the two Department repo
 **How to apply:** Preserve this exclusion when changing these reports. Do not
 interpret the preference as permission to rewrite every existing report or
 delete historical relationships; wider default changes need separate scope.
+
+Batching report projections must retain each traversal's original root and
+paginate the combined relationship result.
+
+**Why:** Per-Department related-organisation requests made a 50-row report need
+98 database calls. Combining them without root provenance mixes shared member
+occurrences; combining them without paging can newly hit the provider row cap.
+
+**How to apply:** Cache only within the current execution, partition traversals
+by root, preserve each grain's root order, and test multi-root fanout beyond
+one provider page alongside sibling isolation.

@@ -1937,9 +1937,18 @@ test('reports preserve to-many Department membership occurrences and align branc
     'Beta',
     'No',
   ]);
+  const batchCallStart = db.calls.length;
   const fullPreview = await service.previewReport(objectId, {
     definition: report, page: 1, pageSize: 3,
   });
+  const batchCalls = db.calls.slice(batchCallStart);
+  assert.equal(batchCalls.filter(call => call.type === 'select'
+    && call.table === 'custom_object_relationship').length, 1,
+  'Related organisations are loaded once for the page, not once per Department');
+  assert.equal(batchCalls.filter(call => call.type === 'select'
+    && call.table === 'organization').length, 1);
+  assert.deepEqual(fullPreview.data.map(row => row.values[3]), ['Beta', 'Alpha', 'Beta'],
+    'Shared members retain the organisation of their own Department occurrence');
   const singleRowPages = await Promise.all([1, 2, 3].map((requestedPage) =>
     service.previewReport(objectId, {
       definition: report, page: requestedPage, pageSize: 1,
@@ -1985,6 +1994,23 @@ test('reports preserve to-many Department membership occurrences and align branc
   assert.deepEqual(requestedRanges.at(-1), [0, 500]);
   assert.ok(occurrencePages.every((call) => call.args.p_limit <= 500));
   assert.equal(occurrencePages.at(-1).args.p_include_total, true);
+  // Combining roots must not introduce a PostgREST page-cap truncation.
+  for (let index = 0; index < 1005; index++) {
+    const id = `extra-${String(index).padStart(4, '0')}`;
+    db.tables.organization.push({ id, tenant_id: tenantId, name: id });
+    db.tables.custom_object_relationship.push({
+      id, tenant_id: tenantId, relationship_definition_id: organizationDefinition.id,
+      source_record_id: 'department-1', target_record_id: id, archived_at: null,
+      field_values: {},
+    });
+  }
+  const fanout = await service.previewReport(objectId, {
+    definition: report, page: 1, pageSize: 3,
+  });
+  assert.equal(fanout.data[0].values[3], 'Beta');
+  assert.equal(fanout.data[2].values[3], 'Beta');
+  assert.equal(fanout.data[1].values[3].split('; ').length, 1006);
+  assert.match(fanout.data[1].values[3], /extra-1004/);
 });
 
 test('occurrence report preview turns a missing RPC into an actionable service error', async () => {
