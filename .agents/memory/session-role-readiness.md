@@ -51,6 +51,12 @@ Established pages must not poll session authority or hide on an elapsed display-
 
 **How to apply:** Preserve displayed content and unsaved nodes through idle/focus/offline events. Keep server authorization, normal session expiry, independent stale-tenant-tab protection, logout, identity changes and explicit permission invalidation. Infrastructure lookup failures deny work without claiming logout or durable saving. Fence late API responses.
 
+Navigation-loading improvements must cover the tenant main website as well as microsites.
+
+**Why:** The user reports that all pages, including the tenant main site, go blank with a loading spinner during navigation and considers this poor website UX.
+
+**How to apply:** Evaluate website navigation continuity separately from session continuity. Do not restrict investigation to microsite routes; preserve destination-specific chrome and access rules.
+
 Successful background checks need retention assertions after completion as well as while pending.
 
 **Why:** Equivalent new projection objects can repaint page-owned Canvas content even when the outer portal shell never closes, losing live controls and input state.
