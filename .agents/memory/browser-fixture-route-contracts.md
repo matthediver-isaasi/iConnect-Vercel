@@ -9,6 +9,12 @@ For modal-close assertions, scope the dialog by its accessible name rather than 
 
 **How to apply:** Keep consent UI intact; assert disappearance of the named application dialog rather than changing animation behavior to fix an unrelated locator failure.
 
+Scope member-card text locators to the main content before clicking.
+
+**Why:** The signed-in viewer's name also appears in the sidebar; an exact name match can select that non-card element and never open the intended dialog.
+
+**How to apply:** Use a card test ID where available, otherwise scope the name to the main landmark.
+
 Browser fixtures must enforce the exact submission route, not merely fabricate the expected success payload for any write.
 
 **Why:** A generic entity-create route can save a submission without running its specialized domain transaction. Returning a fabricated commit marker from that route made a real UI test pass despite no domain update occurring.

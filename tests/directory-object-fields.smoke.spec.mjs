@@ -200,7 +200,7 @@ function initialSettings() {
   }));
 }
 
-async function installFixtures(page, { failFirstValues = false, singleAarhusRecord = false } = {}) {
+async function installFixtures(page, { failFirstValues = false, singleAarhusRecord = false, contacts = false } = {}) {
   const state = {
     settings: initialSettings(),
     dynamicDirectory: {
@@ -411,9 +411,26 @@ async function installFixtures(page, { failFirstValues = false, singleAarhusReco
     if (path === "/api/entities/Member/smoke-member") return json(member);
     if (path === "/api/entities/Role") return json([role]);
     if (path === "/api/entities/Role/smoke-role") return json(role);
-    if (path === "/api/entities/PreferenceField") return json([preferenceField]);
+    const contactFields = [
+      { id: "contact-email", label: "Contact email", field_type: "text" },
+      { id: "contact-website", label: "Website", field_type: "text" },
+      { id: "contact-phone", label: "Phone number", field_type: "text" },
+    ].map(field => ({
+      ...field, is_active: true,
+      entity_scope: state.dynamicDirectory.entity_type,
+      show_in_directory_card: true, show_in_member_directory: true,
+      directory_visibility: { ids: ["main", "smoke-directory-id"] },
+    }));
+    const contactValues = [
+      { field_id: "contact-email", value: "contact@example.test" },
+      { field_id: "contact-website", value: "example.test/student/en?source=directory&lang=en" },
+      { field_id: "contact-phone", value: "34644069883" },
+    ].map(value => ({ ...value, organization_id: "smoke-org", member_id: "smoke-member" }));
+    if (contacts && path === "/api/dynamic-directory/members") return json({ members: [member], total: 1 });
+    if (contacts && ["/api/dynamic-directory/member-preferences", "/api/entities/MemberPreferenceValue"].includes(path)) return json(contactValues);
+    if (path === "/api/entities/PreferenceField") return json(contacts ? [...contactFields, preferenceField] : [preferenceField]);
     if (path === "/api/entities/OrganizationPreferenceValue") {
-      return json([{ id: "pref-value", organization_id: "smoke-org", field_id: "org-field", value: "Europe" }]);
+      return json([...(contacts ? contactValues : []), { id: "pref-value", organization_id: "smoke-org", field_id: "org-field", value: "Europe" }]);
     }
     if (path === "/api/entities/DynamicDirectory") {
       return json([state.dynamicDirectory]);
@@ -463,6 +480,48 @@ async function installFixtures(page, { failFirstValues = false, singleAarhusReco
   });
   return state;
 }
+
+for (const path of ["/OrganisationDirectory", "/directory/smoke-directory"]) {
+  test(`contact links in organisation Additional Information at ${path}`, async ({ page }) => {
+    await installFixtures(page, { contacts: true });
+    await page.goto(path);
+    await page.getByTestId("card-organisation-smoke-org").click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("link", { name: "contact@example.test", exact: true })).toHaveAttribute("href", "mailto:contact@example.test");
+    const website = dialog.getByRole("link", { name: "example.test/student/en?source=directory&lang=en", exact: true });
+    await expect(website).toHaveAttribute("href", "https://example.test/student/en?source=directory&lang=en");
+    await expect(website).toHaveAttribute("rel", "noopener noreferrer");
+    await expect(dialog.getByText("34644069883", { exact: true })).toBeVisible();
+    await website.focus();
+    const popup = page.waitForEvent("popup");
+    await page.context().route("https://example.test/**", route => route.fulfill({ body: "Fixture website" }));
+    await page.keyboard.press("Enter");
+    const opened = await popup;
+    await expect(opened).toHaveURL("https://example.test/student/en?source=directory&lang=en");
+    await opened.close();
+    await expect(dialog).toBeVisible();
+  });
+}
+
+test("contact links on dynamic member cards and member dialogs", async ({ page }) => {
+  const state = await installFixtures(page, { contacts: true });
+  state.dynamicDirectory.entity_type = "member";
+  state.dynamicDirectory.filter_field_id = null;
+  await page.goto("/directory/smoke-directory");
+  const card = page.getByTestId("card-member-smoke-member");
+  const website = card.getByRole("link", { name: "example.test/student/en?source=directory&lang=en", exact: true });
+  await expect(website).toBeVisible();
+  await page.context().route("https://example.test/**", route => route.fulfill({ body: "Fixture website" }));
+  const popup = page.waitForEvent("popup");
+  await website.click();
+  await (await popup).close();
+  await expect(page.getByRole("dialog", { name: "Member Information", exact: true })).toHaveCount(0);
+  await card.click();
+  await expect(page.getByRole("dialog").getByRole("link", { name: "contact@example.test", exact: true })).toHaveAttribute("href", "mailto:contact@example.test");
+  await page.goto("/MemberDirectory");
+  await page.getByRole("main").getByText("Browser Smoke", { exact: true }).click();
+  await expect(page.getByRole("dialog").getByRole("link", { name: "contact@example.test", exact: true })).toHaveAttribute("href", "mailto:contact@example.test");
+});
 
 function textTop(page, text) {
   return page.getByRole("dialog").getByText(text, { exact: true }).first()

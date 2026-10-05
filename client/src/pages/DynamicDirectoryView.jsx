@@ -23,6 +23,7 @@ import { isVisibleOnFront, isVisibleOnBack, isFieldVisibleOnBackFor, getDirector
 import { DirectoryMemberCard, DirectoryOrganizationCard } from "@/components/directory/DirectoryCards";
 import { buildOrganisationDirectoryMembersUrl, parseOrganisationViewMembersRoleIds } from "@/lib/organisationDirectoryMemberContext";
 import { CustomFieldFileDisplay } from "@/components/CustomFieldFileUpload";
+import { DirectoryContactValue } from "@/components/directory/DirectoryContactValue";
 import { useDirectoryObjectSources } from "@/hooks/useDirectoryObjectSources";
 import { DirectoryObjectSourceField, DirectoryObjectSourcesStatus, getDirectoryObjectSourceGroupId } from "@/components/directory/DirectoryObjectSourceField";
 
@@ -1134,7 +1135,7 @@ export default function DynamicDirectoryView() {
                       <div className="min-w-0 text-sm font-medium text-slate-900 text-left break-words">
                         {field.field_type === 'file'
                           ? <CustomFieldFileDisplay value={valueRecord?.value} fieldId={`directory-org-${field.id}`} />
-                          : (displayValue || <span className="text-slate-400 italic">Not set</span>)}
+                          : <DirectoryContactValue field={field} value={valueRecord?.value}>{displayValue || <span className="text-slate-400 italic">Not set</span>}</DirectoryContactValue>}
                       </div>
                     </div>
                   );
@@ -1643,7 +1644,7 @@ export default function DynamicDirectoryView() {
                       <p className="text-xs font-medium text-slate-500 mb-1">{field._displayLabel || field.label}</p>
                       {field.field_type === 'file'
                         ? <CustomFieldFileDisplay value={memberValues[field.id]} fieldId={`directory-popup-${field.id}`} />
-                        : <p className="text-sm text-slate-900 break-words">{String(displayValue)}</p>}
+                        : <p className="text-sm text-slate-900 break-words"><DirectoryContactValue field={field} value={memberValues[field.id]}>{String(displayValue)}</DirectoryContactValue></p>}
                     </div>
                   );
                 };

@@ -26,6 +26,6 @@ test('organisation card-back custom fields use left-aligned wrapping values', ()
 test('compact front-card field alignment remains unchanged', () => {
   assert.match(
     directoryCards,
-    /text-xs font-medium text-slate-700 text-right truncate max-w-\[50%\]/,
+    /text-xs font-medium text-slate-700 text-right truncate block/,
   );
 });

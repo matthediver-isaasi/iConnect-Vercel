@@ -8,6 +8,7 @@ import { safeLogoSrc } from "@/lib/safeLogoSrc";
 import { isVisibleOnFront, isFieldVisibleOnFrontFor, getDirectoryOrderedFields, hasDirectoryFieldValue } from "@/utils/directorySettings";
 import { normalizeMemberDepartments } from "@/lib/memberListColumnUtils.mjs";
 import { CustomFieldFileDisplay } from "@/components/CustomFieldFileUpload";
+import { DirectoryContactValue } from "./DirectoryContactValue";
 
 /**
  * Shared directory card "atoms".
@@ -202,7 +203,7 @@ export function DirectoryMemberCard({
                     <div className="max-w-[65%]" onClick={(event) => event.stopPropagation()}>
                       {field.field_type === 'file'
                         ? <CustomFieldFileDisplay value={values[field.id]} fieldId={`directory-card-${field.id}`} compact />
-                        : <span className="text-xs font-medium text-slate-700 text-right truncate block">{String(displayValue)}</span>}
+                        : <span className="text-xs font-medium text-slate-700 text-right truncate block"><DirectoryContactValue field={field} value={values[field.id]}>{String(displayValue)}</DirectoryContactValue></span>}
                     </div>
                   </div>
                 );

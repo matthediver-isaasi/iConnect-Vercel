@@ -24,6 +24,7 @@ import OrganisationPostalSummary, {
 } from "@/components/directory/OrganisationPostalSummary";
 import OrganisationDirectoryFilters from "@/components/directory/OrganisationDirectoryFilters";
 import OrganisationDirectoryGuest from "@/components/directory/OrganisationDirectoryGuest";
+import { DirectoryContactValue } from "@/components/directory/DirectoryContactValue";
 import { useAuthoritativeDirectoryFilters, useOrganisationDirectoryMetadata, useOrganisationDirectoryResults } from "@/hooks/useOrganisationDirectory";
 
 // Helper to add cache-busting for JPG images which have loading issues
@@ -903,7 +904,7 @@ function AuthenticatedOrganisationDirectory() {
                     if (displayValue === '' || displayValue === null || displayValue === undefined) {
                       return null;
                     }
-                    return { field, displayValue };
+                    return { field, displayValue, rawValue };
                   })
                   .filter(Boolean);
                 if (populatedFields.length === 0) return;
@@ -914,11 +915,11 @@ function AuthenticatedOrganisationDirectory() {
                       <h4 className="font-medium text-slate-900">{resolveCustomFieldsLabel(displaySettings?.customFieldsLabel)}</h4>
                     </div>
                     <div className="space-y-3">
-                      {populatedFields.map(({ field, displayValue }) => (
+                      {populatedFields.map(({ field, displayValue, rawValue }) => (
                         <div key={field.id} className="flex justify-between items-start gap-4">
                           <span className="text-sm text-slate-600">{field._displayLabel || field.label}</span>
                           <span className="text-sm font-medium text-slate-900 text-right">
-                            {displayValue}
+                            <DirectoryContactValue field={field} value={rawValue}>{displayValue}</DirectoryContactValue>
                           </span>
                         </div>
                       ))}

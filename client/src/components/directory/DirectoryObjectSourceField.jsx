@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { formatRecordValue } from "@/pages/customObjects/recordHelpers";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { isDirectoryEmbedLocation } from "@/hooks/useDirectoryObjectSources";
+import { DirectoryContactValue } from "./DirectoryContactValue";
 
 export function DirectoryObjectSourcesStatus({ query }) {
   if (query?.isFetching) {
@@ -52,32 +53,7 @@ function PresentValue({ source, item }) {
   }
   const field = source?.field || {};
   const displayValue = formatRecordValue(field, item.value);
-  if (field.field_type === "url") {
-    try {
-      const url = new URL(String(item.value));
-      if (url.protocol === "http:" || url.protocol === "https:") {
-        return (
-          <a
-            href={url.href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-600 hover:underline break-all"
-          >
-            {displayValue}
-          </a>
-        );
-      }
-    } catch {
-      // Invalid and non-web URL values remain inert text.
-    }
-  }
-  if (field.field_type === "email") {
-    const email = String(item.value || "").trim();
-    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && !/[\r\n]/.test(email)) {
-      return <a href={`mailto:${email}`} className="text-blue-600 hover:underline break-all">{displayValue}</a>;
-    }
-  }
-  return <span>{displayValue}</span>;
+  return <span><DirectoryContactValue field={field} value={item.value}>{displayValue}</DirectoryContactValue></span>;
 }
 
 export function getDirectoryObjectSourceContext(source) {
