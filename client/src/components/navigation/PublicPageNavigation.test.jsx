@@ -29,6 +29,16 @@ test('handoff is one-use, tenant/prefix/audience scoped, and explicitly disposab
   handoff.put('tenant-a/guest', request('a'), promise);
   handoff.clear();
   assert.equal(handoff.take('tenant-a/guest', request('a')), null);
+  handoff.put('tenant-a/guest', request('a'), promise, undefined, '/branch/a');
+  handoff.retain('tenant-a/guest', '/branch/a');
+  assert.equal(handoff.take('tenant-a/guest', request('a')).promise, promise,
+    'destination metadata readiness can close without discarding its one-use transport');
+  handoff.put('tenant-a/guest', request('a'), promise, undefined, '/branch/a');
+  handoff.retain('tenant-a/member', '/branch/a');
+  assert.equal(handoff.take('tenant-a/guest', request('a')), null, 'audience closure still discards transport');
+  handoff.put('tenant-a/guest', request('a'), promise, undefined, '/branch/a');
+  handoff.retain('tenant-a/guest', '/other/a');
+  assert.equal(handoff.take('tenant-a/guest', request('a')), null, 'an unrelated route cannot keep a handoff');
 });
 
 test('eligible navigation preserves browser semantics and excludes unmatched endpoints and previews', () => {
@@ -100,7 +110,9 @@ for (const prefix of ['', '/branch']) {
         await click('Next');
         assert.equal(container.querySelector('header'), header);
         assert.equal(location.pathname, `${prefix}/${slug === 'b' ? 'a' : 'b'}`);
-        assert.match(container.querySelector('[role=status]').textContent, /Loading page/);
+        assert.match(container.querySelector('[role=status]').textContent, /Opening page/);
+        assert.equal(container.querySelector('[role=status]').className, 'sr-only');
+        assert.equal(container.querySelector('button'), null);
         await act(async () => finish({ page: { slug, public_chrome: 'both' } }));
         assert.equal(location.pathname, `${prefix}/${slug}`);
         assert.equal(container.querySelector('header'), header);

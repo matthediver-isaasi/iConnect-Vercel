@@ -328,10 +328,10 @@ class PublicClient {
   // Pages (IEdit CMS pages)
   // Task #2426: with micrositePrefix set, resolves the slug within that
   // microsite; without it, microsite-assigned pages 404 at their bare slug.
-  async getPage(slug, micrositePrefix = null) {
+  async getPage(slug, micrositePrefix = null, options = {}) {
     if (!slug) return null;
     const suffix = micrositePrefix ? `?microsite=${encodeURIComponent(micrositePrefix)}` : '';
-    return this._fetch(`/api/public/page/${encodeURIComponent(slug)}${suffix}`);
+    return this._fetch(`/api/public/page/${encodeURIComponent(slug)}${suffix}`, options);
   }
   
   // Roles (for ticket pricing display)

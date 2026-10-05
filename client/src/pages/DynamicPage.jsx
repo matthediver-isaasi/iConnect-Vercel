@@ -34,19 +34,13 @@ import {
 function NeutralPageLoading({ testId, label = 'Loading page…' }) {
   return (
     <div
-      className="mx-auto w-full max-w-5xl px-6 py-10 text-muted-foreground"
+      className="sr-only"
       data-testid={testId}
       aria-busy="true"
       aria-live="polite"
     >
-      <div className="flex items-center gap-3 text-sm text-muted-foreground" role="status">
+      <div role="status">
         <span>{label}</span>
-      </div>
-      <div aria-hidden="true" className="mt-8 space-y-4">
-        <div className="h-7 w-2/5 rounded bg-muted" />
-        <div className="h-3 w-4/5 rounded bg-muted" />
-        <div className="h-3 w-3/5 rounded bg-muted" />
-        <div className="mt-8 h-48 rounded bg-muted/50" />
       </div>
     </div>
   );

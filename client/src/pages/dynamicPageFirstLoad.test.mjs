@@ -144,7 +144,7 @@ test('authorized Canvas preview never starts the public page transport', () => {
   );
 });
 
-test('all DynamicPage pending states provide visible neutral feedback', () => {
+test('public DynamicPage pending states are accessible without visible loading UI or skeletons', () => {
   for (const testId of [
     'loading-microsite',
     'loading-dynamic-page',
@@ -158,4 +158,7 @@ test('all DynamicPage pending states provide visible neutral feedback', () => {
   }
   assert.doesNotMatch(dynamicPageSource, /className="sr-only">(?:Loading content|Checking page)/);
   assert.match(dynamicPageSource, /role="status"/);
+  const pendingSource = dynamicPageSource.slice(dynamicPageSource.indexOf('function NeutralPageLoading'), dynamicPageSource.indexOf('export default function'));
+  assert.match(pendingSource, /className="sr-only"/);
+  assert.doesNotMatch(pendingSource, /bg-muted|animate-|h-48|Loading.*Cancel/);
 });

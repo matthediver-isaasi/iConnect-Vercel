@@ -76,6 +76,18 @@ front-end presentation pages and said skeletons on presentation pages are a “n
 **How to apply:** Preserve this distinction when changing loading presentation;
 do not introduce a different skeleton as a replacement for the rejected one.
 
+Intent preloading must not become a retained cache of cookie-bearing public-page
+responses.
+
+**Why:** A hover is not an authorization event; identity or eligibility can
+change before activation. Overlapping an in-flight read can reduce post-click
+waiting without treating old completed responses as fresh authority.
+
+**How to apply:** Keep speculative work bounded and abortable, discard completed
+unactivated results, fence audience changes, and measure click-to-content
+separately from first-visit performance. Do not claim hover gains for touch-only
+or direct-entry visits.
+
 Keep the old page associated with its old URL while preparing website navigation;
 never carry its chrome decision into an unresolved destination.
 

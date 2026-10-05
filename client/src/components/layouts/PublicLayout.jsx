@@ -382,7 +382,12 @@ export default function PublicLayout({ children, currentPageName }) {
 
   return (
     <>
-      <div className="flex flex-col min-h-[100dvh]" style={{ fontFamily: 'Poppins, sans-serif' }} onClickCapture={publicNavigation?.onClick}>
+      <div className="flex flex-col min-h-[100dvh]" style={{ fontFamily: 'Poppins, sans-serif' }}
+        onClickCapture={publicNavigation?.onClick}
+        onPointerOverCapture={publicNavigation?.onIntent}
+        onFocusCapture={publicNavigation?.onIntent}
+        onPointerOutCapture={publicNavigation?.onIntentLeave}
+        onBlurCapture={publicNavigation?.onIntentLeave}>
         <PublicNavigationPending />
         {/* Base font (Poppins) below; tenant installed fonts loaded dynamically (Task #2549). */}
         <InstalledFontsLoader />

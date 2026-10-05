@@ -3,16 +3,20 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { publicClient } from '@/api/publicClient';
 import { readPublicPage, DYNAMIC_PAGE_PENDING_TIMEOUT_MS } from '@/pages/dynamicPageRequest';
 import { isRelevantAccountStorageTransition } from '@/pages/dynamicPageFirstLoad';
+import { createPublicPageIntentPool, PUBLIC_PAGE_INTENT_DELAY_MS } from './publicPageIntent';
 
 const PublicPageNavigationContext = createContext(null);
 
 // This is a one-navigation request handoff, NOT a page/permission cache.
-// No result survives consumption, a route change, or an audience epoch.
+// No result survives consumption, an unrelated route, or an audience epoch.
 export function createPublicPageHandoff() {
   let entry = null;
   return {
     clear() { entry = null; },
-    put(scope, request, promise, result) { entry = { scope, request, promise, result }; },
+    put(scope, request, promise, result, to) { entry = { scope, request, promise, result, to }; },
+    retain(scope, to) {
+      if (entry?.scope !== scope || entry?.to !== to) entry = null;
+    },
     take(scope, request) {
       if (!entry || entry.scope !== scope
         || entry.request.slug !== request?.slug
@@ -45,17 +49,25 @@ export function PublicPageNavigationProvider({ children, scope, enabled, resolve
   const location = useLocation();
   const handoff = useRef(createPublicPageHandoff());
   const epoch = useRef({ scope, enabled, path: location.key, sequence: 0 });
-  const activeRequests = useRef(0);
+  const pool = useRef(null);
+  if (!pool.current) pool.current = createPublicPageIntentPool((request, signal) =>
+    readPublicPage(() => publicClient.getPage(request.slug, request.micrositePrefix, { signal })));
+  const intentTimer = useRef(null);
+  const activation = useRef(null);
   const blockedScope = useRef(null);
   const [pending, setPending] = useState(null);
   if (epoch.current.scope !== scope) blockedScope.current = null;
   if (epoch.current.scope !== scope || epoch.current.enabled !== enabled
     || epoch.current.path !== location.key) {
+    clearTimeout(intentTimer.current);
+    pool.current.clear();
+    activation.current = null;
     epoch.current = { scope, enabled, path: location.key, sequence: epoch.current.sequence + 1 };
-    // Keep the handoff for the just-requested destination only.
-    if (pending?.to !== location.pathname + location.hash || !enabled || pending?.scope !== scope) {
-      handoff.current.clear();
-    }
+    // Microsite branding readiness may close at the destination. Preserve
+    // its exact one-use transport, not any rendering/authorization decision.
+    // Scope changes fence auth/tenant/role; DynamicPage still waits for *all*
+    // destination prerequisites before consuming data or committing chrome.
+    handoff.current.retain(scope, location.pathname + location.hash);
     if (pending) setPending(null);
   }
   useEffect(() => {
@@ -64,6 +76,9 @@ export function PublicPageNavigationProvider({ children, scope, enabled, resolve
       epoch.current.sequence += 1;
       blockedScope.current = epoch.current.scope;
       handoff.current.clear();
+      clearTimeout(intentTimer.current);
+      pool.current.clear();
+      activation.current = null;
       setPending(null);
     };
     window.addEventListener('storage', onStorage);
@@ -72,46 +87,63 @@ export function PublicPageNavigationProvider({ children, scope, enabled, resolve
   useEffect(() => () => {
     epoch.current.sequence += 1;
     handoff.current.clear();
+    clearTimeout(intentTimer.current);
+    pool.current.clear();
   }, []);
 
   const cancel = () => {
     epoch.current.sequence += 1;
     handoff.current.clear();
+    clearTimeout(intentTimer.current);
+    pool.current.clear();
+    activation.current = null;
     setPending(null);
   };
-  const onClick = event => {
+  const destinationFor = event => {
     if (!enabled || blockedScope.current === scope) return;
     const anchor = event.target?.closest?.('a[href]');
-    const destination = eligiblePublicPageLink(anchor, event, new URL(window.location.href), resolveDestination);
+    return eligiblePublicPageLink(anchor, event, new URL(window.location.href), resolveDestination);
+  };
+  const onIntent = event => {
+    if (activation.current || (event.pointerType && event.pointerType !== 'mouse')) return;
+    const anchor = event.target?.closest?.('a[href]');
+    if (!anchor || (event.relatedTarget?.nodeType && anchor.contains(event.relatedTarget))) return;
+    const destination = destinationFor({ ...event, target: anchor, button: 0 });
     if (!destination) return;
-    // At most two outstanding transports, even under rapid repeated clicks.
-    if (activeRequests.current >= 2) {
-      cancel();
-      event.preventDefault();
-      navigate(destination.to);
-      return;
-    }
+    clearTimeout(intentTimer.current);
+    const currentEpoch = epoch.current;
+    intentTimer.current = setTimeout(() => {
+      if (epoch.current !== currentEpoch || activation.current) return;
+      pool.current.acquire(scope, destination.request);
+    }, PUBLIC_PAGE_INTENT_DELAY_MS);
+  };
+  const onIntentLeave = event => {
+    const anchor = event.target?.closest?.('a[href]');
+    if (!anchor || (event.relatedTarget?.nodeType && anchor.contains(event.relatedTarget))
+      || anchor === document.activeElement || activation.current) return;
+    clearTimeout(intentTimer.current);
+    pool.current.clear();
+  };
+  const onClick = event => {
+    const destination = destinationFor(event);
+    if (!destination) return;
     event.preventDefault();
+    clearTimeout(intentTimer.current);
+    if (activation.current?.to === destination.to && activation.current.scope === scope) return;
+    const task = pool.current.acquire(scope, destination.request, true);
+    activation.current = { task, to: destination.to, scope };
     const sequence = ++epoch.current.sequence;
     const path = location.key;
     handoff.current.clear();
     setPending({ to: destination.to, scope });
-    activeRequests.current += 1;
-    const promise = readPublicPage(() => publicClient.getPage(
-      destination.request.slug, destination.request.micrositePrefix,
-    ));
-    // A rejected request is handed to DynamicPage's existing error state.
-    // Attaching both handlers also prevents an unhandled prefetch rejection.
-    let result;
-    const settled = promise.then(value => { result = value; }, () => {}).finally(() => { activeRequests.current -= 1; });
     let timer;
-    Promise.race([settled, new Promise(resolve => {
-      timer = setTimeout(resolve, DYNAMIC_PAGE_PENDING_TIMEOUT_MS);
+    Promise.race([task.settled, new Promise(resolve => {
+      timer = setTimeout(() => { task.controller.abort(); resolve(); }, DYNAMIC_PAGE_PENDING_TIMEOUT_MS);
     })]).then(() => {
       clearTimeout(timer);
       if (epoch.current.sequence !== sequence || epoch.current.scope !== scope
         || !epoch.current.enabled || epoch.current.path !== path) return;
-      handoff.current.put(scope, destination.request, promise, result);
+      handoff.current.put(scope, destination.request, task.promise, task.result, destination.to);
       navigate(destination.to);
     });
   };
@@ -120,7 +152,9 @@ export function PublicPageNavigationProvider({ children, scope, enabled, resolve
   return (
     <PublicPageNavigationContext.Provider value={{
       onClick,
-      take: request => enabled && blockedScope.current !== scope ? handoff.current.take(scope, request) : null,
+      onIntent,
+      onIntentLeave,
+      take: request => blockedScope.current !== scope ? handoff.current.take(scope, request) : null,
       pending: visiblePending,
       cancel,
     }}>
@@ -137,9 +171,6 @@ export function PublicNavigationPending() {
   const navigation = usePublicPageNavigation();
   if (!navigation?.pending) return null;
   return (
-    <div className="sticky top-0 z-50 flex items-center justify-center gap-4 border-b bg-background px-4 py-2 text-sm text-foreground">
-      <span role="status" aria-live="polite">Loading page…</span>
-      <button type="button" className="underline underline-offset-4" onClick={navigation.cancel}>Cancel</button>
-    </div>
+    <span className="sr-only" role="status" aria-live="polite">Opening page</span>
   );
 }
