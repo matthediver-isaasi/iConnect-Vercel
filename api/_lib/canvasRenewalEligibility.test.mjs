@@ -10,6 +10,15 @@ const record = {
   status: 'active', term_start_date: '2026-01-01', term_end_date: '2026-12-31',
 };
 const eligible = (today, patch = {}) => canvasRenewalEligibility({ record, config, today, ...patch }).eligible;
+test('manual upfront terms can renew only with paid evidence and no recurring obligation', () => {
+  const manual = { ...record, payment_method: 'manual' };
+  assert.equal(eligible('2026-12-25', { record: manual }), true);
+  for (const patch of [
+    { payment_status: 'unpaid' }, { payment_status: 'partial' },
+    { billing_agreement_id: 'agreement' }, { billing_period: 'monthly' },
+    { commitment_snapshot: { payment_frequency: 'monthly' } },
+  ]) assert.equal(eligible('2026-12-25', { record: { ...manual, ...patch } }), false);
+});
 test('continuing, finite and unknown-consent DD retain existing eligibility without policy reclassification', async () => {
   for (const [snapshot, end, review] of [
     [{ collection_policy: { version: 1, end_policy: 'continue', pricing_policy: 'dynamic' } }, 'continue', false],

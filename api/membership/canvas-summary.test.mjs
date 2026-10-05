@@ -594,11 +594,12 @@ test('explicit failed/manual-pending history is not active; billing grace never 
 
 test('only confirmed upfront settlement reports paid, never recurring setup success', () => {
   for (const payment_status of ['paid', 'partial', 'unpaid']) {
-    for (const payment_method of ['stripe', 'invoice', 'bank_transfer']) {
+    for (const payment_method of ['stripe', 'invoice', 'bank_transfer', 'manual', 'upfront']) {
       const result = summary([term({ status: 'paid', payment_status, payment_method, billing_period: 'annual' })]);
       assert.equal(result.membership.state, 'active');
       assert.equal(result.payment.state, payment_status === 'paid' ? 'paid' : 'unavailable');
       assert.equal(result.payment.nextPayment, null);
+      if (['manual', 'upfront'].includes(payment_method)) assert.equal(result.payment.method, 'upfront');
     }
   }
 });

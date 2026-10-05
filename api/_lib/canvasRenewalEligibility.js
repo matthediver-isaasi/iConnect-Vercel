@@ -18,7 +18,7 @@ export function canvasRenewalEligibility({ record, config, history = [], today, 
   if (!record || record.membership_source !== 'personal' || paused || hasRecurring
       || !['active', 'paid', 'expired'].includes(record.status)
       || record.payment_status !== 'paid' || record.billing_agreement_id
-      || !['upfront', 'card', 'stripe', 'invoice', 'bank_transfer'].includes(record.payment_method)
+      || !['upfront', 'manual', 'card', 'stripe', 'invoice', 'bank_transfer'].includes(record.payment_method)
       || !upfrontPeriod(record) || record.commitment_snapshot?.payment_frequency === 'monthly'
       || !day(today) || !config || config.structure_scope_type !== 'member'
       || (config.tenant_id && config.tenant_id !== record.tenant_id)) return hidden();
@@ -64,7 +64,7 @@ export async function loadCanvasRenewalEligibility(db, { selected, owner, histor
   if (!record || record.membership_source !== 'personal' || owner.membership_paused
       || plan || record.billing_agreement_id || record.payment_status !== 'paid'
       || !upfrontPeriod(record)
-      || !['upfront', 'card', 'stripe', 'invoice', 'bank_transfer'].includes(record.payment_method)) return hidden();
+      || !['upfront', 'manual', 'card', 'stripe', 'invoice', 'bank_transfer'].includes(record.payment_method)) return hidden();
   const tenantId = owner.tenant_id;
   const read = async query => {
     const rows = [];

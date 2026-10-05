@@ -84,6 +84,8 @@ function paymentMethod(record, commitment, plan) {
   const method = text(commitment?.paymentMethod || record.payment_method);
   const monthly = commitment?.paymentFrequency === 'monthly'
     || ['monthly', 'monthly_direct_debit'].includes(record.billing_period) || plan?.interval_unit === 'monthly';
+  if (['manual', 'upfront'].includes(method) && !monthly
+      && (commitment?.paymentFrequency === 'upfront' || record.billing_period === 'annual')) return 'upfront';
   if (['monthly_direct_debit', 'gocardless_monthly', 'direct_debit_monthly'].includes(method)) return 'monthly_direct_debit';
   if (['monthly_card', 'card_monthly', 'stripe_monthly_card'].includes(method)) return 'monthly_card';
   if (['direct_debit', 'gocardless'].includes(method)) return monthly ? 'monthly_direct_debit' : 'direct_debit';
@@ -163,7 +165,7 @@ export function buildCanvasSummary({ selected, plan = null, paused = false, toda
       || frequency === 'monthly';
     const paidUpfront = lifecycle === 'current' && record.payment_status === 'paid'
       && !record.billing_agreement_id && upfront && !monthly
-      && ['card', 'invoice', 'bank_transfer'].includes(method);
+      && ['card', 'invoice', 'bank_transfer', 'upfront'].includes(method);
     return {
       membership,
       payment: {
