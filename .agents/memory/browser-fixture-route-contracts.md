@@ -26,3 +26,9 @@ Match mocked API requests by root pathname, not only a glob containing `/api/`.
 **Why:** Vite serves client source modules under `/src/api/`; a broad interception can return fixture JSON for JavaScript modules and leave the entire app blank before any route test runs.
 
 **How to apply:** In broad Playwright handlers, continue requests whose URL pathname does not start with `/api/` before selecting response fixtures.
+
+Mounted editor fixtures must load the application's utility CSS when testing tab visibility and portalled selectors.
+
+**Why:** Without utility CSS, inactive panels remain visible and Radix select options can sit outside the viewport, producing fixture failures unrelated to the application behavior.
+
+**How to apply:** Compile and inject the real stylesheet, scope repeated editor text to the active panel, and click the visible label for visually hidden radio inputs.

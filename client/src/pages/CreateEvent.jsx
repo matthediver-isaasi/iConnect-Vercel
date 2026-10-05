@@ -2699,7 +2699,7 @@ export default function CreateEvent() {
                         {/* Ticket Availability */}
                         <TicketReleaseFields
                           ticket={ticket}
-                          eventTimezone={eventTimezone}
+                          eventTimezone={effectiveTimezone}
                           onChange={(patch) => setTicketClasses(prev => prev.map(t =>
                             t.id === ticket.id ? { ...t, ...patch } : t
                           ))}
