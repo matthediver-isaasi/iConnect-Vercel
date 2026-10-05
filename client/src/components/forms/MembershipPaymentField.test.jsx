@@ -75,7 +75,7 @@ test('active access alone is not reported as paid; explicitly settled scheduled 
     assert.equal(!!host.querySelector('[data-testid="text-payment-success"]'), paid, record.id);
     assert.equal(changes.some(value => value.status === 'already_paid'), paid, record.id);
     if (record.status === 'scheduled') {
-      assert.match(host.querySelector('[data-testid="text-membership-scheduled"]').textContent, /2027-01-01/);
+      assert.match(host.querySelector('[data-testid="text-membership-scheduled"]').textContent, /01\/01\/2027/);
     }
     await act(async () => root.unmount());
     host.remove();
@@ -122,6 +122,7 @@ test('legacy renewal summaries show useful dates without administrative evidence
         renewal: { state: quoted ? 'eligible_renewal' : 'renewal_closed', eligible: quoted,
           currentStart: null, currentEnd: '2026-09-25', currentPaymentStatus: 'paid',
           successorStart: '2026-09-26', successorEnd: '2027-09-25',
+          closesOn: '2026-12-24',
           evidenceSource: 'operator_attested_expiry_only' },
       }));
     const host = document.createElement('div');
@@ -132,8 +133,10 @@ test('legacy renewal summaries show useful dates without administrative evidence
       await new Promise(resolve => setTimeout(resolve, 10));
     });
     assert.doesNotMatch(host.textContent, /administrator attestation|provider settlement|Historical commencement/);
-    assert.match(host.textContent, /Your renewal covers: 2026-09-26 to 2027-09-25/);
-    assert.match(host.textContent, /2026-09-26/);
+    assert.match(host.textContent, /Your renewal covers: 26\/09\/2026 to 25\/09\/2027/);
+    assert.match(host.textContent, /Current membership ends: 25\/09\/2026/);
+    if (!quoted) assert.match(host.textContent, /Online renewal closed on 24\/12\/2026/);
+    assert.doesNotMatch(host.textContent, /2026-09-25|2026-09-26|2027-09-25/);
     assert.doesNotMatch(host.textContent, /2025-09-26/);
     await act(async () => root.unmount());
     host.remove();

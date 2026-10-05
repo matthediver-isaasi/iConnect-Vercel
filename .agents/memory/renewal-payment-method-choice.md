@@ -32,3 +32,9 @@ renewal element and requested clear end-user labels.
 
 **How to apply:** Preserve the underlying audit evidence and financial safeguards;
 explain the member's next action without exposing internal reservation terminology.
+
+Display renewal dates in UK DD/MM/YYYY format.
+
+**Why:** The user explicitly requested UK dates rather than YYYY-MM-DD in the renewal element.
+
+**How to apply:** Format calendar dates for display only; keep stored dates and payment boundaries unchanged.

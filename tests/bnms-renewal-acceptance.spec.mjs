@@ -154,8 +154,8 @@ test('provider commitment refusal is announced and does not expose a replacement
 test('gate-open real FormView preserves assigned structure and original expiry during grace', async ({ page }) => {
   const result = await mount(page);
   const summary = page.getByTestId('membership-renewal-summary');
-  await expect(summary).toContainText('2026-09-25');
-  await expect(summary).toContainText('2026-09-26 to 2027-09-25');
+  await expect(summary).toContainText('25/09/2026');
+  await expect(summary).toContainText('26/09/2026 to 25/09/2027');
   await expect(summary).toContainText('Your renewal covers:');
   await expect(summary).not.toContainText('administrator attestation');
   await expect(summary).not.toContainText('Historical commencement');
@@ -170,7 +170,7 @@ for (const [now, expected] of [['2026-06-26', 'renewal_not_open'], ['2026-06-27'
   test(`90/90 boundary ${now}: ${expected}`, async ({ page }) => {
     const result = await mount(page, { now });
     expect(result.context.renewal.state).toBe(expected);
-    await expect(page.getByTestId('membership-renewal-summary')).toContainText('2026-09-26');
+    await expect(page.getByTestId('membership-renewal-summary')).toContainText('26/09/2026');
     expect(result.mutations).toEqual([]);
     expect(result.errors).toEqual([]);
   });

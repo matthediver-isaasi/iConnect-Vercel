@@ -11,6 +11,12 @@ import MembershipCommitmentNotice, { membershipTermLabel } from "@/components/me
 const CURRENCY_SYMBOLS = { GBP: '\u00a3', USD: '$', EUR: '\u20ac', AUD: 'A$', NZD: 'NZ$' };
 const STRIPE_MINIMUMS = { GBP: 0.30, USD: 0.50, EUR: 0.50, AUD: 0.50, NZD: 0.50 };
 
+// Calendar dates must not shift with the viewer's timezone.
+function formatMembershipDate(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || '');
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : (value || 'not available');
+}
+
 function formatCurrency(amount, currency) {
   const symbol = CURRENCY_SYMBOLS[currency] || currency + ' ';
   return `${symbol}${parseFloat(amount || 0).toFixed(2)}`;
@@ -611,7 +617,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
               <p className="font-medium" data-testid="text-payment-success">Membership fee paid</p>
               {(data?.existingRecord?.status === 'scheduled' || data?.renewal?.successorStart) && (
                 <p className="text-sm text-muted-foreground" data-testid="text-membership-scheduled">
-                  Membership starts on {data?.renewal?.successorStart || data?.existingRecord?.termStart}.
+                  Membership starts on {formatMembershipDate(data?.renewal?.successorStart || data?.existingRecord?.termStart)}.
                 </p>
               )}
               <p className="text-sm text-muted-foreground">
@@ -620,7 +626,7 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
             </div>
           </div>
           {data?.renewal?.currentAgreementId && (
-            <p className="text-sm mt-3">This pays the next term only. Remaining instalments and any arrears for the current term through {data.renewal.currentEnd} remain due under your existing payment plan.</p>
+            <p className="text-sm mt-3">This pays the next term only. Remaining instalments and any arrears for the current term through {formatMembershipDate(data.renewal.currentEnd)} remain due under your existing payment plan.</p>
           )}
           {data?.renewal?.currentAgreementId && <DirectDebitPlanCard memberId={memberId} />}
         </CardContent>
@@ -636,8 +642,8 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
   const canPay = !switchingPayment && renewal?.switchState !== 'reconciling'
     && (!isRenewal || renewal.eligible || resuming);
   const renewalMessages = {
-    renewal_not_open: `Renewal opens on ${renewal?.opensOn}.`,
-    renewal_closed: `Online renewal closed on ${renewal?.closesOn}. Please contact the membership team for help renewing.`,
+    renewal_not_open: `Renewal opens on ${formatMembershipDate(renewal?.opensOn)}.`,
+    renewal_closed: `Online renewal closed on ${formatMembershipDate(renewal?.closesOn)}. Please contact the membership team for help renewing.`,
     renewal_pending: 'Your renewal is in progress. Continue below, or choose “Change payment method” to use another option. If you have already paid, choose “Check renewal status” instead.',
     next_term_purchased: 'Your next membership term has already been paid for.',
     current_membership: 'We haven’t confirmed full payment for your current membership. Please contact the membership team if you need help.',
@@ -650,8 +656,8 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
       <Card>
         <CardContent className="pt-6 space-y-3" data-testid="membership-renewal-summary">
           <p className="font-medium">{renewalMessages[renewal.state] || 'Membership renewal is not currently available.'}</p>
-          {renewal.currentEnd && <p className="text-sm">Current membership ends: {renewal.currentEnd}.</p>}
-          {renewal.successorStart && <p className="text-sm">Your renewal covers: {renewal.successorStart}{renewal.successorEnd ? ` to ${renewal.successorEnd}` : ''}.</p>}
+          {renewal.currentEnd && <p className="text-sm">Current membership ends: {formatMembershipDate(renewal.currentEnd)}.</p>}
+          {renewal.successorStart && <p className="text-sm">Your renewal covers: {formatMembershipDate(renewal.successorStart)}{renewal.successorEnd ? ` to ${formatMembershipDate(renewal.successorEnd)}` : ''}.</p>}
           {renewal.currentAgreementId && <>
             <p className="text-sm">Any remaining payments for your current membership are still due.</p>
             <DirectDebitPlanCard memberId={memberId} />
@@ -675,8 +681,8 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
             <p className="font-medium">{renewalMessages[renewal.state] || 'Renew your membership for the next term.'}</p>
             {renewal.state === 'renewal_pending' && <Button type="button" variant="outline" disabled={disabled || switchingPayment || processingPayment || creatingPayment || startingDd || startingCard} onClick={releaseUnusedRenewal}>{switchingPayment ? 'Confirming cancellation…' : 'Change payment method'}</Button>}
             {switchingPayment && <p role="status">Checking your payment so you can safely choose another method. Please keep this page open.</p>}
-            {renewal.currentEnd && <p>Current membership ends: {renewal.currentEnd}.</p>}
-            {renewal.successorStart && <p>Your renewal covers: {renewal.successorStart}{renewal.successorEnd ? ` to ${renewal.successorEnd}` : ''}.</p>}
+            {renewal.currentEnd && <p>Current membership ends: {formatMembershipDate(renewal.currentEnd)}.</p>}
+            {renewal.successorStart && <p>Your renewal covers: {formatMembershipDate(renewal.successorStart)}{renewal.successorEnd ? ` to ${formatMembershipDate(renewal.successorEnd)}` : ''}.</p>}
             {renewal.currentAgreementId && <p>Any remaining payments for your current membership are still due.</p>}
             {renewal.eligible && <p>Pay in full to pay for your renewal now. If you choose Direct Debit, you’ll set it up now and receive confirmation of your collection dates. No payment will be collected before your new membership period starts.</p>}
             {renewal.state === 'renewal_pending' && (
