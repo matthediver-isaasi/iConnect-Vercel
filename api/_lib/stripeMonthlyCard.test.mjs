@@ -307,6 +307,22 @@ test('finite Stripe boundary is deterministic from immutable agreement terms', (
 
 const scheduleAnchor = Math.floor(new Date('2026-01-10T12:00:00.000Z').getTime() / 1000);
 
+test('early setup preserves trial and all twelve instalments through 09/10/2027 expiry', async () => {
+  const first = Date.parse('2026-10-10') / 1000;
+  const stripe = finiteScheduleStripe({ deferredStart: first, scheduleStart: Date.parse('2026-10-05') / 1000 });
+  const agreement = { id: 'agreement-1', metadata: { card: {
+    kind: CARD_PLAN_KIND, instalment_count: 12, deferred_billing: {
+      first_charge_at: first, first_charge_date: '2026-10-10', term_end_date: '2027-10-09',
+    },
+  } } };
+  const result = await ensureStripeCardCancellationBoundary({ agreement, session: { subscription: 'sub_1' }, stripe });
+  assert.equal(result.cancelAt, Date.parse('2027-10-10') / 1000);
+  assert.equal(stripe.calls.update[0].payload.phases[0].trial_end, first);
+  assert.equal(stripe.calls.update[0].payload.phases[0].proration_behavior, 'none');
+  await ensureStripeCardCancellationBoundary({ agreement, session: { subscription: 'sub_1' }, stripe });
+  assert.equal(stripe.calls.update.length, 1, 'duplicate completion does not change provider schedule');
+});
+
 function addTestMonths(epoch, count) {
   const d = new Date(epoch * 1000);
   d.setUTCMonth(d.getUTCMonth() + count);
@@ -322,6 +338,7 @@ function finiteScheduleStripe({
   existingSchedule = null,
   updateFails: initiallyUpdateFails = false,
   returnedEndOffset = 0,
+  deferredStart = null,
 } = {}) {
   const calls = { create: [], retrieve: [], update: [] };
   let schedule = existingSchedule;
@@ -335,6 +352,9 @@ function finiteScheduleStripe({
     billing_cycle_anchor: scheduleAnchor,
     current_period_start: scheduleAnchor,
     current_period_end: addTestMonths(scheduleAnchor, 1),
+    ...(deferredStart ? {
+      start_date: scheduleStart, billing_cycle_anchor: deferredStart, trial_end: deferredStart, status: 'trialing',
+    } : {}),
     items: {
       data: [{ id: 'si_1', price: { id: 'price_monthly' }, quantity: 1 }],
     },

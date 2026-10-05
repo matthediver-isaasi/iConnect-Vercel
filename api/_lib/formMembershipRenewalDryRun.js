@@ -1,5 +1,6 @@
 import { assessFormMembershipRenewalEvidence } from './formMembershipRenewalEvidence.js';
 import { snapshotFormMembershipPayment } from './formMembershipPaymentQuote.js';
+import { resolveCardMonthlyOffer, buildCardAgreementSnapshot } from './stripeMonthlyCard.js';
 import { resolveDdOffer, buildAgreementSnapshot, buildMonthlyBillingRequest,
   computeSubscriptionCollectionDate } from './gocardlessDirectDebit.js';
 
@@ -62,6 +63,15 @@ export function previewFormMembershipRenewal({
         instalments: snapshot.instalment_count, currency: snapshot.currency,
         rule: snapshot.first_collection_rule,
         collectionBeforeMembershipStart: false });
-  } else throw new Error('Preview method must be upfront or direct_debit');
+  } else if (method === 'monthly_card') {
+    const offer = resolveCardMonthlyOffer(simulation);
+    if (!offer) throw new Error('Monthly card is not enabled for the successor');
+    const snapshot = buildCardAgreementSnapshot({ offer, simResult: simulation, acceptedAt: new Date(now).toISOString() });
+    result.proposedEffects.push({ type: 'reserve_successor', method },
+      { type: 'create_card_checkout', initialCollectionMinor: snapshot.deferred_billing ? 0 : offer.monthlyAmountMinor,
+        settledPayment: false, firstChargeDate: snapshot.deferred_billing?.first_charge_date || String(now).slice(0, 10),
+        amountMinor: offer.monthlyAmountMinor, instalments: offer.instalmentCount,
+        subscriptionData: snapshot.deferred_billing?.subscription_data || {} });
+  } else throw new Error('Preview method must be upfront, direct_debit or monthly_card');
   return result;
 }

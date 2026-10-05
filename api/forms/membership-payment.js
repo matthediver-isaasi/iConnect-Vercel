@@ -318,8 +318,7 @@ async function handleGet(req, res, resolvedTenantId) {
     stripeEnabled: !!stripePublishableKey,
     stripePublishableKey,
     directDebit: zeroDue ? null : await resolveDirectDebitOption(isMemberScoped, tenantId, simResult),
-    cardMonthly: zeroDue || context.renewal.successorStart > new Date().toISOString().slice(0, 10)
-      ? null : await resolveCardMonthlyOption(isMemberScoped, tenantId, simResult),
+    cardMonthly: zeroDue ? null : await resolveCardMonthlyOption(isMemberScoped, tenantId, simResult),
     existingRecord: existingRecord ? {
       id: existingRecord.id,
       status: existingRecord.status,
@@ -365,7 +364,9 @@ async function resolveCardMonthlyOption(isMemberScoped, tenantId, simResult) {
   } catch {
     return null;
   }
-  return { ...offer, scope: 'member' };
+  const firstChargeDate = simResult.paymentSchedule?.term_start_date;
+  return { ...offer, scope: 'member',
+    firstChargeDate: firstChargeDate > new Date().toISOString().slice(0, 10) ? firstChargeDate : null };
 }
 
 const STRIPE_MIN_CENTS = { gbp: 30, usd: 50, eur: 50, aud: 50, nzd: 50 };
@@ -453,9 +454,6 @@ async function handlePost(req, res, resolvedTenantId) {
         ? await resolveDirectDebitOption(isMemberScoped, tenantId, simulation)
         : await resolveCardMonthlyOption(isMemberScoped, tenantId, simulation);
       if (!offer) return res.status(409).json({ error: 'This payment method is not available for the successor term.' });
-      if (method === 'monthly_card' && context.renewal.successorStart > new Date().toISOString().slice(0, 10)) {
-        return res.status(409).json({ error: 'Monthly card setup is available from the successor start date.' });
-      }
       const approval = await checkApproval(tenantId, member.id, organizationId, simulation.membershipYear?.label);
       if (approval.blocked) return res.status(409).json({ error: approval.message });
       let election;

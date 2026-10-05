@@ -59,6 +59,7 @@ import {
 } from './formStripeAddressMappingProcessing.js';
 
 import { CARD_PLAN_KIND } from './stripeMonthlyCardMetadata.js';
+import { deferredCardTerms } from './stripeDeferredCardTerms.js';
 export { CARD_PLAN_KIND } from './stripeMonthlyCardMetadata.js';
 
 /** Finite Stripe Schedule duration derived only from immutable consent terms. */
@@ -171,6 +172,7 @@ export function buildCardAgreementSnapshot({ offer, simResult, acceptedAt = new 
     invoicing_mode: offer.invoicingMode === 'per_instalment' ? 'per_instalment' : 'annual',
     monthly_post_grace_collection_policy: offer.monthlyPostGraceCollectionPolicy,
     accepted_at: acceptedAt,
+    deferred_billing: deferredCardTerms(simResult, acceptedAt),
     membership_year: simResult?.membershipYear?.label || null,
     membership_year_start: simResult?.membershipYear?.start
       ? toDateOnly(simResult.membershipYear.start).toISOString().slice(0, 10) : null,
@@ -544,13 +546,21 @@ export async function ensureStripeCardCancellationBoundary({
     || subscription?.start_date
     || subscription?.current_period_start,
   );
+  const deferred = snapshot.deferred_billing;
+  if (deferred && billingAnchor < deferred.first_charge_at) {
+    throw new Error('Stripe billing anchor precedes the agreed successor start');
+  }
   const commitment = monthlySnapshotCommitment(snapshot);
   const savedBoundary = commitment
     ? Math.floor(new Date(`${commitment.membership_renewal_date}T00:00:00.000Z`).getTime() / 1000)
-    : null;
+    : deferred?.term_end_date
+      ? Date.parse(`${deferred.term_end_date}T00:00:00.000Z`) / 1000 + 86400 : null;
   const agreedEnd = savedBoundary
     ? Math.min(savedBoundary, addUtcMonthsClamped(billingAnchor, duration.interval_count))
     : addUtcMonthsClamped(billingAnchor, duration.interval_count);
+  if (deferred && addUtcMonthsClamped(billingAnchor, duration.interval_count - 1) >= agreedEnd) {
+    throw new Error('The full agreed instalment count does not fit before membership expiry');
+  }
   const directCancelAt = Number(subscription?.cancel_at)
     || (subscription?.cancel_at_period_end ? Number(subscription.current_period_end) : 0)
     || Number(subscription?.ended_at) || null;
@@ -613,11 +623,12 @@ export async function ensureStripeCardCancellationBoundary({
     }));
     const isInterruptedCreate = schedule.end_behavior === 'release'
       && (schedule.phases?.length || 0) === 1
-      && isFinitePlanBillingBoundary({
+      && ((deferred && Number(recoveryPhase?.start_date) === Number(subscription.start_date))
+        || isFinitePlanBillingBoundary({
         billingAnchor,
         candidate: Number(recoveryPhase?.start_date),
         instalmentCount: duration.interval_count,
-      })
+      }))
       && recoveryItems.length === items.length
       && recoveryItems.every((item, index) => (
         item.price === items[index].price && item.quantity === items[index].quantity
@@ -665,6 +676,8 @@ export async function ensureStripeCardCancellationBoundary({
         start_date: phaseStart,
         end_date: desiredEnd,
         items,
+        ...(deferred && deferred.first_charge_at > phaseStart
+          ? { trial_end: deferred.first_charge_at } : {}),
         proration_behavior: 'none',
       }],
       proration_behavior: 'none',
@@ -709,7 +722,10 @@ export async function activateMembershipForCardAgreement(agreement, { trigger, d
   if (row.status === 'active') return { updated: false, detail: 'membership already active' };
 
   const activate = decideCardActivation({ activationRule: snapshot.activation_rule, trigger });
-  const schedule = monthlyActivationSchedule(snapshot, activate, now);
+  const schedule = snapshot.deferred_billing && activate
+    && now.toISOString().slice(0, 10) < snapshot.deferred_billing.first_charge_date
+    ? { status: 'scheduled', scheduled_activation_date: snapshot.deferred_billing.first_charge_date }
+    : monthlyActivationSchedule(snapshot, activate, now);
   const nextStatus = schedule.status;
   if (!nextStatus || nextStatus === row.status) {
     return { updated: false, detail: `no status change for trigger=${trigger} rule=${snapshot.activation_rule}` };
@@ -1559,6 +1575,13 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
     const agreement = plan.billing_agreement_id
       ? await findCardAgreementById(db, plan.billing_agreement_id, expectedTenantId) : null;
     if (!agreement) return { handled: false, detail: 'plan has no billing agreement' };
+    if (agreement.metadata?.card?.deferred_billing && Number(object.amount_paid) !== 0) {
+      const first = agreement.metadata.card.deferred_billing.first_charge_date;
+      const period = stripeInvoiceFailedDuePeriod(object);
+      if (!period || period < first || !(Number(object.amount_paid) > 0)) {
+        throw new Error('Deferred card invoice does not prove a paid instalment on or after successor start');
+      }
+    }
     const invoiceLines = object.lines?.data || [];
     const intentKeys = [...new Set(invoiceLines.map((line) => line.metadata?.catch_up_intent_key).filter(Boolean))].sort();
     const itemIds = [...new Set(invoiceLines.flatMap((line) => [line.id, line.invoice_item]).filter(Boolean))].sort();
@@ -1774,7 +1797,7 @@ export async function processStripeCardPlanEvent(event, deps = {}) {
     return { handled: true, detail: `Stripe terminal invoice ${type} processed` };
   }
 
-  if (type === 'invoice.payment_failed') {
+  if (type === 'invoice.payment_failed' || type === 'invoice.payment_action_required') {
     const subscriptionId = stripeInvoiceSubscriptionId(object);
     if (!subscriptionId) return { handled: false, detail: 'invoice has no subscription' };
     const plan = await findCardPlanBySubscription(db, subscriptionId, expectedTenantId);

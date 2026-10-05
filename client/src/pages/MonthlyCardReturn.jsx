@@ -11,6 +11,7 @@ import {
 import { useLayoutContext } from "@/contexts/LayoutContext";
 
 const COPY = {
+  scheduled: { title: "Monthly card renewal scheduled", body: "Your card setup is confirmed. No renewal payment is due before your successor membership starts. Setup is not confirmation of a paid instalment." },
   active: { title: "Monthly card payment plan active", body: "Your monthly card payment plan is active. This return page does not confirm an individual charge or any remaining instalments." },
   setup_pending: { title: "Your card plan is being confirmed", body: "We are waiting for Stripe to confirm the plan set-up. No payment is confirmed on this page." },
   verification_pending: { title: "Checking your card plan", body: "We have not yet received confirmation of checkout. It may still be processing; no payment is confirmed on this page." },
@@ -32,7 +33,13 @@ export default function MonthlyCardReturn({ outcome }) {
     if (!memberId) return undefined;
     let cancelled = false;
     setCheck({ loading: true, agreement: null, error: false, accessDenied: false });
-    fetch(`/api/membership/monthly-card?memberId=${encodeURIComponent(memberId)}`, { credentials: "include" })
+    const confirm = outcome === 'complete'
+      ? fetch('/api/membership/monthly-card', {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'confirm', memberId }),
+      }).then(res => { if (!res.ok) throw new Error('Card setup confirmation is pending'); })
+      : Promise.resolve();
+    confirm.then(() => fetch(`/api/membership/monthly-card?memberId=${encodeURIComponent(memberId)}`, { credentials: "include" }))
       .then(async (res) => {
         if (!res.ok) throw Object.assign(new Error("Unable to read agreement"), { accessDenied: res.status === 401 || res.status === 403 });
         return res.json();
@@ -44,7 +51,7 @@ export default function MonthlyCardReturn({ outcome }) {
         if (!cancelled) setCheck({ loading: false, agreement: null, error: true, accessDenied: !!error.accessDenied });
       });
     return () => { cancelled = true; };
-  }, [memberId, attempt]);
+  }, [memberId, attempt, outcome]);
 
   const state = classifyMembershipReturn({
     provider: "monthly-card",
@@ -71,6 +78,10 @@ export default function MonthlyCardReturn({ outcome }) {
                 {state === "loading" ? "Checking your monthly card plan..." : copy.title}
               </p>
               {state !== "loading" && <p className="text-sm text-muted-foreground mt-2" data-testid="text-monthly-card-return-status">{copy.body}</p>}
+              {state === "scheduled" && <p className="text-sm mt-2">
+                {check.agreement.terms.instalment_count} monthly instalments of {check.agreement.terms.currency} {Number(check.agreement.terms.monthly_amount).toFixed(2)}.
+                {' '}First charge scheduled for {check.agreement.terms.deferred_billing.first_charge_date.split('-').reverse().join('/')}.
+              </p>}
               {check.accessDenied && <p className="text-sm text-muted-foreground mt-2">Sign in to verify this membership plan.</p>}
               {check.agreement?.terms && (
                 <p className="text-sm text-muted-foreground mt-2" data-testid="text-monthly-card-return-terms">

@@ -7,6 +7,7 @@ export const STRIPE_MEMBERSHIP_WEBHOOK_EVENTS = Object.freeze([
   'invoice.paid',
   'invoice.payment_succeeded',
   'invoice.payment_failed',
+  'invoice.payment_action_required',
   'invoice.voided',
   'invoice.marked_uncollectible',
   'customer.subscription.deleted',

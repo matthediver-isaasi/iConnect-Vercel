@@ -147,7 +147,7 @@ test('fails explicitly when the bounded page limit cannot exhaust results', asyn
 });
 
 test('standard events include both terminal invoice outcomes', () => {
-  assert.equal(STRIPE_MEMBERSHIP_WEBHOOK_EVENTS.length, 8);
+  assert.equal(STRIPE_MEMBERSHIP_WEBHOOK_EVENTS.length, 9);
   assert.equal(STRIPE_MEMBERSHIP_WEBHOOK_EVENTS.includes('invoice.voided'), true);
   assert.equal(STRIPE_MEMBERSHIP_WEBHOOK_EVENTS.includes('invoice.marked_uncollectible'), true);
 });

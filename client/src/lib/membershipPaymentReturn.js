@@ -75,6 +75,7 @@ export function classifyMembershipReturn({ provider, outcome, agreement, verific
     case "mandate_pending":
       return provider === "direct-debit" ? "setup_pending" : "verification_pending";
     case "first_payment_pending":
+      if (provider === "monthly-card" && agreement.scheduled === true) return "scheduled";
       return "payment_pending";
     case "payment_setup_required":
       return "verification_pending";

@@ -89,6 +89,11 @@ export async function loadFormMembershipRenewalContext(db, {
     message: 'Multiple pending successor reservations require review.' }, simulation: null };
   const election = pending[0];
   const electionPredecessor = election && histories.find(history => history.id === election.previous_term_id);
+  const scheduledCard = election && agreements.find(agreement =>
+    agreement.membership_successor_election_id === election.id
+    && agreement.provider === 'stripe' && agreement.stripe_subscription_id
+    && agreement.status === 'first_payment_pending'
+    && agreement.metadata?.card?.deferred_billing?.first_charge_date > today);
   if (election) return {
     renewal: { ...renewal, ...election.quote?.simulation?.formRenewal,
       currentStart: electionPredecessor.term_start_date, currentEnd: electionPredecessor.term_end_date,
@@ -98,7 +103,10 @@ export async function loadFormMembershipRenewalContext(db, {
       successorEnd: election.term_end_date || renewal.successorEnd,
       eligible: false, state: 'renewal_pending', electionId: election.id,
       switchState: election.switch_state || 'idle',
-      selectedMethod: election.payment_method, message: 'A next-term payment arrangement is already reserved. Do not pay again.' },
+       selectedMethod: election.payment_method,
+       message: scheduledCard
+         ? `Monthly card renewal scheduled. Nothing due before ${scheduledCard.metadata.card.deferred_billing.first_charge_date.split('-').reverse().join('/')}. Setup is not a paid instalment. Do not pay again.`
+         : 'A next-term payment arrangement is already reserved. Do not pay again.' },
     election,
     simulation: election.quote?.simulation || null,
   };

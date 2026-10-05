@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
+import { deferredCardCheckoutOptions } from '../_lib/stripeDeferredCardTerms.js';
 const source = readFileSync(new URL('./monthly-card.js', import.meta.url), 'utf8');
 const body = source.slice(source.indexOf('async function handlePost('))
   .replace("const Stripe = (await import('stripe')).default;", 'const Stripe = StripeStub;');
@@ -15,6 +16,7 @@ test('fixed elected card reserves agreement and history before provider effects 
     const query = {
       select() { return query; },
       eq(key, value) { filters.push([key, value]); return query; },
+      neq() { return query; },
       insert(value) { action = 'insert'; payload = value; return query; },
       update(value) { action = 'update'; payload = value; return query; },
       then(resolve, reject) { return Promise.resolve(execute()).then(resolve, reject); },
@@ -39,6 +41,7 @@ test('fixed elected card reserves agreement and history before provider effects 
   const session = { id: 'cs_fixture', url: 'https://checkout.example.test/session' };
   const context = vm.createContext({
     console: { error() {} }, Date, supabase: db,
+    deferredCardCheckoutOptions,
     STATUS: { PAYMENT_SETUP_REQUIRED: 'payment_setup_required' },
     CARD_PLAN_KIND: 'monthly_card',
     loadMember: async () => ({ id: 'member', tenant_id: 'tenant' }),

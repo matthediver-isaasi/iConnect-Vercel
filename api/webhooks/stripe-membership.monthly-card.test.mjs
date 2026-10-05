@@ -56,6 +56,10 @@ function memoryDb() {
   const calls = [];
   let nextId = 0;
   const db = {
+    async rpc(name) {
+      assert.equal(name, 'membership_successor_elections_enabled');
+      return { data: false };
+    },
     from(table) {
       assert.ok(TABLES.includes(table), `unexpected database table: ${table}`);
       const call = { table, kind: 'select', filters: [] };

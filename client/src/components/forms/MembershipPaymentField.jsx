@@ -855,6 +855,12 @@ export default function MembershipPaymentField({ value, onChange, disabled, fiel
                   <p className="text-xs text-muted-foreground">
                     Your annual membership paid in {cardMonthly.instalmentCount} monthly card instalments of {formatCurrency(cardMonthly.monthlyAmount, cardCurrency)} — {formatCurrency(cardMonthly.planTotal, cardCurrency)} in total over {cardMonthly.instalmentCount} months.
                   </p>
+                  {cardMonthly.firstChargeDate && (
+                    <p className="text-xs font-medium">
+                      Nothing due now. First charge scheduled for {cardMonthly.firstChargeDate.split('-').reverse().join('/')}.
+                      {' '}Your current membership stays unchanged.
+                    </p>
+                  )}
                   <p className="text-xs text-muted-foreground">
                     You'll be taken to a secure Stripe page to enter your card details. Your card is charged automatically each month — card details never touch our servers.
                   </p>

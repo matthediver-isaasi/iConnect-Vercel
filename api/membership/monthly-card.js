@@ -21,6 +21,7 @@ import { simulateMembershipForMember } from '../_lib/membershipSimulation.js';
 import { getStripeCredentials, findOrCreateStripeCustomer } from '../_lib/stripeCredentials.js';
 import { resolveCardMonthlyOffer, buildCardAgreementSnapshot, CARD_PLAN_KIND } from '../_lib/stripeMonthlyCard.js';
 import { STATUS } from '../_lib/gocardlessState.js';
+import { deferredCardCheckoutOptions } from '../_lib/stripeDeferredCardTerms.js';
 import { authorizeMemberAccess } from './payment-plan.js';
 
 const OPEN_AGREEMENT_STATUSES = [
@@ -158,6 +159,9 @@ async function handleGet(req, res, resolvedTenantId) {
       status: agreement.status,
       provider: 'stripe',
       hasSubscription: !!agreement.stripe_subscription_id,
+      scheduled: agreement.status === STATUS.FIRST_PAYMENT_PENDING
+        && !!agreement.stripe_subscription_id
+        && agreement.metadata?.card?.deferred_billing?.first_charge_date > new Date().toISOString().slice(0, 10),
       terms: agreement.metadata?.card || null,
     },
   });
@@ -165,15 +169,24 @@ async function handleGet(req, res, resolvedTenantId) {
 
 async function handlePost(req, res, resolvedTenantId) {
   const { action, memberId } = req.body || {};
-  if (action !== 'start') return res.status(400).json({ error: 'Unknown action' });
+  if (!['start', 'confirm'].includes(action)) return res.status(400).json({ error: 'Unknown action' });
   if (!memberId) return res.status(400).json({ error: 'memberId is required' });
 
   const member = await loadMember(memberId, resolvedTenantId, res, req);
   if (!member) return;
   const tenantId = member.tenant_id;
+  if (action === 'confirm') {
+    const { data: agreement, error } = await supabase.from('membership_billing_agreements')
+      .select('*').eq('tenant_id', tenantId).eq('member_id', member.id).eq('provider', 'stripe')
+      .order('created_at', { ascending: false }).limit(1).maybeSingle();
+    if (error) throw new Error('Could not load card setup');
+    if (!agreement?.stripe_checkout_session_id) return res.json({ confirmed: false });
+    const { reconcileMemberCardCheckout } = await import('../_lib/reconcileMemberCardCheckout.js');
+    return res.json(await reconcileMemberCardCheckout({ agreement, db: supabase }));
+  }
 
   const stripeCredentials = await getStripeCredentials(tenantId, 'membership');
-  if (!stripeCredentials?.secret_key) {
+  if (!stripeCredentials?.secret_key || stripeCredentials.is_enabled === false) {
     return res.status(400).json({ error: 'Card payment is not available for this organisation' });
   }
 
@@ -305,7 +318,8 @@ async function handlePost(req, res, resolvedTenantId) {
     }
   }
   if (isRolling) {
-    if (snapshot.commitment.term_start_date > new Date().toISOString().slice(0, 10)) {
+    if (snapshot.commitment.term_start_date > new Date().toISOString().slice(0, 10)
+        && !snapshot.deferred_billing) {
       return res.status(409).json({ error: `Monthly card payments can begin on ${snapshot.commitment.term_start_date}.`, code: 'rolling_term_not_started' });
     }
     const reservation = await reserveRollingMonthlyRenewal({
@@ -315,6 +329,9 @@ async function handlePost(req, res, resolvedTenantId) {
     });
     reservedAgreement = reservation.agreement;
     snapshot = reservation.snapshot;
+    if (reservedAgreement.status !== STATUS.PAYMENT_SETUP_REQUIRED) {
+      return res.json({ agreementId: reservedAgreement.id, status: reservedAgreement.status, resumed: true });
+    }
     if (reservedAgreement.redirect_url) {
       return res.json({ checkoutUrl: reservedAgreement.redirect_url, agreementId: reservedAgreement.id, resumed: true });
     }
@@ -341,10 +358,15 @@ async function handlePost(req, res, resolvedTenantId) {
   const origin = host ? `${proto}://${host}` : '';
 
   const currency = (snapshot.currency || 'GBP').toLowerCase();
+  const deferredOptions = deferredCardCheckoutOptions(snapshot);
   let session;
   try {
     session = await stripe.checkout.sessions.create({
       mode: 'subscription',
+      ...(snapshot.deferred_billing ? {
+        payment_method_collection: deferredOptions.payment_method_collection,
+        payment_method_types: deferredOptions.payment_method_types,
+      } : {}),
       // Membership dues are not a Managed Payments digital product. Keep this
       // session on the tenant's direct Stripe subscription integration even
       // when Managed Payments is enabled by default on the Stripe account.
@@ -369,6 +391,7 @@ async function handlePost(req, res, resolvedTenantId) {
         tenant_id: tenantId,
         member_id: member.id,
         membership_year: yearLabel || '',
+        ...(reservedAgreement ? { agreement_id: reservedAgreement.id } : {}),
       },
       subscription_data: {
         metadata: {
@@ -378,6 +401,7 @@ async function handlePost(req, res, resolvedTenantId) {
           membership_year: yearLabel || '',
           agreement_key: idempotencyKey,
         },
+        ...deferredOptions.subscription_data,
       },
       success_url: `${origin}/membership/monthly-card/complete?member_id=${member.id}&card=success`,
       cancel_url: `${origin}/membership/monthly-card/cancelled?member_id=${member.id}&card=cancelled`,
