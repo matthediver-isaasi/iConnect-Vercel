@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import cookieSignature from 'cookie-signature';
 import { supabase } from './database.js';
 import { evaluateMemberOrganisationLoginAccess } from './organisationLoginGate.js';
+import { sessionUnavailable, boundedSessionLookup } from './sessionAvailability.js';
 
 const SESSION_SECRET = process.env.SESSION_SECRET || 'iconnect-session-secret-change-in-production';
 
@@ -20,6 +21,10 @@ function generation(value) {
  * a fence remain valid only while the corresponding generation is zero.
  */
 async function getMemberSessionAccessFence(sessionData) {
+  return boundedSessionLookup(() => readMemberSessionAccessFence(sessionData));
+}
+
+async function readMemberSessionAccessFence(sessionData) {
   const access = await evaluateMemberOrganisationLoginAccess({
     supabase,
     memberId: sessionData?.memberId,
@@ -37,12 +42,12 @@ async function getMemberSessionAccessFence(sessionData) {
       .maybeSingle();
     if (memberError) {
       console.error('[Session] Unable to load member session revocation fence:', memberError);
-      return { allowed: false, access, reason: 'MEMBER_SESSION_FENCE_UNAVAILABLE' };
+       throw sessionUnavailable(memberError);
     }
     memberGeneration = generation(memberFence?.generation);
   } catch (error) {
     console.error('[Session] Unable to load member session revocation fence:', error);
-    return { allowed: false, access, reason: 'MEMBER_SESSION_FENCE_UNAVAILABLE' };
+    throw sessionUnavailable(error);
   }
   return {
     allowed: true,
@@ -116,9 +121,13 @@ export function getBearerToken(req) {
 }
 
 export async function getSession(req) {
+  return boundedSessionLookup(() => readSession(req));
+}
+
+async function readSession(req) {
   if (!supabase) {
     console.log('[Session] getSession: No supabase client');
-    return null;
+    throw sessionUnavailable();
   }
   
   const cookies = parse(req.headers.cookie || '');
@@ -157,11 +166,11 @@ export async function getSession(req) {
       .from('session')
       .select('sess, expire')
       .eq('sid', sessionId)
-      .single();
+      .maybeSingle();
     
     if (error) {
       console.log('[Session] getSession: Database error:', error.message);
-      return null;
+      throw sessionUnavailable(error);
     }
     
     if (!data) {
@@ -207,7 +216,7 @@ export async function getSession(req) {
     };
   } catch (err) {
     console.error('[Session] getSession error:', err);
-    return null;
+    throw sessionUnavailable(err);
   }
 }
 
@@ -775,6 +784,10 @@ async function tryPromoteMemberToTenantUser(session, req) {
 const SESSION_NOT_PROVIDED = Symbol('session-not-provided');
 
 export async function getSessionMember(req, existingSession = SESSION_NOT_PROVIDED) {
+  return boundedSessionLookup(() => readSessionMember(req, existingSession));
+}
+
+async function readSessionMember(req, existingSession) {
   // Callers that already authenticated the request can pass that exact
   // session through. This avoids repeating the session row and revocation
   // fence reads while preserving the historical one-argument API.
@@ -795,17 +808,18 @@ export async function getSessionMember(req, existingSession = SESSION_NOT_PROVID
     return null;
   }
   
-  if (!supabase) return null;
+  if (!supabase) throw sessionUnavailable();
   
   try {
     const { data: member, error } = await supabase
       .from('member')
       .select('*, organization:organization_id(tenant_id)')
       .eq('id', session.data.memberId)
-      .single();
+      .maybeSingle();
     
     // If member doesn't exist at all (hard deleted), clean up the stale session
-    if (error || !member) {
+    if (error) throw sessionUnavailable(error);
+    if (!member) {
       console.log('[Session] Member not found in database, cleaning up stale session:', session.data.memberId);
       await supabase.from('session').delete().eq('sid', session.id);
       return null;
@@ -855,11 +869,15 @@ export async function getSessionMember(req, existingSession = SESSION_NOT_PROVID
     return member;
   } catch (err) {
     console.error('Error getting session member:', err);
-    return null;
+    throw sessionUnavailable(err);
   }
 }
 
 export async function getSessionTenantUser(req) {
+  return boundedSessionLookup(() => readSessionTenantUser(req));
+}
+
+async function readSessionTenantUser(req) {
   const session = await getSession(req);
   
   console.log('[Session] getSessionTenantUser called, session data:', JSON.stringify({
@@ -941,7 +959,7 @@ export async function getSessionTenantUser(req) {
     return null;
   }
   
-  if (!supabase) return null;
+  if (!supabase) throw sessionUnavailable();
   
   try {
     // First, try unified identity system (tenant_identity + tenant_membership)
@@ -953,7 +971,8 @@ export async function getSessionTenantUser(req) {
         .from('tenant_identity')
         .select('*')
         .eq('id', identityId)
-        .single();
+        .maybeSingle();
+      if (identityError) throw sessionUnavailable(identityError);
       
       if (identity) {
         // Found in unified identity system - verify membership.
@@ -979,7 +998,7 @@ export async function getSessionTenantUser(req) {
           // session, so the next request can recover instead of forcing a full
           // re-authentication.
           console.warn('[Session] tenant_membership lookup error, not deleting session:', membershipError.message);
-          return null;
+          throw sessionUnavailable(membershipError);
         }
 
         const memberships = membershipRows || [];
@@ -1049,9 +1068,10 @@ export async function getSessionTenantUser(req) {
       .select('*, tenant:tenant_id(*)')
       .eq('id', session.data.tenantUserId)
       .eq('tenant_id', session.data.tenantId) // SECURITY: Verify tenant match
-      .single();
+      .maybeSingle();
     
-    if (error || !tenantUser) {
+    if (error) throw sessionUnavailable(error);
+    if (!tenantUser) {
       // Reject THIS request but never delete the session — an admin-access miss
       // (e.g. a member-only tenant selection) must not poison the cookie and
       // 401 every subsequent request. Genuine logout still deletes via destroySession.
@@ -1092,7 +1112,7 @@ export async function getSessionTenantUser(req) {
     return tenantUser;
   } catch (err) {
     console.error('Error getting session tenant user:', err);
-    return null;
+    throw sessionUnavailable(err);
   }
 }
 

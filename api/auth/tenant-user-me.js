@@ -1,4 +1,5 @@
 import { getSessionTenantUser } from '../_lib/session.js';
+import { sendSessionUnavailable } from '../_lib/sessionAvailability.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -44,6 +45,7 @@ export default async function handler(req, res) {
       } : null
     });
   } catch (error) {
+    if (sendSessionUnavailable(res, error)) return;
     console.error('[Tenant Auth] Me error:', error);
     res.status(500).json({ error: 'Failed to get session' });
   }

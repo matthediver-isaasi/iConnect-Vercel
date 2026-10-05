@@ -7,7 +7,7 @@ export default function PortalReadiness({ ready, error, onRetry, retryLabel = 'T
     <>
       {ready && recovering && (
         <div role="status" aria-live="polite" className="fixed top-3 left-1/2 -translate-x-1/2 z-50 rounded border bg-background px-4 py-2 shadow-sm">
-          {offline ? 'You are offline. Your page is saved here while we reconnect.' : 'Reconnecting to your session…'}
+          {offline ? 'You are offline. Unsaved changes remain in this tab; they have not been saved to the server.' : 'Reconnecting to your session…'}
         </div>
       )}
       {!ready && (

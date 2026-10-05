@@ -66,6 +66,19 @@ const request = {
   query: { memberId: 'member-b', tenant: 'tenant-b' },
 };
 
+test('lookup outage is 503, never an authoritative guest response', async () => {
+  const { SessionUnavailableError } = await import('../_lib/sessionAvailability.js');
+  const res = response();
+  let memberReads = 0;
+  await handler(request, res, {
+    readSession: async () => { throw new SessionUnavailableError(); },
+    readMember: async () => { memberReads++; },
+  });
+  assert.equal(res.statusCode, 503);
+  assert.equal(res.body.code, 'SESSION_UNAVAILABLE');
+  assert.equal(memberReads, 0);
+});
+
 test('auth/me returns one full, tenant-bound session role read', async () => {
   const role = {
     id: 'role-a',

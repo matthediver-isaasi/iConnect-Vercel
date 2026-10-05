@@ -125,6 +125,7 @@ async function installFixture(page) {
     allowGuestActions: false,
     unexpected: [],
     external: [],
+    protectedStatus: 200,
     setAuth({ status = 200, body = sessionBody(), hold = false, abort = false } = {}) {
       state.authStatus = status;
       state.authAbort = abort;
@@ -177,6 +178,14 @@ async function installFixture(page) {
     }
 
     const key = `${method} ${url.pathname}${url.search}`;
+    if (url.pathname === '/api/entities/SessionContinuityProbe') {
+      return route.fulfill({
+        status: state.protectedStatus,
+        contentType: 'application/json',
+        headers: state.protectedStatus === 401 ? { 'X-Session-Status': 'invalid' } : {},
+        body: JSON.stringify({ error: 'Fixture response; no write performed' }),
+      });
+    }
     if (state.allowGuestActions && method === "POST"
       && ["/api/functions/createJobPostingNonMember", "/api/functions/getStripePublishableKey",
         "/api/functions/createJobPostingPaymentIntent"].includes(url.pathname)) {
@@ -259,6 +268,9 @@ async function installFixture(page) {
     if (url.pathname === "/api/public/portal-branding") {
       return json(route, { tenantName: TENANT.name, homePageSlug: "session-boundary" });
     }
+    if (url.pathname === "/api/public/microsites") {
+      return json(route, { microsites: [{ id: 'microsite-fixture', path_prefix: 'continuity-micro', name: 'Continuity microsite', is_active: true }] });
+    }
     if (url.pathname === "/api/public/system-settings"
       || url.pathname === "/api/entities/SystemSettings"
       || url.pathname === "/api/entities/RoleAccessItem"
@@ -300,6 +312,56 @@ function expectReadOnlyClean(state) {
   expect(state.unexpected).toEqual([]);
   expect(state.external).toEqual([]);
 }
+
+for (const path of ['session-boundary', 'session-boundary-public', 'continuity-micro/session-boundary-public']) {
+  const slug = path.split('/').pop();
+  test(`display continuity without polling: ${path}`, async ({ page }) => {
+    const state = await installFixture(page);
+    await page.clock.install();
+    await page.goto(`/${path}`);
+    await expect(page.getByText(`Session boundary content: ${slug}`, { exact: true })).toBeVisible();
+    const reads = state.authReads;
+    await page.evaluate(() => {
+      const control = document.createElement('input');
+      control.id = 'continuity-control';
+      control.value = 'unsaved draft';
+      document.querySelector('main')?.append(control);
+      window.continuityControl = control;
+    });
+    state.setAuth({ hold: true });
+    await page.clock.fastForward(24 * 60 * 60 * 1000);
+    for (let i = 0; i < 3; i++) {
+      await page.evaluate(() => {
+        dispatchEvent(new Event('focus'));
+        dispatchEvent(new Event('offline'));
+        dispatchEvent(new Event('online'));
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      await page.clock.fastForward(11_000);
+    }
+    expect(state.authReads).toBe(reads);
+    await expect(page.getByText(`Session boundary content: ${slug}`, { exact: true })).toBeVisible();
+    expect(await page.evaluate(() => window.continuityControl === document.querySelector('#continuity-control')
+      && window.continuityControl.value === 'unsaved draft')).toBe(true);
+    expectReadOnlyClean(state);
+  });
+}
+
+test('protected responses preserve drafts on outages and feature denial, but revoke on confirmed session rejection', async ({ page }) => {
+  const state = await installFixture(page);
+  await page.goto('/session-boundary');
+  await expect(page.getByText('Session boundary content: session-boundary', { exact: true })).toBeVisible();
+  const input = await prepareRetentionState(page, 'not saved');
+  for (const status of [503, 403, 503, 200]) {
+    state.protectedStatus = status;
+    expect(await page.evaluate(async () => (await fetch('/api/entities/SessionContinuityProbe', { method: 'POST' })).status)).toBe(status);
+    await expectRetentionState(page, input, 'not saved', 120);
+  }
+  state.protectedStatus = 401;
+  await page.evaluate(() => fetch('/api/entities/SessionContinuityProbe').catch(() => {}));
+  await expect(input).not.toBeVisible();
+  expectReadOnlyClean(state);
+});
 
 test("slow /portal discovery and history navigation retain the actual shell and sidebar state", async ({ page }) => {
   const state = await installFixture(page);
@@ -421,6 +483,10 @@ async function expectRetentionState(page, input, value, scrollTop) {
   }))).toEqual({ sameInput: true, connected: true, scrollTop });
 }
 
+// Historical baseline assertions intentionally run only against the pre-change
+// commit. The active continuity cases above replace the retired timer policy.
+test.describe('retired bounded polling baseline', () => {
+test.skip(process.env.SESSION_POLLING_BASELINE !== '1', 'Polling and ten-second display retention were deliberately removed.');
 test("slow five-minute timer revalidation keeps the active portal route mounted and interactive", async ({ page }) => {
   await page.clock.install({ time: new Date("2026-01-01T00:00:00Z") });
   const state = await installFixture(page);
@@ -726,6 +792,8 @@ test(`offline return ${early ? "reconnects before" : "blocks at"} ten seconds an
 });
 }
 
+});
+
 test("cold guest public actions reach transport after authoritative null session", async ({ page }) => {
   const state = await installFixture(page);
   state.setAuth({ body: null });
@@ -745,13 +813,15 @@ test("cold guest public actions reach transport after authoritative null session
 });
 
 for (const status of [200, 401, 403]) {
-  test(`confirmed invalid session (${status}) cancels recovery immediately`, async ({ page }) => {
+  test(`explicit invalidation resolves confirmed invalid session (${status})`, async ({ page }) => {
     await page.clock.install({ time: new Date("2026-01-01T00:00:00Z") });
     const state = await installFixture(page);
     await page.goto("/session-boundary");
     await expect(page.getByText("Session boundary content: session-boundary", { exact: true })).toBeVisible();
     state.setAuth({ status, body: null });
-    await page.clock.fastForward(FIVE_MINUTES);
+    await page.evaluate(() => dispatchEvent(new StorageEvent('storage', {
+      key: 'agcas_member', oldValue: localStorage.getItem('agcas_member'), newValue: null,
+    })));
     await expect.poll(() => state.authReads).toBe(2);
     await expect(page.getByText("Session boundary content: session-boundary", { exact: true })).toBeHidden();
     await page.clock.runFor(10_000);

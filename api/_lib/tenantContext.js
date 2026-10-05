@@ -287,6 +287,7 @@ export async function getTenantContext(req) {
       }
     }
   } catch (err) {
+    if (err?.code === 'SESSION_UNAVAILABLE') throw err;
     // Mismatch check must never break normal request handling
     console.warn('[TenantContext] Mismatch guard error (skipped):', err.message);
   }

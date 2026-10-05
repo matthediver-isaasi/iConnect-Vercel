@@ -1,5 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
+import { sendSessionUnavailable } from '../_lib/sessionAvailability.js';
 import { getZoomAccessTokenForTenant } from '../_lib/zoomClient.js';
 import { recomputeComplexEventDates } from '../_lib/complexEventDateSync.js';
 import { fromZonedTime, formatInTimeZone } from 'date-fns-tz';
@@ -167,9 +168,19 @@ export default async function handler(req, res) {
     return res.status(503).json({ error: 'Supabase not configured' });
   }
 
-  const tenantCtx = await getTenantContext(req);
+  let tenantCtx;
+  try {
+    tenantCtx = await getTenantContext(req);
+  } catch (error) {
+    if (sendSessionUnavailable(res, error)) return;
+    throw error;
+  }
+  if (tenantCtx?.tenantMismatch) {
+    return res.status(409).json({ code: 'TENANT_CONTEXT_CHANGED', error: 'Reload this tab after switching organisation.' });
+  }
   if (!tenantCtx?.isAuthenticated || !tenantCtx?.tenantId) {
-    return res.status(403).json({ error: 'Authentication required' });
+    res.setHeader('X-Session-Status', 'invalid');
+    return res.status(401).json({ code: 'SESSION_INVALID', error: 'Authentication required' });
   }
   const tenantId = tenantCtx.tenantId;
 

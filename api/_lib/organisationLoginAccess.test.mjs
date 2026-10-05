@@ -114,13 +114,11 @@ test('gate and revocation-state read failures do not silently allow member acces
       return query;
     },
   };
-  const result = await evaluateOrganisationLoginGate({
+  await assert.rejects(evaluateOrganisationLoginGate({
     supabase: unavailable, tenantId: TENANT, organizationId: 'org-1',
-  });
-  assert.equal(result.blocked, true);
-  assert.equal(result.reason, 'GATE_CONFIGURATION_INVALID');
+  }), error => error.code === 'SESSION_UNAVAILABLE');
   const sessionSource = fs.readFileSync(new URL('./session.js', import.meta.url), 'utf8');
-  assert.match(sessionSource, /MEMBER_SESSION_FENCE_UNAVAILABLE/);
+  assert.match(sessionSource, /throw sessionUnavailable\(memberError\)/);
 });
 
 test('durable member generations fence pre-block sessions after restore and targeted gate transitions', () => {

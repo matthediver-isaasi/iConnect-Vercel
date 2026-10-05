@@ -1,4 +1,5 @@
 import { supabase as defaultSupabase } from './database.js';
+import { sessionUnavailable } from './sessionAvailability.js';
 
 export const DEFAULT_GATE_BLOCKED_MESSAGE =
   'Login is not currently available for your organisation. Please contact your administrator.';
@@ -66,7 +67,7 @@ export async function loadOrganisationLoginGate({ supabase = defaultSupabase, te
     // A lookup failure must never silently bypass a configured organisation
     // restriction. This result is only consumed for member-derived access;
     // standalone tenant/platform administration remains outside this gate.
-    return { enabled: true, invalid: true };
+    throw sessionUnavailable(error);
   }
   if (!data?.setting_value) return null;
   try {
@@ -118,11 +119,12 @@ export async function evaluateOrganisationLoginGate({
     if (!ALLOWED_CORE_FIELDS.has(gate.fieldKey)) {
       return { blocked: true, message, gate, reason: 'GATE_CONFIGURATION_INVALID' };
     }
-    const { data: org } = await supabase
+    const { data: org, error } = await supabase
       .from('organization')
       .select(`id, tenant_id, ${gate.fieldKey}`)
       .eq('id', organizationId)
       .maybeSingle();
+    if (error) throw sessionUnavailable(error);
     if (!org || (tenantId && org.tenant_id !== tenantId)) {
       return { blocked: true, message, gate, reason: 'GATE_ORGANIZATION_UNRESOLVED' };
     }
@@ -136,7 +138,7 @@ export async function evaluateOrganisationLoginGate({
       .eq('field_id', gate.fieldKey)
       .maybeSingle();
     if (preferenceError) {
-      return { blocked: true, message, gate, reason: 'GATE_VALUE_UNRESOLVED' };
+      throw sessionUnavailable(preferenceError);
     }
     if (!pref) {
       actualValues = [];
@@ -194,7 +196,8 @@ export async function evaluateEffectiveOrganisationLoginAccess({
         organizationGeneration: 0,
       };
     }
-    if (error || !data || (tenantId && data.tenant_id !== tenantId)) {
+    if (error) throw sessionUnavailable(error);
+    if (!data || (tenantId && data.tenant_id !== tenantId)) {
       return {
         manualBlocked: false,
         gateBlocked: true,
@@ -247,7 +250,8 @@ export async function evaluateMemberOrganisationLoginAccess({
       .select('id, tenant_id, organization_id')
       .eq('id', memberId)
       .maybeSingle();
-    if (error || !data) {
+    if (error) throw sessionUnavailable(error);
+    if (!data) {
       return {
         blocked: true,
         causes: ['member_unresolved'],
@@ -267,7 +271,8 @@ export async function evaluateMemberOrganisationLoginAccess({
       .select('tenant_id')
       .eq('id', member.organization_id)
       .maybeSingle();
-    if (error || !organization?.tenant_id) {
+    if (error) throw sessionUnavailable(error);
+    if (!organization?.tenant_id) {
       return { blocked: true, causes: ['organization_unresolved'], message: DEFAULT_GATE_BLOCKED_MESSAGE };
     }
     effectiveTenantId = organization.tenant_id;

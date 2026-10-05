@@ -21,10 +21,10 @@ import {
   mayStartViewerSessionRecovery,
   VIEWER_SESSION_RETENTION_MS,
   VIEWER_SESSION_RECOVERY_COOLDOWN_MS,
-  useViewerSessionRevalidation,
 } from "@/lib/viewerSessionLifecycle";
 import {
   installViewerProtectedWorkGate,
+  invalidateViewerProtectedWork,
   setViewerProtectedWorkPaused,
   fetchViewerSessionRole,
   viewerSessionFailureRetainsWorkPause,
@@ -1126,6 +1126,7 @@ export default function Layout({ children, currentPageName, authenticationOnly =
   const recoveryCooldownRef = useRef(0);
   const { setSessionWorkPaused } = useLayoutContext();
   const pauseSessionWork = React.useCallback(value => {
+    if (value) invalidateViewerProtectedWork();
     setViewerProtectedWorkPaused(value);
     setSessionWorkPaused(value);
   }, [setSessionWorkPaused]);
@@ -1142,6 +1143,7 @@ export default function Layout({ children, currentPageName, authenticationOnly =
   const { memberRole, roleStatus, roleError, retryRole } = useSessionMemberRole();
 
   const retrySessionRoleValidation = React.useCallback(() => {
+    invalidateViewerProtectedWork();
     routineRevalidationRef.current = false;
     routineRevalidationInFlightRef.current = false;
     authGenerationRef.current += 1;
@@ -1193,6 +1195,29 @@ export default function Layout({ children, currentPageName, authenticationOnly =
   }, [sessionError, memberInfo, revalidateViewerSession]);
 
   const queryClient = useQueryClient();
+  useEffect(() => {
+    const rejectSession = () => {
+      authGenerationRef.current += 1;
+      invalidateViewerSessionRequest(viewerSessionScope);
+      pauseSessionWork(true);
+      setSessionValidated(false);
+      setAuthResolved(true);
+      setSessionError(null);
+      setMemberInfo(null);
+      setOrganizationInfo(null);
+      setContextMemberInfo(null);
+      localStorage.removeItem('agcas_member');
+      localStorage.removeItem('agcas_organization');
+      void queryClient.cancelQueries();
+      queryClient.clear();
+      // This is now a confirmed guest, not an unavailable retained member.
+      // Permit public/mixed guest flows; the invalidation epoch still fences
+      // all requests started under the rejected identity.
+      pauseSessionWork(false);
+    };
+    window.addEventListener('viewer-session-rejected', rejectSession);
+    return () => window.removeEventListener('viewer-session-rejected', rejectSession);
+  }, [queryClient, viewerSessionScope, pauseSessionWork, setSessionValidated, setAuthResolved, setContextMemberInfo]);
   useEffect(() => subscribeRoleSettingsCopy(() => {
     // Access lives both in React Query and in the trusted /auth/me projection.
     // Broad invalidation includes dynamic field-permission/category query keys.
@@ -2040,7 +2065,7 @@ useEffect(() => {
       if (isCancelled()) return;
       setSessionRecoveryBlocked(true);
       pauseSessionWork(true);
-      setSessionError(new Error('Unable to verify your session. Your page is saved here; reconnect or retry.'));
+      setSessionError(new Error('Unable to verify your session. Unsaved changes remain in this tab; reconnect or retry.'));
     };
     if (isRoutineRevalidation) {
       const remaining = retentionDeadlineRef.current - Date.now();
@@ -2218,7 +2243,7 @@ useEffect(() => {
       // below are made by a separate effect only after visibility has resolved.
       setSessionError(!sessionResult.valid && !sessionResult.serverResponded
         ? new Error(isRoutineRevalidation
-          ? 'Unable to verify your session. Your page is saved here; reconnect or retry.'
+          ? 'Unable to verify your session. Unsaved changes remain in this tab; reconnect or retry.'
           : 'Unable to verify your session. Please try again.')
         : null);
       if (!sessionResult.valid) {
@@ -2259,12 +2284,10 @@ useEffect(() => {
     };
   }, [authRevision, viewerSessionScope]); // Routes and visibility metadata are not session boundaries.
 
-  useViewerSessionRevalidation({
-    enabled: authResolved && sessionValidated && !sessionError && !sessionRecovering
-      && !routineRevalidationInFlightRef.current,
-    validatedAt: sessionValidatedAt,
-    onRevalidate: revalidateViewerSession,
-  });
+  // Elapsed time, focus and connectivity are not authentication boundaries.
+  // Keep validated controls mounted until explicit invalidation or a protected
+  // API response establishes loss of session authority. Server checks still
+  // run for every protected operation; this does not extend session lifetime.
 
   useEffect(() => {
     if (!authResolved || sessionValidated || sessionError

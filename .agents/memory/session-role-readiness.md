@@ -39,17 +39,17 @@ Browser fixtures that authenticate a member must also supply a valid tenant-matc
 
 **How to apply:** Model the intended member capability explicitly in fixture role responses; do not bypass guards or promote the fixture to an administrator merely to recover an older test.
 
-Route readiness and session lifetime are separate boundaries. A pathname change must not invalidate a trusted session; keeping it across navigation requires bounded revalidation and explicit identity/auth invalidation.
+Route readiness and session lifetime are separate boundaries. A pathname change must not invalidate a trusted session. Explicit identity/auth invalidation remains required.
 
-**Why:** Route-scoped authentication cleared trusted roles on every navigation and repeatedly replaced the entire portal with its loading state. Reusing permissions indefinitely would fix the visual symptom by weakening revocation handling.
+**Why:** Route-scoped authentication cleared trusted roles on every navigation and repeatedly replaced the entire portal with its loading state. Browser projections never authorize server operations.
 
 **How to apply:** Scope session discovery to the tenant and authentication generation, fence old responses, and test ordinary navigation separately from expiry, explicit invalidation, and account changes. Route decision leases still expire on navigation and must never carry public/blank/microsite chrome into another destination.
 
-Routine session checks must retain the current validated page while their bounded request is pending; they are not deliberate security invalidations.
+Established pages must not poll session authority or hide on an elapsed display-retention deadline.
 
-**Why:** Clearing readiness for every five-minute or overdue focus check hides the whole portal and can discard page state. Removing checks or indefinitely trusting cached permissions would instead weaken revocation handling.
+**Why:** The user explicitly chose display continuity until protected-request rejection or explicit invalidation, replacing the previous five-minute polling and ten-second retention policy.
 
-**How to apply:** Coalesce timer/focus/visibility triggers, retain access only during the bounded attempt, and fail closed recoverably on timeout or network failure. Apply authoritative roles on success even when the role ID has not changed. Keep logout, identity changes and explicit permission invalidation blocking and fence late responses.
+**How to apply:** Preserve displayed content and unsaved nodes through idle/focus/offline events. Keep server authorization, normal session expiry, independent stale-tenant-tab protection, logout, identity changes and explicit permission invalidation. Infrastructure lookup failures deny work without claiming logout or durable saving. Fence late API responses.
 
 Successful background checks need retention assertions after completion as well as while pending.
 
@@ -61,31 +61,17 @@ Equivalent legacy snapshots are not evidence that permissions remain unchanged.
 
 **Why:** A legacy auth response omits the role projection; preserving its session key with an infinitely fresh fallback query can retain revoked permissions indefinitely.
 
-**How to apply:** Resolve legacy permissions afresh within the routine check's bounded budget before comparing authoritative projections. Never use equality of legacy metadata to suppress role revalidation.
+**How to apply:** Resolve legacy permissions afresh on explicit verification. Never use equality of legacy metadata to suppress explicit role invalidation.
 
-Routine transport recovery must preserve view state separately from permission to
-start protected work, and retries must share the original retention deadline.
+Transient failures must preserve established view state, and failed mutations must never be automatically replayed.
 
-**Why:** Making a retained Canvas page observe a guest transition destroys its
-live controls; treating the retained view as renewed authorization instead lets
-cached grants survive a failed check. Resetting the deadline on each retry has
-the same security failure.
+**Why:** Making a retained Canvas page observe a guest transition destroys its live controls. Server-side authorization, not a cached browser role, determines whether work is permitted.
 
-**How to apply:** Keep same-identity view state only behind the readiness boundary
-after the deadline, reject new protected requests without queuing mutations, and
-restore interaction only after fresh authoritative verification. Offline expiry
-must establish that deadline even though it cannot start a network request.
-Always distinguish fixture verification from a confirmed production cause.
+**How to apply:** Reject failed work without clearing identity on an infrastructure error. Only confirmed session-specific rejection clears authority; a feature denial does not. Always distinguish fixture verification from a confirmed production cause.
 
-Recovery request gates must not turn confirmed guests into permanently blocked
-viewers, and online/visible events must wake recovery within its current deadline.
+Recovery request gates must not turn confirmed guests into permanently blocked viewers.
 
 **Why:** Public job and booking flows share the functions transport with member
-operations. A blanket pause after a cold null session blocks legitimate guest
-actions. Waiting until a deadline without observing early connectivity events can
-strand an already-online user behind the recovery screen.
+operations. A blanket pause after a cold null session blocks legitimate guest actions.
 
-**How to apply:** Test cold guest public actions and early reconnect transitions,
-not only signed-in failures and reconnects after the deadline. Keep mixed-access
-operations blocked for retained members while allowing normal confirmed-guest
-flows under server authorization.
+**How to apply:** Test cold guest public actions separately from signed-in failures. Keep confirmed-guest flows working under server authorization.

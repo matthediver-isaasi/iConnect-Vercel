@@ -1,4 +1,5 @@
 import { sendEmail, replacePlaceholders } from '../../_lib/emailService.js';
+import { sendSessionUnavailable } from '../../_lib/sessionAvailability.js';
 import { withoutEnhancedSurveyAnswers } from '../../_lib/surveyCompletionOutputs.js';
 import { validateAnonymousCompletionConfiguration } from '../../../shared/surveyCompletionPolicy.js';
 import { validateTicketRelease } from '../../../shared/ticketRelease.js';
@@ -442,7 +443,17 @@ export default async function handler(req, res) {
   }
 
   // Get tenant context from session
-  const tenantCtx = await getTenantContext(req);
+  let tenantCtx;
+  try {
+    tenantCtx = await getTenantContext(req);
+  } catch (error) {
+    if (sendSessionUnavailable(res, error)) return;
+    throw error;
+  }
+  if (!tenantCtx.isAuthenticated) {
+    // Only protected consumers interpret this header; public responses do not.
+    res.setHeader('X-Session-Status', 'invalid');
+  }
 
   // Gallery configuration and files change who can view private media. This
   // is a server authorization boundary, not a client page/role-map concern.

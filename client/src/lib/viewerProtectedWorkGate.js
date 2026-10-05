@@ -3,11 +3,38 @@
 let paused = false;
 let generation = 0;
 let originalFetch;
+let rejectionCheck;
 
 export function setViewerProtectedWorkPaused(value) {
   if (paused === value) return;
   paused = value;
   generation += 1;
+}
+
+export function invalidateViewerProtectedWork() {
+  generation += 1;
+  rejectionCheck = undefined;
+}
+
+async function confirmsRejectedSession(fetchImpl, epoch) {
+  if (rejectionCheck?.epoch === epoch) return rejectionCheck.promise;
+  const promise = (async () => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2500);
+    try {
+      const response = await fetchImpl('/api/auth/me', {
+        credentials: 'include', cache: 'no-store', signal: controller.signal,
+      });
+      return response.ok && await response.json() === null;
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(timeout);
+    }
+  })();
+  rejectionCheck = { epoch, promise };
+  try { return await promise; }
+  finally { if (rejectionCheck?.promise === promise) rejectionCheck = undefined; }
 }
 
 function pausedError() {
@@ -51,6 +78,18 @@ export function installViewerProtectedWorkGate(target = window) {
     const epoch = generation;
     const response = await fetchImpl.call(target, input, options);
     if (protectedRequest && (paused || epoch !== generation)) throw pausedError();
+    // 403 alone can mean a feature denial. Only session-specific evidence
+    // invalidates identity, and never a late response from a previous epoch.
+    if (protectedRequest && [401, 403].includes(response.status)) {
+      const rejected = response.headers?.get('X-Session-Status') === 'invalid'
+        || (response.status === 401 && await confirmsRejectedSession(originalFetch, epoch));
+      if (epoch !== generation || paused) throw pausedError();
+      if (rejected) {
+        invalidateViewerProtectedWork();
+        target.dispatchEvent?.(new Event('viewer-session-rejected'));
+        throw pausedError();
+      }
+    }
     if (protectedRequest) {
       // Parsing can outlive fetch resolution too; fence the value before a
       // query/mutation consumer can publish it into the retained page.

@@ -137,3 +137,65 @@ test('body parsing cannot publish protected data after readiness closes', async 
     cleanup();
   }
 });
+
+test('temporary failures and permission denials neither log out nor replay a mutation', async () => {
+  for (const status of [403, 503]) {
+    let calls = 0;
+    let rejected = 0;
+    const target = {
+      location: { origin: 'https://portal.example' },
+      fetch: async () => { calls++; return new Response('{}', { status }); },
+      dispatchEvent: () => { rejected++; },
+    };
+    const cleanup = installViewerProtectedWorkGate(target);
+    try {
+      assert.equal((await target.fetch('/api/entities/Booking', { method: 'POST' })).status, status);
+      assert.equal(calls, 1);
+      assert.equal(rejected, 0);
+    } finally { cleanup(); }
+  }
+});
+
+test('unmarked 401 confirms session absence without treating an outage or permission-only response as logout', async () => {
+  for (const body of [{ id: 'valid-member' }, null, 'unavailable']) {
+    let rejected = 0;
+    let mutations = 0;
+    const target = {
+      location: { origin: 'https://portal.example' },
+      fetch: async url => {
+        if (url === '/api/auth/me') return new Response(JSON.stringify(body), { status: body === 'unavailable' ? 503 : 200 });
+        mutations++;
+        return new Response('{}', { status: 401 });
+      },
+      dispatchEvent: () => { rejected++; },
+    };
+    const cleanup = installViewerProtectedWorkGate(target);
+    try {
+      const request = target.fetch('/api/functions/book', { method: 'POST' });
+      if (body === null) await assert.rejects(request);
+      else assert.equal((await request).status, 401);
+      assert.equal(rejected, body === null ? 1 : 0);
+      assert.equal(mutations, 1);
+    } finally { cleanup(); }
+  }
+});
+
+test('confirmed rejection invalidates once and fences earlier responses', async () => {
+  let finish;
+  let rejected = 0;
+  const target = {
+    location: { origin: 'https://portal.example' },
+    fetch: async url => url.endsWith('/slow')
+      ? new Promise(resolve => { finish = resolve; })
+      : new Response('{}', { status: 401, headers: { 'X-Session-Status': 'invalid' } }),
+    dispatchEvent: () => { rejected++; },
+  };
+  const cleanup = installViewerProtectedWorkGate(target);
+  try {
+    const slow = target.fetch('/api/slow');
+    await assert.rejects(target.fetch('/api/entities/Booking'));
+    finish(new Response('{}'));
+    await assert.rejects(slow);
+    assert.equal(rejected, 1);
+  } finally { cleanup(); }
+});

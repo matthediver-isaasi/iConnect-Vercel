@@ -1,5 +1,9 @@
 # Dormant session recovery verification
 
+Historical policy: superseded by [session display continuity](session-display-continuity-release.md).
+The ten-second retention and periodic checks described below are no longer the
+established viewer policy; retain this document as baseline context only.
+
 ## Failure classification
 
 Source inspection establishes the old client failure path, not the cause of a

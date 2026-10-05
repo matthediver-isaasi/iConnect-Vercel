@@ -3,6 +3,7 @@ import { isResourceExcluded } from '../_lib/roleVisibility.js';
 import { supabase } from '../_lib/database.js';
 import { resolveTenantFromHost, getHostFromRequest } from '../_lib/tenantResolver.js';
 import { loadCanvasMemberSnapshot } from '../_lib/canvasMemberValues.js';
+import { sendSessionUnavailable } from '../_lib/sessionAvailability.js';
 
 async function loadSessionRole(db, member) {
   const snapshot = {
@@ -164,6 +165,7 @@ export default async function handler(req, res, {
 
     return res.json({ ...member, sessionRole, isAdmin, canEditMembers, canManageCommunications, hasTenantUserLink, isMasquerading, masqueradeAdminName, tenantSlug, tenantDomain, canvasMemberSnapshot });
   } catch (error) {
+    if (sendSessionUnavailable(res, error)) return;
     console.error('Auth me error:', error);
     return res.status(500).json({ error: 'Failed to get user' });
   }
