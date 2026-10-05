@@ -87,6 +87,7 @@
 - [Stripe membership invoice addresses](stripe-membership-invoice-addresses.md) — Stripe form memberships invoice only from immutable payment-time snapshots; missing snapshots fail closed.
 - [Annual membership renewal lifecycle](annual-membership-renewal-lifecycle.md) — annual policy is a dated tier snapshot; next terms always start the day after the prior persisted end, while monthly agreements stay separate.
 - [Renewal tenant rollout](renewal-tenant-rollout.md) — BNMS-first activation must be tenant-specific; legacy historical authority remains separate from rollout readiness.
+- [Renewal payment-method choice](renewal-payment-method-choice.md) — opening Stripe checkout must not lock members into card payment; switching requires provider reconciliation.
 - [Organisation admin invoicing](organisation-admin-renewal-boundary.md) — organisation administrative invoicing is independent of individual renewal grace; preserve commitments and financial guards.
 - [Editor query lifecycles](editor-query-lifecycle-index.md) — discovery/save-first, pending queries, stable fallbacks, and saved-metadata reconciliation.
 - [Automatic-group source invalidation](automatic-group-source-invalidation.md) — source writes must generation-fence workers; custom values need direct statement triggers to avoid per-row churn.
