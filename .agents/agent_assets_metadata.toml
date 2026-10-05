@@ -1139,3 +1139,17 @@ mtime_ms = 1791135086892
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/800d34ae-9571-41b4-915d-e9ca2c0fac27/29d707bb-8ceb-419c-a9de-702607450173"
 storage_version_token = "1791135092979069"
 content_type = "text/csv"
+
+[[outputs]]
+id = "I6oz-JzXbmKabYtrhjzBG"
+uri = "file://exports/bnms-members-without-rbac-role-2026-10-05.csv"
+type = "table"
+title = "BNMS members without an RBAC role"
+description = "Complete list of 100 members with no role assigned, including name, email, status and member ID. Checked against live DEST records on 5 October 2026."
+logical_id = "cad347fc-70c0-4051-ae04-202bc89202f6"
+content_hash = "sha256:c05d2d6aa1e8e1a5fad585fc4a2f43c86c5893326f6278a5e2f1ff1fba832b42"
+size = 10111
+mtime_ms = 1791186943458
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/cad347fc-70c0-4051-ae04-202bc89202f6/0c058875-ca7b-4f94-9138-ef2732855f97"
+storage_version_token = "1791186948855327"
+content_type = "text/csv"
