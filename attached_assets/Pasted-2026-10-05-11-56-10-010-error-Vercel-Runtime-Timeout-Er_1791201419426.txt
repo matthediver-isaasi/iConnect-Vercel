@@ -1,0 +1,25 @@
+2026-10-05 11:56:10.010 [error] Vercel Runtime Timeout Error: Task timed out after 60 seconds
+2026-10-05 11:55:10.010 [info] [TenantResolver] resolveTenantFromRequest called
+2026-10-05 11:55:10.010 [info] [TenantResolver] Params - tenant: undefined domain: undefined
+2026-10-05 11:55:10.010 [info] [TenantResolver] Falling back to host-based resolution, hostname: bnms.dev.iconn.app
+2026-10-05 11:55:10.011 [info] [TenantResolver] resolveTenantFromHost called with: bnms.dev.iconn.app
+2026-10-05 11:55:10.011 [info] [TenantResolver] Cache hit for: bnms.dev.iconn.app
+2026-10-05 11:55:10.011 [info] [Session] getSession: Looking up session: 94199517 (cookie)
+2026-10-05 11:55:10.583 [info] [Session] getSession: Session found, userType: member
+2026-10-05 11:55:10.583 [info] [TenantContext] About to call getSessionTenantUser
+2026-10-05 11:55:10.583 [info] [Session] getSession: Looking up session: 94199517 (cookie)
+2026-10-05 11:55:11.159 [info] [Session] getSession: Session found, userType: member
+2026-10-05 11:55:11.159 [info] [Session] getSessionTenantUser called, session data: {"hasSession":true,"sessionId":"94199517","userType":"member","memberId":"3d291826-13d8-4fc1-9221-7627fc45830a","identityId":"dc156a30-ae8d-4aee-b965-b54fe4b17105","tenantId":"ff2df806-b321-4254-b651-3af11fccf1db"}
+2026-10-05 11:55:11.159 [info] [Session] Found member session with identityId, attempting promotion
+2026-10-05 11:55:11.394 [info] [Session] No tenant_user record found for identity promotion
+2026-10-05 11:55:11.394 [info] [Session] Member session promotion failed
+2026-10-05 11:55:11.394 [info] [TenantContext] getSessionTenantUser returned: null
+2026-10-05 11:55:11.394 [info] [TenantContext] Checking for member session...
+2026-10-05 11:55:11.394 [info] [Session] getSession: Looking up session: 94199517 (cookie)
+2026-10-05 11:55:11.958 [info] [Session] getSession: Session found, userType: member
+2026-10-05 11:55:11.958 [info] [Session] getSessionMember called, session data: {"hasSession":true,"sessionId":"94199517","userType":"member","memberId":"3d291826-13d8-4fc1-9221-7627fc45830a"}
+2026-10-05 11:55:12.071 [info] [TenantContext] Member found: {
+  memberId: '3d291826-13d8-4fc1-9221-7627fc45830a',
+  organizationId: 'efa4d302-9ceb-4085-9e38-8510c16d8206'
+}
+2026-10-05 11:55:12.071 [info] [TenantContext] Tenant from member: ff2df806-b321-4254-b651-3af11fccf1db
