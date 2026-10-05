@@ -154,3 +154,4 @@
 - [Event invoice recovery](event-invoice-recovery-authority.md) — immutable checkout evidence, provider-ID reconciliation, payment ownership and completed-sweep health.
 - [Shared accounting request queue](shared-accounting-request-queue.md) — agreed central recovery direction includes both Xero and QuickBooks from the outset.
 - [Deferred card Checkout timing](deferred-card-checkout.md) — trial minimum lead time needs an anchor alternative; provider trial semantics never imply free membership access.
+- [Synthetic renewal fixture authority](synthetic-renewal-fixture-authority.md) — BNMS counterfactual terms are fixture-only approval; reserved emails do not suppress transactional provider calls.
