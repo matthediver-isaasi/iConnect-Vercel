@@ -2,8 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   resolveEffectiveEventPaymentSelection,
+  resolveCoveredEventPaymentMethod,
   resolveSavedPaidEventPaymentSelection,
 } from './eventPaymentSelection.mjs';
+
+test('free public contact-creation checkout sends free, not the legacy fully_covered label', () => {
+  assert.equal(resolveCoveredEventPaymentMethod({ memberCreationEnabled: true }), 'free');
+  assert.equal(resolveCoveredEventPaymentMethod({ memberCreationEnabled: true, voucherAmount: 10 }), 'fully_covered');
+  assert.equal(resolveCoveredEventPaymentMethod({ memberCreationEnabled: true, trainingFundAmount: 10 }), 'fully_covered');
+  assert.equal(resolveCoveredEventPaymentMethod(), 'fully_covered');
+  assert.equal(resolveCoveredEventPaymentMethod({ isComplexEvent: true }), 'free');
+  assert.equal(resolveCoveredEventPaymentMethod({ isComplexEvent: true, voucherAmount: 10 }), 'voucher');
+  assert.equal(resolveCoveredEventPaymentMethod({ isComplexEvent: true, trainingFundAmount: 10 }), 'training_fund');
+});
 
 test('unresolved policy cannot leak stale voucher or training fund allocations', () => {
   assert.deepEqual(resolveEffectiveEventPaymentSelection({

@@ -31,6 +31,7 @@ import {
 } from "@/lib/publicInvoicePo.mjs";
 import {
   resolveEffectiveEventPaymentSelection,
+  resolveCoveredEventPaymentMethod,
   resolveSavedPaidEventPaymentSelection,
 } from "@/lib/eventPaymentSelection.mjs";
 import { resolveEventPaymentPolicy } from "../../../../shared/eventPaymentPolicy.js";
@@ -964,9 +965,12 @@ export default function PaymentOptions({
 
   // Calculate remaining balance automatically (discount applied before vouchers/TF)
   const remainingBalance = Math.max(0, costAfterDiscount - voucherAmount - effectiveTrainingFundAmount);
-  const coveredPaymentMethod = isComplexEvent
-    ? (voucherAmount > 0 ? 'voucher' : (effectiveTrainingFundAmount > 0 ? 'training_fund' : 'free'))
-    : 'fully_covered';
+  const coveredPaymentMethod = resolveCoveredEventPaymentMethod({
+    isComplexEvent,
+    memberCreationEnabled: requiresPurchaserIdentity,
+    voucherAmount,
+    trainingFundAmount: effectiveTrainingFundAmount,
+  });
   const publicInvoicePoAvailable = isPublicInvoicePoAvailable({
     event,
     isGuestCheckout,
