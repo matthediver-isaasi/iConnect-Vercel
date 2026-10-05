@@ -67,6 +67,15 @@ reported that navigation did not feel quicker.
 not merely the appearance of the waiting state. Keep loading feedback unobtrusive
 and appropriate to the actual website.
 
+No skeletons on public-facing presentation pages, on either the tenant main site
+or microsites. Portal skeletons are acceptable where the card layout is known.
+
+**Why:** The user explicitly distinguished known portal card layouts from
+front-end presentation pages and said skeletons on presentation pages are a “no no.”
+
+**How to apply:** Preserve this distinction when changing loading presentation;
+do not introduce a different skeleton as a replacement for the rejected one.
+
 Keep the old page associated with its old URL while preparing website navigation;
 never carry its chrome decision into an unresolved destination.
 
