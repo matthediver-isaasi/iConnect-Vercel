@@ -30,3 +30,12 @@ those payments permanently.
 distinguish it from transient database failure, and discover refund-pending
 receipts independently. Refund retries require provider-bound evidence and an
 idempotency key; a failed final audit write must not refund twice.
+
+For ticket-contact rollout, the owner will deploy manually: do not push to
+GitHub or auto-deploy. Sandbox testing was explicitly waived for this
+functionality in favor of immediate owner-led live testing.
+
+**Why:** The owner explicitly requested this release boundary.
+
+**How to apply:** Hand off verified database readiness without claiming live
+deployment or purchase verification. Do not initiate synthetic live purchases.

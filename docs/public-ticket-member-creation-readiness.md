@@ -58,10 +58,37 @@ verified destination database:
 3. `supabase/migrations/20261005122000_public_ticket_member_booking_batch.sql`
    installs atomic booking-batch/idempotency authority and schema readiness.
 
-All three were applied and replayed **only in disposable local PostgreSQL
-fixtures**. None was applied to production, destination Supabase or the
-workspace runtime Supabase. All three still await approved application.
-The workspace runtime is not proof of the verified destination schema.
+After explicit database-only approval, all three migrations were applied in
+the order above to destination Supabase project `lvmzliemqnieeoruhkik`.
+REST origin and SQL connection project pins were rechecked with verified TLS.
+The preflight found **zero historical collision groups** under the strengthened
+JavaScript-trim normalization. No historical contacts were merged or deleted.
+SOURCE and the workspace runtime configuration were not changed.
+
+Applied SQL SHA-256 evidence:
+
+| Migration | SHA-256 |
+| --- | --- |
+| `20261005120000_public_ticket_member_policy.sql` | `5aeb49ccb7f5e300542783d0f0e5c9677b9f97f4b09507e68adc17f45b6ee5cd` |
+| `20261005121000_public_ticket_member_evidence.sql` | `d1abb342f03dc1456aacb6f44859b00a23e96531eeb6fb36bbba91cf510ede9c` |
+| `20261005122000_public_ticket_member_booking_batch.sql` | `f24b8213b9d833299d0f31fc1608f3ebe06ed91e1dca7f26d0b43329668d4443` |
+
+Post-apply destination SQL checks passed:
+
+- Both historical email uniqueness indexes remain valid and ready; the new
+  normalized unique index is also valid and ready.
+- Lookup, preparation, provisioning, booking-batch and readiness functions
+  permit `service_role` execution, not PUBLIC, anon or authenticated execution.
+- Both evidence tables have RLS enabled and no PUBLIC, anon or authenticated
+  table privileges.
+- `public_ticket_member_creation_ready()` returned true while executing as
+  `service_role`.
+
+No migration in this list remains pending. Deployment and synthetic purchase
+approval remain separate: neither deployment nor live end-to-end verification
+is established by these database checks. Replay was previously tested only in
+disposable local PostgreSQL fixtures. The workspace runtime is not proof of
+the verified destination schema.
 
 The server refuses enablement until the full schema readiness function succeeds.
 Default-off saves remain compatible with an unmigrated database.
@@ -96,3 +123,24 @@ published bundle visibility, one sandbox paid/free purchase in each event
 system, webhook/return replay, administrator retry and authenticated cron
 execution. No live provider settlement or signed-in deployed UI is claimed by
 the isolated fixtures. Never run synthetic production purchases without approval.
+
+## Manual deployment handoff
+
+The owner approved deployment only and explicitly waived sandbox testing for
+this functionality, requesting release for immediate live testing instead.
+This is not authorization for the agent to create real-money purchases.
+
+The Git-backed Vercel production deployment request was rejected because the
+requested workspace commit was not present in GitHub. No deployment was
+created by that request. The workspace branch is ten commits ahead of its
+GitHub branch, including unrelated renewal and Canvas changes.
+The owner subsequently instructed: "I will deploy manually please do not auto
+deploy to git hub." Do not push to GitHub or initiate further deployments.
+Deployment is now an owner-managed handoff, not an outstanding agent action.
+Database readiness remains verified;
+published bundles, signed-in editors, replay, administrator retry and
+authenticated cron execution are not yet verified for this release.
+
+The completed scope is approved destination migration application and database
+verification. Sandbox purchases were waived by the owner; post-deployment live
+checks remain unverified and must not be represented as passed.
