@@ -10,7 +10,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { usePageLayoutDecision, useLayoutContext } from "@/contexts/LayoutContext";
 import { RouteLayoutContext } from "@/contexts/RouteLayoutContext";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
-import { useMicrosite } from "@/contexts/MicrositeContext";
+import { useMicrosite, micrositeBrandingQueryOptions } from "@/contexts/MicrositeContext";
 import { useArticleUrl } from "@/contexts/ArticleUrlContext";
 import { useBelowFirstElementBanners } from "@/contexts/BannerContext";
 import PortalHeroBanner from "@/components/banners/PortalHeroBanner";
@@ -55,6 +55,10 @@ export default function DynamicPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const { microsites, micrositesLoaded, micrositesError, activeMicrosite } = useMicrosite();
+  // The router has already identified an explicit microsite-shaped route.
+  // Overlap its public branding with catalogue discovery, without publishing
+  // activeMicrosite or bypassing the destination's layout/policy gates.
+  useQuery(micrositeBrandingQueryOptions(routeMicrositePrefix?.toLowerCase() || null));
   const isMicrositeRoute = !!routeMicrositePrefix;
   const micrositeMatch = useMemo(() => {
     if (!isMicrositeRoute || !micrositesLoaded) return null;

@@ -48,6 +48,15 @@ async function installFixture(page, authenticated) {
     }
     const json = (body, status = 200) => request.failure() ? Promise.resolve() : route.fulfill({ status, contentType: 'application/json',
       headers: { 'Cache-Control': 'private, no-store' }, body: JSON.stringify(body) });
+    if (state.firstContentTiming) {
+      state.timeline.push({ path: url.pathname + url.search, start: Date.now() - state.started });
+      if (!url.pathname.startsWith('/api/public/page/')) {
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
+    }
+    if (url.pathname === '/api/auth/me' && state.authGate) await state.authGate.promise;
+    if (url.pathname === '/api/public/microsites' && state.catalogueGate) await state.catalogueGate.promise;
+    if (url.pathname === '/api/public/portal-branding' && state.settingsFailure) return json({ error: 'Settings unavailable' }, 503);
     if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method())) {
       if (request.method() === 'PATCH' && url.pathname === `/api/entities/Member/${member.id}`
         && Object.keys(request.postDataJSON() || {}).join() === 'last_activity') return json(member);
@@ -105,6 +114,102 @@ async function installFixture(page, authenticated) {
     return json([]);
   });
   return state;
+}
+
+test('early homepage discovery cannot expose hidden chrome or content before session policy', async ({ page }) => {
+  const state = await installFixture(page, false);
+  state.authGate = deferred();
+  state.hiddenSlugs.add('nav-a');
+  await page.goto('/');
+  await expect.poll(() => state.authReads).toBe(0);
+  await page.waitForTimeout(600);
+  await expect(page.locator('header,footer')).toHaveCount(0);
+  await expect(page.getByText('Navigation content nav-a', { exact: true })).toHaveCount(0);
+  expect(state.pageReads).toEqual([]);
+  state.authGate.release();
+  await expect(page.getByText('Navigation content nav-a', { exact: true })).toBeVisible();
+  await expect(page.locator('header,footer')).toHaveCount(0);
+});
+
+test('early microsite branding cannot expose a destination before catalogue policy', async ({ page }) => {
+  const state = await installFixture(page, false);
+  state.catalogueGate = deferred();
+  state.hiddenSlugs.add('nav-a');
+  await page.goto('/branch/nav-a');
+  await expect.poll(() => state.pageReads.length).toBe(1);
+  await page.waitForTimeout(600);
+  await expect(page.locator('header,footer')).toHaveCount(0);
+  await expect(page.getByText('Navigation content nav-a', { exact: true })).toHaveCount(0);
+  state.catalogueGate.release();
+  await expect(page.getByText('Navigation content nav-a', { exact: true })).toBeVisible();
+  await expect(page.locator('header,footer')).toHaveCount(0);
+  expect(state.pageReads).toEqual(['nav-a']);
+});
+
+test('homepage settings failures stay explicit rather than falling through to events', async ({ page }) => {
+  const state = await installFixture(page, false);
+  state.settingsFailure = true;
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Homepage unavailable' })).toBeVisible();
+  expect(state.pageReads).toEqual([]);
+  await expect(page.locator('header,footer')).toHaveCount(0);
+});
+
+// Run before and after the application patch, sequentially, on the same
+// server/build mode. All API traffic remains intercepted, including writes.
+for (const entry of ['/', '/nav-a', '/branch', '/branch/nav-a']) {
+  test(`first-content critical path ${entry}`, async ({ browser }) => {
+    test.setTimeout(120_000);
+    const samples = [];
+    for (let sample = 0; sample < 3; sample += 1) {
+      const context = await browser.newContext({ hasTouch: true, viewport: { width: 390, height: 844 } });
+      const page = await context.newPage();
+      const state = await installFixture(page, false);
+      await page.addInitScript(() => {
+        let previous = null;
+        new MutationObserver(() => {
+          const paragraph = [...document.querySelectorAll('p')]
+            .find(node => /^Navigation content nav-[ab]$/.test(node.textContent));
+          if (!paragraph?.checkVisibility({ visibilityProperty: true, opacityProperty: true })) return;
+          const text = paragraph?.textContent;
+          if (!text || text === previous) return;
+          previous = text;
+          requestAnimationFrame(() => requestAnimationFrame(() => {
+            window.firstContentPaint = { text, at: performance.timeOrigin + performance.now() };
+          }));
+        }).observe(document, { childList: true, subtree: true, characterData: true, attributes: true });
+      });
+      Object.assign(state, { firstContentTiming: true, timingFixture: true, timeline: [], started: Date.now(), delayMs: 500 });
+      const waitContent = async slug => {
+        await expect(page.getByText(`Navigation content ${slug}`, { exact: true })).toBeVisible();
+        await page.waitForFunction(text => window.firstContentPaint?.text === text, `Navigation content ${slug}`);
+        // Timestamp the DOM/frames themselves, not Playwright assertion polling.
+        return Math.round(await page.evaluate(() => window.firstContentPaint.at) - state.started);
+      };
+      await page.goto(`${origin}${entry}`);
+      const cold = await waitContent('nav-a');
+      const timeline = [...state.timeline];
+      await page.waitForTimeout(400);
+      state.started = Date.now();
+      await page.getByRole('link', { name: 'Browse next page', exact: true }).tap();
+      const touch = await waitContent('nav-b');
+      await page.waitForTimeout(400);
+      state.started = Date.now();
+      await page.goBack();
+      const history = await waitContent('nav-a');
+      await page.waitForTimeout(400);
+      state.started = Date.now();
+      // A programmatic click supplies no mouseover or keyboard focus intent.
+      await page.getByRole('link', { name: 'Browse next page', exact: true }).evaluate(node => node.click());
+      const warm = await waitContent('nav-b');
+      expect(state.writes).toEqual([]);
+      expect(state.authReads).toBe(1);
+      expect(state.documents).toBe(1);
+      samples.push({ cold, touch, history, warm, pages: state.pageReads, timeline });
+      await context.close();
+    }
+    console.log('FIRST_CONTENT', JSON.stringify({ phase: process.env.FIRST_CONTENT_PHASE || 'candidate', entry, samples }));
+  });
 }
 async function headerGeometry(page) {
   return page.locator('header').evaluate(node => {

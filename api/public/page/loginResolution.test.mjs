@@ -102,6 +102,85 @@ function handlerFor(options = {}) {
   });
 }
 
+test('page and viewer overlap, but no payload is emitted before both finish', async () => {
+  let releasePage, releaseViewer;
+  const pageGate = new Promise(resolve => { releasePage = resolve; });
+  const viewerGate = new Promise(resolve => { releaseViewer = resolve; });
+  const track = {};
+  const db = makeDb();
+  const from = db.from;
+  db.from = table => {
+    const query = from(table);
+    query.single = async () => {
+      track.page = true;
+      await pageGate;
+      return { data: pageRow('about'), error: null };
+    };
+    return query;
+  };
+  const handler = createPublicPageHandler({
+    db, resolveTenant: async () => TENANT,
+    resolveViewer: async (_req, tenantId) => {
+      assert.equal(tenantId, TENANT.id);
+      track.viewer = true;
+      await viewerGate;
+      return {};
+    },
+  });
+  const res = responseMock();
+  const pending = handler(request('about'), res);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(track, { page: true, viewer: true });
+  assert.equal(res.body, undefined);
+  releasePage();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(res.body, undefined, 'a page row alone cannot authorize a response');
+  releaseViewer();
+  await pending;
+  assert.equal(res.statusCode, 200);
+  assert.match(res.headers.get('Cache-Control'), /private, no-store/);
+});
+
+test('matched request-local viewer timing control (no database or network)', async () => {
+  const results = {};
+  for (const serial of [true, false]) {
+    const samples = [];
+    for (let sample = 0; sample < 3; sample += 1) {
+      let pageFinished;
+      const pageDone = new Promise(resolve => { pageFinished = resolve; });
+      const db = makeDb();
+      const from = db.from;
+      db.from = table => {
+        const query = from(table);
+        query.single = async () => {
+          await new Promise(resolve => setTimeout(resolve, 200));
+          pageFinished();
+          return { data: pageRow('about'), error: null };
+        };
+        return query;
+      };
+      let viewerCalls = 0;
+      const handler = createPublicPageHandler({
+        db, resolveTenant: async () => TENANT,
+        resolveViewer: async () => {
+          viewerCalls += 1;
+          if (serial) await pageDone;
+          await new Promise(resolve => setTimeout(resolve, 200));
+          return {};
+        },
+      });
+      const start = performance.now();
+      const res = responseMock();
+      await handler(request('about'), res);
+      samples.push(Math.round(performance.now() - start));
+      assert.equal(res.statusCode, 200);
+      assert.equal(viewerCalls, 1);
+    }
+    results[serial ? 'serialControl' : 'parallel'] = samples;
+  }
+  console.log('PUBLIC_API_TIMING', JSON.stringify(results));
+});
+
 test('missing tenant returns 404 without attempting page lookup', async () => {
   const track = {};
   const handler = createPublicPageHandler({

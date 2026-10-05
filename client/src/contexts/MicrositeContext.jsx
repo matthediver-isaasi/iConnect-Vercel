@@ -45,6 +45,20 @@ export function useMicrosite() {
   };
 }
 
+// Share only the existing public branding query. Starting it from a matched
+// two-segment DynamicPage route does not establish an active microsite.
+export function micrositeBrandingQueryOptions(prefix) {
+  return {
+    queryKey: ['public-microsite-branding', prefix],
+    queryFn: async () => {
+      const res = await publicClient.getTenantBranding(prefix);
+      return (res?.success && res.branding) ? res.branding : null;
+    },
+    enabled: !!prefix,
+    staleTime: 5 * 60 * 1000,
+  };
+}
+
 /**
  * Chrome components (PublicHeader / PublicLayout) call this instead of
  * useTenantBranding directly: on microsite routes it returns the merged
@@ -109,13 +123,7 @@ export function MicrositeProvider({ children }) {
     : undefined;
 
   const { data: micrositeBrandingData, isLoading: micrositeBrandingLoading } = useQuery({
-    queryKey: ['public-microsite-branding', micrositePrefix],
-    queryFn: async () => {
-      const res = await publicClient.getTenantBranding(micrositePrefix);
-      return (res?.success && res.branding) ? res.branding : null;
-    },
-    enabled: !!micrositePrefix,
-    staleTime: 5 * 60 * 1000,
+    ...micrositeBrandingQueryOptions(micrositePrefix),
     initialData: injectedBrandingForRoute,
     initialDataUpdatedAt: injectedBrandingForRoute ? 0 : undefined,
   });

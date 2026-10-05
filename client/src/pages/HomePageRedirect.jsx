@@ -52,10 +52,15 @@ export default function HomePageRedirect() {
     authResolved && !brandingLoading && !brandingError && !!tenantId;
 
   const settingsQuery = useQuery({
-    queryKey: ["home-page-setting", tenantId, pageAudience],
+    // This is discovery, not permission. Start alongside branding/session,
+    // but keep consumption and the page read behind the existing gates.
+    // Do not re-key when branding supplies its id. This caches only the public
+    // homepage slug (as before), never a page payload or member authority.
+    queryKey: ["home-page-setting", window.location.host, tenantSlug, pageAudience],
     queryFn: async () => {
       const response = await fetch("/api/public/portal-branding", {
         credentials: "include",
+        cache: "no-store",
       });
       if (!response.ok) {
         throw new Error(`Homepage settings request failed (${response.status})`);
@@ -63,11 +68,13 @@ export default function HomePageRedirect() {
       const data = await response.json();
       return data.homePageSlug || null;
     },
-    enabled: settingsQueryEnabled,
     staleTime: 60000,
+    refetchOnWindowFocus: false,
     retry: false,
   });
   const homePageSlug = settingsQuery.data;
+  const pageQueryEnabled = settingsQueryEnabled && settingsQuery.isSuccess &&
+    !settingsQuery.isFetching && !!homePageSlug;
 
   const pageQuery = useQuery({
     queryKey: ["public-home-page", tenantId, homePageSlug, pageAudience],
@@ -89,7 +96,7 @@ export default function HomePageRedirect() {
         symbols: data.symbols,
       };
     },
-    enabled: settingsQueryEnabled && !!homePageSlug,
+    enabled: pageQueryEnabled,
     staleTime: 0,
     refetchOnMount: "always",
     retry: false,
@@ -100,7 +107,7 @@ export default function HomePageRedirect() {
     !authResolved ||
     (settingsQueryEnabled && (settingsQuery.isPending || settingsQuery.isFetching));
   const pagePending =
-    !!homePageSlug && (pageQuery.isPending || pageQuery.isFetching);
+    pageQueryEnabled && (pageQuery.isPending || pageQuery.isFetching);
   const prerequisiteFailure =
     brandingError || (!brandingLoading && !tenantId) || settingsQuery.error;
 

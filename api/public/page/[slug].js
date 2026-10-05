@@ -121,9 +121,13 @@ export function createPublicPageHandler({
     }
     // Login is an optional system page: no matching row is a normal absence,
     // while a database failure must remain distinguishable from that absence.
-    const { data: page, error: pageError } = slug === 'login'
-      ? await pageQuery.maybeSingle()
-      : await pageQuery.single();
+    // Tenant/prefix are now validated. Page and request-local viewer lookup
+    // are independent; await both before projecting any response. Promise.all
+    // also observes both rejections (no abandoned auth promise on a page miss).
+    const [{ data: page, error: pageError }, viewer] = await Promise.all([
+      slug === 'login' ? pageQuery.maybeSingle() : pageQuery.single(),
+      resolveViewer(req, tenant.id),
+    ]);
 
     console.log('[Public Page Slug] Page lookup:', { 
       found: !!page, 
@@ -147,7 +151,6 @@ export function createPublicPageHandler({
       return res.status(404).json({ error: 'Page not found or not published' });
     }
 
-    const viewer = await resolveViewer(req, tenant.id);
 
     // Default (non-prefixed) path: a page assigned to a microsite is only
     // served under its prefix. Checked in JS (not SQL) so legacy databases
