@@ -1167,3 +1167,17 @@ mtime_ms = 1791187308474
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/435c63f6-5b62-4935-8783-414a8b5cbf21/a9da0a6c-5f76-4c67-90bc-687093ad5135"
 storage_version_token = "1791187318121837"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "f6HDH-IfKXs_j_95-0O8s"
+uri = "file://exports/bnms-missing-rbac-roles-2026-10-05T08-09-33-514Z.xlsx"
+type = "table"
+title = "Updated BNMS missing-role report"
+description = "20 BNMS members currently have no RBAC role, including 4 sample members. Includes names, emails, YM membership type, sample/sign-in flags and review columns."
+logical_id = "48db2547-c1fc-4101-a246-f63d28be3308"
+content_hash = "sha256:7e5384fe3f142cbfdfe2b2737c6c2687dd9d24e842f091f2059ed926fcabf152"
+size = 9576
+mtime_ms = 1791187774726
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/48db2547-c1fc-4101-a246-f63d28be3308/8f6e0126-7a7c-4bca-b7d3-2961b7c2e25f"
+storage_version_token = "1791187781355438"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
