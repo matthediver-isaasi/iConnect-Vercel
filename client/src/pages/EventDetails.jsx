@@ -292,6 +292,7 @@ export function EventDetailsExperience({
   const [thirdPartyConsent, setThirdPartyConsent] = useState(true);
   
   // Guest registration form state (for non-logged-in users)
+  const [guestBookingForSelf, setGuestBookingForSelf] = useState(null);
   const [guestInfo, setGuestInfo] = useState({
     first_name: '',
     last_name: '',
@@ -2032,7 +2033,7 @@ export function EventDetailsExperience({
               <CardHeader className="border-b border-slate-200">
                 <div className="flex flex-col gap-3">
                   <CardTitle className="text-xl">
-                    {isGuestCheckout ? 'Your Details' : 'Attendees'}
+                    {isGuestCheckout ? (guestBookingForSelf === false ? 'Attendee Details' : 'Your Details') : 'Attendees'}
                   </CardTitle>
                   {!isGuestCheckout && (canRoleSelfRegister || canAddTeamMembers || canRegisterExternal) && (
                     <div className="flex flex-wrap items-center gap-2">
@@ -2084,6 +2085,21 @@ export function EventDetailsExperience({
                 {/* Guest Registration Form - shown for non-logged-in users */}
                 {isGuestCheckout ? (
                   <div className="space-y-4">
+                    {ticketMemberPolicy(selectedTicketClass).create_member_records && (
+                      <fieldset className="space-y-2 rounded-lg border border-slate-200 p-4">
+                        <legend className="px-1 font-medium">Are you booking for yourself?</legend>
+                        <label className="flex items-center gap-2">
+                          <input type="radio" name="guest-booking-for-self" checked={guestBookingForSelf === true}
+                            onChange={() => setGuestBookingForSelf(true)} />
+                          Yes — use my details for the attendee and purchaser
+                        </label>
+                        <label className="flex items-center gap-2">
+                          <input type="radio" name="guest-booking-for-self" checked={guestBookingForSelf === false}
+                            onChange={() => setGuestBookingForSelf(false)} />
+                          No — I’m booking for someone else
+                        </label>
+                      </fieldset>
+                    )}
                     {isGuestFormDisabled ? (
                       <div className="flex items-center gap-2 p-3 bg-warning/10 border border-warning/30 rounded-lg">
                         <Lock className="w-5 h-5 text-warning" />
@@ -2096,7 +2112,9 @@ export function EventDetailsExperience({
                         <User className="w-5 h-5 text-blue-600" />
                         <p className="text-sm text-blue-800">
                           {ticketMemberPolicy(selectedTicketClass).create_member_records
-                            ? "Enter the attendee’s own details here. Purchaser details are collected separately in the booking summary."
+                            ? (guestBookingForSelf === true
+                              ? "Enter your details once. They will be used for both the attendee and purchaser."
+                              : "Enter the attendee’s own details here. If booking for someone else, enter your purchaser details in the booking summary.")
                             : "Please enter your details to register for this event."}
                         </p>
                       </div>
@@ -2802,6 +2820,7 @@ export function EventDetailsExperience({
               ticketPrice={ticketPrice}
               isFeatureExcluded={isFeatureExcluded}
               selectedTicketClass={selectedTicketClass}
+              guestBookingForSelf={guestBookingForSelf}
               ticketSelectionUnavailable={isOneOffEvent && !legacyWithoutPricingConfig && (!selectedTicketClassId || !isTicketPurchasable(selectedTicketClass))}
               onCanProceedChange={setPaymentCanProceed}
               isGuestCheckout={isGuestCheckout}

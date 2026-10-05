@@ -443,6 +443,7 @@ export default function PaymentOptions({
   ticketSelectionUnavailable = false,
   onCanProceedChange = null,
   isGuestCheckout = false,
+  guestBookingForSelf = undefined,
   guestInfo = null,
   noTicketsForRole = false,
   isSoldOut = false,
@@ -506,7 +507,7 @@ export default function PaymentOptions({
     }
     return purchaseRequestId.current;
   };
-  const [purchaserInfo, setPurchaserInfo] = useState(() => requiresPurchaserIdentity ? purchaseIdentity() : ({
+  const [separatePurchaserInfo, setPurchaserInfo] = useState(() => requiresPurchaserIdentity ? purchaseIdentity() : ({
     first_name: guestInfo?.first_name || '',
     last_name: guestInfo?.last_name || '',
     email: guestInfo?.email || '',
@@ -514,6 +515,12 @@ export default function PaymentOptions({
     phone: guestInfo?.phone || '',
     job_title: guestInfo?.job_title || ''
   }));
+  const selfBookingChoiceRequired = requiresPurchaserIdentity && isGuestCheckout
+    && !isComplexEvent && guestBookingForSelf !== undefined;
+  const purchaserInfo = selfBookingChoiceRequired && guestBookingForSelf === true
+    ? purchaseIdentity(guestInfo) : separatePurchaserInfo;
+  const showPurchaserFields = requiresPurchaserIdentity
+    && (!selfBookingChoiceRequired || guestBookingForSelf === false);
   const [showStripeModal, setShowStripeModal] = useState(false);
   const [stripeClientSecret, setStripeClientSecret] = useState(null);
   const [stripePaymentIntentId, setStripePaymentIntentId] = useState(null);
@@ -535,7 +542,9 @@ export default function PaymentOptions({
       attendees: item.attendees || [],
     }))
     : [{ ticketClass: selectedTicketClass, attendees: attendees || [] }];
-  const purchaseIdentityError = requiresPurchaserIdentity ? validatePurchaseIdentities(purchaserInfo, identityItems) : null;
+  const purchaseIdentityError = selfBookingChoiceRequired && guestBookingForSelf === null
+    ? "Please choose whether you are booking for yourself."
+    : requiresPurchaserIdentity ? validatePurchaseIdentities(purchaserInfo, identityItems) : null;
   const guardPurchaseIdentity = () => {
     if (purchaseIdentityError) {
       toast.error(purchaseIdentityError);
@@ -2633,14 +2642,14 @@ export default function PaymentOptions({
             <CardTitle className="text-xl">{resolveTbcSummaryTitle(tbcBookingReplacement, totalCost)}</CardTitle>
           </CardHeader>
           <CardContent className="pt-6 space-y-6">
-            {requiresPurchaserIdentity && <PurchaserIdentityFields value={purchaserInfo} onChange={setPurchaserInfo} />}
+            {showPurchaserFields && <PurchaserIdentityFields value={purchaserInfo} onChange={setPurchaserInfo} />}
             {purchaseIdentityError && <p role="alert" className="text-sm text-amber-700">{purchaseIdentityError}</p>}
             {mainContent}
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-6">
-          {requiresPurchaserIdentity && <PurchaserIdentityFields value={purchaserInfo} onChange={setPurchaserInfo} />}
+          {showPurchaserFields && <PurchaserIdentityFields value={purchaserInfo} onChange={setPurchaserInfo} />}
           {purchaseIdentityError && <p role="alert" className="text-sm text-amber-700">{purchaseIdentityError}</p>}
           {mainContent}
         </div>

@@ -5,6 +5,12 @@ description: Product boundaries for opt-in CRM contact creation from public-faci
 
 Public-ticket contact creation is for both the explicit purchaser and attendees receiving enabled tickets, not just the first attendee. Typed organisation names are descriptive, not verified affiliations.
 
+For single-attendee guest registration, explicitly ask whether the user is booking for themselves. A Yes uses one set of details for attendee and purchaser; a No retains separate identities.
+
+**Why:** The user approved this flow to avoid duplicate entry while supporting bookings on behalf of someone else.
+
+**How to apply:** Only copy attendee identity after an explicit self-booking choice; keep separate purchaser details independent when switching back.
+
 The option must be available for both Public Only and Members & Public tickets.
 
 **Why:** The user explicitly requested support for both public-facing audiences.
