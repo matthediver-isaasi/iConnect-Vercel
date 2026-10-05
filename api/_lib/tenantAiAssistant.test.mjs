@@ -48,9 +48,9 @@ test('inherits platform name and avatar but only uses tenant description overrid
   assert.deepEqual(await loadTenantAiAssistantConfig('tenant-a', db), {
     tenantId: 'tenant-a', enabled: true, name: 'Bert',
     avatarUrl: 'https://example.org/bert.png', description: '',
-    backgroundColor: '',
+    backgroundColor: '', textColor: '',
     responsePolicy: normalizeResponsePolicy(null),
-    overrides: { enabled: true, name: '', avatarUrl: '', description: '', backgroundColor: '' },
+    overrides: { enabled: true, name: '', avatarUrl: '', description: '', backgroundColor: '', textColor: '' },
   });
   assert.deepEqual(db.reads, [
     ['tenant', 'id', 'tenant-a'], ['platform_preferences', 'key', 'ai_help_persona'],
@@ -71,6 +71,14 @@ test('inherits platform name and avatar but only uses tenant description overrid
 });
 
 test('validates types, colours, URLs, name and description; allows resets and uploaded HTTPS URLs', () => {
+  for (const textColor of ['', '#ffffff', '#aBc123']) {
+    assert.deepEqual(validateMemberAiAssistant({ textColor }), { textColor });
+    assert.equal(resolveMemberAiAssistant('t', { member_ai_assistant: { textColor } }).textColor, textColor);
+  }
+  for (const textColor of [null, 42, {}, '#fff', 'white', '#12345678', ' #ffffff']) {
+    assert.throws(() => validateMemberAiAssistant({ textColor }));
+    assert.equal(resolveMemberAiAssistant('t', { member_ai_assistant: { textColor } }).textColor, '');
+  }
   assert.deepEqual(validateMemberAiAssistant({
     enabled: false, name: '', avatarUrl: 'https://storage.example.org/file.png',
     description: '  Helpful\tassistant\nfor members  ', backgroundColor: '#aBc123',
@@ -275,6 +283,17 @@ test('admin PATCH merges assistant fields, preserves unrelated nested settings a
   assert.equal(state.settingsByTenant['tenant-a'].member_ai_assistant.description, 'Tenant A help');
   assert.equal(state.settingsByTenant['tenant-b'].member_ai_assistant.responsePolicy, undefined);
   state.user = { tenant_id: 'tenant-a' };
+  res = await patch({ member_ai_assistant: { textColor: '#FFFFFF' } });
+  assert.equal(res.statusCode, 200);
+  assert.equal(state.settingsByTenant['tenant-a'].member_ai_assistant.textColor, '#FFFFFF');
+  assert.equal(state.settingsByTenant['tenant-b'].member_ai_assistant.textColor, undefined);
+  assert.equal(state.updated.settings.member_ai_assistant.futureField, 'keep');
+  res = await patch({ member_ai_assistant: { textColor: '#fff' } });
+  assert.equal(res.statusCode, 400);
+  assert.equal(state.updated, null);
+  res = await patch({ member_ai_assistant: { textColor: '' } });
+  assert.equal(res.statusCode, 200);
+  assert.equal(state.settingsByTenant['tenant-a'].member_ai_assistant.textColor, '');
   res = await patch({ member_ai_assistant: { avatarUrl: 'javascript:alert(1)' } });
   assert.equal(res.statusCode, 400);
   assert.equal(state.updated, null);

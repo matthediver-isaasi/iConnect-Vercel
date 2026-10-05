@@ -3,7 +3,7 @@ import { normalizeResponsePolicy, validateResponsePolicy } from '../../shared/me
 
 const DEFAULT_PERSONA = Object.freeze({ name: 'Dougal', avatarUrl: '', description: '' });
 const DEFAULT_OVERRIDES = Object.freeze({
-  enabled: true, name: '', avatarUrl: '', description: '', backgroundColor: '',
+  enabled: true, name: '', avatarUrl: '', description: '', backgroundColor: '', textColor: '',
 });
 
 function record(value) {
@@ -40,8 +40,8 @@ export function validateMemberAiAssistant(value) {
     } else if (field === 'description' &&
       (input.length > 500 || /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/.test(input))) {
       throw new Error('Invalid member_ai_assistant.description');
-    } else if (field === 'backgroundColor' && input !== '' && !/^#[0-9a-fA-F]{6}$/.test(input)) {
-      throw new Error('member_ai_assistant.backgroundColor must be a six-digit hex colour');
+    } else if ((field === 'backgroundColor' || field === 'textColor') && input !== '' && !/^#[0-9a-fA-F]{6}$/.test(input)) {
+      throw new Error(`member_ai_assistant.${field} must be a six-digit hex colour`);
     } else if (field === 'avatarUrl' && !safeAvatarUrl(input)) {
       throw new Error('member_ai_assistant.avatarUrl must be a safe HTTPS or relative URL');
     }
@@ -74,6 +74,7 @@ export function resolveMemberAiAssistant(tenantId, settings, persona = DEFAULT_P
     avatarUrl: overrides.avatarUrl || (typeof platform.avatarUrl === 'string' ? platform.avatarUrl : ''),
     description: overrides.description,
     backgroundColor: overrides.backgroundColor,
+    textColor: overrides.textColor,
     responsePolicy: normalizeResponsePolicy(raw.responsePolicy),
     overrides,
   };

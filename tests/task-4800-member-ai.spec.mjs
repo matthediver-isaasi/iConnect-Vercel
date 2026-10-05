@@ -8,7 +8,7 @@ const member = {
   role_id: "48000000-0000-4000-8000-000000000004",
   email: "member@example.invalid", first_name: "Fixture", member_excluded_features: [],
 };
-const original = { enabled: true, name: "Aurora", avatarUrl: "", backgroundColor: "#172554", description: "Aurora tenant introduction." };
+const original = { enabled: true, name: "Aurora", avatarUrl: "", backgroundColor: "#172554", textColor: "", description: "Aurora tenant introduction." };
 const tenantBOriginal = { enabled: true, name: "Borealis", avatarUrl: "", backgroundColor: "#FDE047", description: "Borealis tenant introduction." };
 const defaultDescription = "Your AI guide to everything in the member portal.";
 const platformDescription = "Platform persona text must not appear in member introductions.";
@@ -18,7 +18,7 @@ async function fixture(page, { admin = false, allowTestAsk = false } = {}) {
   const state = {
     currentTenant: tenantA, overrides: { [tenantA]: copy(original), [tenantB]: copy(tenantBOriginal) },
     writes: [], uploads: [], blocked: [], errors: [], reads: [],
-    disabledOnAsk: false, holdTenantB: null, testAsks: [], testAskError: null, holdTestAsk: null,
+    disabledOnAsk: false, holdTenantB: null, testAsks: [], testAskError: null, holdTestAsk: null, failConfig: false,
   };
   page.on("pageerror", error => state.errors.push(error.message));
   await page.addInitScript(() => { localStorage.clear(); sessionStorage.clear(); });
@@ -52,6 +52,7 @@ async function fixture(page, { admin = false, allowTestAsk = false } = {}) {
       return fulfill(route, { name: "Platform Help", avatarUrl: "", description: platformDescription });
     }
     if (path === "/api/member-ai/config" && method === "GET") {
+      if (state.failConfig) return fulfill(route, { error: "Fixture refresh failure" }, 503);
       if (requestedTenant === tenantB && state.holdTenantB) await state.holdTenantB;
       const override = copy(state.overrides[requestedTenant]);
       if (!override) return fulfill(route, { error: "Unknown fixture tenant" }, 404);
@@ -144,7 +145,7 @@ test("admin settings save, reload, invalid colour, image upload and remove, disa
   await card(page).getByTestId("input-ai-assistant-name").fill("Orion");
   await save(page).click();
   await expect(card(page).getByRole("status")).toContainText("saved");
-  expect(state.writes.at(-1).payload).toEqual({ enabled: true, name: "Orion", avatarUrl: "", backgroundColor: "#123456", description: original.description });
+  expect(state.writes.at(-1).payload).toEqual({ enabled: true, name: "Orion", avatarUrl: "", backgroundColor: "#123456", textColor: "", description: original.description });
   await page.reload();
   await expect(card(page).getByTestId("input-ai-assistant-name")).toHaveValue("Orion");
   await card(page).getByTestId("input-ai-assistant-avatar").setInputFiles({
@@ -164,10 +165,75 @@ test("admin settings save, reload, invalid colour, image upload and remove, disa
   await page.reload();
   await expect(card(page).getByTestId("switch-ai-assistant-enabled")).toHaveAttribute("data-state", "unchecked");
   await expect(card(page).getByTestId("input-ai-assistant-name")).toHaveValue("Later");
-  expect(state.writes.at(-1).payload).toEqual({ enabled: false, name: "Later", avatarUrl: "", backgroundColor: "#123456", description: original.description });
+  expect(state.writes.at(-1).payload).toEqual({ enabled: false, name: "Later", avatarUrl: "", backgroundColor: "#123456", textColor: "", description: original.description });
   expect(state.blocked).toEqual([]);
   expect(state.errors).toEqual([]);
 });
+
+test("text colour round trip, independent override, invalid input and reset after refresh failure", async ({ page }, testInfo) => {
+  const state = await fixture(page, { admin: true });
+  await page.goto("/admin/settings");
+  const text = card(page).getByTestId("input-ai-assistant-text-color");
+  const background = card(page).getByTestId("input-ai-assistant-color");
+  const preview = card(page).getByTestId("ai-assistant-launcher-preview");
+  await text.fill("#xyz");
+  await expect(save(page)).toBeDisabled();
+  await background.fill("#9333EA");
+  await text.fill("#FFFFFF");
+  await expect(preview).toHaveCSS("color", "rgb(255, 255, 255)");
+  await expect(preview).toHaveCSS("background-color", "rgb(147, 51, 234)");
+  await card(page).screenshot({ path: testInfo.outputPath("purple-white-preview.png") });
+  await save(page).click();
+  await expect(card(page).getByRole("status")).toContainText("saved");
+  expect(state.writes.at(-1).payload.textColor).toBe("#FFFFFF");
+  expect(state.overrides[tenantB]).toEqual(tenantBOriginal);
+  await page.reload();
+  await expect(text).toHaveValue("#FFFFFF");
+  await background.fill("");
+  await text.fill("#123456");
+  await expect(preview).toHaveCSS("color", "rgb(18, 52, 86)");
+  expect(await preview.evaluate(el => el.style.getPropertyValue("--ai-bg"))).toBe("");
+  await save(page).click();
+  await expect(card(page).getByRole("status")).toContainText("saved");
+  await page.reload();
+  await expect(text).toHaveValue("#123456");
+  await expect(background).toHaveValue("");
+  await card(page).getByRole("button", { name: "Automatic", exact: true }).click();
+  state.failConfig = true;
+  await save(page).click();
+  await expect(card(page).getByRole("status")).toContainText("saved");
+  await expect(text).toHaveValue("");
+  expect(await preview.evaluate(el => el.style.color)).toBe("");
+  expect(state.writes.at(-1).payload.textColor).toBe("");
+  state.failConfig = false;
+  await page.reload();
+  await expect(text).toHaveValue("");
+  expect(state.errors).toEqual([]);
+});
+
+for (const mobile of [false, true]) {
+  test(`launcher text colour remains white on purple, hover and keyboard focus (${mobile ? "mobile" : "desktop"})`, async ({ page }, testInfo) => {
+    const state = await fixture(page);
+    state.overrides[tenantA] = { ...original, name: "Ember", backgroundColor: "#9333EA", textColor: "#FFFFFF" };
+    if (mobile) await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/Help");
+    if (mobile) await page.getByTestId("button-mobile-menu").click();
+    const launcher = page.getByTestId("button-ask-ai").filter({ visible: true });
+    await expect(launcher).toBeVisible();
+    await expect(launcher).toHaveCSS("color", "rgb(255, 255, 255)");
+    await expect(launcher).toHaveCSS("background-color", "rgb(147, 51, 234)");
+    await launcher.hover();
+    await expect(launcher).toHaveCSS("color", "rgb(255, 255, 255)");
+    await page.keyboard.press("Tab");
+    await launcher.focus();
+    await expect(launcher).toBeFocused();
+    await expect(launcher).toHaveCSS("color", "rgb(255, 255, 255)");
+    await page.screenshot({ path: testInfo.outputPath("purple-white-launcher.png") });
+    await launcher.click();
+    await expect(page.getByTestId("dialog-member-ai")).toBeVisible();
+    expect(state.errors).toEqual([]);
+  });
+}
 
 test("tenant description validates, saves normalized text, survives reload and Help modal reopen, and clears to neutral fallback", async ({ page }) => {
   const state = await fixture(page, { admin: true });

@@ -43,7 +43,7 @@ test("assistant config is shared, tenant/session isolated, fail closed and inval
       const tenantId = options.headers["X-Tenant-Id"];
       return { ok: true, json: async () => ({
         tenantId, enabled: true, name: `${tenantId}-${calls}`, avatarUrl: "",
-        description: `${tenantId} introduction ${calls}`, backgroundColor: "", overrides: {},
+        description: `${tenantId} introduction ${calls}`, backgroundColor: "", textColor: calls === 1 ? "#FFFFFF" : "", overrides: {},
       }) };
     };
     await render("member-a", false);
@@ -52,8 +52,10 @@ test("assistant config is shared, tenant/session isolated, fail closed and inval
     assert.equal(calls, 1, "member-only navigation and panel observers share one request");
     assert.equal(current.name, "tenant-a-1");
     assert.equal(current.description, "tenant-a introduction 1");
+    assert.equal(current.textColor, "#FFFFFF");
     await render("member-b", true);
     assert.equal(current.name, "tenant-a-2");
+    assert.equal(current.textColor, "");
     await render("member-b", true, "session-a", "tenant-b");
     assert.equal(current?.tenantId, "tenant-b");
     assert.equal(current.description, "tenant-b introduction 3");

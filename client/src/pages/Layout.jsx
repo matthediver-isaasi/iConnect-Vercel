@@ -6,6 +6,7 @@ import { createPageUrl } from "@/utils";
 import { Calendar, User, CreditCard, LogOut, Ticket, Wallet, Shield, Users, Settings, Sparkles, ShoppingCart, History, BarChart3, Briefcase, FileEdit, Image, FileText, AtSign, FolderTree, Square, Trophy, BookOpen, Mail, MousePointer2, Building, Download, Upload, HelpCircle, Menu, ChevronRight, ChevronLeft, Video, Bell, Newspaper, PenLine, Home, Globe, Folder, MessageSquare, Star, Heart, Eye, Link as LinkIcon, ExternalLink, Tag, Award, Bookmark, Clock, Search, Phone, MapPin, Music, Camera, Mic, Headphones, Tv, Radio, Rss, Share2, Gift, Zap, Target, Flag, Layers, Grid, List, Layout as LayoutIcon, Monitor, Smartphone, Tablet, Laptop, Server, Database, Cloud, Lock, Key, UserCheck, UserPlus, UserMinus, Users2, MessageCircle, Send, Inbox, Archive, Navigation, UserCog, Activity, XCircle, Handshake, Accessibility, QrCode } from "lucide-react";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useTenantAiAssistant } from "@/hooks/useTenantAiAssistant";
+import { resolveMemberAiLauncherStyle } from "@shared/memberAiLauncherColors.js";
 import { createViewerRequestLease } from "@/lib/canvasViewerValues";
 import {
   acquireViewerSessionRequest,
@@ -1332,19 +1333,26 @@ useEffect(() => {
 const aiPersonaName = (aiPersona?.name || "Dougal").trim() || "Dougal";
 const aiPersonaAvatarUrl = aiPersona?.avatarUrl || dougalAvatar;
 const aiPersonaInitial = aiPersonaName.charAt(0).toUpperCase();
-const aiLauncherStyle = (() => {
-  const color = aiPersona?.backgroundColor?.trim();
-  if (!color || !/^#[\da-f]{6}$/i.test(color)) return undefined;
-  const channels = [1, 3, 5].map((index) => parseInt(color.slice(index, index + 2), 16) / 255);
-  const luminance = channels.map((v) => v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)
-    .reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i], 0);
-  const light = luminance > 0.179;
-  const hoverColor = `#${channels.map((v) => {
-    const original = Math.round(v * 255);
-    return Math.round(original * 0.88 + (light ? 0 : 255 * 0.12)).toString(16).padStart(2, "0");
-  }).join("")}`;
-  return { "--ai-bg": color, color: light ? "#111827" : "#ffffff", "--ai-hover": hoverColor };
-})();
+const aiLauncherStyle = resolveMemberAiLauncherStyle(aiPersona || {});
+function renderAiLauncher(mobile = false) {
+  if (!memberInfo || !aiEnabled || isFeatureExcluded('support.member-ai')) return null;
+  return (
+    <div className="mb-2 group-data-[collapsible=icon]:px-0">
+      <Button type="button" onClick={() => {
+        if (mobile) setMobileMenuOpen(false);
+        setAiAssistantOpen(true);
+      }}
+        className={`w-full justify-start gap-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0 ${aiLauncherStyle?.["--ai-bg"] ? "bg-[var(--ai-bg)] hover:bg-[var(--ai-hover)] focus-visible:bg-[var(--ai-hover)]" : ""}`}
+        style={aiLauncherStyle} aria-label={`Ask ${aiPersonaName}`} title={`Ask ${aiPersonaName}`} data-testid="button-ask-ai">
+        <Avatar className="h-5 w-5 shrink-0">
+          <AvatarImage src={aiPersonaAvatarUrl} alt={aiPersonaName} />
+          <AvatarFallback className="text-[10px]">{aiPersonaInitial}</AvatarFallback>
+        </Avatar>
+        <span className="group-data-[collapsible=icon]:hidden">{`Ask ${aiPersonaName}`}</span>
+      </Button>
+    </div>
+  );
+}
 
 // Task #3349: fetch the role_access_item DB tree so exclusion matching can
 // resolve an item's parent page/module as the Role Management UI displays it
@@ -2971,27 +2979,7 @@ useEffect(() => {
               <SubmissionStatsBar />
 
               {/* Task #2363: Member AI Knowledge Assistant launcher, pinned at top of nav */}
-              {memberInfo && aiEnabled && !isFeatureExcluded('support.member-ai') && (
-                <div className="mb-2 group-data-[collapsible=icon]:px-0">
-                  <Button
-                    type="button"
-                    onClick={() => setAiAssistantOpen(true)}
-                    className={`w-full justify-start gap-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0 ${aiLauncherStyle ? "bg-[var(--ai-bg)] hover:bg-[var(--ai-hover)] focus-visible:bg-[var(--ai-hover)]" : ""}`}
-                    style={aiLauncherStyle}
-                    aria-label={`Ask ${aiPersonaName}`}
-                    title={`Ask ${aiPersonaName}`}
-                    data-testid="button-ask-ai"
-                  >
-                    <Avatar className="h-5 w-5 shrink-0">
-                      <AvatarImage src={aiPersonaAvatarUrl} alt={aiPersonaName} />
-                      <AvatarFallback className="text-[10px]">{aiPersonaInitial}</AvatarFallback>
-                    </Avatar>
-                    <span className="group-data-[collapsible=icon]:hidden">
-                      {`Ask ${aiPersonaName}`}
-                    </span>
-                  </Button>
-                </div>
-              )}
+              {renderAiLauncher()}
               
               {/* Only render navigation once role data is loaded */}
               {roleStatus !== 'ready' ? (
@@ -3254,6 +3242,7 @@ useEffect(() => {
                 </SheetHeader>
                 
                 <ScrollArea className="flex-1 p-3">
+                  {renderAiLauncher(true)}
                   {/* Member Info Section */}
                   {memberInfo && !memberInfo.is_team_member && organizationInfo && (
                     <div className="mb-4">

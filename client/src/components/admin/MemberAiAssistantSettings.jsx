@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { adminFetch } from "@/lib/adminFetch";
+import { resolveMemberAiLauncherStyle } from "@shared/memberAiLauncherColors.js";
 import MemberAiResponsePolicy, { DEFAULT_RESPONSE_POLICY, normalizePolicy, policyValidationError } from "./MemberAiResponsePolicy";
 import MemberAiPolicyTest from "./MemberAiPolicyTest";
 import dougalAvatar from "@assets/ChatGPT_Image_Jul_4,_2026,_06_26_22_PM_1783182456658.png";
@@ -27,6 +28,7 @@ function normalizeOverrides(value) {
     description: typeof value?.description === "string" ? value.description.trim() : "",
     avatarUrl: typeof value?.avatarUrl === "string" ? value.avatarUrl : "",
     backgroundColor: typeof value?.backgroundColor === "string" ? value.backgroundColor : "",
+    textColor: typeof value?.textColor === "string" ? value.textColor : "",
     ...(value?.responsePolicy !== undefined ? { responsePolicy: normalizePolicy(value.responsePolicy) } : {}),
   };
 }
@@ -120,13 +122,15 @@ export default function MemberAiAssistantSettings({ tenantId }) {
       ...draft,
       name: draft.name.trim(),
       backgroundColor: draft.backgroundColor.trim(),
+      textColor: draft.textColor.trim(),
     });
     const policyError = policyValidationError(draft.responsePolicy ?? DEFAULT_RESPONSE_POLICY);
     if (policyError) {
       setError(policyError);
       return;
     }
-    if (payload.backgroundColor && !HEX_COLOR.test(payload.backgroundColor)) {
+    if ((payload.backgroundColor && !HEX_COLOR.test(payload.backgroundColor)) ||
+        (payload.textColor && !HEX_COLOR.test(payload.textColor))) {
       setError("Enter a six-digit hex colour, such as #334155, or leave it empty to inherit.");
       return;
     }
@@ -166,7 +170,8 @@ export default function MemberAiAssistantSettings({ tenantId }) {
           name: canonical.name || previous.name,
           description: canonical.description,
           avatarUrl: canonical.avatarUrl || previous.avatarUrl,
-          backgroundColor: canonical.backgroundColor || previous.backgroundColor,
+          backgroundColor: canonical.backgroundColor,
+          textColor: canonical.textColor,
         }));
       }
       await queryClient.invalidateQueries({ queryKey: ["tenant-ai-assistant", tenantId] });
@@ -183,8 +188,10 @@ export default function MemberAiAssistantSettings({ tenantId }) {
   const effectiveColor = HEX_COLOR.test(draft?.backgroundColor || "")
     ? draft.backgroundColor
     : !draft?.backgroundColor && !saved?.backgroundColor && HEX_COLOR.test(config?.backgroundColor || "")
-      ? config.backgroundColor : "#334155";
+      ? config.backgroundColor : "";
   const colorValid = !draft?.backgroundColor || HEX_COLOR.test(draft.backgroundColor);
+  const textColorValid = !draft?.textColor || HEX_COLOR.test(draft.textColor);
+  const previewStyle = resolveMemberAiLauncherStyle({ backgroundColor: effectiveColor, textColor: draft?.textColor });
   const descriptionValid = !draft || validDescription(draft.description);
   const policyError = draft ? policyValidationError(draft.responsePolicy ?? DEFAULT_RESPONSE_POLICY) : "";
   const dirty = draft && saved && JSON.stringify(draft) !== JSON.stringify(saved);
@@ -260,10 +267,11 @@ export default function MemberAiAssistantSettings({ tenantId }) {
               <p className="text-xs text-slate-400">PNG, JPEG or WebP, up to 5 MB. Removing an image restores the default.</p>
             </div>
 
+            <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="ai-assistant-color" className="text-slate-200">Background colour</Label>
               <div className="flex flex-wrap items-center gap-2">
-                <input type="color" value={effectiveColor} disabled={saving || uploading} onChange={event => update("backgroundColor", event.target.value.toUpperCase())}
+                <input type="color" value={effectiveColor || "#334155"} disabled={saving || uploading} onChange={event => update("backgroundColor", event.target.value.toUpperCase())}
                   aria-label="Pick assistant background colour" className="h-10 w-12 cursor-pointer rounded border border-slate-600 bg-slate-900 p-1" />
                 <Input id="ai-assistant-color" value={draft.backgroundColor} disabled={saving || uploading} onChange={event => update("backgroundColor", event.target.value)}
                   placeholder={!saved?.backgroundColor ? (config?.backgroundColor || "#334155") : "#334155"} maxLength={7} aria-invalid={!colorValid}
@@ -273,6 +281,23 @@ export default function MemberAiAssistantSettings({ tenantId }) {
               <p className="text-xs text-slate-400">Use a six-digit hex colour, or leave blank to inherit.</p>
               {!colorValid && <p className="text-xs text-rose-300" role="alert">Enter a colour in #RRGGBB format.</p>}
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="ai-assistant-text-color" className="text-slate-200">Text colour</Label>
+              <div className="flex flex-wrap items-center gap-2">
+                <input type="color" value={previewStyle?.color || "#ffffff"} disabled={saving || uploading}
+                  onChange={event => update("textColor", event.target.value.toUpperCase())}
+                  aria-label="Pick assistant text colour" className="h-10 w-12 cursor-pointer rounded border border-slate-600 bg-slate-900 p-1" />
+                <Input id="ai-assistant-text-color" value={draft.textColor} disabled={saving || uploading}
+                  onChange={event => update("textColor", event.target.value)} placeholder="Automatic" maxLength={7}
+                  aria-invalid={!textColorValid} className="w-40 bg-slate-900/50 border-slate-600 text-white placeholder:text-slate-500 font-mono"
+                  data-testid="input-ai-assistant-text-color" />
+                <Button type="button" variant="outline" size="sm" disabled={!draft.textColor || saving || uploading}
+                  onClick={() => update("textColor", "")} className={outlineButtonClass}><RotateCcw className="mr-2 h-4 w-4" /> Automatic</Button>
+              </div>
+              <p className="text-xs text-slate-400">Use #RRGGBB, or Automatic to restore contrast/default text.</p>
+              {!textColorValid && <p className="text-xs text-rose-300" role="alert">Enter a colour in #RRGGBB format.</p>}
+            </div>
+            </div>
 
             <div className="rounded-xl border border-slate-600 bg-slate-900/60 p-4">
               <p className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-400">Member preview {draft.enabled ? "" : "· hidden while disabled"}</p>
@@ -281,7 +306,9 @@ export default function MemberAiAssistantSettings({ tenantId }) {
                   <img src={effectiveAvatar} alt="" className="h-full w-full object-cover" />
                 </div>
                 <span className="text-sm font-medium text-slate-200">{effectiveName}</span>
-                <span className="ml-auto rounded-lg px-3 py-2 text-sm font-semibold text-white" style={{ backgroundColor: effectiveColor }}>Ask {effectiveName}</span>
+                <Button type="button" data-testid="ai-assistant-launcher-preview"
+                  className={`ml-auto ${previewStyle?.["--ai-bg"] ? "bg-[var(--ai-bg)] hover:bg-[var(--ai-hover)] focus-visible:bg-[var(--ai-hover)]" : ""}`}
+                  style={previewStyle}>Ask {effectiveName}</Button>
               </div>
               <p className="mt-3 whitespace-pre-wrap break-words text-sm text-slate-300" data-testid="text-ai-assistant-description-preview">{draft.description.trim() || DEFAULT_DESCRIPTION}</p>
             </div>
@@ -293,7 +320,7 @@ export default function MemberAiAssistantSettings({ tenantId }) {
             {success && <p className="flex items-center gap-2 text-sm text-emerald-300" role="status"><CheckCircle2 className="h-4 w-4" /> {success}</p>}
             <div className="flex items-center justify-end gap-3">
               {dirty && <span className="text-xs text-slate-400">Unsaved changes</span>}
-              <Button type="button" onClick={save} disabled={!dirty || !colorValid || !descriptionValid || !!policyError || saving || uploading} data-testid="button-save-ai-assistant">
+              <Button type="button" onClick={save} disabled={!dirty || !colorValid || !textColorValid || !descriptionValid || !!policyError || saving || uploading} data-testid="button-save-ai-assistant">
                 {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                 {saving ? "Saving..." : "Save AI Assistant"}
               </Button>
