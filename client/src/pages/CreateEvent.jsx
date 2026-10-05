@@ -1,3 +1,5 @@
+import PublicTicketMemberFields from "@/components/events/PublicTicketMemberFields";
+import { ticketMemberPolicy, updateTicketMemberField, validateTicketMemberPolicies } from "@/utils/publicTicketMembers";
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "react-router-dom";
@@ -135,6 +137,8 @@ const createEmptyTicketClass = (isDefault = false, defaultVatRate = null) => ({
   member_group_ids: [], // Empty array means no group restriction
   is_default: isDefault,
   visibility_mode: 'members_only', // 'members_only', 'members_and_public', or 'public_only'
+  create_member_records: false,
+  new_member_role_id: null,
   role_match_only: false, // When true AND visibility includes members, ticket only shows if user matches one of role_ids OR member_group_ids
   offer_type: "none",
   bogo_logic_type: "buy_x_get_y_free",
@@ -606,7 +610,7 @@ export default function CreateEvent() {
 
   const updateTicketClass = (ticketId, field, value) => {
     setTicketClasses(prev => prev.map(t => 
-      t.id === ticketId ? { ...t, [field]: value } : t
+      t.id === ticketId ? updateTicketMemberField(t, field, value) : t
     ));
   };
 
@@ -932,6 +936,7 @@ export default function CreateEvent() {
     // Collect all validation errors
     const errors = [];
     errors.push(...validateTicketReleases(isProgramEvent ? [] : ticketClasses));
+    errors.push(...validateTicketMemberPolicies(isProgramEvent || isGroupLimited ? [] : ticketClasses, roles));
     errors.push(...validateEventCpdPointsConfig(cpdPointsConfig, isProgramEvent ? [] : ticketClasses));
     errors.push(...validateEventCpdCertificateConfig(cpdCertificateConfig, isProgramEvent ? [] : ticketClasses));
     
@@ -1222,6 +1227,7 @@ export default function CreateEvent() {
       const formattedTicketClasses = ticketClasses.map(ticket => {
         const ticketData = {
           ...serializeTicketRelease(ticket),
+          ...ticketMemberPolicy(isGroupLimited ? {} : ticket),
           id: ticket.id,
           name: ticket.name,
           // Group-limited events allow free tickets only.
@@ -2697,6 +2703,7 @@ export default function CreateEvent() {
                         </div>
 
                         {/* Ticket Availability */}
+                        <PublicTicketMemberFields ticket={ticket} roles={roles} onChange={patch => setTicketClasses(prev => prev.map(t => t.id === ticket.id ? { ...t, ...patch } : t))} />
                         <TicketReleaseFields
                           ticket={ticket}
                           eventTimezone={effectiveTimezone}

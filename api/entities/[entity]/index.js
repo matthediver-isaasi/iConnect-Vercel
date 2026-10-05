@@ -2,6 +2,8 @@ import { sendEmail, replacePlaceholders } from '../../_lib/emailService.js';
 import { withoutEnhancedSurveyAnswers } from '../../_lib/surveyCompletionOutputs.js';
 import { validateAnonymousCompletionConfiguration } from '../../../shared/surveyCompletionPolicy.js';
 import { validateTicketRelease } from '../../../shared/ticketRelease.js';
+import { gatePublicTicketMemberPolicy } from '../../_lib/publicTicketMemberReleaseGate.js';
+import { validatePublicTicketMemberPolicyWrite } from '../../_lib/publicTicketMemberCreation.js';
 import { generatePasswordSetupUrl, hasSetPasswordToken, replaceSetPasswordToken } from '../../_lib/passwordSetupUrl.js';
 import { triggerWorkflows, triggerPreferenceWorkflows, recheckRecordCreateWorkflows } from '../../_lib/workflows.js';
 import { triggerZohoCrmSync, awaitZohoCrmSyncForResponse } from '../../_lib/zohoCrmSync.js';
@@ -421,6 +423,10 @@ export default async function handler(req, res) {
   }
 
   const entityNorm = normalizeEntityName(entity);
+  if (req.method === 'POST') {
+    try { req.body = await gatePublicTicketMemberPolicy(entity, req.body, supabase); }
+    catch (error) { return res.status(error.status || 400).json({ error: error.message }); }
+  }
   if (entityNorm === 'emailcampaign' && req.method === 'POST') {
     return res.status(403).json({
       error: 'Email campaigns must be created through /api/email-campaigns so audience-list safety checks are enforced.',
@@ -2625,9 +2631,14 @@ export default async function handler(req, res) {
       // Validate only the authorized payload; release scheduling never grants
       // additional audience access or changes the event-write guardrails.
       if (entityNorm === 'event' || entityNorm === 'complexeventticketclass') {
-        const tickets = entityNorm === 'event'
-          ? sanitizedBody.pricing_config?.ticket_classes || []
-          : [sanitizedBody];
+        const records = Array.isArray(sanitizedBody) ? sanitizedBody : [sanitizedBody];
+        const tickets = records.flatMap(record => entityNorm === 'event'
+          ? record.pricing_config?.ticket_classes || []
+          : [record]);
+        await validatePublicTicketMemberPolicyWrite({
+          db: supabase, tenantId: tenantCtx.tenantId, tickets,
+          authorizedToAssignRoles: await hasAdminAccess(tenantCtx),
+        });
         for (const ticket of Array.isArray(tickets) ? tickets : []) {
           const releaseError = validateTicketRelease(ticket);
           if (releaseError) return res.status(400).json({ error: releaseError });

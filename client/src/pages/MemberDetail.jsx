@@ -1790,6 +1790,13 @@ export default function MemberDetail() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="py-3">
+                  {member?.supplied_organization_name && (
+                    <div className="mb-3 rounded border p-3 text-sm">
+                      <p className="font-medium">Supplied organisation name</p>
+                      <p>{member.supplied_organization_name}</p>
+                      <p className="text-xs text-slate-500">Unverified purchase information. This does not grant organisation affiliation or access.</p>
+                    </div>
+                  )}
                   {isEditing ? (
                     <div className="space-y-2">
                       <Label>Organisation</Label>

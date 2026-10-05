@@ -60,6 +60,16 @@
           "items": {
             "type": "object",
             "properties": {
+              "create_member_records": {
+                "type": "boolean",
+                "default": false,
+                "description": "Opt-in purchaser and attendee contact creation for Public only tickets"
+              },
+              "new_member_role_id": {
+                "type": ["string", "null"],
+                "format": "uuid",
+                "description": "Base role for newly created contacts, separate from ticket eligibility roles"
+              },
               "release_at": {
                 "type": ["string", "null"],
                 "format": "date-time",

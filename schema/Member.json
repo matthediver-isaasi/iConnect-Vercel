@@ -34,6 +34,10 @@
         "type": "string",
         "description": "Reference to Organization entity"
       },
+      "supplied_organization_name": {
+        "type": ["string", "null"],
+        "description": "Unverified organisation name supplied during public ticket purchase; grants no organisation affiliation or access"
+      },
       "department_ids": {
         "type": "array",
         "items": {

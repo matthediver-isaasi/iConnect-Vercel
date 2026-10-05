@@ -1,3 +1,4 @@
+import { publicTicketEmailExists } from './publicTicketEmail.js';
 export const PUBLIC_INVOICE_PO = 'public_invoice_po';
 
 // This records an intention only. It is not an invoice, receivable or payment.
@@ -41,10 +42,9 @@ export async function validatePublicInvoicePo({
     throw new Error('A valid purchaser email is required');
   }
   // Eligibility is exclusively about the purchaser, never an attendee.
-  const { data, error } = await client.from('member').select('id')
-    .eq('tenant_id', event.tenant_id).ilike('email', details.email.replace(/[\\%_]/g, '\\$&')).limit(1);
-  if (error) throw new Error('Unable to verify purchaser eligibility');
-  if (data?.length) throw new Error('Members must sign in and use the member payment options');
+  if (await publicTicketEmailExists(client, event.tenant_id, details.email)) {
+    throw new Error('Members must sign in and use the member payment options');
+  }
   if (purchaseOrderNumber != null && (typeof purchaseOrderNumber !== 'string' || purchaseOrderNumber.length > 255)) {
     throw new Error('Purchase Order Number must be text of at most 255 characters');
   }

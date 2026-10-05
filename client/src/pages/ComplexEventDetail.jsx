@@ -1,3 +1,4 @@
+import { purchaseIdentity, ticketMemberPolicy } from "@/utils/publicTicketMembers";
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import PublicDocumentsSection from "@/components/events/PublicDocumentsSection";
@@ -160,6 +161,10 @@ function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organiz
     }
     if (!externalFirstName.trim() || !externalLastName.trim()) {
       toast.error('Please enter first and last name');
+      return;
+    }
+    if (ticketMemberPolicy(ticketClass).create_member_records && !externalOrganization.trim()) {
+      toast.error('Please enter this attendee’s organisation');
       return;
     }
     const email = externalEmail.toLowerCase().trim();
@@ -814,11 +819,14 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
       const items = cartItems.map(ci => ({
         ticket_class_id: ci.ticketClassId,
         attendee_count: ci.attendees.length,
+        attendees: ci.attendees.map(purchaseIdentity),
         discount_code: ci.discountCode || undefined
       }));
       return publicClient.createComplexEventPaymentIntent({
         event_id: event.id,
         purchaser_email: data.purchaser_email,
+        purchaser_info: data.purchaser_info || null,
+        purchase_request_id: data.purchase_request_id,
         items,
         selected_voucher_ids: data.selected_voucher_ids || [],
         voucher_order_manual: data.voucher_order_manual === true,
@@ -856,6 +864,7 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
         third_party_consent: typeof data.third_party_consent === 'boolean' ? data.third_party_consent : null,
         purchase_order_number: data.purchase_order_number || null,
         purchaser_info: data.purchaser_info || null,
+        purchase_request_id: data.purchase_request_id,
         selected_voucher_ids: data.selected_voucher_ids || [],
         voucher_order_manual: data.voucher_order_manual === true,
         training_fund_amount: Number(data.training_fund_amount) || 0,

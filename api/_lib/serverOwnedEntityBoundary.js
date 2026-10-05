@@ -1,4 +1,6 @@
 const SERVER_OWNED_ENTITY_NAMES = new Set([
+  'publicticketmemberpurchase',
+  'publicticketmemberlink',
   'surveycompletion',
   'surveycompletionreceipt',
   'surveycompletionretry',

@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import { publicTicketEmailExists } from '../_lib/publicTicketEmail.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -37,24 +38,9 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    const normalizedEmail = email.trim().toLowerCase();
-
-    const { data: member, error } = await supabase
-      .from('member')
-      .select('id')
-      .eq('tenant_id', tenant.id)
-      .ilike('email', normalizedEmail)
-      .limit(1)
-      .maybeSingle();
-
-    if (error) {
-      console.error('[CheckMemberEmail] Database error:', error);
-      return res.status(500).json({ error: 'Failed to check email' });
-    }
-
-    return res.status(200).json({ isMember: !!member });
+    return res.status(200).json({ isMember: await publicTicketEmailExists(supabase, tenant.id, email) });
   } catch (err) {
     console.error('[CheckMemberEmail] Error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
+    return res.status(err.statusCode || 500).json({ error: err.statusCode ? err.message : 'Internal server error' });
   }
 }

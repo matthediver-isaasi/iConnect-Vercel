@@ -1,3 +1,6 @@
+import { v4 as uuidv4 } from "uuid";
+import PurchaserIdentityFields from "@/components/booking/PurchaserIdentityFields";
+import { ticketMemberPolicy, purchaseIdentity, validatePurchaseIdentities } from "@/utils/publicTicketMembers";
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { base44 } from "@/api/base44Client";
@@ -477,7 +480,32 @@ export default function PaymentOptions({
     isComplexEvent ? 'card' : (memberInfo ? 'account' : 'card')
   );
   const [purchaseOrderNumber, setPurchaseOrderNumber] = useState('');
-  const [purchaserInfo, setPurchaserInfo] = useState(() => ({
+  const memberCreationTickets = (checkoutTicketClasses || (selectedTicketClass ? [selectedTicketClass] : []))
+    .filter(ticket => ticketMemberPolicy(ticket).create_member_records);
+  const requiresPurchaserIdentity = memberCreationTickets.length > 0;
+  const purchaseRequestId = useRef(null);
+  const purchaseRequestFingerprint = useRef(null);
+  const getPurchaseRequestId = () => {
+    const fingerprint = JSON.stringify({
+      purchaser: requiresPurchaserIdentity ? purchaseIdentity(purchaserInfo) : purchaseIdentity(guestInfo),
+      attendees: attendees.map(purchaseIdentity),
+      tickets: memberCreationTickets.map(ticket => [ticket.id, ticket.new_member_role_id]),
+    });
+    if (!purchaseRequestId.current || purchaseRequestFingerprint.current !== fingerprint) {
+      const key = `purchase_request_id_${isComplexEvent ? 'complex' : 'standard'}_${event.id}`;
+      try {
+        purchaseRequestId.current = sessionStorage.getItem(`${key}_fingerprint`) === fingerprint
+          ? sessionStorage.getItem(key) || uuidv4() : uuidv4();
+        sessionStorage.setItem(key, purchaseRequestId.current);
+        sessionStorage.setItem(`${key}_fingerprint`, fingerprint);
+      } catch {
+        purchaseRequestId.current = uuidv4();
+      }
+      purchaseRequestFingerprint.current = fingerprint;
+    }
+    return purchaseRequestId.current;
+  };
+  const [purchaserInfo, setPurchaserInfo] = useState(() => requiresPurchaserIdentity ? purchaseIdentity() : ({
     first_name: guestInfo?.first_name || '',
     last_name: guestInfo?.last_name || '',
     email: guestInfo?.email || '',
@@ -500,6 +528,20 @@ export default function PaymentOptions({
     && (ticketSelectionUnavailable || releaseBlockedTickets.length > 0);
   const latestTicketGate = useRef(null);
   latestTicketGate.current = { releaseTickets, ticketSelectionUnavailable, allocationContext };
+  const identityItems = isComplexEvent && complexEventApi?._getCartItems
+    ? complexEventApi._getCartItems().map(item => ({
+      ticketClass: releaseTickets.find(ticket => String(ticket.id) === String(item.ticket_class_id)),
+      attendees: item.attendees || [],
+    }))
+    : [{ ticketClass: selectedTicketClass, attendees: attendees || [] }];
+  const purchaseIdentityError = validatePurchaseIdentities(purchaserInfo, identityItems);
+  const guardPurchaseIdentity = () => {
+    if (purchaseIdentityError) {
+      toast.error(purchaseIdentityError);
+      return false;
+    }
+    return true;
+  };
   const guardTicketBooking = () => {
     if (!isOneOffEvent && !isComplexEvent) return true;
     const current = latestTicketGate.current;
@@ -522,7 +564,7 @@ export default function PaymentOptions({
   }, [ticketBookingUnavailable]);
 
   useEffect(() => {
-    if (!guestInfo) return;
+    if (!guestInfo || requiresPurchaserIdentity) return;
     setPurchaserInfo({
       first_name: guestInfo.first_name || '',
       last_name: guestInfo.last_name || '',
@@ -537,7 +579,8 @@ export default function PaymentOptions({
     guestInfo?.email,
     guestInfo?.organization,
     guestInfo?.phone,
-    guestInfo?.job_title
+    guestInfo?.job_title,
+    requiresPurchaserIdentity
   ]);
   
   // 3D Secure return handling state
@@ -546,6 +589,13 @@ export default function PaymentOptions({
   
   // Booking confirmation state (for guest checkout)
   const [bookingConfirmation, setBookingConfirmation] = useState(null);
+  useEffect(() => {
+    if (!bookingConfirmation) return;
+    try {
+      sessionStorage.removeItem(`purchase_request_id_${isComplexEvent ? 'complex' : 'standard'}_${event.id}`);
+    } catch { /* Storage may be unavailable. */ }
+    purchaseRequestId.current = null;
+  }, [bookingConfirmation, isComplexEvent, event.id]);
 
   // Duplicate registration check state
   const [showDuplicateWarning, setShowDuplicateWarning] = useState(false);
@@ -725,6 +775,8 @@ export default function PaymentOptions({
           const savedPaymentSelection = resolveSavedPaidEventPaymentSelection(savedPayload);
           const complexPayload = {
             payment_method: 'card',
+            purchaser_info: savedPayload.purchaser_info || savedPayload.purchaserInfo,
+            purchase_request_id: savedPayload.purchase_request_id,
             stripe_payment_intent_id: paymentIntentFromUrl,
             _savedCartItems: savedPayload.complexCartItems || [],
             selected_voucher_ids: savedPaymentSelection.selectedVoucherIds,
@@ -1142,7 +1194,7 @@ export default function PaymentOptions({
       }
     }
 
-    const paymentEmail = isComplexEvent 
+    const paymentEmail = requiresPurchaserIdentity ? purchaseIdentity(purchaserInfo).email : isComplexEvent
       ? (attendees[0]?.email || memberInfo?.email)
       : (isGuestCheckout ? guestInfo?.email : memberInfo?.email);
 
@@ -1183,6 +1235,8 @@ export default function PaymentOptions({
 
   const proceedToStripePayment = async (paymentEmail) => {
     if (!guardTicketBooking()) return;
+    if (!guardPurchaseIdentity()) return;
+    if (requiresPurchaserIdentity) paymentEmail = purchaseIdentity(purchaserInfo).email;
     const chargeAmount = remainingBalance;
     console.log('[PaymentOptions] Creating Stripe payment intent for amount:', chargeAmount);
     doSetSubmitting(true);
@@ -1191,6 +1245,9 @@ export default function PaymentOptions({
 
       if (isComplexEvent && complexEventApi) {
         const piPayload = {
+          purchaser_info: purchaseIdentity(purchaserInfo),
+          purchase_request_id: getPurchaseRequestId(),
+          attendees: attendees.map(purchaseIdentity),
           event_id: event.id,
           purchaser_email: paymentEmail,
           ticket_class_id: selectedTicketClass?.id,
@@ -1235,7 +1292,14 @@ export default function PaymentOptions({
         
         if (!guardTicketBooking()) return;
         const response = await base44.functions.invoke('createStripePaymentIntent', {
+          purchaserInfo: requiresPurchaserIdentity ? purchaseIdentity(purchaserInfo) : (isGuestCheckout ? purchaseIdentity(guestInfo) : purchaseIdentity(memberInfo)),
+          guestInfo: isGuestCheckout ? (requiresPurchaserIdentity ? purchaseIdentity(purchaserInfo) : guestInfo) : null,
+          attendees: attendees.filter(a => a.isValid).map(a => ({ ...a, ...purchaseIdentity(a) })),
+          purchase_request_id: getPurchaseRequestId(),
+          eventId: event.id,
+          ticketClassId: selectedTicketClass?.id || null,
           amount: chargeAmount,
+          discountCode: appliedDiscount?.code || null,
           currency: 'gbp',
           memberEmail: paymentEmail,
           selectedVoucherIds: effectiveSelectedVouchers,
@@ -1272,6 +1336,9 @@ export default function PaymentOptions({
         ? attendees 
         : attendees.filter(a => a.isValid);
       const savedPayload = {
+        purchaserInfo: requiresPurchaserIdentity ? purchaseIdentity(purchaserInfo) : (isGuestCheckout ? purchaseIdentity(guestInfo) : purchaseIdentity(memberInfo)),
+        purchaser_info: purchaseIdentity(purchaserInfo),
+        purchase_request_id: getPurchaseRequestId(),
         eventId: event.id,
         attendees: validAttendees,
         registrationMode: registrationMode,
@@ -1317,13 +1384,16 @@ export default function PaymentOptions({
       }
       
       const savedPayloadKey = `pending_booking_payload_${event.id}`;
+      if (requiresPurchaserIdentity && isGuestCheckout) {
+        savedPayload.guestInfo = { ...savedPayload.guestInfo, ...purchaseIdentity(purchaserInfo) };
+      }
       sessionStorage.setItem(savedPayloadKey, JSON.stringify(savedPayload));
       console.log('[PaymentOptions] Saved booking payload to sessionStorage for 3D Secure recovery');
       
       setShowStripeModal(true);
     } catch (error) {
       console.error("[PaymentOptions] Error creating Stripe Payment Intent:", error);
-      toast.error("Failed to initialize payment");
+      toast.error(error.response?.data?.error || error.message || "Failed to initialize payment");
     } finally {
       doSetSubmitting(false);
     }
@@ -1334,6 +1404,7 @@ export default function PaymentOptions({
     // Paid returns must reach server verification/compensation rather than
     // silently abandoning an already captured payment.
     if (!stripePaymentId && !guardTicketBooking()) return;
+    if (!stripePaymentId && !guardPurchaseIdentity()) return;
     console.log('[PaymentOptions] processOneOffBooking started');
     doSetSubmitting(true);
 
@@ -1354,6 +1425,9 @@ export default function PaymentOptions({
 
       if (isComplexEvent && complexEventApi) {
         const complexPayload = {
+          purchaser_info: paidPaymentSnapshot?.purchaser_info || purchaseIdentity(purchaserInfo),
+          purchase_request_id: paidPaymentSnapshot?.purchase_request_id || getPurchaseRequestId(),
+          _savedCartItems: paidPaymentSnapshot?.complexCartItems,
           event_id: event.id,
           attendees: attendees.map(a => ({
             email: (a.email || '').toLowerCase().trim(),
@@ -1426,6 +1500,9 @@ export default function PaymentOptions({
         console.log('[PaymentOptions] Valid attendees after filter:', JSON.stringify(validAttendees));
         
         const bookingPayload = {
+          purchaserInfo: paidPaymentSnapshot?.purchaserInfo || (requiresPurchaserIdentity ? purchaseIdentity(purchaserInfo) : (isGuestCheckout ? purchaseIdentity(guestInfo) : purchaseIdentity(memberInfo))),
+          purchaser_info: paidPaymentSnapshot?.purchaser_info || purchaseIdentity(purchaserInfo),
+          purchase_request_id: paidPaymentSnapshot?.purchase_request_id || getPurchaseRequestId(),
           eventId: event.id,
           attendees: validAttendees,
           registrationMode: registrationMode,
@@ -1474,6 +1551,13 @@ export default function PaymentOptions({
           }
         }
 
+        if (requiresPurchaserIdentity && isGuestCheckout) {
+          bookingPayload.guestInfo = { ...bookingPayload.guestInfo, ...bookingPayload.purchaserInfo };
+        }
+        if (paidPaymentSnapshot) {
+          bookingPayload.attendees = paidPaymentSnapshot.attendees;
+          bookingPayload.guestInfo = paidPaymentSnapshot.guestInfo;
+        }
         console.log('[PaymentOptions] Calling createOneOffEventBooking API with payload:', JSON.stringify(bookingPayload));
         const response = await base44.functions.invoke('createOneOffEventBooking', bookingPayload);
         console.log('[PaymentOptions] API response received:', JSON.stringify(response.data));
@@ -1614,6 +1698,7 @@ export default function PaymentOptions({
   // Main submit handler with duplicate check
   const handleSubmit = async () => {
     if (!guardTicketBooking()) return;
+    if (!guardPurchaseIdentity()) return;
     if (memberInfo && totalCost > 0 && !eventPaymentPolicy) {
       toast.error(eventPaymentSettingsError
         ? 'Payment options could not be loaded. Please retry before booking.'
@@ -1911,7 +1996,13 @@ export default function PaymentOptions({
                           </div>
                         </div>
 
-                        {isPublicInvoicePo && (
+                        {isPublicInvoicePo && requiresPurchaserIdentity && (
+                          <div className="space-y-2">
+                            <Label htmlFor="member-purchase-order">Purchase Order Number (optional)</Label>
+                            <Input id="member-purchase-order" value={purchaseOrderNumber} onChange={e => setPurchaseOrderNumber(e.target.value)} />
+                          </div>
+                        )}
+                        {isPublicInvoicePo && !requiresPurchaserIdentity && (
                           <div className="space-y-3 rounded-lg border border-indigo-200 bg-white p-4" data-testid="public-invoice-po-details">
                             <p className="text-sm font-medium">Purchaser details</p>
                             <p className="text-xs text-slate-500">These details identify the person requesting the invoice and may differ from the attendees.</p>
@@ -2134,7 +2225,7 @@ export default function PaymentOptions({
   // Also require terms acceptance if terms exist
   const termsRequirementMet = !hasBookingTerms || termsAccepted;
   const paymentPolicyReady = !memberInfo || totalCost <= 0 || eventPaymentPolicy !== null;
-  const canProceed = !ticketBookingUnavailable && paymentPolicyReady && !isSoldOut && !isRegistrationClosed && !hasAttendeesWithMissingNames && termsRequirementMet && (
+  const canProceed = !purchaseIdentityError && !ticketBookingUnavailable && paymentPolicyReady && !isSoldOut && !isRegistrationClosed && !hasAttendeesWithMissingNames && termsRequirementMet && (
     (isComplexEvent || isOneOffEvent)
       ? (ticketsRequired > 0 && !isSubmitting && (totalCost === 0 || isFullyPaid) && !noTicketsForRole)
       : (hasEnoughTickets && event.program_tag && !isSubmitting && ticketsRequired > 0)
@@ -2538,11 +2629,15 @@ export default function PaymentOptions({
             <CardTitle className="text-xl">{resolveTbcSummaryTitle(tbcBookingReplacement, totalCost)}</CardTitle>
           </CardHeader>
           <CardContent className="pt-6 space-y-6">
+            {requiresPurchaserIdentity && <PurchaserIdentityFields value={purchaserInfo} onChange={setPurchaserInfo} />}
+            {purchaseIdentityError && <p role="alert" className="text-sm text-amber-700">{purchaseIdentityError}</p>}
             {mainContent}
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-6">
+          {requiresPurchaserIdentity && <PurchaserIdentityFields value={purchaserInfo} onChange={setPurchaserInfo} />}
+          {purchaseIdentityError && <p role="alert" className="text-sm text-amber-700">{purchaseIdentityError}</p>}
           {mainContent}
         </div>
       )}

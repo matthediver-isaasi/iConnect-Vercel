@@ -18,7 +18,7 @@ async function loadHandler(path) {
   const replacements = new Map();
   for (const [, names, specifier] of source.matchAll(imports)) {
     if (specifier.startsWith('node:') || specifier === 'crypto') continue;
-    if (/publicInvoicePo|complexEventPricing|ticketAccess|ticketReleaseAccess|eventOptionSelections|attendeeJobTitleEnrichment/.test(specifier)) continue;
+    if (/publicTicket|publicInvoicePo|complexEventPricing|ticketAccess|ticketReleaseAccess|eventOptionSelections|attendeeJobTitleEnrichment/.test(specifier)) continue;
     const exports = [];
     if (names.trim().startsWith('{')) {
       for (const entry of names.replace(/[{}]/g, '').split(',').map(s => s.trim()).filter(Boolean)) {
@@ -37,12 +37,18 @@ async function loadHandler(path) {
       name: 'controlled-handler-dependencies',
       setup(builder) {
         builder.onResolve({ filter: /.*/ }, args => {
+          if (args.path.endsWith('/stripeCredentials.js')) return { path: 'ticket-credentials', namespace: 'fixture' };
+          if (args.path === 'stripe') return { path: 'stripe', namespace: 'fixture' };
           if (replacements.has(args.path)) return { path: args.path, namespace: 'fixture' };
           // Supabase used by real pricing/helper modules shares the same fixture.
           if (args.path === '@supabase/supabase-js') return { path: args.path, namespace: 'fixture' };
         });
         builder.onLoad({ filter: /.*/, namespace: 'fixture' }, args => ({
-          contents: args.path === '@supabase/supabase-js'
+          contents: args.path === 'ticket-credentials'
+            ? `export function getStripeCredentials(...args){return globalThis.${slot}.dependency('getStripeCredentials',args);} export function findOrCreateStripeCustomer(...args){return globalThis.${slot}.dependency('findOrCreateStripeCustomer',args);}`
+            : args.path === 'stripe'
+            ? `export default function(){return globalThis.${slot}.dependency('getStripeClient',[]);}`
+            : args.path === '@supabase/supabase-js'
             ? `export const createClient = () => globalThis.${slot}.db;`
             : replacements.get(args.path), loader: 'js',
         }));
@@ -52,19 +58,28 @@ async function loadHandler(path) {
   return (await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`)).default;
 }
 
-function fixture({ enabled = true, member = null, memberEmail = null, free = false, soldOut = false, loseRace = false, visibility = 'members_and_public', noTickets = false } = {}) {
+function fixture({ enabled = true, member = null, memberEmail = null, free = false, soldOut = false, loseRace = false, visibility = 'members_and_public', noTickets = false, paid = false, paymentStatus = 'succeeded', atomicSoldOut = false, refundFails = false } = {}) {
   const tickets = noTickets ? [] : [
     { id: 'ticket-a', name: 'Standard', price: free ? 0 : 25, is_free: free, visibility_mode: visibility, is_unlimited_tickets: false, available_count: 20 },
     { id: 'ticket-b', name: 'Premium', price: 50, visibility_mode: 'public_only', is_unlimited_tickets: false, available_count: 20 },
   ];
   const event = { id: 'event-a', tenant_id: 'tenant-a', title: 'Fixture event', status: 'published', event_state: 'active', available_seats: 20, allow_public_invoice_po: enabled, pricing_config: { ticket_classes: tickets } };
   const rows = {
+    role: [{ id: 'contact-role', tenant_id: 'tenant-a' }],
+    public_ticket_member_purchase: [],
     event: [event], complex_event: [event], complex_event_ticket_class: tickets.map(t => ({ ...t, tenant_id: 'tenant-a', complex_event_id: event.id })),
     booking: [], complex_event_booking: [], member: memberEmail ? [{ id: 'member-email', email: memberEmail, tenant_id: 'tenant-a', status: 'active' }] : [],
     system_settings: [{ tenant_id: 'tenant-a', setting_key: 'xero_invoice_enabled', setting_value: 'true' }],
     event_email: [], scheduled_email: [], complex_event_session: [], organization: [],
   };
   const calls = [];
+  const paymentIntent = {
+    id: 'pi_fixture', status: paymentStatus, amount: 5000, currency: 'gbp',
+    metadata: { event_id: 'event-a', tenant_id: 'tenant-a',
+      public_ticket_purchase_id: '00000000-0000-4000-8000-000000000001',
+      ticket_class_id: 'ticket-a', ticket_class_ids: 'ticket-a', booking_type: 'guest_one_off_event' },
+    latest_charge: { paid: true, captured: true, refunded: false, amount_refunded: 0 },
+  };
   const unexpected = [];
   const db = {
     from(table) {
@@ -75,6 +90,7 @@ function fixture({ enabled = true, member = null, memberEmail = null, free = fal
         select() { return query; },
         eq(k, v) { filters.push(r => r[k] === v); return query; },
         ilike(k, v) { filters.push(r => String(r[k]).toLowerCase() === v.toLowerCase()); return query; },
+        filter(k, op, v) { assert.equal(op, 'imatch'); filters.push(r => new RegExp(v.replaceAll('[[:space:]]', '\\s'), 'i').test(String(r[k]))); return query; },
         in(k, values) { filters.push(r => values.includes(r[k])); return query; },
         neq(k, v) { filters.push(r => r[k] !== v); return query; },
         is(k, v) { filters.push(r => (r[k] ?? null) === v); return query; },
@@ -99,6 +115,42 @@ function fixture({ enabled = true, member = null, memberEmail = null, free = fal
     },
     async rpc(name, args) {
       calls.push({ rpc: name, args });
+      if (name === 'lookup_public_ticket_member_emails') {
+        return { data: rows.member.filter(row => row.tenant_id === args.p_tenant_id && args.p_emails.includes(row.email.trim().toLowerCase()))
+          .map(row => ({ normalized_email: row.email.trim().toLowerCase() })) };
+      }
+      if (name === 'prepare_public_ticket_member_purchase') {
+        const existing = rows.public_ticket_member_purchase.find(row => row.id === args.p_id);
+        if (existing && JSON.stringify(existing.snapshot) !== JSON.stringify(args.p_snapshot)) return { error: { code: '23514' } };
+        if (!existing) rows.public_ticket_member_purchase.push({
+          id: args.p_id, tenant_id: args.p_tenant_id, event_id: args.p_event_id, event_kind: args.p_event_kind,
+          snapshot: args.p_snapshot, state: 'prepared', booking_ids: [],
+        });
+        return { data: { id: args.p_id } };
+      }
+      if (name === 'insert_public_ticket_booking_batch') {
+        const receipt = rows.public_ticket_member_purchase.find(row => row.id === args.p_purchase_id);
+        if (atomicSoldOut) {
+          receipt.state = 'retryable';
+          receipt.last_error_code = 'capacity_refund_pending';
+          return { data: { error: 'capacity_unavailable' } };
+        }
+        const table = receipt.event_kind === 'simple' ? 'booking' : 'complex_event_booking';
+        const batch = args.p_rows.map((row, index) => ({ ...row, id: `atomic-${index}`, member_id: null, organization_id: null }));
+        rows[table].push(...batch);
+        receipt.booking_ids = batch.map(row => row.id);
+        return { data: batch };
+      }
+      if (name === 'provision_public_ticket_members') {
+        const receipt = rows.public_ticket_member_purchase.find(row => row.id === args.p_purchase_id);
+        assert.equal(receipt.state, 'ready');
+        for (const person of receipt.snapshot.people) rows.member.push({
+          ...person.identity, tenant_id: receipt.tenant_id, role_id: person.role_id,
+          login_enabled: false, show_in_directory: false,
+        });
+        receipt.state = 'completed';
+        return { data: { state: 'completed', created: receipt.snapshot.people.length } };
+      }
       if (name.startsWith('check_') && name.endsWith('ticket_capacity')) {
         const denied = soldOut || (loseRace && args.p_booking_ids?.length);
         // The real RPC removes the losing transaction's rows under an advisory
@@ -114,7 +166,7 @@ function fixture({ enabled = true, member = null, memberEmail = null, free = fal
     },
   };
   return {
-    rows, calls, db, unexpected,
+    rows, calls, db, unexpected, paymentIntent,
     dependency(name, args) {
       calls.push({ dependency: name });
       if (name === 'createClient') return db;
@@ -122,6 +174,16 @@ function fixture({ enabled = true, member = null, memberEmail = null, free = fal
       if (name === 'getTenantContext') return { tenantId: 'tenant-a' };
       if (name === 'getSessionMember') return member;
       if (name === 'getSession') return null;
+      if (paid && name === 'getStripeClient') return {
+        paymentIntents: { retrieve: async () => paymentIntent },
+        refunds: { create: async (body, options) => {
+          calls.push({ refund: body, options });
+          if (refundFails) throw new Error('Temporary provider outage');
+          paymentIntent.latest_charge.refunded = true;
+          return { id: 're_fixture', status: 'succeeded' };
+        } },
+      };
+      if (paid && name === 'getStripeCredentials') return { secret_key: 'fixture-not-a-secret', is_enabled: true };
       if (name === 'sharedSendConfirmationEmailsFromTemplate' || name === 'sendConfirmationEmailsFromTemplate') return [];
       if (name === 'scheduleComplexEventReminders') return;
       if (name === 'eventInvoiceContact') return eventInvoiceContact(...args);
@@ -134,10 +196,23 @@ function fixture({ enabled = true, member = null, memberEmail = null, free = fal
 
 async function invoke(kind, options = {}, bodyOverride = {}) {
   const state = fixture(options);
+  if (options.provisioning) {
+    for (const ticket of [...state.rows.event[0].pricing_config.ticket_classes, ...state.rows.complex_event_ticket_class]) {
+      ticket.create_member_records = true;
+      ticket.new_member_role_id = 'contact-role';
+      ticket.visibility_mode = 'public_only';
+    }
+  }
   globalThis[slot] = state;
   process.env.SUPABASE_URL = 'https://fixture.invalid';
   process.env.SUPABASE_SERVICE_KEY = 'fixture-not-a-secret';
-  globalThis.fetch = async () => { state.unexpected.push('network'); throw new Error('Unexpected network request'); };
+  globalThis.fetch = async url => {
+    if (options.paid && String(url).startsWith('https://api.stripe.com/v1/payment_intents/pi_fixture')) {
+      state.calls.push({ dependency: 'providerPaymentVerification' });
+      return { ok: true, json: async () => state.paymentIntent };
+    }
+    state.unexpected.push('network'); throw new Error('Unexpected network request');
+  };
   handlers[kind] ||= await loadHandler(resolve(kind === 'simple' ? 'api/functions/[functionName].js' : 'api/public/complex-event-booking.js'));
   const body = kind === 'simple'
     ? { eventId: 'event-a', ticketsRequired: 2, totalCost: 50, paymentMethod: 'public_invoice_po', ticketClassId: 'ticket-a', isGuestBooking: true, guestInfo: purchaser, purchaser_info: purchaser, attendees: [attendee, { ...attendee, email: 'second@example.test' }], registrationMode: 'individual' }
@@ -148,6 +223,64 @@ async function invoke(kind, options = {}, bodyOverride = {}) {
 }
 
 for (const kind of ['simple', 'complex']) {
+  for (const refundFails of [false, true]) {
+    test(`${kind}: atomic capacity loss ${refundFails ? 'durably queues provider retry' : 'refunds captured payment'} without bookings or contacts`, async () => {
+      const contact = { ...attendee, organization: 'Attendee company' };
+      const result = await invoke(kind, { paid: true, provisioning: true, atomicSoldOut: true, refundFails }, {
+        purchase_request_id: '00000000-0000-4000-8000-000000000001',
+        ...(kind === 'simple'
+          ? { paymentMethod: 'card', stripePaymentIntentId: 'pi_fixture', purchaserInfo: purchaser, attendees: [contact, { ...contact, email: 'second@example.test' }] }
+          : { payment_method: 'card', stripe_payment_intent_id: 'pi_fixture', items: [{ ticket_class_id: 'ticket-a', attendees: [contact, { ...contact, email: 'second@example.test' }] }] }),
+      });
+      assert.equal(result.bookings.length, 0);
+      assert.equal(result.rows.member.length, 0);
+      assert.equal(result.res.body.refunded, !refundFails, JSON.stringify(result.res.body));
+      assert.equal(result.rows.public_ticket_member_purchase[0].state, refundFails ? 'retryable' : 'excluded');
+      assert.equal(result.rows.public_ticket_member_purchase[0].last_error_code, refundFails ? 'capacity_refund_pending' : 'capacity_refunded');
+      const refunds = result.calls.filter(call => call.refund);
+      assert.equal(refunds.length, 1);
+      assert.match(refunds[0].options.idempotencyKey, /^public-ticket-capacity:/);
+      assert.deepEqual(result.unexpected, []);
+    });
+  }
+  for (const status of ['succeeded', 'requires_capture', 'canceled']) {
+    test(`${kind}: enabled card checkout uses captured settlement, not ${status === 'succeeded' ? 'caller-supplied success' : status}`, async () => {
+      const contact = { ...attendee, organization: 'Attendee company' };
+      const result = await invoke(kind, { paid: true, provisioning: true, paymentStatus: status }, {
+        purchase_request_id: '00000000-0000-4000-8000-000000000001',
+        ...(kind === 'simple'
+          ? { paymentMethod: 'card', stripePaymentIntentId: 'pi_fixture', purchaserInfo: purchaser, attendees: [contact, { ...contact, email: 'second@example.test' }] }
+          : { payment_method: 'card', stripe_payment_intent_id: 'pi_fixture', items: [{ ticket_class_id: 'ticket-a', attendees: [contact, { ...contact, email: 'second@example.test' }] }] }),
+      });
+      assert.equal(result.rows.member.length, status === 'succeeded' ? 3 : 0, JSON.stringify(result.res.body));
+      assert.equal(result.bookings.length, status === 'succeeded' ? 2 : 0, JSON.stringify(result.res.body));
+      assert.deepEqual(result.unexpected, []);
+    });
+  }
+  test(`${kind}: enabled free purchase provisions explicit buyer and attendees after atomic guest bookings`, async () => {
+    const contact = { ...attendee, organization: 'Attendee company' };
+    const result = await invoke(kind, { free: true, provisioning: true }, {
+      purchase_request_id: '00000000-0000-4000-8000-000000000001',
+      ...(kind === 'simple'
+        ? { paymentMethod: 'free', totalCost: 0, purchaserInfo: purchaser, attendees: [contact, { ...contact, email: 'second@example.test' }] }
+        : { payment_method: 'free', items: [{ ticket_class_id: 'ticket-a', attendees: [contact, { ...contact, email: 'second@example.test' }] }] }),
+    });
+    assert.equal(result.res.body.success, true, JSON.stringify(result.res.body));
+    assert.equal(result.bookings.length, 2);
+    assert.equal(result.rows.member.length, 3);
+    assert.ok(result.bookings.every(row => row.member_id === null && row.organization_id === null));
+    assert.ok(result.rows.member.every(row => row.login_enabled === false && row.show_in_directory === false));
+    const insert = result.calls.findIndex(call => call.rpc === 'insert_public_ticket_booking_batch');
+    const provision = result.calls.findIndex(call => call.rpc === 'provision_public_ticket_members');
+    assert.ok(insert >= 0 && provision > insert);
+    assert.deepEqual(result.unexpected, []);
+  });
+  test(`${kind}: enabling contact creation never provisions an unpaid Invoice / PO purchase`, async () => {
+    const result = await invoke(kind, { provisioning: true });
+    assert.equal(result.bookings.length, 2, JSON.stringify(result.res.body));
+    assert.equal(result.rows.member.length, 0);
+    assert.ok(!result.calls.some(call => /public_ticket/.test(call.rpc || '')));
+  });
   test(`${kind}: legacy free registration without ticket classes still succeeds`, async () => {
     const result = await invoke(kind, { noTickets: true, free: true }, kind === 'simple'
       ? { paymentMethod: 'free', ticketClassId: null, totalCost: 0 }

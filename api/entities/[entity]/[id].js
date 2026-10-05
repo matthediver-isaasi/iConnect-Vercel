@@ -1,5 +1,7 @@
 import { validateSurveyCompletionUpdate } from '../../_lib/surveyCompletionConfiguration.js';
 import { validateTicketRelease } from '../../../shared/ticketRelease.js';
+import { gatePublicTicketMemberPolicy } from '../../_lib/publicTicketMemberReleaseGate.js';
+import { validatePublicTicketMemberPolicyWrite } from '../../_lib/publicTicketMemberCreation.js';
 import { triggerWorkflows, triggerPreferenceWorkflows } from '../../_lib/workflows.js';
 import { triggerZohoCrmSync, awaitZohoCrmSyncForResponse } from '../../_lib/zohoCrmSync.js';
 import {
@@ -287,6 +289,10 @@ export default async function handler(req, res, dependencies = {}) {
   if (rejectGenericServerOwnedEntity(entity, res)) return;
 
   const entityNorm = normalizeEntityName(entity);
+  if (req.method === 'PATCH' || req.method === 'PUT') {
+    try { req.body = await gatePublicTicketMemberPolicy(entity, req.body, supabase); }
+    catch (error) { return res.status(error.status || 400).json({ error: error.message }); }
+  }
   // Enforce the immutable form-ID boundary before database availability,
   // tenant/platform bypasses, and all generic mutation side effects.
   if (entityNorm === 'form' && isProtectedDepartmentForm(id) && req.method === 'DELETE') {
@@ -1986,6 +1992,10 @@ export default async function handler(req, res, dependencies = {}) {
           const tickets = entityNormalized === 'event'
             ? merged.pricing_config?.ticket_classes || []
             : [merged];
+          await validatePublicTicketMemberPolicyWrite({
+            db: supabase, tenantId: tenantCtx.tenantId, tickets,
+            authorizedToAssignRoles: await hasAdminAccess(tenantCtx),
+          });
           for (const ticket of Array.isArray(tickets) ? tickets : []) {
             const releaseError = validateTicketRelease(ticket);
             if (releaseError) return res.status(400).json({ error: releaseError });

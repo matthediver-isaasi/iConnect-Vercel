@@ -1,3 +1,6 @@
+import PublicTicketMemberFields from "@/components/events/PublicTicketMemberFields";
+import PublicTicketMemberDiagnostics from "@/components/events/PublicTicketMemberDiagnostics";
+import { updateTicketMemberField } from "@/utils/publicTicketMembers";
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -32,6 +35,8 @@ const createEmptyTicketClass = (defaultVatRate = null) => ({
   is_free: false,
   role_ids: [],
   visibility_mode: 'members_only',
+  create_member_records: false,
+  new_member_role_id: null,
   role_match_only: false,
   offer_type: "none",
   bogo_logic_type: "buy_x_get_y_free",
@@ -56,6 +61,7 @@ const createEmptyTicketClass = (defaultVatRate = null) => ({
 });
 
 export default function ComplexEventTicketManager({
+  eventId = null,
   ticketClasses,
   setTicketClasses,
   tracks = [],
@@ -85,7 +91,7 @@ export default function ComplexEventTicketManager({
 
   const updateTicketClass = (ticketId, field, value) => {
     setTicketClasses(prev => prev.map(t =>
-      t.id === ticketId ? { ...t, [field]: value } : t
+      t.id === ticketId ? updateTicketMemberField(t, field, value) : t
     ));
   };
 
@@ -170,6 +176,7 @@ export default function ComplexEventTicketManager({
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        <PublicTicketMemberDiagnostics eventId={eventId} />
         {ticketClasses.map((ticket, index) => (
           <div
             key={ticket.id}
@@ -904,6 +911,7 @@ export default function ComplexEventTicketManager({
                 <Separator />
 
                 {/* VAT Rate Selection */}
+                <PublicTicketMemberFields ticket={ticket} roles={roles} loading={loadingRoles} onChange={patch => setTicketClasses(prev => prev.map(t => t.id === ticket.id ? { ...t, ...patch } : t))} />
                 <div className="space-y-2">
                   <Label className="text-sm font-medium text-slate-700">VAT Rate</Label>
                   <Select

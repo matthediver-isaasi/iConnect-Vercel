@@ -1,3 +1,4 @@
+import { ticketMemberPolicy } from "@/utils/publicTicketMembers";
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { base44 } from "@/api/base44Client";
@@ -2093,7 +2094,9 @@ export function EventDetailsExperience({
                       <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                         <User className="w-5 h-5 text-blue-600" />
                         <p className="text-sm text-blue-800">
-                          Please enter your details to register for this event.
+                          {ticketMemberPolicy(selectedTicketClass).create_member_records
+                            ? "Enter the attendee’s own details here. Purchaser details are collected separately in the booking summary."
+                            : "Please enter your details to register for this event."}
                         </p>
                       </div>
                     )}

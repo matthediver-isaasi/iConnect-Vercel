@@ -1,3 +1,6 @@
+import PublicTicketMemberFields from "@/components/events/PublicTicketMemberFields";
+import PublicTicketMemberDiagnostics from "@/components/events/PublicTicketMemberDiagnostics";
+import { ticketMemberPolicy, updateTicketMemberField, validateTicketMemberPolicies } from "@/utils/publicTicketMembers";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -146,6 +149,8 @@ const createEmptyTicketClass = (isDefault = false, defaultVatRate = null) => ({
   member_group_ids: [],
   is_default: isDefault,
   visibility_mode: 'members_only', // 'members_only', 'members_and_public', or 'public_only'
+  create_member_records: false,
+  new_member_role_id: null,
   role_match_only: false, // When true AND visibility includes members, ticket only shows if user matches role_ids OR member_group_ids
   offer_type: "none",
   bogo_logic_type: "buy_x_get_y_free",
@@ -768,7 +773,7 @@ export default function EditEvent() {
 
   const updateTicketClass = (ticketId, field, value) => {
     setTicketClasses(prev => prev.map(t => 
-      t.id === ticketId ? { ...t, [field]: value } : t
+      t.id === ticketId ? updateTicketMemberField(t, field, value) : t
     ));
   };
 
@@ -1291,6 +1296,7 @@ export default function EditEvent() {
               member_group_ids: Array.isArray(tc.member_group_ids) ? tc.member_group_ids : [],
               is_default: tc.is_default || false,
               visibility_mode: visibilityMode,
+              ...ticketMemberPolicy({ ...tc, visibility_mode: visibilityMode }),
               role_match_only: tc.role_match_only || false,
               offer_type: tc.offer_type || "none",
               bogo_logic_type: tc.bogo_logic_type || "buy_x_get_y_free",
@@ -1559,7 +1565,10 @@ export default function EditEvent() {
     // Guard against double-submit while a clash check is already running.
     if (checkingClashes) return;
 
-    const releaseErrors = validateTicketReleases(isOneOffEvent ? ticketClasses : []);
+    const releaseErrors = [
+      ...validateTicketReleases(isOneOffEvent ? ticketClasses : []),
+      ...validateTicketMemberPolicies(isOneOffEvent && !isGroupLimited ? ticketClasses : [], roles),
+    ];
     if (releaseErrors.length > 0) {
       toast.error(releaseErrors[0]);
       return;
@@ -1896,6 +1905,7 @@ export default function EditEvent() {
       const formattedTicketClasses = ticketClasses.map(ticket => {
         const ticketData = {
           ...serializeTicketRelease(ticket),
+          ...ticketMemberPolicy(isGroupLimited ? {} : ticket),
           id: ticket.id,
           name: ticket.name,
           // Group-limited events allow free tickets only.
@@ -3399,6 +3409,7 @@ export default function EditEvent() {
           </TabsContent>
 
           <TabsContent value="tickets" forceMount className={TAB_PANEL_CLASS}>
+          <PublicTicketMemberDiagnostics eventId={eventId} />
           {/* Ticket Classes - Only shown for one-off events */}
           {isOneOffEvent && (
             <Card className="border-slate-200 shadow-sm mb-6">
@@ -3624,6 +3635,7 @@ export default function EditEvent() {
                         )}
 
                         {/* Ticket Availability */}
+                        <PublicTicketMemberFields ticket={ticket} roles={roles} onChange={patch => setTicketClasses(prev => prev.map(t => t.id === ticket.id ? { ...t, ...patch } : t))} />
                         <TicketReleaseFields
                           ticket={ticket}
                           eventTimezone={eventTimezone}

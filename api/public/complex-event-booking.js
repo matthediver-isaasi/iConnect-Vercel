@@ -1,4 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
+import { replayPublicTicketBooking, compensatePublicTicketCapacity } from '../_lib/publicTicketMemberRecovery.js';
+import { assertPublicTicketPurchaser } from '../_lib/publicTicketEmail.js';
+import { preparePublicTicketPurchase, bindPublicTicketPayment, completePublicTicketMembers, assertPublicTicketPaymentEvidence, loadPublicTicketPurchase } from '../_lib/publicTicketMemberPurchase.js';
 import { PUBLIC_INVOICE_PO, validatePublicInvoicePo, requirePublicInvoicePoBalance } from '../_lib/publicInvoicePo.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { scheduleComplexEventReminders } from '../_lib/complexEventReminders.js';
@@ -151,18 +154,50 @@ export default async function handler(req, res) {
 
     if (eventError || !event) return res.status(404).json({ error: 'Event not found' });
 
-    // Preserve the existing duplicate-payment response before release changes.
-    if (payment_method === 'card' && stripe_payment_intent_id) {
+    let allTicketClasses;
+    try { allTicketClasses = await loadComplexReleaseTickets(supabase, event); }
+    catch (error) { return res.status(503).json({ error: error.message }); }
+    const provisioningItems = normalizedItems.map(item => ({
+      ticket: getTicketClassFromConfig(allTicketClasses, item.ticket_class_id) || { id: item.ticket_class_id }, attendees: item.attendees,
+    }));
+    const previousPublicPurchase = req.body.purchase_request_id && payment_method !== PUBLIC_INVOICE_PO
+      ? await loadPublicTicketPurchase(supabase, {
+        tenantId: tenant.id, eventId: event.id, eventKind: 'complex', requestId: req.body.purchase_request_id,
+        allowMissingSchema: !provisioningItems.some(item => item.ticket?.create_member_records === true),
+      }) : null;
+    let publicTicketPurchase = null;
+    if ((previousPublicPurchase || provisioningItems.some(item => item.ticket?.create_member_records === true)) && payment_method !== PUBLIC_INVOICE_PO) {
+      if (selected_voucher_ids?.length || Number(requestedTrainingFundAmount) || allocationContext
+          || !['card', 'free'].includes(payment_method)) {
+        return res.status(400).json({ error: 'Public ticket member creation requires a guest card or free checkout without account credits.' });
+      }
+      publicTicketPurchase = await preparePublicTicketPurchase({
+        db: supabase, tenantId: tenant.id, eventId: event.id, eventKind: 'complex',
+        requestId: req.body.purchase_request_id, purchaser: purchaserInfo,
+        items: provisioningItems, authenticatedMember: await getSessionMember(req), resumeExisting: true,
+      });
+      const replay = await replayPublicTicketBooking(supabase, publicTicketPurchase);
+      if (replay) return res.status(replay.success ? 200 : 409).json(replay);
+      if (payment_method === 'free' && publicTicketPurchase.stripe_payment_intent_id) {
+        return res.status(409).json({ error: 'This checkout requires its original verified payment. Do not pay again.' });
+      }
+    } else if (payment_method !== PUBLIC_INVOICE_PO
+        && provisioningItems.some(item => item.ticket?.visibility_mode === 'public_only')) {
+      await assertPublicTicketPurchaser({
+        db: supabase, tenantId: tenant.id,
+        purchaserEmail: purchaserInfo?.email || normalizedItems[0]?.attendees?.[0]?.email,
+        authenticatedMember: await getSessionMember(req),
+      });
+    }
+    if (payment_method === 'card' && stripe_payment_intent_id && !publicTicketPurchase) {
       const { data: existing, error } = await supabase.from('complex_event_booking')
         .select('id').eq('tenant_id', tenant.id).eq('event_id', event.id)
         .eq('stripe_payment_intent_id', stripe_payment_intent_id).limit(1);
       if (error) return res.status(503).json({ error: 'Unable to verify existing payment bookings' });
       if (existing?.length) return res.status(409).json({ error: 'This payment has already been used for a booking' });
     }
-    let allTicketClasses;
     let ticketReleaseError = null;
     try {
-      allTicketClasses = await loadComplexReleaseTickets(supabase, event);
       assertRequestedTicketsReleased({
         event, tickets: allTicketClasses,
         ticketIds: normalizedItems.map(item => item?.ticket_class_id),
@@ -424,6 +459,9 @@ export default async function handler(req, res) {
     }
 
     const isFree = grandTotalMinor === 0;
+    if (publicTicketPurchase && isFree && payment_method === 'card') {
+      return res.status(400).json({ error: 'A zero-cost purchase must use confirmed free booking, not a card payment.' });
+    }
     const totalCostPounds = grandTotalMinor / 100;
     if (payment_method === PUBLIC_INVOICE_PO) {
       try { requirePublicInvoicePoBalance(totalCostPounds); }
@@ -567,6 +605,10 @@ export default async function handler(req, res) {
           // invitation binding was also verified.
           cardPaymentAuthorizedForCompensation = !allocationContext
             || allocationPaymentBindingVerified;
+          if (publicTicketPurchase) {
+            assertPublicTicketPaymentEvidence(paymentIntent, publicTicketPurchase, tenant.id, event.id);
+            await bindPublicTicketPayment(supabase, publicTicketPurchase.id, tenant.id, paymentIntent.id);
+          }
           invoicePaymentEvidence = paymentIntent;
         } catch (stripeErr) {
           console.error('[Complex Event Booking] Stripe verification error:', stripeErr);
@@ -834,7 +876,7 @@ export default async function handler(req, res) {
     // complex_event_booking rows. The guard atomically confirms there is room
     // before we decrement event seats or insert anything. We run it BEFORE the
     // event-seat decrement so a sold-out class needs no seat restore here.
-    for (const [tcId, count] of Object.entries(ticketClassCounts)) {
+    for (const [tcId, count] of Object.entries(publicTicketPurchase ? {} : ticketClassCounts)) {
       const tc = allTicketClasses.find(t => String(t.id) === String(tcId));
       if (!tc || tc.is_unlimited_tickets || tc.available_count === null || tc.available_count === undefined) continue;
       try {
@@ -862,7 +904,7 @@ export default async function handler(req, res) {
       }
     }
 
-    if (event.available_seats !== null && event.available_seats !== undefined) {
+    if (!publicTicketPurchase && event.available_seats !== null && event.available_seats !== undefined) {
       const { data: newSeats, error: seatError } = await supabase.rpc('atomic_decrement_complex_event_seats', {
         p_event_id: event_id,
         p_count: totalAttendees
@@ -879,10 +921,11 @@ export default async function handler(req, res) {
     // (count-based, Task #1760). Only the event-level available_seats counter is
     // still maintained as a stored value; the post-verify guard below enforces
     // per-ticket-class limits atomically against confirmed-booking counts.
-    let seatsDecrementedForEvent = event.available_seats !== null && event.available_seats !== undefined;
+    let seatsDecrementedForEvent = !publicTicketPurchase && event.available_seats !== null && event.available_seats !== undefined;
 
-    const bookingGroupRef = generateBookingReference();
+    let bookingGroupRef = generateBookingReference();
     const bookings = [];
+    const publicTicketBookingRows = [];
     const usedDiscountCodes = [];
     let isFirstAttendeeOverall = true;
 
@@ -946,7 +989,7 @@ export default async function handler(req, res) {
           payment_method: confirmedPaymentMethod,
           ...(purchaserContext ? { purchaser_context: purchaserContext } : {}),
           payment_status: paymentStatus,
-          stripe_payment_intent_id: isFirstAttendeeOverall ? (stripe_payment_intent_id || null) : null,
+          stripe_payment_intent_id: publicTicketPurchase || isFirstAttendeeOverall ? (stripe_payment_intent_id || null) : null,
           discount_code: isFirstInGroup && item.validatedDiscountCode ? item.validatedDiscountCode.code : null,
           discount_amount: isFirstInGroup ? item.discountAmount : 0,
           total_paid: paymentStatus === 'paid' ? item.authoritativePrice : 0,
@@ -963,6 +1006,11 @@ export default async function handler(req, res) {
           ...(collectOptionsEnabled ? sanitizeOptionSelections(attendee, event) : EMPTY_OPTION_SELECTIONS)
         };
 
+        if (publicTicketPurchase) {
+          publicTicketBookingRows.push(bookingData);
+          isFirstAttendeeOverall = false;
+          continue;
+        }
         const { data: booking, error: insertError } = await supabase
           .from('complex_event_booking')
           .insert(bookingData)
@@ -1049,6 +1097,26 @@ export default async function handler(req, res) {
       }
     };
 
+    if (publicTicketPurchase) {
+      const { data: batch, error: batchError } = await supabase.rpc('insert_public_ticket_booking_batch', {
+        p_purchase_id: publicTicketPurchase.id, p_rows: publicTicketBookingRows,
+      });
+      if (batchError || !Array.isArray(batch) || batch.length !== totalAttendees) {
+        if (batch?.error === 'capacity_unavailable' || publicTicketPurchase.last_error_code === 'capacity_refund_pending') {
+          const compensation = await compensatePublicTicketCapacity(supabase, {
+            ...publicTicketPurchase, tenant_id: tenant.id, event_id: event.id,
+            stripe_payment_intent_id,
+          });
+          return res.status(409).json({ success: false, ...compensation,
+            error: compensation.refunded ? 'These tickets are no longer available. Your payment has been refunded.'
+              : 'These tickets are no longer available. Any captured payment is queued for automatic refund. Do not pay again.',
+            purchase_reference: publicTicketPurchase.id });
+        }
+        return res.status(503).json({ error: 'Unable to complete this booking batch. Retry this checkout without making another payment.', purchase_reference: publicTicketPurchase.id });
+      }
+      bookings.push(...batch);
+      bookingGroupRef = batch[0].booking_group_reference || batch[0].booking_reference;
+    }
     // Count-based ticket capacity POST-VERIFY (Task #1760). Our rows are now
     // inserted (status='confirmed'); re-rank them under the same per-class
     // advisory lock. If a class is over its maximum, the guard DELETES the
@@ -1063,7 +1131,7 @@ export default async function handler(req, res) {
     }
     let capacityExceeded = false;
     let exceededTicketName = null;
-    for (const [tcId, ids] of Object.entries(bookingIdsByClass)) {
+    for (const [tcId, ids] of Object.entries(publicTicketPurchase ? {} : bookingIdsByClass)) {
       const tc = allTicketClasses.find(t => String(t.id) === String(tcId));
       if (!tc || tc.is_unlimited_tickets || tc.available_count === null || tc.available_count === undefined) continue;
       try {
@@ -1323,6 +1391,12 @@ export default async function handler(req, res) {
       }
     }
 
+    const memberCreation = publicTicketPurchase ? await completePublicTicketMembers({
+      db: supabase, purchase: publicTicketPurchase, tenantId: tenant.id,
+      bookingIds: bookings.map(booking => booking.id),
+      paymentStatus: confirmedPaymentMethod === 'card' ? 'paid' : validatedRemainingBalance === 0 ? 'free' : 'unpaid',
+      paymentIntentId: stripe_payment_intent_id,
+    }) : { state: 'not_applicable' };
     const invoiceRecovery = confirmedPaymentMethod !== PUBLIC_INVOICE_PO && validatedRemainingBalance > 0
       ? await enqueueCheckoutEventInvoice({
       db: supabase, tenantId: tenant.id, source: 'complex_event_booking',
@@ -1391,6 +1465,7 @@ export default async function handler(req, res) {
 
     return res.status(201).json({
       success: true,
+      member_creation: memberCreation,
       booking_group_reference: bookingGroupRef,
       bookings,
       invoice_recovery: invoiceRecovery,

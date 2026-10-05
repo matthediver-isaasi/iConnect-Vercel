@@ -1,4 +1,8 @@
 import Stripe from 'stripe';
+import { replayPublicTicketBooking, compensatePublicTicketCapacity } from '../_lib/publicTicketMemberRecovery.js';
+import { assertPublicTicketPurchaser } from '../_lib/publicTicketEmail.js';
+import { publicTicketSimpleBaseTotal, validatePublicTicketSimpleCharge } from '../_lib/publicTicketSimpleQuote.js';
+import { preparePublicTicketPurchase, bindPublicTicketPayment, completePublicTicketMembers, assertPublicTicketPaymentEvidence, loadPublicTicketPurchase } from '../_lib/publicTicketMemberPurchase.js';
 import { enqueueCheckoutEventInvoice, eventInvoiceContact, simpleEventInvoiceLines } from '../_lib/eventInvoiceProducer.js';
 import { PUBLIC_INVOICE_PO, validatePublicInvoicePo, requirePublicInvoicePoBalance } from '../_lib/publicInvoicePo.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
@@ -705,6 +709,7 @@ const functionHandlers = {
     const voucherRequested = Array.isArray(selectedVoucherIds) && selectedVoucherIds.length > 0;
     const trainingFundRequested = Number(trainingFundAmount) > 0;
     let resolvedTicketId;
+    let publicTicketPurchase = null;
     if (metadata?.event_id || voucherRequested || trainingFundRequested || metadata?.ticket_class_id) {
       const eventId = metadata?.event_id;
       if (!eventId) throw new Error('event_id is required');
@@ -743,6 +748,25 @@ const functionHandlers = {
         }
         const [ticket] = assertSimpleTicketsReleased(event, [metadata?.ticket_class_id]);
         resolvedTicketId = ticket?.id || null;
+        if (ticket?.visibility_mode === 'public_only' && ticket.create_member_records !== true) {
+          await assertPublicTicketPurchaser({
+            db: supabase, tenantId, purchaserEmail: memberEmail,
+            authenticatedMember: await getSessionMember(req),
+          });
+        }
+        if (ticket?.create_member_records === true) {
+          await validatePublicTicketSimpleCharge({
+            ticket, attendees: params.attendees, tenantId, eventId: event.id,
+            discountCode: params.discountCode, amount,
+          });
+          publicTicketPurchase = await preparePublicTicketPurchase({
+            db: supabase, tenantId, eventId: event.id, eventKind: 'simple',
+            requestId: params.purchase_request_id,
+            purchaser: params.purchaserInfo,
+            items: [{ ticket, attendees: params.attendees }],
+            authenticatedMember: await getSessionMember(req),
+          });
+        }
       }
       if (voucherRequested || trainingFundRequested) {
         const paymentPolicy = await loadEventPaymentPolicy(supabase, tenantId);
@@ -757,14 +781,17 @@ const functionHandlers = {
     const stripe = await getStripeClient(tenantId, 'events');
     if (!stripe) throw new Error('Stripe not configured for this tenant');
 
+    const paymentEmail = publicTicketPurchase?.snapshot.purchaser.email || memberEmail;
     let stripeCustomer = null;
-    if (memberEmail) {
-      let customerName;
-      if (supabase) {
+    if (paymentEmail) {
+      let customerName = publicTicketPurchase
+        ? `${publicTicketPurchase.snapshot.purchaser.first_name} ${publicTicketPurchase.snapshot.purchaser.last_name}`
+        : undefined;
+      if (supabase && !publicTicketPurchase) {
         const { data: memberData } = await supabase
           .from('member')
           .select('first_name, last_name, organization:organization_id(name)')
-          .ilike('email', memberEmail)
+          .ilike('email', paymentEmail)
           .eq('tenant_id', tenantId)
           .maybeSingle();
         if (memberData) {
@@ -772,7 +799,7 @@ const functionHandlers = {
         }
       }
       stripeCustomer = await findOrCreateStripeCustomer(stripe, {
-        email: memberEmail,
+        email: paymentEmail,
         name: customerName,
         metadata: { tenant_id: tenantId },
       });
@@ -782,21 +809,25 @@ const functionHandlers = {
       amount: Math.round(amount * 100),
       currency,
       customer: stripeCustomer?.id || undefined,
-      receipt_email: memberEmail || undefined,
+      receipt_email: paymentEmail || undefined,
       metadata: {
         ...(metadata || {}),
         ...(resolvedTicketId != null
           ? { ticket_class_id: String(resolvedTicketId) }
           : resolvedTicketId === null && metadata?.ticket_class_id === 'default' ? { ticket_class_id: '' } : {}),
         tenant_id: tenantId,
-        member_email: String(memberEmail || '').trim().toLowerCase(),
+        member_email: String(paymentEmail || '').trim().toLowerCase(),
+        public_ticket_purchase_id: publicTicketPurchase?.id || '',
         ...buildEventCreditSnapshotMetadata({
           voucherIds: selectedVoucherIds,
           voucherOrderManual,
           trainingFundAmount,
         }),
       }
-    });
+    }, publicTicketPurchase ? { idempotencyKey: `public-ticket:${tenantId}:${publicTicketPurchase.id}` } : undefined);
+    if (publicTicketPurchase) {
+      await bindPublicTicketPayment(supabase, publicTicketPurchase.id, tenantId, paymentIntent.id);
+    }
 
     return { success: true, clientSecret: paymentIntent.client_secret, paymentIntentId: paymentIntent.id };
   },
@@ -1959,7 +1990,41 @@ const functionHandlers = {
     }
 
     // Completed payments stay idempotent even if a ticket is rescheduled later.
-    if (paymentMethod === 'card' && stripePaymentIntentId && !_testMode) {
+    const provisioningTicket = (event.pricing_config?.ticket_classes || []).find(ticket => String(ticket.id) === String(ticketClassId));
+    const previousPublicPurchase = params.purchase_request_id && paymentMethod !== PUBLIC_INVOICE_PO
+      ? await loadPublicTicketPurchase(supabase, {
+        tenantId: event.tenant_id, eventId: event.id, eventKind: 'simple',
+        requestId: params.purchase_request_id, allowMissingSchema: !provisioningTicket?.create_member_records,
+      }) : null;
+    if (provisioningTicket?.visibility_mode === 'public_only'
+        && provisioningTicket.create_member_records !== true && !previousPublicPurchase && paymentMethod !== PUBLIC_INVOICE_PO) {
+      await assertPublicTicketPurchaser({
+        db: supabase, tenantId: event.tenant_id, purchaserEmail: guestInfo?.email || memberEmail,
+        authenticatedMember: await getSessionMember(req),
+      });
+    }
+    let publicTicketPurchase = null;
+    if ((provisioningTicket?.create_member_records === true || previousPublicPurchase) && paymentMethod !== PUBLIC_INVOICE_PO) {
+      if (!isGuestBooking || selectedVoucherIds.length || Number(trainingFundAmount) || Number(accountAmount)
+          || allocationContext || !['card', 'free'].includes(paymentMethod) || _testMode) {
+        return { success: false, error: 'Public ticket member creation requires a guest card or free checkout without account credits.' };
+      }
+      publicTicketPurchase = await preparePublicTicketPurchase({
+        db: supabase, tenantId: event.tenant_id, eventId: event.id, eventKind: 'simple',
+        requestId: params.purchase_request_id, purchaser: params.purchaserInfo || purchaserInfo,
+        items: [{ ticket: provisioningTicket || { id: ticketClassId }, attendees: bookingAttendees }],
+        authenticatedMember: await getSessionMember(req), resumeExisting: true,
+      });
+      if ((paymentMethod === 'card' && !stripePaymentIntentId)
+          || (paymentMethod === 'free' && publicTicketPurchase.stripe_payment_intent_id)) {
+        return { success: false, error: 'This checkout requires its original verified payment. Do not pay again.' };
+      }
+      const replay = await replayPublicTicketBooking(supabase, publicTicketPurchase);
+      if (replay) return replay;
+      ticketsRequired = bookingAttendees.length;
+      totalCost = publicTicketSimpleBaseTotal(provisioningTicket, ticketsRequired);
+    }
+    if (paymentMethod === 'card' && stripePaymentIntentId && !_testMode && !publicTicketPurchase) {
       const { data: existingBookings, error } = await supabase.from('booking')
         .select('id, booking_reference, booking_group_reference, attendee_email, status')
         .eq('tenant_id', event.tenant_id).eq('event_id', event.id)
@@ -2337,6 +2402,10 @@ const functionHandlers = {
         }
 
         console.log('[createOneOffEventBooking] Stripe payment verified:', paymentIntent.status);
+        if (publicTicketPurchase) {
+          assertPublicTicketPaymentEvidence(paymentIntent, publicTicketPurchase, event.tenant_id, event.id);
+          await bindPublicTicketPayment(supabase, publicTicketPurchase.id, event.tenant_id, paymentIntent.id);
+        }
         invoicePaymentEvidence = paymentIntent;
       } catch (stripeError) {
         console.error('[createOneOffEventBooking] Stripe verification error:', stripeError);
@@ -2349,7 +2418,7 @@ const functionHandlers = {
     // of status='confirmed' bookings per ticket_class_id. This atomically checks
     // there is room for the requested tickets before we take any further action.
     // Unlimited / legacy single-price tickets (no ticketClassId) return ok=true.
-    if (ticketClassId) {
+    if (ticketClassId && !publicTicketPurchase) {
       try {
         const { data: capCheck, error: capError } = await supabase.rpc('check_oneoff_ticket_capacity', {
           p_event_id: eventId,
@@ -2398,7 +2467,7 @@ const functionHandlers = {
     }
 
     // Generate booking reference
-    const bookingReference = `OOE-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+    let bookingReference = `OOE-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
     
     // For guest bookings, skip vouchers and training fund - use full card payment
     let validatedTrainingFundAmount = 0;
@@ -2838,10 +2907,17 @@ const functionHandlers = {
 
     // Calculate validated remaining balance after vouchers, training fund, and discount code
     const validatedRemainingBalance = Math.max(0, totalCost - voucherAmountApplied - validatedTrainingFundAmount - validatedDiscountAmount);
+    if (publicTicketPurchase && (
+      (paymentMethod === 'free' && validatedRemainingBalance > 0)
+      || (paymentMethod === 'card' && Number(invoicePaymentEvidence?.amount || 0) < Math.round(validatedRemainingBalance * 100))
+    )) {
+      return { success: false, error: 'Payment does not cover the selected tickets. Do not pay again; contact the event administrator with your purchase reference.', purchase_reference: publicTicketPurchase.id };
+    }
     console.log(`[createOneOffEventBooking] Payment breakdown: totalCost=${totalCost}, vouchers=${voucherAmountApplied}, trainingFund=${validatedTrainingFundAmount}, discountCode=${validatedDiscountAmount}, remaining=${validatedRemainingBalance}`);
     
     // Create booking records for each attendee
     const createdBookings = [];
+    const publicTicketBookingRows = [];
     console.log('[createOneOffEventBooking] About to create bookings for', bookingAttendees.length, 'attendees (isGuestBooking:', isGuestBooking, ')');
     // Tenant toggle: when dietary/accessibility collection is disabled,
     // never persist submitted selections (defense in depth).
@@ -2909,6 +2985,10 @@ const functionHandlers = {
       };
 
       console.log('[createOneOffEventBooking] Inserting booking:', JSON.stringify(bookingData));
+      if (publicTicketPurchase) {
+        publicTicketBookingRows.push(bookingData);
+        continue;
+      }
       
       const { data: booking, error: bookingError } = await supabase
         .from('booking')
@@ -2956,6 +3036,26 @@ const functionHandlers = {
       }
     }
 
+    if (publicTicketPurchase) {
+      const { data: batch, error: batchError } = await supabase.rpc('insert_public_ticket_booking_batch', {
+        p_purchase_id: publicTicketPurchase.id, p_rows: publicTicketBookingRows,
+      });
+      if (batchError || !Array.isArray(batch) || batch.length !== bookingAttendees.length) {
+        if (batch?.error === 'capacity_unavailable' || publicTicketPurchase.last_error_code === 'capacity_refund_pending') {
+          const compensation = await compensatePublicTicketCapacity(supabase, {
+            ...publicTicketPurchase, tenant_id: event.tenant_id, event_id: event.id,
+            stripe_payment_intent_id: stripePaymentIntentId,
+          }, verifiedStripeClient);
+          return { success: false, ...compensation, error: compensation.refunded
+            ? 'These tickets are no longer available. Your payment has been refunded.'
+            : 'These tickets are no longer available. Any captured payment is queued for automatic refund. Do not pay again.',
+          purchase_reference: publicTicketPurchase.id };
+        }
+        return { success: false, error: 'Unable to complete this booking batch. Retry this checkout without making another payment.', purchase_reference: publicTicketPurchase.id };
+      }
+      createdBookings.push(...batch);
+      bookingReference = batch[0].booking_group_reference || batch[0].booking_reference;
+    }
     // Check if any bookings were created
     if (createdBookings.length === 0) {
       console.error('[createOneOffEventBooking] No bookings were created');
@@ -2994,7 +3094,7 @@ const functionHandlers = {
     // within the fixed maximum (under the same advisory lock); if they do not,
     // the guard DELETES our booking rows (this booking lost the race) and we
     // refund any payment taken (mirrors the no-bookings auto-refund above).
-    if (ticketClassId && createdBookings.length > 0) {
+    if (ticketClassId && createdBookings.length > 0 && !publicTicketPurchase) {
       let capacityExceeded = false;
       try {
         const { data: capVerify, error: capVerifyError } = await supabase.rpc('check_oneoff_ticket_capacity', {
@@ -3331,7 +3431,7 @@ const functionHandlers = {
     }
 
     // Decrement available seats for the event (if not unlimited)
-    if (event.available_seats !== null && event.available_seats !== undefined && !event.is_unlimited_registration) {
+    if (!publicTicketPurchase && event.available_seats !== null && event.available_seats !== undefined && !event.is_unlimited_registration) {
       const seatsToDecrement = bookingAttendees.length;
       console.log(`[createOneOffEventBooking] Decrementing ${seatsToDecrement} seats for event ${eventId}`);
       
@@ -3384,6 +3484,12 @@ const functionHandlers = {
     // Booking, capacity, allocation and required financial side effects have
     // succeeded. Persist immutable invoice intent before optional notifications.
     // The recovery worker is the sole writer, including its Stripe settlement.
+    const memberCreation = publicTicketPurchase ? await completePublicTicketMembers({
+      db: supabase, purchase: publicTicketPurchase, tenantId: event.tenant_id,
+      bookingIds: createdBookings.map(booking => booking.id),
+      paymentStatus: paymentMethod === 'card' ? 'paid' : validatedRemainingBalance === 0 ? 'free' : 'unpaid',
+      paymentIntentId: stripePaymentIntentId,
+    }) : { state: 'not_applicable' };
     const invoiceRecovery = paymentMethod !== PUBLIC_INVOICE_PO && validatedRemainingBalance > 0
       ? await enqueueCheckoutEventInvoice({
       db: supabase, tenantId: event.tenant_id, source: 'booking',
@@ -3615,6 +3721,7 @@ const functionHandlers = {
       booking_reference: bookingReference,
       booking_group_reference: bookingReference,
       bookings: createdBookings,
+      member_creation: memberCreation,
       payment_details: {
         total_cost: totalCost,
         voucher_amount: voucherAmountApplied,

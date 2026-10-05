@@ -1,3 +1,6 @@
+import PublicTicketMemberFields from "@/components/events/PublicTicketMemberFields";
+import PublicTicketMemberDiagnostics from "@/components/events/PublicTicketMemberDiagnostics";
+import { ticketMemberPolicy, updateTicketMemberField, validateTicketMemberPolicies } from "@/utils/publicTicketMembers";
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "react-router-dom";
@@ -602,6 +605,8 @@ const createEmptyTicketClass = (isDefault = false, defaultVatRate = null) => ({
   member_group_ids: [],
   is_default: isDefault,
   visibility_mode: 'members_only',
+  create_member_records: false,
+  new_member_role_id: null,
   role_match_only: false,
   offer_type: "none",
   bogo_logic_type: "buy_x_get_y_free",
@@ -1142,6 +1147,7 @@ export default function CreateComplexEvent() {
         member_group_ids: Array.isArray(tc.member_group_ids) ? tc.member_group_ids : [],
         is_default: false,
         visibility_mode: tc.visibility_mode || 'members_only',
+        ...ticketMemberPolicy(tc),
         role_match_only: tc.role_match_only || false,
         offer_type: tc.offer_type || "none",
         bogo_logic_type: tc.bogo_logic_type || "buy_x_get_y_free",
@@ -1733,7 +1739,7 @@ export default function CreateComplexEvent() {
 
   const updateTicketClass = (localId, field, value) => {
     setTicketClasses(prev => prev.map(t =>
-      t._localId === localId ? { ...t, [field]: value } : t
+      t._localId === localId ? updateTicketMemberField(t, field, value) : t
     ));
   };
 
@@ -1803,6 +1809,11 @@ export default function CreateComplexEvent() {
   };
 
   const handleSave = async (skipClashCheck = false, badgeRemovalDecision = null) => {
+    const memberPolicyErrors = validateTicketMemberPolicies(isGroupLimited ? [] : ticketClasses, roles);
+    if (memberPolicyErrors.length) {
+      toast.error(memberPolicyErrors[0]);
+      return;
+    }
     if (!formData.title.trim()) {
       toast.error("Event title is required");
       return;
@@ -2223,6 +2234,7 @@ export default function CreateComplexEvent() {
         const ticket = ticketClasses[ti];
         const tcPayload = {
           ...serializeTicketRelease(ticket),
+          ...ticketMemberPolicy(isGroupLimited ? {} : ticket),
           complex_event_id: eventId,
           name: ticket.name || "Standard Ticket",
           price: isGroupLimited ? 0 : (parseFloat(ticket.price) || 0),
@@ -3810,6 +3822,7 @@ export default function CreateComplexEvent() {
         </TabsContent>
 
         <TabsContent value="tickets" forceMount className={activeSection !== 'tickets' ? 'hidden' : ''}>
+            <PublicTicketMemberDiagnostics eventId={editId} />
         <Card className="border-slate-200 shadow-sm">
           <CardHeader className="pb-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -4088,6 +4101,7 @@ export default function CreateComplexEvent() {
                         </div>
                       )}
 
+                      <PublicTicketMemberFields ticket={ticket} roles={roles} onChange={patch => setTicketClasses(prev => prev.map(t => t._localId === ticket._localId ? { ...t, ...patch } : t))} />
                       <TicketReleaseFields
                         ticket={ticket}
                         eventTimezone={formData.timezone}

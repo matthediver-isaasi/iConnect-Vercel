@@ -48,6 +48,10 @@
   },
   "crons": [
     {
+      "path": "/api/cron/reconcile-public-ticket-members",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/reconcile-accounting-requests",
       "schedule": "* * * * *"
     },

@@ -1,4 +1,6 @@
 import Stripe from 'stripe';
+import { assertPublicTicketPurchaser } from '../_lib/publicTicketEmail.js';
+import { preparePublicTicketPurchase, bindPublicTicketPayment } from '../_lib/publicTicketMemberPurchase.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { getStripeCredentials } from '../_lib/stripeCredentials.js';
 import { createClient } from '@supabase/supabase-js';
@@ -193,6 +195,27 @@ export default async function handler(req, res) {
     }
 
     let grandTotalMinor = 0;
+    let publicTicketPurchase = null;
+    const provisioningItems = normalizedItems.map((item, index) => ({
+      ticket: getTicketClassFromConfig(allTicketClasses, item.ticket_class_id),
+      attendees: isMultiTicket ? items[index]?.attendees : req.body.attendees,
+    }));
+    if (provisioningItems.some(item => item.ticket?.create_member_records === true)) {
+      if (provisioningItems.some((item, index) => !Array.isArray(item.attendees)
+          || item.attendees.length !== normalizedItems[index].attendee_count)) {
+        return res.status(400).json({ error: 'Provide complete attendee details matching each ticket quantity before payment.' });
+      }
+      publicTicketPurchase = await preparePublicTicketPurchase({
+        db: supabase, tenantId: tenant.id, eventId: event.id, eventKind: 'complex',
+        requestId: req.body.purchase_request_id, purchaser: req.body.purchaser_info,
+        items: provisioningItems, authenticatedMember: isMember ? member : null,
+      });
+    } else if (provisioningItems.some(item => item.ticket?.visibility_mode === 'public_only')) {
+      await assertPublicTicketPurchaser({
+        db: supabase, tenantId: tenant.id, purchaserEmail: req.body.purchaser_email,
+        authenticatedMember: isMember ? member : null,
+      });
+    }
     let currency = 'gbp';
     const ticketClassIds = [];
     const itemDetails = [];
@@ -402,9 +425,12 @@ export default async function handler(req, res) {
     const paymentIntent = await stripe.paymentIntents.create({
       amount: creditQuote.remainingMinor,
       currency,
-      metadata,
+      metadata: { ...metadata, public_ticket_purchase_id: publicTicketPurchase?.id || '' },
       ...(paymentEmail ? { receipt_email: paymentEmail } : {})
-    });
+    }, publicTicketPurchase ? { idempotencyKey: `public-ticket:${tenant.id}:${publicTicketPurchase.id}` } : undefined);
+    if (publicTicketPurchase) {
+      await bindPublicTicketPayment(supabase, publicTicketPurchase.id, tenant.id, paymentIntent.id);
+    }
 
     return res.status(200).json({
       clientSecret: paymentIntent.client_secret,

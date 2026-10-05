@@ -71,6 +71,16 @@
       "enum": ["members_only", "members_and_public", "public_only"],
       "description": "Who can see this ticket class"
     },
+    "create_member_records": {
+      "type": "boolean",
+      "default": false,
+      "description": "Opt-in contact creation for the purchaser and attendees of Public only tickets, after successful paid or free completion"
+    },
+    "new_member_role_id": {
+      "type": ["string", "null"],
+      "format": "uuid",
+      "description": "Separate provisioning base role, never ticket purchase eligibility"
+    },
     "role_ids": {
       "type": "array",
       "items": { "type": "string" },
