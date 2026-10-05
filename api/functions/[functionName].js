@@ -3,6 +3,7 @@ import { replayPublicTicketBooking, compensatePublicTicketCapacity } from '../_l
 import { assertPublicTicketPurchaser } from '../_lib/publicTicketEmail.js';
 import { publicTicketSimpleBaseTotal, validatePublicTicketSimpleCharge } from '../_lib/publicTicketSimpleQuote.js';
 import { preparePublicTicketPurchase, bindPublicTicketPayment, completePublicTicketMembers, assertPublicTicketPaymentEvidence, loadPublicTicketPurchase } from '../_lib/publicTicketMemberPurchase.js';
+import { needsPublicTicketMemberCreation } from '../_lib/publicTicketMemberCreation.js';
 import { enqueueCheckoutEventInvoice, eventInvoiceContact, simpleEventInvoiceLines } from '../_lib/eventInvoiceProducer.js';
 import { PUBLIC_INVOICE_PO, validatePublicInvoicePo, requirePublicInvoicePoBalance } from '../_lib/publicInvoicePo.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
@@ -754,7 +755,8 @@ const functionHandlers = {
             authenticatedMember: await getSessionMember(req),
           });
         }
-        if (ticket?.create_member_records === true) {
+        const ticketPurchaser = await getSessionMember(req);
+        if (needsPublicTicketMemberCreation([ticket], ticketPurchaser, tenantId)) {
           await validatePublicTicketSimpleCharge({
             ticket, attendees: params.attendees, tenantId, eventId: event.id,
             discountCode: params.discountCode, amount,
@@ -764,7 +766,7 @@ const functionHandlers = {
             requestId: params.purchase_request_id,
             purchaser: params.purchaserInfo,
             items: [{ ticket, attendees: params.attendees }],
-            authenticatedMember: await getSessionMember(req),
+            authenticatedMember: ticketPurchaser,
           });
         }
       }
@@ -2004,7 +2006,9 @@ const functionHandlers = {
       });
     }
     let publicTicketPurchase = null;
-    if ((provisioningTicket?.create_member_records === true || previousPublicPurchase) && paymentMethod !== PUBLIC_INVOICE_PO) {
+    const ticketPurchaser = await getSessionMember(req);
+    const needsPublicContactCreation = needsPublicTicketMemberCreation([provisioningTicket], ticketPurchaser, event.tenant_id);
+    if ((needsPublicContactCreation || previousPublicPurchase) && paymentMethod !== PUBLIC_INVOICE_PO) {
       if (!isGuestBooking || selectedVoucherIds.length || Number(trainingFundAmount) || Number(accountAmount)
           || allocationContext || !['card', 'free'].includes(paymentMethod) || _testMode) {
         return { success: false, error: 'Public ticket member creation requires a guest card or free checkout without account credits.' };

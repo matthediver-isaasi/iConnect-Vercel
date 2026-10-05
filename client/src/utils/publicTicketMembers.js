@@ -3,7 +3,7 @@ export const isProvisionableRole = role => !!role
   && role.max_members == null && !role.requires_organization;
 
 export function ticketMemberPolicy(ticket = {}) {
-  const enabled = ticket?.visibility_mode === "public_only" && ticket.create_member_records === true;
+  const enabled = ["public_only", "members_and_public"].includes(ticket?.visibility_mode) && ticket.create_member_records === true;
   return { create_member_records: enabled, new_member_role_id: enabled ? ticket.new_member_role_id || null : null };
 }
 

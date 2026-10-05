@@ -18,6 +18,13 @@ export const normalizePublicTicketEmail = value => (
   typeof value === 'string' ? value.trim().toLowerCase() : ''
 );
 
+// Existing members buying shared-audience tickets keep the normal member flow.
+// Public-only tickets still enter preflight, which rejects member purchasers.
+export function needsPublicTicketMemberCreation(tickets, member, tenantId) {
+  return tickets.some(ticket => ticket?.create_member_records === true
+    && (ticket.visibility_mode === 'public_only' || !tenantId || member?.tenant_id !== tenantId));
+}
+
 export function publicTicketIdentity(value, label = 'Each person') {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     fail('IDENTITY_REQUIRED', `${label} requires explicit contact details.`);
@@ -73,8 +80,8 @@ export async function validatePublicTicketMemberPolicyWrite({
   if (!authorizedToAssignRoles) {
     fail('ROLE_ASSIGNMENT_FORBIDDEN', 'Administrator access is required to configure ticket member creation.', 403);
   }
-  if (enabled.some(ticket => ticket.visibility_mode !== 'public_only')) {
-    fail('INVALID_TICKET_POLICY', 'Member creation is only available on Public only tickets.');
+  if (enabled.some(ticket => !['public_only', 'members_and_public'].includes(ticket.visibility_mode))) {
+    fail('INVALID_TICKET_POLICY', 'Member creation is only available on Public only or Members & Public tickets.');
   }
   await loadPublicTicketMemberRoles(db, tenantId, enabled);
 }
@@ -105,8 +112,8 @@ export function buildPublicTicketMemberSnapshot({ tenantId, purchaser, items, ro
   const buyer = publicTicketIdentity(purchaser, 'The purchaser');
   for (const item of enabled) {
     const ticket = item.ticket;
-    if (ticket.visibility_mode !== 'public_only') {
-      fail('INVALID_TICKET_POLICY', 'Member creation is only available on Public only tickets.');
+    if (!['public_only', 'members_and_public'].includes(ticket.visibility_mode)) {
+      fail('INVALID_TICKET_POLICY', 'Member creation is only available on Public only or Members & Public tickets.');
     }
     const role = roles.find(candidate => candidate.id === ticket.new_member_role_id);
     const roleId = assertPublicTicketRole(role, tenantId);

@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { replayPublicTicketBooking, compensatePublicTicketCapacity } from '../_lib/publicTicketMemberRecovery.js';
 import { assertPublicTicketPurchaser } from '../_lib/publicTicketEmail.js';
 import { preparePublicTicketPurchase, bindPublicTicketPayment, completePublicTicketMembers, assertPublicTicketPaymentEvidence, loadPublicTicketPurchase } from '../_lib/publicTicketMemberPurchase.js';
+import { needsPublicTicketMemberCreation } from '../_lib/publicTicketMemberCreation.js';
 import { PUBLIC_INVOICE_PO, validatePublicInvoicePo, requirePublicInvoicePoBalance } from '../_lib/publicInvoicePo.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { scheduleComplexEventReminders } from '../_lib/complexEventReminders.js';
@@ -166,7 +167,9 @@ export default async function handler(req, res) {
         allowMissingSchema: !provisioningItems.some(item => item.ticket?.create_member_records === true),
       }) : null;
     let publicTicketPurchase = null;
-    if ((previousPublicPurchase || provisioningItems.some(item => item.ticket?.create_member_records === true)) && payment_method !== PUBLIC_INVOICE_PO) {
+    const ticketPurchaser = await getSessionMember(req);
+    const needsPublicContactCreation = needsPublicTicketMemberCreation(provisioningItems.map(item => item.ticket), ticketPurchaser, tenant.id);
+    if ((previousPublicPurchase || needsPublicContactCreation) && payment_method !== PUBLIC_INVOICE_PO) {
       if (selected_voucher_ids?.length || Number(requestedTrainingFundAmount) || allocationContext
           || !['card', 'free'].includes(payment_method)) {
         return res.status(400).json({ error: 'Public ticket member creation requires a guest card or free checkout without account credits.' });

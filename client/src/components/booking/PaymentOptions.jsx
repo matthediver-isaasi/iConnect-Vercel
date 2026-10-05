@@ -481,7 +481,7 @@ export default function PaymentOptions({
   );
   const [purchaseOrderNumber, setPurchaseOrderNumber] = useState('');
   const memberCreationTickets = (checkoutTicketClasses || (selectedTicketClass ? [selectedTicketClass] : []))
-    .filter(ticket => ticketMemberPolicy(ticket).create_member_records);
+    .filter(ticket => !memberInfo && ticketMemberPolicy(ticket).create_member_records);
   const requiresPurchaserIdentity = memberCreationTickets.length > 0;
   const purchaseRequestId = useRef(null);
   const purchaseRequestFingerprint = useRef(null);
@@ -534,7 +534,7 @@ export default function PaymentOptions({
       attendees: item.attendees || [],
     }))
     : [{ ticketClass: selectedTicketClass, attendees: attendees || [] }];
-  const purchaseIdentityError = validatePurchaseIdentities(purchaserInfo, identityItems);
+  const purchaseIdentityError = requiresPurchaserIdentity ? validatePurchaseIdentities(purchaserInfo, identityItems) : null;
   const guardPurchaseIdentity = () => {
     if (purchaseIdentityError) {
       toast.error(purchaseIdentityError);

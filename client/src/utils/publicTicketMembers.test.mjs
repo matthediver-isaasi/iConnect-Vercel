@@ -8,10 +8,11 @@ const person = { first_name: "Mina", last_name: "Patel", email: "mina@example.or
 const attendee = { first_name: "Ellis", last_name: "Reid", email: "ellis@example.org", organization: "Riverside Network" };
 const item = (attendees = [attendee], ticketClass = ticket) => ({ ticketClass, attendees });
 
-test("policy defaults off and provisioning is only public-only", () => {
+test("policy defaults off and provisioning accepts both public audiences, never members-only", () => {
   assert.deepEqual(ticketMemberPolicy(), { create_member_records: false, new_member_role_id: null });
   assert.deepEqual(ticketMemberPolicy(null), { create_member_records: false, new_member_role_id: null });
-  assert.equal(ticketMemberPolicy({ ...ticket, visibility_mode: "members_and_public" }).create_member_records, false);
+  assert.equal(ticketMemberPolicy({ ...ticket, visibility_mode: "members_and_public" }).create_member_records, true);
+  assert.equal(ticketMemberPolicy({ ...ticket, visibility_mode: "members_only" }).create_member_records, false);
   assert.equal(ticketMemberPolicy({ ...ticket, create_member_records: false }).new_member_role_id, null);
 });
 

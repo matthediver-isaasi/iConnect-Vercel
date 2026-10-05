@@ -4,7 +4,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { isProvisionableRole } from "@/utils/publicTicketMembers";
 
 export default function PublicTicketMemberFields({ ticket, roles = [], onChange, loading = false }) {
-  if (ticket.visibility_mode !== "public_only") return null;
+  if (!["public_only", "members_and_public"].includes(ticket.visibility_mode)) return null;
   const eligibleRoles = roles.filter(isProvisionableRole);
   return (
     <div className="space-y-3 rounded-lg border border-slate-200 p-4">

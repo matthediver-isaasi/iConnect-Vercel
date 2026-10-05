@@ -1,6 +1,7 @@
 import Stripe from 'stripe';
 import { assertPublicTicketPurchaser } from '../_lib/publicTicketEmail.js';
 import { preparePublicTicketPurchase, bindPublicTicketPayment } from '../_lib/publicTicketMemberPurchase.js';
+import { needsPublicTicketMemberCreation } from '../_lib/publicTicketMemberCreation.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
 import { getStripeCredentials } from '../_lib/stripeCredentials.js';
 import { createClient } from '@supabase/supabase-js';
@@ -200,7 +201,7 @@ export default async function handler(req, res) {
       ticket: getTicketClassFromConfig(allTicketClasses, item.ticket_class_id),
       attendees: isMultiTicket ? items[index]?.attendees : req.body.attendees,
     }));
-    if (provisioningItems.some(item => item.ticket?.create_member_records === true)) {
+    if (needsPublicTicketMemberCreation(provisioningItems.map(item => item.ticket), isMember ? member : null, tenant.id)) {
       if (provisioningItems.some((item, index) => !Array.isArray(item.attendees)
           || item.attendees.length !== normalizedItems[index].attendee_count)) {
         return res.status(400).json({ error: 'Provide complete attendee details matching each ticket quantity before payment.' });

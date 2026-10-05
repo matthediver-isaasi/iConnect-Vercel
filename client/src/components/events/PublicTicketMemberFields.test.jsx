@@ -15,14 +15,16 @@ const { createRoot } = await import("react-dom/client");
 const { default: PublicTicketMemberFields } = await import("./PublicTicketMemberFields.jsx");
 const { default: PurchaserIdentityFields } = await import("../booking/PurchaserIdentityFields.jsx");
 
-test("member creation controls only render for public-only tickets; toggle exposes a separate role and clears it when disabled", async () => {
+test("member creation controls render for both public audiences; toggle exposes a separate role and clears it when disabled", async () => {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
   let changed;
   const render = ticket => root.render(<PublicTicketMemberFields ticket={ticket} roles={[{ id: "contact", name: "Association contact" }]} onChange={patch => { changed = patch; }} />);
-  await act(async () => render({ id: "ticket", visibility_mode: "members_and_public" }));
+  await act(async () => render({ id: "ticket", visibility_mode: "members_only" }));
   assert.equal(host.textContent, "");
+  await act(async () => render({ id: "ticket", visibility_mode: "members_and_public" }));
+  assert.ok(host.querySelector('[role="switch"]'));
   const ticket = { id: "ticket", visibility_mode: "public_only", create_member_records: false };
   await act(async () => render(ticket));
   assert.equal(host.querySelector('[role="switch"]').getAttribute("aria-checked"), "false");

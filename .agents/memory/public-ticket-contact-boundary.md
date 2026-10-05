@@ -1,9 +1,15 @@
 ---
 name: Public ticket contact creation
-description: Product boundaries for opt-in CRM contact creation from Public only tickets.
+description: Product boundaries for opt-in CRM contact creation from public-facing tickets.
 ---
 
 Public-ticket contact creation is for both the explicit purchaser and attendees receiving enabled tickets, not just the first attendee. Typed organisation names are descriptive, not verified affiliations.
+
+The option must be available for both Public Only and Members & Public tickets.
+
+**Why:** The user explicitly requested support for both public-facing audiences.
+
+**How to apply:** Preserve ordinary existing-member checkout without creating duplicate contacts or replacing roles; extend guest provisioning consistently across editor, save validation and checkout.
 
 **Why:** The user explicitly requested contact creation rather than paid membership, automatic account activation, organisation access or marketing opt-in.
 

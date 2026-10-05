@@ -5,6 +5,7 @@ import {
   assertPublicTicketRole, preflightPublicTicketMembers,
   lookupPublicTicketMemberEmails,
   validatePublicTicketMemberPolicyWrite,
+  needsPublicTicketMemberCreation,
 } from './publicTicketMemberCreation.js';
 
 const tenantId = 'tenant-a';
@@ -14,6 +15,16 @@ const attendee = { first_name: 'Grace', last_name: 'Hopper', email: 'grace@examp
 const ticket = { id: 'ticket-a', visibility_mode: 'public_only', create_member_records: true, new_member_role_id: role.id };
 const args = () => ({ tenantId, purchaser: buyer, items: [{ ticket, attendees: [attendee] }], roles: [role] });
 const rejectsCode = code => error => error.code === code;
+
+test('shared audience provisions guests but preserves existing member checkout and public-only restrictions', () => {
+  const shared = { ...ticket, visibility_mode: 'members_and_public' };
+  assert.equal(needsPublicTicketMemberCreation([shared], null, tenantId), true);
+  assert.equal(needsPublicTicketMemberCreation([shared], { tenant_id: 'other' }, tenantId), true);
+  assert.equal(needsPublicTicketMemberCreation([shared], { tenant_id: tenantId }, tenantId), false);
+  assert.equal(needsPublicTicketMemberCreation([ticket], { tenant_id: tenantId }, tenantId), true);
+  assert.equal(needsPublicTicketMemberCreation([shared, ticket], { tenant_id: tenantId }, tenantId), true);
+  assert.equal(needsPublicTicketMemberCreation([{ ...shared, create_member_records: false }], null, tenantId), false);
+});
 
 test('snapshot preserves independent buyer and attendee organisations; strips arbitrary authority', () => {
   const snapshot = buildPublicTicketMemberSnapshot(args());
@@ -67,8 +78,23 @@ test('cross-tenant, privileged, capacity and evidence-dependent roles are refuse
 
 test('invalid visibility cannot enable provisioning', () => {
   const input = args();
-  input.items[0].ticket = { ...ticket, visibility_mode: 'members_and_public' };
+  input.items[0].ticket = { ...ticket, visibility_mode: 'members_only' };
   assert.throws(() => buildPublicTicketMemberSnapshot(input), rejectsCode('INVALID_TICKET_POLICY'));
+});
+
+test('Members & Public tickets validate and snapshot guest contact creation', async () => {
+  const input = args();
+  input.items[0].ticket = { ...ticket, visibility_mode: 'members_and_public' };
+  const db = {
+    from: () => ({ select: () => ({ eq: () => ({ in: async () => ({ data: [role] }) }) }) }),
+    rpc: async () => ({ data: [] }),
+  };
+  await validatePublicTicketMemberPolicyWrite({
+    db, tenantId, tickets: [input.items[0].ticket], authorizedToAssignRoles: true,
+  });
+  const snapshot = await preflightPublicTicketMembers({ ...input, db });
+  assert.equal(snapshot.people.length, 2);
+  assert.equal(snapshot.ticket_policies[0].role_id, role.id);
 });
 
 test('eligibility RPC binds normalized literal addresses with wildcard characters unchanged', async () => {
