@@ -1153,3 +1153,17 @@ mtime_ms = 1791186943458
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/cad347fc-70c0-4051-ae04-202bc89202f6/0c058875-ca7b-4f94-9138-ef2732855f97"
 storage_version_token = "1791186948855327"
 content_type = "text/csv"
+
+[[outputs]]
+id = "Dnn2wK2F_VQgYgBYJHoYT"
+uri = "file://exports/bnms-rbac-manual-review-2026-10-05.xlsx"
+type = "table"
+title = "BNMS RBAC assignments and manual review"
+description = "27 members requiring manual review, with YM membership types, review reasons and blank decision columns. A second sheet records the 72 completed role assignments."
+logical_id = "435c63f6-5b62-4935-8783-414a8b5cbf21"
+content_hash = "sha256:07c0dd2c1342be73ac7c55594e026e670e670ddebcf9921493360f347c5fc1d3"
+size = 15547
+mtime_ms = 1791187308474
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/435c63f6-5b62-4935-8783-414a8b5cbf21/a9da0a6c-5f76-4c67-90bc-687093ad5135"
+storage_version_token = "1791187318121837"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
