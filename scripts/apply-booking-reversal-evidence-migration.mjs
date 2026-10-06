@@ -10,7 +10,10 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import pg from 'pg';
 
-const MIGRATION = 'migrations/20260720_booking_reversal_evidence.sql';
+const verificationOnly = process.argv.includes('--verification');
+const MIGRATION = verificationOnly
+  ? 'migrations/20260722_booking_credit_verification.sql'
+  : 'migrations/20260720_booking_reversal_evidence.sql';
 const DESTINATION_PROJECT = 'lvmzliemqnieeoruhkik';
 const DESTINATION_PROJECT_SUFFIX = `.${DESTINATION_PROJECT}`;
 const DESTINATION_CA_URL =
@@ -19,8 +22,8 @@ const args = process.argv.slice(2);
 const apply = args.includes('--apply');
 const review = args.find(argument => argument.startsWith('--review-sha256='));
 
-if (args.some(argument => argument !== '--apply' && !argument.startsWith('--review-sha256='))) {
-  throw new Error('Supported arguments are --apply and --review-sha256=<sha256>.');
+if (args.some(argument => !['--apply', '--verification'].includes(argument) && !argument.startsWith('--review-sha256='))) {
+  throw new Error('Supported arguments are --apply, --verification and --review-sha256=<sha256>.');
 }
 
 const sql = await readFile(new URL(`../${MIGRATION}`, import.meta.url), 'utf8');
@@ -97,7 +100,21 @@ try {
 
   await client.query(sql);
 
-  const verification = await client.query(`
+  const verification = await client.query(verificationOnly ? `
+    SELECT
+      c.relrowsecurity AS rls_enabled,
+      NOT has_table_privilege('anon', c.oid, 'SELECT') AS anon_select_revoked,
+      NOT has_table_privilege('authenticated', c.oid, 'SELECT') AS authenticated_select_revoked,
+      has_table_privilege('service_role', c.oid, 'SELECT,INSERT,UPDATE,DELETE') AS service_role_crud,
+      (SELECT array_agg(a.attname ORDER BY a.attnum)
+       FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped)
+       = ARRAY['id','tenant_id','booking_source','booking_id','reason_code','coverage','checked_at','verified_at']::name[] AS columns_exact,
+      (SELECT count(*) = 3 FROM pg_constraint p WHERE p.conrelid = c.oid AND p.contype = 'c') AS checks_present,
+      (SELECT count(*) = 1 FROM pg_constraint p WHERE p.conrelid = c.oid AND p.contype = 'u') AS scope_unique,
+      (SELECT count(*) = 1 FROM pg_constraint p WHERE p.conrelid = c.oid AND p.contype = 'f'
+       AND p.confrelid = 'public.tenant'::regclass) AS tenant_fk
+    FROM pg_class c WHERE c.oid = 'public.booking_credit_verification'::regclass
+  ` : `
     SELECT
       to_regclass('public.booking_reversal_evidence') IS NOT NULL AS table_exists,
       c.relrowsecurity AS rls_enabled,

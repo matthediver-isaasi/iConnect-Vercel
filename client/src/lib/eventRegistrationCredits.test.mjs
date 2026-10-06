@@ -24,6 +24,9 @@ test('unresolved explanations distinguish safe causes in visible details and CSV
     lookup_failure: /provider connection/,
     storage_failure: /migration and database access/,
     provider_failed: /reversal failed/,
+    missing_reference: /booking reference/,
+    unsupported_route: /provider records/,
+    incomplete_coverage: /Complete the lookup/,
   })) {
     const credits = { amount: null, status: 'unavailable', reasonCode };
     assert.match(formatRegistrationCreditExplanation(credits), pattern);
@@ -36,17 +39,22 @@ test('unresolved explanations distinguish safe causes in visible details and CSV
 
 test('credits formatter distinguishes confirmed zero and unresolved evidence', () => {
   assert.equal(
-    formatRegistrationCredits({ amount: 0, currency: null, status: 'confirmed', breakdown: [] }),
-    '£0.00',
+    formatRegistrationCredits({ amount: 0, currency: null, status: 'confirmed', reasonCode: 'verified_empty', coverage: [{ allApplicableScopes: true, paginationComplete: true }], verifiedAt: '2026-11-01T00:00:00Z', breakdown: [] }),
+    '£0.00 (checked — no credits found)',
   );
-  assert.equal(formatRegistrationCredits({ amount: null, status: 'pending' }), 'Pending');
-  assert.equal(formatRegistrationCredits({ amount: null, status: 'failed' }), 'Failed');
-  assert.equal(formatRegistrationCredits({ amount: null, status: 'mixed' }), 'Mixed / unavailable');
-  assert.equal(formatRegistrationCredits({ amount: null, status: 'unavailable' }), 'Unavailable');
-  assert.equal(formatRegistrationCredits(null), 'Unavailable');
+  assert.equal(formatRegistrationCredits({ amount: 0, status: 'confirmed' }), 'Not verified');
+  assert.equal(formatRegistrationCredits({ amount: 0, status: 'confirmed', reasonCode: 'verified_empty' }), 'Not verified');
+  assert.equal(formatRegistrationCredits({ amount: 0, currency: 'GBP', status: 'confirmed', breakdown: [
+    { type: 'refund', provider: 'stripe', providerId: 're_zero', status: 'confirmed', amount: 0, currency: 'GBP' },
+  ] }), '£0.00', 'confirmed provider instruments can legitimately have a zero amount');
+  assert.equal(formatRegistrationCredits({ amount: null, status: 'pending' }), 'Pending provider');
+  assert.equal(formatRegistrationCredits({ amount: null, status: 'failed' }), 'Provider failed');
+  assert.equal(formatRegistrationCredits({ amount: null, status: 'mixed' }), 'Mixed / unresolved');
+  assert.equal(formatRegistrationCredits({ amount: null, status: 'unavailable' }), 'Not verified');
+  assert.equal(formatRegistrationCredits(null), 'Not verified');
   assert.equal(
     formatRegistrationCredits({ amount: 10, currency: null, status: 'confirmed', breakdown: [] }),
-    'Unavailable',
+    'Not verified',
   );
 });
 
@@ -101,12 +109,13 @@ test('whole-filter credit summary counts each group once and preserves currencie
   ];
   const summary = summarizeRegistrationCredits(groups);
   assert.deepEqual(summary.totalsByCurrency, { GBP: 10, USD: 5 });
-  assert.deepEqual(summary.unknownByStatus, { pending: 1, unavailable: 1 });
+  assert.deepEqual(summary.unknownByStatus, { 'Pending provider': 1, 'Not verified': 1 });
   const label = formatRegistrationCreditSummary(summary);
   assert.match(label, /£10\.00/);
   assert.match(label, /US\$5\.00/);
-  assert.match(label, /Pending: 1/);
-  assert.match(label, /Unavailable: 1/);
+  assert.match(label, /Confirmed subtotal: £10\.00 · US\$5\.00/);
+  assert.match(label, /Pending provider: 1 booking group/);
+  assert.match(label, /Not verified: 1 booking group/);
 });
 
 test('whole-filter summary preserves JPY and KWD precision and flags missing nonzero currency', () => {
@@ -117,11 +126,27 @@ test('whole-filter summary preserves JPY and KWD precision and flags missing non
     { credits: { amount: 0, currency: null, status: 'confirmed' } },
   ]);
   assert.deepEqual(summary.totalsByCurrency, { JPY: 1200, KWD: 1.234 });
-  assert.deepEqual(summary.unknownByStatus, { unavailable: 1 });
+  assert.deepEqual(summary.unknownByStatus, { 'Not verified': 2 });
   const label = formatRegistrationCreditSummary(summary);
   assert.match(label, /JP¥1,200/);
   assert.match(label, /KWD\s1\.234/);
-  assert.match(label, /Unavailable: 1/);
+  assert.match(label, /Not verified: 2 booking groups/);
+});
+
+test('64 unverified booking groups do not appear as a monetary total; checked-empty requires complete evidence', () => {
+  const unchecked = { amount: null, status: 'unavailable', reasonCode: 'no_evidence' };
+  const groups = Array.from({ length: 64 }, () => ({ credits: unchecked }));
+  assert.equal(formatRegistrationCreditSummary(summarizeRegistrationCredits(groups)),
+    'No confirmed credit amounts · Not verified: 64 booking groups');
+  const verified = { amount: 0, status: 'confirmed', reasonCode: 'verified_empty',
+    coverage: [{ allApplicableScopes: true, paginationComplete: true }], verifiedAt: '2026-11-01T00:00:00Z' };
+  assert.match(formatRegistrationCreditsExport(verified), /£0\.00 \(checked — no credits found\).*Provider lookup completed/);
+  assert.match(formatRegistrationCreditSummary(summarizeRegistrationCredits([{ credits: verified }])), /Confirmed credits: £0\.00/);
+  assert.equal(formatRegistrationCredits({ ...verified, coverage: null }), 'Not verified');
+  assert.equal(formatRegistrationCredits({ ...verified, coverage: [{ allApplicableScopes: false, paginationComplete: true }] }), 'Not verified');
+  assert.equal(formatRegistrationCredits({ ...verified, verifiedAt: null }), 'Not verified');
+  assert.match(formatRegistrationCreditSummary(summarizeRegistrationCredits([...groups, { credits: verified }])),
+    /Confirmed subtotal: £0\.00 · Not verified: 64 booking groups/);
 });
 
 test('report renders and exports group credits as a singleton after Price Paid', () => {

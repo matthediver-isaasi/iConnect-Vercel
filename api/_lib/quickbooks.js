@@ -1547,6 +1547,31 @@ export async function createQuickBooksCreditNote({
   };
 }
 
+export async function readQuickBooksInvoiceCreditEvidence(appTenantId, invoiceId, {
+  loadToken = getValidQuickBooksAccessToken, queryReader = qboQuery,
+  resolveCurrency = resolveQuickBooksCreditCurrency,
+} = {}) {
+  if (!/^\d+$/.test(String(invoiceId))) throw new Error('Invalid QuickBooks invoice identity');
+  const { discoverInvoiceCredits } = await import('./invoiceCreditDiscovery.js');
+  const { accessToken, realmId, environment } = await loadToken(appTenantId);
+  const query = sql => queryReader(accessToken, realmId, environment, sql);
+  return discoverInvoiceCredits({
+    provider: 'quickbooks', invoiceId: String(invoiceId),
+    readInvoice: async id => (await query(`SELECT * FROM Invoice WHERE Id = '${id}'`))?.QueryResponse?.Invoice?.[0],
+    readPayment: async id => {
+      if (!/^\d+$/.test(id)) throw new Error('Invalid QuickBooks payment identity');
+      return (await query(`SELECT * FROM Payment WHERE Id = '${id}'`))?.QueryResponse?.Payment?.[0];
+    },
+    listNotes: async (customer, page) => {
+      if (!/^\d+$/.test(customer)) throw new Error('Invalid QuickBooks customer identity');
+      const response = await query(`SELECT * FROM CreditMemo WHERE CustomerRef = '${customer}' STARTPOSITION ${(page - 1) * 100 + 1} MAXRESULTS 100`);
+      if (!response?.QueryResponse) throw new Error('Invalid QuickBooks pagination response');
+      const notes = response.QueryResponse.CreditMemo || [];
+      for (const note of notes) note.CurrencyRef = { value: await resolveCurrency(note, { accessToken, realmId, environment }) };
+      return notes;
+    },
+  });
+}
 export async function readQuickBooksCreditNoteEvidence(appTenantId, creditNoteId) {
   const { accessToken, realmId, environment } = await getValidQuickBooksAccessToken(appTenantId);
   if (!/^\d+$/.test(String(creditNoteId))) throw new Error('Invalid QuickBooks credit note identity');

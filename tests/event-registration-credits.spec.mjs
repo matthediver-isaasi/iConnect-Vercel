@@ -41,7 +41,7 @@ const EVENT = {
   is_complex: false,
 };
 
-function group(index, { source = "booking", credit = null, status = "unavailable" } = {}) {
+function group(index, { source = "booking", credit = null, status = "unavailable", reasonCode = credit == null ? "no_evidence" : null, coverage = null, verifiedAt = null } = {}) {
   const number = String(index).padStart(2, "0");
   const id = `credit-refresh-${number}`;
   const amount = credit ?? null;
@@ -81,7 +81,10 @@ function group(index, { source = "booking", credit = null, status = "unavailable
       amount,
       currency: amount == null ? null : "GBP",
       status: amount == null ? status : "confirmed",
-      breakdown: amount == null ? [] : [{
+      reasonCode,
+      coverage,
+      verifiedAt,
+      breakdown: amount == null || reasonCode === "verified_empty" ? [] : [{
         type: "refund",
         provider: "stripe",
         providerId: `re_${number}`,
@@ -140,6 +143,7 @@ function json(route, body, status = 200) {
 
 async function installFixture(page, {
   groups = [group(1)],
+  reportGroups = () => groups,
   authorized = true,
   canRefresh = authorized,
   reconcile,
@@ -223,7 +227,7 @@ async function installFixture(page, {
     if (url.pathname === "/api/reports/event-registration-report") {
       if (url.searchParams.get("generate") === "true") {
         state.reportReads += 1;
-        return json(route, { ...report(groups), canRefreshCredits: canRefresh });
+        return json(route, { ...report(reportGroups()), canRefreshCredits: canRefresh });
       }
       return json(route, { events: [EVENT] });
     }
@@ -496,8 +500,8 @@ test("refreshed values, totals and CSV agree and visible proof is saved", async 
 
   await expect(page.getByTestId("text-credits-credit-refresh-01")).toHaveText("£12.50");
   await expect(page.getByTestId("text-credits-credit-refresh-02")).toHaveText("£7.00");
-  await expect(page.getByTestId("text-total-credits")).toHaveText("£19.50");
   await expect(page.getByTestId("text-total-revenue")).toHaveText("£20.50");
+  await expect(page.getByTestId("text-total-credits")).toHaveText("Confirmed credits: £19.50");
   const csv = await exportCreditColumns(page);
   expect(csv).toContain('"Standard Credit 01","£12.50 — Refund (stripe) #re_01: £12.50"');
   expect(csv).toContain('"Standard Credit 02","£7.00 — Refund (stripe) #re_02: £7.00"');
@@ -552,4 +556,78 @@ test("revenue explains unknown evidence and incompatible currencies instead of d
   await expect(page.getByTestId("text-revenue-incomplete")).toContainText("2 booking group(s)");
   await expect(page.getByTestId("text-revenue-incomplete")).toContainText("unverified or unresolved Credits");
   await expect(page.getByTestId("text-revenue-incomplete")).toContainText("incompatible or missing currency");
+});
+
+test("64 unresolved booking groups stay labelled as counts after refresh, reload and CSV", async ({ page }) => {
+  const groups = Array.from({ length: 64 }, (_, index) => group(index + 1));
+  const state = await openReport(page, {
+    groups,
+    reconcile: async () => ({
+      body: { written: 0, unresolved: true, evidenceStatuses: ["unavailable"], nextCursor: null },
+    }),
+  });
+  await expect(page.getByTestId("text-total-credits"))
+    .toContainText("No confirmed credit amounts · Not verified: 64 booking groups");
+  await confirmRefresh(page);
+  await expect(page.getByTestId("credit-refresh-complete")).toContainText("unresolved evidence");
+  await expect.poll(() => state.reportReads).toBeGreaterThan(1);
+  await expect(page.getByTestId("text-total-credits"))
+    .toContainText("Not verified: 64 booking groups");
+  await page.reload();
+  await page.getByTestId("button-generate-report").click();
+  await expect(page.getByTestId("text-total-credits"))
+    .toContainText("Not verified: 64 booking groups");
+  const csv = await exportCreditColumns(page);
+  expect(csv).toContain("Not verified — No verified reversal evidence was found");
+  expect(state.rejectedWrites).toEqual([]);
+});
+
+test("checked-empty, pending, ambiguous and failed evidence stay distinct in row, subtotal and CSV", async ({ page }) => {
+  const checked = group(1, { credit: 0, reasonCode: "verified_empty",
+    coverage: [{ allApplicableScopes: true, paginationComplete: true }], verifiedAt: "2026-11-01T00:00:00Z" });
+  const confirmed = group(2, { credit: 12.5, reasonCode: null });
+  const pending = group(3, { status: "pending", reasonCode: "pending" });
+  const ambiguous = group(4, { reasonCode: "ambiguous" });
+  const failed = group(5, { reasonCode: "lookup_failure" });
+  const state = await openReport(page, { groups: [checked, confirmed, pending, ambiguous, failed] });
+  await expect(page.getByTestId("text-credits-credit-refresh-01")).toContainText("checked — no credits found");
+  await expect(page.getByTestId("text-credits-credit-refresh-03")).toContainText("Pending provider");
+  await expect(page.getByTestId("text-credits-credit-refresh-04")).toContainText("Needs review — ambiguous");
+  await expect(page.getByTestId("text-credits-credit-refresh-05")).toContainText("Provider lookup failed");
+  await expect(page.getByTestId("text-total-credits")).toContainText("Confirmed subtotal: £12.50");
+  await expect(page.getByTestId("text-total-credits")).toContainText("Pending provider: 1 booking group");
+  const csv = await exportCreditColumns(page);
+  expect(csv).toContain("£0.00 (checked — no credits found)");
+  expect(csv).toContain("Needs review — ambiguous");
+  expect(csv).toContain("Provider lookup failed");
+  expect(state.rejectedWrites).toEqual([]);
+});
+
+test("every incomplete lookup reason and a real zero-value instrument stay visible without hover", async ({ page }) => {
+  const reasons = [
+    ["missing_reference", "Missing provider reference"],
+    ["unsupported_route", "Unsupported payment route"],
+    ["incomplete_coverage", "Incomplete provider coverage"],
+    ["lookup_failure", "Provider lookup failed"],
+    ["storage_failure", "Storage unavailable"],
+    ["provider_failed", "Provider failed"],
+  ];
+  const groups = reasons.map(([reasonCode], index) => group(index + 1, { reasonCode }));
+  const zeroInstrument = group(7, { credit: 0 });
+  zeroInstrument.credits.breakdown = [{
+    type: "refund", provider: "stripe", providerId: "re_zero",
+    amount: 0, currency: "GBP", status: "confirmed", operationKey: "zero-operation",
+  }];
+  groups.push(zeroInstrument);
+  const state = await openReport(page, { groups });
+  for (const [reasonCode, label] of reasons) {
+    const index = reasons.findIndex(([key]) => key === reasonCode) + 1;
+    await expect(page.getByTestId(`text-credits-credit-refresh-${String(index).padStart(2, "0")}`)).toContainText(label);
+  }
+  await expect(page.getByTestId("text-credits-credit-refresh-07")).toHaveText("£0.00");
+  await expect(page.getByTestId("text-total-credits")).toContainText("Confirmed subtotal: £0.00");
+  const csv = await exportCreditColumns(page);
+  for (const [, label] of reasons) expect(csv).toContain(label);
+  expect(csv).toContain("£0.00 — Refund (stripe) #re_zero: £0.00");
+  expect(state.rejectedWrites).toEqual([]);
 });

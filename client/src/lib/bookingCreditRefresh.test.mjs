@@ -79,6 +79,22 @@ test('orchestrator sends tenant, source, fixed batch and cursor while progress c
     'booking', 'booking', 'booking', 'complex_event_booking',
   ]);
   assert.strictEqual(calls[0].bookingIds, calls[1].bookingIds, 'provider pages use the same immutable batch');
+  assert.equal(session.unresolved, false, 'legacy responses without evidence states are not proof of resolution');
+});
+
+test('completed requests preserve unresolved and provider status diagnostics across batches', async () => {
+  const session = createCreditRefreshSession(buildCreditRefreshSnapshot([
+    { bookingSource: 'booking', attendees: [{ id: id(1) }, { id: id(2) }] },
+  ], { tenantId: 'tenant-a' }));
+  const responses = [
+    { tenantId: 'tenant-a', unresolved: true, evidenceStatuses: ['pending', 'confirmed'], nextCursor: { index: 1 } },
+    { tenantId: 'tenant-a', unresolved: false, evidenceStatuses: ['confirmed', 'unavailable'], nextCursor: null },
+  ];
+  await runCreditRefreshSession(session, { request: async () => responses.shift() });
+  assert.equal(session.status, 'complete', 'requests completed, not necessarily verification');
+  assert.equal(session.completed, 2);
+  assert.equal(session.unresolved, true);
+  assert.deepEqual(session.evidenceStatuses, ['pending', 'confirmed', 'unavailable']);
 });
 
 test('stop is honored between requests and the same session can resume', async () => {

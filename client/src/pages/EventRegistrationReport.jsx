@@ -2125,7 +2125,7 @@ export default function EventRegistrationReport() {
                     Price Paid is the net ticket price after discounts and credits applied at checkout, including vouchers and training funds. It is not a payment-provider settlement or refund ledger. Pending/unpaid amounts have not been received.
                     {' '}Historical Invoice / PO registrations with offer-adjusted prices may show Ticket Price and Discount as Unavailable because no gross-price snapshot was stored.
                     {' '}Voucher, Training Fund and Account amounts reflect only allocations recorded in this app. A recorded zero on an imported registration does not establish its external payment history; imported financial history may be unavailable.
-                    {' '}Credits are refunds or accounting credit notes issued after booking; they do not include vouchers, training funds or account allocations used at checkout. Pending, failed and unavailable evidence is not treated as zero.
+                    {' '}Credits are refunds or accounting credit notes issued after booking; they do not include vouchers, training funds or account allocations used at checkout. Only a completed lookup with recorded coverage can confirm no credits. Unverified, pending, failed and ambiguous booking groups are counted separately from confirmed credit subtotals.
                   </p>
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">

@@ -64,6 +64,8 @@ export function createCreditRefreshSession(snapshot) {
     cursor: null,
     completed: 0,
     requests: 0,
+    unresolved: false,
+    evidenceStatuses: [],
     status: 'ready',
     stopReason: null,
     error: null,
@@ -158,6 +160,14 @@ export async function runCreditRefreshSession(session, {
       requestsThisRun += 1;
 
       validateResponse(result, session, task);
+      if (result.unresolved === true) session.unresolved = true;
+      if (Array.isArray(result.evidenceStatuses)) {
+        session.evidenceStatuses = [...new Set([
+          ...session.evidenceStatuses,
+          ...result.evidenceStatuses.filter(status => typeof status === 'string'),
+        ])];
+        if (result.evidenceStatuses.some(status => status !== 'confirmed')) session.unresolved = true;
+      }
       const nextCursor = result.nextCursor;
       // Only successful requests consume a cursor. A transport/provider error
       // therefore remains safely retryable, while cycles stay detectable

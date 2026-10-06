@@ -2,8 +2,8 @@ import Stripe from 'stripe';
 import { supabase } from '../_lib/database.js';
 import { getTenantContext, hasAdminAccess, hasFeatureAccess } from '../_lib/tenantContext.js';
 import { getStripeCredentials } from '../_lib/stripeCredentials.js';
-import { readXeroCreditNoteEvidence } from '../_lib/xero.js';
-import { readQuickBooksCreditNoteEvidence } from '../_lib/quickbooks.js';
+import { readXeroCreditNoteEvidence, readXeroInvoiceCreditEvidence } from '../_lib/xero.js';
+import { readQuickBooksCreditNoteEvidence, readQuickBooksInvoiceCreditEvidence } from '../_lib/quickbooks.js';
 import { reconcileBookingCredits } from '../_lib/bookingCreditReconciliation.js';
 
 function safeReconciliationError(error) {
@@ -32,6 +32,8 @@ export async function handleReconcileBookingCredits(req, res, {
   createStripe = secretKey => new Stripe(secretKey),
   loadXeroCreditNote = readXeroCreditNoteEvidence,
   loadQuickBooksCreditNote = readQuickBooksCreditNoteEvidence,
+  loadXeroInvoiceCredits = readXeroInvoiceCreditEvidence,
+  loadQuickBooksInvoiceCredits = readQuickBooksInvoiceCreditEvidence,
   reconcile = reconcileBookingCredits,
 } = {}) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -67,6 +69,11 @@ export async function handleReconcileBookingCredits(req, res, {
       readCreditNote: async (provider, id) => {
         if (provider === 'xero') return loadXeroCreditNote(ctx.tenantId, id);
         if (provider === 'quickbooks') return loadQuickBooksCreditNote(ctx.tenantId, id);
+        throw new Error('Unsupported accounting provider');
+      },
+      readInvoiceCredits: async (provider, id) => {
+        if (provider === 'xero') return loadXeroInvoiceCredits(ctx.tenantId, id);
+        if (provider === 'quickbooks') return loadQuickBooksInvoiceCredits(ctx.tenantId, id);
         throw new Error('Unsupported accounting provider');
       },
     });

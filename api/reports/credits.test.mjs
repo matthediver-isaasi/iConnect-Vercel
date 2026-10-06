@@ -5,6 +5,7 @@ import { projectCredits, attachReportCredits } from './_credits.js';
 import { captureCancellationCredits, persistBookingCreditEvidence, prepareCancellationCredits, currencyFactor } from '../_lib/bookingCreditEvidence.js';
 import { reconcileBookingCredits } from '../_lib/bookingCreditReconciliation.js';
 import { handleReconcileBookingCredits } from './reconcile-booking-credits.js';
+import { discoverInvoiceCredits } from '../_lib/invoiceCreditDiscovery.js';
 
 const a = '00000000-0000-0000-0000-000000000001';
 const b = '00000000-0000-0000-0000-000000000002';
@@ -33,7 +34,8 @@ function database(tables = {}) {
             return { error: { message: 'simulated evidence write failure' } };
           }
           tables[table] ||= [];
-          const prior = tables[table].find(r => r.tenant_id === row.tenant_id && r.booking_source === row.booking_source && r.evidence_key === row.evidence_key);
+          const prior = tables[table].find(r => r.tenant_id === row.tenant_id && r.booking_source === row.booking_source
+            && (table === 'booking_credit_verification' ? r.booking_id === row.booking_id : r.evidence_key === row.evidence_key));
           if (prior) { if (!options.ignoreDuplicates) Object.assign(prior, row); }
           else tables[table].push({ id: `row-${tables[table].length}`, ...row });
           return { error: null };
@@ -205,16 +207,21 @@ test('refresh routes read-only provider lookups and never exposes raw provider e
       createStripe: () => ({ refunds: { list: async args => { calls.push(['refund-list', args]); return { data: [] }; } } }),
       loadXeroCreditNote: async (tenantId, id) => { calls.push(['xero', tenantId, id]); return { providerId: id }; },
       loadQuickBooksCreditNote: async (tenantId, id) => { calls.push(['quickbooks', tenantId, id]); return { providerId: id }; },
-      reconcile: async ({ readRefunds, readCreditNote }) => {
+      loadXeroInvoiceCredits: async (tenantId, id) => { assert.equal(tenantId, 'tenant-a'); calls.push(['xero-invoice', tenantId, id]); return {}; },
+      loadQuickBooksInvoiceCredits: async (tenantId, id) => { assert.equal(tenantId, 'tenant-a'); calls.push(['qbo-invoice', tenantId, id]); return {}; },
+      reconcile: async ({ readRefunds, readCreditNote, readInvoiceCredits }) => {
         await readRefunds('pi_1', 're_1');
         await readCreditNote('xero', 'cn_x');
         await readCreditNote('quickbooks', 'cn_q');
+        await readInvoiceCredits('xero', 'inv_x');
+        await readInvoiceCredits('quickbooks', 'inv_q');
+        await assert.rejects(readInvoiceCredits('unknown', 'inv'), /Unsupported/);
         return { written: 0 };
       },
     }),
   );
   assert.equal(routeRes.statusCode, 200);
-  assert.deepEqual(calls.map(call => call[0]), ['credentials', 'refund-list', 'xero', 'quickbooks']);
+  assert.deepEqual(calls.map(call => call[0]), ['credentials', 'refund-list', 'xero', 'quickbooks', 'xero-invoice', 'qbo-invoice']);
 
   const failedRes = responseCapture();
   await handleReconcileBookingCredits(
@@ -535,4 +542,191 @@ test('terminal batch completion includes earlier selected bookings, not just the
   const last = await reconcileBookingCredits({ ...args, cursor: first.nextCursor });
   assert.equal(last.nextCursor, null);
   assert.equal(last.unresolved, true);
+});
+
+const emptyVerification = (bookingId = a, overrides = {}) => ({
+  tenant_id: 'tenant', booking_source: 'booking', booking_id: bookingId,
+  reason_code: 'verified_empty', verified_at: '2026-07-22T10:00:00Z',
+  checked_at: '2026-07-22T10:00:00Z',
+  coverage: { allApplicableScopes: true, paginationComplete: true,
+    referenceFingerprint: JSON.stringify(Array(7).fill(null)) }, ...overrides,
+});
+test('verified empty requires every booking and complete coverage; any instrument overrides it', () => {
+  const options = { bookingIds: [a, b], verifications: [emptyVerification(a), emptyVerification(b)] };
+  const empty = projectCredits([], options);
+  assert.equal(empty.amount, 0);
+  assert.equal(empty.reasonCode, 'verified_empty');
+  assert.equal(empty.verifiedAt, '2026-07-22T10:00:00Z');
+  assert.equal(empty.coverage.length, 2);
+  assert.equal(projectCredits([], { ...options, verifications: [emptyVerification()] }).amount, null);
+  assert.equal(projectCredits([], { ...options, partialScope: true }).amount, null);
+  assert.equal(projectCredits([], { bookingIds: [a], verifications: [
+    emptyVerification(a, { coverage: { allApplicableScopes: true, paginationComplete: false } }),
+  ] }).amount, null);
+  for (const status of ['confirmed', 'pending', 'unavailable', 'failed']) {
+    const result = projectCredits([row({ status })], options);
+    assert.notEqual(result.reasonCode, 'verified_empty');
+    assert.equal(result.amount, status === 'confirmed' ? 12.5 : null);
+  }
+  assert.equal(projectCredits([row(), row({ operation_key: 'usd', currency: 'USD' })], options).reasonCode, 'ambiguous');
+});
+test('provider empty never certifies missing accounting coverage; outcomes survive report reload', async () => {
+  const db = database({ booking: [{ id: a, tenant_id: 'tenant', stripe_payment_intent_id: 'pi_1', xero_invoice_id: 'inv' }] });
+  const result = await reconcileBookingCredits({
+    db, tenantId: 'tenant', source: 'booking', bookingIds: [a],
+    readRefunds: async () => ({ data: [], has_more: false }),
+  });
+  assert.equal(result.unresolved, true);
+  assert.deepEqual(result.reasonCodes, ['incomplete_coverage']);
+  const outcome = db.tables.booking_credit_verification[0];
+  assert.equal(outcome.coverage.stripeRefunds, 'complete');
+  assert.equal(outcome.coverage.accountingCredits, 'not_enumerated');
+  assert.equal(outcome.verified_at, null);
+  const groups = [{ attendees: [{ id: a }] }];
+  await attachReportCredits({ db, tenantId: 'tenant', bookings: db.tables.booking, groups });
+  assert.equal(groups[0].credits.reasonCode, 'incomplete_coverage');
+  assert.equal(groups[0].credits.amount, null);
+  assert.equal(db.tables.booking_reversal_evidence, undefined);
+});
+test('missing references, unsupported routes and provider failures are retained without synthetic instruments', async () => {
+  for (const [booking, reason] of [
+    [{}, 'missing_reference'],
+    [{ payment_method: 'fully_covered' }, 'unsupported_route'],
+    [{ stripe_payment_intent_id: 'pi_1' }, 'lookup_failure'],
+  ]) {
+    const db = database({ booking: [{ id: a, tenant_id: 'tenant', ...booking }] });
+    const request = reconcileBookingCredits({
+      db, tenantId: 'tenant', source: 'booking', bookingIds: [a],
+      readRefunds: async () => { throw new Error('provider down'); },
+    });
+    if (reason === 'lookup_failure') await assert.rejects(request, /provider down/);
+    else await request;
+    assert.equal(db.tables.booking_credit_verification[0].reason_code, reason);
+    assert.equal(db.tables.booking_reversal_evidence, undefined);
+  }
+});
+test('incomplete pagination and forged continuation cannot become verified empty', async () => {
+  for (const [cursor, response] of [
+    [{}, { data: [], has_more: true }],
+    [{}, { data: [] }],
+    [{ after: 're_skipped' }, { data: [], has_more: false }],
+  ]) {
+    const db = database({ booking: [{ id: a, tenant_id: 'tenant', stripe_payment_intent_id: 'pi_1' }] });
+    const request = reconcileBookingCredits({
+      db, tenantId: 'tenant', source: 'booking', bookingIds: [a], cursor,
+      readRefunds: async () => response,
+    });
+    if (response.has_more) await assert.rejects(request, /pagination/);
+    else assert.equal((await request).unresolved, true);
+    assert.notEqual(db.tables.booking_credit_verification[0].reason_code, 'verified_empty');
+  }
+});
+test('verified empty report scopes are isolated and later positive evidence wins on reload', async () => {
+  const db = database({ booking_credit_verification: [
+    emptyVerification(), emptyVerification(b, { tenant_id: 'foreign' }),
+    emptyVerification(b, { booking_source: 'complex_event_booking' }),
+  ] });
+  const groups = [{ attendees: [{ id: a }] }, { attendees: [{ id: b }] }];
+  await attachReportCredits({ db, tenantId: 'tenant', bookings: [{ id: a }, { id: b }], groups });
+  assert.equal(groups[0].credits.amount, 0);
+  assert.equal(groups[1].credits.amount, null);
+  db.tables.booking_reversal_evidence = [row()];
+  await attachReportCredits({ db, tenantId: 'tenant', bookings: [{ id: a }, { id: b }], groups });
+  assert.equal(groups[0].credits.amount, 12.5);
+});
+
+test('verification storage failure is explicit and invalidates an earlier empty outcome when retry storage succeeds', async () => {
+  const db = database({
+    booking: [{ id: a, tenant_id: 'tenant', stripe_payment_intent_id: 'pi_1' }],
+    booking_credit_verification: [emptyVerification()],
+  });
+  db.failNextUpsert = true;
+  await assert.rejects(reconcileBookingCredits({
+    db, tenantId: 'tenant', source: 'booking', bookingIds: [a],
+    readRefunds: async () => ({ data: [], has_more: false }),
+  }), /persist credit verification/);
+  assert.equal(db.tables.booking_credit_verification[0].reason_code, 'storage_failure');
+  const groups = [{ attendees: [{ id: a }] }];
+  await attachReportCredits({ db, tenantId: 'tenant', bookings: db.tables.booking, groups });
+  assert.equal(groups[0].credits.reasonCode, 'storage_failure');
+  assert.equal(groups[0].credits.amount, null);
+});
+
+test('invoice discovery plus explicit payment coverage can persist real checked-empty and reload it', async () => {
+  for (const payment of [
+    { payment_method: 'account' },
+    { payment_method: 'card', stripe_payment_intent_id: 'pi_1' },
+  ]) {
+    const db = database({ booking: [{ id: a, tenant_id: 'tenant', xero_invoice_id: 'inv', ...payment }] });
+    const result = await reconcileBookingCredits({
+      db, tenantId: 'tenant', source: 'booking', bookingIds: [a],
+      readRefunds: async () => ({ data: [], has_more: false }),
+      readInvoiceCredits: async (provider, invoiceId) => ({
+        provider, invoiceId, complete: true, notes: [],
+        coverage: { paginationComplete: true, kind: 'invoice_and_customer_credit_notes' },
+      }),
+    });
+    assert.equal(result.unresolved, false);
+    assert.deepEqual(result.reasonCodes, ['verified_empty']);
+    const groups = [{ attendees: [{ id: a }] }];
+    await attachReportCredits({ db, tenantId: 'tenant', bookings: db.tables.booking, groups });
+    assert.equal(groups[0].credits.amount, 0);
+    assert.equal(groups[0].credits.reasonCode, 'verified_empty');
+    assert.ok(groups[0].credits.verifiedAt);
+  }
+});
+test('invoice discovery recovers credits without guessing shared multi-group allocation', async () => {
+  const db = database({ booking: [a, b].map(id => ({ id, tenant_id: 'tenant', xero_invoice_id: 'inv', payment_method: 'account' })) });
+  const args = {
+    db, tenantId: 'tenant', source: 'booking', bookingIds: [a],
+    readInvoiceCredits: async (provider, invoiceId) => ({
+      provider, invoiceId, complete: true, coverage: { paginationComplete: true },
+      notes: [{ providerId: 'cn', amount: 14, currency: 'GBP', status: 'AUTHORISED' }],
+    }),
+  };
+  assert.equal((await reconcileBookingCredits(args)).unresolved, true);
+  const evidence = db.tables.booking_reversal_evidence[0];
+  assert.deepEqual(evidence.booking_ids, [a, b]);
+  assert.equal(evidence.amount_minor, 1400);
+  assert.equal(projectCredits([evidence]).reasonCode, 'ambiguous');
+});
+
+test('partial QuickBooks memo remains unavailable through reconciliation, whole-memo refresh and reload', async () => {
+  const db = database({ booking: [{
+    id: a, tenant_id: 'tenant', payment_method: 'account',
+    accounting_provider: 'quickbooks', accounting_invoice_id: '1', accounting_credit_note_id: '7',
+  }] });
+  const args = {
+    db, tenantId: 'tenant', source: 'booking', bookingIds: [a],
+    readInvoiceCredits: async () => discoverInvoiceCredits({
+      provider: 'quickbooks', invoiceId: '1',
+      readInvoice: async () => ({ Id: '1', CustomerRef: { value: '10' }, LinkedTxn: [{ TxnId: '5', TxnType: 'Payment' }] }),
+      readPayment: async () => ({ Id: '5', CustomerRef: { value: '10' }, Line: [
+        { Amount: 20, LinkedTxn: [{ TxnId: '1', TxnType: 'Invoice' }] },
+        { Amount: 20, LinkedTxn: [{ TxnId: '7', TxnType: 'CreditMemo' }] },
+      ] }),
+      listNotes: async (_, page) => page === 1
+        ? [{ Id: '7', CustomerRef: { value: '10' }, TotalAmt: 100, CurrencyRef: { value: 'GBP' } }] : [],
+    }),
+    readCreditNote: async () => ({ providerId: '7', amount: 100, currency: 'GBP', status: 'AUTHORISED' }),
+  };
+  for (let attempt = 0; attempt < 2; attempt++) {
+    assert.equal((await reconcileBookingCredits(args)).unresolved, true);
+    assert.equal(db.tables.booking_reversal_evidence.length, 1);
+    assert.equal(db.tables.booking_reversal_evidence[0].amount_minor, null);
+    assert.equal(db.tables.booking_reversal_evidence[0].status, 'unavailable');
+    const groups = [{ attendees: [{ id: a }] }];
+    await attachReportCredits({ db, tenantId: 'tenant', bookings: db.tables.booking, groups });
+    assert.equal(groups[0].credits.reasonCode, 'ambiguous');
+    assert.equal(groups[0].credits.amount, null);
+    assert.equal(groups[0].credits.breakdown[0].amount, null);
+  }
+});
+
+test('changed booking provider references invalidate prior checked-empty coverage', async () => {
+  const db = database({ booking_credit_verification: [emptyVerification()] });
+  const groups = [{ attendees: [{ id: a }] }];
+  await attachReportCredits({ db, tenantId: 'tenant', bookings: [{ id: a, stripe_payment_intent_id: 'pi_new' }], groups });
+  assert.equal(groups[0].credits.amount, null);
+  assert.equal(groups[0].credits.reasonCode, 'no_evidence');
 });

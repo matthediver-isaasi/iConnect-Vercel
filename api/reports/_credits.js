@@ -1,6 +1,12 @@
 import { currencyFactor } from '../_lib/bookingCreditEvidence.js';
 
-export function projectCredits(rows, { historicalUnknown = false, partialScope = false } = {}) {
+export function creditVerificationFingerprint(booking) {
+  return JSON.stringify(['payment_method', 'stripe_payment_intent_id', 'accounting_provider',
+    'accounting_invoice_id', 'xero_invoice_id', 'accounting_credit_note_id', 'xero_credit_note_id']
+    .map(key => booking[key] || null));
+}
+
+export function projectCredits(rows, { historicalUnknown = false, partialScope = false, verifications = [], bookingIds = [] } = {}) {
   const breakdown = rows.map(r => ({
     type: r.leg, provider: r.provider, providerId: r.provider_id,
     amount: r.amount_minor == null || !r.currency ? null : Number(r.amount_minor) / currencyFactor(r.currency),
@@ -9,6 +15,21 @@ export function projectCredits(rows, { historicalUnknown = false, partialScope =
   // Absence of a ledger row is not proof that no historic provider reversal
   // exists (including on active bookings). Only actual zero evidence is zero.
   if (!rows.length) {
+    const outcomes = bookingIds.map(id => verifications.find(v => v.booking_id === id));
+    const complete = outcomes.length > 0 && outcomes.every(v => v?.reason_code === 'verified_empty'
+      && v.verified_at && v.coverage?.allApplicableScopes === true && v.coverage?.paginationComplete === true);
+    if (complete && !partialScope) return {
+      amount: 0, currency: null, status: 'confirmed', reasonCode: 'verified_empty', breakdown,
+      verifiedAt: outcomes.map(v => v.verified_at).sort()[0],
+      coverage: outcomes.map(v => ({ bookingId: v.booking_id, ...v.coverage })),
+    };
+    const failure = outcomes.find(v => v && v.reason_code !== 'verified_empty');
+    if (failure && !partialScope) return {
+      amount: null, currency: null, status: 'unavailable', reasonCode: failure.reason_code, breakdown,
+      verifiedAt: null, checkedAt: failure.checked_at,
+      coverage: outcomes.filter(Boolean).map(v => ({ bookingId: v.booking_id, ...v.coverage })),
+      error: verificationMessage(failure.reason_code),
+    };
     const ambiguous = historicalUnknown || partialScope;
     return {
       amount: null,
@@ -26,7 +47,8 @@ export function projectCredits(rows, { historicalUnknown = false, partialScope =
     operations.get(row.operation_key).push(row);
   }
   let cents = 0;
-  let ambiguous = partialScope || currencies.size > 1 || historicalUnknown;
+  let ambiguous = partialScope || currencies.size > 1 || historicalUnknown
+    || rows.some(r => r.detail?.ambiguousAttribution || r.detail?.ambiguousOperation);
   let refundOnly = false;
   let noteOnly = false;
   for (const legs of operations.values()) {
@@ -69,13 +91,28 @@ export function projectCredits(rows, { historicalUnknown = false, partialScope =
   };
 }
 
+function verificationMessage(reason) {
+  return ({
+    missing_reference: 'No provider reference is available to verify post-booking credits.',
+    unsupported_route: 'This payment route cannot yet be fully verified.',
+    incomplete_coverage: 'Not all applicable payment and accounting scopes were verified. Review coverage details before relying on an amount.',
+    lookup_failure: 'Provider lookup failed. Check the connection and refresh again.',
+    storage_failure: 'Verification could not be stored safely. Retry or contact support.',
+  })[reason] || 'Credits have not yet been fully verified.';
+}
+
 export async function attachReportCredits({ db, tenantId, bookings, groups }) {
   const rows = [];
+  const verifications = [];
   try {
     // Only query relevant IDs, with bounded filters and stable full pagination.
     for (const source of ['booking', 'complex_event_booking']) {
       const ids = bookings.filter(b => (b._report_booking_source === 'complex' ? 'complex_event_booking' : 'booking') === source).map(b => b.id);
       for (let i = 0; i < ids.length; i += 100) {
+        const verificationResult = await db.from('booking_credit_verification').select('*')
+          .eq('tenant_id', tenantId).eq('booking_source', source).in('booking_id', ids.slice(i, i + 100));
+        if (verificationResult.error) throw new Error(`Failed to load credit verification: ${verificationResult.error.message}`);
+        verifications.push(...(verificationResult.data || []));
         for (let offset = 0; ; ) {
           const { data, error } = await db.from('booking_reversal_evidence').select('*')
             .eq('tenant_id', tenantId).eq('booking_source', source)
@@ -106,6 +143,10 @@ export async function attachReportCredits({ db, tenantId, bookings, groups }) {
     const evidence = unique.filter(r => r.booking_source === source && r.booking_ids.some(id => ids.has(id)));
     const originals = bookings.filter(b => ids.has(b.id) && (b._report_booking_source === 'complex' ? 'complex_event_booking' : 'booking') === source);
     group.credits = projectCredits(evidence, {
+      bookingIds: [...ids],
+      verifications: verifications.filter(v => v.booking_source === source
+        && (v.reason_code !== 'verified_empty' || originals.some(b => b.id === v.booking_id
+          && v.coverage?.referenceFingerprint === creditVerificationFingerprint(b)))),
       historicalUnknown: originals.some(b => b.status === 'cancelled' && !evidence.some(r => r.booking_ids.includes(b.id))),
       partialScope: evidence.some(r => r.booking_ids.some(id => !ids.has(id))),
     });

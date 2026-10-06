@@ -45,3 +45,21 @@ test('dry run hashes the exact migration and performs no writes', async () => {
   assert.equal(result.sha256, expectedSha);
   assert.equal(result.writesPerformed, false);
 });
+
+test('verification migration is separately hashed, access restricted and remains dry-run by default', async () => {
+  const path = 'migrations/20260722_booking_credit_verification.sql';
+  const sql = await readFile(new URL(`../${path}`, import.meta.url), 'utf8');
+  const { stdout } = await execFile(process.execPath, [runnerUrl.pathname, '--verification']);
+  const result = JSON.parse(stdout);
+  assert.equal(result.migration, path);
+  assert.equal(result.writesPerformed, false);
+  assert.equal(result.sha256, createHash('sha256').update(`${path}\n${sql}`).digest('hex'));
+  assert.match(sql, /UNIQUE \(tenant_id, booking_source, booking_id\)/);
+  assert.match(sql, /ENABLE ROW LEVEL SECURITY/);
+  assert.match(sql, /REVOKE ALL[\s\S]*FROM anon, authenticated/);
+  assert.match(sql, /verified_at IS NOT NULL/);
+  assert.match(sql, /"allApplicableScopes":true,"paginationComplete":true/);
+  await assert.rejects(execFile(process.execPath, [
+    runnerUrl.pathname, '--verification', '--apply', '--review-sha256=wrong',
+  ]), /SHA-256 is missing or does not match/);
+});

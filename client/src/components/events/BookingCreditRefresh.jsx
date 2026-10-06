@@ -115,7 +115,7 @@ export default function BookingCreditRefresh({
         onProgress: publish,
       });
       if (nextSession.status === 'complete') {
-        toast.success(`Credits refreshed for ${nextSession.completed} bookings`);
+        toast.info(`Credit checks finished for ${nextSession.completed} bookings. Review the report for remaining evidence states.`);
       } else {
         toast.info(`Credit refresh stopped after ${nextSession.completed} bookings`);
       }
@@ -188,6 +188,13 @@ export default function BookingCreditRefresh({
         <div className="flex items-center gap-2 text-sm text-destructive" data-testid="credit-refresh-error">
           <span>{session.error}</span>
           <Button size="sm" variant="outline" onClick={retry} data-testid="button-retry-credit-refresh">Retry</Button>
+        </div>
+      )}
+      {status === 'complete' && (
+        <div className="text-sm text-muted-foreground" data-testid="credit-refresh-complete">
+          Checks finished for {session.completed} bookings.
+          {session.unresolved ? ' Some checks returned unresolved evidence.' : ' Completed requests do not guarantee verified amounts.'}
+          {' '}The refreshed report below determines remaining credit states.
         </div>
       )}
       {status === 'stopped' && (

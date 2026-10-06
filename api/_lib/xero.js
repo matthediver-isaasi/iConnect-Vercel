@@ -1964,6 +1964,28 @@ export async function createXeroCreditNote({ appTenantId, invoiceId, creditAmoun
   };
 }
 
+export async function readXeroInvoiceCreditEvidence(appTenantId, invoiceId, {
+  loadToken = getValidXeroAccessToken, fetcher = fetch,
+} = {}) {
+  if (!/^[0-9a-f-]{36}$/i.test(invoiceId)) throw new Error('Invalid Xero invoice identity');
+  const { discoverInvoiceCredits } = await import('./invoiceCreditDiscovery.js');
+  const { accessToken, tenantId } = await loadToken(appTenantId);
+  const get = async path => {
+    const response = await fetcher(`https://api.xero.com/api.xro/2.0/${path}`, {
+      method: 'GET', headers: { Authorization: `Bearer ${accessToken}`, 'xero-tenant-id': tenantId, Accept: 'application/json' },
+    });
+    if (!response.ok) throw new Error(`Accounting discovery lookup failed (${response.status})`);
+    return response.json();
+  };
+  return discoverInvoiceCredits({
+    provider: 'xero', invoiceId,
+    readInvoice: async id => (await get(`Invoices/${encodeURIComponent(id)}`)).Invoices?.[0],
+    listNotes: async (customer, page) => {
+      if (!/^[0-9a-f-]{36}$/i.test(customer)) throw new Error('Invalid Xero customer identity');
+      return (await get(`CreditNotes?where=${encodeURIComponent(`Contact.ContactID==Guid("${customer}")`)}&page=${page}`)).CreditNotes;
+    },
+  });
+}
 export async function readXeroCreditNoteEvidence(appTenantId, creditNoteId) {
   const { accessToken, tenantId } = await getValidXeroAccessToken(appTenantId);
   const response = await fetch(`https://api.xero.com/api.xro/2.0/CreditNotes/${encodeURIComponent(creditNoteId)}`, {
