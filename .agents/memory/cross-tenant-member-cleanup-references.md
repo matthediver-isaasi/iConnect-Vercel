@@ -14,3 +14,14 @@ A nullable `tenant_id` on a dependent row is not automatically cross-tenant. Som
 **Why:** Treating NULL as foreign can block a correct cleanup, but treating every NULL as local can delete globally owned data.
 
 **How to apply:** Allow a NULL-tenant dependency only for a table whose ownership is proven by its Member reference, and pin the exact expected row count/signature. Continue to fail closed for every other unscoped dependency.
+
+Inspect live reference-column types before composing cleanup SQL, and explicitly
+cast reused parameters at each differently typed comparison.
+
+**Why:** Legacy submission links mix text and UUID ownership/reference columns.
+Reusing an inferred parameter type across both caused read-only audit queries
+to fail before the cohort could be established.
+
+**How to apply:** Inventory live columns and foreign keys first. Include soft
+references in the cleanup audit; neither shared column names nor the API's
+string representation establish a database type or a cascading foreign key.
