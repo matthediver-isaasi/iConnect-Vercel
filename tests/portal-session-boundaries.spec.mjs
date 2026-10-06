@@ -126,6 +126,13 @@ async function installFixture(page) {
     unexpected: [],
     external: [],
     protectedStatus: 200,
+    alertLogin: 'login-one',
+    alertAlways: false,
+    alertTemporary: false,
+    alertShown: false,
+    alertFailure: false,
+    alertGate: deferred(true),
+    unreadCount: 0,
     setAuth({ status = 200, body = sessionBody(), hold = false, abort = false } = {}) {
       state.authStatus = status;
       state.authAbort = abort;
@@ -178,6 +185,24 @@ async function installFixture(page) {
     }
 
     const key = `${method} ${url.pathname}${url.search}`;
+    if (url.pathname === '/api/communication/inbox/alert-preferences') {
+      if (state.alertFailure) return json(route, { error: 'Unavailable' }, 503);
+      if (method === 'PATCH') {
+        const patch = request.postDataJSON().preference;
+        if (patch.always_hide !== undefined) state.alertAlways = patch.always_hide;
+        if (patch.hide_until_login !== undefined) state.alertTemporary = patch.hide_until_login;
+        if (patch.shown !== undefined) state.alertShown = patch.shown;
+        if (Object.values(patch).includes(false)) state.alertShown = false;
+      }
+      const response = {
+        member_id: state.authBody.id, tenant_id: state.authBody.tenant_id,
+        login_key: state.alertLogin, always_hide: state.alertAlways,
+        hide_until_login: state.alertTemporary, shown: state.alertShown,
+      };
+      await state.alertGate.promise;
+      return json(route, response);
+    }
+    if (url.pathname === '/api/communication/inbox') return json(route, { messages: [], folders: [], unreadCount: state.unreadCount });
     if (url.pathname === '/api/entities/SessionContinuityProbe') {
       return route.fulfill({
         status: state.protectedStatus,
@@ -240,7 +265,8 @@ async function installFixture(page) {
         icon: "Calendar",
         display_order: 1,
         is_active: true,
-      }]);
+      }, { id: 'menu-inbox', title: 'Inbox', url: 'Inbox', feature_id: 'communication.inbox',
+        section: 'user', icon: 'Inbox', display_order: 2, is_active: true }]);
     }
     if (url.pathname === "/api/entities/Member") return json(route, [MEMBER]);
     if (url.pathname === "/api/public/page/portal"
@@ -289,7 +315,7 @@ async function installFixture(page) {
       || url.pathname === "/api/bookmarks"
       || url.pathname === "/api/bookmarks/enriched") return json(route, []);
     if (url.pathname === "/api/custom-objects") return json(route, { objects: [], total: 0 });
-    if (url.pathname === "/api/communication/inbox/unread-count") return json(route, { unreadCount: 0 });
+    if (url.pathname === "/api/communication/inbox/unread-count") return json(route, { unreadCount: state.unreadCount, latestSentAt: '2026-10-06', latestSubject: 'Fixture unread' });
     if (url.pathname === "/api/admin/form-submissions/stats") return json(route, {});
     if (url.pathname === "/api/public/article-settings") return json(route, {});
     if (url.pathname === "/api/public/favicon-url") return json(route, { faviconUrl: null });
@@ -312,6 +338,161 @@ function expectReadOnlyClean(state) {
   expect(state.unexpected).toEqual([]);
   expect(state.external).toEqual([]);
 }
+
+test('inbox alert choices reverse on empty Inbox aliases, survive refresh/tabs and reset only on new login', async ({ page }) => {
+  const state = await installFixture(page);
+  state.unreadCount = 3;
+  await page.goto('/session-boundary');
+  await expect(page.getByTestId('dialog-inbox-unread')).toBeVisible();
+  await page.getByTestId('button-hide-until-login').click();
+  await expect.poll(() => state.alertTemporary).toBe(true);
+  await expect(page.getByTestId('dialog-inbox-unread')).toBeHidden();
+  await expect(page.getByTestId('badge-inbox-unread')).toHaveText('3');
+  state.unreadCount = 9;
+  await page.reload();
+  await expect(page.getByText('Session boundary content: session-boundary', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('dialog-inbox-unread')).toBeHidden();
+  await page.goto('/Inbox');
+  const temporary = page.getByRole('switch', { name: 'Hide alert until next login' });
+  const permanent = page.getByRole('switch', { name: 'Always hide alert', exact: true });
+  await expect(temporary).toBeChecked();
+  await expect(permanent).not.toBeChecked();
+  await expect(permanent).toBeEnabled();
+  await permanent.click();
+  await expect.poll(() => state.alertAlways).toBe(true);
+  const tab = await page.context().newPage();
+  await tab.goto('/inbox');
+  await expect(tab.getByRole('switch', { name: 'Always hide alert', exact: true })).toBeChecked();
+  await expect(temporary).toBeEnabled();
+  await temporary.click();
+  await expect.poll(() => state.alertTemporary).toBe(false);
+  await expect(tab.getByRole('switch', { name: 'Hide alert until next login' })).not.toBeChecked();
+  await expect(permanent).toBeEnabled();
+  await permanent.click();
+  await expect.poll(() => state.alertAlways).toBe(false);
+  await expect(page.getByTestId('dialog-inbox-unread')).toBeHidden();
+  await page.evaluate(() => localStorage.setItem('inbox_popup_dismissed_member-session-boundary', '9999'));
+  await page.goto('/session-boundary-public');
+  await expect(page.getByTestId('dialog-inbox-unread')).toBeVisible();
+  await page.getByTestId('button-always-hide').click();
+  await expect.poll(() => state.alertAlways).toBe(true);
+  state.alertLogin = 'login-two'; state.alertTemporary = false; state.alertShown = false;
+  await page.reload();
+  await expect(page.getByTestId('dialog-inbox-unread')).toBeHidden();
+  await page.goto('/inbox');
+  await expect(permanent).toBeChecked();
+  await expect(temporary).not.toBeChecked();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(permanent).toBeEnabled();
+  await page.screenshot({ path: '/tmp/inbox-alert-mobile.png' });
+  await permanent.click();
+  await expect.poll(() => state.alertAlways).toBe(false);
+  await expect(page.getByTestId('dialog-inbox-unread')).toBeHidden();
+  await tab.close();
+  expectReadOnlyClean(state);
+});
+
+test('alert preference failures fail closed and do not report a saved toggle', async ({ page }) => {
+  const state = await installFixture(page);
+  state.unreadCount = 2;
+  state.alertFailure = true;
+  await page.goto('/Inbox');
+  await expect(page.getByRole('alert').filter({ hasText: 'Could not save or load alert preferences' })).toBeVisible();
+  await expect(page.getByTestId('dialog-inbox-unread')).toBeHidden();
+  state.alertFailure = false;
+  await page.getByRole('button', { name: 'Reload preferences' }).click();
+  const permanent = page.getByRole('switch', { name: 'Always hide alert', exact: true });
+  await expect(permanent).toBeEnabled();
+  state.alertFailure = true;
+  await permanent.click();
+  await expect(page.getByRole('alert').filter({ hasText: 'Could not save or load alert preferences' })).toBeVisible();
+  await expect(permanent).not.toBeChecked();
+  expect(state.alertAlways).toBe(false);
+  expectReadOnlyClean(state);
+});
+
+test('suppressed alert never flashes while preferences load; a separate browser resolves persistent preference independently', async ({ page, browser }) => {
+  const state = await installFixture(page);
+  state.unreadCount = 4;
+  state.alertAlways = true;
+  state.alertGate = deferred(false);
+  await page.goto('/session-boundary');
+  await expect(page.getByText('Session boundary content: session-boundary', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('dialog-inbox-unread')).toBeHidden();
+  state.alertGate.release();
+  await page.goto('/Inbox');
+  await expect(page.getByRole('switch', { name: 'Always hide alert', exact: true })).toBeChecked();
+  const separate = await browser.newContext();
+  try {
+    const second = await separate.newPage();
+    const next = await installFixture(second);
+    next.alertAlways = state.alertAlways; // same durable member preference, different login
+    next.alertLogin = 'independent-browser-login';
+    next.unreadCount = 6;
+    await second.goto('/session-boundary-public');
+    await expect(second.getByText('Session boundary content: session-boundary-public', { exact: true })).toBeVisible();
+    await expect(second.getByTestId('dialog-inbox-unread')).toBeHidden();
+    await second.goto('/inbox');
+    await expect(second.getByRole('switch', { name: 'Always hide alert', exact: true })).toBeChecked();
+    await expect(second.getByRole('switch', { name: 'Hide alert until next login' })).not.toBeChecked();
+    expectReadOnlyClean(next);
+  } finally { await separate.close(); }
+  expectReadOnlyClean(state);
+});
+
+test('close and View messages preserve unread counts; temporary hiding resets on a genuine new login', async ({ page }) => {
+  const state = await installFixture(page);
+  state.unreadCount = 5;
+  await page.goto('/session-boundary');
+  await expect(page.getByTestId('dialog-inbox-unread')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('dialog-inbox-unread')).toBeHidden();
+  await expect.poll(() => state.alertShown).toBe(true);
+  await page.reload();
+  await expect(page.getByText('Session boundary content: session-boundary', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('dialog-inbox-unread')).toBeHidden();
+  state.alertLogin = 'second-authenticated-login'; state.alertShown = false;
+  await page.reload();
+  await expect(page.getByTestId('dialog-inbox-unread')).toBeVisible();
+  await page.getByTestId('button-hide-until-login').click();
+  await expect.poll(() => state.alertTemporary).toBe(true);
+  // Routine session refresh keeps the same server login and suppression.
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await page.goto('/Inbox');
+  await expect(page.getByRole('switch', { name: 'Hide alert until next login' })).toBeChecked();
+  state.alertLogin = 'third-authenticated-login'; state.alertShown = false; state.alertTemporary = false;
+  await page.goto('/session-boundary');
+  await expect(page.getByTestId('dialog-inbox-unread')).toBeVisible();
+  await page.getByTestId('button-view-messages').click();
+  await expect(page).toHaveURL(/\/inbox$/);
+  await expect(page.getByTestId('badge-inbox-unread')).toHaveText('5');
+  expect(state.unreadCount).toBe(5);
+  expectReadOnlyClean(state);
+});
+
+test('member and tenant switches discard a late old preference response', async ({ page }) => {
+  const state = await installFixture(page);
+  state.alertAlways = true;
+  const old = deferred(false);
+  state.alertGate = old;
+  await page.goto('/Inbox');
+  await expect(page.getByRole('heading', { name: 'Alert preferences' })).toBeVisible();
+  state.setAuth({ body: sessionBody(NEXT_MEMBER, NEXT_ROLE) });
+  state.alertAlways = false;
+  state.alertLogin = 'other-member-login';
+  state.alertGate = deferred(true);
+  await page.evaluate((member) => {
+    const oldValue = localStorage.getItem('agcas_member');
+    localStorage.setItem('agcas_member', JSON.stringify(member));
+    dispatchEvent(new StorageEvent('storage', { key: 'agcas_member', oldValue, newValue: JSON.stringify(member) }));
+  }, NEXT_MEMBER);
+  const permanent = page.getByRole('switch', { name: 'Always hide alert', exact: true });
+  await expect(permanent).toBeEnabled();
+  await expect(permanent).not.toBeChecked();
+  old.release();
+  await expect(permanent).not.toBeChecked();
+  expectReadOnlyClean(state);
+});
 
 for (const path of ['session-boundary', 'session-boundary-public', 'continuity-micro/session-boundary-public']) {
   const slug = path.split('/').pop();

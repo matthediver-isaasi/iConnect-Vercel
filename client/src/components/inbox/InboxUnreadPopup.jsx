@@ -13,13 +13,14 @@ import { Button } from "@/components/ui/button";
 // One-time login popup that lets a member know they have unread inbox messages.
 // The X / Escape / click-outside paths all route through Radix's onOpenChange
 // and are treated as a soft dismiss (session-only). "View messages" and
-// "Don't remind me about these" are explicit and handled by their own callbacks.
+// hide choices are explicit and handled by their own callbacks.
 export default function InboxUnreadPopup({
   open,
   unreadCount,
   latestSubject,
   onViewMessages,
-  onDontRemind,
+  onHideUntilLogin,
+  onAlwaysHide,
   onSoftClose,
   onShown,
 }) {
@@ -27,7 +28,7 @@ export default function InboxUnreadPopup({
   const messageWord = count === 1 ? "message" : "messages";
 
   // Fire onShown only when the popup is actually mounted AND open, so the
-  // session/"don't remind" watermarks are written at display time and never
+  // login display guard is written at display time and never
   // when the popup was suppressed (e.g. a layout branch that didn't mount it).
   React.useEffect(() => {
     if (open) onShown?.();
@@ -61,13 +62,16 @@ export default function InboxUnreadPopup({
           )}
         </DialogHeader>
 
-        <DialogFooter className="gap-2 sm:gap-2">
+        <DialogFooter className="gap-2 sm:gap-2 sm:flex-col">
           <Button
             variant="ghost"
-            onClick={() => onDontRemind?.()}
-            data-testid="button-dont-remind"
+            onClick={() => onHideUntilLogin?.()}
+            data-testid="button-hide-until-login"
           >
-            Don't remind me about these
+            Hide alert until next login
+          </Button>
+          <Button variant="ghost" onClick={() => onAlwaysHide?.()} data-testid="button-always-hide">
+            Always hide alert
           </Button>
           <Button
             variant="default"

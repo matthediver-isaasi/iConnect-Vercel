@@ -231,6 +231,10 @@ async function installFixture(page, {
     if (!url.pathname.startsWith("/api/")) return route.continue();
 
     const key = `${method} ${url.pathname}${url.search}`;
+    if (url.pathname === '/api/communication/inbox/alert-preferences' && method === 'GET') {
+      return json(route, { member_id: state.authBody.id, tenant_id: state.authBody.tenant_id,
+        login_key: 'fixture-login', always_hide: false, hide_until_login: false, shown: false });
+    }
     state.requests.push(key);
     // Synthetic navigation activity only; never forward fixture writes.
     if (method === "PATCH" && url.pathname === `/api/entities/Member/${state.authBody?.id}`

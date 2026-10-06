@@ -92,6 +92,7 @@ import { useInboxUnreadSummary } from "@/hooks/useInbox";
 import { SiGoogle } from "react-icons/si";
 import BookmarkDrawer from "@/components/bookmarks/BookmarkDrawer";
 import InboxUnreadPopup from "@/components/inbox/InboxUnreadPopup";
+import { useInboxAlertPreferences } from "@/hooks/useInboxAlertPreferences";
 import MemberAiAssistant from "@/components/ai/MemberAiAssistant";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import dougalAvatar from "@assets/ChatGPT_Image_Jul_4,_2026,_06_26_22_PM_1783182456658.png";
@@ -1695,39 +1696,32 @@ useEffect(() => {
   // here; the trigger effect runs later, after `authResolved` is in scope.
   const [inboxPopupOpen, setInboxPopupOpen] = useState(false);
   const inboxPopupHandledRef = useRef(false);
+  const inboxPopupRecordedRef = useRef(false);
+  const alertPreferences = useInboxAlertPreferences({
+    memberInfo, enabled: hasInboxAccess && sessionValidated, sessionKey: sessionRoleSnapshot?.session_key,
+  });
+  const [alertSaveError, setAlertSaveError] = useState(null);
 
   const handleInboxPopupViewMessages = () => {
     setInboxPopupOpen(false);
     navigate("/inbox");
   };
 
-  const handleInboxPopupDontRemind = () => {
+  const handleInboxPopupHide = (field) => {
     setInboxPopupOpen(false);
-    const memberId = memberInfo?.id;
-    const latestSentAt = inboxUnreadSummary?.latestSentAt;
-    if (memberId && latestSentAt) {
-      try {
-        localStorage.setItem(`inbox_popup_dismissed_${memberId}`, latestSentAt);
-      } catch {
-        // ignore storage failures
-      }
-    }
+    setAlertSaveError(null);
+    alertPreferences.save({ [field]: true }).catch(() => setAlertSaveError(
+      'Your alert preference could not be saved. Open Inbox to retry.',
+    ));
   };
 
-  // Written only when the popup is actually displayed (via InboxUnreadPopup's
-  // onShown). Marking a message as "seen this session" here — rather than in the
-  // trigger effect — means a member is never silently suppressed on a layout
-  // branch (hybrid/public) that didn't mount the popup.
+  // Record display on the server only when a layout actually mounts the popup.
   const handleInboxPopupShown = () => {
-    const memberId = memberInfo?.id;
-    const latestSentAt = inboxUnreadSummary?.latestSentAt;
-    if (memberId && latestSentAt) {
-      try {
-        sessionStorage.setItem(`inbox_popup_seen_${memberId}`, latestSentAt);
-      } catch {
-        // ignore storage failures
-      }
-    }
+    if (inboxPopupRecordedRef.current) return;
+    inboxPopupRecordedRef.current = true;
+    alertPreferences.save({ shown: true }).catch(() => setAlertSaveError(
+      'We could not remember this alert for your login. You can still change alert preferences in Inbox.',
+    ));
   };
 
   // Mapping of page names to their correct feature IDs
@@ -1960,41 +1954,34 @@ useEffect(() => {
     // Reset the per-session guard whenever the signed-in member changes so a new
     // login (or account switch) can show the popup again.
     inboxPopupHandledRef.current = false;
+    inboxPopupRecordedRef.current = false;
     setInboxPopupOpen(false);
-  }, [memberInfo?.id]);
+    setAlertSaveError(null);
+  }, [memberInfo?.id, memberInfo?.tenant_id, alertPreferences.data?.login_key]);
 
   useEffect(() => {
+    if (location.pathname.toLowerCase() === '/inbox' && alertPreferences.ready
+      && !alertPreferences.data?.shown) {
+      inboxPopupHandledRef.current = false;
+      inboxPopupRecordedRef.current = false;
+      setInboxPopupOpen(false);
+    }
     // Wait until auth is resolved and the member can actually reach the inbox.
-    if (!authResolved || !hasInboxAccess) return;
+    if (!authResolved || !hasInboxAccess || !alertPreferences.ready
+      || alertPreferences.saving || alertPreferences.data?.always_hide
+      || alertPreferences.data?.hide_until_login
+      || location.pathname.toLowerCase() === '/inbox') return;
     const memberId = memberInfo?.id;
     if (!memberId) return;
     // Show once per session; navigating around must not re-trigger it.
     if (inboxPopupHandledRef.current) return;
 
-    const { unreadCount, latestSentAt } = inboxUnreadSummary;
-    if (!unreadCount || !latestSentAt) return;
-
-    try {
-      // Persistent "don't remind me about these" watermark (per member).
-      const dontRemind = localStorage.getItem(`inbox_popup_dismissed_${memberId}`);
-      // Session-scoped watermark for the message already surfaced this session.
-      const seenThisSession = sessionStorage.getItem(`inbox_popup_seen_${memberId}`);
-
-      const newerThanDontRemind = !dontRemind || latestSentAt > dontRemind;
-      const newerThanSession = !seenThisSession || latestSentAt > seenThisSession;
-
-      if (newerThanDontRemind && newerThanSession) {
-        inboxPopupHandledRef.current = true;
-        // The "seen this session" watermark is written by handleInboxPopupShown
-        // when the popup is actually displayed, so a member who lands on a layout
-        // branch that mounts the popup (portal or hybrid/public) is never
-        // silently suppressed.
-        setInboxPopupOpen(true);
-      }
-    } catch {
-      // Storage can throw in private mode; fail closed (no popup).
-    }
-  }, [authResolved, hasInboxAccess, memberInfo?.id, inboxUnreadSummary]);
+    // Legacy browser watermarks are deliberately no longer consulted.
+    if (!inboxUnreadSummary.unreadCount || alertPreferences.data?.shown) return;
+    inboxPopupHandledRef.current = true;
+    setInboxPopupOpen(true);
+  }, [authResolved, hasInboxAccess, memberInfo?.id, inboxUnreadSummary,
+    alertPreferences.ready, alertPreferences.saving, alertPreferences.data, location.pathname]);
 
   // Check if page is truly public (not hybrid with member logged in)
   const isPublicPage = () => {
@@ -2842,15 +2829,23 @@ useEffect(() => {
   // children regardless of chrome. Gated on inbox access; `open` is only ever
   // true for members with access, so guests never see it.
   const inboxUnreadPopupElement = hasInboxAccess ? (
+    <>
+    {alertSaveError && <div role="alert" className="fixed bottom-4 right-4 z-50 max-w-sm rounded border bg-background p-4 shadow">
+      {alertSaveError} <Link to="/inbox" className="underline">Alert preferences</Link>
+    </div>}
     <InboxUnreadPopup
-      open={inboxPopupOpen}
+      open={inboxPopupOpen && !!alertPreferences.data && !alertPreferences.loadError
+        && !alertPreferences.data?.always_hide && !alertPreferences.data?.hide_until_login
+        && location.pathname.toLowerCase() !== '/inbox'}
       unreadCount={inboxUnreadSummary.unreadCount}
       latestSubject={inboxUnreadSummary.latestSubject}
       onViewMessages={handleInboxPopupViewMessages}
-      onDontRemind={handleInboxPopupDontRemind}
+      onHideUntilLogin={() => handleInboxPopupHide('hide_until_login')}
+      onAlwaysHide={() => handleInboxPopupHide('always_hide')}
       onSoftClose={() => setInboxPopupOpen(false)}
       onShown={handleInboxPopupShown}
     />
+    </>
   ) : null;
 
   // Render blank layout when forced (e.g., form with blank_layout option)

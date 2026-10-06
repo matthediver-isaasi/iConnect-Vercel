@@ -60,6 +60,7 @@ import {
 import { useToast } from "@/components/ui/use-toast";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useInbox, fetchInboxMessageBody, useInboxBodyMatches } from "@/hooks/useInbox";
+import InboxAlertPreferences from "@/components/inbox/InboxAlertPreferences";
 
 function formatDate(value) {
   if (!value) return "";
@@ -506,8 +507,9 @@ export default function InboxPage() {
   );
 
   return (
-    <div className="h-[calc(100vh-4rem)] w-full p-4">
-      <div className="grid grid-cols-1 lg:grid-cols-[220px_minmax(320px,380px)_minmax(0,1fr)] gap-4 h-full">
+    <div className="min-h-[calc(100vh-4rem)] w-full p-4">
+      <InboxAlertPreferences />
+      <div className="grid grid-cols-1 lg:grid-cols-[220px_minmax(320px,380px)_minmax(0,1fr)] gap-4 h-[calc(100vh-4rem)]">
         {/* Folder rail */}
         <Card className="hidden lg:flex flex-col p-3 overflow-hidden">
           <div className="flex flex-col gap-1">{views.map(renderViewButton)}</div>
