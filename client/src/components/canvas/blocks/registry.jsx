@@ -758,7 +758,7 @@ function textColorForRole(role) {
 // Text inspectors/renderers on the page share a single network call.
 // ---------------------------------------------------------------------------
 
-async function fetchTenantTypographyStyles(micrositePrefix = null) {
+async function fetchTenantTypographyStyles(micrositePrefix = null, authoring = false) {
   // Prefer the authenticated entity endpoint — it resolves the tenant
   // from the logged-in session and therefore works in every editor
   // context (Replit dev URLs, *.replit.dev preview hosts, the admin
@@ -768,7 +768,10 @@ async function fetchTenantTypographyStyles(micrositePrefix = null) {
   // matter which host the editor is loaded on. The editor path is
   // intentionally unscoped (returns every scope's styles) so any block's
   // typographyStyleId still resolves while editing.
-  try {
+  // Guest 401s invalidate the viewer session and reset queries. Never probe
+  // the authenticated endpoint from a published page: it can keep the text
+  // hidden in a session-reset/refetch loop, particularly on a cold visit.
+  if (authoring) try {
     const { base44 } = await import('@/api/base44Client');
     const styles = await base44.entities.TypographyStyle.list();
     if (Array.isArray(styles)) {
@@ -812,6 +815,8 @@ function readInjectedTypographyStyles() {
 }
 
 export function useTenantTypographyStylesState() {
+  const { isEditor, editorPreview } = useCanvasEditorPage();
+  const authoring = isEditor === true || editorPreview === true;
   // Task #2572: scope the query to the current page's microsite (null on the
   // main site). The prefix resolves synchronously from the SSR-injected
   // microsite context, so it's correct on the very first render.
@@ -827,8 +832,10 @@ export function useTenantTypographyStylesState() {
   const initialData = injectedPrefix === micrositePrefix ? readInjectedTypographyStyles : undefined;
 
   const { data } = useQuery({
-    queryKey: ['/api/public/typography-styles', micrositePrefix],
-    queryFn: () => fetchTenantTypographyStyles(micrositePrefix),
+    queryKey: authoring
+      ? ['/api/public/typography-styles', micrositePrefix, 'authoring']
+      : ['/api/public/typography-styles', micrositePrefix],
+    queryFn: () => fetchTenantTypographyStyles(micrositePrefix, authoring),
     // Seed from the SSR-injected list when present so the very first render
     // already has the styles. Treated as stale (updatedAt 0) so a
     // background refetch still reconciles with the authoritative source

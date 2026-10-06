@@ -3,6 +3,12 @@ name: Session role readiness
 description: Safe reuse of verified role data, terminal failures, and observer-driven loading loops.
 ---
 
+Public metadata discovery must not probe protected endpoints before falling back to public ones.
+
+**Why:** A guest's expected 401 can trigger session invalidation and query-cache resets. Typography discovery then restarts repeatedly while blocks remain hidden awaiting styles; this was reproduced on a cold BNMS visit.
+
+**How to apply:** Choose public versus authoring discovery from explicit editor context, not a failed authenticated request. Keep their caches separate and test cold, signed-out visits with the session guard enabled.
+
 In-place event sign-in must retain its current layout tree while independently
 revalidating access. Embedded event routes must have the same session owner even
 when they omit page chrome.

@@ -2355,7 +2355,7 @@ const CanvasBuilder = forwardRef(function CanvasBuilder({
             data-testid="panel-inspector"
           >
             <CanvasAnchorProvider design={design} pages={otherPages}>
-            <CanvasEditorPageProvider micrositeId={micrositeId}>
+            <CanvasEditorPageProvider micrositeId={micrositeId} isEditor>
             <CanvasInspector
               selectedBlocks={selectedBlocks}
               breakpoint={breakpoint}

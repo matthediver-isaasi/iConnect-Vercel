@@ -20,17 +20,19 @@ export function useCanvasEditorPage() {
     micrositeId: null,
     isMicrositePage: false,
     editorPreview: false,
+    isEditor: false,
   };
 }
 
-export function CanvasEditorPageProvider({ micrositeId = null, editorPreview = false, children }) {
+export function CanvasEditorPageProvider({ micrositeId = null, editorPreview = false, isEditor = false, children }) {
   const value = useMemo(
     () => ({
       micrositeId: micrositeId || null,
       isMicrositePage: !!micrositeId,
       editorPreview: editorPreview === true,
+      isEditor: isEditor === true,
     }),
-    [micrositeId, editorPreview],
+    [micrositeId, editorPreview, isEditor],
   );
   return (
     <CanvasEditorPageContext.Provider value={value}>
