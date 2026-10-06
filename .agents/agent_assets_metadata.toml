@@ -1223,3 +1223,17 @@ mtime_ms = 1791286504802
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/f1b03f6f-8554-4d47-940d-b6b334e6f697/ffd10503-822b-4845-8aac-03c0b7d245d1"
 storage_version_token = "1791286556419580"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "AkEtDAKH-T51z0Z_wlzeE"
+uri = "file://private/bnms-job-title-audit/replacement/BNMS-job-titles-replacement.xlsx"
+type = "table"
+title = "BNMS Job Titles — validated replacement"
+description = "Verified Excel workbook: 3,960 BNMS members, with 3,815 blank titles first and 145 existing titles for optional review. Edit only Corrected job title; blank corrections preserve existing data. Fresh current-data export, not the missing historical review subset."
+logical_id = "4a9a2c29-0762-40c9-9c1b-25269989757b"
+content_hash = "sha256:f9578e0c8768594b0b81f215ac16d44022f88abcb3071271ff57f1b1b22c5be9"
+size = 1090983
+mtime_ms = 1791286965854
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/4a9a2c29-0762-40c9-9c1b-25269989757b/389949bb-384d-48d6-8759-c43a6b5377a1"
+storage_version_token = "1791286976613431"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
