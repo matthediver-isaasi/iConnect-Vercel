@@ -45,6 +45,11 @@ export async function resolveMemberForTenantLogin({
   }
 
   const lowerEmail = email ? email.toLowerCase() : null;
+  // PostgREST ILIKE treats *, % and _ as wildcards. Use an anchored,
+  // escaped regex so case is ignored without matching a different address.
+  const emailPattern = lowerEmail
+    ? `^${lowerEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`
+    : null;
   const candidates = [];
   let resolved = null;
   let source = null;
@@ -95,7 +100,7 @@ export async function resolveMemberForTenantLogin({
     const { data: rows } = await supabase
       .from('member')
       .select('*')
-      .eq('email', lowerEmail)
+      .filter('email', 'imatch', emailPattern)
       .eq('tenant_id', tenantId);
     (rows || []).forEach((r) => {
       if (!candidates.some((c) => c.id === r.id)) candidates.push(r);
@@ -127,7 +132,7 @@ export async function resolveMemberForTenantLogin({
       const { data: rows } = await supabase
         .from('member')
         .select('*')
-        .eq('email', lowerEmail);
+        .filter('email', 'imatch', emailPattern);
       (rows || []).forEach((r) => {
         if (!candidates.some((c) => c.id === r.id)) candidates.push(r);
       });
@@ -147,7 +152,7 @@ export async function resolveMemberForTenantLogin({
     const { data: rows } = await supabase
       .from('member')
       .select('id, email, login_enabled, identity_id, organization_id, created_on')
-      .eq('email', lowerEmail)
+      .filter('email', 'imatch', emailPattern)
       .eq('tenant_id', tenantId);
     duplicateActiveMembers = (rows || []).filter((r) => !isMemberSoftDeleted(r));
   }
