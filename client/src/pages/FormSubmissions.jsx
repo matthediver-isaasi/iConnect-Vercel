@@ -78,6 +78,7 @@ import { isRepeatableRowField } from '../../../shared/formRepeatableRows.js';
 import { CustomFieldFileDisplay } from "@/components/CustomFieldFileUpload";
 import { normalizeCustomFieldFileValue } from "@/lib/customFieldFileValue.mjs";
 import { matchSubmissionSearch } from '@/lib/formSubmissionSearch';
+import { formatScoreCsvAnswer } from '@/lib/formSubmissionScoreCsv';
 import {
   getFormSubmissionPaymentReview,
   isVisibleFormSubmission,
@@ -1687,6 +1688,7 @@ export default function FormSubmissionsPage() {
               : submission.submission_data?.[field.key];
             const fieldType = fieldDef?.type;
             if (val == null) return '';
+            if (fieldType === 'score') return formatScoreCsvAnswer(val);
             if (fieldType === 'relationship_dropdown') {
               return formatRelationshipAnswerDisplayValue(
                 fieldDef,
