@@ -3,6 +3,13 @@ import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { safeLogoSrc } from "@/lib/safeLogoSrc";
+import {
+  organisationDirectKey,
+  organisationListKey,
+  syncOrganisationCaches,
+  syncOrganisationPreferenceCache,
+  saveOrganisationEdits,
+} from "@/lib/organisationCacheSync.mjs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { format } from "date-fns";
 import { Badge } from "@/components/ui/badge";
@@ -326,6 +333,16 @@ export default function OrganisationDetailView({
   ));
   const { formatDate } = useDateFormat();
   const queryClient = useQueryClient();
+  const directOrgKey = organisationDirectKey(memberInfo?.tenant_id, memberInfo?.id, organization?.id);
+  const orgListKey = organisationListKey(memberInfo?.tenant_id, memberInfo?.id);
+  const syncOrgCaches = (updates, customValue) => syncOrganisationCaches({
+    queryClient,
+    tenantId: memberInfo?.tenant_id,
+    memberId: memberInfo?.id,
+    organizationId: organization?.id,
+    updates,
+    customValue,
+  });
   const relatedRecords = useRelatedRecordDefinitions({
     context: { kind: "organization", recordId: organization?.id },
     enabled: !isNew && !!organization?.id,
@@ -336,8 +353,8 @@ export default function OrganisationDetailView({
   const realtimeEnabled = !!organization?.id && !!memberInfo?.tenant_id;
 
   useRealtimeSubscription('organization', [
-    ['organizations-crm-paginated'],
-    ['organization-direct', organization?.id],
+    orgListKey,
+    directOrgKey,
     ['organization-login-access', organization?.id]
   ], { 
     enabled: realtimeEnabled, 
@@ -347,6 +364,7 @@ export default function OrganisationDetailView({
   useRealtimeSubscription('organization_preference_value', [
     ['org-detail-preference-values', organization?.id],
     ['all-org-preference-values-crm'],
+    orgListKey,
     ['organization-login-access', organization?.id]
   ], { 
     enabled: realtimeEnabled && !!organization?.id,
@@ -372,8 +390,8 @@ export default function OrganisationDetailView({
     entityId: organization?.id,
     enabled: realtimeEnabled,
     queryKeysToInvalidate: [
-      ['organizations-crm-paginated'],
-      ['organization-direct', organization?.id],
+      orgListKey,
+      directOrgKey,
       ['organization-login-access', organization?.id],
       ['org-detail-preference-values', organization?.id],
       ['all-org-preference-values-crm']
@@ -682,9 +700,8 @@ export default function OrganisationDetailView({
       };
       return await base44.entities.Organization.update(organization.id, payload);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['organization-direct', organization?.id] });
-      queryClient.invalidateQueries({ queryKey: ['organizations-crm-paginated'] });
+    onSuccess: async (data) => {
+      await syncOrgCaches(data);
       queryClient.invalidateQueries({ queryKey: ['organizations'] });
       queryClient.invalidateQueries({ queryKey: ['organization-login-access', organization?.id] });
       toast.success('Guest Access updated');
@@ -1117,7 +1134,7 @@ export default function OrganisationDetailView({
       return await base44.entities.Organization.create(newOrg);
     },
     onSuccess: (createdOrg) => {
-      queryClient.invalidateQueries({ queryKey: ['organizations-crm-paginated'] });
+      queryClient.invalidateQueries({ queryKey: orgListKey });
       toast.success('Organisation created successfully');
       if (createdOrg?._zohoCrmSync) showZohoCrmSyncToast(createdOrg._zohoCrmSync);
       if (onCreated) {
@@ -1133,13 +1150,10 @@ export default function OrganisationDetailView({
     mutationFn: async (updates) => {
       return await base44.entities.Organization.update(organization.id, updates);
     },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['organizations-crm-paginated'] });
-      queryClient.invalidateQueries({ queryKey: ['organization-direct', organization?.id] });
+    onSuccess: async (data, updates) => {
+      await syncOrgCaches({ ...updates, ...data });
       queryClient.invalidateQueries({ queryKey: ['organization-login-access', organization?.id] });
-      toast.success('Organisation updated successfully');
       if (data?._zohoCrmSync) showZohoCrmSyncToast(data._zohoCrmSync);
-      setIsEditing(false);
       checkForPendingWorkflows(data);
     },
     onError: (error) => {
@@ -1165,9 +1179,8 @@ export default function OrganisationDetailView({
     setIsUploadingLogo(true);
     try {
       const result = await base44.integrations.Core.UploadFile({ file });
-      await base44.entities.Organization.update(organization.id, { logo_url: result.file_url });
-      queryClient.invalidateQueries({ queryKey: ['organizations-crm-paginated'] });
-      queryClient.invalidateQueries({ queryKey: ['organization-direct', organization.id] });
+      const updated = await base44.entities.Organization.update(organization.id, { logo_url: result.file_url });
+      await syncOrgCaches({ logo_url: result.file_url, ...updated });
       queryClient.invalidateQueries({ queryKey: ['organizations'] });
       toast.success('Logo updated');
     } catch (error) {
@@ -1200,12 +1213,16 @@ export default function OrganisationDetailView({
       
       return res.json();
     },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['org-detail-preference-values', organization?.id] });
+    onSuccess: async (data, change) => {
+      await syncOrganisationPreferenceCache(queryClient, organization.id, change);
+      await syncOrgCaches({}, change);
       queryClient.invalidateQueries({ queryKey: ['all-org-preference-values-crm'] });
       queryClient.invalidateQueries({ queryKey: ['organization-login-access', organization?.id] });
       // Check for pending workflow confirmations
       checkForPendingWorkflows(data);
+    },
+    onError: (error) => {
+      toast.error('Failed to save custom field: ' + error.message);
     }
   });
 
@@ -1260,8 +1277,7 @@ export default function OrganisationDetailView({
         }
       });
     } else {
-      // Update mode: existing behaviour
-      updateOrgMutation.mutate(formData);
+      if (updateOrgMutation.isPending || updateCustomFieldMutation.isPending) return;
       
       // Capture current values at save time to avoid stale closure issues
       const currentCustomFieldValues = { ...customFieldValues };
@@ -1270,22 +1286,34 @@ export default function OrganisationDetailView({
       console.log('[handleSave] customFieldValues:', currentCustomFieldValues);
       console.log('[handleSave] orgValues:', currentOrgValues.map(v => ({ field_id: v.field_id, value: v.value })));
       
-      Object.entries(currentCustomFieldValues).forEach(([fieldId, value]) => {
+      const changes = Object.entries(currentCustomFieldValues).flatMap(([fieldId, value]) => {
         const existingVal = currentOrgValues.find(v => v.field_id === fieldId);
         const field = orgCustomFields.find(candidate => candidate.id === fieldId);
         const changed = !organisationCustomValuesEqual(field, value, existingVal?.value);
         
         console.log('[handleSave] Field:', fieldId, 'newValue:', value, 'existingValue:', existingVal?.value, 'changed:', changed);
         
-        if (changed) {
-          updateCustomFieldMutation.mutate({ 
+        return changed ? [{
             fieldId, 
             value: isOrganisationListField(field)
               ? normalizeOrganisationCustomValue(field, value)
               : value
-          });
-        }
+        }] : [];
       });
+      try {
+        await saveOrganisationEdits({
+          core: { ...formData },
+          custom: changes,
+          updateCore: updateOrgMutation.mutateAsync,
+          updateCustom: updateCustomFieldMutation.mutateAsync,
+          finish: () => {
+            setIsEditing(false);
+            toast.success('Organisation updated successfully');
+          },
+        });
+      } catch {
+        // Mutation error handlers report the failure; preserve the draft for retry.
+      }
     }
   };
 
@@ -2005,7 +2033,7 @@ export default function OrganisationDetailView({
                     </Button>
                     <Button 
                       onClick={handleSave} 
-                      disabled={isNew ? createOrgMutation.isPending : updateOrgMutation.isPending}
+                      disabled={isNew ? createOrgMutation.isPending : updateOrgMutation.isPending || updateCustomFieldMutation.isPending}
                       data-testid="button-save-org"
                     >
                       {(isNew ? createOrgMutation.isPending : updateOrgMutation.isPending) ? (
@@ -2183,9 +2211,8 @@ export default function OrganisationDetailView({
                       entityType="organization"
                       onChange={async (newTags) => {
                         try {
-                          await base44.entities.Organization.update(organization.id, { tags: newTags });
-                          queryClient.invalidateQueries({ queryKey: ['organizations-crm-paginated'] });
-                          queryClient.invalidateQueries({ queryKey: ['organization-direct', organization.id] });
+                          const updated = await base44.entities.Organization.update(organization.id, { tags: newTags });
+                          await syncOrgCaches({ tags: newTags, ...updated });
                           queryClient.invalidateQueries({ queryKey: ['admin-organizations-tags'] });
                         } catch (err) {
                           toast.error('Failed to update tags: ' + err.message);

@@ -64,6 +64,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import SortableHeader, { getAriaSort } from "@/components/SortableHeader";
 import { safeLogoSrc } from "@/lib/safeLogoSrc";
+import { organisationDirectKey } from "@/lib/organisationCacheSync.mjs";
 import MultiSelectFilter from "@/components/MultiSelectFilter";
 import {
   coerceCustomFilters,
@@ -496,7 +497,7 @@ function OrganisationsListPageInner({ access }) {
   const selectableTotal = pagination.selectableTotal ?? pagination.total;
 
   const { data: directOrg, isLoading: directOrgLoading, isFetched: directOrgFetched } = useQuery({
-    queryKey: ['organization-direct', memberInfo?.tenant_id, memberInfo?.id, urlOrgId],
+    queryKey: organisationDirectKey(memberInfo?.tenant_id, memberInfo?.id, urlOrgId),
     enabled: !!urlOrgId && accessChecked,
     queryFn: async () => {
       try {
