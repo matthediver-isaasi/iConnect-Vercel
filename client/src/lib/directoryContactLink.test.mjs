@@ -2,6 +2,17 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { directoryContactLink } from "./directoryContactLink.js";
 
+test("typed phone links normalize punctuation and reject injected telephone parameters", () => {
+  assert.deepEqual(directoryContactLink({ field_type: "phone" }, " +44 (20) 7946-0823 "), {
+    href: "tel:+442079460823", external: false,
+  });
+  assert.equal(directoryContactLink({ field_type: "phone" }, "020 7946 0823").href, "tel:02079460823");
+  for (const value of ["tel:+12345", "+123;ext=4", "+123?body=x", "123\n", "javascript:alert(1)", "Call 123456", "++1234", "1234567890123456", "", "12"]) {
+    assert.equal(directoryContactLink({ field_type: "phone" }, value), null, value);
+  }
+  assert.equal(directoryContactLink({ field_type: "text" }, "020 7946 0823"), null);
+});
+
 test("typed and legacy contacts preserve full destinations without changing labels", () => {
   for (const field_type of ["text", "url", "website"]) {
     for (const value of ["https://example.test/student/en?q=one&next=%2Ftwo#part", "http://www.example.test/path"]) {

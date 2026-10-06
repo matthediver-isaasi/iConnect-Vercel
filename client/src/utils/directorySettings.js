@@ -1,3 +1,5 @@
+import { ORG_PUBLICATION_FIELDS } from "../../../shared/organisationDirectoryCore.js";
+
 const CORE_FIELDS = [
   { key: 'show_profile_photo', label: 'Profile Photos', description: 'Display member profile photos', backOnly: false },
   { key: 'show_organization', label: 'Organization', description: "Display the member's organization name", backOnly: false },
@@ -240,12 +242,14 @@ export const MEMBER_BACK_DEFAULT_ORDER = [
 export const ORG_BACK_CORE_ITEMS = [
   { key: 'org_member_count', label: 'Member count', description: 'Number of members in the organisation' },
   { key: 'org_members_list', label: 'Members / contacts list', description: 'Members grouped by the configured reverse-card roles' },
+  ...ORG_PUBLICATION_FIELDS.map(field => ({ ...field, description: `Publish organisation ${field.label.toLowerCase()} on the reverse card (off by default)` })),
 ];
 
 export const ORG_BACK_DEFAULT_ORDER = [
   'org_member_count',
   'org_members_list',
   CUSTOM_FIELDS_SLOT,
+  ...ORG_PUBLICATION_FIELDS.map(field => field.key),
 ];
 
 /**

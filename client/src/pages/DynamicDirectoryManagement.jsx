@@ -292,6 +292,7 @@ export default function DynamicDirectoryManagementPage() {
             <div key={side} className="flex items-center gap-1">
               <span className="text-[10px] uppercase tracking-wide text-slate-400">{sideLabel(side)}</span>
               <select
+                aria-label={`${item.label} ${sideLabel(side)} visibility`}
                 className={`h-7 rounded-md border text-xs px-1 bg-white ${state === 'inherit' ? 'text-slate-500 border-slate-200' : 'text-slate-800 border-blue-300'}`}
                 value={state}
                 onChange={(e) => setCoreVisState(key, side, e.target.value)}

@@ -213,6 +213,42 @@ const request = (filters = {}, overrides = {}) => ({
   ...overrides,
 });
 
+test('explicit selection modes drive metadata, single rejection and ANY matches; core publication is opt-in', async () => {
+  const field = customField('mode-field', 'Mode', { field_type: 'dropdown', options: ['red', 'blue'] });
+  const seed = baseSeed({
+    organization: [{ id: 'one', tenant_id: tenantId, name: 'One', website_url: 'example.test', phone: '123' }],
+    preference_field: [field],
+    organization_preference_value: [{ organization_id: 'one', field_id: field.id, value: 'red' }],
+    system_settings: [{
+      tenant_id: tenantId, setting_key: 'org_directory_filterable_back_fields',
+      setting_value: JSON.stringify({ 'custom:mode-field': true, $modes: { 'custom:mode-field': 'single' } }),
+    }],
+  });
+  const single = service(seed).service;
+  await assert.rejects(() => single.search(request({ 'custom:mode-field': { operator: 'eq', value: ['red', 'blue'] } })), /only one/);
+  assert.equal((await single.search(request())).organizations[0].website_url, undefined);
+  seed.system_settings[0].setting_value = JSON.stringify({ 'custom:mode-field': true, $modes: { 'custom:mode-field': 'multi' } });
+  seed.system_settings.push({ tenant_id: tenantId, setting_key: 'org_directory_core_publication', setting_value: '{"org_website":true}' });
+  const multi = service(seed).service;
+  assert.equal((await multi.metadata()).fields.find(f => f.key === 'custom:mode-field').multi_select, true);
+  const result = await multi.search(request({ 'custom:mode-field': { operator: 'eq', value: ['red', 'blue'] } }));
+  assert.equal(result.total, 1);
+  assert.equal(result.organizations[0].website_url, 'example.test');
+  assert.equal(result.organizations[0].phone, undefined);
+});
+
+test('publication revoked during a population read prevents a stale response', async () => {
+  const seed = baseSeed({
+    organization: [{ id: 'one', tenant_id: tenantId, name: 'One', website_url: 'private.test' }],
+    system_settings: [{ tenant_id: tenantId, setting_key: 'org_directory_core_publication', setting_value: '{"org_website":true}' }],
+  });
+  const db = database(seed, null, {}, ({ table, tables }) => {
+    if (table === 'organization') tables.system_settings[0].setting_value = '{"org_website":false}';
+  });
+  await assert.rejects(() => createOrganisationDirectoryFilters({ db, context: { tenantId, roleId } }).search(request()),
+    error => error.status === 409);
+});
+
 test('search evaluates over 1,000 organizations/preferences before deterministic paging with AND and choice OR', async () => {
   const count = 1005;
   const organizations = Array.from({ length: count }, (_, index) => ({
@@ -969,7 +1005,7 @@ test('directory projections use real selected columns and preserve undefined-col
     ],
   });
   const realSchema = {
-    organization: new Set(['id', 'name', 'logo_url', 'invoicing_address']),
+    organization: new Set(['id', 'name', 'logo_url', 'invoicing_address', 'website_url', 'phone', 'description']),
     organization_preference_value: new Set(['id', 'organization_id', 'field_id', 'value']),
   };
   const db = database(seed, null, realSchema);

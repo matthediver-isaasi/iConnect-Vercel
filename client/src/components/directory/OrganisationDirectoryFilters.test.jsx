@@ -15,6 +15,7 @@ globalThis.React = React;
 const { act, useEffect, useState } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+const { toast } = await import("sonner");
 const { LayoutProvider, useLayoutContext } = await import("../../contexts/LayoutContext.jsx");
 const OrganisationDirectoryFilters = (await import("./OrganisationDirectoryFilters.jsx")).default;
 const {
@@ -192,6 +193,39 @@ test("a newer successful POST replaces cached GET fields and clears revoked sele
   assert.equal(view.container.querySelector("[data-fields]").getAttribute("data-fields"), "Current status");
   assert.doesNotMatch(view.container.querySelector("output").textContent, /revoked/);
   await view.cleanup();
+});
+
+function ModeAuthorityProbe() {
+  const [multi, setMulti] = useState(true);
+  const [filters, setFilters] = useState({
+    specialty: { operator: "eq", value: ["research", "teaching"] },
+  });
+  const metadata = {
+    isSuccess: true, dataUpdatedAt: multi ? 1 : 2,
+    data: { fields: [{ key: "specialty", label: "Specialty", control: "choice", multi_select: multi }] },
+  };
+  useAuthoritativeDirectoryFilters(metadata, { isSuccess: false, dataUpdatedAt: 0 }, setFilters, filters);
+  return <div>
+    <output>{JSON.stringify(filters)}</output>
+    <button onClick={() => setMulti(false)}>Change to single selection</button>
+  </div>;
+}
+
+test("authoritative single mode clears previous multiple selections with an explicit notice", async () => {
+  const originalInfo = toast.info;
+  const notices = [];
+  toast.info = message => notices.push(message);
+  const view = await mount(<ModeAuthorityProbe />);
+  try {
+    assert.match(view.container.querySelector("output").textContent, /research/);
+    await act(async () => view.container.querySelector("button").click());
+    assert.equal(view.container.querySelector("output").textContent, "{}");
+    assert.equal(notices.length, 1);
+    assert.match(notices[0], /Specialty now allows a single selection.*were cleared/);
+  } finally {
+    toast.info = originalInfo;
+    await view.cleanup();
+  }
 });
 
 function Identity({ children }) {

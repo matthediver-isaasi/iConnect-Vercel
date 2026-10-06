@@ -183,7 +183,7 @@ test('authorized settings PUT validates against settings metadata and persists t
     body: { changes: { 'custom:allowed': true } },
   }, res);
   assert.equal(res.statusCode, 200);
-  assert.deepEqual(res.body, { overrides: { 'custom:allowed': true } });
+  assert.deepEqual(res.body, { overrides: { 'custom:allowed': true }, modes: {} });
   assert.equal(rows[0].tenant_id, 'tenant-1');
 
   res = response();

@@ -553,8 +553,8 @@ export default async function handler(req, res) {
   if (
     req.method === 'POST'
     && (
-      (entityNorm === 'systemsettings' && req.body?.setting_key === 'org_directory_view_members_role_ids')
-      || (entityNorm === 'dynamicdirectory' && Object.prototype.hasOwnProperty.call(req.body || {}, 'view_members_role_ids'))
+      (entityNorm === 'systemsettings' && ['org_directory_view_members_role_ids', 'org_directory_core_publication'].includes(req.body?.setting_key))
+      || (entityNorm === 'dynamicdirectory' && ['view_members_role_ids', 'core_field_visibility'].some(key => Object.prototype.hasOwnProperty.call(req.body || {}, key)))
     )
   ) {
     const canManage = await hasAdminAccess(tenantCtx)

@@ -147,7 +147,10 @@ const SETTINGS = [
 }));
 
 async function installFixture(page) {
-  const state = { requests: [], unexpectedWrites: [] };
+  const state = {
+    requests: [], unexpectedWrites: [], coreValues: {}, refreshGate: null,
+    failCoreResponse: false, coreRequests: 0, directoryType: "organization",
+  };
   await page.addInitScript(() => {
     localStorage.removeItem("agcas_member");
     localStorage.removeItem("agcas_organization");
@@ -202,6 +205,27 @@ async function installFixture(page) {
     }
     if (path === "/api/auth/logout") return json(route, { ok: true });
     if (path === "/api/entities/SystemSettings") return json(route, SETTINGS);
+    if (path === "/api/entities/DynamicDirectory") return json(route, [{
+      id: "core-publication-directory", slug: "core-publication", name: "Core Publication Directory",
+      entity_type: state.directoryType, is_active: true,
+      back_field_order: ["org_website", "org_phone", "org_description", SOURCE_FIELDS[0].key],
+    }]);
+    if (path === "/api/dynamic-directory/config") {
+      state.coreRequests += 1;
+      if (state.refreshGate) await state.refreshGate;
+      if (state.failCoreResponse) return json(route, { error: "Config unavailable" }, 503);
+      return json(route, {
+        directory: {
+          id: "core-publication-directory", slug: "core-publication", name: "Core Publication Directory",
+          entity_type: "organization", is_active: true,
+          back_field_order: ["org_website", "org_phone", "org_description"],
+        },
+        organizations: [{ ...ORGANISATION, ...state.coreValues }],
+        orgCustomFields: [], allOrgPreferenceValues: [], roles: [],
+        displaySettings: { showLogo: false, showTitle: true, showDomains: false, showMemberCount: false, reverseCardRoleIds: [] },
+      });
+    }
+    if (path === "/api/dynamic-directory/members") return json(route, { members: [], total: 0 });
     if (path === "/api/entities/PreferenceField") return json(route, ORG_FIELDS);
     if (path === "/api/entities/OrganizationPreferenceValue") return json(route, ORG_VALUES);
     if (path === "/api/entities/Organization") return json(route, [ORGANISATION]);
@@ -221,9 +245,12 @@ async function installFixture(page) {
     if (path === "/api/organisation-directory/filters") {
       if (method === "GET") return json(route, { fields: [], allowCsvDownload: false });
       const body = request.postDataJSON();
+      state.coreRequests += 1;
+      if (state.refreshGate) await state.refreshGate;
+      if (state.failCoreResponse) return json(route, { error: "Results unavailable" }, 503);
       return json(route, {
         fields: [],
-        organizations: [ORGANISATION],
+        organizations: [{ ...ORGANISATION, ...state.coreValues }],
         total: 1,
         page: body.page,
         pageSize: body.pageSize,
@@ -258,6 +285,88 @@ async function installFixture(page) {
   });
   return state;
 }
+
+async function refreshVisibleQueries(page) {
+  await page.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
+}
+
+for (const directory of [
+  { name: "main", path: "/OrganisationDirectory", card: `card-organisation-${ORGANISATION_ID}` },
+  { name: "dynamic", path: "/directory/core-publication", card: `card-organisation-${ORGANISATION_ID}` },
+]) {
+  test(`${directory.name} core rows use latest projection and hide retained disclosure during refresh and revocation`, async ({ page }) => {
+    const state = await installFixture(page);
+    state.coreValues = {
+      website_url: "https://hospital.example.invalid/care?q=one#details",
+      phone: "+44 (20) 7946-0823",
+      description: '<script>window.coreDescriptionInjected = true</script>\nHospital services',
+    };
+    await page.goto(directory.path);
+    const accept = page.getByRole("button", { name: "Accept", exact: true });
+    if (await accept.isVisible()) await accept.click();
+    await page.getByTestId(directory.card).click();
+    const dialog = page.getByRole("dialog");
+    const website = dialog.getByTestId("directory-core-org_website");
+    const phone = dialog.getByTestId("directory-core-org_phone");
+    const description = dialog.getByTestId("directory-core-org_description");
+    await expect(website.getByRole("link")).toHaveAttribute("href", state.coreValues.website_url);
+    await expect(phone.getByRole("link")).toHaveAttribute("href", "tel:+442079460823");
+    await expect(description).toContainText("<script>window.coreDescriptionInjected = true</script>");
+    expect(await page.evaluate(() => window.coreDescriptionInjected)).toBeUndefined();
+    await expect(description.locator("script")).toHaveCount(0);
+
+    let release;
+    state.refreshGate = new Promise(resolve => { release = resolve; });
+    const before = state.coreRequests;
+    await refreshVisibleQueries(page);
+    await expect.poll(() => state.coreRequests).toBeGreaterThan(before);
+    await expect(page.getByTestId("directory-core-org_website")).toHaveCount(0);
+    await expect(page.getByTestId("directory-core-org_phone")).toHaveCount(0);
+    await expect(page.getByTestId("directory-core-org_description")).toHaveCount(0);
+    state.coreValues = { phone: "+44 20 7946 0991", description: "Updated published description" };
+    state.refreshGate = null;
+    release();
+    await expect(phone.getByRole("link")).toHaveAttribute("href", "tel:+442079460991");
+    await expect(description).toContainText("Updated published description");
+    await expect(website).toHaveCount(0);
+
+    state.coreValues = {};
+    const beforeRevocation = state.coreRequests;
+    await refreshVisibleQueries(page);
+    await expect.poll(() => state.coreRequests).toBeGreaterThan(beforeRevocation);
+    await expect(phone).toHaveCount(0);
+    await expect(description).toHaveCount(0);
+    await expect(dialog).toBeVisible();
+    state.coreValues = { phone: "+44 20 7946 0991" };
+    await refreshVisibleQueries(page);
+    await expect(phone.getByRole("link")).toHaveAttribute("href", "tel:+442079460991");
+    state.failCoreResponse = true;
+    await refreshVisibleQueries(page);
+    await expect(page.getByText(directory.name === "main"
+      ? "Results unavailable" : "Unable to load this directory. Please try again.", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("directory-core-org_phone")).toHaveCount(0);
+    await expect(page.getByTestId("directory-core-org_description")).toHaveCount(0);
+    expect(state.unexpectedWrites).toEqual([]);
+    if (directory.name === "dynamic") {
+      // Layout may fetch the viewer's own profile by ID; no broad directory list is allowed.
+      const organizationRequests = state.requests.filter(request => request.path === "/api/entities/Organization");
+      expect(organizationRequests.every(request => {
+        const filter = new URLSearchParams(request.search).get("filter");
+        return filter && JSON.parse(filter).id === ORGANISATION_ID;
+      })).toBe(true);
+    }
+  });
+}
+
+test("authenticated member directory retains its full entity config without fetching public config", async ({ page }) => {
+  const state = await installFixture(page);
+  state.directoryType = "member";
+  await page.goto("/directory/core-publication");
+  await expect(page.getByRole("heading", { name: "Core Publication Directory", exact: true })).toBeVisible();
+  await expect.poll(() => state.requests.some(request => request.path === "/api/dynamic-directory/members")).toBe(true);
+  expect(state.requests.some(request => request.path === "/api/entities/DynamicDirectory")).toBe(true);
+  expect(state.requests.some(request => request.path === "/api/dynamic-directory/config")).toBe(false);
+});
 
 async function settleDialogAnimation(dialog) {
   await dialog.evaluate(async (element) => {

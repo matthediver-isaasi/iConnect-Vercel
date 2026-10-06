@@ -148,3 +148,64 @@ test("malformed response fails closed rather than replacing choices with default
     await assert.rejects(view.current.save(), /load before saving/);
   } finally { await view.cleanup(); }
 });
+
+test("server metadata and modes survive refetch and independently preserve later boolean and mode edits", async () => {
+  const fields = [{ key: "custom:specialty", label: "Specialty", control: "choice", multi_select: false }];
+  let saved = { overrides: {}, modes: {}, fields };
+  let finish;
+  const writes = [];
+  globalThis.fetch = async (url, options) => {
+    if (options.method === "PUT") {
+      const body = JSON.parse(options.body);
+      writes.push(body);
+      saved = {
+        ...saved,
+        overrides: { ...saved.overrides, ...body.changes },
+        modes: { ...saved.modes, ...body.modeChanges },
+      };
+      return new Promise(resolve => { finish = () => resolve(new Response(JSON.stringify({
+        overrides: saved.overrides, modes: saved.modes,
+      }))); });
+    }
+    return new Response(JSON.stringify(saved));
+  };
+  const view = await mount();
+  try {
+    assert.deepEqual(view.current.fields, fields);
+    await act(async () => {
+      view.current.setOverride("custom:specialty", false);
+      view.current.setMode("custom:specialty", "multi");
+    });
+    await act(async () => view.current.refetch());
+    assert.equal(view.current.modes["custom:specialty"], "multi");
+    let pending;
+    await act(async () => { pending = view.current.save(); });
+    await act(async () => {
+      view.current.setOverride("custom:specialty", true);
+      view.current.setMode("custom:specialty", "single");
+      view.current.setMode("org_members_list", "multi");
+    });
+    await act(async () => { finish(); await pending; });
+    assert.deepEqual(writes[0], {
+      changes: { "custom:specialty": false }, modeChanges: { "custom:specialty": "multi" },
+    });
+    assert.equal(view.current.overrides["custom:specialty"], true);
+    assert.deepEqual(view.current.modes, { "custom:specialty": "single", org_members_list: "multi" });
+    assert.deepEqual(view.current.fields, fields, "PUT response must not discard GET metadata");
+    await act(async () => view.current.refetch());
+    assert.equal(view.current.modes["custom:specialty"], "single");
+    await view.identity("new-tenant:viewer");
+    assert.equal(view.current.modes.org_members_list, undefined);
+  } finally { await view.cleanup(); }
+});
+
+test("invalid modes fail closed and prevent saving", async () => {
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    overrides: {}, fields: [], modes: { "custom:specialty": "invalid" },
+  }));
+  const view = await mount();
+  try {
+    assert.equal(view.current.isError, true);
+    await assert.rejects(view.current.save(), /load before saving/);
+  } finally { await view.cleanup(); }
+});

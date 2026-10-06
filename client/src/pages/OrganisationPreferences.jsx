@@ -375,6 +375,9 @@ export default function OrganisationPreferencesPage() {
           </div>
           <p className="text-slate-600">
             Configure field permissions across all roles and manage field display order for the My Organisation page.
+            {" "}These permissions govern profile viewing and editing, not directory publication.
+            Website, Phone and Description are only published through Organisation Directory Settings
+            (off by default); dynamic directories can separately inherit, show or hide them.
           </p>
         </div>
 

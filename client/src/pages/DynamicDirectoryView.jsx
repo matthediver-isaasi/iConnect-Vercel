@@ -24,6 +24,8 @@ import { DirectoryMemberCard, DirectoryOrganizationCard } from "@/components/dir
 import { buildOrganisationDirectoryMembersUrl, parseOrganisationViewMembersRoleIds } from "@/lib/organisationDirectoryMemberContext";
 import { CustomFieldFileDisplay } from "@/components/CustomFieldFileUpload";
 import { DirectoryContactValue } from "@/components/directory/DirectoryContactValue";
+import OrganisationDirectoryCoreRow, { organisationDirectoryCoreValue } from "@/components/directory/OrganisationDirectoryCoreRow";
+import { ORG_PUBLICATION_FIELDS } from "../../../shared/organisationDirectoryCore.js";
 import { useDirectoryObjectSources } from "@/hooks/useDirectoryObjectSources";
 import { DirectoryObjectSourceField, DirectoryObjectSourcesStatus, getDirectoryObjectSourceGroupId } from "@/components/directory/DirectoryObjectSourceField";
 
@@ -59,34 +61,37 @@ export default function DynamicDirectoryView() {
   const [selectedOrganization, setSelectedOrganization] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
+  // Authenticated member directories retain their original, full entity config.
   const { data: authDirectory, isLoading: isLoadingAuthDirectory } = useQuery({
-    queryKey: ['dynamic-directory', slug],
+    queryKey: ['dynamic-directory', slug, memberInfo?.tenant_id || null, memberInfo?.id || null],
     queryFn: async () => {
       const directories = await base44.entities.DynamicDirectory.list({
-        filter: { slug: slug, is_active: true }
+        filter: { slug, is_active: true },
       });
       return directories?.[0] || null;
     },
-    enabled: !!slug && !isGuest
+    enabled: !!slug && authResolved && !isGuest,
   });
 
-  const { data: publicConfig, isLoading: isLoadingPublicConfig } = useQuery({
-    queryKey: ['directory-public-config', slug],
+  const { data: publicConfig, isLoading: isLoadingPublicConfig, isSuccess: configSuccess, isFetching: configFetching, isError: configError, refetch: refetchConfig } = useQuery({
+    queryKey: ['directory-public-config', slug, memberInfo?.tenant_id || null, memberInfo?.id || null],
     queryFn: async () => {
       const res = await fetch(`/api/dynamic-directory/config?slug=${encodeURIComponent(slug)}`, { credentials: 'include' });
       if (res.status === 404) return { notFound: true };
       if (!res.ok) throw new Error('Failed to fetch directory config');
       return res.json();
     },
-    enabled: !!slug && isGuest,
+    enabled: !!slug && authResolved && (isGuest || authDirectory?.entity_type === 'organization'),
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    retry: false,
   });
 
-  // Merged directory config: guests read from the public endpoint, everyone
-  // else from the authenticated entity API.
-  const directory = isGuest
-    ? (publicConfig?.notFound ? null : (publicConfig?.directory || null))
-    : authDirectory;
-  const isLoadingDirectory = isGuest ? isLoadingPublicConfig : isLoadingAuthDirectory;
+  // Both guests and authenticated visitors receive server-projected organisation rows.
+  const directory = !isGuest && authDirectory?.entity_type === 'member'
+    ? authDirectory : (publicConfig?.notFound ? null : (publicConfig?.directory || null));
+  const isLoadingDirectory = (!isGuest && isLoadingAuthDirectory) || isLoadingPublicConfig;
   const objectSourceQuery = useDirectoryObjectSources({
     directoryId: directory?.id,
     enabled: Boolean(directory?.id && directory.entity_type === 'organization' && !isGuest),
@@ -110,14 +115,7 @@ export default function DynamicDirectoryView() {
     }
   });
 
-  const { data: authOrganizations = [], isLoading: isLoadingOrgs } = useQuery({
-    queryKey: ['organizations-dynamic-directory', slug],
-    queryFn: async () => {
-      return await base44.entities.Organization.list('name');
-    },
-    enabled: !!directory && directory.entity_type === 'organization' && !isGuest,
-    refetchOnMount: true
-  });
+  const isLoadingOrgs = isLoadingPublicConfig;
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -428,7 +426,9 @@ export default function DynamicDirectoryView() {
   // ---- Merged config: guests read from publicConfig, others from base44 ----
   const filterField = isGuest ? (publicConfig?.filterField || null) : authFilterField;
   const roles = isGuest ? (publicConfig?.roles || []) : authRoles;
-  const organizations = isGuest ? (publicConfig?.organizations || []) : authOrganizations;
+  const organizations = publicConfig?.organizations || [];
+  const selectedCoreOrganization = configSuccess && !configFetching && !configError
+    ? organizations.find(org => org.id === selectedOrg?.id) : null;
   const allOrganizations = isGuest ? (publicConfig?.allOrganizations || []) : authAllOrganizations;
   const rawOrgDisplaySettings = isGuest ? publicConfig?.displaySettings : authOrgDisplaySettings;
   // Per-directory core visibility overrides layered over the tenant-global
@@ -602,7 +602,8 @@ export default function DynamicDirectoryView() {
 
   // When the toggle is off and there's no other content to show on the back,
   // suppress the reverse-card dialog entirely (clicking the card becomes a no-op).
-  const hasReverseCardContent = orgMembersListVisible || orgMemberCountVisible || orgCustomFields.length > 0;
+  const hasReverseCardContent = orgMembersListVisible || orgMemberCountVisible || orgCustomFields.length > 0
+    || organizations.some(org => ORG_PUBLICATION_FIELDS.some(field => organisationDirectoryCoreValue(org, field.key) !== null));
 
   const handleCopyMemberEmail = async (email) => {
     if (!email) return;
@@ -730,6 +731,7 @@ export default function DynamicDirectoryView() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['organizations-dynamic-directory'] });
+      queryClient.invalidateQueries({ queryKey: ['directory-public-config'] });
       toast.success('Logo updated successfully');
       setEditingOrg(null);
     },
@@ -812,6 +814,19 @@ export default function DynamicDirectoryView() {
     return (
       <div className="min-h-screen p-4 md:p-8 flex items-center justify-center" data-testid="loading-container">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" data-testid="loading-spinner" />
+      </div>
+    );
+  }
+
+  if (configError) {
+    return (
+      <div className="min-h-screen p-4 md:p-8 flex items-center justify-center">
+        <Card className="max-w-md w-full">
+          <CardContent className="p-8 text-center space-y-4">
+            <p role="alert" className="text-sm text-slate-700">Unable to load this directory. Please try again.</p>
+            <Button variant="outline" onClick={() => refetchConfig()}>Retry</Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -1145,7 +1160,14 @@ export default function DynamicDirectoryView() {
                 let precedingObjectSourceGroup = null;
                 let precedingObjectSourceKeys = [];
                 for (const key of resolvedOrder) {
-                  if (key === 'org_member_count') {
+                  if (ORG_PUBLICATION_FIELDS.some(field => field.key === key)) {
+                    if (organisationDirectoryCoreValue(selectedCoreOrganization, key) === null) continue;
+                    precedingObjectSourceGroup = null;
+                    precedingObjectSourceKeys = [];
+                    items.push({ kind: 'block', node: (
+                      <OrganisationDirectoryCoreRow key={key} organization={selectedCoreOrganization} fieldKey={key} />
+                    ) });
+                  } else if (key === 'org_member_count') {
                     if (isGuest || !orgMemberCountVisible) continue;
                     precedingObjectSourceGroup = null;
                     precedingObjectSourceKeys = [];

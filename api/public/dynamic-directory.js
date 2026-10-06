@@ -7,6 +7,8 @@ import {
   resolveMemberExclusions,
 } from '../_lib/memberFeatureAccess.js';
 import { normalizeOrganizationPreferenceValues } from '../_lib/organizationEligibility.js';
+import { projectOrganisationCoreValues } from '../../shared/organisationDirectoryCore.js';
+import { canReadOrganisationDirectory, revalidateOrganisationPublication } from '../_lib/organisationDirectoryPublication.js';
 import {
   fetchRoles,
   fetchMemberDisplaySettings,
@@ -174,7 +176,10 @@ export async function dynamicDirectoryHandler(req, res, dependencies = {}) {
       return await renderMembers({ supabase, tenantId, directory, pageNum, pageSize, offset, sort, search, customFilters, res });
     }
     if (directory.entity_type === 'organization') {
-      return await renderOrganizations({ supabase, tenantId, directory, pageNum, pageSize, offset, sort, search, customFilters, res });
+      const context = await (dependencies.getTenantContext || getTenantContext)(tenantRequest);
+      if (!canReadOrganisationDirectory(directory, context, tenantId)) return res.status(403).json({ error: 'Directory access denied' });
+      res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+      return await renderOrganizations({ supabase, tenantId, directory, pageNum, pageSize, offset, sort, search, customFilters, res, context });
     }
     return res.status(400).json({ error: `Directory entity type '${directory.entity_type}' is not supported in public embeds yet.` });
   } catch (err) {
@@ -1157,7 +1162,8 @@ async function renderMembers({ supabase, tenantId, directory, pageNum, pageSize,
   });
 }
 
-async function renderOrganizations({ supabase, tenantId, directory, pageNum, pageSize, offset, sort, search, customFilters, res }) {
+async function renderOrganizations({ supabase, tenantId, directory, pageNum, pageSize, offset, sort, search, customFilters, res, context }) {
+  const displaySettings = await fetchOrgDisplaySettings(supabase, tenantId);
   const filterFields = [];
   if (directory.filter_field_id && directory.filter_value) {
     filterFields.push({ fieldId: directory.filter_field_id, value: directory.filter_value });
@@ -1172,7 +1178,7 @@ async function renderOrganizations({ supabase, tenantId, directory, pageNum, pag
   }
   let q = supabase
     .from('organization')
-    .select('id, name, slug, logo_url, description, city, country, website_url', { count: 'exact' })
+    .select('id, name, slug, logo_url, description, city, country, website_url, phone', { count: 'exact' })
     .eq('tenant_id', tenantId);
   if (orgIds) q = q.in('id', orgIds);
   if (search) {
@@ -1192,9 +1198,11 @@ async function renderOrganizations({ supabase, tenantId, directory, pageNum, pag
     image_url: o.logo_url || null,
     logo_url: o.logo_url || null,
     slug: o.slug || null,
-    website_url: o.website_url || null,
+    ...projectOrganisationCoreValues(o, displaySettings.corePublication, directory.core_field_visibility),
   }));
-  const displaySettings = await fetchOrgDisplaySettings(supabase, tenantId);
+  if (!await revalidateOrganisationPublication({ db: supabase, tenantId, directory, settings: displaySettings, context })) {
+    return res.status(409).json({ error: 'Directory publication changed; retry' });
+  }
   displaySettings.backFieldOrder = publicDirectoryBackOrder(displaySettings.backFieldOrder);
   // Per-directory override for the member-count core item (detail popup /
   // card back); falls back to the tenant-global org directory setting.

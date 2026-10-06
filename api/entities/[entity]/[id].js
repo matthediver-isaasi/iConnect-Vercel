@@ -518,20 +518,21 @@ export default async function handler(req, res, dependencies = {}) {
   }
 
   // Protect the server-owned organisation member disclosure policy on update.
-  if (req.method === 'PATCH' || req.method === 'PUT') {
+  if (['PATCH', 'PUT', 'DELETE'].includes(req.method)) {
     let writesViewMembersPolicy = entityNorm === 'dynamicdirectory'
-      && Object.prototype.hasOwnProperty.call(req.body || {}, 'view_members_role_ids');
+      && ['view_members_role_ids', 'core_field_visibility'].some(key => Object.prototype.hasOwnProperty.call(req.body || {}, key));
     if (entityNorm === 'systemsettings') {
-      writesViewMembersPolicy = req.body?.setting_key === 'org_directory_view_members_role_ids';
+      writesViewMembersPolicy = ['org_directory_view_members_role_ids', 'org_directory_core_publication'].includes(req.body?.setting_key);
       if (!writesViewMembersPolicy) {
-        const { data: existingSetting } = await supabase
+        const { data: existingSetting, error: settingError } = await supabase
           .from('system_settings')
           .select('setting_key')
           .eq('id', id)
           .eq('tenant_id', tenantCtx.tenantId)
           .limit(1);
+        if (settingError) return res.status(500).json({ error: 'Failed to validate directory setting ownership' });
         writesViewMembersPolicy =
-          existingSetting?.[0]?.setting_key === 'org_directory_view_members_role_ids';
+          ['org_directory_view_members_role_ids', 'org_directory_core_publication'].includes(existingSetting?.[0]?.setting_key);
       }
     }
     if (writesViewMembersPolicy) {

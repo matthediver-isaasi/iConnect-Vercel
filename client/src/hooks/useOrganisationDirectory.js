@@ -1,4 +1,6 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import { toast } from "sonner";
+import { cleanOrganisationDirectoryFilters } from "@/lib/organisationDirectoryFilterCleanup";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { isDirectoryEmbedLocation } from "@/hooks/useDirectoryObjectSources";
@@ -23,7 +25,8 @@ async function readJson(response, fallbackMessage) {
  * response completed most recently wins, and only then are revoked/disabled
  * filter keys removed.
  */
-export function useAuthoritativeDirectoryFilters(metadataQuery, resultsQuery, setFilters) {
+export function useAuthoritativeDirectoryFilters(metadataQuery, resultsQuery, setFilters, currentFilters) {
+  const noticeRef = useRef("");
   const fields = useMemo(() => (
     resultsQuery.isSuccess && resultsQuery.dataUpdatedAt >= metadataQuery.dataUpdatedAt
       ? resultsQuery.data.fields
@@ -38,12 +41,20 @@ export function useAuthoritativeDirectoryFilters(metadataQuery, resultsQuery, se
 
   useEffect(() => {
     if (!metadataQuery.isSuccess && !resultsQuery.isSuccess) return;
-    const allowed = new Set(fields.map(field => field.key));
     setFilters(current => {
-      const next = Object.fromEntries(Object.entries(current).filter(([key]) => allowed.has(key)));
+      const next = cleanOrganisationDirectoryFilters(current, fields).filters;
       return JSON.stringify(next) === JSON.stringify(current) ? current : next;
     });
   }, [metadataQuery.isSuccess, resultsQuery.isSuccess, fields, setFilters]);
+
+  useEffect(() => {
+    if (!currentFilters || (!metadataQuery.isSuccess && !resultsQuery.isSuccess)) return;
+    const { singleSelectionLabels } = cleanOrganisationDirectoryFilters(currentFilters, fields);
+    const message = singleSelectionLabels.length
+      ? `${singleSelectionLabels.join(", ")} now allows a single selection. Previous multiple selections were cleared.` : "";
+    if (message && message !== noticeRef.current) toast.info(message);
+    noticeRef.current = message;
+  }, [currentFilters, fields, metadataQuery.isSuccess, resultsQuery.isSuccess]);
 
   return fields;
 }

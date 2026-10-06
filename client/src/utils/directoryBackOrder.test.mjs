@@ -26,6 +26,7 @@ import {
 } from '../../../api/_lib/directoryConfig.js';
 
 const customFields = [{ id: 'f1' }, { id: 'f2' }, { id: 'f3' }];
+const publicationKeys = ['org_website', 'org_phone', 'org_description'];
 
 test('client and server constants stay in sync', () => {
   assert.equal(CUSTOM_FIELDS_SLOT, SRV_SLOT);
@@ -76,7 +77,7 @@ test('directory override wins over tenant order', () => {
       defaultOrder: ORG_BACK_DEFAULT_ORDER,
       customFields,
     });
-    assert.deepEqual(out, ['org_members_list', 'custom:f1', 'org_member_count', 'custom:f2', 'custom:f3']);
+    assert.deepEqual(out, ['org_members_list', 'custom:f1', 'org_member_count', 'custom:f2', 'custom:f3', ...publicationKeys]);
   }
 });
 
@@ -119,7 +120,7 @@ test('empty/garbage saved lists treated as unset', () => {
       defaultOrder: ORG_BACK_DEFAULT_ORDER,
       customFields: [],
     });
-    assert.deepEqual(out, ['org_member_count', 'org_members_list']);
+    assert.deepEqual(out, ['org_member_count', 'org_members_list', ...publicationKeys]);
   }
 });
 
@@ -129,15 +130,15 @@ test('default metadata sequence appends only unsaved sources with client/server 
   const objectSources = keys.map(key => ({ key }));
   for (const resolve of [resolveBackFieldOrder, srvResolve]) {
     const base = { defaultOrder: ORG_BACK_DEFAULT_ORDER, customFields: [{ id: 'native' }], objectSources };
-    assert.deepEqual(resolve(base), ['org_member_count', 'org_members_list', 'custom:native', ...keys]);
+    assert.deepEqual(resolve(base), ['org_member_count', 'org_members_list', 'custom:native', ...keys, ...publicationKeys]);
     assert.deepEqual(resolve({ ...base, tenantOrder: [keys[2], 'org_members_list', 'custom:native', keys[0], 'org_member_count'] }),
-      [keys[2], 'org_members_list', 'custom:native', keys[0], 'org_member_count', keys[1]]);
+      [keys[2], 'org_members_list', 'custom:native', keys[0], 'org_member_count', keys[1], ...publicationKeys]);
     assert.deepEqual(resolve({ ...base, tenantOrder: [keys[2], 'org_member_count'],
       directoryOrder: ['custom:native', keys[1], 'org_members_list', keys[0]] }),
-    ['custom:native', keys[1], 'org_members_list', keys[0], 'org_member_count', keys[2]]);
+    ['custom:native', keys[1], 'org_members_list', keys[0], 'org_member_count', keys[2], ...publicationKeys]);
     // An override without object positions appends them using current list defaults.
     assert.deepEqual(resolve({ ...base, directoryOrder: ['org_members_list'], tenantOrder: [keys[2]] }),
-      ['org_members_list', 'org_member_count', 'custom:native', ...keys]);
+      ['org_members_list', 'org_member_count', 'custom:native', ...keys, ...publicationKeys]);
   }
 });
 

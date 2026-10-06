@@ -289,6 +289,25 @@ test('deterministic first insert key serializes concurrent saves without losing 
   });
 });
 
+test('concurrent filter-mode and enablement edits share CAS without losing either map', async () => {
+  const db = concurrentFirstInsertDb();
+  await Promise.all([
+    saveOrganisationDirectoryFilterOverrides({
+      db, tenantId: 'tenant-1', changes: { 'custom:a': true }, writableKeys: new Set(['custom:a']),
+    }),
+    saveOrganisationDirectoryFilterOverrides({
+      db, tenantId: 'tenant-1', changes: {}, writableKeys: new Set(),
+      modeChanges: { 'custom:a': 'multi' }, modeKeys: new Set(['custom:a']),
+    }),
+  ]);
+  assert.equal(db.rows.length, 1);
+  assert.deepEqual(JSON.parse(db.rows[0].setting_value), { 'custom:a': true, $modes: { 'custom:a': 'multi' } });
+  await assert.rejects(() => saveOrganisationDirectoryFilterOverrides({
+    db, tenantId: 'tenant-1', changes: {}, writableKeys: new Set(),
+    modeChanges: { org_member_count: 'multi' }, modeKeys: new Set(['custom:a']),
+  }), error => error.status === 400);
+});
+
 test('first insert retries only primary-key conflicts and surfaces other database failures', async () => {
   const db = concurrentFirstInsertDb({
     insertError: { code: '42501', message: 'insert forbidden' },

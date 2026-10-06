@@ -14,3 +14,9 @@ Organisation-directory reuse must not treat an empty member-role list as publica
 **Why:** Legacy public handlers can return broader data than the directory's actual member-role and field policies permit. The directory's visible domain is derived from verified-domain preferences, not the organisation's general website field.
 
 **How to apply:** Check the management policy and authoritative directory projection, rather than inferring permission from an endpoint being named public. For long inventory reads, revalidate the full visibility/eligibility authority before returning.
+
+Organisation profile permissions are not directory publication consent. Website, phone and description require explicit directory opt-in, independent of ordering.
+
+**Why:** The user explicitly separated profile permissions from directory publication and required existing tenants not to publish new core values automatically.
+
+**How to apply:** Preserve default-off publication and directory-specific inheritance; never infer website consent from verified-domain visibility or extend these values to front cards, carousel contracts or CSV exports.

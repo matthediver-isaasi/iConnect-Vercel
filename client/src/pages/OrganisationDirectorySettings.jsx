@@ -19,6 +19,8 @@ import BackFieldOrderList from "@/components/directory/BackFieldOrderList";
 import { useDirectoryObjectSources } from "@/hooks/useDirectoryObjectSources";
 import DirectoryObjectSourcesGuidance from "@/components/directory/DirectoryObjectSourcesGuidance";
 import DirectoryFilterToggle from "@/components/directory/DirectoryFilterToggle";
+import DirectoryFilterMode from "@/components/directory/DirectoryFilterMode";
+import { ORG_PUBLICATION_FIELDS, parseOrganisationCorePublication } from "../../../shared/organisationDirectoryCore.js";
 import { useOrganisationDirectoryFilterSettings } from "@/hooks/useOrganisationDirectoryFilterSettings";
 import { useOrganisationDirectoryCsvSettings } from "@/hooks/useOrganisationDirectoryCsvSettings";
 import { isOrganisationDirectoryFieldFilterable } from "../../../shared/organisationDirectoryFilters.js";
@@ -46,6 +48,7 @@ export default function OrganisationDirectorySettingsPage() {
   const [reverseCardRoleIds, setReverseCardRoleIds] = useState([]);
   const [viewMembersRoleIds, setViewMembersRoleIds] = useState([]);
   const [backFieldOrder, setBackFieldOrder] = useState([]);
+  const [corePublication, setCorePublication] = useState(() => parseOrganisationCorePublication(null));
   const [customFieldsLabel, setCustomFieldsLabel] = useState("");
   const [guestHeading, setGuestHeading] = useState(ORGANISATION_DIRECTORY_GUEST_DEFAULTS.heading);
   const [guestDescription, setGuestDescription] = useState(ORGANISATION_DIRECTORY_GUEST_DEFAULTS.description);
@@ -172,6 +175,7 @@ export default function OrganisationDirectorySettingsPage() {
         reverseCardRoles: reverseCardRolesSetting,
         viewMembersRoles: viewMembersRolesSetting,
         backOrder: backOrderSetting,
+        corePublication: allSettings.find(s => s.setting_key === 'org_directory_core_publication'),
         customFieldsLabel: customFieldsLabelSetting,
         guestHeading: guestHeadingSetting,
         guestDescription: guestDescriptionSetting,
@@ -182,6 +186,7 @@ export default function OrganisationDirectorySettingsPage() {
   });
 
   useEffect(() => {
+    setCorePublication(parseOrganisationCorePublication(settings?.corePublication?.setting_value));
     if (settings?.header) {
       setDirectoryHeader(settings.header.setting_value || "Organisation Directory");
     }
@@ -465,6 +470,17 @@ export default function OrganisationDirectorySettingsPage() {
         });
       }
 
+      const publicationData = { setting_value: JSON.stringify(corePublication) };
+      if (settings.corePublication) {
+        await base44.entities.SystemSettings.update(settings.corePublication.id, publicationData);
+      } else {
+        await base44.entities.SystemSettings.create({
+          ...publicationData,
+          setting_key: 'org_directory_core_publication',
+          description: 'Publication of organisation Website, Phone and Description in directories',
+        });
+      }
+
       // Save unified back-of-card field order setting
       if (settings?.backOrder) {
         await base44.entities.SystemSettings.update(settings.backOrder.id, {
@@ -497,6 +513,7 @@ export default function OrganisationDirectorySettingsPage() {
       queryClient.invalidateQueries({ queryKey: ['organisation-directory-settings'] });
       queryClient.invalidateQueries({ queryKey: ['organisation-directory-guest-settings'] });
       queryClient.invalidateQueries({ queryKey: ['organisation-directory-filters'] });
+      queryClient.invalidateQueries({ queryKey: ['directory-public-config'] });
       toast.success('Settings saved successfully');
     },
     onError: (error) => {
@@ -1077,6 +1094,26 @@ export default function OrganisationDirectorySettingsPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <DirectoryObjectSourcesGuidance query={objectSourcesQuery} />
+            <div className="p-4 bg-slate-50 rounded-lg space-y-3">
+              <p className="text-sm font-medium text-slate-800">Directory publication</p>
+              <p className="text-sm text-slate-600">
+                Profile permissions control who can view or edit fields on My Organisation.
+                These separate publication choices allow directory visitors, including guests where enabled,
+                to see Website, Phone and Description. All three are off by default.
+                Dynamic directories can inherit or override each choice on the reverse card.
+              </p>
+              {ORG_PUBLICATION_FIELDS.map(field => (
+                <label key={field.key} className="flex items-center justify-between gap-3 text-sm text-slate-700">
+                  <span>Publish {field.label}</span>
+                  <Switch
+                    aria-label={`Publish ${field.label} in directories`}
+                    checked={corePublication[field.key] === true}
+                    disabled={!settings || saveMutation.isPending}
+                    onCheckedChange={checked => setCorePublication(previous => ({ ...previous, [field.key]: checked === true }))}
+                  />
+                </label>
+              ))}
+            </div>
             {fieldsError && (
               <div role="alert" className="text-sm text-red-700">
                 Custom fields could not be loaded. Saving is unavailable until they load.
@@ -1096,7 +1133,8 @@ export default function OrganisationDirectorySettingsPage() {
               droppableId="org-back-order"
               onChange={setBackFieldOrder}
               disabled={fieldsPending || fieldsError || fieldsFetching || objectSourcesQuery.isPending || objectSourcesQuery.isError || objectSourcesQuery.isFetching}
-              renderControls={(key, item) => (
+              renderControls={(key, item) => ORG_PUBLICATION_FIELDS.some(field => field.key === key) ? null : (
+                <div className="flex flex-wrap items-center justify-end gap-2">
                 <DirectoryFilterToggle
                   label={item.label}
                   checked={isOrganisationDirectoryFieldFilterable(key, filterSettings.overrides, item.field)}
@@ -1105,6 +1143,13 @@ export default function OrganisationDirectorySettingsPage() {
                     || objectSourcesQuery.isPending || objectSourcesQuery.isError || objectSourcesQuery.isFetching}
                   onCheckedChange={checked => filterSettings.setOverride(key, checked)}
                 />
+                <DirectoryFilterMode
+                  field={filterSettings.fields.find(field => field.key === key)}
+                  modes={filterSettings.modes}
+                  disabled={!filterSettings.isSuccess || filterSettings.isFetching || saveMutation.isPending}
+                  onChange={filterSettings.setMode}
+                />
+                </div>
               )}
             />
             <div className="pt-4 border-t">

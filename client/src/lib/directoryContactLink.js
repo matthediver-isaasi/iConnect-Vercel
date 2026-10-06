@@ -5,6 +5,13 @@ const forbidden = /[\s\u0000-\u001f\u007f-\u009f<>"\\]/u;
 export function directoryContactLink(field, rawValue) {
   if (typeof rawValue !== "string" || /[\u0000-\u001f\u007f-\u009f]/u.test(rawValue)) return null;
   const value = rawValue.trim();
+  if (field?.field_type === "phone") {
+    // Only telephone punctuation and digits, never URI parameters or schemes.
+    if (!/^\+?[0-9 ().-]+$/.test(value)) return null;
+    const number = value.replace(/[ ().-]/g, "");
+    if (!/^\+?[0-9]{3,15}$/.test(number)) return null;
+    return { href: `tel:${number}`, external: false };
+  }
   if (!value || forbidden.test(value)) return null;
   const type = field?.field_type || "text";
   const legacy = type === "text";

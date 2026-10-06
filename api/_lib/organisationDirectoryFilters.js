@@ -4,7 +4,10 @@ import {
   ORG_DIRECTORY_FILTER_SETTING,
   isOrganisationDirectoryFieldFilterable,
   parseOrganisationDirectoryFilterOverrides,
+  parseOrganisationDirectoryFilterModes,
+  applyOrganisationDirectoryFilterMode,
 } from '../../shared/organisationDirectoryFilters.js';
+import { ORG_CORE_PUBLICATION_SETTING, projectOrganisationCoreValues } from '../../shared/organisationDirectoryCore.js';
 import {
   resolveCustomObjectDirectorySources,
 } from './customObjectDirectory.js';
@@ -214,6 +217,7 @@ function publicMetadata(field) {
 
 async function loadSettings(db, tenantId) {
   const keys = [
+    ORG_CORE_PUBLICATION_SETTING,
     ORG_DIRECTORY_FILTER_SETTING,
     ORG_DIRECTORY_CSV_SETTING,
     'org_directory_back_field_order',
@@ -340,9 +344,10 @@ async function buildInventory({
   ]);
   const rawOverrides = settingMap.has(ORG_DIRECTORY_FILTER_SETTING)
     ? settingMap.get(ORG_DIRECTORY_FILTER_SETTING) : undefined;
-  let overrides;
+  let overrides, modes;
   try {
     overrides = parseOrganisationDirectoryFilterOverrides(rawOverrides);
+    modes = parseOrganisationDirectoryFilterModes(rawOverrides);
   } catch {
     throw new OrganisationDirectoryFilterError(500, 'Saved organisation directory filter configuration is malformed');
   }
@@ -395,7 +400,7 @@ async function buildInventory({
     });
     const ordered = resolved.map((key) => byKey.get(key)).filter(Boolean);
     for (const field of fields) if (!ordered.includes(field)) ordered.push(field);
-    return ordered;
+    return ordered.map(field => applyOrganisationDirectoryFilterMode(field, modes));
   };
   return {
     fields: orderFields(all, visibleCustom),
@@ -404,6 +409,7 @@ async function buildInventory({
       customFields,
     ),
     overrides,
+    modes,
     settingMap,
   };
 }
@@ -517,8 +523,8 @@ function validateRequest(input, fieldByKey, sourceOptions = new Map()) {
       if (!requested.length || requested.some((value) => !value)) {
         throw new OrganisationDirectoryFilterError(400, `Filter value is required: ${key}`);
       }
-      if (metadata.control === 'source-choice'
-          && !metadata.multi_select && requested.length > 1) {
+      if (!metadata.multi_select && requested.length > 1
+          && (metadata.control === 'source-choice' || metadata.selection_mode === 'single')) {
         throw new OrganisationDirectoryFilterError(
           400,
           `Filter field accepts only one option: ${key}`,
@@ -592,7 +598,7 @@ async function loadOrganizations(db, tenantId) {
     // This is the complete core projection available to the authenticated
     // standalone directory contract. Eligibility is applied before any row is
     // returned; callers must not supplement it with unrestricted entity reads.
-    .select('id, name, logo_url, invoicing_address')
+    .select('id, name, logo_url, invoicing_address, website_url, phone, description')
     .eq('tenant_id', tenantId).order('id', { ascending: true }),
   'Organisation inventory exceeds the supported size');
 }
@@ -929,7 +935,7 @@ export function createOrganisationDirectoryFilters({ db, context, isAdmin = fals
         allowCsvDownload: organisationDirectoryCsvDownloadAllowed(
           inventory.settingMap.get(ORG_DIRECTORY_CSV_SETTING),
         ),
-        ...(settings ? { overrides: inventory.overrides } : {}),
+        ...(settings ? { overrides: inventory.overrides, modes: inventory.modes } : {}),
       };
     },
 
@@ -1022,6 +1028,7 @@ export function createOrganisationDirectoryFilters({ db, context, isAdmin = fals
         organizations: organizations.slice(start, start + request.pageSize).map((organization) => ({
           id: organization.id,
           name: organization.name,
+          ...projectOrganisationCoreValues(organization, inventory.settingMap.get(ORG_CORE_PUBLICATION_SETTING)),
           ...(showLogo ? { logo_url: organization.logo_url } : {}),
           ...(showDomains ? { domain: domainsFor(organization.id)[0] || null } : {}),
           ...(typeof organization.invoicing_address === 'string'
@@ -1148,8 +1155,13 @@ export function createOrganisationDirectoryFilters({ db, context, isAdmin = fals
 }
 
 export async function saveOrganisationDirectoryFilterOverrides({
-  db, tenantId, changes, writableKeys,
+  db, tenantId, changes = {}, writableKeys, modeChanges = {}, modeKeys = new Set(),
 }) {
+  if (!isPlainObject(modeChanges) || Object.keys(modeChanges).length > 500
+      || Object.entries(modeChanges).some(([key, value]) =>
+        !modeKeys.has(key) || !['single', 'multi'].includes(value))) {
+    throw new OrganisationDirectoryFilterError(400, 'modeChanges contains an unavailable selection field or invalid mode');
+  }
   if (!isPlainObject(changes) || Object.keys(changes).length > 500
       || Object.entries(changes).some(([key, value]) =>
         !writableKeys.has(key) || typeof value !== 'boolean')) {
@@ -1171,19 +1183,22 @@ export async function saveOrganisationDirectoryFilterOverrides({
       );
     }
     const row = existing[0];
-    let current;
+    let current, currentModes;
     try {
       current = parseOrganisationDirectoryFilterOverrides(row?.setting_value);
+      currentModes = parseOrganisationDirectoryFilterModes(row?.setting_value);
     } catch {
       throw new OrganisationDirectoryFilterError(500, 'Saved organisation directory filter configuration is malformed');
     }
     const merged = { ...current, ...changes };
+    const modes = { ...currentModes, ...modeChanges };
+    const stored = Object.keys(modes).length ? { ...merged, $modes: modes } : merged;
     if (!row) {
       const result = await db.from('system_settings').insert({
         id: settingId,
         tenant_id: tenantId,
         setting_key: ORG_DIRECTORY_FILTER_SETTING,
-        setting_value: JSON.stringify(merged),
+        setting_value: JSON.stringify(stored),
         setting_type: 'json',
         description: 'Organisation directory filterable back fields',
       }).select('id');
@@ -1200,7 +1215,7 @@ export async function saveOrganisationDirectoryFilterOverrides({
       throw new Error(result.error.message || 'Failed to create organisation directory filter configuration');
     }
     let update = db.from('system_settings').update({
-      setting_value: JSON.stringify(merged),
+      setting_value: JSON.stringify(stored),
     }).eq('id', row.id).eq('tenant_id', tenantId);
     update = row.setting_value === null
       ? update.is('setting_value', null) : update.eq('setting_value', row.setting_value);

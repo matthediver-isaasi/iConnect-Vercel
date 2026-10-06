@@ -296,8 +296,10 @@ function viewerContext(viewer) {
   };
 }
 
-async function installFixtures(page, { viewer = ADMIN_ONE, excluded = {} } = {}) {
+async function installFixtures(page, { viewer = ADMIN_ONE, excluded = {}, fields = [], directories = [] } = {}) {
   const db = createFixtureDatabase();
+  db.tables.preference_field = clone(fields);
+  db.tables.dynamic_directory = clone(directories);
   for (const [tenantId, organizationIds] of Object.entries(excluded)) {
     const setting = settingForTenant(db, tenantId, "org_directory_excluded_orgs");
     setting.setting_value = JSON.stringify(organizationIds);
@@ -364,9 +366,12 @@ async function installFixtures(page, { viewer = ADMIN_ONE, excluded = {} } = {})
             "org_directory_filterable_back_fields",
           );
           const current = JSON.parse(setting?.setting_value || "{}");
-          const next = { ...current, ...(body.changes || {}) };
+          const modes = { ...(current.$modes || {}), ...(body.modeChanges || {}) };
+          const next = { ...current, ...(body.changes || {}), $modes: modes };
           if (setting) setting.setting_value = JSON.stringify(next);
-          return json({ overrides: next });
+          state.writes.push({ method, path, body });
+          const { $modes, ...overrides } = next;
+          return json({ overrides, modes: $modes });
         }
       }
       if (method === "GET") return json(await service.metadata());
@@ -425,7 +430,17 @@ async function installFixtures(page, { viewer = ADMIN_ONE, excluded = {} } = {})
       });
       return json(db.tables.organization.filter(row => row.tenant_id === tenantId));
     }
-    if (path === "/api/entities/PreferenceField" && method === "GET") return json([]);
+    if (path === "/api/entities/PreferenceField" && method === "GET") return json(fields);
+    if (path === "/api/entities/DynamicDirectory" && method === "GET") {
+      return json(db.tables.dynamic_directory.filter(directory => directory.tenant_id === tenantId));
+    }
+    if (path.startsWith("/api/entities/DynamicDirectory/") && ["PATCH", "PUT"].includes(method)) {
+      const directory = db.tables.dynamic_directory.find(row => row.id === decodeURIComponent(path.split("/").pop()));
+      const body = request.postDataJSON();
+      Object.assign(directory, body);
+      state.writes.push({ method, path, body });
+      return json(directory);
+    }
     if (path === "/api/entities/Role" && method === "GET") {
       return json(Object.values(ROLE_BY_ID));
     }
@@ -455,6 +470,89 @@ async function installFixtures(page, { viewer = ADMIN_ONE, excluded = {} } = {})
 
   return state;
 }
+
+test("publication and eligible filter mode controls save and survive settings reload", async ({ page }) => {
+  const fields = [
+    {
+      id: "specialty", tenant_id: TENANT_ONE, name: "specialty", label: "Specialty",
+      field_type: "dropdown", options: ["Clinical", "Research"], entity_scope: "organization",
+      is_active: true, is_filterable: true, show_in_directory_card: true, display_order: 1,
+    },
+    {
+      id: "capacity", tenant_id: TENANT_ONE, name: "capacity", label: "Capacity",
+      field_type: "number", entity_scope: "organization", is_active: true, display_order: 2,
+    },
+  ];
+  const state = await installFixtures(page, { fields });
+  await page.goto("/OrganisationDirectorySettings");
+  for (const name of ["Website", "Phone", "Description"]) {
+    const toggle = page.getByRole("switch", { name: `Publish ${name} in directories`, exact: true });
+    await expect(toggle).not.toBeChecked();
+    await toggle.check();
+    await expect(page.getByRole("switch", { name: `Use ${name} as filter`, exact: true })).toHaveCount(0);
+    await expect(page.getByRole("combobox", { name: `${name} filter selection mode`, exact: true })).toHaveCount(0);
+  }
+  await expect(page.getByText(/Profile permissions control who can view or edit fields on My Organisation/)).toBeVisible();
+  const mode = page.getByRole("combobox", { name: "Specialty filter selection mode", exact: true });
+  await expect(mode).toHaveValue("single");
+  await mode.selectOption("multi");
+  await expect(page.getByRole("combobox", { name: "Capacity filter selection mode", exact: true })).toHaveCount(0);
+  const sourceMode = page.getByRole("combobox", { name: "Members / contacts list filter selection mode", exact: true });
+  await sourceMode.selectOption("multi");
+  await page.getByTestId("button-save-back-order").click();
+  await expect(page.getByText("Settings saved successfully")).toBeVisible();
+  await expect.poll(() => JSON.parse(
+    settingForTenant(state.db, TENANT_ONE, "org_directory_core_publication").setting_value,
+  )).toEqual({ org_website: true, org_phone: true, org_description: true });
+  const filterWrite = state.writes.find(write => write.path === "/api/organisation-directory/filters");
+  expect(filterWrite.body.modeChanges).toEqual({ "custom:specialty": "multi", org_members_list: "multi" });
+  await page.reload();
+  for (const name of ["Website", "Phone", "Description"]) {
+    await expect(page.getByRole("switch", { name: `Publish ${name} in directories`, exact: true })).toBeChecked();
+  }
+  await expect(mode).toHaveValue("multi");
+  await expect(sourceMode).toHaveValue("multi");
+  expect(state.unexpectedMutations).toEqual([]);
+});
+
+test("dynamic core publication visibility controls inherit, show and hide after reload", async ({ page }) => {
+  const directory = {
+    id: "publication-controls", tenant_id: TENANT_ONE, name: "Clinical Organisations",
+    slug: "clinical-organisations", entity_type: "organization", is_active: true,
+    filter_field_id: "specialty", filter_value: "Clinical", allowed_role_ids: [],
+    back_field_order: ["org_website", "org_phone", "org_description"], core_field_visibility: null,
+  };
+  const state = await installFixtures(page, {
+    directories: [directory],
+    fields: [{
+      id: "specialty", tenant_id: TENANT_ONE, name: "specialty", label: "Specialty",
+      field_type: "dropdown", options: ["Clinical", "Research"], entity_scope: "organization",
+      is_active: true, is_filterable: true, display_order: 1,
+    }],
+  });
+  await page.goto("/DynamicDirectoryManagement");
+  await page.getByTestId("button-edit-directory-publication-controls").click();
+  const website = page.getByTestId("select-core-vis-org_website-back");
+  const phone = page.getByTestId("select-core-vis-org_phone-back");
+  const description = page.getByTestId("select-core-vis-org_description-back");
+  await expect(website).toHaveValue("inherit");
+  await expect(phone).toHaveValue("inherit");
+  await expect(description).toHaveValue("inherit");
+  await website.selectOption("show");
+  await phone.selectOption("hide");
+  await description.selectOption("show");
+  await description.selectOption("inherit");
+  await page.getByTestId("button-submit").click();
+  await expect.poll(() => state.db.tables.dynamic_directory[0].core_field_visibility).toEqual({
+    org_website: { back: true }, org_phone: { back: false },
+  });
+  await page.reload();
+  await page.getByTestId("button-edit-directory-publication-controls").click();
+  await expect(website).toHaveValue("show");
+  await expect(phone).toHaveValue("hide");
+  await expect(description).toHaveValue("inherit");
+  expect(state.unexpectedMutations).toEqual([]);
+});
 
 async function expectDirectoryCards(page, { visible, hidden }) {
   await expect(page.getByTestId(`card-organisation-${visible.id}`)).toBeVisible();

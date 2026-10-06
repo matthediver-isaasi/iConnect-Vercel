@@ -25,6 +25,8 @@ import OrganisationPostalSummary, {
 import OrganisationDirectoryFilters from "@/components/directory/OrganisationDirectoryFilters";
 import OrganisationDirectoryGuest from "@/components/directory/OrganisationDirectoryGuest";
 import { DirectoryContactValue } from "@/components/directory/DirectoryContactValue";
+import OrganisationDirectoryCoreRow, { organisationDirectoryCoreValue } from "@/components/directory/OrganisationDirectoryCoreRow";
+import { ORG_PUBLICATION_FIELDS } from "../../../shared/organisationDirectoryCore.js";
 import { useAuthoritativeDirectoryFilters, useOrganisationDirectoryMetadata, useOrganisationDirectoryResults } from "@/hooks/useOrganisationDirectory";
 
 // Helper to add cache-busting for JPG images which have loading issues
@@ -305,12 +307,15 @@ function AuthenticatedOrganisationDirectory() {
     directoryMetadataQuery.isSuccess,
   );
   const organizations = directoryQuery.data?.organizations || [];
+  const selectedCoreOrganization = directoryQuery.isSuccess && !directoryQuery.isFetching && !directoryQuery.isError
+    ? organizations.find(org => org.id === selectedOrg?.id) : null;
   const totalOrganizations = directoryQuery.data?.total || 0;
   const totalPages = Math.max(1, Math.ceil(totalOrganizations / itemsPerPage));
   const authoritativeFields = useAuthoritativeDirectoryFilters(
     directoryMetadataQuery,
     directoryQuery,
     setDirectoryFilters,
+    directoryFilters,
   );
 
   useEffect(() => {
@@ -929,7 +934,11 @@ function AuthenticatedOrganisationDirectory() {
               };
 
               for (const key of resolvedOrder) {
-                if (key === 'org_member_count') {
+                if (ORG_PUBLICATION_FIELDS.some(field => field.key === key)) {
+                  if (organisationDirectoryCoreValue(selectedCoreOrganization, key) === null) continue;
+                  flushCustoms();
+                  sections.push(<OrganisationDirectoryCoreRow key={key} organization={selectedCoreOrganization} fieldKey={key} />);
+                } else if (key === 'org_member_count') {
                   if (!displaySettings?.showMemberCount) continue;
                   flushCustoms();
                   sections.push(

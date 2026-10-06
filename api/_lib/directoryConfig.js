@@ -8,6 +8,8 @@
  * the shared server client or a request-scoped service-role client.
  */
 
+import { ORG_PUBLICATION_FIELDS, ORG_CORE_PUBLICATION_SETTING, parseOrganisationCorePublication } from '../../shared/organisationDirectoryCore.js';
+
 export const MEMBER_DISPLAY_DEFAULTS = {
   show_profile_photo: true, show_events: true, show_articles: true,
   show_organization: true, show_job_title: true, show_linkedin: true,
@@ -172,6 +174,7 @@ export const ORG_BACK_DEFAULT_ORDER = [
   'org_member_count',
   'org_members_list',
   CUSTOM_FIELDS_SLOT,
+  ...ORG_PUBLICATION_FIELDS.map(field => field.key),
 ];
 
 /**
@@ -354,15 +357,17 @@ function parseJsonArray(val) {
 }
 
 export async function fetchOrgDisplaySettings(supabase, tenantId) {
-  const { data: settingsRows } = await supabase
+  const { data: settingsRows, error } = await supabase
     .from('system_settings')
     .select('setting_key, setting_value')
     .eq('tenant_id', tenantId)
     .like('setting_key', 'org_directory_%');
+  if (error) throw new Error('Unable to load organisation directory publication settings');
   const settingsMap = {};
   for (const s of settingsRows || []) settingsMap[s.setting_key] = s.setting_value;
 
   return {
+    corePublication: parseOrganisationCorePublication(settingsMap[ORG_CORE_PUBLICATION_SETTING]),
     showLogo: settingsMap['org_directory_show_logo'] !== 'false',
     showTitle: settingsMap['org_directory_show_title'] !== 'false',
     showDomains: settingsMap['org_directory_show_domains'] !== 'false',

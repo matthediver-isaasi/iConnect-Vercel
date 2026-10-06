@@ -1,4 +1,5 @@
 import { supabase } from '../_lib/database.js';
+import { supportsOrganisationDirectoryFilterMode } from '../../shared/organisationDirectoryFilters.js';
 import {
   getTenantContext,
   hasAdminAccess,
@@ -68,9 +69,12 @@ export function createHandler(dependencies = {}) {
           db,
           tenantId: context.tenantId,
           changes: req.body?.changes,
+          modeChanges: req.body?.modeChanges,
+          modeKeys: new Set(metadata.fields.filter(supportsOrganisationDirectoryFilterMode).map(field => field.key)),
           writableKeys: new Set(metadata.fields.map((field) => field.key)),
         });
-        return res.json({ overrides });
+        const refreshed = await service.metadata({ settings: true });
+        return res.json({ overrides, modes: refreshed.modes || {} });
       }
       if (req.method === 'POST' && !settings) {
         return res.json(req.body?.action === 'options'

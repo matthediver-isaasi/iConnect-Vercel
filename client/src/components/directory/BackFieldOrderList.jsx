@@ -34,7 +34,7 @@ export default function BackFieldOrderList({ order, items, onChange, droppableId
     const item = items[key];
     const inner = (dragHandleProps, isDragging) => (
       <div
-        className={`flex items-center gap-3 p-2.5 rounded-lg border ${
+        className={`flex flex-wrap sm:flex-nowrap items-center gap-3 p-2.5 rounded-lg border ${
           isDragging ? 'border-blue-400 bg-blue-50 shadow-lg' : 'border-slate-200 bg-slate-50'
         }`}
         data-testid={`row-back-order-${key}`}
@@ -52,7 +52,7 @@ export default function BackFieldOrderList({ order, items, onChange, droppableId
           <div className="font-medium text-sm text-slate-800 truncate">{item.label}</div>
           {item.description && <p className="text-xs text-slate-500 truncate">{item.description}</p>}
         </div>
-        <div className="flex items-center gap-1.5 flex-shrink-0">
+        <div className="flex flex-wrap items-center gap-1.5 flex-shrink-0 max-w-full">
           {item.isCustom && (
             <Badge variant="secondary" className="text-xs">{item.isObjectField ? 'Data Studio field' : 'Custom field'}</Badge>
           )}
