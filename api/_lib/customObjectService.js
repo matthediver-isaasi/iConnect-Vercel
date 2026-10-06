@@ -564,7 +564,9 @@ export function createCustomObjectService({
 
   async function one(table, id, extra = {}) {
     let query = db.from(table).select('*').eq('tenant_id', tenantId).eq('id', id);
-    for (const [column, value] of Object.entries(extra)) query = query.eq(column, value);
+    for (const [column, value] of Object.entries(extra)) {
+      query = value === null ? query.is(column, null) : query.eq(column, value);
+    }
     const { data, error } = await query.maybeSingle();
     throwDb(error);
     if (!data) throw new CustomObjectHttpError(404, 'Resource not found');

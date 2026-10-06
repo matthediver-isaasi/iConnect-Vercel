@@ -30,7 +30,12 @@ function mockDb(seed = {}, rpcErrors = {}) {
       calls.push({ table: this.table, type: 'select', columns });
       return this;
     }
-    eq(column, value) { this.filters.push((row) => row[column] === value); calls.push({ table: this.table, type: 'eq', column, value }); return this; }
+    eq(column, value) {
+      assert.notEqual(value, null, 'PostgREST eq.null is not SQL IS NULL; timestamp filters reject the literal "null"');
+      this.filters.push((row) => row[column] === value);
+      calls.push({ table: this.table, type: 'eq', column, value });
+      return this;
+    }
     neq(column, value) {
       this.filters.push((row) => this.value(row, column) !== value);
       calls.push({ table: this.table, type: 'neq', column, value });
@@ -7003,10 +7008,12 @@ test('required final-edge conflicts expose an archive route only with independen
   );
 });
 
-test('core final-edge conflicts omit the archive route for an archived source Custom Object record', async () => {
+for (const kind of ['member', 'organization']) {
+for (const state of ['active', 'archived', 'other-tenant']) {
+test(`${kind} final-edge conflict uses SQL null filtering and offers archival only for an active same-tenant record (${state})`, async () => {
   const definitionId = 'required-core-route-definition';
   const db = mockDb({
-    member: [{ id: 'member-core-route', tenant_id: tenantId }],
+    [kind]: [{ id: 'member-core-route', tenant_id: tenantId }],
     custom_object_definition: [object()],
     custom_object_relationship_definition: [{
       id: definitionId,
@@ -7016,16 +7023,16 @@ test('core final-edge conflicts omit the archive route for an archived source Cu
       is_required: true,
       source_kind: 'custom_object',
       source_custom_object_id: objectId,
-      target_kind: 'member',
+      target_kind: kind,
       target_custom_object_id: null,
       show_on_target: true,
       edit_from_target: true,
     }],
     custom_object_record: [{
       id: 'archived-source-route',
-      tenant_id: tenantId,
+      tenant_id: state === 'other-tenant' ? 'other-tenant' : tenantId,
       custom_object_id: objectId,
-      archived_at: '2026-10-01T00:00:00.000Z',
+      archived_at: state === 'archived' ? '2026-10-01T00:00:00.000Z' : null,
       data: {},
     }],
     custom_object_relationship: [{
@@ -7050,17 +7057,25 @@ test('core final-edge conflicts omit the archive route for an archived source Cu
       context: context(),
       isAdmin: true,
     }).archiveCoreRelationship(
-      'member',
+      kind,
       'member-core-route',
       'required-core-route-edge',
     ),
     (error) => {
       assert.equal(error.status, 409);
-      assert.deepEqual(error.details, { code: 'REQUIRED_RELATIONSHIP' });
+      assert.equal(error.details.code, 'REQUIRED_RELATIONSHIP');
+      if (state === 'active') {
+        assert.equal(error.details.archive_record.object_id, objectId);
+        assert.equal(error.details.archive_record.record_id, 'archived-source-route');
+      } else {
+        assert.deepEqual(error.details, { code: 'REQUIRED_RELATIONSHIP' });
+      }
       return true;
     },
   );
 });
+}
+}
 
 test('definition-bound picker rejects arbitrary, hidden, mismatched, and non-admin core access', async () => {
   const definitionId = '55555555-5555-4555-8555-555555555555';
