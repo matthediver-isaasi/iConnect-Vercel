@@ -130,8 +130,11 @@ async function installFixture(page) {
     alertAlways: false,
     alertTemporary: false,
     alertShown: false,
+    alertAcknowledged: false,
     alertFailure: false,
     alertGate: deferred(true),
+    alertWrites: [],
+    alertReads: 0,
     unreadCount: 0,
     setAuth({ status = 200, body = sessionBody(), hold = false, abort = false } = {}) {
       state.authStatus = status;
@@ -186,18 +189,22 @@ async function installFixture(page) {
 
     const key = `${method} ${url.pathname}${url.search}`;
     if (url.pathname === '/api/communication/inbox/alert-preferences') {
+      state.alertReads++;
       if (state.alertFailure) return json(route, { error: 'Unavailable' }, 503);
       if (method === 'PATCH') {
         const patch = request.postDataJSON().preference;
+        state.alertWrites.push(patch);
         if (patch.always_hide !== undefined) state.alertAlways = patch.always_hide;
         if (patch.hide_until_login !== undefined) state.alertTemporary = patch.hide_until_login;
         if (patch.shown !== undefined) state.alertShown = patch.shown;
+        if (patch.acknowledged !== undefined) state.alertAcknowledged = patch.acknowledged;
         if (Object.values(patch).includes(false)) state.alertShown = false;
+        if (Object.values(patch).includes(false)) state.alertAcknowledged = false;
       }
       const response = {
         member_id: state.authBody.id, tenant_id: state.authBody.tenant_id,
         login_key: state.alertLogin, always_hide: state.alertAlways,
-        hide_until_login: state.alertTemporary, shown: state.alertShown,
+        hide_until_login: state.alertTemporary, shown: state.alertShown, acknowledged: state.alertAcknowledged,
       };
       await state.alertGate.promise;
       return json(route, response);
@@ -339,6 +346,66 @@ function expectReadOnlyClean(state) {
   expect(state.external).toEqual([]);
 }
 
+test('untouched inbox alert survives preference refresh errors and offers again after reload', async ({ page }) => {
+  const state = await installFixture(page);
+  state.unreadCount = 3;
+  state.alertShown = true; // Legacy display-only state must not strand this login.
+  await page.goto('/session-boundary');
+  const dialog = page.getByTestId('dialog-inbox-unread');
+  await expect(dialog).toBeVisible();
+  state.alertFailure = true;
+  const failed = page.waitForResponse(r => r.url().includes('/inbox/alert-preferences') && r.status() === 503);
+  await page.evaluate(() => window.dispatchEvent(new StorageEvent('storage', { key: 'inbox-alert-preferences-changed' })));
+  await failed;
+  // Let the query error commit; the network response precedes the React render.
+  await page.waitForTimeout(300);
+  await expect(dialog).toBeVisible();
+  state.alertFailure = false;
+  await page.reload();
+  await expect(dialog).toBeVisible();
+  expect(state.alertWrites).toEqual([]);
+  const reads = state.alertReads;
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event('focus'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    window.dispatchEvent(new StorageEvent('storage', { key: 'inbox-alert-preferences-changed' }));
+  });
+  await expect.poll(() => state.alertReads).toBeGreaterThan(reads);
+  await expect(dialog).toBeVisible();
+  expectReadOnlyClean(state);
+});
+
+for (const action of ['close', 'view', 'temporary', 'permanent']) {
+  test(`popup ${action} waits for acknowledgment and failed saves stay retryable`, async ({ page }) => {
+    const state = await installFixture(page);
+    state.unreadCount = 4;
+    await page.goto('/session-boundary-public');
+    const dialog = page.getByTestId('dialog-inbox-unread');
+    await expect(dialog).toBeVisible();
+    const act = async () => {
+      if (action === 'close') await page.keyboard.press('Escape');
+      else await page.getByTestId({
+        view: 'button-view-messages', temporary: 'button-hide-until-login', permanent: 'button-always-hide',
+      }[action]).click();
+    };
+    state.alertFailure = true;
+    await act();
+    await expect(dialog.getByRole('alert')).toContainText('Please try your action again');
+    await expect(dialog).toBeVisible();
+    expect(state.alertAcknowledged).toBe(false);
+    state.alertFailure = false;
+    state.alertGate = deferred(false);
+    await act();
+    await expect(dialog.getByRole('status')).toHaveText('Saving…');
+    await expect(dialog).toBeVisible();
+    state.alertGate.release();
+    await expect(dialog).toBeHidden();
+    if (action === 'view') await expect(page).toHaveURL(/\/inbox$/);
+    expect(state.unreadCount).toBe(4);
+    expectReadOnlyClean(state);
+  });
+}
+
 test('inbox alert choices reverse on empty Inbox aliases, survive refresh/tabs and reset only on new login', async ({ page }) => {
   const state = await installFixture(page);
   state.unreadCount = 3;
@@ -447,11 +514,11 @@ test('close and View messages preserve unread counts; temporary hiding resets on
   await expect(page.getByTestId('dialog-inbox-unread')).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('dialog-inbox-unread')).toBeHidden();
-  await expect.poll(() => state.alertShown).toBe(true);
+  await expect.poll(() => state.alertAcknowledged).toBe(true);
   await page.reload();
   await expect(page.getByText('Session boundary content: session-boundary', { exact: true })).toBeVisible();
   await expect(page.getByTestId('dialog-inbox-unread')).toBeHidden();
-  state.alertLogin = 'second-authenticated-login'; state.alertShown = false;
+  state.alertLogin = 'second-authenticated-login'; state.alertAcknowledged = false;
   await page.reload();
   await expect(page.getByTestId('dialog-inbox-unread')).toBeVisible();
   await page.getByTestId('button-hide-until-login').click();
@@ -460,7 +527,7 @@ test('close and View messages preserve unread counts; temporary hiding resets on
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await page.goto('/Inbox');
   await expect(page.getByRole('switch', { name: 'Hide alert until next login' })).toBeChecked();
-  state.alertLogin = 'third-authenticated-login'; state.alertShown = false; state.alertTemporary = false;
+  state.alertLogin = 'third-authenticated-login'; state.alertAcknowledged = false; state.alertTemporary = false;
   await page.goto('/session-boundary');
   await expect(page.getByTestId('dialog-inbox-unread')).toBeVisible();
   await page.getByTestId('button-view-messages').click();

@@ -130,6 +130,36 @@ test('slow sequential member → organisation → custom queries stay locked thr
   } finally { await fixture.close(); }
 });
 
+test('successful empty viewer booking settles the barrier without changing answers', async () => {
+  const request = deferred();
+  function ViewerBooking() {
+    const [applied, setApplied] = useState(false);
+    const query = useQuery({ queryKey: ['viewer-booking', 'authenticated-member'],
+      queryFn: () => request.promise });
+    const state = initialPrefillState({ expected: true, applied, initialized: true,
+      queries: [{ required: true, query }] });
+    useEffect(() => {
+      if (!state.ready || applied) return;
+      // FormView's empty-primary-entity path, after successful lookup.
+      if (!query.data?.booking) setApplied(true);
+    }, [state.ready, applied, query.data]);
+    return controls(combinePrefillStates(state), { answer: 'Existing answer' });
+  }
+  const fixture = await mount(ViewerBooking);
+  try {
+    assert.ok(overlay(fixture.container));
+    await act(async () => request.resolve({ booking: null, member: null, organization: null }));
+    await flush();
+    assert.equal(overlay(fixture.container), null);
+    assert.equal(fixture.container.querySelector('input').disabled, false);
+    assert.deepEqual(values(fixture.container), { answer: 'Existing answer' });
+    const source = await readFile(new URL('../pages/FormView.jsx', import.meta.url), 'utf8');
+    assert.doesNotMatch(source, /if \(!prefillBooking\) return/);
+    assert.match(source, /if \(!primaryEntity\) \{\s*if \(entityPrefillExpected\) setPrefillApplied\(true\)/);
+    assert.match(source, /if \(shouldBlockForMissingViewerBooking\(/);
+  } finally { await fixture.close(); }
+});
+
 test('no prefill and disabled pending/idle queries never lock a regular form', async () => {
   function Regular() {
     const query = useQuery({ queryKey: ['disabled'], enabled: false, queryFn: () => { throw new Error('must not run'); } });

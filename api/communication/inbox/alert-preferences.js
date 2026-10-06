@@ -5,9 +5,9 @@ import { getTenantContext } from '../../_lib/tenantContext.js';
 
 export function validAlertPatch(body) {
   return body && !Array.isArray(body) && Object.keys(body).length === 1
-    && ['always_hide', 'hide_until_login', 'shown'].includes(Object.keys(body)[0])
+    && ['always_hide', 'hide_until_login', 'acknowledged'].includes(Object.keys(body)[0])
     && typeof Object.values(body)[0] === 'boolean'
-    && (body.shown === undefined || body.shown === true);
+    && (body.acknowledged === undefined || body.acknowledged === true);
 }
 
 export default async function handler(req, res) {
@@ -38,7 +38,7 @@ export default async function handler(req, res) {
     }
     const [preference, login] = await Promise.all([
       supabase.from('member_inbox_alert_preference').select('always_hide').match(scope).maybeSingle(),
-      supabase.from('member_inbox_alert_login').select('hide_until_login,shown').match(loginScope).maybeSingle(),
+      supabase.from('member_inbox_alert_login').select('hide_until_login,acknowledged').match(loginScope).maybeSingle(),
     ]);
     if (preference.error || login.error) throw preference.error || login.error;
     return res.json({
@@ -47,7 +47,7 @@ export default async function handler(req, res) {
       login_key: loginKey,
       always_hide: preference.data?.always_hide === true,
       hide_until_login: login.data?.hide_until_login === true,
-      shown: login.data?.shown === true,
+      acknowledged: login.data?.acknowledged === true,
     });
   } catch {
     return res.status(503).json({ error: 'Could not save or load alert preferences. Please retry.' });

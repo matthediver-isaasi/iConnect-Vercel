@@ -1695,33 +1695,28 @@ useEffect(() => {
   // One-time "you have unread messages" popup shown after login. State lives
   // here; the trigger effect runs later, after `authResolved` is in scope.
   const [inboxPopupOpen, setInboxPopupOpen] = useState(false);
-  const inboxPopupHandledRef = useRef(false);
-  const inboxPopupRecordedRef = useRef(false);
   const alertPreferences = useInboxAlertPreferences({
-    memberInfo, enabled: hasInboxAccess && sessionValidated, sessionKey: sessionRoleSnapshot?.session_key,
+    memberInfo, enabled: hasInboxAccess && sessionValidated,
   });
   const [alertSaveError, setAlertSaveError] = useState(null);
 
-  const handleInboxPopupViewMessages = () => {
-    setInboxPopupOpen(false);
-    navigate("/inbox");
-  };
-
-  const handleInboxPopupHide = (field) => {
-    setInboxPopupOpen(false);
+  const alertScope = `${memberInfo?.tenant_id}:${memberInfo?.id}:${alertPreferences.data?.login_key}`;
+  const activeAlertScope = useRef();
+  activeAlertScope.current = sessionValidated && hasInboxAccess ? alertScope : null;
+  const handleInboxPopupAction = async (field = 'acknowledged', view = false) => {
+    if (alertPreferences.saving) return;
+    const scope = activeAlertScope.current;
     setAlertSaveError(null);
-    alertPreferences.save({ [field]: true }).catch(() => setAlertSaveError(
-      'Your alert preference could not be saved. Open Inbox to retry.',
-    ));
-  };
-
-  // Record display on the server only when a layout actually mounts the popup.
-  const handleInboxPopupShown = () => {
-    if (inboxPopupRecordedRef.current) return;
-    inboxPopupRecordedRef.current = true;
-    alertPreferences.save({ shown: true }).catch(() => setAlertSaveError(
-      'We could not remember this alert for your login. You can still change alert preferences in Inbox.',
-    ));
+    try {
+      await alertPreferences.save({ [field]: true });
+      if (!scope || activeAlertScope.current !== scope) return;
+      setInboxPopupOpen(false);
+      if (view) navigate("/inbox");
+    } catch {
+      if (scope && activeAlertScope.current === scope) setAlertSaveError(
+        'Your choice could not be saved. Please try your action again.',
+      );
+    }
   };
 
   // Mapping of page names to their correct feature IDs
@@ -1953,18 +1948,16 @@ useEffect(() => {
   useEffect(() => {
     // Reset the per-session guard whenever the signed-in member changes so a new
     // login (or account switch) can show the popup again.
-    inboxPopupHandledRef.current = false;
-    inboxPopupRecordedRef.current = false;
     setInboxPopupOpen(false);
     setAlertSaveError(null);
-  }, [memberInfo?.id, memberInfo?.tenant_id, alertPreferences.data?.login_key]);
+  }, [memberInfo?.id, memberInfo?.tenant_id, alertPreferences.data?.login_key, sessionValidated]);
 
   useEffect(() => {
-    if (location.pathname.toLowerCase() === '/inbox' && alertPreferences.ready
-      && !alertPreferences.data?.shown) {
-      inboxPopupHandledRef.current = false;
-      inboxPopupRecordedRef.current = false;
+    if (!sessionValidated || location.pathname.toLowerCase() === '/inbox'
+      || alertPreferences.data?.acknowledged || alertPreferences.data?.always_hide
+      || alertPreferences.data?.hide_until_login) {
       setInboxPopupOpen(false);
+      return;
     }
     // Wait until auth is resolved and the member can actually reach the inbox.
     if (!authResolved || !hasInboxAccess || !alertPreferences.ready
@@ -1973,14 +1966,10 @@ useEffect(() => {
       || location.pathname.toLowerCase() === '/inbox') return;
     const memberId = memberInfo?.id;
     if (!memberId) return;
-    // Show once per session; navigating around must not re-trigger it.
-    if (inboxPopupHandledRef.current) return;
-
     // Legacy browser watermarks are deliberately no longer consulted.
-    if (!inboxUnreadSummary.unreadCount || alertPreferences.data?.shown) return;
-    inboxPopupHandledRef.current = true;
+    if (!inboxUnreadSummary.unreadCount) return;
     setInboxPopupOpen(true);
-  }, [authResolved, hasInboxAccess, memberInfo?.id, inboxUnreadSummary,
+  }, [authResolved, sessionValidated, hasInboxAccess, memberInfo?.id, inboxUnreadSummary,
     alertPreferences.ready, alertPreferences.saving, alertPreferences.data, location.pathname]);
 
   // Check if page is truly public (not hybrid with member logged in)
@@ -2830,20 +2819,19 @@ useEffect(() => {
   // true for members with access, so guests never see it.
   const inboxUnreadPopupElement = hasInboxAccess ? (
     <>
-    {alertSaveError && <div role="alert" className="fixed bottom-4 right-4 z-50 max-w-sm rounded border bg-background p-4 shadow">
-      {alertSaveError} <Link to="/inbox" className="underline">Alert preferences</Link>
-    </div>}
     <InboxUnreadPopup
-      open={inboxPopupOpen && !!alertPreferences.data && !alertPreferences.loadError
+      open={inboxPopupOpen && sessionValidated && !!alertPreferences.data
+        && !alertPreferences.data?.acknowledged
         && !alertPreferences.data?.always_hide && !alertPreferences.data?.hide_until_login
         && location.pathname.toLowerCase() !== '/inbox'}
       unreadCount={inboxUnreadSummary.unreadCount}
       latestSubject={inboxUnreadSummary.latestSubject}
-      onViewMessages={handleInboxPopupViewMessages}
-      onHideUntilLogin={() => handleInboxPopupHide('hide_until_login')}
-      onAlwaysHide={() => handleInboxPopupHide('always_hide')}
-      onSoftClose={() => setInboxPopupOpen(false)}
-      onShown={handleInboxPopupShown}
+      onViewMessages={() => handleInboxPopupAction('acknowledged', true)}
+      onHideUntilLogin={() => handleInboxPopupAction('hide_until_login')}
+      onAlwaysHide={() => handleInboxPopupAction('always_hide')}
+      onSoftClose={() => handleInboxPopupAction()}
+      saving={alertPreferences.saving}
+      error={alertSaveError}
     />
     </>
   ) : null;

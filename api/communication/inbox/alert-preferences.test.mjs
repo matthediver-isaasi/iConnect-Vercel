@@ -40,6 +40,7 @@ test('self-service API scopes reads and writes, fences stale browsers, and never
   assert.equal(read.code, 200);
   assert.equal(read.headers['Cache-Control'], 'private, no-store');
   assert.equal(read.body.always_hide, false);
+  assert.equal(read.body.acknowledged, false);
   assert.equal(JSON.stringify(read.body).includes(state.session.id), false);
   assert.deepEqual(state.reads[0].scope, { tenant_id: 'tenant', member_id: 'member' });
   assert.equal((await call('PATCH', body)).code, 200);
@@ -50,10 +51,12 @@ test('self-service API scopes reads and writes, fences stale browsers, and never
   for (const patch of [
     { ...body, member_id: 'foreign' }, { ...body, tenant_id: 'foreign' }, { ...body, login_key: 'older-login' },
   ]) assert.equal((await call('PATCH', patch)).code, 409);
-  for (const preference of [{ is_read: true }, { shown: false }, { always_hide: 'true' }, { always_hide: true, hide_until_login: true }]) {
+  for (const preference of [{ is_read: true }, { shown: false }, { shown: true }, { acknowledged: false }, { always_hide: 'true' }, { always_hide: true, hide_until_login: true }]) {
     assert.equal((await call('PATCH', { ...body, preference })).code, 400);
   }
   assert.equal(state.writes.length, 1);
+  assert.equal((await call('PATCH', { ...body, preference: { acknowledged: true } })).code, 200);
+  assert.equal(state.writes.at(-1).params.p_field, 'acknowledged');
   state.fail = true;
   assert.equal((await call('GET')).code, 503);
   assert.equal((await call('PATCH', body)).code, 503);

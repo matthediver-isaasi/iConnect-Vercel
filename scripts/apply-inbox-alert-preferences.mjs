@@ -17,8 +17,9 @@ try {
   await client.query('BEGIN');
   await client.query("SET LOCAL lock_timeout='10s'; SET LOCAL statement_timeout='120s'");
   await client.query(await readFile('supabase/migrations/20261006_inbox_alert_preferences.sql', 'utf8'));
+  await client.query(await readFile('supabase/migrations/20261006_inbox_alert_acknowledgment.sql', 'utf8'));
   await client.query('COMMIT');
-  console.log('Applied 20261006_inbox_alert_preferences.sql to pinned DEST Supabase. SOURCE unchanged.');
+  console.log('Applied 20261006_inbox_alert_preferences.sql and 20261006_inbox_alert_acknowledgment.sql to pinned DEST Supabase. SOURCE unchanged.');
 } catch (error) {
   await client.query('ROLLBACK');
   console.error('Migration failed:', error.code || 'unknown', error.message.replace(/postgres(?:ql)?:\/\/\S+/g, '[redacted]'));

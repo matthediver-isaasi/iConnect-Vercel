@@ -38,12 +38,24 @@ test('popup preferences isolate members, tenants, and logins; patch independentl
     patch('shown', true);
     assert.equal(sql('SELECT hide_until_login AND shown FROM member_inbox_alert_login'), 't');
     patch('always_hide', true);
+    const migration = await readFile('supabase/migrations/20261006_inbox_alert_acknowledgment.sql', 'utf8');
+    sql(migration);
+    sql(migration);
+    assert.equal(sql('SELECT acknowledged FROM member_inbox_alert_login'), 'f');
+    assert.equal(sql('SELECT hide_until_login FROM member_inbox_alert_login'), 't');
+    assert.equal(sql('SELECT always_hide FROM member_inbox_alert_preference'), 't');
+    patch('acknowledged', true);
+    assert.equal(sql('SELECT acknowledged FROM member_inbox_alert_login'), 't');
     patch('shown', true, 'login-two');
+    assert.equal(sql("SELECT acknowledged FROM member_inbox_alert_login WHERE sid='login-two'"), 'f');
+    patch('acknowledged', true, 'login-two');
     assert.equal(sql("SELECT hide_until_login FROM member_inbox_alert_login WHERE sid='login-two'"), 'f');
     assert.equal(sql(`SELECT always_hide FROM member_inbox_alert_preference WHERE member_id='${m}' AND tenant_id='${t}'`), 't');
     assert.equal(sql(`SELECT count(*) FROM member_inbox_alert_preference WHERE member_id='${other}' OR tenant_id='${other}'`), '0');
     patch('hide_until_login', false);
     assert.equal(sql("SELECT shown FROM member_inbox_alert_login WHERE sid='login-one'"), 'f');
+    assert.equal(sql("SELECT acknowledged FROM member_inbox_alert_login WHERE sid='login-one'"), 'f');
+    assert.equal(sql("SELECT acknowledged FROM member_inbox_alert_login WHERE sid='login-two'"), 't');
     assert.equal(sql("SELECT shown FROM member_inbox_alert_login WHERE sid='login-two'"), 't');
     for (const role of ['anon', 'authenticated']) {
       const denied = spawnSync('psql', args, { encoding: 'utf8', input: `SET ROLE ${role}; SELECT * FROM member_inbox_alert_preference;` });

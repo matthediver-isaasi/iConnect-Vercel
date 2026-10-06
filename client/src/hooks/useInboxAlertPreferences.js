@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useMutation, useMutationState, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLayoutContext } from '@/contexts/LayoutContext';
 
@@ -9,8 +9,11 @@ export function useInboxAlertPreferences(override) {
   const context = useLayoutContext();
   const member = override?.memberInfo ?? context.memberInfo;
   const enabled = override ? override.enabled : context.authResolved && context.sessionValidated;
-  const epoch = override ? override.sessionKey : context.sessionRoleSnapshot?.session_key;
-  const key = ['inbox-alert-preferences', member?.tenant_id, member?.id, epoch];
+  // Role-validation epochs are not authenticated-login boundaries.
+  const key = ['inbox-alert-preferences', member?.tenant_id, member?.id];
+  const scope = JSON.stringify(key);
+  const active = useRef();
+  active.current = { scope, validated: context.sessionValidated };
   const client = useQueryClient();
   async function request(patch, signal) {
     const res = await fetch(endpoint, {
@@ -23,7 +26,7 @@ export function useInboxAlertPreferences(override) {
     const data = await res.json();
     if (data.member_id !== member?.id || data.tenant_id !== member?.tenant_id
       || typeof data.login_key !== 'string' || typeof data.always_hide !== 'boolean'
-      || typeof data.hide_until_login !== 'boolean' || typeof data.shown !== 'boolean') throw new Error('Alert preference session changed. Please retry.');
+       || typeof data.hide_until_login !== 'boolean' || typeof data.acknowledged !== 'boolean') throw new Error('Alert preference session changed. Please retry.');
     return data;
   }
   const query = useQuery({
@@ -33,7 +36,15 @@ export function useInboxAlertPreferences(override) {
   });
   const pending = useMutationState({ filters: { mutationKey: key, status: 'pending' }, select: m => m.state.variables });
   const mutation = useMutation({
-    mutationKey: key, mutationFn: patch => request(patch),
+    mutationKey: key, mutationFn: async patch => {
+      const login = client.getQueryData(key)?.login_key;
+      const data = await request(patch);
+      if (active.current.scope !== scope || !active.current.validated
+        || data.login_key !== login || client.getQueryData(key)?.login_key !== login) {
+        throw new Error('Alert preference session changed. Please retry.');
+      }
+      return data;
+    },
     onMutate: async () => { await client.cancelQueries({ queryKey: key }); },
     onSuccess: data => {
       client.setQueryData(key, data);
@@ -43,13 +54,19 @@ export function useInboxAlertPreferences(override) {
   });
   useEffect(() => {
     const refresh = event => {
-      if (event.key === signalKey || event.key === 'agcas_member') {
+      if (event.key === signalKey) {
+        // Preserve last resolved data during ordinary cross-tab refreshes.
+        client.invalidateQueries({ queryKey: key });
+      } else if (event.key === 'agcas_member') {
         client.resetQueries({ queryKey: key });
       }
     };
     window.addEventListener('storage', refresh);
     return () => window.removeEventListener('storage', refresh);
-  }, [client, member?.id, member?.tenant_id, epoch]);
+  }, [client, member?.id, member?.tenant_id]);
+  useEffect(() => {
+    if (!context.sessionValidated) client.removeQueries({ queryKey: key });
+  }, [client, scope, context.sessionValidated]);
   return {
     data: query.data,
     ready: !!enabled && query.isSuccess && !query.isFetching && !query.isError,

@@ -1301,7 +1301,10 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     let memberEntity, orgEntity, activeMemberCustomValues, activeOrgCustomValues;
     
     if (form.prefill_source === 'booking') {
-      if (!prefillBooking) return;
+      // A successful viewer lookup may legitimately contain no booking for a
+      // non-event form. Let the empty-primary-entity branch settle the barrier
+      // without writing answers; the separate noBooking render gate still
+      // denies event-linked forms whose viewer has no qualifying booking.
       memberEntity = prefillBookingMember;
       orgEntity = prefillBookingOrg;
       activeMemberCustomValues = prefillBookingMemberCustomValues;

@@ -22,24 +22,17 @@ export default function InboxUnreadPopup({
   onHideUntilLogin,
   onAlwaysHide,
   onSoftClose,
-  onShown,
+  saving,
+  error,
 }) {
   const count = unreadCount || 0;
   const messageWord = count === 1 ? "message" : "messages";
-
-  // Fire onShown only when the popup is actually mounted AND open, so the
-  // login display guard is written at display time and never
-  // when the popup was suppressed (e.g. a layout branch that didn't mount it).
-  React.useEffect(() => {
-    if (open) onShown?.();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
 
   return (
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        if (!next) onSoftClose?.();
+        if (!next && !saving) onSoftClose?.();
       }}
     >
       <DialogContent className="max-w-md" data-testid="dialog-inbox-unread">
@@ -61,20 +54,24 @@ export default function InboxUnreadPopup({
             </DialogDescription>
           )}
         </DialogHeader>
+        {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+        {saving && <p role="status" className="text-sm">Saving…</p>}
 
         <DialogFooter className="gap-2 sm:gap-2 sm:flex-col">
           <Button
             variant="ghost"
+            disabled={saving}
             onClick={() => onHideUntilLogin?.()}
             data-testid="button-hide-until-login"
           >
             Hide alert until next login
           </Button>
-          <Button variant="ghost" onClick={() => onAlwaysHide?.()} data-testid="button-always-hide">
+          <Button disabled={saving} variant="ghost" onClick={() => onAlwaysHide?.()} data-testid="button-always-hide">
             Always hide alert
           </Button>
           <Button
             variant="default"
+            disabled={saving}
             onClick={() => onViewMessages?.()}
             data-testid="button-view-messages"
           >
