@@ -1,7 +1,8 @@
 # BNMS invoicing-address mapping audit
 
-This is a read-only proposal, not an approved backfill. No application behavior,
-database data or schema was changed. No migration is necessary or applied.
+The original audit below was read-only. The owner subsequently authorized the
+215 clear copies; see the completed-copy section below. No schema migration
+was necessary or applied.
 
 ## Reproduction and private evidence
 
@@ -65,3 +66,30 @@ appropriate for these organisation fields. Any later writer must re-read and
 compare the original source, exact field IDs, definitions and existing values
 against this snapshot; changed records require new review. Do not overwrite
 the conflicting record or apply ambiguous proposals.
+
+## Completed owner-approved copy — 2026-10-06
+
+The ignored audit inputs were not transferred by the task merge. A fresh
+read-only DEST audit reproduced the 477 / 215 clear / 728 blank-fill / 262 manual
+counts before execution. This was fresh classification using the merged
+deterministic mapper, not a claim that the unavailable historical snapshot was
+byte-identical.
+
+`scripts/apply-bnms-address-copy.mjs` defaults to dry-run and requires the exact
+fresh snapshot SHA-256 for apply. It pins the BNMS tenant and destination
+project, validates definitions, and compares sources and stored values inside
+a short locked transaction before any writes. The completed transaction filled
+728 blank fields across 215 organisations on production DEST. All pre-existing
+nonblank values, source addresses and excluded organisations were preserved.
+An independent post-commit read matched the verified transaction state.
+
+Private snapshot, pre-write plan, precommit verification and committed receipt
+are under `private/bnms-address-audit/`; never commit them. Do not regenerate
+over this snapshot or remove the receipt to rerun the writer.
+
+The manual-entry CSV contains 262 organisations (123 ambiguous/conflicting,
+139 without source addresses), existing destination values and blanks for
+missing values. It includes Organisation ID because names are not unique.
+Retain IDs and treat postcodes as text when editing; do not import by name only.
+No source addresses or ambiguous proposals are prefilled as destination values.
+No schema migration or application deployment was performed.

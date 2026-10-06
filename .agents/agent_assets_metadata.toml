@@ -1195,3 +1195,17 @@ mtime_ms = 1791263627490
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/315c166c-471f-4e24-ab9d-78e27b67de04/86e9541d-8a05-4aa7-aa26-f1f48da01577"
 storage_version_token = "1791263689412895"
 content_type = "text/html"
+
+[[outputs]]
+id = "0a4p5QHrRItLu44Jhhd5M"
+uri = "file://private/bnms-address-audit/organisations-for-manual-address-entry.csv"
+type = "table"
+title = "BNMS organisations — manual address entry"
+description = "262 organisations needing manual completion. Organisation name, stable ID and seven address columns. Existing values retained; missing values blank. Keep IDs unchanged and postcodes as text."
+logical_id = "dcfbfc0c-f6f4-4d2f-8d98-75918370392f"
+content_hash = "sha256:23a985e4973ba6885665de683a9c9b7ba227fbbde5bde082470da787f6fa6104"
+size = 28948
+mtime_ms = 1791264742840
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/dcfbfc0c-f6f4-4d2f-8d98-75918370392f/55b7f852-a908-46f1-a343-3e7cea4829c8"
+storage_version_token = "1791264777383741"
+content_type = "text/csv"
