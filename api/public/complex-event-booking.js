@@ -147,7 +147,7 @@ export default async function handler(req, res) {
 
     const { data: event, error: eventError } = await supabase
       .from('complex_event')
-      .select('id, title, status, event_state, tenant_id, member_group_id, available_seats, internal_reference, xero_account_code, pricing_config, dietary_options, allergy_options, accessibility_options, start_date, allow_public_invoice_po')
+      .select('id, title, status, event_state, tenant_id, member_group_id, group_event_public, available_seats, internal_reference, xero_account_code, pricing_config, dietary_options, allergy_options, accessibility_options, start_date, allow_public_invoice_po')
       .eq('id', event_id)
       .eq('tenant_id', tenant.id)
       .in('status', ['published', 'tbc'])
@@ -334,13 +334,13 @@ export default async function handler(req, res) {
     // only register themselves — no colleagues, external attendees, or buy-N.
     // Reject any booking that attempts to add extra/other attendees.
     if (event.member_group_id) {
-      // Task #3508: only ACTIVE members of the linked member group may book a
-      // group event. Everyone can view the event, but booking requires
-      // membership of the group.
-      if (!authenticatedMember) {
+      // Public audience bypasses group membership, never ticket eligibility or
+      // the self-only attendee limit. Only the stored boolean grants access.
+      if (event.group_event_public !== true && !authenticatedMember) {
         return res.status(401).json({ error: 'You must be logged in as a member of this event\'s group to book' });
       }
-      const isGroupMember = await isActiveMemberOfGroup(supabase, authenticatedMember.id, event.member_group_id);
+      const isGroupMember = event.group_event_public === true ||
+        await isActiveMemberOfGroup(supabase, authenticatedMember.id, event.member_group_id);
       if (!isGroupMember) {
         return res.status(403).json({ error: 'Only members of this event\'s group can book this event. Join the group to attend.' });
       }
@@ -360,6 +360,8 @@ export default async function handler(req, res) {
         if (!callerEmail || attendeeEmail !== callerEmail) {
           return res.status(403).json({ error: 'Group events only allow self-registration' });
         }
+      } else if (purchaserInfo?.email && String(purchaserInfo.email).trim().toLowerCase() !== String(groupEventAttendees[0]?.email || '').trim().toLowerCase()) {
+        return res.status(403).json({ error: 'Group events only allow self-registration' });
       }
     }
 

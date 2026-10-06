@@ -489,7 +489,7 @@ export default function PaymentOptions({
   const purchaseRequestFingerprint = useRef(null);
   const getPurchaseRequestId = () => {
     const fingerprint = JSON.stringify({
-      purchaser: requiresPurchaserIdentity ? purchaseIdentity(purchaserInfo) : purchaseIdentity(guestInfo),
+      purchaser: requiresPurchaserIdentity ? purchaseIdentity(purchaserInfo) : purchaseIdentity(guestInfo || {}),
       attendees: attendees.map(purchaseIdentity),
       tickets: memberCreationTickets.map(ticket => [ticket.id, ticket.new_member_role_id]),
     });
@@ -516,7 +516,7 @@ export default function PaymentOptions({
     job_title: guestInfo?.job_title || ''
   }));
   const selfBookingChoiceRequired = requiresPurchaserIdentity && isGuestCheckout
-    && !isComplexEvent && guestBookingForSelf !== undefined;
+    && (!isComplexEvent || !!event?.member_group_id) && guestBookingForSelf !== undefined;
   const purchaserInfo = selfBookingChoiceRequired && guestBookingForSelf === true
     ? purchaseIdentity(guestInfo) : separatePurchaserInfo;
   const showPurchaserFields = requiresPurchaserIdentity

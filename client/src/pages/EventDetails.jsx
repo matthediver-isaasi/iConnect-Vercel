@@ -1037,7 +1037,7 @@ export function EventDetailsExperience({
   // No colleagues / external / multi-attendee booking is permitted.
   const isGroupEvent = !!event?.member_group_id;
 
-  // Task #3508: group events are viewable by everyone but bookable only by
+  // Group-only events are viewable by direct link but bookable only by
   // members of the linked group. When the viewer isn't a group member the
   // right-hand booking pane is replaced by a "join the group" dialogue.
   // Waits for auth resolution / group-id load to avoid flashing the gate at
@@ -1045,11 +1045,15 @@ export function EventDetailsExperience({
   // my-groups endpoint, which applies the canonical ACTIVE-member definition
   // (unexpired assignment + active group) — matching the server booking guard.
   const { data: myActiveGroupIds = [], isFetched: myActiveGroupIdsFetched } = useMyGroupIds();
-  const joinGroupGateActive = isGroupEvent && (
+  const joinGroupGateActive = isGroupEvent && event.group_event_public !== true && (
     currentMemberInfo
       ? (myActiveGroupIdsFetched && !(myActiveGroupIds || []).includes(event.member_group_id))
       : !!authResolved
   );
+
+  useEffect(() => {
+    if (isGroupEvent) setGuestBookingForSelf(true);
+  }, [isGroupEvent]);
 
   // Role-based permission checks for registration buttons
   const canRoleSelfRegister = !isFeatureExcluded || !isFeatureExcluded('element_SelfRegistration');
@@ -2085,7 +2089,7 @@ export function EventDetailsExperience({
                 {/* Guest Registration Form - shown for non-logged-in users */}
                 {isGuestCheckout ? (
                   <div className="space-y-4">
-                    {ticketMemberPolicy(selectedTicketClass).create_member_records && (
+                    {!isGroupEvent && ticketMemberPolicy(selectedTicketClass).create_member_records && (
                       <fieldset className="space-y-2 rounded-lg border border-slate-200 p-4">
                         <legend className="px-1 font-medium">Are you booking for yourself?</legend>
                         <label className="flex items-center gap-2">

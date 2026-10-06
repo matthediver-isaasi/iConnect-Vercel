@@ -6,6 +6,7 @@ import { simpleEvent, complexEvent } from './fixtures/task-4629-event-display.fi
 import { createLegacySimpleHarness } from './fixtures/ticketReleaseLegacyHandlers.mjs';
 
 const stubs = {
+  '@/components/auth/useEventLogin': `export const useEventLogin = () => ({ openLogin: () => {}, loginModal: null });`,
   '@stripe/stripe-js': `export const loadStripe = async () => ({});`,
   '@stripe/react-stripe-js': `
     export const Elements = ({ children }) => children;
@@ -30,6 +31,10 @@ const stubs = {
     export const publicClient = {
       getComplexEvent: async () => structuredClone(window.fixture.event),
       getComplexEventSessions: async () => [],
+      submitComplexEventBooking: async payload => {
+        window.fixture.calls.push({ name: 'complexBooking', payload });
+        return { success: true, bookings: [{ id: 'fixture-booking' }] };
+      },
       createComplexEventPaymentIntent: async payload => {
         window.fixture.calls.push({ name: 'complexPaymentIntent', payload });
         return { error: 'Fixture records requests without calling a payment provider' };
@@ -53,10 +58,11 @@ const stubs = {
     import { useQuery } from '@tanstack/react-query';
     export const useEventData = id => useQuery({ queryKey: ['fixture-event', id], queryFn: async () => structuredClone(window.fixture.event) });
     export const useEventDataBySlug = () => ({ data: null, isLoading: false });
-    export const useMyGroupIds = () => ({ data: [], isFetched: true });`,
+    export const useMyGroupIds = () => ({ data: window.fixture.activeGroup ? ['group-a'] : [], isFetched: true });`,
   '@/hooks/useMemberAccess': `
     export const useMemberAccess = () => ({
       memberInfo: window.fixture.member || null, organizationInfo: null, memberRole: null, authResolved: true,
+      sessionValidated: true, roleStatus: 'ready',
       isAdmin: false, isFeatureExcluded: () => false, reloadMemberInfo: async () => {},
       refreshOrganizationInfo: async () => {},
     });`,
@@ -93,7 +99,7 @@ test.beforeAll(async () => {
           <Experience eventId={window.fixture.event.id} embedded={window.fixture.embedded} allocationToken={window.fixture.allocation ? 'fixture-token' : null} />
         </BrowserRouter></QueryClientProvider>
       );` },
-    bundle: true, write: false, jsx: 'automatic',
+    bundle: true, write: false, outfile: '/tmp/group-registration-fixture.js', jsx: 'automatic',
     define: { 'process.env.NODE_ENV': '"test"', 'import.meta.env.DEV': 'false' },
     plugins: [{
       name: 'isolated-ticket-release-fixtures',
@@ -122,7 +128,7 @@ const message = 'Tickets available from 1 June 2026 at 10:01 (Europe/London)';
 
 async function mount(page, {
   complex = false, embedded = false, tickets = [upcoming], allocation = false,
-  legacy = null, price = 0, backendEnabled = false,
+  legacy = null, price = 0, backendEnabled = false, group = false, publicFlag = true, signedIn = false, activeGroup = false,
 } = {}) {
   const event = (complex ? complexEvent : simpleEvent)('release-fixture', 'hidden', 'hidden');
   event.start_date = '2099-06-01T09:00:00Z';
@@ -130,12 +136,17 @@ async function mount(page, {
   event.event_type = 'one_off';
   event.speaker_ids = [];
   event.pricing_config = { ticket_classes: tickets };
+  if (group) {
+    event.member_group_id = 'group-a';
+    event.group_event_public = publicFlag;
+    event.member_group_name = 'Fixture group';
+  }
   if (legacy === 'default') event.pricing_config = { ticket_price: price };
   if (legacy === 'absent') {
     delete event.pricing_config;
     event.ticket_price = price;
   }
-  const member = legacy ? {
+  const member = legacy || signedIn ? {
     id: 'legacy-member', email: 'legacy@example.invalid', first_name: 'Legacy', last_name: 'Member',
   } : null;
   await page.route('**/*', route => route.request().url().startsWith('http://ticket-release.fixture/')
@@ -153,8 +164,45 @@ async function mount(page, {
       if ((options.method || 'GET') !== 'GET') throw new Error('Fixture rejects all network writes');
       return new Response('[]', { headers: { 'Content-Type': 'application/json' } });
     };
-  }, { event, complex, embedded, allocation, member, backendEnabled });
+  }, { event, complex, embedded, allocation, member, backendEnabled, activeGroup });
   await page.addScriptTag({ content: script });
+}
+
+for (const complex of [false, true]) {
+  for (const identity of ['guest', 'non-group', 'active']) {
+    test(`public group ${complex ? 'complex' : 'simple'} ${identity} shows self registration`, async ({ page }) => {
+      await mount(page, { complex, group: true, signedIn: identity !== 'guest', activeGroup: identity === 'active', tickets: [{ ...available, price: 0 }] });
+      await expect(page.getByTestId('card-join-group-to-book')).toHaveCount(0);
+      if (complex) {
+        await page.getByTestId('button-add-attendee-available').click();
+        if (identity === 'guest') {
+          await expect(page.getByTestId('tab-external')).toHaveText('Myself');
+          await page.getByTestId('input-external-first-name').fill('Fixture');
+          await page.getByTestId('input-external-last-name').fill('Guest');
+          await page.getByTestId('input-external-email').fill('guest@example.invalid');
+          await page.getByTestId('button-add-external').click();
+        } else await page.getByTestId('button-register-myself').click();
+        await expect(page.getByTestId('button-add-attendee-available')).toBeDisabled();
+      } else if (identity === 'guest') {
+        await page.locator('#guest-first-name').fill('Fixture');
+        await page.locator('#guest-last-name').fill('Guest');
+        await page.locator('#guest-email').fill('guest@example.invalid');
+        await page.getByTestId('input-guest-organization').fill('Fixture');
+        await expect(page.getByText('No — I’m booking for someone else')).toHaveCount(0);
+      }
+      await expect(page.locator('#confirm-booking-button')).toBeEnabled();
+      await page.locator('#confirm-booking-button').click();
+      await expect.poll(() => page.evaluate(() => window.fixture.calls.some(c => ['createOneOffEventBooking', 'complexBooking'].includes(c.name)))).toBe(true);
+    });
+  }
+  for (const publicFlag of [false, null]) {
+    test(`private group ${complex ? 'complex' : 'simple'} ${publicFlag} keeps join CTA`, async ({ page }) => {
+      await mount(page, { complex, group: true, publicFlag, tickets: [{ ...available, price: 0 }] });
+      await expect(page.getByTestId('card-join-group-to-book')).toBeVisible();
+      await expect(page.getByTestId('button-join-group')).toContainText('Log in to join');
+      await expect(page.locator('#confirm-booking-button')).toHaveCount(0);
+    });
+  }
 }
 
 for (const embedded of [false, true]) {
@@ -253,8 +301,8 @@ for (const legacy of ['default', 'absent']) {
     test(`legacy ${legacy} ${price ? 'paid' : 'free'} browser payload reaches real booking handlers`, async ({ page }) => {
       await mount(page, { legacy, price, backendEnabled: true });
       const event = await page.evaluate(() => window.fixture.event);
-      const harness = createLegacySimpleHarness({ event });
       const member = await page.evaluate(() => window.fixture.member);
+      const harness = createLegacySimpleHarness({ event, sessionMember: { ...member, tenant_id: 'tenant-a' } });
       harness.rows.member.push({ ...member, tenant_id: 'tenant-a' });
       const results = [];
       await page.exposeFunction('legacyBackendInvoke', async (name, body) => {

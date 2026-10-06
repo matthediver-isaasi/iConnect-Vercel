@@ -60,11 +60,12 @@ function database(seed) {
   };
 }
 
-async function invoke(file, tickets, extraPricing = {}) {
+async function invoke(file, tickets, extraPricing = {}, eventOverrides = {}) {
   const event = {
     id: 'event-a', tenant_id: 'tenant-a', title: 'Event', slug: 'event-a',
     status: 'published', start_date: '2036-01-01T12:00:00Z',
     pricing_config: { ticket_classes: tickets, ...extraPricing },
+    ...eventOverrides,
   };
   globalThis[slot] = database({
     event: [event], complex_event: [event],
@@ -88,6 +89,16 @@ const scheduled = {
   is_unlimited_tickets: true, ...release,
   early_bird_enabled: true, early_bird_price: 55, early_bird_deadline: '2035-08-01T00:00:00Z',
 };
+
+for (const file of ['./event.js', './complex-event.js']) {
+  for (const flag of [true, false, undefined, 'true']) {
+    test(`${file} projects stored group audience strictly: ${String(flag)}`, async () => {
+      const payload = await invoke(file, [scheduled], {}, { member_group_id: 'group-a', group_event_public: flag });
+      assert.equal(payload.member_group_id, 'group-a');
+      assert.equal(payload.group_event_public, flag === true);
+    });
+  }
+}
 
 for (const file of ['./event.js', './events.js', './complex-event.js', './complex-events.js']) {
   test(`${file} preserves future-release metadata and early bird prices without hiding upcoming tickets`, async () => {

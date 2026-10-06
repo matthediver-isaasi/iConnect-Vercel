@@ -49,7 +49,7 @@ async function loadHandler() {
   return (await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`)).default;
 }
 
-export function createLegacySimpleHarness({ event: eventInput = {} } = {}) {
+export function createLegacySimpleHarness({ event: eventInput = {}, sessionMember = null } = {}) {
   const event = { id: 'event-a', tenant_id: 'tenant-a', title: 'Legacy event',
     status: 'published', event_state: 'active', available_seats: 20, ...eventInput };
   const rows = { event: [event], booking: [], member: [], organization: [],
@@ -60,9 +60,9 @@ export function createLegacySimpleHarness({ event: eventInput = {} } = {}) {
       if (!(table in rows)) unexpected.push(`table:${table}`);
       assert.ok(table in rows, `Unexpected table ${table}`);
       const filters = [];
-      let singular = false, operation = 'select', value;
+      let singular = false, operation = 'select', value, fields = '*';
       const q = {
-        select() { return q; }, eq(k, v) { filters.push(r => r[k] === v); return q; },
+        select(columns = '*') { fields = columns; return q; }, eq(k, v) { filters.push(r => r[k] === v); return q; },
         ilike(k, v) { filters.push(r => String(r[k]).toLowerCase() === v.toLowerCase()); return q; },
         in(k, values) { filters.push(r => values.includes(r[k])); return q; },
         neq(k, v) { filters.push(r => r[k] !== v); return q; },
@@ -80,7 +80,10 @@ export function createLegacySimpleHarness({ event: eventInput = {} } = {}) {
             rows[table].push(...selected);
           } else if (operation === 'update') selected.forEach(r => Object.assign(r, value));
           else if (operation === 'delete') rows[table] = rows[table].filter(r => !selected.includes(r));
-          return Promise.resolve({ data: singular ? selected[0] || null : selected, error: null, count: selected.length }).then(ok, fail);
+          const projected = fields === '*' ? selected : selected.map(row => Object.fromEntries(
+            fields.split(',').map(field => field.trim()).map(field => [field, row[field]]),
+          ));
+          return Promise.resolve({ data: singular ? projected[0] || null : projected, error: null, count: selected.length }).then(ok, fail);
         },
         catch(fail) { return q.then(x => x, fail); },
       };
@@ -115,7 +118,12 @@ export function createLegacySimpleHarness({ event: eventInput = {} } = {}) {
       if (name === 'createClient') return db;
       if (name === 'resolveTenantFromRequest') return { id: event.tenant_id };
       if (name === 'getTenantContext') return { tenantId: event.tenant_id };
-      if (name === 'getSessionMember' || name === 'getSession') return null;
+      if (name === 'getSessionMember') return sessionMember;
+      if (name === 'needsPublicTicketMemberCreation') return false;
+      if (name === 'loadPublicTicketPurchase') return null;
+      if (name === 'eventInvoiceContact') return {};
+      if (name === 'enqueueCheckoutEventInvoice') return { queued: true };
+      if (name === 'getSession') return null;
       if (name === 'getStripeClient' || name === 'Stripe') return stripe;
       if (name === 'getStripeCredentials') return { secret_key: 'fixture', is_enabled: true };
       if (name === 'findOrCreateStripeCustomer') return { id: 'cus_legacy_fixture' };

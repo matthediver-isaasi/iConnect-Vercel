@@ -43,7 +43,7 @@ export default async function handler(req, res) {
 
     let query = supabase
       .from('complex_event')
-      .select('id, title, slug, description, summary, image_url, image_focal_point, start_date, end_date, location, status, timezone, available_seats, event_state, event_type, filter_tags, program_tag, member_group_id, registration_closes_at, is_unlimited_registration, show_seat_count, show_ticket_availability, pricing_config, cta_override_url, cta_override_mode, cta_button_label, replace_booking_elements, booking_replacement_message, booking_replacement_cta_label, booking_replacement_title, attached_documents, documents_section_title, custom_duration_explainer, allow_public_invoice_po, speaker_display_mode, sponsor_display_mode')
+      .select('id, title, slug, description, summary, image_url, image_focal_point, start_date, end_date, location, status, timezone, available_seats, event_state, event_type, filter_tags, program_tag, member_group_id, group_event_public, registration_closes_at, is_unlimited_registration, show_seat_count, show_ticket_availability, pricing_config, cta_override_url, cta_override_mode, cta_button_label, replace_booking_elements, booking_replacement_message, booking_replacement_cta_label, booking_replacement_title, attached_documents, documents_section_title, custom_duration_explainer, allow_public_invoice_po, speaker_display_mode, sponsor_display_mode')
       .eq('tenant_id', tenant.id)
       .in('status', ['published', 'tbc', 'draft']);
 
@@ -175,6 +175,7 @@ export default async function handler(req, res) {
       filter_tags: event.filter_tags || [],
       program_tag: event.program_tag || null,
       member_group_id: event.member_group_id || null,
+      group_event_public: event.group_event_public === true,
       member_group_name: memberGroupName,
       registration_closes_at: event.registration_closes_at || null,
       is_unlimited_registration: event.is_unlimited_registration !== false,

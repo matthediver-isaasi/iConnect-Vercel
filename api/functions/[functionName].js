@@ -7,7 +7,7 @@ import { needsPublicTicketMemberCreation } from '../_lib/publicTicketMemberCreat
 import { enqueueCheckoutEventInvoice, eventInvoiceContact, simpleEventInvoiceLines } from '../_lib/eventInvoiceProducer.js';
 import { PUBLIC_INVOICE_PO, validatePublicInvoicePo, requirePublicInvoicePoBalance } from '../_lib/publicInvoicePo.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
-import { resolveTicketPrice } from '../_lib/complexEventPricing.js';
+import { resolveTicketPrice, isTicketVisibleToUser } from '../_lib/complexEventPricing.js';
 import crypto from 'crypto';
 import { getSession, getSessionMember } from '../_lib/session.js';
 import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
@@ -1993,6 +1993,26 @@ const functionHandlers = {
 
     // Completed payments stay idempotent even if a ticket is rescheduled later.
     const provisioningTicket = (event.pricing_config?.ticket_classes || []).find(ticket => String(ticket.id) === String(ticketClassId));
+    // A submitted email is not authentication, even when the event is public.
+    // Only genuine guest purchases may proceed without a matching session.
+    let bookingSessionMember = null;
+    try {
+      bookingSessionMember = req ? await getSessionMember(req) : null;
+    } catch {
+      return { success: false, error: 'Unable to verify booking session' };
+    }
+    if (!isGuestBooking && (!bookingSessionMember
+        || (bookingSessionMember.organization?.tenant_id || bookingSessionMember.tenant_id) !== event.tenant_id
+        || String(bookingSessionMember.email || '').trim().toLowerCase() !== String(memberEmail || '').trim().toLowerCase())) {
+      return { success: false, error: 'You must be logged in as the booking member to register for this event or group' };
+    }
+    if (provisioningTicket && !isTicketVisibleToUser({
+      ...provisioningTicket,
+      // Preserve the simple-event legacy public-ticket representation.
+      visibility_mode: provisioningTicket.visibility_mode || (provisioningTicket.is_public === true ? 'members_and_public' : 'members_only'),
+    }, !isGuestBooking && !!bookingSessionMember)) {
+      return { success: false, error: 'You do not have access to this ticket class' };
+    }
     const previousPublicPurchase = params.purchase_request_id && paymentMethod !== PUBLIC_INVOICE_PO
       ? await loadPublicTicketPurchase(supabase, {
         tenantId: event.tenant_id, eventId: event.id, eventKind: 'simple',
@@ -2138,6 +2158,9 @@ const functionHandlers = {
       }
       
       member = memberData;
+      if (bookingSessionMember?.id !== member.id) {
+        return { success: false, error: 'You must be logged in as the booking member to register' };
+      }
       console.log('[createOneOffEventBooking] Member found:', member.id, member.email);
       
       // Get organization if member has one (optional - some members like Alumni may not have an org)
@@ -2258,10 +2281,9 @@ const functionHandlers = {
     // only register themselves — no colleagues, external attendees, or buy-N.
     // Reject any booking that attempts to add extra/other attendees.
     if (event.member_group_id) {
-      // Task #3508: only ACTIVE members of the linked member group may book a
-      // group event. Everyone can view the event, but booking requires
-      // membership of the group — guests can never qualify.
-      if (isGuestBooking || !member) {
+      // Only group-only events require active group membership. Public group
+      // events retain self-registration and independent ticket eligibility.
+      if (event.group_event_public !== true && (isGuestBooking || !member)) {
         console.log('[createOneOffEventBooking] Blocking non-member booking on group event:', eventId);
         return { success: false, error: 'You must be logged in as a member of this event\'s group to book' };
       }
@@ -2275,7 +2297,7 @@ const functionHandlers = {
       } catch (e) {
         sessionMemberForGroup = null;
       }
-      if (!sessionMemberForGroup || sessionMemberForGroup.id !== member.id) {
+      if (!isGuestBooking && (!sessionMemberForGroup || sessionMemberForGroup.id !== member?.id)) {
         console.log('[createOneOffEventBooking] Blocking group-event booking - session does not match booking member:', {
           eventId,
           sessionMemberId: sessionMemberForGroup?.id || null,
@@ -2283,7 +2305,8 @@ const functionHandlers = {
         });
         return { success: false, error: 'You must be logged in as a member of this event\'s group to book' };
       }
-      const isGroupMember = await isActiveMemberOfGroup(supabase, member.id, event.member_group_id);
+      const isGroupMember = event.group_event_public === true ||
+        await isActiveMemberOfGroup(supabase, member.id, event.member_group_id);
       if (!isGroupMember) {
         console.log('[createOneOffEventBooking] Blocking non-group-member booking on group event:', {
           eventId,
@@ -2303,7 +2326,8 @@ const functionHandlers = {
       }
 
       const attendeeEmail = String(bookingAttendees[0]?.email || '').trim().toLowerCase();
-      if (!callerEmail || attendeeEmail !== callerEmail) {
+      if (!callerEmail || attendeeEmail !== callerEmail
+          || (isGuestBooking && purchaserInfo?.email && String(purchaserInfo.email).trim().toLowerCase() !== attendeeEmail)) {
         console.log('[createOneOffEventBooking] Blocking registration of another attendee on group event:', {
           eventId,
           callerEmail,

@@ -7,7 +7,7 @@ import { createPageUrl } from "@/utils";
 import { supabase } from "@/api/supabaseClient";
 
 /**
- * Task #3508: group events are viewable by everyone but bookable only by
+ * Group-only events are viewable by direct link but bookable only by
  * members of the linked member group. When the viewer is not a member of the
  * group, this card replaces the booking controls in the right-hand pane and
  * points them at the group's page:

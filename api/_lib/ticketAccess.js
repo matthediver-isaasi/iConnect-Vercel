@@ -27,7 +27,7 @@ export async function getMemberGroupIdsForMember(supabase, memberId) {
 }
 
 /**
- * Task #3508: group events are viewable by everyone but bookable only by
+ * Group-only events are viewable by direct link but bookable only by
  * ACTIVE members of the linked member group. Active means the assignment has
  * not expired and the group itself is active.
  */

@@ -1,13 +1,14 @@
 ---
 name: Group event view-vs-book split
-description: Group events are viewable by everyone but bookable only by active group members; where the gates live and the memberEmail authz pitfall.
+description: Public group events allow guest self-registration; group-only events retain active-membership authorization.
 ---
 
-Group events (event/complex_event with `member_group_id`) are **viewable by anyone with a direct link** (public detail endpoints return them, incl. `member_group_name` for UI copy) but **bookable only by ACTIVE members of the linked group** (unexpired `member_group_assignment` + `member_group.is_active !== false`, shared helper `isActiveMemberOfGroup` in `api/_lib/ticketAccess.js`). List endpoints still hide private group events.
+Public group events allow guests and signed-in non-group members to register for independently eligible tickets. Only an explicit stored true public flag grants this exception. Group-only events retain active-membership authorization. All group events remain self-registration-only.
 
-**Why:** members share event links outside the group; the join-the-group funnel (JoinGroupToBookCard → group page, or login with `returnTo` + `groupId` follow-through) replaces the booking pane for non-members.
+**Why:** The user explicitly replaced the historical universal group booking gate with the editor's public-audience promise. Registration must not join the group or confer membership access.
 
 **How to apply:**
-- Any new booking path for group events must call the active-membership guard server-side.
+- New booking paths must separate group ownership/self-only limits from group-only audience authorization. Do not change listing, direct-link visibility, or ticket restrictions as part of that distinction.
 - CRITICAL pitfall: `createOneOffEventBooking` resolves `member` from the client-supplied `memberEmail` — that is NOT authentication. Authorization decisions there must verify `getSessionMember(req).id === member.id` first (same pattern as the member-targeted discount check).
+- Public audience waives group membership, never authentication for a claimed member identity or independent ticket visibility. Genuine guest registration must stay guest-classified for authorization.
 - Client gate should use the `/api/member-group-events/my-groups` endpoint (`useMyGroupIds`) — it applies the canonical active-member definition; the raw `member_group_assignment` client queries do NOT filter expiry/inactive groups and are kept in sync with the server's ticket-access matching, so don't "fix" them.

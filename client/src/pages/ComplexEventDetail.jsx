@@ -206,7 +206,7 @@ function AddAttendeeModal({ open, onOpenChange, ticketClass, memberInfo, organiz
               <TabsTrigger value="colleague" className="flex-1" data-testid="tab-colleague">Colleague</TabsTrigger>
             )}
             {(!isGroupEvent || !memberInfo) && (
-              <TabsTrigger value="external" className="flex-1" data-testid="tab-external">Other</TabsTrigger>
+              <TabsTrigger value="external" className="flex-1" data-testid="tab-external">{isGroupEvent ? 'Myself' : 'Other'}</TabsTrigger>
             )}
           </TabsList>
 
@@ -1083,6 +1083,8 @@ function BookingSection({ event, sessions, memberInfo, organizationInfo, memberG
       memberInfo={memberInfo}
       organizationInfo={organizationInfo}
       attendees={flatAttendees}
+      guestInfo={isGroupEvent ? flatAttendees[0] : undefined}
+      guestBookingForSelf={isGroupEvent ? true : undefined}
       registrationMode="colleagues"
       selectedTicketClass={firstCartTicketClass}
       checkoutTicketClasses={cartItems.map(item => ticketClasses.find(tc => String(tc.id) === String(item.ticketClassId)) || item.ticketClass)}
@@ -1863,7 +1865,7 @@ export function ComplexEventDetailExperience({
                 only by members of the linked group — non-members get a
                 join-the-group dialogue instead of the booking section. */}
             {(() => {
-              const joinGroupGateActive = !!event?.member_group_id && (
+              const joinGroupGateActive = !!event?.member_group_id && event.group_event_public !== true && (
                 memberInfo
                   ? (myActiveGroupIdsFetched && !(myActiveGroupIds || []).includes(event.member_group_id))
                   : !!authResolved
