@@ -15,9 +15,6 @@
     "api/cron/reconcile-gocardless.js": {
       "maxDuration": 300
     },
-    "api/reports/reconcile-booking-credits.js": {
-      "maxDuration": 60
-    },
     "api/cron/backup-storage-to-r2.js": {
       "maxDuration": 300
     },

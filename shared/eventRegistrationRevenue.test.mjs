@@ -41,7 +41,7 @@ test('linked legs count once and independent operations sum using the existing p
 test('unresolved evidence, missing values and currencies never become a complete total', () => {
   const invalid = [
     ...['pending', 'failed', 'mixed', 'unavailable'].map(status => ({ status, amount: 25, currency: 'GBP' })),
-    projectCredits([]),
+    projectCredits([], { historicalUnknown: true }),
     projectCredits([{ operation_key: 'a', leg: 'refund', amount_minor: 100, currency: 'GBP', status: 'confirmed' },
       { operation_key: 'b', leg: 'credit_note', amount_minor: 100, currency: 'GBP', status: 'confirmed' }]),
     ...[null, '', NaN, Infinity, -1, true].map(amount => ({ status: 'confirmed', amount, currency: 'GBP' })),

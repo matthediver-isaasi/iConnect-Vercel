@@ -1,33 +1,27 @@
 ---
-name: Post-booking credit evidence
-description: Distinguishing reversal evidence from checkout reductions and overlapping instruments
+name: Post-booking credit authority
+description: Local recorded credits, reversal overlap, and revenue boundaries
 ---
-Post-booking Credits must use actual provider evidence, never cancellation status, ticket totals, or checkout voucher/fund amounts. A refund and its accounting credit note can describe the same reversal; matching totals alone do not establish that relationship.
+The Event Registration Report uses successful post-booking monetary credits recorded in iConnect. No local record means zero, with “No credits recorded in iConnect”; a legacy credit reference without an amount remains “Amount not recorded”. Database failures remain errors.
 
-**Why:** Cancellation responses historically returned transient requested amounts while stored credit-note identifiers lacked dependable totals. Summing instruments or treating missing evidence as zero would misstate credits.
+**Why:** The user explicitly rejected provider-wide completeness and checked-empty requirements. This supersedes the earlier requirement to prove absence at Stripe/Xero/QuickBooks. Already recovered successful amounts must remain usable without another external check.
 
-**How to apply:** Require durable operation linkage before merging legs; leave unresolved attribution/overlap unavailable. Historical reconciliation must only read financial providers and must never replay cancellation to repair reporting evidence.
+**How to apply:** Report interactions must only read local data. Do not reintroduce historical discovery, verification coverage, or provider refresh. Preserve independent completion of known pending financial operations. Pending/failed actions neither count nor suppress unrelated successful amounts.
 
-Event Registration Report revenue means booked value less confirmed post-booking Credits, not cash received. Checkout vouchers, training funds and account allocations are settlement methods, not further revenue deductions.
+Provider-linked records with an unresolved outcome are not equivalent to failed or pending actions, even when a monetary amount is present.
 
-**Why:** The user explicitly separated revenue from settlement and requested that missing reversal evidence prevent a definitive total.
+**Why:** Cancellation capture can retain an amount alongside an unrecognized outcome. Ignoring that record would falsely establish zero and overstate revenue.
 
-**How to apply:** Preserve standard versus complex discount semantics, deduct the authoritative group projection once, and keep incompatible currencies or unresolved evidence unavailable. Do not extend this definition to other reports without approval.
+**How to apply:** Keep the local outcome explicitly unresolved and block a definitive aggregate until its recorded state establishes success or non-application; do not introduce report-driven provider lookups.
 
-Request safety budgets for browser-driven historical reconciliation must pause resumably, not permanently exhaust the saved session.
+A refund and an accounting note can describe the same reversal. Matching totals alone are not proof of linkage. Preserve operation linkage, tenant/source boundaries, group allocation, and currency safeguards; unknown local allocation or overlap must not become a complete total.
 
-**Why:** A report can span all events and booking dates, and provider pagination adds requests beyond its booking count. A lifetime request cap can make an otherwise valid report impossible to finish, even through retries.
+**Why:** Consolidated and linked instruments otherwise double count, while historical references may not identify the applicable booking allocation.
 
-**How to apply:** Preserve the completed-work cursor across budget windows and retain cycle detection across resumes. Prove continuation beyond a full budget without replaying completed work.
+**How to apply:** Never infer amounts from cancellation status, booking value, checkout vouchers/training funds, account settlement, or general balances. QuickBooks payment links establish memo identity, not the invoice-specific applied amount.
 
-Completed-empty credit verification is separate from reversal instruments and must describe its provider coverage. Invoice-linked note IDs alone do not establish accounting completeness.
+Event Registration Report revenue is booked value less locally recorded post-booking credits, not cash received.
 
-**Why:** A live event had an allocated accounting credit note despite no booking credit-note link or local reversal evidence. Stripe's empty refund list established only the Stripe scope, not the accounting scope.
+**Why:** The user separates revenue from settlement. Ordinary local no-credit rows must no longer make revenue unavailable.
 
-**How to apply:** Discover invoice/customer credit evidence through read-only provider queries, retain incomplete pagination and unallocated-note ambiguity, and only show checked-empty when all applicable scopes complete. Positive, pending, and ambiguous evidence must supersede an earlier empty check.
-
-QuickBooks Payment links establish memo identity, not how much of the memo applies to the invoice.
-
-**Why:** The accounting flow permits applying less than a memo's total when the invoice balance is smaller. Counting the whole memo can overstate credits and understate revenue.
-
-**How to apply:** Keep discovered memo amounts unavailable unless invoice-specific allocation is established. A later whole-memo refresh must not clear that uncertainty.
+**How to apply:** Retain standard/complex discount semantics; deduct the group credit once. Unknown local amounts and incompatible currency still prevent a definitive revenue total.

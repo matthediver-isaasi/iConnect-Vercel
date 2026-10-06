@@ -58,7 +58,7 @@ export function summarizeRegistrationRevenue(groups = []) {
 export function registrationRevenueExplanation(summary) {
   const labels = {
     missing_base: 'missing booking value',
-    unverified_credits: 'unverified or unresolved Credits',
+    unverified_credits: 'missing local credit amounts, unresolved outcomes or allocations',
     currency: 'incompatible or missing currency',
     amount_range: 'amount exceeds the supported range',
   };

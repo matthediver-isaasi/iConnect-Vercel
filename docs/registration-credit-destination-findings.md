@@ -1,5 +1,19 @@
 # Registration credit: destination findings (2026-09-25)
 
+## Current local-recorded definition (2026-10-06)
+
+The earlier provider-completeness model below is historical, not the current report contract. Report loading, filtering, reload and export use successful post-booking monetary records in iConnect only. The report discovery endpoint is retired (410), and no verification table is consulted. The existing scheduled worker only completes known pending financial operations; it does not perform historical discovery.
+
+`node scripts/verify-gfi-local-credits.mjs` made two read-only DEST projections for the exact Unpacked event: **93 bookings / 64 groups, 63 local zero groups, one GBP 60 credit, no unknown amounts**. Both reads matched, and the export formatter describes zeros as “No credits recorded in iConnect”. No provider calls, financial actions, backfills or evidence/history writes occurred.
+
+Isolated unit tests cover local amounts, failed/pending attempts, legacy reference-only records, currency, overlap, tenant/source scope, short-page pagination, storage failure, capture and pending completion. Isolated browser fixtures cover row/footer/revenue/CSV, filtering and reload, and reject report credit-discovery requests. These are not authenticated deployed checks.
+
+The exact deployed host remains `gfi.dev.iconn.app`. No authorized live browser/session or production rollout was available for this work; authenticated deployed report rendering and download have **not** been verified. The read-only destination check is not a claim of deployed UI success.
+
+**Migration status:** no new migration needed, none applied to DEST or SOURCE, none pending for this change. Existing evidence and verification history are preserved.
+
+## Historical investigation
+
 Scope: **GFI** simple event `Annual Conference 2026: Unpacked` (`event.id=e5dd3f1f-f28e-475c-b0c8-143191c289df`, tenant `fd82da65-aab7-4a5c-85b8-b2febeb2003d`). This is **not** the similarly named `Annual Conference 2026` or the AESP complex event. Counts below come from the documented DEST Supabase project (`lvmzliemqnieeoruhkik`), via the pinned IPv4 destination pooler, in `BEGIN READ ONLY` transactions. No SOURCE, generic `DATABASE_URL`, personal data, mutations, payment-provider operations or fabricated sessions were used.
 
 | Booking payment method | Rows | Groups (booking_group_reference) | Payment/invoice linkage | Recorded booking funding |

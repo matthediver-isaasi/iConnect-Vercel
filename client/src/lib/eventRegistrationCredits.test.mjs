@@ -1,200 +1,83 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
+import { projectCredits } from '../../../api/reports/_credits.js';
+import { summarizeRegistrationRevenue } from '../../../shared/eventRegistrationRevenue.mjs';
 import {
-  formatRegistrationCreditBreakdown,
-  formatRegistrationCredits,
-  formatRegistrationCreditsExport,
-  formatRegistrationCreditSummary,
-  summarizeRegistrationCredits,
-  formatRegistrationCreditExplanation,
-  formatCreditMoney,
+  formatRegistrationCredits, formatRegistrationCreditsExport,
+  formatRegistrationCreditExplanation, summarizeRegistrationCredits, formatRegistrationCreditSummary,
 } from './eventRegistrationCredits.js';
 
-const reportSource = readFileSync(
-  new URL('../pages/EventRegistrationReport.jsx', import.meta.url),
-  'utf8',
-);
+const report = readFileSync(new URL('../pages/EventRegistrationReport.jsx', import.meta.url), 'utf8');
+const evidence = { operation_key: 'one', provider_id: 'cn_1', provider: 'xero', leg: 'credit_note', amount_minor: 6000, currency: 'GBP', status: 'confirmed' };
+const group = credits => ({ credits, groupPayment: { totalAfterDiscount: 100 } });
 
-test('unresolved explanations distinguish safe causes in visible details and CSV', () => {
-  for (const [reasonCode, pattern] of Object.entries({
-    no_evidence: /does not establish a zero/,
-    pending: /not yet confirmed/,
-    ambiguous: /Manual review/,
-    lookup_failure: /provider connection/,
-    storage_failure: /migration and database access/,
-    provider_failed: /reversal failed/,
-    missing_reference: /booking reference/,
-    unsupported_route: /provider records/,
-    incomplete_coverage: /Complete the lookup/,
-  })) {
-    const credits = { amount: null, status: 'unavailable', reasonCode };
-    assert.match(formatRegistrationCreditExplanation(credits), pattern);
-    assert.match(formatRegistrationCreditsExport(credits), pattern);
+test('local zero uses plain money and explains the iConnect boundary in CSV', () => {
+  const credits = projectCredits([]);
+  assert.equal(formatRegistrationCredits(credits), '£0.00');
+  assert.equal(formatRegistrationCreditExplanation(credits), 'No credits recorded in iConnect.');
+  assert.match(formatRegistrationCreditsExport(credits), /^£0\.00 — No credits recorded in iConnect/);
+  assert.doesNotMatch(formatRegistrationCreditsExport(credits), /verified|checked|coverage/i);
+});
+
+test('rows, filtered footer, revenue and CSV share local credit amounts', () => {
+  const positive = projectCredits([evidence]);
+  const groups = [group(positive), ...Array.from({ length: 63 }, () => group(projectCredits([])))];
+  assert.equal(formatRegistrationCredits(positive), '£60.00');
+  assert.match(formatRegistrationCreditsExport(positive), /^£60\.00 — Credit note \(xero\) #cn_1: £60\.00$/);
+  assert.equal(formatRegistrationCreditSummary(summarizeRegistrationCredits(groups)), 'Recorded credits: £60.00');
+  assert.equal(summarizeRegistrationRevenue(groups).totalRevenue, 6340);
+  assert.equal(formatRegistrationCreditSummary(summarizeRegistrationCredits(groups.slice(1))), 'Recorded credits: £0.00');
+  assert.equal(summarizeRegistrationRevenue(groups.slice(1)).totalRevenue, 6300);
+});
+
+test('pending and failed attempts remain separate from applied amounts', () => {
+  for (const status of ['pending', 'failed']) {
+    const credits = projectCredits([evidence, { ...evidence, provider_id: 'cn_2', operation_key: 'two', status }]);
+    assert.equal(formatRegistrationCredits(credits), '£60.00');
+    assert.match(formatRegistrationCreditsExport(credits), /not counted as an applied credit/);
+    assert.equal(summarizeRegistrationRevenue([group(credits)]).totalRevenue, 40);
   }
-  assert.equal(formatCreditMoney(null, 'GBP'), null);
-  assert.equal(formatCreditMoney('', 'GBP'), null);
-  assert.doesNotMatch(formatRegistrationCreditExplanation({ error: 'secret-provider-detail' }), /secret-provider-detail/);
 });
 
-test('credits formatter distinguishes confirmed zero and unresolved evidence', () => {
-  assert.equal(
-    formatRegistrationCredits({ amount: 0, currency: null, status: 'confirmed', reasonCode: 'verified_empty', coverage: [{ allApplicableScopes: true, paginationComplete: true }], verifiedAt: '2026-11-01T00:00:00Z', breakdown: [] }),
-    '£0.00 (checked — no credits found)',
-  );
-  assert.equal(formatRegistrationCredits({ amount: 0, status: 'confirmed' }), 'Not verified');
-  assert.equal(formatRegistrationCredits({ amount: 0, status: 'confirmed', reasonCode: 'verified_empty' }), 'Not verified');
-  assert.equal(formatRegistrationCredits({ amount: 0, currency: 'GBP', status: 'confirmed', breakdown: [
-    { type: 'refund', provider: 'stripe', providerId: 're_zero', status: 'confirmed', amount: 0, currency: 'GBP' },
-  ] }), '£0.00', 'confirmed provider instruments can legitimately have a zero amount');
-  assert.equal(formatRegistrationCredits({ amount: null, status: 'pending' }), 'Pending provider');
-  assert.equal(formatRegistrationCredits({ amount: null, status: 'failed' }), 'Provider failed');
-  assert.equal(formatRegistrationCredits({ amount: null, status: 'mixed' }), 'Mixed / unresolved');
-  assert.equal(formatRegistrationCredits({ amount: null, status: 'unavailable' }), 'Not verified');
-  assert.equal(formatRegistrationCredits(null), 'Not verified');
-  assert.equal(
-    formatRegistrationCredits({ amount: 10, currency: null, status: 'confirmed', breakdown: [] }),
-    'Not verified',
-  );
+test('legacy missing amounts and storage errors remain explicit across outputs', () => {
+  for (const [credits, label] of [
+    [projectCredits([], { historicalUnknown: true }), 'Amount not recorded'],
+    [{ amount: null, status: 'unavailable', reasonCode: 'storage_failure' }, 'Storage unavailable'],
+    [projectCredits([evidence], { partialScope: true }), 'Needs review — allocation or overlap unknown'],
+  ]) {
+    assert.equal(formatRegistrationCredits(credits), label);
+    assert.ok(formatRegistrationCreditsExport(credits).startsWith(label));
+    assert.ok(formatRegistrationCreditSummary(summarizeRegistrationCredits([group(credits)])).includes(label));
+    assert.equal(summarizeRegistrationRevenue([group(credits)]).totalRevenue, null);
+  }
 });
 
-test('credits formatter uses each currency default fractional digits', () => {
-  assert.equal(
-    formatRegistrationCredits({ amount: 1200, currency: 'JPY', status: 'confirmed' }),
-    'JP¥1,200',
-  );
-  assert.match(
-    formatRegistrationCredits({ amount: 1.234, currency: 'KWD', status: 'confirmed' }),
-    /^KWD\s1\.234$/,
-  );
-  assert.match(
-    formatRegistrationCreditsExport({
-      amount: 1.234,
-      currency: 'KWD',
-      status: 'confirmed',
-      breakdown: [{
-        type: 'refund',
-        provider: 'stripe',
-        amount: 1.234,
-        currency: 'KWD',
-        status: 'confirmed',
-      }],
-    }),
-    /^KWD\s1\.234 — Refund \(stripe\): KWD\s1\.234$/,
-  );
+test('unavailable instrument with a known amount stays unresolved in row, footer, revenue and CSV', () => {
+  const unresolved = { ...evidence, status: 'unavailable' };
+  for (const rows of [[unresolved], [{ ...evidence, provider_id: 'cn_confirmed', operation_key: 'other' }, unresolved]]) {
+    const credits = projectCredits(rows);
+    assert.equal(formatRegistrationCredits(credits), 'Recorded credit status unresolved');
+    assert.match(formatRegistrationCreditsExport(credits), /outcome is unresolved/);
+    assert.doesNotMatch(formatRegistrationCreditsExport(credits), /No credits recorded|£0\.00/);
+    const summary = summarizeRegistrationCredits([group(credits)]);
+    assert.deepEqual(summary.unknownByStatus, { 'Recorded credit status unresolved': 1 });
+    assert.equal(summarizeRegistrationRevenue([group(credits)]).totalRevenue, null);
+  }
 });
 
-test('CSV detail distinguishes refunds from credit notes while sharing the visible amount formatter', () => {
-  const credits = {
-    amount: 25,
-    currency: 'GBP',
-    status: 'confirmed',
-    breakdown: [
-      { type: 'refund', provider: 'stripe', providerId: 're_1', amount: 25, currency: 'GBP', status: 'confirmed' },
-      { type: 'credit_note', provider: 'xero', providerId: 'cn_1', amount: 25, currency: 'GBP', status: 'confirmed' },
-    ],
-  };
-  assert.equal(formatRegistrationCredits(credits), '£25.00');
-  assert.match(formatRegistrationCreditBreakdown(credits), /Refund \(stripe\) #re_1: £25\.00/);
-  assert.match(formatRegistrationCreditBreakdown(credits), /Credit note \(xero\) #cn_1: £25\.00/);
-  assert.match(formatRegistrationCreditsExport(credits), /^£25\.00 — Refund/);
+test('currency precision and incompatible revenue are preserved', () => {
+  for (const [currency, amount_minor, pattern] of [['JPY', 1200, /JP¥1,200/], ['KWD', 1234, /KWD\s1\.234/]]) {
+    const credits = projectCredits([{ ...evidence, currency, amount_minor }]);
+    assert.match(formatRegistrationCredits(credits), pattern);
+    assert.match(formatRegistrationCreditSummary(summarizeRegistrationCredits([group(credits)])), pattern);
+    assert.equal(summarizeRegistrationRevenue([group(credits)]).totalRevenue, null);
+  }
 });
 
-test('whole-filter credit summary counts each group once and preserves currencies and unknown statuses', () => {
-  const groups = [
-    { isComplexEvent: false, attendees: [{ id: 'a' }, { id: 'b' }], credits: { amount: 10, currency: 'GBP', status: 'confirmed' } },
-    { isComplexEvent: true, attendees: [{ id: 'c' }], credits: { amount: 5, currency: 'USD', status: 'confirmed' } },
-    { attendees: [{ id: 'd' }], credits: { amount: null, currency: 'GBP', status: 'pending' } },
-    { attendees: [{ id: 'e' }], credits: { amount: null, currency: null, status: 'unavailable' } },
-  ];
-  const summary = summarizeRegistrationCredits(groups);
-  assert.deepEqual(summary.totalsByCurrency, { GBP: 10, USD: 5 });
-  assert.deepEqual(summary.unknownByStatus, { 'Pending provider': 1, 'Not verified': 1 });
-  const label = formatRegistrationCreditSummary(summary);
-  assert.match(label, /£10\.00/);
-  assert.match(label, /US\$5\.00/);
-  assert.match(label, /Confirmed subtotal: £10\.00 · US\$5\.00/);
-  assert.match(label, /Pending provider: 1 booking group/);
-  assert.match(label, /Not verified: 1 booking group/);
-});
-
-test('whole-filter summary preserves JPY and KWD precision and flags missing nonzero currency', () => {
-  const summary = summarizeRegistrationCredits([
-    { credits: { amount: 1200, currency: 'JPY', status: 'confirmed' } },
-    { credits: { amount: 1.234, currency: 'KWD', status: 'confirmed' } },
-    { credits: { amount: 9, currency: null, status: 'confirmed' } },
-    { credits: { amount: 0, currency: null, status: 'confirmed' } },
-  ]);
-  assert.deepEqual(summary.totalsByCurrency, { JPY: 1200, KWD: 1.234 });
-  assert.deepEqual(summary.unknownByStatus, { 'Not verified': 2 });
-  const label = formatRegistrationCreditSummary(summary);
-  assert.match(label, /JP¥1,200/);
-  assert.match(label, /KWD\s1\.234/);
-  assert.match(label, /Not verified: 2 booking groups/);
-});
-
-test('64 unverified booking groups do not appear as a monetary total; checked-empty requires complete evidence', () => {
-  const unchecked = { amount: null, status: 'unavailable', reasonCode: 'no_evidence' };
-  const groups = Array.from({ length: 64 }, () => ({ credits: unchecked }));
-  assert.equal(formatRegistrationCreditSummary(summarizeRegistrationCredits(groups)),
-    'No confirmed credit amounts · Not verified: 64 booking groups');
-  const verified = { amount: 0, status: 'confirmed', reasonCode: 'verified_empty',
-    coverage: [{ allApplicableScopes: true, paginationComplete: true }], verifiedAt: '2026-11-01T00:00:00Z' };
-  assert.match(formatRegistrationCreditsExport(verified), /£0\.00 \(checked — no credits found\).*Provider lookup completed/);
-  assert.match(formatRegistrationCreditSummary(summarizeRegistrationCredits([{ credits: verified }])), /Confirmed credits: £0\.00/);
-  assert.equal(formatRegistrationCredits({ ...verified, coverage: null }), 'Not verified');
-  assert.equal(formatRegistrationCredits({ ...verified, coverage: [{ allApplicableScopes: false, paginationComplete: true }] }), 'Not verified');
-  assert.equal(formatRegistrationCredits({ ...verified, verifiedAt: null }), 'Not verified');
-  assert.match(formatRegistrationCreditSummary(summarizeRegistrationCredits([...groups, { credits: verified }])),
-    /Confirmed subtotal: £0\.00 · Not verified: 64 booking groups/);
-});
-
-test('report renders and exports group credits as a singleton after Price Paid', () => {
-  const priceColumn = reportSource.indexOf("{ key: 'std:pricePaid'");
-  const creditsColumn = reportSource.indexOf("{ key: 'std:credits'");
-  const nextColumn = reportSource.indexOf("{ key: 'std:discountCode'");
-  assert.ok(priceColumn >= 0 && priceColumn < creditsColumn && creditsColumn < nextColumn);
-  assert.match(
-    reportSource,
-    /key: 'std:credits'[\s\S]*?isFirstInGroup \? formatRegistrationCreditsExport\(group\.credits\) : ''/,
-  );
-  assert.match(
-    reportSource,
-    /text-price-paid-\$\{attendee\.id\}[\s\S]*?text-credits-\$\{attendee\.id\}/,
-  );
-  assert.match(reportSource, /renderGroupCreditsCell\(headerKey\)/);
-  assert.match(reportSource, /renderGroupSpannedCells \? renderGroupCreditsCell\(attendee\.id\) : null/);
-});
-
-test('credit footer uses all filtered groups, not the current page', () => {
-  assert.match(
-    reportSource,
-    /const creditsSummary = summarizeRegistrationCredits\(filteredGroups\)/,
-  );
-  const summaryIndex = reportSource.indexOf('const creditsSummary = summarizeRegistrationCredits(filteredGroups)');
-  const paginationIndex = reportSource.indexOf('const paginatedGroups = filteredGroups.slice');
-  assert.ok(summaryIndex >= 0 && summaryIndex < paginationIndex);
-  assert.match(reportSource, /text-total-credits/);
-});
-
-test('new Credits CSV choice is defaulted without reselecting known deselections', () => {
-  const introductionSource = reportSource.slice(
-    reportSource.indexOf('  // Default new columns to selected'),
-    reportSource.indexOf('  const toggleColumn ='),
-  );
-  const state = { selected: new Set(['std:event']) };
-  const knownColumnKeysRef = { current: new Set(['std:event', 'std:pricePaid']) };
-  const allColumnKeys = ['std:event', 'std:pricePaid', 'std:credits'];
-  let scheduledUpdater;
-  const setSelectedColumnKeys = (updater) => { scheduledUpdater = updater; };
-  const useEffect = (callback) => callback();
-  new Function(
-    'allColumnKeys',
-    'knownColumnKeysRef',
-    'setSelectedColumnKeys',
-    'useEffect',
-    introductionSource,
-  )(allColumnKeys, knownColumnKeysRef, setSelectedColumnKeys, useEffect);
-  state.selected = scheduledUpdater(state.selected);
-  assert.deepEqual([...state.selected], ['std:event', 'std:credits']);
+test('report exports Credits once per group and totals the whole filtered set', () => {
+  assert.match(report, /key: 'std:credits'[\s\S]*?isFirstInGroup \? formatRegistrationCreditsExport\(group\.credits\) : ''/);
+  assert.match(report, /const creditsSummary = summarizeRegistrationCredits\(filteredGroups\)/);
+  assert.match(report, /renderGroupSpannedCells \? renderGroupCreditsCell\(attendee\.id\) : null/);
+  assert.doesNotMatch(report, /BookingCreditRefresh|reconcile-booking-credits|canRefreshCredits/);
 });

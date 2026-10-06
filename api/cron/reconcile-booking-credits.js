@@ -5,6 +5,8 @@ import { readXeroCreditNoteEvidence } from '../_lib/xero.js';
 import { readQuickBooksCreditNoteEvidence } from '../_lib/quickbooks.js';
 import { currencyFactor, persistBookingCreditEvidence } from '../_lib/bookingCreditEvidence.js';
 
+// Financial pending-operation completion only. Never enumerate historical
+// refunds/invoice credits or inspect ordinary report bookings here.
 export async function refreshPendingCredits({ db, readEvidence, limit = 10 }) {
   const started = Date.now();
   const batchLimit = Number.isFinite(Number(limit)) ? Math.min(10, Math.max(1, Math.floor(Number(limit)))) : 10;

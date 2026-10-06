@@ -29,7 +29,6 @@ import {
 } from "@/lib/relationshipDisplayLabels";
 import { toast } from "sonner";
 import PublicInvoicePoRegistrations from "@/components/events/PublicInvoicePoRegistrations";
-import BookingCreditRefresh from "@/components/events/BookingCreditRefresh";
 import EventInvoiceStatus from "@/components/booking/EventInvoiceStatus";
 import { eventInvoiceAwaited, eventInvoiceId, eventInvoiceNeedsAttention, eventInvoiceNumber, eventInvoiceRefetchInterval, eventInvoiceRetryAt } from "../../../shared/eventInvoiceRecoveryPresentation.mjs";
 import AttendeeCpdCertificateDialog from "@/components/events/AttendeeCpdCertificateDialog";
@@ -942,41 +941,6 @@ export default function EventRegistrationReport() {
     return result;
   }, [bookingGroups, searchQuery, sortBy, organizations, statusFilter, consentFilter]);
 
-  const creditRefreshFilterDescriptors = useMemo(() => {
-    if (!appliedFilters) return [];
-    const descriptors = [];
-    if (appliedFilters.eventName) descriptors.push(`Event: ${appliedFilters.eventName}`);
-    if (!appliedFilters.eventId && appliedFilters.internalReference) {
-      descriptors.push(`Internal reference: ${appliedFilters.internalReference}`);
-    }
-    if (appliedFilters.dateFrom || appliedFilters.dateTo) {
-      descriptors.push(`Booking date: ${appliedFilters.dateFrom || 'any'} to ${appliedFilters.dateTo || 'any'}`);
-    }
-    if (appliedFilters.eventDateFrom || appliedFilters.eventDateTo) {
-      descriptors.push(`Event date: ${appliedFilters.eventDateFrom || 'any'} to ${appliedFilters.eventDateTo || 'any'}`);
-    }
-    descriptors.push(`Status: ${statusFilter === 'active' ? 'Active only' : statusFilter === 'all' ? 'All statuses' : 'Cancelled only'}`);
-    descriptors.push(`Consent: ${consentFilter === 'all' ? 'All' : consentFilter === 'consented' ? 'Consented only' : 'Not consented'}`);
-    if (searchQuery) descriptors.push(`Registration search: ${searchQuery}`);
-    if (descriptors.length === 2) descriptors.unshift('All events and booking dates');
-    return descriptors;
-  }, [appliedFilters, statusFilter, consentFilter, searchQuery]);
-
-  const creditRefreshScopeKey = useMemo(() => JSON.stringify({
-    appliedFilters,
-    statusFilter,
-    consentFilter,
-    searchQuery,
-  }), [appliedFilters, statusFilter, consentFilter, searchQuery]);
-
-  const refetchPinnedCreditReport = useCallback(async () => {
-    await queryClient.refetchQueries({
-      queryKey: ['event-registration-report', appliedFilters],
-      exact: true,
-      type: 'all',
-    });
-  }, [queryClient, appliedFilters]);
-
   const totalAttendees = useMemo(() => {
     return filteredGroups.reduce((sum, g) => sum + g.attendees.length, 0);
   }, [filteredGroups]);
@@ -1766,14 +1730,6 @@ export default function EventRegistrationReport() {
         </div>
         {reportGenerated && (
           <div className="flex items-center gap-2 flex-wrap">
-            <BookingCreditRefresh
-              groups={filteredGroups}
-              tenantId={reportData?.tenantId}
-              canRefresh={reportData?.canRefreshCredits === true}
-              scopeKey={creditRefreshScopeKey}
-              filterDescriptors={creditRefreshFilterDescriptors}
-              onRefetch={refetchPinnedCreditReport}
-            />
             {(hasZoomForSelectedEvents || anyGroupHasZoom || hasTeamsForSelectedEvents || anyGroupHasTeams) && (
               <Button
                 variant="outline"
@@ -2125,7 +2081,7 @@ export default function EventRegistrationReport() {
                     Price Paid is the net ticket price after discounts and credits applied at checkout, including vouchers and training funds. It is not a payment-provider settlement or refund ledger. Pending/unpaid amounts have not been received.
                     {' '}Historical Invoice / PO registrations with offer-adjusted prices may show Ticket Price and Discount as Unavailable because no gross-price snapshot was stored.
                     {' '}Voucher, Training Fund and Account amounts reflect only allocations recorded in this app. A recorded zero on an imported registration does not establish its external payment history; imported financial history may be unavailable.
-                    {' '}Credits are refunds or accounting credit notes issued after booking; they do not include vouchers, training funds or account allocations used at checkout. Only a completed lookup with recorded coverage can confirm no credits. Unverified, pending, failed and ambiguous booking groups are counted separately from confirmed credit subtotals.
+                    {' '}Credits are successful post-booking refunds or accounting credit notes recorded in iConnect, not vouchers, training funds or account allocations used at checkout. £0.00 means No credits recorded in iConnect. Historical references without amounts show Amount not recorded. Pending and failed actions are not applied credits. Unknown amounts or allocations prevent a complete total. Reloading reads local records only.
                   </p>
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">

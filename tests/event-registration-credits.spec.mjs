@@ -1,633 +1,119 @@
-import { expect, test } from "@playwright/test";
-import { mkdirSync } from "node:fs";
+import { expect, test } from '@playwright/test';
+import { projectCredits } from '../api/reports/_credits.js';
 
-/*
- * Task 4768 browser coverage is fixture-only. Provider discovery and report
- * reads are intercepted; every other financial mutation is rejected.
- */
-
-const APP_ORIGIN = new URL(
-  process.env.PLAYWRIGHT_BASE_URL
-    || (process.env.REPLIT_DEV_DOMAIN
-      ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-      : "http://127.0.0.1:5000"),
-).origin;
-
-const TENANT = { id: "tenant-credit-refresh", name: "Credit refresh fixture", slug: "credit-refresh" };
-const ADMIN = {
-  id: "admin-credit-refresh",
-  email: "credit-refresh-admin@example.invalid",
-  first_name: "Credit",
-  last_name: "Administrator",
-  tenant_id: TENANT.id,
-  organization_id: null,
-  role_id: "role-credit-refresh",
-  member_excluded_features: [],
-  is_team_member: true,
-  sessionRole: {
-    status: "ready",
-    member_id: "admin-credit-refresh",
-    tenant_id: TENANT.id,
-    role_id: "role-credit-refresh",
-    role: { id: "role-credit-refresh", name: "Credit administrator", excluded_features: [] },
-  },
+// Isolated browser fixtures, not an authenticated GFI deployment test.
+const tenant = { id: 'credit-tenant', name: 'Local credits fixture', slug: 'local-credits' };
+const role = { id: 'credit-role', name: 'Administrator', excluded_features: [] };
+const user = {
+  id: 'credit-admin', email: 'credits@example.invalid', first_name: 'Credits',
+  tenant_id: tenant.id, organization_id: null, role_id: role.id,
+  member_excluded_features: [], is_team_member: true,
+  sessionRole: { status: 'ready', member_id: 'credit-admin', tenant_id: tenant.id, role_id: role.id, role },
 };
-const EVENT = {
-  id: "event-credit-refresh",
-  title: "Credit Recovery Workshop",
-  start_date: "2026-11-10T09:00:00.000Z",
-  end_date: "2026-11-10T16:00:00.000Z",
-  internal_reference: "CR-4768",
-  is_complex: false,
-};
-
-function group(index, { source = "booking", credit = null, status = "unavailable", reasonCode = credit == null ? "no_evidence" : null, coverage = null, verifiedAt = null } = {}) {
-  const number = String(index).padStart(2, "0");
-  const id = `credit-refresh-${number}`;
-  const amount = credit ?? null;
-  const attendee = {
-    id,
-    attendee_first_name: source === "complex_event_booking" ? "Complex" : "Standard",
-    attendee_last_name: `Credit ${number}`,
-    attendee_email: `${id}@example.invalid`,
-    ticket_class_name: "Credit fixture",
-    ticket_price: 20,
-    ticket_price_status: "available",
-    price_paid: 20,
-    price_paid_status: "net",
-    payment_method: "card",
-    booking_reference: `REF-${number}`,
-    status: "confirmed",
-    created_at: "2026-09-01T12:00:00.000Z",
-    third_party_consent: false,
-    badge: true,
-  };
+const event = { id: 'credit-event', title: 'GFI Annual Conference 2026: Unpacked (isolated fixture)', start_date: '2026-11-10T09:00:00Z', is_complex: false };
+function group(i, credits) {
   return {
-    groupRef: null,
-    isGroup: false,
-    attendeeCount: 1,
-    eventTitle: EVENT.title,
-    internalReference: EVENT.internal_reference,
-    eventId: EVENT.id,
-    isComplexEvent: source === "complex_event_booking",
-    bookingSource: source,
-    eventStartDate: EVENT.start_date,
-    eventEndDate: EVENT.end_date,
-    hasZoom: false,
-    hasTeams: false,
-    hasAttendance: false,
-    booker: null,
-    credits: {
-      amount,
-      currency: amount == null ? null : "GBP",
-      status: amount == null ? status : "confirmed",
-      reasonCode,
-      coverage,
-      verifiedAt,
-      breakdown: amount == null || reasonCode === "verified_empty" ? [] : [{
-        type: "refund",
-        provider: "stripe",
-        providerId: `re_${number}`,
-        amount,
-        currency: "GBP",
-        status: "confirmed",
-        operationKey: `refresh-${number}`,
-      }],
-    },
-    groupPayment: {
-      ticketTotal: 20,
-      totalCost: 20,
-      totalAfterDiscount: 20,
-      discount: 0,
-      offerDiscount: 0,
-      codeDiscount: 0,
-      discountCode: null,
-      voucherAmount: 0,
-      trainingFundAmount: 0,
-      accountAmount: 0,
-      paymentMethod: "card",
-      purchaseOrderNumber: null,
-      poToFollow: false,
-      stripePaymentIntentId: `pi_${number}`,
-      xeroInvoiceNumber: null,
-      xeroInvoiceId: null,
-      xeroInvoiceError: null,
-      bookingReference: `REF-${number}`,
-    },
-    attendees: [attendee],
+    groupRef: null, isGroup: false, attendeeCount: 1, eventTitle: event.title, eventId: event.id,
+    isComplexEvent: false, bookingSource: 'booking', eventStartDate: event.start_date, credits,
+    groupPayment: { ticketTotal: 100, totalCost: 100, totalAfterDiscount: 100, discount: 0,
+      offerDiscount: 0, codeDiscount: 0, voucherAmount: 0, trainingFundAmount: 0, accountAmount: 0, paymentMethod: 'account' },
+    attendees: [{ id: `local-${i}`, attendee_first_name: i === 0 ? 'Positive' : 'Zero', attendee_last_name: `Credit ${i}`,
+      attendee_email: `local-${i}@example.invalid`, ticket_class_name: 'Conference', ticket_price: 100,
+      ticket_price_status: 'available', price_paid: 100, price_paid_status: 'net', payment_method: 'account',
+      booking_reference: `LOCAL-${i}`, status: 'confirmed', created_at: '2026-09-01T12:00:00Z', badge: true }],
   };
 }
 
-function report(groups) {
-  return {
-    tenantId: TENANT.id,
-    canRefreshCredits: true,
-    events: [EVENT],
-    bookingGroups: groups,
-    organizations: {},
-    summary: {},
-    hasZoomForSelectedEvents: false,
-    hasTeamsForSelectedEvents: false,
-    hasAttendanceForSelectedEvents: false,
-  };
-}
-
-function json(route, body, status = 200) {
-  return route.fulfill({
-    status,
-    contentType: "application/json",
-    headers: { "Cache-Control": "private, no-store" },
-    body: JSON.stringify(body),
-  });
-}
-
-async function installFixture(page, {
-  groups = [group(1)],
-  reportGroups = () => groups,
-  authorized = true,
-  canRefresh = authorized,
-  reconcile,
-} = {}) {
-  const state = {
-    reconciliationCalls: [],
-    rejectedWrites: [],
-    unexpectedExternal: [],
-    reportReads: 0,
-  };
-
+async function fixture(page, groups) {
+  const state = { discovery: [], writes: [], reportReads: 0 };
   await page.addInitScript(() => {
-    localStorage.clear();
-    sessionStorage.clear();
-    URL.parse ??= (value, base) => {
-      try { return new URL(value, base); } catch { return null; }
-    };
+    localStorage.clear(); sessionStorage.clear();
+    URL.parse ??= (value, base) => { try { return new URL(value, base); } catch { return null; } };
   });
-  await page.context().routeWebSocket("**/realtime/v1/websocket*", (socket) => {
-    socket.onMessage(() => {});
-  });
-  await page.context().route("**/*", async (route) => {
+  await page.context().routeWebSocket('**/realtime/v1/websocket*', socket => socket.onMessage(() => {}));
+  await page.context().route('**/*', async route => {
     const request = route.request();
     const url = new URL(request.url());
-    const method = request.method();
-
-    if (url.hostname.endsWith(".supabase.co")) {
-      return route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        headers: { "content-range": "0-0/0" },
-        body: "[]",
-      });
+    const path = url.pathname;
+    const json = (body, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+    if (url.hostname.endsWith('.supabase.co')) return json([]);
+    if (['fonts.googleapis.com', 'fonts.gstatic.com', 'cdnjs.cloudflare.com', 'js.stripe.com', 'va.vercel-scripts.com', 'teeone.pythonanywhere.com'].includes(url.hostname)) return route.fulfill({ status: 204, body: '' });
+    if (!path.startsWith('/api/')) return route.continue();
+    if (/reconcile-booking-credits|stripe|xero|quickbooks/.test(path)) {
+      state.discovery.push(path); return json({}, 599);
     }
-    if (url.origin !== APP_ORIGIN) {
-      if (["fonts.googleapis.com", "fonts.gstatic.com", "cdnjs.cloudflare.com",
-        "js.stripe.com", "va.vercel-scripts.com", "teeone.pythonanywhere.com"].includes(url.hostname)) {
-        return route.fulfill({ status: 204, body: "" });
-      }
-      state.unexpectedExternal.push(`${method} ${url.href}`);
-      return route.abort("blockedbyclient");
+    if (request.method() === 'PATCH' && path === `/api/entities/Member/${user.id}`) return json(user);
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method())) { state.writes.push(path); return json({}, 599); }
+    if (path === '/api/auth/me') return json(user);
+    if (path === '/api/auth/tenant-user-me') return json({ authenticated: false }, 401);
+    if (path === '/api/reports/event-registration-report') {
+      if (!new URL(request.url()).searchParams.has('generate')) return json({ events: [event] });
+      state.reportReads++;
+      return json({ tenantId: tenant.id, events: [event], bookingGroups: groups, organizations: {}, summary: {} });
     }
-    if (!url.pathname.startsWith("/api/")) return route.continue();
-
-    if (method === "PATCH" && url.pathname === `/api/entities/Member/${ADMIN.id}`) {
-      return json(route, ADMIN);
-    }
-    if (method === "POST" && url.pathname === "/api/reports/reconcile-booking-credits") {
-      let body;
-      try {
-        body = request.postDataJSON();
-      } catch {
-        return json(route, { error: "Invalid fixture reconciliation request" }, 400);
-      }
-      state.reconciliationCalls.push(body);
-      const response = reconcile
-        ? await reconcile(body, state)
-        : { body: { written: body.bookingIds.length, unresolved: false, nextCursor: null } };
-      const responseBody = response.body && Object.prototype.hasOwnProperty.call(response.body, "tenantId")
-        ? response.body
-        : { ...response.body, tenantId: TENANT.id };
-      return json(route, responseBody, response.status || 200);
-    }
-    if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
-      state.rejectedWrites.push(`${method} ${url.pathname}`);
-      return json(route, { error: "Fixture rejected unexpected financial mutation" }, 599);
-    }
-
-    const user = authorized
-      ? ADMIN
-      : {
-        ...ADMIN,
-        member_excluded_features: ["events.event-report"],
-        sessionRole: {
-          ...ADMIN.sessionRole,
-          role: { ...ADMIN.sessionRole.role, excluded_features: ["events.event-report"] },
-        },
-      };
-    if (url.pathname === "/api/auth/me") return json(route, user);
-    if (url.pathname === "/api/auth/tenant-user-me") return json(route, { authenticated: false }, 401);
-    if (url.pathname === "/api/reports/event-registration-report") {
-      if (url.searchParams.get("generate") === "true") {
-        state.reportReads += 1;
-        return json(route, { ...report(reportGroups()), canRefreshCredits: canRefresh });
-      }
-      return json(route, { events: [EVENT] });
-    }
-    if (url.pathname.startsWith("/api/entities/Role/")) return json(route, user.sessionRole.role);
-    if (url.pathname === "/api/entities/Role") return json(route, [user.sessionRole.role]);
-    if (url.pathname === "/api/entities/Member") return json(route, [user]);
-    if (url.pathname.startsWith("/api/entities/Member/")) return json(route, user);
-    if (url.pathname === "/api/custom-objects") return json(route, { objects: [], total: 0 });
-    if (url.pathname === "/api/communication/inbox/unread-count") return json(route, { unreadCount: 0 });
-    if (url.pathname === "/api/admin/form-submissions/stats") return json(route, {});
-    if (url.pathname === "/api/public/favicon-url") return json(route, { faviconUrl: null });
-    if (url.pathname === "/api/public/platform-defaults") return json(route, {});
-    if (url.pathname === "/api/public/ai-help-persona") return json(route, { enabled: false });
-    if (url.pathname === "/api/public/form-consent-message") return json(route, { message: null });
-    if (url.pathname === "/api/tenant-canvas-theme") return json(route, { theme: null });
-    if (url.pathname === "/api/public/canvas-symbols") return json(route, { symbols: [] });
-    if (url.pathname.startsWith("/api/redirects/resolve")) return json(route, { found: false });
-    return json(route, []);
+    if (path.startsWith('/api/entities/Role/')) return json(role);
+    if (path === '/api/entities/Role') return json([role]);
+    if (path === '/api/entities/Member') return json([user]);
+    if (path.startsWith('/api/entities/Member/')) return json(user);
+    if (path === '/api/custom-objects') return json({ objects: [], total: 0 });
+    if (path === '/api/communication/inbox/unread-count') return json({ unreadCount: 0 });
+    if (path === '/api/public/ai-help-persona') return json({ enabled: false });
+    if (path === '/api/tenant-canvas-theme') return json({ theme: null });
+    if (path === '/api/public/canvas-symbols') return json({ symbols: [] });
+    if (path.startsWith('/api/redirects/resolve')) return json({ found: false });
+    return json([]);
   });
+  await page.goto('/EventRegistrationReport');
+  await page.getByTestId('button-generate-report').click();
+  await expect(page.getByTestId('row-booking-local-0')).toBeVisible();
   return state;
 }
 
-async function openReport(page, options) {
-  const state = await installFixture(page, options);
-  await page.goto("/EventRegistrationReport", { waitUntil: "domcontentloaded" });
-  await expect(page.getByTestId("text-page-title")).toHaveText("Event Registration Report");
-  await page.getByTestId("button-generate-report").click();
-  await expect(page.getByTestId("row-booking-credit-refresh-01")).toBeVisible();
-  return state;
-}
-
-async function confirmRefresh(page) {
-  await page.getByTestId("button-refresh-booking-credits").click();
-  await expect(page.getByRole("dialog")).toBeVisible();
-  await page.getByTestId("button-confirm-credit-refresh").click();
-}
-
-async function readDownload(download) {
-  const stream = await download.createReadStream();
+async function exportCredits(page) {
+  await page.getByTestId('button-export-csv').click();
+  await page.getByTestId('button-clear-all-columns').click();
+  await page.getByTestId('checkbox-column-std:name').click();
+  await page.getByTestId('checkbox-column-std:credits').click();
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByTestId('button-confirm-export').click();
+  const stream = await (await downloadPromise).createReadStream();
   const chunks = [];
   for await (const chunk of stream) chunks.push(chunk);
-  return Buffer.concat(chunks).toString("utf8");
+  return Buffer.concat(chunks).toString('utf8');
 }
 
-async function exportCreditColumns(page) {
-  await page.getByTestId("button-export-csv").click();
-  await page.getByTestId("button-clear-all-columns").click();
-  await page.getByTestId("checkbox-column-std:name").click();
-  await page.getByTestId("checkbox-column-std:credits").click();
-  const downloadPromise = page.waitForEvent("download");
-  await page.getByTestId("button-confirm-export").click();
-  return readDownload(await downloadPromise);
-}
-
-test("confirmation describes the immutable report-wide scope across pages", async ({ page }) => {
-  const groups = Array.from({ length: 28 }, (_, index) =>
-    group(index + 1, { source: index % 3 === 0 ? "complex_event_booking" : "booking" }));
-  const state = await openReport(page, { groups });
-
-  await expect(page.getByText("Page 1 of 2", { exact: true })).toBeVisible();
-  await page.getByTestId("button-refresh-booking-credits").click();
-  const dialog = page.getByRole("dialog");
-  await expect(dialog).toContainText("28 eligible bookings");
-  await expect(dialog).toContainText("18 standard");
-  await expect(dialog).toContainText("10 complex");
-  await expect(dialog).toContainText("fixed snapshot");
-  await expect(dialog.getByTestId("credit-refresh-filter-scope")).not.toBeEmpty();
-  await expect(page.getByTestId("button-confirm-credit-refresh")).toHaveText("Refresh 28 bookings");
-  await dialog.getByRole("button", { name: "Cancel" }).click();
-
-  expect(state.reconciliationCalls).toEqual([]);
-  expect(state.rejectedWrites).toEqual([]);
-  expect(state.unexpectedExternal).toEqual([]);
-});
-
-test("mixed sources are bounded to 25 and every provider cursor is continued", async ({ page }) => {
-  const groups = Array.from({ length: 32 }, (_, index) =>
-    group(index + 1, { source: index < 27 ? "booking" : "complex_event_booking" }));
-  const seen = new Map();
-  const state = await openReport(page, {
-    groups,
-    reconcile: async (body) => {
-      const key = `${body.source}:${body.bookingIds.join(",")}`;
-      const count = (seen.get(key) || 0) + 1;
-      seen.set(key, count);
-      return count === 1
-        ? { body: { written: 1, unresolved: true, nextCursor: { index: 0, after: "re_page_1" } } }
-        : { body: { written: body.bookingIds.length, unresolved: false, nextCursor: null } };
-    },
-  });
-
-  await confirmRefresh(page);
-  await expect(page.getByTestId("credit-refresh-progress")).toHaveCount(0);
-  await expect(page.getByTestId("button-refresh-booking-credits")).toBeEnabled();
-
-  expect(state.reconciliationCalls.length).toBe(6);
-  for (const call of state.reconciliationCalls) {
-    expect(["booking", "complex_event_booking"]).toContain(call.source);
-    expect(call.bookingIds.length).toBeGreaterThan(0);
-    expect(call.bookingIds.length).toBeLessThanOrEqual(25);
-  }
-  const isInitialCursor = (cursor) => !cursor || Object.keys(cursor).length === 0;
-  expect(state.reconciliationCalls.filter((call) => call.source === "booking" && isInitialCursor(call.cursor))
-    .map((call) => call.bookingIds.length)).toEqual([25, 2]);
-  expect(state.reconciliationCalls.filter((call) =>
-    call.source === "complex_event_booking" && isInitialCursor(call.cursor))
-    .map((call) => call.bookingIds.length)).toEqual([5]);
-  for (let index = 0; index < state.reconciliationCalls.length; index += 2) {
-    expect(state.reconciliationCalls[index + 1].cursor)
-      .toEqual({ index: 0, after: "re_page_1" });
-  }
-  expect(state.rejectedWrites).toEqual([]);
-});
-
-test("duplicate clicks cannot start overlapping refreshes", async ({ page }) => {
-  let release;
-  const blocked = new Promise((resolve) => { release = resolve; });
-  const state = await openReport(page, {
-    reconcile: async (body) => {
-      await blocked;
-      return { body: { written: body.bookingIds.length, unresolved: false, nextCursor: null } };
-    },
-  });
-
-  await page.getByTestId("button-refresh-booking-credits").click();
-  await page.getByTestId("button-confirm-credit-refresh").dblclick();
-  await expect.poll(() => state.reconciliationCalls.length).toBe(1);
-  await expect(page.getByTestId("button-refresh-booking-credits")).toBeDisabled();
-  release();
-  await expect(page.getByTestId("button-refresh-booking-credits")).toBeEnabled();
-  expect(state.reconciliationCalls).toHaveLength(1);
-  expect(state.rejectedWrites).toEqual([]);
-});
-
-test("stop and Resume retain the cursor without replaying completed batches", async ({ page }) => {
-  const groups = Array.from({ length: 28 }, (_, index) => group(index + 1));
-  let releaseSecond;
-  const secondBlocked = new Promise((resolve) => { releaseSecond = resolve; });
-  let calls = 0;
-  const state = await openReport(page, {
-    groups,
-    reconcile: async (body) => {
-      calls += 1;
-      if (calls === 1) {
-        return { body: { written: 1, unresolved: true, nextCursor: { index: 1, after: "re_first" } } };
-      }
-      if (calls === 2) await secondBlocked;
-      return { body: { written: body.bookingIds.length, unresolved: false, nextCursor: null } };
-    },
-  });
-
-  await confirmRefresh(page);
-  await expect.poll(() => state.reconciliationCalls.length).toBe(2);
-  await page.getByTestId("button-stop-credit-refresh").click();
-  releaseSecond();
-  await expect(page.getByTestId("credit-refresh-stopped")).toContainText("Stopped after 25 of 28");
-  expect(state.reconciliationCalls).toHaveLength(2);
-
-  await expect(page.getByTestId("button-retry-credit-refresh")).toHaveCount(0);
-  await page.getByTestId("button-resume-credit-refresh").click();
-  await expect(page.getByTestId("button-refresh-booking-credits")).toBeEnabled();
-  expect(state.reconciliationCalls).toHaveLength(3);
-  expect(state.reconciliationCalls[2].bookingIds).toEqual([
-    "credit-refresh-26", "credit-refresh-27", "credit-refresh-28",
-  ]);
-  expect(state.reconciliationCalls[2].cursor).toEqual({});
-  expect(state.rejectedWrites).toEqual([]);
-});
-
-test("the 1000-request safety pause resumes with a fresh budget and no cursor replay", async ({ page }) => {
-  test.setTimeout(60_000);
-  let calls = 0;
-  const state = await openReport(page, {
-    reconcile: async () => {
-      calls += 1;
-      return {
-        body: {
-          written: 0,
-          unresolved: calls <= 1000,
-          nextCursor: calls <= 1000 ? { index: 0, after: `re_budget_${calls}` } : null,
-        },
-      };
-    },
-  });
-
-  await confirmRefresh(page);
-  const stopped = page.getByTestId("credit-refresh-stopped");
-  await expect(stopped).toContainText("per-run safety budget", { timeout: 45_000 });
-  await expect(stopped).toContainText("saved cursor");
-  expect(state.reconciliationCalls).toHaveLength(1000);
-
-  await page.getByTestId("button-resume-credit-refresh").click();
-  await expect(stopped).toHaveCount(0);
-  await expect(page.getByTestId("button-refresh-booking-credits")).toBeEnabled();
-  expect(state.reconciliationCalls).toHaveLength(1001);
-  expect(state.reconciliationCalls[1000].cursor).toEqual({ index: 0, after: "re_budget_1000" });
-  expect(new Set(state.reconciliationCalls.map((call) => JSON.stringify(call.cursor))).size).toBe(1001);
-  expect(state.rejectedWrites).toEqual([]);
-});
-
-test("one provider failure is explicit and retry only replays its failed batch", async ({ page }) => {
-  const groups = [group(1), group(2, { source: "complex_event_booking" })];
-  let complexAttempts = 0;
-  const state = await openReport(page, {
-    groups,
-    reconcile: async (body) => {
-      if (body.source === "complex_event_booking" && ++complexAttempts === 1) {
-        return { status: 422, body: { error: "Credit reconciliation incomplete: Xero unavailable" } };
-      }
-      return { body: { written: body.bookingIds.length, unresolved: false, nextCursor: null } };
-    },
-  });
-
-  await confirmRefresh(page);
-  await expect(page.getByTestId("credit-refresh-error")).toContainText("Xero unavailable");
-  await expect(page.getByTestId("button-retry-credit-refresh")).toBeVisible();
-  expect(state.reconciliationCalls.map((call) => call.source))
-    .toEqual(["booking", "complex_event_booking"]);
-
-  await page.getByTestId("button-retry-credit-refresh").click();
-  await expect(page.getByTestId("credit-refresh-error")).toHaveCount(0);
-  expect(state.reconciliationCalls.map((call) => call.source))
-    .toEqual(["booking", "complex_event_booking", "complex_event_booking"]);
-  expect(state.rejectedWrites).toEqual([]);
-});
-
-test("scope changes invalidate confirmation and tenant changes stop continuation", async ({ page }) => {
-  const groups = Array.from({ length: 27 }, (_, index) => group(index + 1));
-  let calls = 0;
-  const state = await openReport(page, {
-    groups,
-    reconcile: async (body) => {
-      calls += 1;
-      if (calls === 2) {
-        return { status: 409, body: { error: "Tenant context changed. Reload this page." } };
-      }
-      return { body: { written: body.bookingIds.length, unresolved: false, nextCursor: null } };
-    },
-  });
-
-  await page.getByTestId("button-refresh-booking-credits").click();
-  await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
-  await page.getByTestId("input-search").fill("Credit 01");
-  await page.getByTestId("button-refresh-booking-credits").click();
-  await expect(page.getByTestId("button-confirm-credit-refresh")).toHaveText("Refresh 1 bookings");
-  await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
-  await page.getByTestId("input-search").fill("");
-
-  await confirmRefresh(page);
-  await expect(page.getByTestId("credit-refresh-error"))
-    .toContainText("Tenant context changed");
-  expect(state.reconciliationCalls).toHaveLength(2);
-  await expect(page.getByTestId("button-retry-credit-refresh")).toBeVisible();
-  await page.getByTestId("input-search").fill("Credit 01");
-  await expect(page.getByTestId("button-retry-credit-refresh")).toHaveCount(0);
-  await expect(page.getByTestId("credit-refresh-error")).toHaveCount(0);
-  expect(state.rejectedWrites).toEqual([]);
-});
-
-test("unauthorized report roles never see the refresh control", async ({ page }) => {
-  const state = await openReport(page, { canRefresh: false });
-  await expect(page.getByTestId("button-refresh-booking-credits")).toHaveCount(0);
-  expect(state.reconciliationCalls).toEqual([]);
-  expect(state.rejectedWrites).toEqual([]);
-});
-
-test("refreshed values, totals and CSV agree and visible proof is saved", async ({ page }) => {
-  const groups = [group(1, { credit: 12.5 }), group(2, { credit: 7 })];
-  const state = await openReport(page, { groups });
-
-  await expect(page.getByTestId("text-credits-credit-refresh-01")).toHaveText("£12.50");
-  await expect(page.getByTestId("text-credits-credit-refresh-02")).toHaveText("£7.00");
-  await expect(page.getByTestId("text-total-revenue")).toHaveText("£20.50");
-  await expect(page.getByTestId("text-total-credits")).toHaveText("Confirmed credits: £19.50");
-  const csv = await exportCreditColumns(page);
-  expect(csv).toContain('"Standard Credit 01","£12.50 — Refund (stripe) #re_01: £12.50"');
-  expect(csv).toContain('"Standard Credit 02","£7.00 — Refund (stripe) #re_02: £7.00"');
-
-  const acceptCookies = page.getByRole("button", { name: "Accept", exact: true });
-  if (await acceptCookies.isVisible().catch(() => false)) await acceptCookies.click();
-  await page.locator(".overflow-x-auto").evaluate((element) => { element.scrollLeft = 720; });
-  mkdirSync("screenshots", { recursive: true });
-  await page.screenshot({
-    path: "screenshots/task-4768-event-registration-refresh-credits.png",
-    fullPage: true,
-  });
-
-  expect(state.rejectedWrites).toEqual([]);
-  expect(state.unexpectedExternal).toEqual([]);
-});
-
-test("revenue recalculates after credit refresh over all pages and filters without changing Price Paid or Stripe", async ({ page }) => {
-  const groups = Array.from({ length: 28 }, (_, index) => group(index + 1, {
-    source: index % 2 ? "complex_event_booking" : "booking", credit: 0,
-  }));
-  // Two attendees still represent one booking group's financial value.
-  groups[0].attendees.push({ ...groups[0].attendees[0], id: "second-attendee" });
-  groups[0].attendeeCount = 2;
-  const state = await openReport(page, {
-    groups,
-    reconcile: async body => {
-      for (const entry of groups) {
-        if (body.bookingIds.includes(entry.attendees[0].id)) {
-          entry.credits = { status: "confirmed", amount: 5, currency: "GBP", breakdown: [] };
-        }
-      }
-      return { body: { written: body.bookingIds.length, unresolved: false, nextCursor: null } };
-    },
-  });
-  await expect(page.getByTestId("text-total-revenue")).toHaveText("£560.00");
-  await expect(page.getByText("Page 1 of 2", { exact: true })).toBeVisible();
-  await confirmRefresh(page);
-  await expect(page.getByTestId("text-total-revenue")).toHaveText("£420.00");
-  await expect(page.getByTestId("text-total-stripe")).toHaveText("£560.00");
-  await expect(page.getByTestId("text-price-paid-credit-refresh-01")).toHaveText("£20.00");
-  await page.getByTestId("input-search").fill("Credit 01");
-  await expect(page.getByTestId("text-total-revenue")).toHaveText("£15.00");
-  expect(state.rejectedWrites).toEqual([]);
-});
-
-test("revenue explains unknown evidence and incompatible currencies instead of displaying a partial sum", async ({ page }) => {
-  const groups = [group(1), group(2, { credit: 5 })];
-  groups[1].credits.currency = "USD";
-  await openReport(page, { groups });
-  await expect(page.getByTestId("text-total-revenue")).toHaveText("Unavailable");
-  await expect(page.getByTestId("text-revenue-incomplete")).toContainText("2 booking group(s)");
-  await expect(page.getByTestId("text-revenue-incomplete")).toContainText("unverified or unresolved Credits");
-  await expect(page.getByTestId("text-revenue-incomplete")).toContainText("incompatible or missing currency");
-});
-
-test("64 unresolved booking groups stay labelled as counts after refresh, reload and CSV", async ({ page }) => {
-  const groups = Array.from({ length: 64 }, (_, index) => group(index + 1));
-  const state = await openReport(page, {
-    groups,
-    reconcile: async () => ({
-      body: { written: 0, unresolved: true, evidenceStatuses: ["unavailable"], nextCursor: null },
-    }),
-  });
-  await expect(page.getByTestId("text-total-credits"))
-    .toContainText("No confirmed credit amounts · Not verified: 64 booking groups");
-  await confirmRefresh(page);
-  await expect(page.getByTestId("credit-refresh-complete")).toContainText("unresolved evidence");
-  await expect.poll(() => state.reportReads).toBeGreaterThan(1);
-  await expect(page.getByTestId("text-total-credits"))
-    .toContainText("Not verified: 64 booking groups");
+test('local nonzero and zero survive reload, filtering and export without discovery', async ({ page }) => {
+  const positive = projectCredits([{ operation_key: 'note', provider: 'xero', provider_id: 'cn_local',
+    leg: 'credit_note', status: 'confirmed', amount_minor: 6000, currency: 'GBP' }]);
+  const groups = [group(0, positive), ...Array.from({ length: 27 }, (_, i) => group(i + 1, projectCredits([])))];
+  const state = await fixture(page, groups);
+  await expect(page.getByTestId('text-credits-local-0')).toHaveText('£60.00');
+  await expect(page.getByTestId('text-credits-local-1')).toHaveText('£0.00');
+  await expect(page.getByTestId('text-total-credits')).toContainText('Recorded credits: £60.00');
+  await expect(page.getByTestId('text-total-revenue')).toHaveText('£2740.00');
+  await expect(page.getByTestId('button-refresh-booking-credits')).toHaveCount(0);
+  const csv = await exportCredits(page);
+  expect(csv).toContain('£60.00');
+  expect(csv).toContain('No credits recorded in iConnect');
+  expect(csv).not.toMatch(/checked|verified|coverage/i);
   await page.reload();
-  await page.getByTestId("button-generate-report").click();
-  await expect(page.getByTestId("text-total-credits"))
-    .toContainText("Not verified: 64 booking groups");
-  const csv = await exportCreditColumns(page);
-  expect(csv).toContain("Not verified — No verified reversal evidence was found");
-  expect(state.rejectedWrites).toEqual([]);
+  if (await page.getByTestId('row-booking-local-0').count() === 0) await page.getByTestId('button-generate-report').click();
+  await expect(page.getByTestId('text-credits-local-0')).toHaveText('£60.00');
+  await page.getByTestId('input-search').fill('Positive');
+  await expect(page.getByTestId('text-total-credits')).toContainText('£60.00');
+  await expect(page.getByTestId('text-total-revenue')).toHaveText('£40.00');
+  const filtered = await exportCredits(page);
+  expect(filtered).toContain('£60.00');
+  expect(filtered).not.toContain('No credits recorded');
+  expect(state.reportReads).toBeGreaterThanOrEqual(2);
+  expect(state.discovery).toEqual([]);
+  expect(state.writes).toEqual([]);
 });
 
-test("checked-empty, pending, ambiguous and failed evidence stay distinct in row, subtotal and CSV", async ({ page }) => {
-  const checked = group(1, { credit: 0, reasonCode: "verified_empty",
-    coverage: [{ allApplicableScopes: true, paginationComplete: true }], verifiedAt: "2026-11-01T00:00:00Z" });
-  const confirmed = group(2, { credit: 12.5, reasonCode: null });
-  const pending = group(3, { status: "pending", reasonCode: "pending" });
-  const ambiguous = group(4, { reasonCode: "ambiguous" });
-  const failed = group(5, { reasonCode: "lookup_failure" });
-  const state = await openReport(page, { groups: [checked, confirmed, pending, ambiguous, failed] });
-  await expect(page.getByTestId("text-credits-credit-refresh-01")).toContainText("checked — no credits found");
-  await expect(page.getByTestId("text-credits-credit-refresh-03")).toContainText("Pending provider");
-  await expect(page.getByTestId("text-credits-credit-refresh-04")).toContainText("Needs review — ambiguous");
-  await expect(page.getByTestId("text-credits-credit-refresh-05")).toContainText("Provider lookup failed");
-  await expect(page.getByTestId("text-total-credits")).toContainText("Confirmed subtotal: £12.50");
-  await expect(page.getByTestId("text-total-credits")).toContainText("Pending provider: 1 booking group");
-  const csv = await exportCreditColumns(page);
-  expect(csv).toContain("£0.00 (checked — no credits found)");
-  expect(csv).toContain("Needs review — ambiguous");
-  expect(csv).toContain("Provider lookup failed");
-  expect(state.rejectedWrites).toEqual([]);
-});
-
-test("every incomplete lookup reason and a real zero-value instrument stay visible without hover", async ({ page }) => {
-  const reasons = [
-    ["missing_reference", "Missing provider reference"],
-    ["unsupported_route", "Unsupported payment route"],
-    ["incomplete_coverage", "Incomplete provider coverage"],
-    ["lookup_failure", "Provider lookup failed"],
-    ["storage_failure", "Storage unavailable"],
-    ["provider_failed", "Provider failed"],
-  ];
-  const groups = reasons.map(([reasonCode], index) => group(index + 1, { reasonCode }));
-  const zeroInstrument = group(7, { credit: 0 });
-  zeroInstrument.credits.breakdown = [{
-    type: "refund", provider: "stripe", providerId: "re_zero",
-    amount: 0, currency: "GBP", status: "confirmed", operationKey: "zero-operation",
-  }];
-  groups.push(zeroInstrument);
-  const state = await openReport(page, { groups });
-  for (const [reasonCode, label] of reasons) {
-    const index = reasons.findIndex(([key]) => key === reasonCode) + 1;
-    await expect(page.getByTestId(`text-credits-credit-refresh-${String(index).padStart(2, "0")}`)).toContainText(label);
-  }
-  await expect(page.getByTestId("text-credits-credit-refresh-07")).toHaveText("£0.00");
-  await expect(page.getByTestId("text-total-credits")).toContainText("Confirmed subtotal: £0.00");
-  const csv = await exportCreditColumns(page);
-  for (const [, label] of reasons) expect(csv).toContain(label);
-  expect(csv).toContain("£0.00 — Refund (stripe) #re_zero: £0.00");
-  expect(state.rejectedWrites).toEqual([]);
+test('legacy reference without amount is explicit in the table and CSV', async ({ page }) => {
+  const state = await fixture(page, [group(0, projectCredits([], { historicalUnknown: true }))]);
+  await expect(page.getByTestId('text-credits-local-0')).toHaveText('Amount not recorded');
+  await expect(page.getByTestId('text-total-revenue')).toHaveText('Unavailable');
+  expect(await exportCredits(page)).toContain('Amount not recorded');
+  expect(state.discovery).toEqual([]);
 });
