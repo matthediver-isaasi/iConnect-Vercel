@@ -1209,3 +1209,17 @@ mtime_ms = 1791264742840
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/dcfbfc0c-f6f4-4d2f-8d98-75918370392f/57e7821b-1821-42a8-af43-5fd1d128be65"
 storage_version_token = "1791284395012288"
 content_type = "text/csv"
+
+[[outputs]]
+id = "YGyK2CEYjSbYIfmdIerZw"
+uri = "file://private/bnms-job-title-audit/BNMS-job-titles-for-completion.xlsx"
+type = "table"
+title = "BNMS job titles — private completion workbook"
+description = "3,846 members needing a title or clarification. Edit only Corrected job title; blanks mean no change. Return the XLSX here for the dedicated update-only process, not Import Manager."
+logical_id = "f1b03f6f-8554-4d47-940d-b6b334e6f697"
+content_hash = "sha256:a2dc79f6e1023787a51e82377af620dfa4997a521fb3421dd652a4ea2f48c4fb"
+size = 1175139
+mtime_ms = 1791286504802
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/f1b03f6f-8554-4d47-940d-b6b334e6f697/ffd10503-822b-4845-8aac-03c0b7d245d1"
+storage_version_token = "1791286556419580"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
