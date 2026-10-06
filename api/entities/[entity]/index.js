@@ -1,3 +1,4 @@
+import { isOwnBookingHistoryRead, scopeOwnBookingHistory } from '../../_lib/ownBookingHistory.js';
 import { sendEmail, replacePlaceholders } from '../../_lib/emailService.js';
 import { sendSessionUnavailable } from '../../_lib/sessionAvailability.js';
 import { withoutEnhancedSurveyAnswers } from '../../_lib/surveyCompletionOutputs.js';
@@ -727,6 +728,7 @@ export default async function handler(req, res) {
     }
     // Store for reuse in query logic
     tenantCtx.parsedFilter = parsedFilter;
+    tenantCtx.ownBookingHistoryRead = isOwnBookingHistoryRead(req.method, entity, tenantCtx, parsedFilter);
     
     // Check if this is a Booking query with event_id filter
     if (entity === 'Booking' && effectiveTenantId && parsedFilter?.event_id) {
@@ -793,7 +795,7 @@ export default async function handler(req, res) {
     // Store for use in query logic
     tenantCtx.allowsTenantWideAccess = allowsTenantWideAccess;
     
-    if (tenantScope === TENANT_SCOPE.ORGANIZATION && !tenantCtx.organizationId && !(isTenantAdmin && tenantCtx.effectiveTenantId) && !allowsTenantWideAccess) {
+    if (tenantScope === TENANT_SCOPE.ORGANIZATION && !tenantCtx.organizationId && !(isTenantAdmin && tenantCtx.effectiveTenantId) && !allowsTenantWideAccess && !tenantCtx.ownBookingHistoryRead) {
       return res.status(403).json({ error: 'Member must belong to an organization to access this resource' });
     }
     // For member-scoped entities, require a valid member_id unless allowsTenantWideAccess
@@ -903,7 +905,9 @@ export default async function handler(req, res) {
           // Other ORGANIZATION-scoped entities restrict to member's own org unless they're tenant admin
           
           // Use the allowsTenantWideAccess flag computed earlier in the access pre-check
-          if (tenantCtx.allowsTenantWideAccess) {
+          if (tenantCtx.ownBookingHistoryRead) {
+            query = scopeOwnBookingHistory(query, tenantCtx);
+          } else if (tenantCtx.allowsTenantWideAccess) {
             // SECURITY: tenant-wide access REQUIRES an effective tenant_id. Without it the
             // organization!inner(tenant_id) join below would degrade to filtering by NULL,
             // which would expose rows belonging to orgs with no tenant. Block instead.
