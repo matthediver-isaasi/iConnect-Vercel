@@ -1181,3 +1181,17 @@ mtime_ms = 1791187774726
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/48db2547-c1fc-4101-a246-f63d28be3308/8f6e0126-7a7c-4bca-b7d3-2961b7c2e25f"
 storage_version_token = "1791187781355438"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "2wvD_QvZJk_dV4JPTSGPk"
+uri = "file://private/bnms-address-audit/review.html"
+type = "html"
+title = "BNMS address mapping — private review report"
+description = "Read-only side-by-side review of all 477 organisations, with exact field definitions, existing values, proposed mappings and uncertainty reasons. Contains private organisation data; do not publish."
+logical_id = "315c166c-471f-4e24-ab9d-78e27b67de04"
+content_hash = "sha256:cf217d95aa5aaad3d7bf0b9a4bd355572da14a32087cb71fbcd80b7af0800df7"
+size = 1540519
+mtime_ms = 1791263627490
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/315c166c-471f-4e24-ab9d-78e27b67de04/86e9541d-8a05-4aa7-aa26-f1f48da01577"
+storage_version_token = "1791263689412895"
+content_type = "text/html"
