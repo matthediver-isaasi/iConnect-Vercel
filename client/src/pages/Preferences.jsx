@@ -1775,7 +1775,6 @@ export default function PreferencesPage() {
                       id="jobTitle"
                       value={jobTitle}
                       onChange={(e) => setJobTitle(e.target.value)}
-                      placeholder="e.g., Careers Adviser"
                     />
                   ) : (
                     <p className="text-sm font-medium text-slate-900 p-2 bg-slate-50 rounded border">{jobTitle || <span className="text-slate-400 italic font-normal">Not set</span>}</p>

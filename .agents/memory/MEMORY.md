@@ -154,3 +154,4 @@
 - [Website first-content paths](website-critical-path.md) — metadata remount reuse differs from page authority; compare matched builds and separate dispatch from real-content timing.
 - [Survey score CSV contract](survey-score-csv-contract.md) — preserve historical raw scores; reject coercion-only answers without applying current survey ranges.
 - [Private audit logging](private-audit-logging.md) — redact assertion failures too; deep-equality errors can expose entire private records.
+- [About-me Job Title](about-me-job-title.md) — never show a placeholder in the Job Title input.
