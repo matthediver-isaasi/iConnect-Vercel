@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs';
+import { authenticatedMemberProjection } from '../_lib/authenticatedMemberProjection.js';
 import { createSession } from '../_lib/session.js';
 import { supabase } from '../_lib/database.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
@@ -456,7 +457,7 @@ export default async function handler(req, res) {
     }
 
     console.log('[Auth] Password set for:', email);
-    res.json({ success: true, member: fullMember });
+    res.json({ success: true, member: authenticatedMemberProjection(fullMember, sessionTenantId) });
   } catch (error) {
     console.error('Set password error:', error);
     res.status(500).json({ success: false, error: 'Failed to set password' });

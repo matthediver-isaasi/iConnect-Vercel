@@ -2,6 +2,8 @@ import { getSession, createSession } from '../_lib/session.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { supabase } from '../_lib/database.js';
 import { evaluateMemberOrganisationLoginAccess } from '../_lib/organisationLoginGate.js';
+import { resolveMemberLanding } from '../_lib/memberLanding.js';
+import { normalizeInternalReturnTo } from '../../shared/safeReturnTo.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -134,6 +136,7 @@ export default async function handler(req, res) {
       });
     }
 
+    const landingUrl = await resolveMemberLanding(supabase, targetMember, tenantId);
     let adminName = 'Admin';
     if (adminTenantUserId) {
       const { data: tu } = await supabase
@@ -171,7 +174,7 @@ export default async function handler(req, res) {
       masqueradeAdminTenantId: tenantId,
       masqueradeAdminIdentityId: session.data?.identityId || null,
       masqueradeAdminUserType: session.data?.userType || 'member',
-      masqueradeReturnUrl: returnUrl || '/members',
+      masqueradeReturnUrl: normalizeInternalReturnTo(returnUrl, '/members'),
     };
 
     const newSession = await createSession(res, masqueradeSessionData, {
@@ -187,6 +190,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       success: true,
+      landingUrl,
       member: {
         id: targetMember.id,
         email: targetMember.email,

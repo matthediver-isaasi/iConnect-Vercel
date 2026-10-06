@@ -3,7 +3,6 @@ import { createPortal } from "react-dom";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { createPageUrl } from "@/utils";
-import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
 import { useNavigationRealtime } from "@/hooks/useNavigationRealtime";
 import { useResolvedSocialIcons } from "@/hooks/useResolvedSocialIcons";
@@ -333,7 +332,6 @@ export default function PublicHeader() {
   
   const [searchOpen, setSearchOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [memberLandingPage, setMemberLandingPage] = useState('Events');
 
   // Member Area styling/label for the positionable Account element (logged-in state).
   const memberAreaLink = resolveHeaderLink(memberAreaLinkConfig, 'Member Area');
@@ -384,24 +382,12 @@ export default function PublicHeader() {
   }, [mobileMenuOpen]);
 
   useEffect(() => {
-    // Check if user is logged in and fetch their role's landing page
+    // The Member Area link goes through /login, which resolves the destination
+    // from the validated session rather than a temporary Events default.
     const checkLoginStatus = async () => {
       const storedMember = localStorage.getItem('agcas_member');
       setIsLoggedIn(!!storedMember);
       
-      if (storedMember) {
-        try {
-          const member = JSON.parse(storedMember);
-          if (member.role_id) {
-            const role = await base44.entities.Role.get(member.role_id);
-            if (role?.default_landing_page) {
-              setMemberLandingPage(role.default_landing_page);
-            }
-          }
-        } catch (error) {
-          console.error('Failed to fetch member role:', error);
-        }
-      }
     };
 
     checkLoginStatus();
@@ -837,15 +823,15 @@ export default function PublicHeader() {
     if (isLoggedIn) {
       return (
         <div className="flex items-center gap-2">
-          <Link
-            to={createPageUrl(memberLandingPage)}
+          <a
+            href="/login"
             className={`${memberAreaLink.asButton ? '' : `${hoverClass} `}flex items-center gap-1 hover:opacity-80 transition-opacity text-sm font-semibold${memberAreaLink.asButton ? ' px-3 py-1.5' : ''}`}
             style={{ ...memberAreaLink.buttonStyle, color: memberAreaLink.asButton ? memberAreaLink.labelColor : plainColor }}
             data-testid="link-header-member-area"
           >
             <User className="w-4 h-4" />
             <span>{memberAreaLink.label}</span>
-          </Link>
+          </a>
           <button
             onClick={handleLogout}
             className={`${hoverClass} flex items-center transition-colors`}
@@ -966,15 +952,15 @@ export default function PublicHeader() {
     <div key={item.id} className="px-4 py-3 border-b border-slate-200">
       {isLoggedIn ? (
         <div className="flex flex-col gap-1">
-          <Link
-            to={createPageUrl(memberLandingPage)}
+          <a
+            href="/login"
             onClick={() => setMobileMenuOpen(false)}
             className="flex items-center gap-2 py-2 text-slate-900 font-medium"
             data-testid="link-mobile-member-area"
           >
             <User className="w-5 h-5 text-slate-600" />
             {memberAreaLink.label}
-          </Link>
+          </a>
           <button
             onClick={handleLogout}
             className="flex items-center gap-2 py-2 text-red-600 font-medium"

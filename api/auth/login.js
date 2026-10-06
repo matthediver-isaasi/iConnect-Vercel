@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs';
+import { authenticatedMemberProjection } from '../_lib/authenticatedMemberProjection.js';
 import { createSession } from '../_lib/session.js';
 import { supabase } from '../_lib/database.js';
 import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
@@ -517,7 +518,7 @@ export default async function handler(req, res) {
     
     res.json({ 
       success: true, 
-      member,
+      member: authenticatedMemberProjection(member, sessionTenantId),
       isTemporaryPassword: credentials?.is_temp_password || false 
     });
   } catch (error) {

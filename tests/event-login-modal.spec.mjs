@@ -1,10 +1,15 @@
 import { test, expect } from '@playwright/test';
+import { authenticatedMemberProjection } from '../api/_lib/authenticatedMemberProjection.js';
 
 const member = { id: 'modal-member', tenant_id: 'modal-tenant', role_id: 'modal-role', email: 'member@example.invalid', first_name: 'Modal', last_name: 'Member', organization_id: null, page_tours_seen: { EventDetails: true } };
 const role = { id: member.role_id, tenant_id: member.tenant_id, excluded_features: [], show_tours: false, default_landing_page: 'Preferences' };
 const ticket = { id: 'member-ticket', name: 'Member ticket', price: 20, visibility_mode: 'members_only', role_match_only: true, role_ids: [role.id], member_group_ids: [], is_unlimited_tickets: true, all_tracks: true };
 
-async function fixture(page, { complex = false, multiple = false, slug = false, embedded = false, canvas = false, tickets } = {}) {
+async function fixture(page, { complex = false, multiple = false, slug = false, embedded = false, canvas = false, tickets, landing = 'Preferences', organizationTenant = false } = {}) {
+  const storedMember = organizationTenant ? { ...member, tenant_id: null, organization_id: 'fixture-org', organization: { tenant_id: member.tenant_id } } : member;
+  const authenticatedMember = authenticatedMemberProjection(storedMember, member.tenant_id);
+  await page.addInitScript(() => localStorage.setItem('tenant_slug', 'fixture'));
+  const role = { id: member.role_id, tenant_id: member.tenant_id, excluded_features: [], show_tours: false, default_landing_page: landing };
   const state = { signedIn: false, reject: false, failSession: false, restricted: false, delay: 0, logins: 0, sessions: 0, documents: 0 };
   const event = {
     id: 'modal-event', slug: 'modal-event', title: 'Modal fixture event', description: '<p>Stay on this event</p>',
@@ -24,14 +29,14 @@ async function fixture(page, { complex = false, multiple = false, slug = false, 
       if (state.reject) return json({ success: false, error: 'Invalid email or password' }, 401);
       if (state.passwordSetup && url.pathname.endsWith('/login')) return json({ needsPasswordSetup: true });
       state.signedIn = true;
-      return json({ success: true, member });
+      return json({ success: true, member: authenticatedMember });
     }
     if (url.pathname === '/api/auth/me') {
       state.sessions++;
       if (state.signedIn && state.delay) await new Promise(resolve => setTimeout(resolve, state.delay));
       if (!state.signedIn || state.failSession) return json({ error: 'Not authenticated' }, 401);
-      const current = state.restricted ? { ...member, role_id: 'other-role' } : member;
-      return json({ ...current, sessionRole: { status: 'ready', member_id: current.id, tenant_id: current.tenant_id, role_id: current.role_id, role: { ...role, id: current.role_id } } });
+      const current = state.restricted ? { ...authenticatedMember, role_id: 'other-role' } : authenticatedMember;
+      return json({ ...current, isMasquerading: !!state.masquerading, masqueradeAdminName: 'Fixture Admin', sessionRole: { status: 'ready', member_id: current.id, tenant_id: current.tenant_id, role_id: current.role_id, role: { ...role, id: current.role_id } } });
     }
     if (url.pathname === '/api/public/page/modal-canvas') return json({ success: true, elements: [], symbols: [], page: {
       id: 'modal-canvas', slug: 'modal-canvas', title: 'Canvas event', status: 'published', builder_type: 'canvas',
@@ -44,6 +49,11 @@ async function fixture(page, { complex = false, multiple = false, slug = false, 
       }] } },
     } });
     if (url.pathname === '/api/auth/tenant-public-settings') return json({ success: true, settings: { member_google_login_enabled: true } });
+    if (url.pathname === '/api/auth/end-masquerade') {
+      state.masquerading = false;
+      return json({ success: true, returnUrl: '/members/original?tab=notes#top' });
+    }
+    if (url.pathname === '/api/public/navigation-items') return json([{ id: 'account', parent_id: null, location: 'top_nav', link_type: 'content_block', content_block_type: 'account', is_active: true }]);
     if (url.pathname === '/api/auth/request-password-reset') return json({ success: true });
     if (url.pathname === '/api/public/tenant-branding') return json({ success: true, branding: { id: member.tenant_id, name: 'Modal fixture', headerConfig: {}, footerConfig: {}, platformBranding: { enabled: false } } });
     if (url.pathname === '/api/public/portal-branding') return json({ tenantName: 'Modal fixture' });
@@ -164,7 +174,11 @@ for (const options of [{}, { multiple: true }, { complex: true }, { slug: true }
     await expect(page.getByTestId('input-password')).toBeVisible(); // unrelated mode/token ignored
     await page.keyboard.press('Escape');
     await expect(dialog).toBeHidden();
-    await expect(trigger).toBeFocused();
+    // Ticket cards now own the focusable trigger; the message is a span.
+    const focusTarget = await trigger.evaluate(el => el.tagName === 'SPAN')
+      ? trigger.locator('xpath=ancestor::*[@role="button" or @role="radio" or self::button][1]')
+      : trigger;
+    await expect(focusTarget).toBeFocused();
     await trigger.click();
     await expect.poll(() => page.evaluate(() => document.body.getAttribute('data-scroll-locked'))).not.toBeNull();
     for (let i = 0; i < 12; i++) await page.keyboard.press('Tab');
@@ -240,6 +254,73 @@ test('password setup and recovery stay in the event', async ({ page }) => {
   await page.getByTestId('button-set-password').click();
   await expect(page.getByRole('dialog', { name: 'Sign in to book tickets' })).toBeHidden({ timeout: 25000 });
   expect(page.url()).toBe(url);
+});
+
+for (const [origin, organizationTenant] of [['/', false], ['/Events', false], ['/', true]]) {
+  test(`plain header login from ${origin} uses configured landing organizationTenant=${organizationTenant}`, async ({ page }) => {
+    const state = await fixture(page, { landing: '/portal-welcome?tab=One#Two', organizationTenant });
+    await page.goto(origin);
+    const link = page.locator('a[href="/login"]').first();
+    await expect(link).toBeVisible();
+    await link.click();
+    await expect(page.getByTestId('input-email')).toBeVisible();
+    const navigation = page.waitForRequest(r => r.isNavigationRequest() && r.resourceType() === 'document' && new URL(r.url()).pathname === '/portal-welcome');
+    await signIn(page);
+    expect(new URL((await navigation).url()).search).toBe('?tab=One');
+    expect(state.logins).toBe(1);
+  });
+}
+
+for (const organizationTenant of [false, true]) {
+test(`existing session Member Area waits for role and never uses temporary Events destination organizationTenant=${organizationTenant}`, async ({ page }) => {
+  const state = await fixture(page, { landing: '/member-portal', organizationTenant });
+  state.delay = 900;
+  await page.goto('/');
+  await page.evaluate(m => {
+    localStorage.setItem('agcas_member', JSON.stringify(m));
+    window.dispatchEvent(new Event('storage'));
+  }, member);
+  state.signedIn = true;
+  const link = page.getByRole('link', { name: 'Member Area' }).first();
+  await expect(link).toHaveAttribute('href', '/login');
+  const navigation = page.waitForRequest(r => r.isNavigationRequest() && new URL(r.url()).pathname === '/member-portal');
+  await link.click();
+  await navigation;
+  expect(state.logins).toBe(0);
+});
+}
+
+test('ordinary contextual login preserves requested event query and hash', async ({ page }) => {
+  await fixture(page, { landing: 'other-landing' });
+  await page.goto('/login?returnTo=' + encodeURIComponent('/EventDetails?id=modal-event&ticket=One#book'));
+  const navigation = page.waitForRequest(r => r.isNavigationRequest() && new URL(r.url()).pathname === '/EventDetails');
+  await signIn(page);
+  expect(new URL((await navigation).url()).search).toBe('?id=modal-event&ticket=One');
+  await expect(page).toHaveURL(/#book$/);
+});
+
+test('masquerade destination uses verified member and banner restores admin detail', async ({ page }) => {
+  const state = await fixture(page);
+  state.signedIn = true;
+  state.masquerading = true;
+  await page.goto('/Preferences');
+  await expect(page.getByTestId('banner-masquerade')).toContainText('Modal Member');
+  await expect(page.getByTestId('banner-masquerade')).toContainText('Fixture Admin');
+  const navigation = page.waitForRequest(r => r.isNavigationRequest() && new URL(r.url()).pathname === '/members/original');
+  await page.getByTestId('button-end-masquerade').click();
+  expect(new URL((await navigation).url()).search).toBe('?tab=notes');
+});
+
+test('ordinary first-password setup uses the configured role landing', async ({ page }) => {
+  const state = await fixture(page, { landing: '/custom-welcome' });
+  state.passwordSetup = true;
+  await page.goto('/login');
+  await signIn(page);
+  await page.getByTestId('input-new-password').fill('fixture-password');
+  await page.getByTestId('input-confirm-password').fill('fixture-password');
+  const navigation = page.waitForRequest(r => r.isNavigationRequest() && new URL(r.url()).pathname === '/custom-welcome');
+  await page.getByTestId('button-set-password').click();
+  await navigation;
 });
 
 test('Google retains exact safe event return destination', async ({ page }) => {

@@ -122,7 +122,6 @@
 - [Member index schema compatibility](member-index-schema-contract.md) — legacy uniqueness breaks generation staging; inspect publication contracts before repairing ON CONFLICT errors.
 - [Chained list column identity](chained-list-column-identity.md) — pin endpoint/display-field meaning; incomplete discovery must not erase saved columns.
 - [Department current-set policy](department-current-set-policy.md) — maintain current records, not annual returns; allow existing missing equipment values but require them for new rows.
-- [Excel report validation](excel-report-validation.md) — valid ZIP/XML can still require Excel recovery; use a maintained writer and verify workbook structure, not just readability.
 - [Custom-domain recovery](custom-domain-recovery.md) — verify hosting and tenant mapping separately; a generic conflict is not permission to transfer an already-correct domain.
 - [Session role readiness](session-role-readiness.md) — verified role reuse must preserve invalidation; missing roles deny access, and late observers must not start refetch/remount loops.
 - [Vercel runtime log access](vercel-runtime-log-access.md) — live log streams cannot establish earlier failures; historical dashboard logs may need separate access.
@@ -131,7 +130,6 @@
 - [Vite lazy import ordering](vite-lazy-import-order.md) — development transforms can expose a lazy declaration TDZ that production builds miss.
 - [Unknown-page fallback authority](unknown-page-fallback.md) — missing routes require independent evidence; renderer gaps, access states and stale tenant settings must not decide redirects.
 - [Storage object absence](storage-object-absence.md) — SDK info errors may drop NoSuchKey; distinguish object absence from provider failure and public cache behavior.
-- [Consent report verification](consent-report-verification.md) — assert individual matrix cells; row-wide text can hide lost stored consent in unavailable categories.
 - [Select native hydration](select-native-hydration.md) — late Radix options can emit empty changes that erase saved selections; sentinel-based clearing must ignore these.
 - [BNMS upfront membership evidence](bnms-upfront-membership-evidence.md) — operator-attested existing membership is not provider settlement proof or authority to create future commitments.
 - [Async query-builder returns](async-query-builder-return.md) — wrap Supabase builders in objects across async helpers or they execute before callers finish scoping and paging.
@@ -145,10 +143,8 @@
 - [Post-booking credit authority](post-booking-credit-authority.md) — use actual reversal evidence; overlapping refund and credit-note legs require durable linkage, never inferred totals.
 - [Annual membership value](annual-membership-value-semantics.md) — recorded net commitments are not settlement; allocate by applied structure, not term or payment dates.
 - [Widget date boundaries](widget-date-boundaries.md) — day-first input support must preserve midnight comparisons, never expand date-only operands to whole days.
-- [PDF browser verification](pdf-browser-verification.md) — fixture layout evidence is separate from unshimmed PDF.js browser compatibility.
 - [Delivery finalization column grants](delivery-finalization-column-grants.md) — test successful final audit writes as service_role; immutable initial provenance needs a separate narrowly granted final-output column.
 - [Member AI policy boundaries](member-ai-policy-boundaries.md) — tenant voice does not authorize reporting changes; no-evidence replies stay deterministic and fixture tests are not model guarantees.
-- [Live import snapshot boundaries](live-import-snapshot-boundaries.md) — distinguish exact cohort invariants from concurrent production activity; disclose drift without weakening core checks.
 - [Team and portal dual access](team-portal-dual-access.md) — team revocation must preserve member access; shared status cannot independently suspend both access types.
 - [Event invoice recovery](event-invoice-recovery-authority.md) — immutable checkout evidence, provider-ID reconciliation, payment ownership and completed-sweep health.
 - [Shared accounting request queue](shared-accounting-request-queue.md) — agreed central recovery direction includes both Xero and QuickBooks from the outset.

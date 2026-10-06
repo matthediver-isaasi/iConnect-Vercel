@@ -79,6 +79,7 @@ import {
   searchForMemberTab,
 } from "@/lib/memberDetailState.mjs";
 import CustomFieldFileUpload, { CustomFieldFileDisplay } from "@/components/CustomFieldFileUpload";
+import { normalizeMemberLanding } from "@shared/memberLanding.js";
 
 // Stable empty-array fallback for disabled/unloaded queries. Using an inline
 // `= []` destructure default creates a NEW array identity on every render,
@@ -305,7 +306,7 @@ export default function MemberDetail() {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ memberId: member.id, returnUrl: window.location.pathname }),
+        body: JSON.stringify({ memberId: member.id, returnUrl: window.location.pathname + window.location.search + window.location.hash }),
       });
       
       const data = await response.json();
@@ -315,7 +316,7 @@ export default function MemberDetail() {
       }
       
       toast.success(`Now viewing as ${member.first_name} ${member.last_name}`);
-      window.location.href = '/';
+      window.location.href = normalizeMemberLanding(data.landingUrl);
     } catch (error) {
       console.error('Error starting masquerade:', error);
       toast.error(error.message || 'Failed to masquerade as member');

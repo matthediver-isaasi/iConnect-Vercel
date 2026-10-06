@@ -8,3 +8,8 @@ description: Testing modes, route contracts, parallel test artifacts, and stable
 - [Geometry assertions](browser-geometry-assertions.md) — finish dialog entrance animations before measuring fixed-header geometry.
 - [Mutation test cleanup](react-query-test-exit.md) — query-only cleanup leaves mutation GC timers keeping otherwise-passing mounted tests alive.
 - [Testing mode boundaries](testing-mode-boundaries.md) — retain deliberate production reads; fixture isolation is separate, and validation registration can reattach tests to Run.
+- [Login landing verification](login-landing-verification.md) — separate tenant demo policy from ordinary and contextual login fixtures.
+- [PDF browser verification](pdf-browser-verification.md) — fixture layout evidence is separate from unshimmed PDF.js compatibility.
+- [Consent report verification](consent-report-verification.md) — assert individual matrix cells, not row-wide text.
+- [Excel report validation](excel-report-validation.md) — valid ZIP/XML does not establish Excel compatibility.
+- [Live import snapshot boundaries](live-import-snapshot-boundaries.md) — separate cohort invariants from concurrent production activity.

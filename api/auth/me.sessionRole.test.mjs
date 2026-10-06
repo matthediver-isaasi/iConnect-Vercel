@@ -112,6 +112,21 @@ test('auth/me returns one full, tenant-bound session role read', async () => {
   assert.match(res.headers['Cache-Control'], /private, no-store/);
 });
 
+test('auth/me resolves legacy organisation tenancy only when it matches the authenticated session', async () => {
+  const role = { id: 'role-a', tenant_id: 'tenant-a', default_landing_page: '/member-portal', excluded_features: [] };
+  const member = { ...baseMember, tenant_id: null, organization_id: 'org-a', organization: { tenant_id: 'tenant-a' } };
+  for (const sessionTenantId of ['tenant-a', 'foreign-tenant']) {
+    const res = response();
+    await handler(request, res, {
+      ...dependencies(database({ data: role, error: null }), member),
+      readSession: async () => ({ data: { memberId: member.id, tenantId: sessionTenantId } }),
+    });
+    assert.equal(res.body.tenant_id, sessionTenantId === 'tenant-a' ? 'tenant-a' : null);
+    assert.equal(res.body.sessionRole.status, sessionTenantId === 'tenant-a' ? 'ready' : 'error');
+  }
+  assert.equal(member.tenant_id, null, 'the stored CRM member is not mutated');
+});
+
 test('auth/me reuses one authenticated session for the member and Canvas projections', async () => {
   const db = database({ data: null, error: null });
   const expectedSession = { data: { memberId: 'member-a', tenantId: 'tenant-a' } };

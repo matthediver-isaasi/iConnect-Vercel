@@ -6,11 +6,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Label } from "@/components/ui/label";
 import { Mail, Loader2, CheckCircle2, AlertCircle, Lock, Eye, EyeOff, ArrowLeft } from "lucide-react";
 import { SiGoogle } from "react-icons/si";
-import { createPageUrl } from "@/utils";
 import { getTenantSlugFromLocation } from "@/api/publicClient";
 import { getValidatedReturnTo } from "@/lib/memberOnlyHtml";
 import { useLayoutContext } from "@/contexts/LayoutContext";
 import { stripTrustedMemberProjections } from "@/lib/memberSessionRole";
+import { normalizeMemberLanding } from "@shared/memberLanding.js";
 
 /**
  * Self-contained login/set-password/forgot-password form.
@@ -131,13 +131,13 @@ export default function LoginForm({ className, completionMode = 'redirect', onAu
       return;
     }
     if (redirectingRef.current) return;
-    redirectingRef.current = true;
     const sessionExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
     localStorage.setItem('agcas_member', JSON.stringify(stripTrustedMemberProjections({
       ...member,
       sessionExpiry,
     })));
     if (returnTo) {
+      redirectingRef.current = true;
       const appendContextParam = (target, key, value) => {
         const hashIndex = target.indexOf('#');
         const beforeHash = hashIndex >= 0 ? target.slice(0, hashIndex) : target;
@@ -160,24 +160,24 @@ export default function LoginForm({ className, completionMode = 'redirect', onAu
       && member.sessionRole.tenant_id === member.tenant_id
       && member.sessionRole.role_id === member.role_id
       && member.sessionRole.role?.id === member.role_id
-      && (!member.sessionRole.role.tenant_id
-        || member.sessionRole.role.tenant_id === member.tenant_id)
+      && member.sessionRole.role.tenant_id === member.tenant_id
       ? member.sessionRole.role
       : null;
-    if (validatedSessionRole?.default_landing_page) {
-      landingPage = validatedSessionRole.default_landing_page;
+    if (validatedSessionRole) {
+      landingPage = validatedSessionRole.default_landing_page || 'Preferences';
     } else if (member.role_id) {
-      try {
-        const allRoles = await base44.entities.Role.list();
-        const userRole = allRoles.find(r => r.id === member.role_id);
-        if (userRole?.default_landing_page) landingPage = userRole.default_landing_page;
-      } catch {}
+      const userRole = await base44.entities.Role.get(member.role_id);
+      if (!userRole || userRole.id !== member.role_id || userRole.tenant_id !== member.tenant_id) {
+        throw new Error('Unable to resolve member landing page. Please try again.');
+      }
+      landingPage = userRole.default_landing_page || 'Preferences';
     }
     const slug = getTenantSlugFromLocation();
     if (slug && slug.toLowerCase() === 'gsf') {
       landingPage = 'MemberDemo';
     }
-    window.location.href = createPageUrl(landingPage);
+    redirectingRef.current = true;
+    window.location.href = normalizeMemberLanding(landingPage);
   };
 
   useEffect(() => {
@@ -187,7 +187,7 @@ export default function LoginForm({ className, completionMode = 'redirect', onAu
       redirectToLandingPage({
         ...memberInfo,
         sessionRole: sessionRoleSnapshot,
-      });
+      }).catch(() => setError('Unable to resolve member landing page. Please try again.'));
     }
   }, [inPlace, authResolved, sessionValidated, memberInfo, sessionRoleSnapshot]);
 

@@ -11,6 +11,7 @@ import {
   evaluateMemberOrganisationLoginAccess,
 } from '../../_lib/organisationLoginGate.js';
 import { normalizeInternalReturnTo } from '../../../shared/safeReturnTo.js';
+import { resolveMemberLanding } from '../../_lib/memberLanding.js';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -281,6 +282,11 @@ export default async function handler(req, res) {
       }
     }
 
+    // An explicit safe event/resource return does not depend on role landing
+    // discovery, matching password login's contextual precedence.
+    let landingPage = normalizeInternalReturnTo(returnTo, null)
+      || await resolveMemberLanding(supabase, member, sessionTenantId);
+    if (tenantSlug && tenantSlug.toLowerCase() === 'gsf') landingPage = '/memberdemo';
     const cookieDomain = isProduction ? '.iconn.app' : undefined;
     
     const createdSession = await createSession(res, {
@@ -306,24 +312,6 @@ export default async function handler(req, res) {
 
     const sessionExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
     
-    let landingPage = '/preferences';
-    
-    if (member.role_id) {
-      const { data: role } = await supabase
-        .from('role')
-        .select('default_landing_page')
-        .eq('id', member.role_id)
-        .single();
-      
-      if (role?.default_landing_page) {
-        landingPage = '/' + role.default_landing_page.toLowerCase().replace(/\s+/g, '-');
-      }
-    }
-
-    if (tenantSlug && tenantSlug.toLowerCase() === 'gsf') {
-      landingPage = '/memberdemo';
-    }
-
     const finalRedirect = buildGoogleFinalRedirect({
       tenantSlug,
       returnTo,

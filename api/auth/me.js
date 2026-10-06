@@ -4,6 +4,7 @@ import { supabase } from '../_lib/database.js';
 import { resolveTenantFromHost, getHostFromRequest } from '../_lib/tenantResolver.js';
 import { loadCanvasMemberSnapshot } from '../_lib/canvasMemberValues.js';
 import { sendSessionUnavailable } from '../_lib/sessionAvailability.js';
+import { authenticatedMemberProjection } from '../_lib/authenticatedMemberProjection.js';
 
 async function loadSessionRole(db, member) {
   const snapshot = {
@@ -69,7 +70,14 @@ export default async function handler(req, res, {
     // lookup. getSessionMember historically loaded it again, duplicating the
     // session row and revocation-fence reads on every cold /auth/me request.
     const session = await readSession(req);
-    const member = await readMember(req, session);
+    const storedMember = await readMember(req, session);
+    // Legacy member rows inherit tenancy from their organisation. Require the
+    // current organisation join to agree with the validated session before
+    // using that tenant for role authority and the client member projection.
+    const organizationTenantId = storedMember?.organization?.tenant_id;
+    const member = authenticatedMemberProjection(storedMember,
+      organizationTenantId && organizationTenantId === session?.data?.tenantId
+        ? organizationTenantId : null);
     
     if (!member) {
       return res.status(200).json(null);
