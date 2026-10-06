@@ -3889,6 +3889,7 @@ function AccordionRender({ block, asEditor, breakpoint }) {
               id={panelId}
               role="region"
               aria-labelledby={headingId}
+              data-reflow-expansion=""
               hidden={!isOpen}
               className="px-3 pb-3 pt-2 bg-slate-50 rounded-b-md"
             >

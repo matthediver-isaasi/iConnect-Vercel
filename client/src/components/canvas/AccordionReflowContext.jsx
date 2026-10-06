@@ -11,6 +11,7 @@ import {
 import { getBlockDefinition } from './blocks/registry';
 import { BLOCK_TYPES, blockIsFullWidthLike, isAspectHeightCarousel, resolveAspectReflowReferenceHeight } from '../../lib/canvasDesign';
 import { computeCardReferenceHeight, normalizeMeasuredLength, updateReflowBaseline } from './autoHeightBake';
+import { readReflowFontKey, subscribeReflowFontMetrics, measureCollapsedReflowHeight, observeReflowStyleChanges } from './reflowFontMetrics';
 import {
   buildReflowRowGroups,
   computeReflowStageHeight,
@@ -128,7 +129,11 @@ export function useReportReflowHeight(
     const el = containerRef.current;
     const report = () => {
       const h = measureReflowHeight(el, zoomRef.current);
-      if (h > 0 || (allowZero && h === 0)) reflow.reportHeight(blockId, Math.round(h + pad));
+      const collapsed = measureCollapsedReflowHeight(el, h, zoomRef.current);
+      if (h > 0 || (allowZero && h === 0)) reflow.reportHeight(blockId, Math.round(h + pad), {
+        fontKey: readReflowFontKey(el),
+        collapsedHeight: collapsed === undefined ? undefined : Math.round(collapsed + pad),
+      });
     };
     // Re-running on `pad` change (author edited padding in the inspector, which
     // does not resize the measured inner element) re-observes and re-reports —
@@ -136,7 +141,9 @@ export function useReportReflowHeight(
     // footprint is picked up immediately.
     const observer = new ResizeObserver(report);
     observer.observe(el);
-    return () => observer.disconnect();
+    const unsubscribe = subscribeReflowFontMetrics(report);
+    const unobserveStyles = observeReflowStyleChanges(el, report);
+    return () => { observer.disconnect(); unsubscribe(); unobserveStyles(); };
   }, [reflow, blockId, pad, allowZero]);
 
   return containerRef;
@@ -179,7 +186,7 @@ export function useReportCardContentHeight(blockId) {
     const outerH = normalizeMeasuredLength(outerRef.current.getBoundingClientRect().height, z);
     const spacerH = spacerRef.current ? normalizeMeasuredLength(spacerRef.current.getBoundingClientRect().height, z) : 0;
     const natural = Math.round(outerH - spacerH);
-    if (natural > 0) reflow.reportHeight(blockId, natural);
+    if (natural > 0) reflow.reportHeight(blockId, natural, { fontKey: readReflowFontKey(outerRef.current) });
   }, [reflow, blockId]);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -191,7 +198,9 @@ export function useReportCardContentHeight(blockId) {
     if (els.length === 0) return;
     const observer = new ResizeObserver(report);
     els.forEach((el) => observer.observe(el));
-    return () => observer.disconnect();
+    const unsubscribe = subscribeReflowFontMetrics(report);
+    const unobserveStyles = observeReflowStyleChanges(outerRef.current, report);
+    return () => { observer.disconnect(); unsubscribe(); unobserveStyles(); };
   }, [reflow, report]);
 
   const rowHeight = reflow ? reflow.getRowHeight(blockId) : undefined;
@@ -315,41 +324,11 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
     baselineHeightsRef.current = new Map();
   }, [breakpoint]);
 
-  // Font-load baseline guard (task: phantom gap on hard refresh). On a hard
-  // refresh the mount useLayoutEffect measures text in a FALLBACK font (web
-  // fonts still loading); if the fallback renders shorter, min-only baseline
-  // capture would lock that transient height in forever and the real font's
-  // taller render would read as positive growth, pushing every block below
-  // down — a phantom gap the builder / SPA navigation never shows. Until web
-  // fonts settle, reports are treated as PROVISIONAL (baseline tracks the
-  // LATEST measurement — see updateReflowBaseline); min-only semantics start
-  // only once fonts are ready. Settling waits for `document.fonts.ready` plus
-  // a double rAF so the font-swap ResizeObserver re-report has flushed first
-  // (same contract as the editor's settle gate in useAutoHeightBake), with a
-  // hard timeout so the gate always opens even if fonts.ready never resolves.
-  // Pages using only system fonts settle within a couple of frames, so their
-  // behaviour is effectively unchanged.
-  const fontsSettledRef = useRef(false);
-  useEffect(() => {
-    let cancelled = false;
-    const markSettled = () => {
-      if (cancelled) return;
-      if (typeof requestAnimationFrame === 'function') {
-        requestAnimationFrame(() => requestAnimationFrame(() => {
-          if (!cancelled) fontsSettledRef.current = true;
-        }));
-      } else {
-        fontsSettledRef.current = true;
-      }
-    };
-    if (typeof document !== 'undefined' && document.fonts && document.fonts.ready) {
-      document.fonts.ready.then(markSettled).catch(markSettled);
-    } else {
-      markSettled();
-    }
-    const t = setTimeout(markSettled, 4000);
-    return () => { cancelled = true; clearTimeout(t); };
-  }, []);
+  // Baselines belong to a block's actual font metrics/width, not the first
+  // document.fonts.ready promise. Replacing only an affected block's baseline
+  // preserves unrelated dynamic card growth during late asset arrivals.
+  const fontKeysRef = useRef(new Map());
+  const latestHeightsRef = useRef(new Map());
 
   // Optional editor hook: whenever an auto-height block reports a rendered
   // height we forward it so the editor can commit that height into the block's
@@ -382,19 +361,35 @@ export function AccordionReflowProvider({ children, blocks, resolveGeom, editorM
     });
   }, []);
 
-  const reportHeight = useCallback((blockId, height) => {
+  const reportHeight = useCallback((blockId, height, { fontKey, collapsedHeight } = {}) => {
     const rounded = Math.round(height);
-    // Provisional (overwrite) before fonts settle, min-only after — see
-    // updateReflowBaseline for the phantom-gap rationale.
-    updateReflowBaseline(baselineHeightsRef.current, blockId, rounded, fontsSettledRef.current);
+    const previousBaseline = baselineHeightsRef.current.get(blockId);
+    const measuredBlock = blocksRef.current.find((block) => block?.id === blockId);
+    const definition = measuredBlock ? getBlockDefinition(measuredBlock.type) : null;
+    const changedMetrics = fontKey !== undefined && fontKeysRef.current.get(blockId) !== fontKey;
+    if (fontKey !== undefined) fontKeysRef.current.set(blockId, fontKey);
+    if (Number.isFinite(collapsedHeight)) {
+      // Measure the collapsed footprint independently, including while a user
+      // opens an answer before CSS/fonts arrive or during an animation.
+      baselineHeightsRef.current.set(blockId, collapsedHeight);
+    } else if (changedMetrics && definition?.cardGrow && Number.isFinite(previousBaseline)) {
+      // Once live card content has grown, its current size is no longer evidence
+      // of the original resting content. Conservatively retain that reference:
+      // font wrapping of the added content must also push neighbours, not become
+      // baseline. Static cards can still replace a transient fallback baseline.
+      const priorGrowth = Math.max(0, (latestHeightsRef.current.get(blockId) ?? previousBaseline) - previousBaseline);
+      baselineHeightsRef.current.set(blockId, priorGrowth > 0 ? Math.min(previousBaseline, rounded) : rounded);
+    } else {
+      updateReflowBaseline(baselineHeightsRef.current, blockId, rounded, !changedMetrics);
+    }
+    const baselineChanged = previousBaseline !== baselineHeightsRef.current.get(blockId);
+    latestHeightsRef.current.set(blockId, rounded);
     setMeasuredHeights((prev) => {
-      if (prev.get(blockId) === rounded) return prev;
+      if (prev.get(blockId) === rounded && !baselineChanged) return prev;
       const next = new Map(prev);
       next.set(blockId, rounded);
       return next;
     });
-    const measuredBlock = blocksRef.current.find((block) => block?.id === blockId);
-    const definition = measuredBlock ? getBlockDefinition(measuredBlock.type) : null;
     // Viewer/data-dependent heights affect the current layout but must never
     // become authored geometry when observed in the editor.
     if (onMeasureRef.current && !definition?.renderOnlyAutoHeight) {

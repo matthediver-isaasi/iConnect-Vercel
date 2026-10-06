@@ -12,6 +12,7 @@ Use the focused topic that matches the change:
 - [Card row equalization](canvas-card-row-equalization.md)
 - [Layout-engine text encoding](canvas-layout-engine-text-encoding.md)
 - [Public reflow collapsed baseline](canvas-reflow-collapsed-baseline.md)
+- [Late font metrics](canvas-late-font-metrics.md) — readiness covers only already registered faces; isolate font-only and typography-arrival races.
 - [Spatial reflow lanes](canvas-spatial-reflow-lanes.md)
 - [Committing auto-height reflow](canvas-autoheight-commit.md)
 - [Mobile stage clamp](canvas-mobile-stage-clamp.md)

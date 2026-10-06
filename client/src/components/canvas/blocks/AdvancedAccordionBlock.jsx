@@ -758,6 +758,7 @@ export function AdvancedAccordionRender({
             </Heading>
             <div
               className="motion-reduce:transition-none"
+              data-reflow-expansion=""
               style={{
                 display: 'grid',
                 gridTemplateRows: open ? '1fr' : '0fr',

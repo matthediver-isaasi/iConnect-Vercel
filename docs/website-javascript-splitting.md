@@ -1,5 +1,8 @@
 # Website JavaScript splitting — verification and rollback
 
+For the subsequent late-font public layout correction and matched-build
+regression evidence, see [initial-page-layout.md](initial-page-layout.md).
+
 Baseline source: `ddba2800ee8a35eb6df0e8fa96dd7c1669979105`.
 This is separate from the request parallelism and intent-navigation changes in
 [website-navigation-rollback.md](website-navigation-rollback.md).
