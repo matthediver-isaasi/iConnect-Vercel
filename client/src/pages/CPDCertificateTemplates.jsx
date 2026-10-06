@@ -33,6 +33,7 @@ const BUILTIN_FIELDS = [
   ['member.email', 'Member email', 'alex.morgan@example.org'],
   ['member.membership_number', 'Membership number', 'MEM-00123'],
   ['cpd.activity_title', 'Activity title', 'Professional development activity'],
+  ['historic_event_title', 'Historic event title', 'Historical professional development conference'],
   ['cpd.activity_date', 'Activity start date (single date)', '28 February 2026'],
   ['cpd.activity_date_range', 'Activity date range (one or two days)', '28 February 2026 – 1 March 2026'],
   ['cpd.cpd_hours', 'CPD hours', '7.5'],
@@ -152,7 +153,7 @@ export default function CPDCertificateTemplates() {
   return <AccessGate>{templateId ? <TemplateDesigner id={templateId} /> : <TemplateLibrary />}</AccessGate>;
 }
 
-function TemplateLibrary() {
+export function TemplateLibrary() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const fileRef = useRef(null);
@@ -165,6 +166,21 @@ function TemplateLibrary() {
     queryFn: () => api(),
   });
   const templates = unwrapList(data);
+  const [historicBusy, setHistoricBusy] = useState(false);
+  const selectHistoric = async (item) => {
+    if (!window.confirm(item
+      ? `Use “${item.name}” for historic certificates? This replaces any previous historic selection. Ordinary event certificates are unchanged.`
+      : 'Clear the historic certificate template? Historical certificates will be unavailable until another template is selected.')) return;
+    setHistoricBusy(true);
+    try {
+      await api('', { method: 'PATCH', body: JSON.stringify({
+        historic_template_id: item?.id || null, expectedVersion: item?.version,
+      }) });
+      await refresh();
+      toast.success('Historic certificate selection saved');
+    } catch (e) { toast.error(e.message); }
+    finally { setHistoricBusy(false); }
+  };
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['cpd-certificate-templates'] });
   const action = async (item, action, message) => {
@@ -221,6 +237,13 @@ function TemplateLibrary() {
           </CardContent></Card>}
         {isLoading && <p className="text-slate-500">Loading templates…</p>}
         {error && <p className="text-red-600">{error.message}</p>}
+        {!isLoading && !error && <Card><CardContent className="pt-6">
+          <p className="font-medium">Historic CPD certificates</p>
+          <p className="text-sm text-slate-600">Current template: {templates.find(item => item.id === data?.historic_template_id)?.name || 'Not selected'}.
+            Only active templates with positioned Historic event title (or Activity title) and CPD points fields can be selected.
+            Archiving or deleting the selected template clears this designation.</p>
+          {data?.historic_template_id && <Button disabled={historicBusy} variant="outline" className="mt-2" onClick={() => selectHistoric(null)}>Clear historic template</Button>}
+        </CardContent></Card>}
         {!isLoading && !templates.length && <Card><CardContent className="py-16 text-center text-slate-500">
           No certificate templates have been created.</CardContent></Card>}
         <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -232,6 +255,9 @@ function TemplateLibrary() {
               <p className="text-xs text-slate-500 mb-4">{item.source_filename || item.original_filename || 'PDF'} · {item.source_page_count || item.page_count || templatePages(item).length} page(s)
                 {item.updated_at ? ` · Updated ${new Date(item.updated_at).toLocaleDateString()}` : ''}</p>
               <div className="flex flex-wrap gap-2">
+                {item.id === data?.historic_template_id
+                  ? <Badge>Historic certificate template</Badge>
+                  : item.status === 'active' && <Button disabled={historicBusy} size="sm" variant="outline" onClick={() => selectHistoric(item)}>Use for historic certificates</Button>}
                 {item.status !== 'active' ? <Button size="sm" onClick={() => navigate(`/CPDCertificateTemplates/${item.id}`)}>Edit</Button> : <Badge variant="outline">Active · preview only</Badge>}
                 <Button size="sm" variant="outline" onClick={() => navigate(`/CPDCertificateTemplates/${item.id}?preview=1`)}>Preview</Button>
                 <Button size="sm" variant="outline" onClick={() => action(item, 'duplicate', 'Template duplicated')}><Copy className="w-4 h-4" /></Button>
@@ -251,6 +277,10 @@ function TemplateLibrary() {
 
 export function TemplateDesigner({ id }) {
   const navigate = useNavigate();
+  const { data: library } = useQuery({
+    queryKey: ['cpd-certificate-templates'],
+    queryFn: () => api(),
+  });
   const containerRef = useRef(null);
   const uploadRef = useRef(null);
   const interaction = useRef(null);
@@ -393,6 +423,7 @@ export function TemplateDesigner({ id }) {
         <Button variant="outline" onClick={leave}>Templates</Button>
         <Input className="w-60" value={draft.name || draft.title || ''} onChange={e => setDraft(old => ({ ...old, name: e.target.value }))} />
         {dirty && <Badge variant="outline" className="text-amber-700">Unsaved</Badge>}
+        {library?.historic_template_id === id && <Badge>Historic certificate template</Badge>}
         <div className="flex-1" />
         {!isActive && <><Button variant="outline" onClick={() => uploadRef.current?.click()}><Upload className="w-4 h-4 mr-2" />Replace PDF</Button>
         <input hidden ref={uploadRef} type="file" accept="application/pdf" onChange={e => replacePdf(e.target.files?.[0])} /></>}

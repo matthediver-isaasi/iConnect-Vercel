@@ -1,10 +1,13 @@
 import multer from 'multer';
-import { supabase } from './database.js';
+import { supabase as defaultSupabase } from './database.js';
 import { getTenantContext } from './tenantContext.js';
 import { isResourceExcluded } from './roleVisibility.js';
 import { inspectPdf, renderCpdCertificatePdf, MAX_CPD_TEMPLATE_BYTES } from './cpdCertificatePdf.js';
+import { createHash } from 'node:crypto';
+import { hasHistoricCertificateFields } from '../../shared/historicCpdCertificateContract.js';
 
 export const CPD_TEMPLATE_CAPABILITY = 'cpd.certificate-templates';
+const supabase = defaultSupabase;
 const PRIVATE_BUCKET = 'private-uploads';
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_CPD_TEMPLATE_BYTES } }).single('file');
 const runUpload = (req, res) => new Promise((resolve, reject) => upload(req, res, (error) => error ? reject(error) : resolve()));
@@ -23,7 +26,7 @@ function actor(context) {
 export async function authorizeCpdTemplates(req, dependencies = {}) {
   const database = dependencies.supabase || supabase;
   const context = await (dependencies.getTenantContext || getTenantContext)(req);
-  if (!context?.isAuthenticated || !context.tenantId) return { status: 401, error: 'Authentication required' };
+  if (!context?.isAuthenticated || !context.tenantId || context.tenantMismatch) return { status: 401, error: 'Authentication required' };
   // Deliberately do not use hasAdminAccess: tenant-admin status is not this capability.
   if (!context.roleId) return { status: 403, error: 'CPD certificate template capability required' };
   const { data: role, error } = await database
@@ -83,12 +86,14 @@ function validPlaceholders(input) {
   });
 }
 
-async function getTemplate(id, tenantId) {
-  const { data } = await supabase.from('cpd_certificate_template').select('*')
+async function getTemplate(id, tenantId, db = supabase) {
+  const { data, error } = await db.from('cpd_certificate_template').select('*')
     .eq('id', id).eq('tenant_id', tenantId).maybeSingle();
+  if (error) throw error;
   if (!data) return null;
-  const { data: placeholders } = await supabase.from('cpd_certificate_placeholder').select('*')
+  const { data: placeholders, error: fieldError } = await db.from('cpd_certificate_placeholder').select('*')
     .eq('template_id', id).eq('tenant_id', tenantId).order('page_number').order('display_order').order('created_at');
+  if (fieldError) throw fieldError;
   return { ...data, placeholders: placeholders || [] };
 }
 
@@ -141,28 +146,59 @@ async function readUploadedPdf(req, res) {
   throw new Error('A PDF file is required');
 }
 
-async function downloadSource(template) {
+async function downloadSource(template, db = supabase) {
   if (template.source_bucket !== PRIVATE_BUCKET || !template.source_path) throw Object.assign(new Error('Template has no source PDF'), { status: 409 });
-  const { data, error } = await supabase.storage.from(PRIVATE_BUCKET).download(template.source_path);
+  const { data, error } = await db.storage.from(PRIVATE_BUCKET).download(template.source_path);
   if (error || !data) throw Object.assign(new Error('Source PDF could not be read'), { status: 502 });
   return Buffer.from(await data.arrayBuffer());
 }
 
-export async function handleCpdTemplates(req, res, operation = 'collection') {
+export async function handleCpdTemplates(req, res, operation = 'collection', dependencies = {}) {
+  const supabase = dependencies.supabase || defaultSupabase;
   if (!supabase) return res.status(503).json({ error: 'Database service not configured' });
   try {
-    const auth = await authorizeCpdTemplates(req);
+    const auth = await authorizeCpdTemplates(req, dependencies);
     if (!auth.context) return res.status(auth.status).json({ error: auth.error });
     const { context } = auth;
     const tenantId = context.tenantId;
     const id = req.query.id;
 
     if (operation === 'collection') {
+      if (req.method === 'PATCH') {
+        await ensureJsonBody(req);
+        const templateId = req.body?.historic_template_id;
+        if (templateId !== null && (typeof templateId !== 'string' || !/^[a-f0-9-]{36}$/i.test(templateId))) {
+          return res.status(400).json({ error: 'historic_template_id is required (or null to clear)' });
+        }
+        if (templateId) {
+          const selected = await getTemplate(templateId, tenantId, supabase);
+          if (!selected || selected.status !== 'active' || !selected.source_path?.startsWith(`${tenantId}/`)) {
+            return res.status(409).json({ error: 'Select an active usable tenant template' });
+          }
+          if (!hasHistoricCertificateFields(selected.placeholders)) {
+            return res.status(409).json({ error: 'Historic templates must include positioned Historic event title (or Activity title) and CPD points fields.' });
+          }
+          const source = await downloadSource(selected, supabase);
+          if (createHash('sha256').update(source).digest('hex') !== selected.source_sha256) {
+            return res.status(409).json({ error: 'Template source changed; reload and retry' });
+          }
+          const inspected = await inspectPdf(source);
+          validateGeometryAgainstSource(selected.placeholders, inspected.geometry);
+        }
+        const { error } = await supabase.rpc('set_historic_cpd_certificate', {
+          p_tenant_id: tenantId, p_template_id: templateId, p_expected_version: req.body.expectedVersion ?? null,
+        });
+        if (error) return res.status(409).json({ error: 'Template changed or unavailable; reload and retry' });
+        return res.json({ success: true });
+      }
       if (req.method === 'GET') {
         const { data, error } = await supabase.from('cpd_certificate_template').select('*')
           .eq('tenant_id', tenantId).order('updated_at', { ascending: false });
         if (error) throw error;
-        return res.json({ templates: data || [] });
+        const designation = await supabase.from('historic_cpd_certificate').select('template_id')
+          .eq('tenant_id', tenantId).maybeSingle();
+        if (designation.error) throw designation.error;
+        return res.json({ templates: data || [], historic_template_id: designation.data?.template_id || null });
       }
       if (req.method === 'POST') {
         if ((req.headers?.['content-type'] || '').startsWith('multipart/form-data')) await runUpload(req, res);

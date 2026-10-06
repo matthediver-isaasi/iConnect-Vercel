@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { PDFDocument, StandardFonts } from "pdf-lib";
+import { renderCpdCertificatePdf } from "../api/_lib/cpdCertificatePdf.js";
 
 // Only local application assets are loaded. All APIs (including auth) are fixture
 // routes, and unexpected writes/external requests are blocked, never forwarded.
@@ -34,6 +35,9 @@ const OTHER_MEMBER = {
   last_name: "Attendee", email: "second@example.invalid",
 };
 const awards = [
+  { id: "historic-award", entry_kind: "imported_award", points_value: 4,
+    event_name: "Historic fixture symposium", activity_description: "Description is not the certificate title",
+    evidence_date: "2019-05-06" },
   { id: "standard-award", entry_kind: "event_award", points_value: 5,
     event_name: "Regular fixture conference", ticket_name_snapshot: "Member ticket",
     award_trigger: "attendance", evidence_date: "2026-10-15" },
@@ -60,7 +64,13 @@ async function pdf(id) {
   const page = document.addPage([612, 792]);
   const font = await document.embedFont(StandardFonts.Helvetica);
   page.drawText(`Member CPD certificate ${id}`, { x: 48, y: 640, size: 20, font });
-  return Buffer.from(await document.save());
+  const source = Buffer.from(await document.save());
+  if (id !== 'historic-award') return source;
+  return renderCpdCertificatePdf(source, [
+    { placeholder_key: 'historic_event_title', page_number: 1, x: 48, y: 200, width: 500, height: 40, font_size: 20 },
+    { placeholder_key: 'member.full_name', page_number: 1, x: 48, y: 250, width: 500, height: 40, font_size: 20 },
+    { placeholder_key: 'cpd.cpd_points', page_number: 1, x: 48, y: 300, width: 500, height: 40, font_size: 20 },
+  ], { historic_event_title: 'Historic fixture symposium', 'member.full_name': 'Real Attendee', 'cpd.cpd_points': 4 });
 }
 
 function json(route, body, status = 200) {
@@ -125,7 +135,7 @@ async function fixture(page, { failPdfOnce = false, failMetadataOnce = false, ad
           state.failPdfOnce = false;
           return json(route, { error: "Certificate source temporarily unavailable" }, 503);
         }
-        if (!["standard-award", "complex-award", "next-page-award", "other-award"].includes(id)
+        if (!["historic-award", "standard-award", "complex-award", "next-page-award", "other-award"].includes(id)
           || (memberId === OTHER_MEMBER.id) !== (id === "other-award")) {
           return json(route, { error: "Certificate unavailable" }, 409);
         }
@@ -142,7 +152,7 @@ async function fixture(page, { failPdfOnce = false, failMetadataOnce = false, ad
         return json(route, { error: "Certificate details temporarily unavailable" }, 503);
       }
       return json(route, { certificates: Object.fromEntries(ids.map(id => [id, {
-        available: ["standard-award", "complex-award", "next-page-award", "other-award"].includes(id)
+        available: ["historic-award", "standard-award", "complex-award", "next-page-award", "other-award"].includes(id)
           && ((memberId === OTHER_MEMBER.id) === (id === "other-award")),
         reason: id === "no-config" ? "Certificate unavailable: no template configured." : "Certificate unavailable.",
         retryable: false,
@@ -191,6 +201,46 @@ async function fixture(page, { failPdfOnce = false, failMetadataOnce = false, ad
   return state;
 }
 
+test("historic template selection replaces, persists and clears without changing ordinary templates", async ({ page }) => {
+  await fixture(page);
+  let selected = null;
+  const templates = [
+    { id: 'template-a', name: 'Historic design A', status: 'active', version: 3 },
+    { id: 'template-b', name: 'Historic design B', status: 'active', version: 4 },
+    { id: 'template-draft', name: 'Draft design', status: 'draft', version: 1 },
+  ];
+  const writes = [];
+  await page.route('**/api/cpd-certificate-templates', async route => {
+    if (route.request().method() === 'PATCH') {
+      const body = route.request().postDataJSON();
+      writes.push(body);
+      selected = body.historic_template_id;
+      return json(route, { success: true });
+    }
+    return json(route, { templates, historic_template_id: selected });
+  });
+  page.on('dialog', dialog => dialog.accept());
+  await page.goto('/cpdcertificatetemplates');
+  await expect(page.getByText('Current template: Not selected.', { exact: false })).toBeVisible();
+  const buttons = page.getByRole('button', { name: 'Use for historic certificates' });
+  await expect(buttons).toHaveCount(2);
+  await buttons.first().click();
+  await expect(page.getByText('Current template: Historic design A.', { exact: false })).toBeVisible();
+  await page.getByRole('button', { name: 'Use for historic certificates' }).click();
+  await expect(page.getByText('Current template: Historic design B.', { exact: false })).toBeVisible();
+  await page.reload();
+  await expect(page.getByText('Current template: Historic design B.', { exact: false })).toBeVisible();
+  await expect(page.getByText('Historic certificate template', { exact: true })).toHaveCount(1);
+  await page.getByRole('button', { name: 'Clear historic template' }).click();
+  await expect(page.getByText('Current template: Not selected.', { exact: false })).toBeVisible();
+  expect(writes).toEqual([
+    { historic_template_id: 'template-a', expectedVersion: 3 },
+    { historic_template_id: 'template-b', expectedVersion: 4 },
+    { historic_template_id: null },
+  ]);
+  expect(templates.filter(template => template.status === 'active')).toHaveLength(2);
+});
+
 test("member sees scoped certificates, real PDF canvas preview and downloadable PDF, including complex booking", async ({ page }) => {
   const state = await fixture(page);
   await expect.poll(() => state.metadata.length).toBeGreaterThan(0);
@@ -223,6 +273,33 @@ test("member sees scoped certificates, real PDF canvas preview and downloadable 
   expect(state.pdf.every(call => call.method === "GET" && call.format === "pdf")).toBe(true);
   expect(state.rejectedWrites).toEqual([]);
   expect(state.unexpectedExternal).toEqual([]);
+});
+
+for (const admin of [false, true]) test(`historic PDF preview and download use positioned fields (${admin ? 'admin' : 'member'})`, async ({ page }) => {
+  const state = await fixture(page, { admin });
+  if (admin) await page.getByTestId("tab-member-cpd-points").click();
+  const row = page.getByRole('row').filter({ hasText: 'Historic fixture symposium' });
+  await row.getByRole('button', { name: 'View certificate' }).click();
+  const dialog = page.getByRole('dialog', { name: /CPD certificate/ });
+  await expect(dialog.locator('canvas')).toBeVisible();
+  await expect(dialog.getByRole('status')).toHaveText('1 page rendered');
+  mkdirSync('screenshots', { recursive: true });
+  await page.screenshot({ path: `screenshots/historic-cpd-${admin ? 'admin' : 'member'}.png`, fullPage: true });
+  const download = page.waitForEvent('download');
+  await dialog.getByRole('button', { name: 'Download PDF' }).click();
+  const file = await download;
+  expect(file.suggestedFilename()).toBe('cpd-certificate-historic-award.pdf');
+  const bytes = await readFile(await file.path());
+  expect((await PDFDocument.load(bytes)).getPageCount()).toBe(1);
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(bytes), useSystemFonts: true }).promise;
+  const text = (await (await doc.getPage(1)).getTextContent()).items.map(item => item.str).join(' ');
+  expect(text).toContain('Historic fixture symposium');
+  expect(text).toContain('Real Attendee');
+  expect(text).toContain('4 points');
+  expect(text).not.toContain('Description is not');
+  await doc.destroy();
+  expect(state.rejectedWrites).toEqual([]);
 });
 
 test("no download for reversed, reversal, or unconfigured awards; pagination requests the current page only", async ({ page }) => {

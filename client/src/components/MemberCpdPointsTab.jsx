@@ -163,7 +163,7 @@ export default function MemberCpdPointsTab({ memberId, enabled = true, canCorrec
     placeholderData: (previous) => previous,
   });
   const certificateIds = enabled && certificates && !query.isPlaceholderData
-    ? (query.data?.items || []).filter(item => item.entry_kind === "event_award" && !item.is_reversed)
+    ? (query.data?.items || []).filter(item => ["event_award", "imported_award"].includes(item.entry_kind) && Number(item.points_value) > 0 && !item.is_reversed)
       .slice(0, PAGE_SIZE).map(item => String(item.id))
     : [];
   const certificateQuery = useQuery({
@@ -226,7 +226,7 @@ export default function MemberCpdPointsTab({ memberId, enabled = true, canCorrec
   }
 
   function renderCertificate(item) {
-    if (item.entry_kind !== "event_award" || item.is_reversed) return <span className="text-muted-foreground">—</span>;
+    if (!["event_award", "imported_award"].includes(item.entry_kind) || !(Number(item.points_value) > 0) || item.is_reversed) return <span className="text-muted-foreground">—</span>;
     if (certificateQuery.isPending || certificateQuery.isFetching || query.isPlaceholderData) return <span role="status" className="text-sm text-muted-foreground">Checking…</span>;
     if (certificateQuery.isError) return (
       <div className="space-y-1 text-sm">

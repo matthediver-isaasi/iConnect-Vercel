@@ -7,6 +7,17 @@ import {
 import { readFileSync } from 'node:fs';
 import { layoutPlaceholder } from '../../../api/_lib/cpdCertificatePdf.js';
 
+test('historic title is a positioned field with an illustrative preview, not PDF text replacement', () => {
+  const field = { key: 'historic_event_title', sample: 'Historical conference', page: 1,
+    x: 10, y: 20, width: 300, height: 40, font_size: 12 };
+  assert.equal(certificatePreviewValue(field), 'Historical conference');
+  assert.deepEqual(certificateSampleValues([field]), { historic_event_title: 'Historical conference' });
+  const serialized = serializeCertificatePlaceholder(field);
+  assert.equal(serialized.placeholder_key, 'historic_event_title');
+  assert.equal(serialized.page_number, 1);
+  assert.equal(layoutPlaceholder(serialized, { historic_event_title: 'Actual imported title' }).value, 'Actual imported title');
+});
+
 test('points decoration agrees across preview and PDF, without changing raw samples', () => {
   const key = 'cpd.cpd_points';
   for (const [raw, format, expected] of [

@@ -248,6 +248,7 @@ test("certificate-enabled history opts into bounded metadata independently of co
       calls.push(url);
       if (url.includes("cpd-certificate")) return json({ certificates: {
         award: { available: true, filename: "conference.pdf" },
+        import: { available: true, filename: "historic.pdf" },
         missing: { available: false, reason: "No certificate configured", retryable: false },
       } });
       return json({ balance: 5, total: 4, items: [
@@ -263,10 +264,11 @@ test("certificate-enabled history opts into bounded metadata independently of co
     const metadata = calls.filter(url => url.includes("cpd-certificate"));
     assert.equal(metadata.length, 1);
     assert.match(metadata[0], /ledger_entry_ids=award,missing/);
-    assert.doesNotMatch(metadata[0], /reversed|import/);
+    assert.match(metadata[0], /,import/);
+    assert.doesNotMatch(metadata[0], /reversed/);
     assert.equal(container.querySelectorAll("button").length >= 2, true);
     assert.match(container.textContent, /No certificate configured/);
-    assert.equal([...container.querySelectorAll("button")].filter(el => el.textContent.includes("View certificate")).length, 1);
+    assert.equal([...container.querySelectorAll("button")].filter(el => el.textContent.includes("View certificate")).length, 2);
   });
 });
 

@@ -16,6 +16,103 @@ const eventId = '55555555-5555-4555-8555-555555555555';
 const templateId = '66666666-6666-4666-8666-666666666666';
 const member = { id: memberId, tenant_id: tenant, role_id: 'role', member_excluded_features: [] };
 
+async function historicFixture() {
+  const f = await fixture();
+  Object.assign(f.db.rows.member_cpd_points_ledger[0], {
+    entry_kind: 'imported_award', activity_title: 'Historic symposium',
+    activity_description: 'Not the title', activity_date: '2019-05-06', booking_id: null, event_id: null,
+  });
+  Object.assign(f.db.rows.member[0], { first_name: 'Historical', last_name: 'Member' });
+  f.db.rows.historic_cpd_certificate = [{ tenant_id: tenant, template_id: templateId, revision: 'first' }];
+  f.db.rows.cpd_certificate_placeholder.push({
+    ...f.db.rows.cpd_certificate_placeholder[0], id: 'title', placeholder_key: 'historic_event_title', y: 60, width: 450,
+    sample_value: 'Never use sample', default_value: 'Never use default',
+  });
+  return f;
+}
+
+test('historic awards resolve actual title, identity, original points and dates without event evidence', async () => {
+  const f = await historicFixture();
+  const { resolveHistoricCertificate } = await import('../../_lib/historicCpdCertificate.js');
+  const resolved = await resolveHistoricCertificate(f.db, { tenantId: tenant, memberCertificateId: memberId,
+    row: f.db.rows.member_cpd_points_ledger[0] });
+  assert.equal(resolved.values.historic_event_title, 'Historic symposium');
+  assert.equal(resolved.values['member.full_name'], 'Historical Member');
+  assert.equal(resolved.values['cpd.cpd_points'], 5);
+  assert.equal(resolved.values['cpd.activity_date'], '2019-05-06');
+  assert.equal(resolved.values['cpd.cpd_hours'], undefined);
+  assert.equal(resolved.values['event.name'], undefined);
+  const result = await request(f);
+  assert.equal(result.statusCode, 200);
+  assert.equal((await PDFDocument.load(result.body)).getPageCount(), 1);
+  assert.ok(!f.queried.includes('booking'));
+});
+
+test('historic unavailable states never issue certificates', async () => {
+  for (const mutate of [
+    f => { f.db.rows.historic_cpd_certificate = []; },
+    f => { f.db.rows.cpd_certificate_template = []; },
+    f => { f.db.rows.cpd_certificate_template[0].status = 'archived'; },
+    f => { f.db.rows.cpd_certificate_template[0].tenant_id = 'foreign'; },
+    f => { f.db.rows.cpd_certificate_template[0].source_path = 'foreign/private.pdf'; },
+    f => { f.db.rows.cpd_certificate_template[0].source_sha256 = '0'.repeat(64); },
+    f => { f.db.rows.cpd_certificate_placeholder[0].placeholder_key = 'cpd.cpd_hours'; },
+    f => { f.db.rows.member_cpd_points_ledger[0].points_value = 0; },
+    f => { f.db.rows.member_cpd_points_ledger[0].entry_kind = 'manual_adjustment'; },
+    f => { f.db.rows.member_cpd_points_ledger.push({ tenant_id: tenant, member_id: memberId, reversal_of: awardId }); },
+    f => { f.db.rows.member_cpd_points_ledger[0].member_id = 'other'; },
+  ]) {
+    const f = await historicFixture(); mutate(f);
+    const result = await request(f, { ledger_entry_ids: awardId });
+    assert.equal(result.body.certificates[awardId].available, false);
+    assert.notEqual((await request(f)).statusCode, 200);
+  }
+});
+
+test('historic data, selection and reversal races reject rendered output', async () => {
+  for (const mutate of [
+    f => { f.db.rows.historic_cpd_certificate[0].revision = 'replacement'; },
+    f => { f.db.rows.member_cpd_points_ledger[0].activity_title = 'Changed'; },
+    f => { f.db.rows.member[0].first_name = 'Changed'; },
+    f => { f.db.rows.member_cpd_points_ledger.push({ tenant_id: tenant, member_id: memberId, reversal_of: awardId }); },
+  ]) {
+    const f = await historicFixture();
+    const result = await request(f, {}, { renderAttendeeCertificate: async () => { mutate(f); return Buffer.from('discard'); } });
+    assert.equal(result.statusCode, 409);
+  }
+});
+
+test('historic transient source failures allow retry and authorization stays mandatory', async () => {
+  const f = await historicFixture();
+  const storage = f.db.storage;
+  f.db.storage = { from: () => ({ download: async () => ({ error: new Error('temporary') }) }) };
+  const result = await request(f, { ledger_entry_ids: awardId });
+  assert.equal(result.body.certificates[awardId].retryable, true);
+  f.db.storage = storage;
+  assert.equal((await request(f, { ledger_entry_ids: awardId })).body.certificates[awardId].available, true);
+  assert.equal((await request(f, {}, { getSessionMember: async () => null })).statusCode, 403);
+  assert.equal((await request(f, {}, {
+    getSessionMember: async () => null, getTenantContext: async () => ({ tenantId: tenant, tenantMismatch: true }),
+    hasAdminAccess: async () => true,
+  })).statusCode, 403);
+});
+
+test('historic availability and PDF fail closed when a designated template omits title or original points', async () => {
+  for (const keys of [[], ['historic_event_title'], ['cpd.cpd_points'], ['event.name', 'cpd.cpd_points']]) {
+    const f = await historicFixture();
+    f.db.rows.cpd_certificate_placeholder = keys.map(placeholder_key => ({
+      ...f.db.rows.cpd_certificate_placeholder[0], placeholder_key,
+    }));
+    const metadata = await request(f, { ledger_entry_ids: awardId });
+    assert.equal(metadata.body.certificates[awardId].available, false);
+    assert.equal(metadata.body.certificates[awardId].retryable, false);
+    assert.equal((await request(f)).statusCode, 409);
+  }
+  const f = await historicFixture();
+  f.db.rows.cpd_certificate_placeholder[1].placeholder_key = 'cpd.activity_title';
+  assert.equal((await request(f)).statusCode, 200);
+});
+
 async function fixture(source = 'booking') {
   const doc = await PDFDocument.create(); doc.addPage([500, 300]);
   const bytes = Buffer.from(await doc.save());
@@ -249,11 +346,11 @@ test('member-only feature check rejects anonymous, wrong member, excluded featur
   assert.equal(f.queried.includes('member_cpd_points_ledger'), false);
 });
 
-test('denies foreign tenant/member, reversed, zero, imported and inconsistent booking or purchaser identity', async () => {
+test('denies foreign tenant/member, reversed, zero and inconsistent booking or purchaser identity', async () => {
   const f = await fixture();
   const award = f.db.rows.member_cpd_points_ledger[0];
   for (const [key, value] of [
-    ['tenant_id', 'other'], ['member_id', 'other'], ['entry_kind', 'imported_award'],
+    ['tenant_id', 'other'], ['member_id', 'other'],
     ['entry_kind', 'reversal'], ['points_value', 0], ['event_id', 'other'],
     ['booking_type', 'wrong'],
   ]) {
