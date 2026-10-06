@@ -497,6 +497,7 @@ test("refreshed values, totals and CSV agree and visible proof is saved", async 
   await expect(page.getByTestId("text-credits-credit-refresh-01")).toHaveText("£12.50");
   await expect(page.getByTestId("text-credits-credit-refresh-02")).toHaveText("£7.00");
   await expect(page.getByTestId("text-total-credits")).toHaveText("£19.50");
+  await expect(page.getByTestId("text-total-revenue")).toHaveText("£20.50");
   const csv = await exportCreditColumns(page);
   expect(csv).toContain('"Standard Credit 01","£12.50 — Refund (stripe) #re_01: £12.50"');
   expect(csv).toContain('"Standard Credit 02","£7.00 — Refund (stripe) #re_02: £7.00"');
@@ -512,4 +513,43 @@ test("refreshed values, totals and CSV agree and visible proof is saved", async 
 
   expect(state.rejectedWrites).toEqual([]);
   expect(state.unexpectedExternal).toEqual([]);
+});
+
+test("revenue recalculates after credit refresh over all pages and filters without changing Price Paid or Stripe", async ({ page }) => {
+  const groups = Array.from({ length: 28 }, (_, index) => group(index + 1, {
+    source: index % 2 ? "complex_event_booking" : "booking", credit: 0,
+  }));
+  // Two attendees still represent one booking group's financial value.
+  groups[0].attendees.push({ ...groups[0].attendees[0], id: "second-attendee" });
+  groups[0].attendeeCount = 2;
+  const state = await openReport(page, {
+    groups,
+    reconcile: async body => {
+      for (const entry of groups) {
+        if (body.bookingIds.includes(entry.attendees[0].id)) {
+          entry.credits = { status: "confirmed", amount: 5, currency: "GBP", breakdown: [] };
+        }
+      }
+      return { body: { written: body.bookingIds.length, unresolved: false, nextCursor: null } };
+    },
+  });
+  await expect(page.getByTestId("text-total-revenue")).toHaveText("£560.00");
+  await expect(page.getByText("Page 1 of 2", { exact: true })).toBeVisible();
+  await confirmRefresh(page);
+  await expect(page.getByTestId("text-total-revenue")).toHaveText("£420.00");
+  await expect(page.getByTestId("text-total-stripe")).toHaveText("£560.00");
+  await expect(page.getByTestId("text-price-paid-credit-refresh-01")).toHaveText("£20.00");
+  await page.getByTestId("input-search").fill("Credit 01");
+  await expect(page.getByTestId("text-total-revenue")).toHaveText("£15.00");
+  expect(state.rejectedWrites).toEqual([]);
+});
+
+test("revenue explains unknown evidence and incompatible currencies instead of displaying a partial sum", async ({ page }) => {
+  const groups = [group(1), group(2, { credit: 5 })];
+  groups[1].credits.currency = "USD";
+  await openReport(page, { groups });
+  await expect(page.getByTestId("text-total-revenue")).toHaveText("Unavailable");
+  await expect(page.getByTestId("text-revenue-incomplete")).toContainText("2 booking group(s)");
+  await expect(page.getByTestId("text-revenue-incomplete")).toContainText("unverified or unresolved Credits");
+  await expect(page.getByTestId("text-revenue-incomplete")).toContainText("incompatible or missing currency");
 });

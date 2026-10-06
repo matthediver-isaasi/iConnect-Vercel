@@ -37,6 +37,7 @@ import CpdPointsReplayDialog from "@/components/events/CpdPointsReplayDialog";
 import { CPD_REPLAY_ENDPOINT, cpdRegistrationIdentity, cpdRegistrationKey, readCpdReplayResponse } from "@/lib/cpdPointsReplay";
 import { formatRegistrationPricePaid } from "@/lib/eventRegistrationPricePaid";
 import { financialAmount, financialCurrency, financialExport, paymentMethodLabel } from "@/lib/eventRegistrationFinancial";
+import { summarizeRegistrationRevenue, registrationRevenueExplanation } from "../../../shared/eventRegistrationRevenue.mjs";
 import {
   formatRegistrationCreditBreakdown,
   formatRegistrationCreditExplanation,
@@ -1276,7 +1277,6 @@ export default function EventRegistrationReport() {
   };
 
   const filteredSummary = useMemo(() => {
-    let totalRevenue = 0;
     let totalVoucher = 0;
     let totalTrainingFund = 0;
     let totalDiscount = 0;
@@ -1287,7 +1287,6 @@ export default function EventRegistrationReport() {
     const creditsSummary = summarizeRegistrationCredits(filteredGroups);
     let hasUnavailableTicketTotal = false;
     let hasUnavailableDiscount = false;
-    let hasUnavailableRevenue = false;
     let hasUnavailableVoucher = false;
     let hasUnavailableFund = false;
     let hasUnavailableAfterDiscount = false;
@@ -1300,8 +1299,6 @@ export default function EventRegistrationReport() {
       const gp = group.groupPayment;
       const cost = financialAmount(gp.totalCost);
       const codeDiscount = financialAmount(gp.codeDiscount);
-      if (cost === null || codeDiscount === null) hasUnavailableRevenue = true;
-      else totalRevenue += cost - codeDiscount;
       const voucher = financialAmount(gp.voucherAmount);
       const fund = financialAmount(gp.trainingFundAmount);
       const discount = financialAmount(gp.discount);
@@ -1341,7 +1338,7 @@ export default function EventRegistrationReport() {
     return {
       totalBookings: totalAttendees,
       totalGroups: filteredGroups.length,
-      totalRevenue,
+      ...summarizeRegistrationRevenue(filteredGroups),
       totalVoucher,
       totalTrainingFund,
       totalDiscount,
@@ -1352,7 +1349,6 @@ export default function EventRegistrationReport() {
       creditsSummary,
       hasUnavailableTicketTotal,
       hasUnavailableDiscount,
-      hasUnavailableRevenue,
       hasUnavailableVoucher,
       hasUnavailableFund,
       hasUnavailableAfterDiscount,
@@ -2015,6 +2011,12 @@ export default function EventRegistrationReport() {
                   <span className="text-xs text-muted-foreground">Total Revenue</span>
                 </div>
                 <p className="text-xl font-bold" data-testid="text-total-revenue">{filteredSummary.hasUnavailableRevenue ? 'Unavailable' : formatCurrency(filteredSummary.totalRevenue)}</p>
+                <p className="text-xs text-muted-foreground mt-1">Booking value less confirmed post-booking Credits, not cash received.</p>
+                {filteredSummary.hasUnavailableRevenue && (
+                  <p className="text-xs text-muted-foreground mt-1" data-testid="text-revenue-incomplete">
+                    Incomplete for {filteredSummary.revenueUnavailableGroups} booking group(s): {registrationRevenueExplanation(filteredSummary)}.
+                  </p>
+                )}
               </CardContent>
             </Card>
             {paymentPolicy?.allowVoucherPayment && <Card>

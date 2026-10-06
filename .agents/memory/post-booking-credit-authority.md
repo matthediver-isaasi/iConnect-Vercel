@@ -8,6 +8,12 @@ Post-booking Credits must use actual provider evidence, never cancellation statu
 
 **How to apply:** Require durable operation linkage before merging legs; leave unresolved attribution/overlap unavailable. Historical reconciliation must only read financial providers and must never replay cancellation to repair reporting evidence.
 
+Event Registration Report revenue means booked value less confirmed post-booking Credits, not cash received. Checkout vouchers, training funds and account allocations are settlement methods, not further revenue deductions.
+
+**Why:** The user explicitly separated revenue from settlement and requested that missing reversal evidence prevent a definitive total.
+
+**How to apply:** Preserve standard versus complex discount semantics, deduct the authoritative group projection once, and keep incompatible currencies or unresolved evidence unavailable. Do not extend this definition to other reports without approval.
+
 Request safety budgets for browser-driven historical reconciliation must pause resumably, not permanently exhaust the saved session.
 
 **Why:** A report can span all events and booking dates, and provider pagination adds requests beyond its booking count. A lifetime request cap can make an otherwise valid report impossible to finish, even through retries.

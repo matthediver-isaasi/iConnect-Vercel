@@ -48,8 +48,8 @@ test('financial export columns use stable keys in accounting order', () => {
   );
   assert.match(source, /const cost = financialAmount\(gp\.totalCost\)/);
   assert.match(source, /const codeDiscount = financialAmount\(gp\.codeDiscount\)/);
-  assert.match(source, /if \(cost === null \|\| codeDiscount === null\) hasUnavailableRevenue = true/);
-  assert.match(source, /else totalRevenue \+= cost - codeDiscount/, 'revenue retains cost minus code discount when both are known');
+   assert.match(source, /summarizeRegistrationRevenue\(filteredGroups\)/);
+   assert.doesNotMatch(source, /totalRevenue \+= cost - codeDiscount/);
   assert.equal(financialAmount(null), null);
   assert.equal(financialExport(null), 'Unavailable');
   assert.equal(financialCurrency(0), '£0.00');

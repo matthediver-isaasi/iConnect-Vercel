@@ -4,6 +4,7 @@ import { isPublicInvoicePo, publicInvoicePurchaser } from './_publicInvoicePo.js
 import { buildEventCheckinFlagMap } from '../_lib/checkinService.js';
 import { normalizeGroupPayment, normalizeGroupPricePaid, normalizeGroupTicketPrices } from './_pricePaid.js';
 import { attachReportCredits } from './_credits.js';
+import { summarizeRegistrationRevenue } from '../../shared/eventRegistrationRevenue.mjs';
 
 // Continue until an empty page, not a short page: a deployment's PostgREST
 // maximum may be smaller than our requested range. A unique tie-breaker keeps
@@ -754,13 +755,11 @@ export default async function handler(req, res) {
         }
       }
 
-      let totalRevenue = 0;
       let totalVoucher = 0;
       let totalTrainingFund = 0;
       let totalDiscount = 0;
       let totalAccountPayments = 0;
       let totalStripePayments = 0;
-      let hasUnavailableRevenue = false;
       let hasUnavailableTicketTotal = false;
       let hasUnavailableDiscount = false;
       let hasUnavailableAfterDiscount = false;
@@ -797,15 +796,14 @@ export default async function handler(req, res) {
           hasUnavailablePricePaid = true;
         }
 
-        // Keep totalCost and the summary-card calculations below on their
-        // historical raw snapshots. The canonical footer values are calculated
-        // independently because complex ticket_price is already code-discounted.
+        // Preserve raw totalCost for existing settlement cards. Revenue uses
+        // canonical booking value after credit attachment below, because
+        // complex ticket_price is already code-discounted.
         const hasUnknownCost = members.some(b => b.total_cost == null || b.total_cost === ''
           || !Number.isFinite(Number(b.total_cost))
           || (b.payment_method === 'admin_import' && Number(b.total_cost) === 0));
         const groupTotalCost = hasUnknownCost ? null
           : members.reduce((sum, b) => sum + (Number(b.total_cost) || 0), 0);
-        if (hasUnknownCost) hasUnavailableRevenue = true;
 
         const groupVoucher = members.reduce((sum, b) => sum + (Number(b.voucher_amount) || 0), 0);
         const groupTrainingFund = members.reduce((sum, b) => sum + (Number(b.training_fund_amount) || 0), 0);
@@ -822,7 +820,6 @@ export default async function handler(req, res) {
         const legacyDiscount = legacyOfferDiscount + legacyCodeDiscount;
         const groupDiscountCode = (members.find(b => b.discount_code_label)?.discount_code_label) || null;
 
-        if (groupTotalCost !== null) totalRevenue += groupTotalCost - legacyCodeDiscount;
         totalVoucher += groupVoucher;
         totalTrainingFund += groupTrainingFund;
         totalDiscount += legacyDiscount;
@@ -1023,13 +1020,12 @@ export default async function handler(req, res) {
       await attachReportCredits({ db: supabase, tenantId, bookings: allBookings, groups: bookingGroups });
 
       summary = {
-        totalRevenue,
+        ...summarizeRegistrationRevenue(bookingGroups),
         totalVoucher,
         totalTrainingFund,
         totalDiscount,
         totalAccountPayments,
         totalStripePayments,
-        hasUnavailableRevenue,
         hasUnavailableTicketTotal,
         hasUnavailableDiscount,
         hasUnavailableAfterDiscount,
