@@ -24,7 +24,7 @@ export function buildCommunicationStatusCsv(categories, rows) {
     }`;
   });
   const headers = [
-    'member_id', 'first_name', 'last_name', 'email', 'organisation',
+    'member_id', 'first_name', 'last_name', 'email', 'organisation', 'role',
     ...categoryHeaders, 'global_opt_out',
   ];
   const lines = [headers.map(escapeCsvCell).join(',')];
@@ -35,6 +35,7 @@ export function buildCommunicationStatusCsv(categories, rows) {
       row.lastName,
       row.email,
       row.organizationName,
+      row.roleName,
       ...categories.map((category) => statusText(row.categoryStatuses[category.id])),
       row.globalOptOut ? 'Yes' : 'No',
     ].map(escapeCsvCell).join(','));

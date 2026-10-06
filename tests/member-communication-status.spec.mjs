@@ -162,6 +162,14 @@ test("complete CSV download shows progress, sends the same filters and validates
   for await (const chunk of stream) csv += chunk.toString("utf8");
   expect(csv.split("\r\n")).toHaveLength(1006);
   expect(csv).toContain("export-1005");
+  // Fetch response.text() consumes the UTF-8 BOM before the download Blob is built.
+  expect(csv.split("\r\n")[0]).toBe("member_id,first_name,last_name,email,organisation,role,News [category-news-active],global_opt_out");
+  expect(csv.split("\r\n")[1].split(",")).toEqual([
+    "export-1", "Member", "1", "member-1@example.invalid",
+    "North Association", "Administrator", "Opted in", "No",
+  ]);
+  expect(csv.split("\r\n")[2].split(",")[5]).toBe("");
+  expect(csv).not.toContain("role-admin");
   await expect(report.getByText("Downloaded 1005 matching members.", { exact: true })).toBeVisible();
   expect(state.unexpectedWrites).toEqual([]);
 });

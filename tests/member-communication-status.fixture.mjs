@@ -211,9 +211,9 @@ export async function installCommunicationReportFixture(page, baseURL, options =
           await new Promise((resolve) => { state.releaseExport = resolve; });
         }
         const rowCount = state.exportScale ? 1005 : allMembers.length;
-        const lines = ["member_id,first_name,last_name,email,organisation,News [category-news-active],global_opt_out"];
+        const lines = ["member_id,first_name,last_name,email,organisation,role,News [category-news-active],global_opt_out"];
         for (let index = 0; index < rowCount; index += 1) {
-          lines.push(`export-${index + 1},Member,${index + 1},member-${index + 1}@example.invalid,North Association,Opted in,No`);
+          lines.push(`export-${index + 1},Member,${index + 1},member-${index + 1}@example.invalid,North Association,${index === 1 ? "" : "Administrator"},Opted in,No`);
         }
         return route.fulfill({
           status: 200,
