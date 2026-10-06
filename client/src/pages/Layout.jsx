@@ -1294,6 +1294,8 @@ useEffect(() => {
   const iconLinks = document.querySelectorAll("link[rel~='icon']");
   if (iconLinks.length > 0) {
     iconLinks.forEach((link) => {
+      link.removeAttribute('type');
+      link.removeAttribute('sizes');
       if (link.href !== faviconUrl) {
         link.href = faviconUrl;
       }

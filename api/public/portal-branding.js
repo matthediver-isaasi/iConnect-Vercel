@@ -1,13 +1,14 @@
 import { supabase } from '../_lib/database.js';
-import { resolveTenantFromRequest } from '../_lib/tenantResolver.js';
+import { resolvePageTenant } from '../_lib/pageTenantResolver.js';
 import { getSessionMember } from '../_lib/session.js';
+import { readHomepageSlug } from '../_lib/homepage.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  res.setHeader('Cache-Control', 'public, max-age=30, s-maxage=30');
+  res.setHeader('Cache-Control', 'private, no-store');
   res.setHeader('Vary', 'Host, X-Forwarded-Host');
 
   if (!supabase) {
@@ -23,7 +24,7 @@ export default async function handler(req, res) {
   try {
     let tenant = null;
     
-    tenant = await resolveTenantFromRequest(req);
+    tenant = await resolvePageTenant(req);
     
     if (!tenant) {
       const sessionMember = await getSessionMember(req);
@@ -76,7 +77,7 @@ export default async function handler(req, res) {
       
       // Prefer system_settings.public_home_page_slug over tenant.settings.home_page_slug
       // because the IEditPageManagement UI saves to system_settings
-      const homePageSlug = systemSettingsMap.public_home_page_slug || tenantSettings.home_page_slug || '';
+      const homePageSlug = await readHomepageSlug(supabase, tenant.id);
       
       return res.status(200).json({
         logoUrl: tenant.logo_url || tenant.header_logo_url || null,
@@ -113,7 +114,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       logoUrl: settings.portal_logo_url || null,
-      faviconUrl: settings.site_favicon_url || null,
+      faviconUrl: '/platform-icon.svg',
       logoHeight: settings.portal_logo_height || 'medium',
       logoLink: settings.portal_logo_link || '',
       homePageSlug: settings.public_home_page_slug || '',
@@ -123,7 +124,7 @@ export default async function handler(req, res) {
 
   } catch (error) {
     console.error('[Portal Branding] Error:', error);
-    return res.status(200).json({ 
+    return res.status(503).json({
       logoUrl: null, 
       faviconUrl: null,
       logoHeight: 'medium',

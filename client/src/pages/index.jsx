@@ -1,3 +1,4 @@
+import { useHomepageCanonical } from "@/hooks/useHomepageCanonical";
 import { useEffect, useRef, lazy, Suspense } from 'react';
 import Layout from "./Layout.jsx";
 import { BUILTIN_ARTICLE_ALIASES } from "@shared/articleAliases.js";
@@ -947,6 +948,7 @@ function SurveyAssignmentRoute() {
 
 // Create a wrapper component that uses useLocation inside the Router context
 function PagesContent() {
+    useHomepageCanonical();
     const location = useLocation();
     const { branding, loading: brandingLoading } = useTenantBranding();
     const { authResolved, sessionValidated, sessionRoleSnapshot, memberInfo, memberRole } = useLayoutContext();

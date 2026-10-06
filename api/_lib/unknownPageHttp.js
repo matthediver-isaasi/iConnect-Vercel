@@ -1,12 +1,15 @@
 import { supabase } from './database.js';
 import { resolvePageTenant } from './pageTenantResolver.js';
 import { excludedRoute, normalizeRoutePath, resolveUnknownPagePolicy } from './unknownPagePolicy.js';
+import { homepageRoute } from './homepage.js';
 
 export function originalPagePath(req) {
   const original = req.headers['x-original-uri'] || req.headers['x-vercel-original-pathname']
     || req.headers['x-forwarded-uri'];
   const path = original || req.originalUrl || req.url || '/';
-  return !original && /^\/api\/render(?:\?|$)/i.test(path) ? '/' : path;
+  const result = !original && /^\/api\/render(?:\?|$)/i.test(path) ? '/' : path;
+  const search = (req.url || '').split('?').slice(1).join('?');
+  return !result.includes('?') && search ? `${result}?${search}` : result;
 }
 
 // Used by both Vercel's HTML function and Express before its SPA fallback.
@@ -16,9 +19,18 @@ return async function applyUnknownPageHttpPolicy(req, res) {
   if (!['GET', 'HEAD'].includes(req.method)) return false;
   try {
     const path = normalizeRoutePath(originalPagePath(req));
-    if (excludedRoute(path)) return false;
+    if (path !== '/' && excludedRoute(path)) return false;
     const tenant = await resolveTenant(req);
     if (!tenant || !database) return false;
+    const homepage = await homepageRoute(database, tenant, originalPagePath(req));
+    req.homepage = homepage;
+    if (homepage.target) {
+      res.setHeader('Cache-Control', 'private, no-store');
+      res.setHeader('Location', homepage.target);
+      res.status(308).end();
+      return true;
+    }
+    if (path === '/') return false;
     const result = await resolveUnknownPagePolicy(database, tenant, path);
     if (!result.found) {
       if (result.route_outcome === 'missing') {

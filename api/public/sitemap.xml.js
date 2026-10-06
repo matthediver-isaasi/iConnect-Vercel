@@ -1,3 +1,4 @@
+import { resolveHomepage } from '../_lib/homepage.js';
 import { supabase } from '../_lib/database.js';
 import {
   PUBLIC_SIMPLE_EVENT_STATUSES,
@@ -44,7 +45,9 @@ function formatDate(dateStr) {
   }
 }
 
-export default async function handler(req, res) {
+export function createSitemapHandler({ database = supabase, resolveTenant = resolveTenantFromRequest } = {}) {
+const supabase = database;
+return async function handler(req, res) {
   res.setHeader('Content-Type', 'application/xml; charset=utf-8');
   res.setHeader('Cache-Control', 'public, max-age=3600, s-maxage=3600');
 
@@ -57,7 +60,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const tenant = await resolveTenantFromRequest(req);
+    const tenant = await resolveTenant(req);
 
     if (!tenant) {
       return res.status(404).send('<?xml version="1.0" encoding="UTF-8"?><error>Tenant not found</error>');
@@ -238,8 +241,11 @@ export default async function handler(req, res) {
       }
     }
 
+    const homepage = await resolveHomepage(supabase, tenant);
+    res.setHeader('Cache-Control', 'private, no-store');
     if (customPagesResult.data) {
       for (const page of customPagesResult.data) {
+        if (!page.microsite_id && homepage.state === 'selected' && page.slug === homepage.slug) continue;
         let path;
         if (page.microsite_id) {
           // Microsite pages only appear under their prefix; pages in an
@@ -302,4 +308,6 @@ export default async function handler(req, res) {
     console.error('[Sitemap] Error:', error);
     return res.status(500).send('<?xml version="1.0" encoding="UTF-8"?><error>Internal server error</error>');
   }
+};
 }
+export default createSitemapHandler();

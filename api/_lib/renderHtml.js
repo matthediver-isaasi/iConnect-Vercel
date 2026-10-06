@@ -8,6 +8,8 @@ import { resolveMicrositeByPrefix, micrositeBrandingValue } from './microsites.j
 import { resolveScopedTypographyStyles } from './typographyScope.js';
 import { resolveTenantBrandingPayload } from './tenantBranding.js';
 import { buildGoogleFontsHref } from './installedFontsShared.js';
+import { homepageRoute } from './homepage.js';
+import { safeFaviconUrl } from '../../shared/tenantFavicon.js';
 
 let cachedTemplate = null;
 
@@ -362,14 +364,19 @@ function injectMeta(html, values) {
     }
   }
 
+  // Do not claim PNG dimensions for an arbitrary uploaded SVG/ICO/image.
+  out = out.replace(/<link\b(?=[^>]*\brel=["'](?:icon|shortcut icon|apple-touch-icon)["'])[^>]*>/gi, '');
+  out = out.replace('</head>', `<link rel="icon" id="dynamic-favicon" href="${escapeAttr(values.favicon32)}"><link rel="apple-touch-icon" href="${escapeAttr(values.favicon32)}"></head>`);
+  out = replaceOrInsert(out, /<link\b(?=[^>]*rel=["']canonical["'])[^>]*>/i,
+    `<link rel="canonical" href="${escapeAttr(values.ogUrl)}">`);
   return out;
 }
 
-export async function renderTenantHtml(req) {
-  const template = loadTemplate();
+export async function renderTenantHtml(req, options = {}) {
+  const template = options.template || loadTemplate();
   let tenant = null;
   try {
-    tenant = await resolvePageTenant(req);
+    tenant = await (options.resolveTenant || resolvePageTenant)(req);
   } catch (err) {
     console.error('[renderHtml] tenant resolution failed:', err?.message);
   }
@@ -380,7 +387,17 @@ export async function renderTenantHtml(req) {
   let typographyStyles = null;
   let micrositeChrome = null;
   let installedFonts = null;
+  let homeContent = null;
   if (tenant) {
+    const database = options.database || supabase;
+    const homepage = req.homepage || await homepageRoute(database, tenant, getRequestPathname(req));
+    if (homepage.root) {
+      const { renderCustomPage } = await import('../public/prerender.js');
+      homeContent = await renderCustomPage(database, tenant, homepage.slug,
+        new URL(buildOgUrl(req)).origin, { homepage: true, now: Date.now() });
+      if (!homeContent) throw new Error('Homepage unavailable');
+      homeContent.ogUrl = `${new URL(buildOgUrl(req)).origin}/`;
+    }
     // Task #2572: resolve the microsite chrome first so typography styles can be
     // scoped to the current page (microsite pages get microsite + main-site
     // styles with the microsite default winning per style_type).
@@ -452,11 +469,28 @@ export async function renderTenantHtml(req) {
     ogUrl,
     ogType: entity?.ogType || 'website',
     authors: Array.isArray(entity?.authors) ? entity.authors : null,
-    favicon32: tenant?.favicon_url || DEFAULTS.favicon32,
-    favicon192: tenant?.favicon_url || DEFAULTS.favicon192,
+    favicon32: safeFaviconUrl(tenant?.favicon_url) || '/platform-icon.svg',
+    favicon192: safeFaviconUrl(tenant?.favicon_url) || '/platform-icon.svg',
   };
+  if (homeContent) {
+    values.title = homeContent.title;
+    values.description = homeContent.description;
+    values.ogUrl = homeContent.ogUrl;
+    if (homeContent.ogImage) values.ogImage = makeAbsolute(homeContent.ogImage, req);
+  }
 
   let out = injectMeta(template, values);
+  if (tenant && tenant.settings?.allow_search_indexing !== true) {
+    out = replaceOrInsert(out, /<meta\s+name=["']robots["'][^>]*>/i,
+      '<meta name="robots" content="noindex, nofollow">');
+  }
+  if (homeContent) {
+    out = out.replace('<div id="root"></div>', `<div id="root"><noscript>${homeContent.bodyContent}</noscript></div>`);
+    out = out.replace('</head>', `<script type="application/ld+json">${serializeForScript({
+      '@context': 'https://schema.org', '@type': 'WebPage', name: values.title,
+      description: values.description, url: values.ogUrl,
+    })}</script></head>`);
+  }
   // Seed typography styles only when a tenant resolved server-side. On hosts
   // the resolver can't map to a tenant the global is absent and the client
   // keeps its legacy fetch-then-fallback path (no flash either way).

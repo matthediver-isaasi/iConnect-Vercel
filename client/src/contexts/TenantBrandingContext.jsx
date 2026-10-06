@@ -123,6 +123,8 @@ export function TenantBrandingProvider({ children }) {
             const iconLinks = document.querySelectorAll("link[rel~='icon']");
             if (iconLinks.length > 0) {
               iconLinks.forEach((link) => {
+                link.removeAttribute('type');
+                link.removeAttribute('sizes');
                 if (link.href !== data.branding.faviconUrl) {
                   link.href = data.branding.faviconUrl;
                 }

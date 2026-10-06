@@ -198,6 +198,7 @@
     }
   ],
   "rewrites": [
+    { "source": "/favicon.ico", "destination": "/api/public/favicon" },
     { "source": "/robots.txt", "destination": "/api/public/robots.txt" },
     { "source": "/sitemap.xml", "destination": "/api/public/sitemap.xml" },
     { "source": "/((?!api/).*\\.(?:js|mjs|css|map|json|xml|txt|ico|png|jpg|jpeg|gif|webp|avif|svg|woff|woff2|ttf|otf|eot|pdf|zip|mp3|mp4|webm|wav|webmanifest|wasm))", "destination": "/$1" },
@@ -207,7 +208,7 @@
     {
       "source": "/sitemap.xml",
       "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=3600, s-maxage=3600" }
+        { "key": "Cache-Control", "value": "private, no-store" }
       ]
     },
     {

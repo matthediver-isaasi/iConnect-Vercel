@@ -25,6 +25,8 @@ const CRAWLER_USER_AGENTS = [
 
 export const config = {
   matcher: [
+    '/',
+    '/favicon.ico',
     '/((?!api/|_next/|_vercel/|sitemap\\.xml|robots\\.txt|favicon\\.ico|.*\\..*).*)',
   ],
 };
@@ -34,7 +36,10 @@ export default async function middleware(request) {
   const ua = userAgent.toLowerCase();
 
   const isCrawler = CRAWLER_USER_AGENTS.some(bot => ua.includes(bot));
-  if (!isCrawler) {
+  const requestUrl = new URL(request.url);
+  const isRoot = requestUrl.pathname === '/';
+  const isFavicon = requestUrl.pathname === '/favicon.ico';
+  if (!isCrawler && !isRoot && !isFavicon) {
     return;
   }
 
@@ -42,7 +47,8 @@ export default async function middleware(request) {
   const pathname = url.pathname;
 
   const fullPath = pathname + url.search;
-  const prerenderUrl = new URL('/api/public/prerender', request.url);
+  const prerenderUrl = new URL(isFavicon ? '/api/public/favicon' :
+    (!isCrawler ? '/api/render' : '/api/public/prerender'), request.url);
   prerenderUrl.searchParams.set('path', fullPath);
 
   try {
@@ -53,17 +59,19 @@ export default async function middleware(request) {
         'x-forwarded-host': request.headers.get('x-forwarded-host') || request.headers.get('host') || '',
         'x-forwarded-proto': 'https',
         'user-agent': userAgent,
+        'x-original-uri': fullPath,
       },
     });
 
     const status = response.status;
-    if (status === 200 || status === 410) {
+    if (status === 200 || status === 410 || status === 404 || status >= 500) {
       return new Response(response.body, {
         status,
         headers: {
           'content-type': response.headers.get('content-type') || 'text/html',
           'cache-control': response.headers.get('cache-control') || 'public, max-age=300',
           'x-prerendered': 'true',
+          'vary': 'Host, X-Forwarded-Host',
         },
       });
     }
@@ -73,7 +81,7 @@ export default async function middleware(request) {
       if (location) {
         return new Response(null, {
           status,
-          headers: { 'location': location },
+           headers: { 'location': location, 'cache-control': 'private, no-store' },
         });
       }
     }

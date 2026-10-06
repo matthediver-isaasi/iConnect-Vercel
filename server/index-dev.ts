@@ -8,6 +8,7 @@ import { createServer as createViteServer, createLogger } from "vite";
 
 import viteConfig from "../vite.config";
 import runApp from "./app";
+import { renderTenantHtml } from "../api/_lib/renderHtml.js";
 
 export async function setupVite(app: Express, server: Server) {
   const viteLogger = createLogger();
@@ -49,7 +50,9 @@ export async function setupVite(app: Express, server: Server) {
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${nanoid()}"`,
       );
+      template = await renderTenantHtml(req, { template });
       const page = await vite.transformIndexHtml(url, template);
+      res.setHeader('Cache-Control', 'private, no-store');
       res.status(200).set({ "Content-Type": "text/html" }).end(page);
     } catch (e) {
       vite.ssrFixStacktrace(e as Error);

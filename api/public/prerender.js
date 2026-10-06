@@ -1,4 +1,6 @@
 import { supabase } from '../_lib/database.js';
+import { homepageRoute } from '../_lib/homepage.js';
+import { safeFaviconUrl } from '../../shared/tenantFavicon.js';
 import { applyResourceReleaseFilter } from '../../shared/resourceRelease.js';
 import { resolveUnknownPagePolicy } from '../_lib/unknownPagePolicy.js';
 import { renderTenantHtml } from '../_lib/renderHtml.js';
@@ -79,7 +81,7 @@ function buildJsonLd({ title, description, ogUrl, ogImage, tenantName }) {
       'name': tenantName,
     };
   }
-  return JSON.stringify(ld);
+  return JSON.stringify(ld).replace(/</g, '\\u003c');
 }
 
 function buildHtmlPage({ title, description, ogTitle, ogDescription, ogImage, ogUrl, canonicalUrl, bodyContent, tenantName, favicon, navLinks }) {
@@ -1085,7 +1087,7 @@ async function renderCanvasDynamicBlock(supabaseClient, tenant, block, now) {
   return null;
 }
 
-async function renderCustomPage(supabaseClient, tenant, pageSlug, baseUrl, options = {}) {
+export async function renderCustomPage(supabaseClient, tenant, pageSlug, baseUrl, options = {}) {
   if (!pageSlug) return null;
 
   const microsite = options.microsite || null;
@@ -1113,7 +1115,7 @@ async function renderCustomPage(supabaseClient, tenant, pageSlug, baseUrl, optio
   };
 
   let { data: page, error } = await buildQuery(true);
-  if (error && error.code === '42703') {
+  if (error && error.code === '42703' && !options.homepage) {
     ({ data: page } = await buildQuery(false));
   }
 
@@ -1393,12 +1395,17 @@ return async function handler(req, res) {
       return res.status(404).send('<html><body>Not found</body></html>');
     }
 
-    const allowSearchIndexing = tenant.settings?.allow_search_indexing === true;
-    if (!allowSearchIndexing) {
+    const requestUrl = new URL(req.query.path || '/', 'https://homepage.invalid');
+    const requestPath = requestUrl.pathname.replace(/\/+$/, '') || '/';
+    const homepage = await homepageRoute(supabase, tenant, req.query.path || '/');
+    if (homepage.target) {
+      res.setHeader('Cache-Control', 'private, no-store');
+      res.setHeader('Location', homepage.target);
+      return res.status(308).end();
+    }
+    if (tenant.settings?.allow_search_indexing !== true) {
       return res.status(404).send('<html><body>Not found</body></html>');
     }
-
-    const requestPath = req.query.path || '/';
     // Resolve independently of crawler rendering coverage. In particular forms,
     // protected pages and registered app routes are not missing just because
     // this renderer has no body implementation for them.
@@ -1415,6 +1422,13 @@ return async function handler(req, res) {
     const publicArticlesPageName = articleConfig.isCustomDisplay ? articleConfig.canonicalBaseSlug : 'PublicArticles';
 
     let pageData = null;
+    if (homepage.root) {
+      pageData = await renderCustomPage(supabase, tenant, homepage.slug, baseUrl, { now, homepage: true });
+      if (!pageData) return res.status(503).send('<html><body>Homepage unavailable</body></html>');
+      pageData.ogUrl = `${baseUrl}/`;
+    } else if (requestPath === '/' && ['invalid', 'error'].includes(homepage.state)) {
+      return res.status(503).send('<html><body>Homepage unavailable</body></html>');
+    }
 
     const eventSlugMatch = requestPath.match(/^\/events\/([^/?]+)/);
     if (eventSlugMatch) {
@@ -1422,7 +1436,7 @@ return async function handler(req, res) {
     }
 
     if (!pageData && requestPath.startsWith('/EventDetails')) {
-      const url = new URL(requestPath, 'http://localhost');
+      const url = requestUrl;
       const eventId = url.searchParams.get('id');
       if (eventId) {
         pageData = await renderEventPage(supabase, tenant, null, eventId, baseUrl);
@@ -1448,7 +1462,7 @@ return async function handler(req, res) {
     }
 
     if (!pageData && requestPath.startsWith('/NewsView')) {
-      const url = new URL(requestPath, 'http://localhost');
+      const url = requestUrl;
       const newsSlug = url.searchParams.get('slug');
       if (newsSlug) {
         pageData = await renderNewsPage(supabase, tenant, newsSlug, baseUrl);
@@ -1456,7 +1470,7 @@ return async function handler(req, res) {
     }
 
     if (!pageData && requestPath.startsWith('/JobDetails')) {
-      const url = new URL(requestPath, 'http://localhost');
+      const url = requestUrl;
       const jobId = url.searchParams.get('id');
       if (jobId) {
         pageData = await renderJobPage(supabase, tenant, jobId, baseUrl);
@@ -1464,7 +1478,7 @@ return async function handler(req, res) {
     }
 
     if (!pageData && requestPath.startsWith('/ViewPage')) {
-      const url = new URL(requestPath, 'http://localhost');
+      const url = requestUrl;
       const pageSlug = url.searchParams.get('slug');
       if (pageSlug) {
         pageData = await renderCustomPage(supabase, tenant, pageSlug, baseUrl, { now });
@@ -1548,7 +1562,7 @@ return async function handler(req, res) {
       }
     }
 
-    if (!pageData && (requestPath === '/' || requestPath === '/Home')) {
+    if (!pageData && (requestPath === '/' || requestPath === '/Home' || requestPath === '/home')) {
       pageData = {
         title: tenant.name,
         description: tenant.tagline || `Welcome to ${tenant.name}`,
@@ -1648,7 +1662,7 @@ return async function handler(req, res) {
       canonicalUrl: pageData.ogUrl,
       bodyContent: pageData.bodyContent,
       tenantName: tenant.name,
-      favicon: tenant.favicon_url,
+      favicon: safeFaviconUrl(tenant.favicon_url) || '/platform-icon.svg',
       navLinks,
     });
 
