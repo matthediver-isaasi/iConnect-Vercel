@@ -1,4 +1,5 @@
 import { useState, useRef, useMemo, useCallback, useEffect } from "react";
+import { useFormPrefillLocked } from './FormPrefillBoundary';
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Loader2, CreditCard, AlertCircle, Landmark, Info } from "lucide-react";
@@ -71,7 +72,7 @@ export default function FormPaymentSubmit({
   formValues,
   buildPayload,
   idempotencyKey,
-  disabled = false,
+  disabled: surfaceDisabled = false,
   disabledMessage = null,
   busy = false,
   onPaid,
@@ -87,6 +88,10 @@ export default function FormPaymentSubmit({
   onContinue,
   showFieldDescriptions = false,
 }) {
+  const prefillLocked = useFormPrefillLocked();
+  const disabled = surfaceDisabled || prefillLocked;
+  const disabledRef = useRef(disabled);
+  disabledRef.current = disabled;
   const [selectedProvider, setSelectedProvider] = useState(null);
   const [pendingMethod, setPendingMethod] = useState(null);
   const creating = pendingMethod !== null;
@@ -294,7 +299,7 @@ export default function FormPaymentSubmit({
     setExternalCheckoutUrl(null);
     try {
       const payload = await buildPayload();
-      if (!payload) return;
+      if (!payload || disabledRef.current) return;
       // A Canvas form is an iframe inside a same-origin tenant page. Keep the
       // provider return bound to that page and only let hosted flows leave via
       // the top window when the ancestor is readable/same-origin.
@@ -421,7 +426,7 @@ export default function FormPaymentSubmit({
     setExternalCheckoutUrl(null);
     try {
       const payload = await buildPayload();
-      if (!payload) return;
+      if (!payload || disabledRef.current) return;
       const paymentNavigation = getPaymentNavigationContext();
       const res = await fetch('/api/public/form-payment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ action: 'create_monthly_card', form_id: payload.form_id, submission_data: payload.submission_data,
@@ -449,6 +454,7 @@ export default function FormPaymentSubmit({
   };
 
   const handleStripeConfirm = async () => {
+    if (disabledRef.current) return;
     if (!stripeRef.current || !elementsRef.current) return;
     setProcessing(true);
     setPaymentError(null);

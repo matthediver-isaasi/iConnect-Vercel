@@ -41,6 +41,8 @@ import {
   setFormNotListedText,
 } from "../../../shared/formNotListedChoice.js";
 import { useFormFieldPrefill } from "@/lib/useFormFieldPrefill";
+import FormPrefillBoundary from "@/components/forms/FormPrefillBoundary";
+import { combinePrefillStates } from "@/lib/formPrefillBarrier";
 import { isFieldValueFilled } from "@/lib/formFieldPrefill";
 
 function MultiCountrySelect({ value = [], onChange, fieldId }) {
@@ -132,13 +134,14 @@ export default function ManualSubmissionDialog({ open, onOpenChange, form }) {
   const [fieldValidity, setFieldValidity] = useState({});
   const [initializedForm, setInitializedForm] = useState(null);
   const queryClient = useQueryClient();
-  useFormFieldPrefill({
+  const reactivePrefillState = useFormFieldPrefill({
     form,
     formSlug: form?.slug,
     formValues,
     setFormValues,
     enabled: open,
   });
+  const prefillState = combinePrefillStates(reactivePrefillState);
 
   useEffect(() => {
     if (open && form) {
@@ -177,6 +180,7 @@ export default function ManualSubmissionDialog({ open, onOpenChange, form }) {
   });
 
   const handleSubmit = () => {
+    if (prefillState.locked) return;
     const fields = form?.fields || [];
     const requiredFields = fields.filter(f => f.required && f.type !== 'instructions' && f.type !== 'page_break');
     const missingFields = [];
@@ -493,6 +497,7 @@ export default function ManualSubmissionDialog({ open, onOpenChange, form }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh]">
+        <FormPrefillBoundary state={prefillState} contentClassName="grid gap-4">
         <DialogHeader>
           <DialogTitle>Manual Submission: {form?.name}</DialogTitle>
           <DialogDescription className="sr-only">
@@ -554,13 +559,14 @@ export default function ManualSubmissionDialog({ open, onOpenChange, form }) {
           </Button>
           <Button 
             onClick={handleSubmit} 
-            disabled={submitMutation.isPending}
+            disabled={submitMutation.isPending || prefillState.locked}
             data-testid="button-submit-manual"
           >
             {submitMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
             Create Submission
           </Button>
         </DialogFooter>
+        </FormPrefillBoundary>
       </DialogContent>
     </Dialog>
   );

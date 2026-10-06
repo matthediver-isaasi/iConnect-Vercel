@@ -17,7 +17,7 @@ import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { readCertificateSurveyGrant } from "@/lib/certificateSurveyRoute";
 import { useLayoutContext } from "@/contexts/LayoutContext";
-import { buildMemberResourceCategoryPrefillValues, coerceConditionalSetValue, isFieldValueFilled, parseCustomFieldValue, resolveEffectivePrefillIds, resolveMemberSourceOrgId, shouldFetchViewerBookingPrefill, shouldBlockForMissingViewerBooking, isViewerBookingResolutionPending, shouldWaitForPrefillCustomValues, shouldWaitForPrefillOrgEntity } from "@/lib/formFieldPrefill";
+import { buildMemberResourceCategoryPrefillValues, coerceConditionalSetValue, isFieldValueFilled, parseCustomFieldValue, resolveEffectivePrefillIds, resolveMemberSourceOrgId, shouldFetchViewerBookingPrefill, shouldBlockForMissingViewerBooking, shouldWaitForPrefillCustomValues, shouldWaitForPrefillOrgEntity } from "@/lib/formFieldPrefill";
 import { getFormPagination } from "@/lib/formPagination";
 import { resolveSubmitControl } from "../../../api/_lib/formSubmitControl.js";
 import { evaluateLmicCondition } from "../../../api/_lib/formLmicConditions.js";
@@ -35,7 +35,9 @@ import {
 import { applyFormFieldValueChange } from "@/lib/formFieldValueChange";
 import { prepareFormSubmissionValues } from "@/lib/formSubmissionPayload";
 import { useFormFieldPrefill } from "@/lib/useFormFieldPrefill";
-import { useConditionalFormFieldPrefill } from "@/lib/useFormFieldPrefill";
+import { useConditionalFormFieldPrefillState } from "@/lib/useFormFieldPrefill";
+import { initialPrefillState, combinePrefillStates } from "@/lib/formPrefillBarrier";
+import FormPrefillBoundary from "@/components/forms/FormPrefillBoundary";
 import { groupInitialSelectionSurfaceReady, hasGroupInitialSelectionAnswer } from "@/lib/formGroupInitialSelection";
 import { useFormOpenTransition } from "@/lib/useFormOpenTransition";
 import FormTransitionOverlay from "@/components/forms/FormTransitionOverlay";
@@ -541,7 +543,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   });
 
   // Load draft if resume token is in URL
-  const { data: draftData, isLoading: isDraftLoading, isError: draftFetchError } = useQuery({
+  const { data: draftData, isLoading: isDraftLoading, isError: draftFetchError, ...draftQuery } = useQuery({
     queryKey: ['form-draft', draftToken],
     queryFn: async () => {
       // Use publicClient which handles both subdomain and custom domain resolution
@@ -561,6 +563,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // Save draft mutation
   const saveDraftMutation = useMutation({
     mutationFn: async () => {
+      if (prefillState.locked) throw new Error('Please wait while we load some data');
       if (isEnhancedAnonymousSurvey(form)) throw new Error('Drafts are not available for anonymous completion surveys.');
       if (departmentCurrentSet?.active
           && (!departmentCurrentSet.baselineReady || departmentCurrentSet.error)) {
@@ -680,7 +683,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     };
   }, [form?.entity_pipelines?.organisations]);
 
-  const { data: prefillMemberData, isLoading: prefillMemberLoading, isError: prefillMemberError, error: prefillMemberFailure, refetch: retryPrefillMember } = useQuery({
+  const { data: prefillMemberData, isLoading: prefillMemberLoading, isError: prefillMemberError, error: prefillMemberFailure, refetch: retryPrefillMember, ...memberPrefillQuery } = useQuery({
     queryKey: ['prefill-member', prefillMemberId, form?.slug || formSlug, !!memberInfo],
     queryFn: async () => {
       if (memberInfo) {
@@ -688,9 +691,6 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
           base44.entities.Member.get(prefillMemberId),
           base44.entities.MemberResourceCategory.list({
             filter: { member_id: prefillMemberId }
-          }).catch(error => {
-            reportFormViewError('Member resource-category prefill failed', error);
-            return [];
           })
         ]);
         return { member, customValues: null, resourceCategorySelections: resourceCategorySelections || [] };
@@ -752,7 +752,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // Prefill: Fetch member's organization when prefill_source = 'member'
   // This allows forms to prefill org fields even when primary source is member
   // Uses authenticated API when session exists, public endpoint for embedded/unauthenticated access
-  const { data: prefillMemberOrg, isLoading: memberOrgLoading } = useQuery({
+  const { data: prefillMemberOrg, isLoading: memberOrgLoading, ...memberOrgPrefillQuery } = useQuery({
     queryKey: ['prefill-member-org', memberSourceOrgId, !!memberInfo],
     queryFn: async () => {
       // Use authenticated API if logged in (full data), public API otherwise (safe subset)
@@ -767,7 +767,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // Prefill: Fetch organization entity whenever organization_id URL param is present
   // This is needed for per-org capacity checks regardless of prefill_source setting
   // Uses authenticated API when session exists, public endpoint for embedded/unauthenticated access
-  const { data: prefillOrg, isLoading: prefillOrgLoading } = useQuery({
+  const { data: prefillOrg, isLoading: prefillOrgLoading, ...orgPrefillQuery } = useQuery({
     queryKey: ['prefill-org', prefillOrgId, !!memberInfo],
     queryFn: async () => {
       // Use authenticated API if logged in (full data), public API otherwise (safe subset)
@@ -786,7 +786,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     return null;
   }, [prefillOrg, prefillMemberOrg]);
 
-  const { data: explicitBookingData, isLoading: explicitBookingLoading } = useQuery({
+  const { data: explicitBookingData, isLoading: explicitBookingLoading, ...explicitBookingQuery } = useQuery({
     queryKey: ['prefill-booking', prefillBookingId, form?.slug || formSlug],
     queryFn: async () => {
       return publicClient.getPrefillBooking(prefillBookingId, form?.slug || formSlug);
@@ -801,7 +801,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // disabled when the param is present); anonymous viewers and non-event-linked
   // forms get an empty payload and degrade to blank fields as before. Gated on
   // authResolved so it never races the session check.
-  const { data: viewerBookingData, isLoading: viewerBookingLoading, error: viewerBookingError } = useQuery({
+  const { data: viewerBookingData, isLoading: viewerBookingLoading, error: viewerBookingError, ...viewerBookingQuery } = useQuery({
     queryKey: ['prefill-booking-viewer', form?.slug || formSlug, memberInfo?.id],
     queryFn: async () => {
       return publicClient.getPrefillBookingForViewer(form?.slug || formSlug);
@@ -1031,7 +1031,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     };
   }, [selectedOrg]);
 
-  const { data: prefillMemberCustomValuesData, isLoading: memberCustomValuesLoading } = useQuery({
+  const { data: prefillMemberCustomValuesData, isLoading: memberCustomValuesLoading, ...memberCustomPrefillQuery } = useQuery({
     queryKey: ['prefill-member-custom-values', prefillMemberId, !!memberInfo],
     queryFn: async () => {
       if (memberInfo) {
@@ -1052,7 +1052,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     ? prefillOrgId 
     : memberSourceOrgId;
   
-  const { data: prefillOrgCustomValuesData, isLoading: orgCustomValuesLoading } = useQuery({
+  const { data: prefillOrgCustomValuesData, isLoading: orgCustomValuesLoading, ...orgCustomPrefillQuery } = useQuery({
     queryKey: ['prefill-org-custom-values', effectiveOrgIdForCustomFields],
     queryFn: async () => publicClient.getOrganizationPreferenceValues(effectiveOrgIdForCustomFields),
     enabled: !!effectiveOrgIdForCustomFields && form?.prefill_source && form.prefill_source !== 'none'
@@ -1061,28 +1061,55 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
 
   // Track if prefill has been applied to prevent overwriting user edits
   const [prefillApplied, setPrefillApplied] = useState(false);
+  const bookingPrefillExpected = !certificateGrant && shouldFetchViewerBookingPrefill({
+    prefillSource: form?.prefill_source,
+    urlBookingId: prefillBookingId,
+    authResolved,
+    viewerMemberId: memberInfo?.id,
+    formSlug: form?.slug || formSlug,
+  });
+  const entityPrefillExpected = !certificateGrant && (
+    (form?.prefill_source === 'member' && !!prefillMemberId)
+    || (form?.prefill_source === 'organization' && !!prefillOrgId)
+    || (form?.prefill_source === 'booking' && (!!prefillBookingId || bookingPrefillExpected))
+  );
+  const entityPrefillState = initialPrefillState({
+    expected: entityPrefillExpected,
+    applied: prefillApplied,
+    initialized: defaultsInitialized && String(defaultsInitializedFormId) === String(form?.id),
+    queries: [
+      { required: form?.prefill_source === 'member' && !!prefillMemberId, query: { ...memberPrefillQuery, refetch: retryPrefillMember }, label: 'member details' },
+      { required: form?.prefill_source === 'member' && !!prefillMemberId && (!!memberInfo || !!prefillMemberData), query: memberCustomPrefillQuery, label: 'member custom fields' },
+      { required: form?.prefill_source === 'member' && !!memberSourceOrgId, query: memberOrgPrefillQuery, label: 'member organisation' },
+      { required: form?.prefill_source === 'organization' && !!prefillOrgId, query: orgPrefillQuery, label: 'organisation details' },
+      { required: !!effectiveOrgIdForCustomFields && ['member', 'organization'].includes(form?.prefill_source), query: orgCustomPrefillQuery, label: 'organisation custom fields' },
+      { required: form?.prefill_source === 'booking' && !!prefillBookingId, query: explicitBookingQuery, label: 'booking details' },
+      { required: bookingPrefillExpected, query: viewerBookingQuery, label: 'your booking' },
+    ],
+  });
   
   // Track if boolean defaults have been initialized for this form
-  useFormFieldPrefill({
+  const reactivePrefillState = useFormFieldPrefill({
     form,
     formSlug: form?.slug || formSlug,
     formValues,
     setFormValues,
     enabled: !certificateGrant && !!form && !formAccess.restricted && defaultsInitialized
       && String(defaultsInitializedFormId) === String(form?.id)
-      && (!draftToken || draftLoaded || draftFetchError),
+      && (!draftToken || draftLoaded),
     protectedFieldIds: [
       ...Object.keys(transitionInitialValues || {}),
       ...Object.keys(draftData?.draft?.draft_data || {}),
       ...(transitionRestoreNavigation ? (form?.fields || []).map(field => field.id) : []),
     ],
   });
-  const conditionalPrefillValues = useConditionalFormFieldPrefill({
+  const conditionalPrefillState = useConditionalFormFieldPrefillState({
     form,
     formSlug: form?.slug || formSlug,
     formValues,
-    enabled: !certificateGrant && !!form && !formAccess.restricted && defaultsInitialized,
+    enabled: !certificateGrant && !!form && !formAccess.restricted && defaultsInitialized && (!draftToken || draftLoaded),
   });
+  const conditionalPrefillValues = conditionalPrefillState.values;
   
   // Reset page navigation state when form changes
   useEffect(() => {
@@ -1165,7 +1192,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // Apply draft data when loaded - must wait for defaults to be initialized first
   // This ensures draft values override any defaults, not the other way around
   useEffect(() => {
-    if (draftData?.success && !draftLoaded && defaultsInitialized) {
+    if (draftData?.success && draftData?.draft?.draft_data && !draftLoaded && defaultsInitialized) {
       setFormValues(prev => ({ ...prev, ...draftData.draft.draft_data }));
       if (draftData.draft.current_page_index) {
         setCurrentPageIndex(draftData.draft.current_page_index);
@@ -1231,6 +1258,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     if (!form || !form.prefill_source || form.prefill_source === 'none') return;
     if (!defaultsInitialized) return;
     if (prefillApplied) return;
+    if (!entityPrefillState.ready) return;
     
     if (draftToken && !draftLoaded) {
       return;
@@ -1288,7 +1316,10 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     const primaryEntity = form.prefill_source === 'member' ? memberEntity 
       : form.prefill_source === 'organization' ? orgEntity 
       : prefillBooking;
-    if (!primaryEntity) return;
+    if (!primaryEntity) {
+      if (entityPrefillExpected) setPrefillApplied(true);
+      return;
+    }
     
     const newValues = {};
     const categoryValues = buildMemberResourceCategoryPrefillValues({
@@ -1380,7 +1411,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     // refetch could re-run prefill and overwrite values the user has since
     // edited.
     setPrefillApplied(true);
-  }, [form, prefillMember, prefillMemberData?.resourceCategorySelections, effectiveOrgEntity, prefillMemberCustomValues, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId, prefillMemberId, memberSourceOrgId, memberOrgLoading, prefillOrgLoading, effectiveOrgIdForCustomFields, orgCustomValuesLoading, memberCustomValuesLoading, draftToken, draftLoaded, prefillBooking, prefillBookingMember, prefillBookingOrg, prefillBookingMemberCustomValues, prefillBookingOrgCustomValues, bookingPrefillLoading]);
+  }, [form, prefillMember, prefillMemberData?.resourceCategorySelections, effectiveOrgEntity, prefillMemberCustomValues, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId, prefillMemberId, memberSourceOrgId, memberOrgLoading, prefillOrgLoading, effectiveOrgIdForCustomFields, orgCustomValuesLoading, memberCustomValuesLoading, draftToken, draftLoaded, prefillBooking, prefillBookingMember, prefillBookingOrg, prefillBookingMemberCustomValues, prefillBookingOrgCustomValues, bookingPrefillLoading, entityPrefillState.ready, entityPrefillExpected]);
 
   // Duplicate-submission guard: shared per-session idempotency key (sent on
   // every attempt, rotated only after a successful submit).
@@ -1404,6 +1435,27 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     acknowledgements: departmentCurrentSet.acknowledgements,
     baselineReady: departmentCurrentSet.baselineReady,
   });
+  const draftPrefillState = {
+    pending: !!draftToken && !draftLoaded,
+    error: draftToken && !draftLoaded && !draftQuery.isFetching && (draftFetchError || (draftData && (!draftData.success || !draftData.draft?.draft_data))) ? {
+      message: "We couldn't restore your saved progress. Please retry loading your draft.",
+      retry: () => draftQuery.refetch(),
+    } : null,
+  };
+  const departmentPrefillRequired = departmentCurrentSet.active && !!departmentCurrentSet.departmentId && !!memberInfo?.id;
+  const prefillState = combinePrefillStates(
+    entityPrefillState, reactivePrefillState, conditionalPrefillState, draftPrefillState,
+    { pending: departmentPrefillRequired && !departmentCurrentSet.baselineReady,
+      error: departmentPrefillRequired && departmentCurrentSet.error ? {
+        message: departmentCurrentSet.error.message || "We couldn't load current Department data.",
+        retry: departmentCurrentSet.retry,
+      } : null },
+    { pending: !!certificateGrant && !!assignmentMeta?.invitation_prefill
+      && (!defaultsInitialized || invitationInitializedRef.current !== assignmentMeta.invitation_prefill) },
+    { pending: applicantVerificationActive && !applicantContinuationGrant && !applicantVerification.isError },
+  );
+  const prefillLockRef = useRef(false);
+  prefillLockRef.current = prefillState.locked || isTransitioning;
   const groupInitialSelectionReady = groupInitialSelectionSurfaceReady({
     form,
     initialized: defaultsInitialized,
@@ -2612,23 +2664,8 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
     );
   }
 
-  // Task #3400: booking-prefill form with no explicit booking_id — hold
-  // rendering while auth / viewer-booking resolution is still settling so
-  // neither the form nor the no-booking message flashes.
-  if (isViewerBookingResolutionPending({
-    prefillSource: form.prefill_source,
-    urlBookingId: prefillBookingId,
-    authResolved,
-    viewerMemberId: memberInfo?.id,
-    formSlug: form?.slug || formSlug,
-    viewerBookingLoading,
-  })) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-      </div>
-    );
-  }
+  // Viewer booking resolution now keeps the actual form mounted underneath
+  // the shared barrier. The settled no-booking denial below remains intact.
 
   // Task #3400: authenticated member on an event-linked booking-prefill form,
   // but no booking of theirs could be resolved for the event — block the form
@@ -2662,7 +2699,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
 
   // Check if still loading capacity
   // Only show loading if we actually expect to do a pre-load capacity check (i.e., we have effectiveOrgIdForCapacity)
-  if (primaryMemberRoleId && effectiveOrgIdForCapacity && isCheckingCapacity) {
+  if (primaryMemberRoleId && effectiveOrgIdForCapacity && isCheckingCapacity && !prefillState.locked) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
@@ -2706,6 +2743,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
   // normal submit path and the payment step. Returns the submission payload
   // or null (after toasting) when validation fails.
   const buildSubmissionPayload = async () => {
+    if (prefillState.locked || isTransitioning) return null;
     if (applicantVerificationActive && applicantVerification.isPending) {
       setSubmissionError('Verifying your secure applicant link. Please wait a moment and try again.');
       return null;
@@ -2980,12 +3018,12 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
       })
     };
 
-    return submissionData;
+    return prefillLockRef.current ? null : submissionData;
   };
 
   const handleSubmit = async () => {
     const payload = await buildSubmissionPayload();
-    if (payload) submitFormMutation.mutate(payload);
+    if (payload && !prefillLockRef.current) submitFormMutation.mutate(payload);
   };
 
   handleSubmitRef.current = handleSubmit;
@@ -3028,6 +3066,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
 
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
+        <FormPrefillBoundary state={prefillState} className="w-full min-w-0" style={{ maxWidth: getFormMaxWidth(form.form_width) }}>
         <Card className="w-full min-w-0 border-slate-200" style={{ maxWidth: getFormMaxWidth(form.form_width) }} data-testid="form-width-container">
           <CardHeader>
             <CardTitle>{form.name}</CardTitle>
@@ -3320,6 +3359,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
             )}
           </div>
         </Card>
+        </FormPrefillBoundary>
       </div>
     );
   }
@@ -3352,7 +3392,7 @@ export default function FormViewPage({ slug: slugProp = null, assignmentToken = 
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8" ref={formContainerRef}>
-      <FormTransitionOverlay active={isTransitioning}>
+      <FormTransitionOverlay active={isTransitioning} prefillState={prefillState}>
       <div className="w-full min-w-0 mx-auto" style={{ maxWidth: getFormMaxWidth(form.form_width) }} data-testid="form-width-container">
         <Card className="border-slate-200">
           <CardHeader>

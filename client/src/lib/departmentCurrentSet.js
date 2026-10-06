@@ -295,7 +295,8 @@ export function useDepartmentCurrentSet({
   ]);
 
   useEffect(() => {
-    if (!active || !ready || !principalId || principalChanged || query.isLoading || query.isError || baseline || staleDraft || !queriedCurrentSet.version
+    if (!active || !ready || !principalId || principalChanged || query.isLoading || query.isFetching
+      || !query.isFetchedAfterMount || query.isError || baseline || staleDraft || !queriedCurrentSet.version
       || appliedRef.current === identity || dirtyRef.current) return;
     const initial = {
       ...queriedCurrentSet,
@@ -322,7 +323,7 @@ export function useDepartmentCurrentSet({
     }));
     setBaseline(queriedCurrentSet);
     appliedRef.current = `${form?.id || ''}:${safeDepartmentId || ''}:${queriedCurrentSet.version || ''}`;
-  }, [active, baseline, form?.id, principalChanged, principalId, queriedCurrentSet, query.isError, query.isLoading, ready, safeDepartmentId, sectionIds, setFormValues, staleDraft]);
+  }, [active, baseline, form?.id, principalChanged, principalId, queriedCurrentSet, query.isError, query.isLoading, query.isFetching, query.isFetchedAfterMount, ready, safeDepartmentId, sectionIds, setFormValues, staleDraft]);
 
   const versionChanged = !!baseline && !!queriedCurrentSet.version
     && baseline.version !== queriedCurrentSet.version;
@@ -356,11 +357,26 @@ export function useDepartmentCurrentSet({
       ? new Error('This saved Department draft is stale. Reload and review the current data before saving.')
       : versionChanged
       ? new Error('Current Department data changed. Reload and review before saving.')
-      : query.error || optionsQuery.error,
+      : (query.isFetching ? null : query.error) || (!safeDepartmentId && optionsQuery.error)
+        || (safeDepartmentId && query.fetchStatus === 'paused'
+          ? new Error('Loading current Department data is paused. Check your connection, then retry.') : null)
+        || (active && ready && safeDepartmentId && principalId && query.isSuccess && !query.isFetching
+          && (!queriedCurrentSet.version || !resolvedCurrentSet.workforce.complete || !resolvedCurrentSet.equipment.complete)
+          ? new Error('Current Department data is incomplete. Please retry loading it before continuing.') : null),
+    retry: () => {
+      if (staleDraft || versionChanged) {
+        window.location.reload();
+        return;
+      }
+      return query.refetch();
+    },
     acknowledgements,
     setAcknowledgements,
     baselineReady: !!baseline,
     existingBlankRequiredFieldsByRow,
-    markEdited: () => { dirtyRef.current = true; },
+    // Initialization callbacks are not respondent edits. While hydration is
+    // pending the form barrier prevents actual input; don't let renderer
+    // defaults poison the one-time baseline application.
+    markEdited: () => { if (baseline) dirtyRef.current = true; },
   };
 }

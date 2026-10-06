@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
+import { useFormPrefillLocked } from './FormPrefillBoundary';
 import { useQuery } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -530,6 +531,7 @@ function RepeatableRowsField({
   ]);
 
   useEffect(() => {
+    if (surfaceDisabled) return;
     if (!initializedRows.current && controlledRows.length === 0) {
       initializedRows.current = true;
       onChange(Array.from(
@@ -547,7 +549,7 @@ function RepeatableRowsField({
     // Child defaults can commit before this parent effect. Keep those pending
     // edits instead of emitting the pre-effect projection over them.
     if (needsCanonicalValue) onChange(latestRows.current);
-  }, [controlledRows, incomingRows, targetInitialRows, config.children, onChange]);
+  }, [controlledRows, incomingRows, targetInitialRows, config.children, onChange, surfaceDisabled]);
 
   const validation = useMemo(() => validateRepeatableRows(field, rows, {
       rootFields: rootAllFields || [],
@@ -1424,6 +1426,9 @@ function CommunicationPreferencesField({ field, value, onChange, disabled, membe
 }
 
 export default function FormRenderer({ field, value: suppliedValue, onChange, onGroupInitialSelection, onFormNotListedTextChange, onFileUploadStateChange, memberInfo, organizationInfo, selectedOrgGuestAccess = null, disabled = false, inheritedFieldLock = false, onValidityChange, onRelationshipEmptyStateChange, onRecordSelectionOptionsChange, onRepeatableAvailabilityChange, onRepeatableVisibilityChange, repeatableAvailabilitySupport = null, preserveValueWhenUnavailable = false, autoFocus = false, hideLabel = false, formId = null, formSlug = null, formMemberRoleId = null, communicationMemberContext = false, communicationAccess = null, communicationEligibilityReady = true, communicationEligibilityError = null, groupInitialSelectionReady = false, allFormValues = {}, prefillData = null, currentSetOptionLabels = null, currentSetExistingBlankFieldsByRow = null, allFields = [], membershipFeeQuote = null, notListedDisplayLabel = '', rootAllFields = null, rootAllFormValues = null, repeatableSiblingUniqueValues: siblingUniqueValues = [], repeatableFormExcludedValues: formExcludedValues = [], hiddenFieldIds = new Set(), parentHidden = false, availabilityProbe = false, suppressPaymentSummary = false, membershipPaymentMemberId = null }) {
+  const prefillLocked = useFormPrefillLocked();
+  disabled = disabled || prefillLocked;
+  autoFocus = autoFocus && !prefillLocked;
   const resolvedFieldValue = resolveFormRendererFieldValue({
     field,
     fields: allFields,
@@ -1581,7 +1586,7 @@ export default function FormRenderer({ field, value: suppliedValue, onChange, on
   
   // Author locks (including container locks) disable controls, not configured
   // initialization. The separate disabled prop identifies a read-only surface.
-  const isFieldDisabled = field.locked || inheritedFieldLock || disabled;
+  const isFieldDisabled = field.locked || inheritedFieldLock || disabled || prefillLocked;
 
   const domainErrorRef = useRef('');
   const emailFormatErrorRef = useRef('');

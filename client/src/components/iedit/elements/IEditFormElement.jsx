@@ -33,7 +33,8 @@ import {
   setFormNotListedText,
 } from "../../../../../shared/formNotListedChoice.js";
 import { useFormFieldPrefill } from "@/lib/useFormFieldPrefill";
-import { useConditionalFormFieldPrefill } from "@/lib/useFormFieldPrefill";
+import { useConditionalFormFieldPrefillState } from "@/lib/useFormFieldPrefill";
+import { initialPrefillState, combinePrefillStates } from "@/lib/formPrefillBarrier";
 import { applyFormFieldValueChange } from "@/lib/formFieldValueChange";
 import { useFormOpenTransition } from "@/lib/useFormOpenTransition";
 import FormTransitionOverlay from "@/components/forms/FormTransitionOverlay";
@@ -357,12 +358,13 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     acknowledgements: departmentCurrentSet.acknowledgements,
     baselineReady: departmentCurrentSet.baselineReady,
   });
-  const conditionalPrefillValues = useConditionalFormFieldPrefill({
+  const conditionalPrefillState = useConditionalFormFieldPrefillState({
     form,
     formSlug: form?.slug,
     formValues,
-    enabled: !!form && !formAccess.restricted && defaultsInitialized,
+    enabled: !!form && !formAccess.restricted && defaultsInitialized && (!draftToken || draftLoaded),
   });
+  const conditionalPrefillValues = conditionalPrefillState.values;
 
   // Task #3336: authenticated fallback — when the form uses member/organisation
   // prefill and no explicit URL param is supplied, prefill from the logged-in
@@ -378,7 +380,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   });
 
   // Load draft if resume token is in URL
-  const { data: draftData, isError: draftFetchError } = useQuery({
+  const { data: draftData, isError: draftFetchError, ...draftQuery } = useQuery({
     queryKey: ['form-draft-embed', draftToken],
     queryFn: async () => {
       // Use publicClient which handles both subdomain and custom domain resolution
@@ -387,14 +389,14 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     enabled: !!draftToken && !draftLoaded && !!rawForm && !formAccess.restricted,
     retry: false
   });
-  useFormFieldPrefill({
+  const reactivePrefillState = useFormFieldPrefill({
     form,
     formSlug: form?.slug,
     formValues,
     setFormValues,
     enabled: !!form && !formAccess.restricted && defaultsInitialized
       && String(defaultsInitializedFormId) === String(form?.id)
-      && (!draftToken || draftLoaded || draftFetchError),
+      && (!draftToken || draftLoaded),
     protectedFieldIds: [
       ...Object.keys(transitionInitialValues || {}),
       ...Object.keys(draftData?.draft?.draft_data || {}),
@@ -407,7 +409,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   useEffect(() => {
     if (!defaultsInitialized) return;
     if (draftLoaded) return;
-    if (draftData?.success) {
+    if (draftData?.success && draftData?.draft?.draft_data) {
       console.log('[IEditFormElement] Loading draft data:', draftData);
       setFormValues(prev => ({ ...prev, ...draftData.draft.draft_data }));
       if (draftData.draft.current_page_index != null) {
@@ -419,13 +421,12 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
         setSchemaChangeMessage(draftData.message);
       }
       toast.success('Your saved progress has been restored');
-    } else if (draftData && !draftData.success) {
-      setDraftLoaded(true);
     }
   }, [draftData, draftLoaded, defaultsInitialized]);
 
   // Save draft handler
   const handleSaveDraft = async () => {
+    if (prefillState.locked) return;
     if (!form || isSavingDraft) return;
     
     setIsSavingDraft(true);
@@ -517,7 +518,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
 
   // Prefill: Fetch member entity when form has prefill_source = 'member'
   // Only enabled for authenticated users to prevent 401 errors on public pages
-  const { data: prefillMember, isLoading: prefillMemberLoading } = useQuery({
+  const { data: prefillMember, ...memberPrefillQuery } = useQuery({
     queryKey: ['prefill-member-embed', prefillMemberId],
     queryFn: async () => {
       return base44.entities.Member.get(prefillMemberId);
@@ -526,7 +527,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   });
 
   // Prefill: Fetch organization entity when form has prefill_source = 'organization'
-  const { data: prefillOrg, isLoading: prefillOrgLoading } = useQuery({
+  const { data: prefillOrg, isLoading: prefillOrgLoading, ...orgPrefillQuery } = useQuery({
     queryKey: ['prefill-org-embed', prefillOrgId],
     queryFn: async () => {
       return base44.entities.Organization.get(prefillOrgId);
@@ -543,7 +544,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   });
 
   // Prefill: Fetch member's organization when prefill_source = 'member'
-  const { data: prefillMemberOrg, isLoading: memberOrgLoading } = useQuery({
+  const { data: prefillMemberOrg, isLoading: memberOrgLoading, ...memberOrgPrefillQuery } = useQuery({
     queryKey: ['prefill-member-org-embed', memberSourceOrgId],
     queryFn: async () => {
       return base44.entities.Organization.get(memberSourceOrgId);
@@ -552,7 +553,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   });
 
   // Prefill: Fetch member custom field values
-  const { data: prefillMemberCustomValues = [], isLoading: memberCustomValuesLoading } = useQuery({
+  const { data: prefillMemberCustomValues = [], isLoading: memberCustomValuesLoading, ...memberCustomPrefillQuery } = useQuery({
     queryKey: ['prefill-member-custom-values-embed', prefillMemberId],
     queryFn: async () => {
       const values = await base44.entities.MemberPreferenceValue.list({
@@ -563,7 +564,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     enabled: !!memberInfo && !!prefillMemberId && form?.prefill_source === 'member'
   });
 
-  const { data: prefillMemberResourceCategorySelections = [], isLoading: memberResourceCategoriesLoading } = useQuery({
+  const { data: prefillMemberResourceCategorySelections = [], isLoading: memberResourceCategoriesLoading, ...memberCategoryPrefillQuery } = useQuery({
     queryKey: ['prefill-member-resource-categories-embed', prefillMemberId],
     queryFn: async () => {
       const values = await base44.entities.MemberResourceCategory.list({
@@ -579,7 +580,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     ? prefillOrgId
     : memberSourceOrgId;
 
-  const { data: prefillOrgCustomValues = [], isLoading: orgCustomValuesLoading } = useQuery({
+  const { data: prefillOrgCustomValues = [], isLoading: orgCustomValuesLoading, ...orgCustomPrefillQuery } = useQuery({
     queryKey: ['prefill-org-custom-values-embed', effectiveOrgIdForCustomFields],
     queryFn: async () => {
       const values = await base44.entities.OrganizationPreferenceValue.list({
@@ -590,10 +591,40 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     enabled: !!memberInfo && !!effectiveOrgIdForCustomFields && form?.prefill_source && form.prefill_source !== 'none'
   });
 
-  const isPrefillLoading = form && form.prefill_source && form.prefill_source !== 'none' && !prefillApplied && !!memberInfo && (
-    (form.prefill_source === 'member' && (prefillMemberLoading || memberCustomValuesLoading || memberResourceCategoriesLoading)) ||
-    (form.prefill_source === 'organization' && prefillOrgLoading)
+  // Mirror the authenticated queries' enabled conditions. Anonymous Canvas
+  // visitors must not be locked by disabled pending/idle queries.
+  const entityPrefillExpected = !!memberInfo && (
+    (form?.prefill_source === 'member' && !!prefillMemberId)
+    || (form?.prefill_source === 'organization' && !!prefillOrgId)
   );
+  const entityPrefillState = initialPrefillState({
+    expected: entityPrefillExpected, applied: prefillApplied,
+    initialized: defaultsInitialized && String(defaultsInitializedFormId) === String(form?.id),
+    queries: [
+      { required: form?.prefill_source === 'member' && !!prefillMemberId, query: memberPrefillQuery, label: 'member details' },
+      { required: form?.prefill_source === 'member' && !!prefillMemberId, query: memberCustomPrefillQuery, label: 'member custom fields' },
+      { required: form?.prefill_source === 'member' && !!prefillMemberId, query: memberCategoryPrefillQuery, label: 'member categories' },
+      { required: form?.prefill_source === 'member' && !!memberSourceOrgId, query: memberOrgPrefillQuery, label: 'member organisation' },
+      { required: form?.prefill_source === 'organization' && !!prefillOrgId, query: orgPrefillQuery, label: 'organisation details' },
+      { required: !!effectiveOrgIdForCustomFields && ['member', 'organization'].includes(form?.prefill_source), query: orgCustomPrefillQuery, label: 'organisation custom fields' },
+    ],
+  });
+  const departmentPrefillRequired = departmentCurrentSet.active && !!departmentCurrentSet.departmentId && !!memberInfo?.id;
+  const prefillState = combinePrefillStates(entityPrefillState, reactivePrefillState, conditionalPrefillState, {
+    pending: !!draftToken && !draftLoaded,
+    error: draftToken && !draftLoaded && !draftQuery.isFetching && (draftFetchError || (draftData && (!draftData.success || !draftData.draft?.draft_data))) ? {
+      message: "We couldn't restore your saved progress. Please retry loading your draft.",
+      retry: () => draftQuery.refetch(),
+    } : null,
+  }, {
+    pending: departmentPrefillRequired && !departmentCurrentSet.baselineReady,
+    error: departmentPrefillRequired && departmentCurrentSet.error ? {
+      message: departmentCurrentSet.error.message || "We couldn't load current Department data.",
+      retry: departmentCurrentSet.retry,
+    } : null,
+  });
+  const prefillLockRef = useRef(false);
+  prefillLockRef.current = prefillState.locked || isTransitioning;
 
   // Find the organisation_dropdown field (if any) to determine selected org for domain validation
   const orgDropdownField = useMemo(() => {
@@ -722,7 +753,8 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     if (!form || !form.prefill_source || form.prefill_source === 'none') return;
     if (!defaultsInitialized) return;
     if (prefillApplied) return;
-    if (draftToken && !draftLoaded && !draftFetchError) return;
+    if (!entityPrefillState.ready) return;
+    if (draftToken && !draftLoaded) return;
     if (form.prefill_source === 'member' && memberResourceCategoriesLoading) return;
 
     // Wait for BOTH member and organisation custom values before applying —
@@ -754,7 +786,10 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     const memberEntity = prefillMember;
     const orgEntity = form.prefill_source === 'organization' ? prefillOrg : prefillMemberOrg;
     const primaryEntity = form.prefill_source === 'member' ? memberEntity : orgEntity;
-    if (!primaryEntity) return;
+    if (!primaryEntity) {
+      if (entityPrefillExpected) setPrefillApplied(true);
+      return;
+    }
 
     const newValues = buildPrefillValues({
       form,
@@ -792,7 +827,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     // refetch could re-run prefill and overwrite values the user has since
     // edited. Draft precedence is preserved by the merge above.
     setPrefillApplied(true);
-  }, [form, prefillMember, prefillOrg, prefillMemberOrg, prefillMemberCustomValues, prefillMemberResourceCategorySelections, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId, prefillMemberId, memberSourceOrgId, memberOrgLoading, prefillOrgLoading, effectiveOrgIdForCustomFields, memberInfo, memberCustomValuesLoading, memberResourceCategoriesLoading, orgCustomValuesLoading, draftToken, draftLoaded, draftData, draftFetchError]);
+  }, [form, prefillMember, prefillOrg, prefillMemberOrg, prefillMemberCustomValues, prefillMemberResourceCategorySelections, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId, prefillMemberId, memberSourceOrgId, memberOrgLoading, prefillOrgLoading, effectiveOrgIdForCustomFields, memberInfo, memberCustomValuesLoading, memberResourceCategoriesLoading, orgCustomValuesLoading, draftToken, draftLoaded, draftData, draftFetchError, entityPrefillState.ready, entityPrefillExpected]);
 
   // Helper to evaluate a rule condition
   const groupInitialSelectionReady = groupInitialSelectionSurfaceReady({
@@ -1736,6 +1771,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   });
 
   const handleSubmit = async () => {
+    if (prefillState.locked || isTransitioning) return;
     if (!form) return;
     if (departmentCurrentSetBlocked) {
       setValidationErrors([departmentCurrentSetBlocked]);
@@ -1895,7 +1931,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
       created_date: new Date().toISOString()
     };
 
-    submitFormMutation.mutate(submissionData);
+    if (!prefillLockRef.current) submitFormMutation.mutate(submissionData);
   };
 
   handleSubmitRef.current = handleSubmit;
@@ -1981,7 +2017,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   }
 
   // Check if still loading capacity
-  if (primaryMemberRoleId && isCheckingCapacity) {
+  if (primaryMemberRoleId && isCheckingCapacity && !prefillState.locked) {
     return (
       <div className="flex items-center justify-center py-12" style={getBackgroundStyle()}>
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
@@ -2067,24 +2103,6 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     position: 'relative'
   };
 
-  if (isPrefillLoading) {
-    return (
-      <FormTransitionOverlay active={isTransitioning}>
-      <div id={anchor || undefined} style={containerStyle}>
-        <div className="relative mx-auto px-4" style={{ maxWidth: `${content_max_width}px` }}>
-          {renderHeaderSection()}
-          <Card className="iedit-form-styled !rounded-none" style={getCardStyle()}>
-            <CardContent className="p-12 text-center">
-              <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-4" />
-              <p className="text-sm text-slate-500">Loading your details...</p>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-      </FormTransitionOverlay>
-    );
-  }
-
   if (submitted) {
     return (
       <div id={anchor || undefined} style={containerStyle}>
@@ -2120,7 +2138,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
     const canProceed = (!currentField?.required || hasValue) && isFormatValid;
 
     return (
-      <FormTransitionOverlay active={isTransitioning}>
+      <FormTransitionOverlay active={isTransitioning} prefillState={prefillState}>
       <div id={anchor || undefined} style={containerStyle}>
         {background_type === 'image' && overlay_enabled && (
           <div 
@@ -2279,7 +2297,7 @@ export default function IEditFormElement({ element, memberInfo, organizationInfo
   }
 
   return (
-    <FormTransitionOverlay active={isTransitioning}>
+    <FormTransitionOverlay active={isTransitioning} prefillState={prefillState}>
     <div id={anchor || undefined} style={containerStyle} ref={formContainerRef}>
       {background_type === 'image' && overlay_enabled && (
         <div 

@@ -13,8 +13,15 @@ import {
   shouldClearFormFieldPrefillSelection,
 } from '@/lib/formFieldPrefill';
 
-export function useConditionalFormFieldPrefill({ form, formSlug, formValues, enabled = true }) {
+export function useConditionalFormFieldPrefill(options) {
+  return useConditionalFormFieldPrefillState(options).values;
+}
+
+export function useConditionalFormFieldPrefillState({ form, formSlug, formValues, enabled = true }) {
   const [valuesByAction, setValuesByAction] = useState({});
+  const [settled, setSettled] = useState(null);
+  const [failure, setFailure] = useState(null);
+  const [retryCount, setRetryCount] = useState(0);
   const actionEntries = getConditionalPrefillActionEntries(form);
   const sources = getConditionalPrefillSources(form);
   const requestPlan = sources.map(source => ({
@@ -30,12 +37,24 @@ export function useConditionalFormFieldPrefill({ form, formSlug, formValues, ena
       .filter(entry => entry.sourceId === String(item.source.id))
       .map(entry => entry.key),
   })));
+  const identity = `${form?.id}:${requestSignature}:${retryCount}`;
+  const required = enabled && form?.prefill_source === 'form_field'
+    && requestPlan.some(item => !shouldClearFormFieldPrefillSelection(item.recordId));
+
+  // The parent applies conditional set-value rules in its effect after these
+  // values render. Release in that same effect flush, not when HTTP resolves.
+  useEffect(() => {
+    if (settled?.identity === identity && settled?.phase === 'fetched') {
+      setSettled({ identity, phase: 'applied' });
+    }
+  }, [identity, settled]);
 
   useEffect(() => {
     if (!enabled || form?.prefill_source !== 'form_field') {
       setValuesByAction({});
       return undefined;
     }
+    setFailure(null);
     let cancelled = false;
     const requests = requestPlan.map(async item => {
         const actionKeys = actionEntries
@@ -62,11 +81,16 @@ export function useConditionalFormFieldPrefill({ form, formSlug, formValues, ena
             return { actionKeys, values: {}, clear: true };
           }
           console.error('[ConditionalFormFieldPrefill] Unable to resolve selected record:', error);
-          return { actionKeys, values: {}, clear: false };
+          return { actionKeys, values: {}, clear: false, error };
         }
       });
     Promise.all(requests).then(results => {
       if (cancelled) return;
+      const error = results.find(result => result.error)?.error;
+      if (error) {
+        setFailure({ identity, error });
+        return;
+      }
       setValuesByAction(current => {
         const next = { ...current };
         for (const result of results) {
@@ -75,13 +99,19 @@ export function useConditionalFormFieldPrefill({ form, formSlug, formValues, ena
         }
         return next;
       });
+      setSettled({ identity, phase: 'fetched' });
     });
     return () => { cancelled = true; };
   // requestSignature is a stable projection of only the source selections and
   // answers that can affect their eligibility.
-  }, [enabled, form?.id, form?.prefill_source, formSlug, requestSignature]);
+  }, [enabled, form?.id, form?.prefill_source, formSlug, requestSignature, retryCount]);
 
-  return useMemo(() => valuesByAction, [valuesByAction]);
+  const error = required && failure?.identity === identity ? {
+    message: "We couldn't load the selected record's data. Please retry.",
+    retry: () => setRetryCount(count => count + 1),
+  } : null;
+  const values = useMemo(() => valuesByAction, [valuesByAction]);
+  return { values, pending: required && !(settled?.identity === identity && settled.phase === 'applied'), error };
 }
 
 // Shared reactive runtime used by every form surface. The API validates the
@@ -98,6 +128,9 @@ export function useFormFieldPrefill({
   const trackedRef = useRef({});
   const initialValuesRef = useRef({});
   const initialValuesCapturedRef = useRef(false);
+  const [settledIdentity, setSettledIdentity] = useState(null);
+  const [failure, setFailure] = useState(null);
+  const [retryCount, setRetryCount] = useState(0);
   const source = getFormFieldPrefillSource(form);
   const selectedRecordId = source ? formValues?.[source.id] : null;
   const sourceAnswers = getFormFieldPrefillSourceAnswers(form, formValues);
@@ -105,6 +138,9 @@ export function useFormFieldPrefill({
   const protectedFieldIdsSignature = JSON.stringify(
     [...new Set((protectedFieldIds || []).map(String))].sort(),
   );
+  const identity = JSON.stringify([form?.id, source?.id, selectedRecordId, sourceAnswersSignature, retryCount]);
+  const required = enabled && form?.prefill_source === 'form_field'
+    && source && !shouldClearFormFieldPrefillSelection(selectedRecordId);
 
   useEffect(() => {
     trackedRef.current = {};
@@ -115,6 +151,7 @@ export function useFormFieldPrefill({
   useEffect(() => {
     if (!enabled || form?.prefill_source !== 'form_field') return undefined;
     let cancelled = false;
+    setFailure(null);
     const protectedFields = new Set((protectedFieldIds || []).map(String));
     if (!initialValuesCapturedRef.current) {
       const replaceableInitialValues = {};
@@ -150,6 +187,8 @@ export function useFormFieldPrefill({
         trackedRef.current = result.trackedValues;
         return result.values;
       });
+      // Both updates commit together: no unlocked render with old answers.
+      setSettledIdentity(identity);
     };
 
     if (!source || shouldClearFormFieldPrefillSelection(selectedRecordId)) {
@@ -179,10 +218,18 @@ export function useFormFieldPrefill({
         }
         // Do not clear a valid previous fill on a transient lookup failure.
         console.error('[FormFieldPrefill] Unable to resolve selected record:', error);
+        if (!cancelled) setFailure({ identity, error });
       });
 
     return () => { cancelled = true; };
   }, [enabled, form?.id, form?.prefill_source, form?.prefill_source_field_id,
     form?.prefill_field_id, formSlug, selectedRecordId, source?.id,
-    sourceAnswersSignature, protectedFieldIdsSignature, setFormValues]);
+    sourceAnswersSignature, protectedFieldIdsSignature, setFormValues, retryCount]);
+  return {
+    pending: !!required && settledIdentity !== identity,
+    error: required && failure?.identity === identity ? {
+      message: "We couldn't load the selected record's data. Please retry.",
+      retry: () => setRetryCount(count => count + 1),
+    } : null,
+  };
 }

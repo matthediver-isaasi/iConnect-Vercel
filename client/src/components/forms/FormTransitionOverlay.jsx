@@ -1,9 +1,11 @@
 import { Loader2 } from 'lucide-react';
+import FormPrefillBoundary from './FormPrefillBoundary';
 
 const TRANSITION_MESSAGE = 'Please hold tight for a few seconds…';
 
-export default function FormTransitionOverlay({ active, children, className = '' }) {
+export default function FormTransitionOverlay({ active, children, className = '', prefillState }) {
   return (
+    <FormPrefillBoundary state={prefillState}>
     <div
       className={`relative ${className}`}
       aria-busy={active ? 'true' : undefined}
@@ -36,5 +38,6 @@ export default function FormTransitionOverlay({ active, children, className = ''
         </div>
       )}
     </div>
+    </FormPrefillBoundary>
   );
 }

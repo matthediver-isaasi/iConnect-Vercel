@@ -33,7 +33,8 @@ import {
   pruneFormNotListedText,
   setFormNotListedText,
 } from "../../../shared/formNotListedChoice.js";
-import { useConditionalFormFieldPrefill, useFormFieldPrefill } from "@/lib/useFormFieldPrefill";
+import { useConditionalFormFieldPrefillState, useFormFieldPrefill } from "@/lib/useFormFieldPrefill";
+import { initialPrefillState, combinePrefillStates } from "@/lib/formPrefillBarrier";
 import { applyFormFieldValueChange } from "@/lib/formFieldValueChange";
 import { getFormPagination } from "@/lib/formPagination";
 import { observeFormEmbedContent } from "@/lib/formEmbedRuntime";
@@ -378,7 +379,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
   // dual path — the authenticated entity API when a session exists (full
   // data), the public prefill endpoints otherwise (safe subset) so explicit
   // ?member_id/?organization_id URLs work for anonymous viewers too.
-  const { data: prefillMemberData, isLoading: prefillMemberLoading, isError: prefillMemberError, error: prefillMemberFailure, refetch: retryPrefillMember } = useQuery({
+  const { data: prefillMemberData, isLoading: prefillMemberLoading, isError: prefillMemberError, error: prefillMemberFailure, refetch: retryPrefillMember, ...memberPrefillQuery } = useQuery({
     queryKey: ['prefill-member-embedform', prefillMemberId, form?.slug || slug, !!authMember],
     queryFn: async () => {
       if (authMember) {
@@ -386,9 +387,6 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
           base44.entities.Member.get(prefillMemberId),
           base44.entities.MemberResourceCategory.list({
             filter: { member_id: prefillMemberId }
-          }).catch(error => {
-            console.error('[EmbedForm Prefill] Failed to load member resource categories:', error);
-            return [];
           })
         ]);
         return {
@@ -441,7 +439,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
     : form?.default_member_role_id || null;
   const communicationRoleId = prefillMember?.role_id || authMember?.role_id || communicationCreationRoleId;
 
-  const { data: prefillOrg, isLoading: prefillOrgLoading } = useQuery({
+  const { data: prefillOrg, isLoading: prefillOrgLoading, ...orgPrefillQuery } = useQuery({
     queryKey: ['prefill-org-embedform', prefillOrgId, !!authMember],
     queryFn: async () => {
       if (authMember) {
@@ -460,7 +458,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
     fallbackOrgId: prefillOrgId,
   });
 
-  const { data: prefillMemberOrg, isLoading: memberOrgLoading } = useQuery({
+  const { data: prefillMemberOrg, isLoading: memberOrgLoading, ...memberOrgPrefillQuery } = useQuery({
     queryKey: ['prefill-member-org-embedform', memberSourceOrgId, !!authMember],
     queryFn: async () => {
       if (authMember) {
@@ -471,7 +469,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
     enabled: !!memberSourceOrgId && form?.prefill_source === 'member'
   });
 
-  const { data: prefillMemberCustomValues = EMPTY_ARRAY, isLoading: memberCustomValuesLoading } = useQuery({
+  const { data: prefillMemberCustomValues = EMPTY_ARRAY, isLoading: memberCustomValuesLoading, ...memberCustomPrefillQuery } = useQuery({
     queryKey: ['prefill-member-custom-values-embedform', prefillMemberId, !!authMember],
     queryFn: async () => {
       if (authMember) {
@@ -492,7 +490,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
     ? prefillOrgId
     : memberSourceOrgId;
 
-  const { data: prefillOrgCustomValues = EMPTY_ARRAY, isLoading: orgCustomValuesLoading } = useQuery({
+  const { data: prefillOrgCustomValues = EMPTY_ARRAY, isLoading: orgCustomValuesLoading, ...orgCustomPrefillQuery } = useQuery({
     queryKey: ['prefill-org-custom-values-embedform', effectiveOrgIdForCustomFields],
     queryFn: async () => {
       // Public endpoint (as in FormView) so anonymous explicit-param prefill
@@ -502,7 +500,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
     },
     enabled: !!effectiveOrgIdForCustomFields && !!form?.prefill_source && form.prefill_source !== 'none'
   });
-  useFormFieldPrefill({
+  const reactivePrefillState = useFormFieldPrefill({
     form,
     formSlug: form?.slug || slug,
     formValues,
@@ -513,13 +511,37 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
       ? (form?.fields || []).map(field => field.id)
       : Object.keys(transitionInitialValues || {}),
   });
-  const conditionalPrefillValues = useConditionalFormFieldPrefill({
+  const conditionalPrefillState = useConditionalFormFieldPrefillState({
     form,
     formSlug: form?.slug || slug,
     formValues,
     enabled: !!form && !formAccess.restricted && defaultsInitialized,
   });
+  const conditionalPrefillValues = conditionalPrefillState.values;
   const [prefillApplied, setPrefillApplied] = useState(false);
+  const entityPrefillExpected = (form?.prefill_source === 'member' && !!prefillMemberId)
+    || (form?.prefill_source === 'organization' && !!prefillOrgId);
+  const entityPrefillState = initialPrefillState({
+    expected: entityPrefillExpected, applied: prefillApplied,
+    initialized: defaultsInitialized && String(defaultsInitializedFormId) === String(form?.id),
+    queries: [
+      { required: form?.prefill_source === 'member' && !!prefillMemberId, query: { ...memberPrefillQuery, refetch: retryPrefillMember }, label: 'member details' },
+      { required: form?.prefill_source === 'member' && !!prefillMemberId && (!!authMember || !!prefillMemberData), query: memberCustomPrefillQuery, label: 'member custom fields' },
+      { required: form?.prefill_source === 'member' && !!memberSourceOrgId, query: memberOrgPrefillQuery, label: 'member organisation' },
+      { required: form?.prefill_source === 'organization' && !!prefillOrgId, query: orgPrefillQuery, label: 'organisation details' },
+      { required: !!effectiveOrgIdForCustomFields && ['member', 'organization'].includes(form?.prefill_source), query: orgCustomPrefillQuery, label: 'organisation custom fields' },
+    ],
+  });
+  const departmentPrefillRequired = departmentCurrentSet.active && !!departmentCurrentSet.departmentId && !!authMember?.id;
+  const prefillState = combinePrefillStates(entityPrefillState, reactivePrefillState, conditionalPrefillState, {
+    pending: departmentPrefillRequired && !departmentCurrentSet.baselineReady,
+    error: departmentPrefillRequired && departmentCurrentSet.error ? {
+      message: departmentCurrentSet.error.message || "We couldn't load current Department data.",
+      retry: departmentCurrentSet.retry,
+    } : null,
+  });
+  const prefillLockRef = useRef(false);
+  prefillLockRef.current = prefillState.locked || isTransitioning;
 
   useEffect(() => {
     setCurrentPageIndex(transitionRestoreNavigation?.currentPageIndex ?? 0);
@@ -582,6 +604,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
     if (!form || !form.prefill_source || form.prefill_source === 'none') return;
     if (!defaultsInitialized) return;
     if (prefillApplied) return;
+    if (!entityPrefillState.ready) return;
     // Wait for BOTH member and organisation custom values before applying —
     // the entity can resolve first, and applying then would latch
     // prefillApplied and permanently skip custom-field prefills.
@@ -609,7 +632,10 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
     const memberEntity = prefillMember;
     const orgEntity = form.prefill_source === 'organization' ? prefillOrg : prefillMemberOrg;
     const primaryEntity = form.prefill_source === 'member' ? memberEntity : orgEntity;
-    if (!primaryEntity) return;
+    if (!primaryEntity) {
+      if (entityPrefillExpected) setPrefillApplied(true);
+      return;
+    }
 
     const newValues = buildPrefillValues({
       form,
@@ -643,7 +669,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
     // refetch could re-run prefill and overwrite values the user has since
     // typed into (then cleared/edited) blank fields.
     setPrefillApplied(true);
-  }, [form, prefillMember, prefillMemberData?.resourceCategorySelections, prefillOrg, prefillMemberOrg, prefillMemberCustomValues, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId, prefillMemberId, memberSourceOrgId, memberOrgLoading, prefillOrgLoading, effectiveOrgIdForCustomFields, authMember, memberCustomValuesLoading, orgCustomValuesLoading]);
+  }, [form, prefillMember, prefillMemberData?.resourceCategorySelections, prefillOrg, prefillMemberOrg, prefillMemberCustomValues, prefillOrgCustomValues, prefillApplied, defaultsInitialized, prefillOrgId, prefillMemberId, memberSourceOrgId, memberOrgLoading, prefillOrgLoading, effectiveOrgIdForCustomFields, authMember, memberCustomValuesLoading, orgCustomValuesLoading, entityPrefillState.ready, entityPrefillExpected]);
 
   const originalValuesRef = useRef({});
   const groupInitialSelectionReady = groupInitialSelectionSurfaceReady({
@@ -1215,6 +1241,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
   // Task #3483: all pre-submit validation + payload assembly, shared by the
   // normal submit path and the payment step. Returns the payload or null.
   const buildSubmissionPayload = async () => {
+    if (prefillState.locked || isTransitioning) return null;
     if (departmentCurrentSetBlocked) {
       setSubmissionError(departmentCurrentSetBlocked);
       toast.error(departmentCurrentSetBlocked);
@@ -1329,7 +1356,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
 
   const handleSubmit = async () => {
     const payload = await buildSubmissionPayload();
-    if (payload) submitFormMutation.mutate(payload);
+    if (payload && !prefillLockRef.current) submitFormMutation.mutate(payload);
   };
 
   useEffect(() => {
@@ -1551,7 +1578,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
       || ((!(currentField.is_required || currentField.required) || hasValue) && isFormatValid);
 
     return (
-      <FormTransitionOverlay active={isTransitioning}>
+      <FormTransitionOverlay active={isTransitioning} prefillState={prefillState}>
       <div className="p-4" data-testid="embed-form-container">
         <Toaster />
         <Card className="w-full min-w-0 mx-auto" style={{ maxWidth: getFormMaxWidth(form.form_width) }} data-testid="form-width-container">
@@ -1740,7 +1767,7 @@ function EmbedFormContent({ notifyParentResize, onPageNavigation, onOutcomeNavig
 
   // Standard Layout
   return (
-    <FormTransitionOverlay active={isTransitioning}>
+    <FormTransitionOverlay active={isTransitioning} prefillState={prefillState}>
     <div className="p-4" data-testid="embed-form-container">
       <Toaster />
       <Card className="w-full min-w-0 mx-auto" style={{ maxWidth: getFormMaxWidth(form.form_width) }} data-testid="form-width-container">
