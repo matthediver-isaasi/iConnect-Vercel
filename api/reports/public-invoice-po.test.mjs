@@ -31,6 +31,7 @@ async function runRoute(context, admin, feature, { fixtures = {}, query = {}, fa
   let source = await readFile(new URL('./event-registration-report.js', import.meta.url), 'utf8');
   source = source.replace(/^import .*;\r?$/gm, '');
   const prelude = `
+    import { registrationMemberLinks } from ${JSON.stringify(new URL('../_lib/eventRegistrationMemberLinks.js', import.meta.url).href)};
     import { summarizeRegistrationRevenue } from ${JSON.stringify(new URL('../../shared/eventRegistrationRevenue.mjs', import.meta.url).href)};
     const isPublicInvoicePo = ${isPublicInvoicePo.toString()};
     const publicInvoicePurchaser = ${publicInvoicePurchaser.toString()};
@@ -102,6 +103,9 @@ async function runRoute(context, admin, feature, { fixtures = {}, query = {}, fa
     export { queries, ranges };
   `;
   const module = await import(`data:text/javascript;base64,${Buffer.from(prelude + source).toString('base64')}`);
+  // Identical fixture inputs reuse the same ESM data URL module.
+  module.queries.length = 0;
+  module.ranges.length = 0;
   const res = { status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; } };
   await module.default({ method: 'GET', query }, res);
   return { ...res, queries: module.queries, ranges: module.ranges };
@@ -126,6 +130,24 @@ test('authorized admin can load report options', async () => {
   assert.equal(result.code, 200);
   assert.deepEqual(result.body.bookingGroups, []);
   assert.deepEqual(result.queries, ['event', 'complex_event']);
+});
+
+test('checkout-created attendee contact is shown as linked without changing public invoice classification', async () => {
+  const result = await runRoute({ tenantId: 'tenant', isAuthenticated: true, tenantUserId: 'admin' }, true, true, {
+    fixtures: {
+      event: [{ id: 'event', tenant_id: 'tenant', title: 'Event', status: 'published' }],
+      booking: [{ id: 'booking', event_id: 'event', tenant_id: 'tenant', is_guest_booking: true,
+        member_id: null, status: 'confirmed', payment_method: 'free', total_cost: 0, ticket_price: 0 }],
+      public_ticket_member_purchase: [{ id: 'purchase', tenant_id: 'tenant', state: 'completed', event_kind: 'simple', booking_ids: ['booking'] }],
+      public_ticket_member_link: [{ purchase_id: 'purchase', normalized_email: 'fixture@example.invalid', member_id: 'linked-contact',
+        participation: [{ kind: 'attendee', booking_id: 'booking' }] }],
+    }, query: { generate: 'true', eventId: 'event' },
+  });
+  assert.equal(result.code, 200);
+  const attendee = result.body.bookingGroups[0].attendees[0];
+  assert.equal(attendee.member_id, 'linked-contact');
+  assert.equal(attendee.is_guest_booking, true);
+  assert.equal(attendee.total_cost, 0);
 });
 
 const adminContext = { tenantId: 'tenant', isAuthenticated: true, tenantUserId: 'admin' };
@@ -228,7 +250,9 @@ test('handler pages past server cap, scopes tenant/event/date and preserves comp
   assert.equal(group.groupPayment.totalCost, 125);
   assert.equal(group.groupPayment.purchaseOrderNumber, 'PO-5');
   assert.equal(group.publicInvoicePurchaser.email, contextSnapshot.details.email);
-  assert.deepEqual(result.ranges.filter(r => r.table === 'complex_event_booking').map(r => r.from), [0, 2, 4, 5]);
+  // The report reads the booking pages once for registrations and once for
+  // refund/credit reconciliation. Both independent readers must page fully.
+  assert.deepEqual(result.ranges.filter(r => r.table === 'complex_event_booking').map(r => r.from), [0, 2, 4, 5, 0, 2, 4, 5]);
 });
 
 test('authorized report exposes source-specific complex net price without double-deducting code discount', async () => {

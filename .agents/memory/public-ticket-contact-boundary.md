@@ -3,6 +3,12 @@ name: Public ticket contact creation
 description: Product boundaries for opt-in CRM contact creation from public-facing tickets.
 ---
 
+Admin-reviewed conversion in the Event Registration Report is a deliberate exception to checkout's disabled-login rule: the administrator reviews the identity, explicitly selects a role and optionally an organisation, then enables login.
+
+**Why:** The user requested active platform access for this manual operation, while preserving the guest registration and its original payment information. This is not permission to activate automatic checkout contacts or infer paid membership.
+
+**How to apply:** Keep the manual and automatic paths separate. A later member link must not reinterpret historical guest/purchaser provenance or imply marketing consent. Duplicate existing members require review, not silent activation or reassignment.
+
 Public-ticket contact creation is for both the explicit purchaser and attendees receiving enabled tickets, not just the first attendee. Typed organisation names are descriptive, not verified affiliations.
 
 For single-attendee guest registration, explicitly ask whether the user is booking for themselves. A Yes uses one set of details for attendee and purchaser; a No retains separate identities.

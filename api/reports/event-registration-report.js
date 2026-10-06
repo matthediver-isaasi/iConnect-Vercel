@@ -5,6 +5,7 @@ import { buildEventCheckinFlagMap } from '../_lib/checkinService.js';
 import { normalizeGroupPayment, normalizeGroupPricePaid, normalizeGroupTicketPrices } from './_pricePaid.js';
 import { attachReportCredits } from './_credits.js';
 import { summarizeRegistrationRevenue } from '../../shared/eventRegistrationRevenue.mjs';
+import { registrationMemberLinks } from '../_lib/eventRegistrationMemberLinks.js';
 
 // Continue until an empty page, not a short page: a deployment's PostgREST
 // maximum may be smaller than our requested range. A unique tie-breaker keeps
@@ -1018,6 +1019,19 @@ export default async function handler(req, res) {
       }
 
       await attachReportCredits({ db: supabase, tenantId, bookings: allBookings, groups: bookingGroups });
+      const contactLinks = await registrationMemberLinks(supabase, tenantId,
+        bookingGroups.flatMap(group => group.attendees.filter(a => !a.member_id).map(a => ({
+          id: a.id, isComplex: group.bookingSource === 'complex_event_booking',
+        }))));
+      // Presentation only, after financial calculations. Historical bookings
+      // retain their original guest/payer identity.
+      for (const group of bookingGroups) {
+        for (const attendee of group.attendees) {
+          if (!attendee.member_id) attendee.member_id = contactLinks.get(
+            `${group.bookingSource === 'complex_event_booking' ? 'complex' : 'simple'}:${attendee.id}`
+          ) || null;
+        }
+      }
 
       summary = {
         ...summarizeRegistrationRevenue(bookingGroups),

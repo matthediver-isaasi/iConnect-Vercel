@@ -1,0 +1,36 @@
+Now that iConnect supports creating members from event ticket purchases, we need to extend `/EventRegistrationReport` to allow admins to review and confirm guest registrant details before creating a member record.
+
+In the registrations table, update the first column so it is clearly titled **Actions**.
+
+Add a new action icon within this column. This action should only be active/available for registrations where the attendee is currently a **guest registrant** and does not already have an associated member record.
+
+When the admin clicks the new action, open a modal displaying the guest registrant's available details, including:
+
+- First name
+- Last name
+- Email address
+- Organisation/company name
+- Any other relevant registration details that may be useful when creating the member
+
+The admin must be able to review and amend these details before the member is created.
+
+The modal should also include:
+
+- **Tenant Organisation** – allow the admin to search for and select an existing organisation within the tenant. This should be optional, as not every member will necessarily belong to an organisation.
+- **RBAC Role** – allow the admin to select the appropriate member role from the tenant's existing RBAC roles.
+
+The organisation entered by the guest during registration should be shown for reference, but it should not automatically be treated as an existing tenant organisation unless the admin explicitly selects the corresponding organisation record.
+
+Once the admin is happy with the information, provide a **Create Member** action.
+
+On confirmation:
+
+1. Create the new member using the reviewed/amended details.
+2. Set the member's **login/access status to active** so they are immediately enabled as a platform user.
+3. Associate the selected tenant organisation, if one was chosen.
+4. Assign the selected RBAC role.
+5. Link the new member record back to the existing event registration.
+6. Ensure the guest registration itself and all existing ticket/payment/registration information remain intact.
+7. Once successfully converted, disable/remove the guest-to-member action for that registration and instead show that the registration is linked to an existing member.
+
+The process should prevent duplicate member creation if the registration has already been converted or linked to a member.

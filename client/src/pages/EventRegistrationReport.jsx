@@ -1,4 +1,8 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import { Link } from "react-router-dom";
+import GuestRegistrationMemberDialog from "@/components/events/GuestRegistrationMemberDialog";
+import { useMemberTerminology } from "@/contexts/MemberTerminologyContext";
+import { ContactRound, UserCheck } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { resolveEventPaymentPolicy } from "../../../shared/eventPaymentPolicy.js";
@@ -316,7 +320,10 @@ function PaymentMethodBadge({ method }) {
 }
 
 export default function EventRegistrationReport() {
-  const { isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady, memberInfo, isAdmin } = useMemberAccess();
+  const { getMemberDetailUrl } = useMemberTerminology();
+  const canCreateGuestMember = isAccessReady && isAdmin && !isFeatureExcluded("admin.role-management");
+  const [guestMemberTarget, setGuestMemberTarget] = useState(null);
   const queryClient = useQueryClient();
   const [accessChecked, setAccessChecked] = useState(false);
   const paymentSettingsQuery = useQuery({
@@ -421,6 +428,7 @@ export default function EventRegistrationReport() {
   const knownColumnKeysRef = useRef(new Set());
 
   useEffect(() => {
+    setGuestMemberTarget(null);
     setCpdSelection({});
     setCpdEventChoice("");
     setCpdReplayChoice("");
@@ -500,6 +508,30 @@ export default function EventRegistrationReport() {
 
   const bookingGroups = reportData?.bookingGroups || [];
   const organizations = reportData?.organizations || {};
+
+  const handleGuestMemberSuccess = async (data) => {
+    const target = guestMemberTarget;
+    if (!target || !data.member?.id) return;
+    // Stop older report requests before patching only the new member link.
+    await queryClient.cancelQueries({ queryKey: ["event-registration-report"] });
+    queryClient.setQueriesData({ queryKey: ["event-registration-report"] }, old => {
+      if (!old?.bookingGroups) return old;
+      return {
+        ...old,
+        bookingGroups: old.bookingGroups.map(group => ({
+          ...group,
+          attendees: group.attendees.map(attendee =>
+            attendee.id === target.bookingId
+              && (group.bookingSource === "complex_event_booking") === target.isComplex
+              ? { ...attendee, member_id: data.member.id } : attendee),
+        })),
+      };
+    });
+    setGuestMemberTarget(null);
+    toast.success(data.alreadyLinked ? "Registration already linked to a member" : "Member created and linked to registration");
+    queryClient.invalidateQueries({ queryKey: ["event-registration-report"] });
+    queryClient.invalidateQueries({ queryKey: ["event-registration-report-events"] });
+  };
 
   const [editingDesignationId, setEditingDesignationId] = useState(null);
   const [designationDraft, setDesignationDraft] = useState("");
@@ -1593,6 +1625,36 @@ export default function EventRegistrationReport() {
     const cpdIdentity = cpdRegistrationIdentity(attendee, group);
     return (
       <div className="flex items-center gap-0.5 mr-1">
+        {attendee.member_id ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Link to={getMemberDetailUrl(attendee.member_id)} className="inline-flex h-7 w-7 items-center justify-center rounded-md text-primary hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label={`View linked member profile for ${attendee.attendee_first_name || "attendee"}`}
+                onClick={event => event.stopPropagation()} data-testid={`linked-member-${attendee.id}`}>
+                <UserCheck className="h-3.5 w-3.5" aria-hidden="true" />
+              </Link>
+            </TooltipTrigger>
+            <TooltipContent>Linked member · View profile</TooltipContent>
+          </Tooltip>
+        ) : canCreateGuestMember && (attendee.is_guest_booking || !attendee.organization_id) && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button type="button" size="icon" variant="ghost" className="h-7 w-7"
+                aria-label={`Create member from guest registration for ${attendee.attendee_first_name || "attendee"}`}
+                data-testid={`create-member-${attendee.id}`}
+                onClick={event => {
+                  event.stopPropagation();
+                  if (!guestMemberTarget) setGuestMemberTarget({
+                    bookingId: attendee.id,
+                    isComplex: group.bookingSource === "complex_event_booking",
+                  });
+                }}>
+                <ContactRound className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Review guest and create member</TooltipContent>
+          </Tooltip>
+        )}
         {canReprocessCpd && <>
           <Checkbox
             checked={!!cpdSelection[cpdRegistrationKey(cpdIdentity)]}
@@ -2087,7 +2149,7 @@ export default function EventRegistrationReport() {
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b text-left">
-                          <th className="pb-3 pr-1 font-medium text-muted-foreground whitespace-nowrap w-[68px]"></th>
+                          <th scope="col" className="pb-3 pr-1 font-medium text-muted-foreground whitespace-nowrap w-[68px]">Actions</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Name</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Event</th>
                           <th className="pb-3 pr-3 font-medium text-muted-foreground whitespace-nowrap">Int. Ref</th>
@@ -2677,6 +2739,14 @@ export default function EventRegistrationReport() {
         </DialogContent>
       </Dialog>
 
+      {guestMemberTarget && canCreateGuestMember && <GuestRegistrationMemberDialog
+        key={`${memberInfo?.tenant_id}:${memberInfo?.id}:${guestMemberTarget.isComplex}:${guestMemberTarget.bookingId}`}
+        {...guestMemberTarget}
+        tenantId={memberInfo?.tenant_id}
+        viewerId={memberInfo?.id}
+        onClose={() => setGuestMemberTarget(null)}
+        onSuccess={handleGuestMemberSuccess}
+      />}
       <Dialog open={showCancelDialog} onOpenChange={(open) => { if (!open) { setShowCancelDialog(false); setCancelTarget(null); } }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
