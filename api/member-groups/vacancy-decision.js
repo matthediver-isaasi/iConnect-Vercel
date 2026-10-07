@@ -213,49 +213,26 @@ export default async function handler(req, res) {
       if (awards.length >= positionsAvailable) {
         return res.status(409).json({ error: 'All positions for this vacancy are already filled.' });
       }
-      const { error: awardErr } = await supabase
-        .from('vacancy_award')
-        .insert({
-          tenant_id: tenantId,
-          member_group_id: group_id,
-          vacancy_id,
-          awarded_member_id: resolvedMemberId,
-          source_type: source_type || null,
-          source_id: source_id || null,
-          awarded_by_member_id: access.memberId || null,
-        });
-      if (awardErr) {
-        console.error('[vacancy-decision] award insert failed:', awardErr);
-        return res.status(500).json({ error: 'Failed to record the award.' });
-      }
-
       // Upsert the member's group assignment with the role term snapshot.
-      const { data: existingAssignment } = await supabase
+      const { data: existingAssignment, error: assignmentLookupError } = await supabase
         .from('member_group_assignment')
         .select('id, group_role, term_number')
         .eq('member_id', resolvedMemberId)
         .eq('group_id', group_id)
         .maybeSingle();
+      if (assignmentLookupError) return res.status(500).json({ error: 'Failed to check current group membership.' });
       const termSnapshot = buildTermSnapshot(
         (group.role_term_definitions || {})[role],
         { existingAssignment: existingAssignment || null, role }
       );
-      if (existingAssignment) {
-        await supabase
-          .from('member_group_assignment')
-          .update({ group_role: role || existingAssignment.group_role, ...termSnapshot })
-          .eq('id', existingAssignment.id);
-      } else {
-        await supabase
-          .from('member_group_assignment')
-          .insert({
-            tenant_id: tenantId,
-            group_id,
-            member_id: resolvedMemberId,
-            group_role: role || 'Member',
-            ...termSnapshot,
-          });
-      }
+      const { error: awardError } = await supabase.rpc('award_group_vacancy', {
+        p_tenant: tenantId, p_group: group_id, p_vacancy: vacancy_id,
+        p_member: resolvedMemberId, p_role: role || 'Member',
+        p_source_type: source_type || null, p_source_id: source_id || null,
+        p_actor: access.memberId || null, p_snapshot: termSnapshot,
+      });
+      if (awardError) return res.status(awardError.code === '23514' || awardError.code === 'P0001' ? 409 : 500)
+        .json({ error: awardError.message || 'Failed to award this position.' });
 
       recordMemberGroupActivity({
         memberId: resolvedMemberId,

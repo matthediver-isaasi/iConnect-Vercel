@@ -2,6 +2,17 @@
     "name": "Role",
     "type": "object",
     "properties": {
+      "max_member_groups": {
+        "type": ["integer", "null"],
+        "minimum": 0,
+        "default": null,
+        "description": "Maximum counted member groups per member. Null is unlimited; zero prohibits new counted memberships."
+      },
+      "exclude_auto_joined_groups_from_limit": {
+        "type": "boolean",
+        "default": false,
+        "description": "Exclude stored automatic memberships from the limit. Automatic reconciliation is never capped."
+      },
       "name": {
         "type": "string",
         "description": "Role name (e.g., 'Standard Member', 'Premium Member', 'Administrator')"

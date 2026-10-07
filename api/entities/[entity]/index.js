@@ -83,6 +83,7 @@ import {
 import { authorizeGenericCommunicationPreferenceAccess, validateGenericCommunicationPreferenceFilter } from '../../_lib/communicationPreferenceGenericAccess.js';
 import { authorizeAndCheckTeamRoleAssignment, validateAssignableRoleIds } from '../../_lib/teamRoleAssignment.js';
 import { checkRoleMutationAccess } from '../../_lib/roleMutationAccess.js';
+import { validateRoleMemberGroupPolicy } from '../../../shared/roleMemberGroupPolicy.js';
 import { createFormRelationshipService, FormRelationshipError } from '../../_lib/formRelationshipOptions.js';
 import { validateRepeatableRowSubmission } from '../../_lib/formRepeatableRowValidation.js';
 import {
@@ -466,6 +467,8 @@ export default async function handler(req, res) {
   }
 
   if (entityNorm === 'role' && req.method !== 'GET') {
+    const policyError = validateRoleMemberGroupPolicy(req.body);
+    if (policyError) return res.status(400).json({ error: policyError });
     const roleAccess = await checkRoleMutationAccess(tenantCtx, hasAdminAccess);
     if (!roleAccess.ok) {
       return res.status(roleAccess.status).json({ error: roleAccess.error });
@@ -2736,6 +2739,9 @@ export default async function handler(req, res) {
       if (error) {
         console.error(`Error inserting into ${tableName}:`, error);
 
+        if (error.details === 'MEMBER_GROUP_LIMIT_REACHED') {
+          return res.status(409).json({ error: error.message, code: 'MEMBER_GROUP_LIMIT_REACHED' });
+        }
         if (error.code === '23514' && String(error.message || '').startsWith('ROLE_CAPACITY_EXCEEDED:')) {
           return res.status(409).json({
             error: String(error.message).replace(/^ROLE_CAPACITY_EXCEEDED:\s*/, ''),

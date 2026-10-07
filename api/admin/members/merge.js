@@ -536,7 +536,15 @@ export async function performMerge({
   // 6) Full merge: re-point every member reference from source to target.
   // Abort (leaving the source row itself intact) on the first hard failure.
   if (sourceDisposal === 'reassign') {
+    const { error: groupError } = await db.rpc('merge_member_group_assignments', {
+      p_tenant: callerTenantId, p_source: sourceId, p_target: targetId,
+    });
+    if (groupError) return { status: groupError.code === '23514' ? 409 : 500, body: {
+      error: `${groupError.message}. No source group memberships or other source references were moved. Copied target fields remain; resolve the limit before retrying.`,
+      retryable: true,
+    } };
     for (const ref of REASSIGN_REFS) {
+      if (ref.table === 'member_group_assignment') continue;
       const result = await reassignRef(ref, sourceId, targetId, db);
       if (!result.ok) {
         return {

@@ -17,6 +17,8 @@ const COPYABLE_ROLE_FIELDS = [
   'badge_text_colour',
   'segment_values',
   'max_members',
+  'max_member_groups',
+  'exclude_auto_joined_groups_from_limit',
   'assignable_role_ids',
 ];
 

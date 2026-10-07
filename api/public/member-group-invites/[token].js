@@ -147,18 +147,24 @@ export default async function handler(req, res) {
     const newStatus = action === 'accept' ? 'accepted' : 'declined';
     const decidedAt = new Date().toISOString();
 
-    // Atomically claim the token: only move it from 'pending'.
-    const { data: claimed, error: claimErr } = await supabase
-      .from('member_group_role_invitation')
-      .update({ status: newStatus, decided_at: decidedAt })
-      .eq('id', row.id)
-      .eq('status', 'pending')
-      .select('id')
-      .maybeSingle();
+    const { data: priorAssignment, error: priorError } = await supabase
+      .from('member_group_assignment').select('id, group_role, term_number')
+      .eq('tenant_id', row.tenant_id).eq('group_id', row.group_id)
+      .eq('member_id', row.member_id).maybeSingle();
+    if (priorError) return res.status(500).json({ error: 'Could not check your current membership. Please try again.' });
+    const snapshot = buildTermSnapshot(resolveRoleTermDefinition(group, row.group_role),
+      { existingAssignment: priorAssignment || null, role: row.group_role });
+    // Assignment and invitation decision commit together; a rejected join leaves
+    // the invitation pending and retryable.
+    const { data: claimed, error: claimErr } = await supabase.rpc('apply_group_invitation_decision', {
+      p_id: row.id, p_action: action, p_snapshot: snapshot,
+    });
 
     if (claimErr) {
       console.error('[RoleInvite] Failed to update invitation:', claimErr.message);
-      return res.status(500).json({ error: 'Could not record your decision. Please try again.' });
+      return res.status(claimErr.code === '23514' ? 409 : 500).json({
+        error: claimErr.code === '23514' ? claimErr.message : 'Could not record your decision. Please try again.',
+      });
     }
 
     if (!claimed) {
@@ -172,64 +178,8 @@ export default async function handler(req, res) {
     }
 
     if (action === 'accept') {
-      // Create or update the member_group_assignment with the invited role.
-      const { data: existingAssignment } = await supabase
-        .from('member_group_assignment')
-        .select('id, group_role, term_number')
-        .eq('tenant_id', row.tenant_id)
-        .eq('group_id', row.group_id)
-        .eq('member_id', row.member_id)
-        .maybeSingle();
-
-      // Snapshot the role's current term onto the assignment so later role edits
-      // don't retroactively change this member's recorded term (Task #1626).
-      const termSnapshot = buildTermSnapshot(
-        resolveRoleTermDefinition(group, row.group_role),
-        { existingAssignment: existingAssignment || null, role: row.group_role }
-      );
-
-      let assignmentId = existingAssignment?.id || null;
-      let assignmentError = null;
-
-      if (existingAssignment) {
-        const { error: updErr } = await supabase
-          .from('member_group_assignment')
-          .update({ group_role: row.group_role, ...termSnapshot })
-          .eq('id', existingAssignment.id);
-        assignmentError = updErr;
-      } else {
-        const { data: insertedAssignment, error: insErr } = await supabase
-          .from('member_group_assignment')
-          .insert({
-            tenant_id: row.tenant_id,
-            group_id: row.group_id,
-            member_id: row.member_id,
-            group_role: row.group_role,
-            ...termSnapshot,
-          })
-          .select('id')
-          .maybeSingle();
-        assignmentError = insErr;
-        assignmentId = insertedAssignment?.id || null;
-      }
-
-      if (assignmentError) {
-        console.error('[RoleInvite] Failed to apply assignment:', assignmentError.message);
-        return res.json(buildResponse({
-          row: { ...row, status: newStatus, decided_at: decidedAt },
-          member,
-          group,
-          tenant,
-          torInfo,
-          extra: { warning: 'Your acceptance was recorded, but the role could not be applied automatically. Please contact the group administrator.' },
-        }));
-      }
-
-      if (assignmentId) {
-        await supabase
-          .from('member_group_role_invitation')
-          .update({ assignment_id: assignmentId })
-          .eq('id', row.id);
+      if (claimed.status !== 'accepted') {
+        return res.json(buildResponse({ row: claimed, member, group, tenant, torInfo, extra: { alreadyHandled: true } }));
       }
 
       recordMemberGroupActivity({
@@ -246,7 +196,7 @@ export default async function handler(req, res) {
     }
 
     return res.json(buildResponse({
-      row: { ...row, status: newStatus, decided_at: decidedAt },
+      row: claimed,
       member,
       group,
       tenant,

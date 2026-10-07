@@ -42,6 +42,7 @@ function resolveSource(base) {
 }
 
 const stubs = {
+  "@/contexts/TenantBrandingContext": `export const useTenantBranding = () => ({ branding: { id: "fixture-tenant" } });`,
   "@/api/base44Client": `
     const clone = value => structuredClone(value);
     const list = name => {
@@ -55,10 +56,22 @@ const stubs = {
       filter: async () => list(name),
       get: async () => null,
       create: async (...args) => {
+        if (name === "Role" && window.__task4637.policyWrites) {
+          const role = { id: "fixture-created", ...args[0] };
+          window.__task4637.savedPolicies.push(role);
+          window.__task4637.roles.push(role);
+          return clone(role);
+        }
         window.__task4637.unexpectedWrites.push([name, "create", args]);
         throw new Error("Unexpected fixture entity create");
       },
       update: async (...args) => {
+        if (name === "Role" && window.__task4637.policyWrites) {
+          const role = { id: args[0], ...args[1] };
+          window.__task4637.savedPolicies.push(role);
+          window.__task4637.roles = window.__task4637.roles.map(r => r.id === role.id ? role : r);
+          return clone(role);
+        }
         window.__task4637.unexpectedWrites.push([name, "update", args]);
         throw new Error("Unexpected fixture entity update");
       },
@@ -240,6 +253,8 @@ async function mount(page, options = {}) {
       entityLists: {},
       entityReads: [],
       unexpectedWrites: [],
+      policyWrites: false,
+      savedPolicies: [],
     };
   }, { roles, permissions: initialPermissions, includePreferences: !!options.includePreferences });
   await page.addStyleTag({ content: styles });
@@ -260,6 +275,35 @@ async function chooseRoles(page) {
 }
 
 const copyDialog = page => page.getByRole("dialog", { name: "Copy settings to an existing role" });
+
+test("member group policy editor preserves zero and exclusion", async ({ page }) => {
+  const fixture = await mount(page);
+  await page.evaluate(() => { window.__task4637.policyWrites = true; });
+  await page.getByRole("button", { name: /Create Role/ }).click();
+  await page.getByLabel("Role Name *", { exact: true }).fill("Limited members");
+  const maximum = page.getByTestId("input-max-member-groups");
+  await expect(maximum).toHaveValue("");
+  await expect(page.getByRole("switch", { name: "Exclude Auto-Joined Groups from Limit" })).not.toBeChecked();
+  await maximum.fill("0");
+  await page.getByRole("switch", { name: "Exclude Auto-Joined Groups from Limit" }).click();
+  await page.getByRole("button", { name: "Create Role", exact: true }).last().click();
+  await expect.poll(() => page.evaluate(() => window.__task4637.savedPolicies.length)).toBe(1);
+  const saved = await page.evaluate(() => window.__task4637.savedPolicies[0]);
+  expect(saved.max_member_groups).toBe(0);
+  expect(saved.exclude_auto_joined_groups_from_limit).toBe(true);
+  await page.getByRole("button", { name: "Edit", exact: true }).last().click();
+  await expect(maximum).toHaveValue("0");
+  await maximum.fill("1.5");
+  await page.getByRole("button", { name: "Update Role", exact: true }).click();
+  await expect(page.getByText("Maximum Member Groups must be blank (unlimited) or a nonnegative whole number.", { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => window.__task4637.savedPolicies.length)).toBe(1);
+  await maximum.fill("");
+  await page.getByRole("button", { name: "Update Role", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__task4637.savedPolicies.length)).toBe(2);
+  expect(await page.evaluate(() => window.__task4637.savedPolicies[1].max_member_groups)).toBeNull();
+  expect(fixture.runtimeErrors).toEqual([]);
+  expect(fixture.unexpectedTransports).toEqual([]);
+});
 
 test("selection names the destructive source and target, and Cancel performs no write", async ({ page }) => {
   const fixture = await mount(page);

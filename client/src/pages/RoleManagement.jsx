@@ -23,6 +23,7 @@ import { useNavigate } from "react-router-dom";
 import { ROLE_ACCESS_MAP, migrateLegacyExcludedFeatures } from "@/lib/roleAccessMap";
 import { isResourceExcluded, getModuleExclusionState, getPageExclusionState, toggleResourceExclusion } from "@/lib/roleVisibility";
 import { SALES_DEFAULT_ROLE_EXCLUSIONS } from "@shared/salesContracts.js";
+import { validateRoleMemberGroupPolicy } from "@shared/roleMemberGroupPolicy.js";
 import CopyRoleSettingsDialog from "@/components/CopyRoleSettingsDialog";
 import { publishRoleSettingsCopy, subscribeRoleSettingsCopy } from "@/lib/roleSettingsCopy";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
@@ -532,6 +533,8 @@ export default function RoleManagementPage() {
       layout_theme: "default",
       segment_values: [],  // Initialize empty for new roles
       max_members: null,   // null = unlimited
+      max_member_groups: null,
+      exclude_auto_joined_groups_from_limit: false,
       assignable_role_ids: []
     });
     setCategoryAccessOverrides({});
@@ -640,8 +643,15 @@ export default function RoleManagementPage() {
       badge_text_colour: editingRole.badge_text_colour || null,
       segment_values: segmentationFieldId ? (editingRole.segment_values || []) : null,
       max_members: editingRole.max_members === '' || editingRole.max_members === null ? null : parseInt(editingRole.max_members, 10) || null,
+      max_member_groups: editingRole.max_member_groups == null || editingRole.max_member_groups === '' ? null : Number(editingRole.max_member_groups),
+      exclude_auto_joined_groups_from_limit: editingRole.exclude_auto_joined_groups_from_limit === true,
       assignable_role_ids: Array.isArray(editingRole.assignable_role_ids) ? editingRole.assignable_role_ids : []
     };
+    const policyError = validateRoleMemberGroupPolicy(roleData);
+    if (policyError) {
+      toast.error(policyError);
+      return;
+    }
 
     if (editingRole.id) {
       // Task #3306: persist any resource category access changes for this role
@@ -1391,6 +1401,25 @@ export default function RoleManagementPage() {
 
                 <div className="space-y-4">
                   <div>
+                    <Label htmlFor="max-member-groups">Maximum Member Groups</Label>
+                    <Input id="max-member-groups" type="number" min="0" step="1"
+                      value={editingRole.max_member_groups ?? ''}
+                      onChange={(e) => setEditingRole({ ...editingRole, max_member_groups: e.target.value })}
+                      placeholder="Unlimited" data-testid="input-max-member-groups" />
+                    <p className="text-sm text-slate-500 mt-1">
+                      Leave blank for unlimited. Zero prevents new counted memberships. Existing memberships are kept.
+                      This is separate from the number of members allowed to hold this role.
+                    </p>
+                    <div className="flex items-center gap-2 mt-3">
+                      <Switch id="exclude-auto-groups"
+                        checked={editingRole.exclude_auto_joined_groups_from_limit === true}
+                        onCheckedChange={(checked) => setEditingRole({ ...editingRole, exclude_auto_joined_groups_from_limit: checked })} />
+                      <Label htmlFor="exclude-auto-groups">Exclude Auto-Joined Groups from Limit</Label>
+                    </div>
+                    <p className="text-sm text-slate-500 mt-1 mb-4">
+                      Automatic joining always continues. When this is off, automatically joined groups use capacity for later manual joins.
+                      When on, only non-automatic memberships count.
+                    </p>
                     <Label className="text-base">Access Control</Label>
                     <p className="text-sm text-slate-500 mt-1 mb-2">
                       Control which modules, pages, and features this role can access.

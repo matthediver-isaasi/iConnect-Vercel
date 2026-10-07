@@ -42,7 +42,10 @@ function makeFakeDb({ failOn = {}, prefRows = [] } = {}) {
       delete: () => chain('delete'),
     };
   }
-  return { from: table, ops };
+  return { from: table, ops, rpc: async (name) => {
+    ops.push(`rpc.${name}`);
+    return { error: failOn[`rpc.${name}`] || null };
+  } };
 }
 
 // Test stand-in for the real anonymiser: records the call on the fake db's
@@ -58,6 +61,17 @@ const anonRan = (db) => db.ops.some(op => op.startsWith('ANONYMIZE:'));
 const admin = { id: 'admin-1', first_name: 'Ada', last_name: 'Admin', email: 'ada@example.com' };
 const baseSource = { id: '11111111-1111-4111-8111-111111111111', first_name: 'Old', last_name: 'Record', email: 'old@example.com', engagement_opening_balances: {} };
 const baseTarget = { id: '22222222-2222-4222-8222-222222222222', first_name: 'New', last_name: 'Record', email: 'new@example.com', engagement_opening_balances: {} };
+
+test('group limit refusal precedes every destructive merge reference and anonymisation', async () => {
+  const db = makeFakeDb({ failOn: { 'rpc.merge_member_group_assignments': {
+    code: '23514', message: 'Member group limit reached (0)',
+  } } });
+  const result = await performMerge({ db, source: baseSource, target: baseTarget,
+    sourceDisposal: 'reassign', callerTenantId: 't1', adminMember: admin, anonymize: makeFakeAnonymize(db) });
+  assert.equal(result.status,409);
+  assert.equal(anonRan(db),false);
+  assert.ok(!db.ops.some(op=>op.startsWith('booking.')));
+});
 
 test('target core-field update failure aborts BEFORE any source disposal', async () => {
   const db = makeFakeDb({ failOn: { 'member.update': { code: 'XX000', message: 'boom' } } });
