@@ -1,7 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import {
-  ensureMemberMandateLayoutFields,
   MEMBER_MANDATE_LAYOUT_FIELDS,
 } from "@/lib/memberMandateLayout";
 
@@ -56,7 +55,9 @@ const DEFAULT_LAYOUT = {
 function migrateLayoutWithColumnIndex(layout) {
   if (!layout || !layout.cards) return DEFAULT_LAYOUT;
   
-  return ensureMemberMandateLayoutFields({
+  // Saved card/field choices are authoritative. Defaults are only for layouts
+  // that have never been configured, not for repopulating removed fields.
+  return {
     ...layout,
     cards: layout.cards.map(card => ({
       ...card,
@@ -68,7 +69,7 @@ function migrateLayoutWithColumnIndex(layout) {
           : {})
       }))
     }))
-  });
+  };
 }
 
 export const MEMBER_CORE_FIELDS = [

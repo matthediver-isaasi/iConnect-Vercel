@@ -8,3 +8,4 @@ description: Index of discovery, pending-query, and saved-metadata lifecycle con
 - [Manual request effects](manual-request-effects.md) — loading state must not invalidate the effect that owns the pending request.
 - [Stable query fallbacks](usequery-default-array-loop.md) — stable fallback arrays prevent synchronization loops.
 - [Saved list metadata reconciliation](saved-list-metadata-reconciliation.md) — wait for authorized metadata before reconciling saved choices.
+- [Saved member layout authority](saved-member-layout-authority.md) — default mandate fields must not override deliberate saved-layout removals.
