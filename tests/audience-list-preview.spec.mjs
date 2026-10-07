@@ -90,6 +90,12 @@ async function installFixtures(page, baseURL, { previewResponder, categoryExport
         return json(route, { error: "Cross-origin API request blocked by fixture" }, 599);
       }
       state.apiRequests.push(`${method} ${path}${url.search}`);
+      if (path === "/api/audience-lists" && method === "PATCH") {
+        const body = request.postDataJSON();
+        const list = audienceLists.find(l => l.id === body.id);
+        Object.assign(list, body);
+        return json(route, list);
+      }
 
       if (path === "/api/audience-lists/preview" && method === "POST") {
         const body = request.postDataJSON();
@@ -181,6 +187,10 @@ async function installFixtures(page, baseURL, { previewResponder, categoryExport
         tenantId: viewer.tenant_id,
         memberId: viewer.id,
       });
+      if (path === "/api/audience-lists/events") return json(route, [
+        { id: 'simple-speakers', title: 'Simple speaker event', source: 'event' },
+        { id: 'complex-speakers', title: 'Complex speaker event', source: 'complex_event' },
+      ]);
       if (path === "/api/audience-lists") return json(route, audienceLists);
       if (path === `/api/entities/Role/${viewer.role_id}`) {
         return json(route, { id: viewer.role_id, name: "Administrator", excluded_features: [] });
@@ -486,6 +496,30 @@ test("export action coexists with edit and delete, and survives switching catego
   await expect(exportButton).toBeEnabled();
   await expect(page.getByTestId(`button-download-list-${reviewListId}`)).toBeVisible();
   expect(state.previewRequests).toEqual([]);
+  assertSafeFixture(state);
+});
+
+test("speaker segments save both event kinds, reopen and preview without ticket controls", async ({ page, baseURL }) => {
+  const state = await installFixtures(page, baseURL);
+  await openLists(page);
+  await page.getByTestId(`button-edit-list-${populatedListId}`).click();
+  await page.getByTestId("button-add-list-segment").click();
+  await page.getByTestId("select-add-list-segment-type").click();
+  await page.getByRole("option", { name: "Event Speakers", exact: true }).click();
+  await page.getByText("Simple speaker event (Simple)", { exact: true }).click();
+  await page.getByText("Complex speaker event (Complex)", { exact: true }).click();
+  await expect(page.getByText("Ticket Types", { exact: true })).toHaveCount(0);
+  await page.getByTestId("button-confirm-add-list-segment").click();
+  await page.getByTestId("button-save-edit-list").click();
+  await expect(page.getByRole("dialog", { name: "Edit List", exact: true })).toBeHidden();
+  await page.getByTestId(`button-edit-list-${populatedListId}`).click();
+  const dialog = page.getByRole("dialog", { name: "Edit List", exact: true });
+  await expect(dialog.getByText("Event Speakers: Simple speaker event (Simple), Complex speaker event (Complex)", { exact: true })).toBeVisible();
+  expect(audienceLists[0].target_audiences.find(s => s.type === 'event_speakers').events.map(e => e.source)).toEqual(['event', 'complex_event']);
+  await page.getByTestId("button-cancel-edit-list").click();
+  await page.getByTestId(`button-preview-list-${populatedListId}`).click();
+  await expect(page.getByRole("dialog", { name: "Twenty-five newsletter recipients", exact: true })).toBeVisible();
+  expect(state.previewRequests).toEqual([{ listId: populatedListId }]);
   assertSafeFixture(state);
 });
 

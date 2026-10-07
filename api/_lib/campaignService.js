@@ -28,6 +28,7 @@ import {
   mergeExternalCategorySubscribers,
 } from '../../shared/communicationCategoryMembership.js';
 import crypto from 'crypto';
+import { resolveSpeakerAudience, validateSpeakerAudienceSegments } from './eventSpeakerAudience.js';
 import { resolveEventSurveyAudience, audienceRows } from './eventSurveyAudience.js';
 import { getMemberEmsAccess, requireGroupAccess, resolveMemberCampaignSender, validateStoredMemberCampaign } from './memberGroupEmsAccess.js';
 
@@ -485,6 +486,7 @@ export async function createCampaign(campaignData, tenantId, createdBy) {
   try {
     const cleanedData = { ...campaignData };
     await validateAudienceCustomObjects(supabase, tenantId, cleanedData.target_audiences);
+    await validateSpeakerAudienceSegments(supabase, tenantId, cleanedData.target_audiences);
     if (cleanedData.event_survey_context?.event_id) {
       await resolveEventEmailContext(supabase, cleanedData.event_survey_context, tenantId);
     }
@@ -550,6 +552,7 @@ export async function updateCampaign(campaignId, updates, tenantId, options = {}
   try {
     const cleanedUpdates = { ...updates };
     await validateAudienceCustomObjects(supabase, tenantId, cleanedUpdates.target_audiences);
+    await validateSpeakerAudienceSegments(supabase, tenantId, cleanedUpdates.target_audiences);
     delete cleanedUpdates.category_review_required;
     delete cleanedUpdates.category_review_reason;
     delete cleanedUpdates.category_review_marked_at;
@@ -1177,7 +1180,7 @@ async function fetchAllMembersPaginated(tenantId, selectFields, filters = {}) {
 const ALLOWED_SEGMENT_TYPES = new Set([
   'audience_list', 'individual_members', 'role', 'organisation', 
   'communication_category', 'form', 'member_group', 'member_group_admins', 'event_attendees',
-  'event_form', 'field_filter'
+  'event_form', 'field_filter', 'event_speakers'
 ]);
 
 const AUDIENCE_LIST_REPLACEMENT_MESSAGE =
@@ -1349,6 +1352,7 @@ async function getExplicitCategoryMemberRecipients(categoryIds, tenantId) {
 }
 
 async function getRecipientsForSegment(targetType, targetIds, tenantId, segmentData = null) {
+  if (targetType === 'event_speakers') return resolveSpeakerAudience(supabase, tenantId, segmentData);
   if (targetType === 'event_form' && segmentData?.form_id) targetIds = [segmentData.form_id];
   if (targetType === 'event_form' && targetIds.length !== 1) throw new Error('Select exactly one event form or survey');
   let recipients = [];

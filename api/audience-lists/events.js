@@ -1,4 +1,4 @@
-import { getTenantContext } from '../_lib/tenantContext.js';
+import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 import { supabase } from '../_lib/database.js';
 
 export default async function handler(req, res) {
@@ -12,19 +12,26 @@ export default async function handler(req, res) {
   }
 
   const { tenantId } = tenantContext;
+  if (!(await hasAdminAccess(tenantContext))) return res.status(403).json({ error: 'Admin access required' });
 
   try {
+    const readEvents = async table => {
+      const all = [];
+      let cursor;
+      while (true) {
+        let query = supabase.from(table).select('id,title,start_date,status').eq('tenant_id', tenantId).order('id').limit(200);
+        if (cursor) query = query.gt('id', cursor);
+        const { data, error } = await query;
+        if (error) throw error;
+        if (!Array.isArray(data)) throw new Error('Event discovery returned invalid data');
+        all.push(...data);
+        if (data.length < 200) return { data: all };
+        cursor = data.at(-1).id;
+      }
+    };
     const [eventRes, complexRes] = await Promise.all([
-      supabase
-        .from('event')
-        .select('id, title, start_date, status')
-        .eq('tenant_id', tenantId)
-        .order('start_date', { ascending: false }),
-      supabase
-        .from('complex_event')
-        .select('id, title, start_date, status')
-        .eq('tenant_id', tenantId)
-        .order('start_date', { ascending: false }),
+      readEvents('event'),
+      readEvents('complex_event'),
     ]);
 
     if (eventRes.error) {

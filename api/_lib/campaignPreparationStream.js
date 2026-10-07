@@ -3,6 +3,7 @@ import { isEnhancedAnonymousSettings } from '../../shared/surveyCompletionPolicy
 import { discoverAudienceCustomObjects, validateCustomObjectCondition, matchesCustomObjectValue } from './audienceCustomObjects.js';
 import { customObjectSelectionKey } from '../../shared/audienceCustomObjectContract.js';
 import { preparationError } from './campaignPreparation.js';
+import { speakerAudienceChunk } from './eventSpeakerAudience.js';
 
 export const RESOLUTION_PAGE_SIZE = 200;
 const normalize = value => typeof value === 'string' ? value.trim().toLowerCase() : '';
@@ -152,6 +153,10 @@ async function surveyChunk(db, state, work, bucket) {
 }
 
 async function normalChunk(db, state, work, bucket) {
+  if (work.s.type === 'event_speakers') {
+    const result = await speakerAudienceChunk(db, state.tenant_id, work.s, work.speakerCursor);
+    return { candidates: result.candidates, done: result.done, next: { ...work, speakerCursor: result.cursor } };
+  }
   const s = work.s, tenant = state.tenant_id, ids = s.ids || [];
   const members = () => db.from('member').select(memberColumns).eq('tenant_id', tenant)
     .not('email', 'ilike', 'deleted_%@deleted.local');

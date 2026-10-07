@@ -459,6 +459,7 @@ export default function CommunicationsManagementPage() {
   );
 
   const getSegmentSummary = (segment) => {
+    if (segment.type === 'event_speakers') return `Event Speakers: ${(segment.events || []).map(e => `${e.title || e.id} (${e.source === 'event' ? 'Simple' : 'Complex'})`).join(', ')}`;
     const typeLabels = {
       communication_category: 'Categories',
       member_group: 'Groups',
@@ -3230,7 +3231,10 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                         )}
                         <SelectItem value="individual_members">Individual Members</SelectItem>
                         {audienceListEvents.length > 0 && (
+                          <>
                           <SelectItem value="event_attendees">Event Attendees</SelectItem>
+                          <SelectItem value="event_speakers">Event Speakers</SelectItem>
+                          </>
                         )}
                         {eventLinkedForms.length > 0 && (
                           <SelectItem value="event_form">Event Form</SelectItem>
@@ -3305,6 +3309,20 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                       </div>
                     )}
 
+                    {addListSegmentType === 'event_speakers' && (
+                      <div className="border rounded-md p-3 space-y-2">
+                        <p className="text-sm text-muted-foreground">Active speakers assigned directly or through agenda items/sessions. No booking required. Linked speakers use their member email; other speakers use their speaker email. Normal opt-outs apply.</p>
+                        <Input placeholder="Search speaker events..." value={eventSearchInput} onChange={e => setEventSearchInput(e.target.value)} />
+                        <div className="max-h-60 overflow-auto">
+                          {audienceListEvents.filter(e => !eventSearchInput || (e.title || '').toLowerCase().includes(eventSearchInput.toLowerCase())).map(e => (
+                            <label key={`${e.source}:${e.id}`} className="flex items-center gap-2 p-2 text-sm">
+                              <Checkbox checked={selectedEvents.some(s => s.id === e.id && s.source === e.source)} onCheckedChange={checked => setSelectedEvents(prev => checked ? [...prev, e] : prev.filter(s => s.id !== e.id || s.source !== e.source))} />
+                              {e.title} ({e.source === 'event' ? 'Simple' : 'Complex'})
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     {addListSegmentType === 'event_attendees' && (
                       <div className="border rounded-md p-2 space-y-2 bg-background">
                         <div className="relative">
@@ -4108,6 +4126,8 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                               setEditListAudiences(prev => editingFieldSegment !== null ? prev.map((s, i) => i === editingFieldSegment ? segment : s) : [...prev, segment]);
                               setEditingFieldSegment(null);
                             }
+                          } else if (addListSegmentType === 'event_speakers' && selectedEvents.length > 0) {
+                            setEditListAudiences(prev => [...prev, { type: 'event_speakers', ids: selectedEvents.map(e => e.id), events: selectedEvents.map(({ id, source, title }) => ({ id, source, title })) }]);
                           } else if (addListSegmentType === 'event_attendees' && selectedEvents.length > 0) {
                             const newNames = {};
                             selectedEvents.forEach(ev => { newNames[ev.id] = ev.title; });
@@ -4254,7 +4274,7 @@ CREATE POLICY "Service role has full access to member_communication_preference"
                               }))
                             : addListSegmentType === 'individual_members'
                               ? indSelectedMembers.length === 0
-                              : addListSegmentType === 'event_attendees'
+                              : ['event_attendees', 'event_speakers'].includes(addListSegmentType)
                                 ? selectedEvents.length === 0
                                 : addListSegmentType === 'event_survey'
                                   ? !surveySegment

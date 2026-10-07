@@ -2,6 +2,7 @@ import { getTenantContext, hasAdminAccess } from './_lib/tenantContext.js';
 import { validateAudienceCustomObjects } from './_lib/audienceCustomObjects.js';
 import { supabase as defaultDatabase } from './_lib/database.js';
 import { validateSurveyAudienceSegments } from './_lib/eventSurveyAudience.js';
+import { validateSpeakerAudienceSegments } from './_lib/eventSpeakerAudience.js';
 
 export default async function handler(req, res, dependencies = {}) {
   const supabase = dependencies.supabase || defaultDatabase;
@@ -56,6 +57,7 @@ export default async function handler(req, res, dependencies = {}) {
 
       await validateAudienceCustomObjects(supabase, tenantId, target_audiences, { context: tenantContext, isAdmin: true });
       await validateSurveyAudienceSegments(supabase, tenantId, target_audiences);
+      await validateSpeakerAudienceSegments(supabase, tenantId, target_audiences);
 
       const { data, error } = await supabase
         .from('audience_list')
@@ -100,6 +102,7 @@ export default async function handler(req, res, dependencies = {}) {
 
       await validateAudienceCustomObjects(supabase, tenantId, target_audiences, { context: tenantContext, isAdmin: true });
       await validateSurveyAudienceSegments(supabase, tenantId, target_audiences);
+      await validateSpeakerAudienceSegments(supabase, tenantId, target_audiences);
 
       const { data, error } = await supabase
         .from('audience_list')

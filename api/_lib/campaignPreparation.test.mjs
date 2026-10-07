@@ -3,11 +3,71 @@ import assert from 'node:assert/strict';
 import { prepareCampaignAudience, preparationContext, isRetryablePreparationError } from './campaignPreparation.js';
 import { resolveEventSurveyAudience } from './eventSurveyAudience.js';
 import { resolvePreparationChunk } from './campaignPreparationStream.js';
+import { resolveSpeakerAudience, validateSpeakerAudienceSegments } from './eventSpeakerAudience.js';
 
 process.env.SUPABASE_URL = 'https://campaign-preparation.invalid';
 process.env.SUPABASE_SERVICE_KEY = 'isolated-test-key';
 const { getTargetRecipients, applyConditionToQuery, applyPrefValueCondition } = await import('./campaignService.js');
 const { supabase } = await import('./database.js');
+
+test('speaker preview and resumed preparation share assignments, identities, suppression and deduplication', async () => {
+  const segment = { type: 'event_speakers', ids: ['simple', 'complex'], events: [
+    { id: 'simple', source: 'event' }, { id: 'complex', source: 'complex_event' },
+  ] };
+  const speaker = (id, extra = {}) => ({ id, tenant_id: 'tenant', email: `${id}@example.com`, is_active: true, ...extra });
+  const many = Array.from({ length: 405 }, (_, i) => speaker(`bulk-${String(i).padStart(3, '0')}`));
+  const tables = {
+    event: [{ id: 'simple', tenant_id: 'tenant', speaker_ids: ['linked', 'external', 'duplicate', 'inactive', 'missing', 'bad', 'foreign', 'dangling', 'no-member-email', 'deleted', 'optout', 'unsub', ...many.map(s => s.id)] }],
+    complex_event: [{ id: 'complex', tenant_id: 'tenant', speaker_ids: ['external'] }],
+    event_agenda_item: Array.from({ length: 205 }, (_, i) => ({ id: `agenda-${String(i).padStart(3, '0')}`, tenant_id: 'tenant', event_id: 'simple', speaker_ids: ['agenda-speaker'] })),
+    complex_event_session: [{ id: 'session', tenant_id: 'tenant', complex_event_id: 'complex', speaker_ids: ['session-speaker', 'external'] }],
+    speaker: [speaker('linked', { member_id: 'member' }), speaker('external', { email: ' EXTERNAL@example.com ' }),
+      speaker('inactive', { is_active: false }), speaker('bad', { email: 'invalid' }),
+      speaker('foreign', { tenant_id: 'other' }), speaker('dangling', { member_id: 'foreign-member' }),
+      speaker('duplicate', { email: 'external@example.com' }),
+      speaker('no-member-email', { member_id: 'no-email' }), speaker('deleted', { email: 'deleted_person@deleted.local' }),
+      speaker('optout', { member_id: 'opted-member' }), speaker('unsub'),
+      speaker('agenda-speaker'), speaker('session-speaker'), ...many],
+    member: [{ id: 'member', tenant_id: 'tenant', email: 'member@example.com' },
+      { id: 'no-email', tenant_id: 'tenant', email: null },
+      { id: 'opted-member', tenant_id: 'tenant', email: 'opted@example.com', communications_opted_out_all: true }],
+    booking: [{ id: 'attendee-only', tenant_id: 'tenant', event_id: 'simple', status: 'confirmed', attendee_email: 'attendee@example.com' }],
+    email_unsubscribe: [{ id: 'unsub', tenant_id: 'tenant', email: 'unsub@example.com', unsubscribe_type: 'all' }],
+  };
+  const model = fixture(tables, [segment, { type: 'individual_members', ids: ['member'] }]);
+  const preview = await preparationContext.run({ db: model.db }, () => getTargetRecipients(model.state.snapshot, 'tenant'));
+  assert.equal(preview.success, true, preview.error);
+  const addresses = new Set(preview.recipients.map(r => r.email));
+  assert.equal(addresses.size, 409);
+  assert.ok(addresses.has('member@example.com'));
+  assert.ok(!addresses.has('linked@example.com'));
+  assert.ok(!addresses.has('attendee@example.com'));
+  const external = preview.recipients.find(r => r.email === 'external@example.com');
+  assert.equal(external.member_id, null);
+  const count = await preparationContext.run({ db: model.db }, () => getTargetRecipients(model.state.snapshot, 'tenant', true));
+  assert.equal(count.count, addresses.size);
+  model.crashAfter = 'chunk';
+  for (let attempt = 0; attempt < 400 && model.state.phase !== 'complete'; attempt++) {
+    await model.run({ resolveChunk: resolvePreparationChunk });
+  }
+  assert.equal(model.state.phase, 'complete', 'many agenda assignments must make forward progress');
+  assert.deepEqual(new Set(model.recipients.keys()), addresses);
+  const bypass = await preparationContext.run({ db: model.db }, () => getTargetRecipients({ ...model.state.snapshot, ignore_opt_outs: true }, 'tenant'));
+  assert.equal(bypass.recipients.length, 411);
+  tables.member_communication_preference = [{ tenant_id: 'tenant', member_id: 'member', category_id: 'category', is_subscribed: true }];
+  tables.email_unsubscribe.push({ id: 'category-unsub', tenant_id: 'tenant', email: 'external@example.com',
+    unsubscribe_type: 'category', communication_category_id: 'category' });
+  const category = await preparationContext.run({ db: model.db }, () => getTargetRecipients({
+    ...model.state.snapshot, communication_category_id: 'category',
+  }, 'tenant'));
+  assert.equal(category.success, true, category.error);
+  assert.equal(category.recipients.length, 408);
+  assert.ok(category.recipients.some(r => r.email === 'member@example.com'));
+  await assert.rejects(validateSpeakerAudienceSegments(model.db, 'other', [segment]), /inaccessible/);
+  await assert.rejects(resolveSpeakerAudience(model.db, 'tenant', { ...segment, events: [{ id: 'simple', source: 'wrong' }] }), /event kind/);
+  await assert.rejects(resolveSpeakerAudience({ from() { throw new Error('Source unavailable'); } }, 'tenant', segment), /Source unavailable/);
+});
+
 // Any escape from the journal/client injected into a test is a failure, never
 // a real database read/write.
 supabase.from = () => { throw new Error('Unexpected non-journal database access'); };
