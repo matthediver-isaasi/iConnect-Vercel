@@ -3,6 +3,12 @@ name: RBAC map-driven parent resolution
 description: Role exclusion parent lookups must come from ROLE_ACCESS_MAP nesting, never dot-prefix splitting.
 ---
 
+Preserve the established Role Management model when integrating new reports; an authorised Super Admin being redirected is an integration defect to investigate, not by itself a reason to introduce a new access policy.
+
+**Why:** The owner explicitly corrected the suggestion to redesign access for the NMC report, noting that this form of RBAC has been used since the product's early conception.
+
+**How to apply:** Verify persisted exclusions and asynchronous permission readiness before proposing permission-model changes. Do not relax server-side enforcement to mask a premature browser redirect.
+
 Many RBAC resource ids nest under parents whose id does NOT match their dot-prefix (e.g. feature `content.guest-writers` under page `content.articles`, page `admin.canvas-links-manager` under module `site-builder`, page `dashboard.view` + `dashboard.*` widget features under module `system`).
 
 **Rule:** any code reasoning about parent/child exclusion (reads, sibling expansion, section counts, server gating) must resolve parents via the real map nesting — client: `getRoleAccessHierarchy()` / map-driven `getModuleForResource`/`getPageForResource`/`isModuleId`/`isPageId` in `roleAccessMap.ts`; server: `api/_lib/roleAccessHierarchy.generated.js` (regen with `npx tsx scripts/generate-role-access-hierarchy.mjs`). Dot-prefix splitting is only a fallback for ids absent from the map.

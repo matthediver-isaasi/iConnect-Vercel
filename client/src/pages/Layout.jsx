@@ -2336,6 +2336,12 @@ useEffect(() => {
   // Note: Admin page access is now controlled via feature exclusions in isCurrentPageExcluded()
   // Each admin page has a mapped featureId (e.g., page_admin_RoleManagement) that is checked
   useEffect(() => {
+    // This tenant-specific report depends on branding as well as the verified
+    // session role. A pending fail-closed permission result is not a denial:
+    // cached member/role objects may exist before either authority is ready.
+    if (currentPageName === 'NMCMembershipReport'
+      && (tenantBranding.loading || !authResolved
+        || (sessionValidated && roleStatus === 'loading'))) return;
     if (!isPublicPage() && memberInfo && memberRole) {
       // Use role's default landing page or fallback to Preferences
       const fallbackPage = memberRole?.default_landing_page || 'Preferences';
@@ -2374,6 +2380,11 @@ useEffect(() => {
     location.pathname,
     viewableCustomObjectsFetched,
     viewableCustomObjectIds,
+    tenantBranding.loading,
+    authResolved,
+    sessionValidated,
+    roleStatus,
+    isFeatureExcluded,
   ]);
 
   // Save sidebar scroll position to sessionStorage on scroll
