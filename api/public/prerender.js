@@ -20,6 +20,7 @@ import {
   projectCanvasDesignForGuest,
 } from '../../shared/canvasMemberOnly.js';
 import { setMemberContentCacheHeaders } from '../_lib/canvasMemberOnly.js';
+import { crawlerRichText } from '../_lib/crawlerRichText.js';
 
 function escapeHtml(str) {
   if (!str) return '';
@@ -112,7 +113,7 @@ function buildHtmlPage({ title, description, ogTitle, ogDescription, ogImage, og
 </head>
 <body>
   <header>
-    <h1>${escapeHtml(tenantName || '')}</h1>
+    <p>${escapeHtml(tenantName || '')}</p>
     ${navHtml}
   </header>
   <main>
@@ -181,11 +182,11 @@ async function renderEventPage(supabaseClient, tenant, slug, eventId, baseUrl) {
     ogUrl: event.slug ? `${baseUrl}/events/${event.slug}` : `${baseUrl}/EventDetails?id=${event.id}`,
     bodyContent: `
       <article>
-        <h2>${escapeHtml(event.title)}</h2>
+        <h1>${escapeHtml(event.title)}</h1>
         ${dateStr ? `<p><strong>Date:</strong> ${escapeHtml(dateStr)}</p>` : ''}
         ${event.location ? `<p><strong>Location:</strong> ${escapeHtml(event.location)}</p>` : ''}
         ${event.summary ? `<p>${escapeHtml(stripHtml(event.summary))}</p>` : ''}
-        ${event.description ? `<div>${escapeHtml(stripHtml(event.description))}</div>` : ''}
+        ${event.description ? `<div>${crawlerRichText(event.description)}</div>` : ''}
       </article>`
   };
 }
@@ -276,11 +277,11 @@ async function renderArticlePage(supabaseClient, tenant, authorHandle, articleSl
     ogUrl: `${baseUrl}${articleBasePath}/${authorHandle}/${articleSlug}`,
     bodyContent: `
       <article>
-        <h2>${escapeHtml(article.title)}</h2>
+        <h1>${escapeHtml(article.title)}</h1>
         ${authorName ? `<p><strong>By:</strong> ${escapeHtml(authorName)}</p>` : ''}
         ${article.published_date ? `<p><strong>Published:</strong> ${escapeHtml(new Date(article.published_date).toLocaleDateString('en-US', { dateStyle: 'long' }))}</p>` : ''}
         ${article.summary ? `<p>${escapeHtml(stripHtml(article.summary))}</p>` : ''}
-        ${article.content ? `<div>${escapeHtml(truncate(stripHtml(article.content), 1000))}</div>` : ''}
+        ${article.content ? `<div>${crawlerRichText(article.content)}</div>` : ''}
       </article>`
   };
 }
@@ -307,10 +308,10 @@ async function renderNewsPage(supabaseClient, tenant, newsSlug, baseUrl) {
     ogUrl: `${baseUrl}/NewsView?slug=${news.slug}`,
     bodyContent: `
       <article>
-        <h2>${escapeHtml(news.title)}</h2>
+        <h1>${escapeHtml(news.title)}</h1>
         ${news.published_date ? `<p><strong>Published:</strong> ${escapeHtml(new Date(news.published_date).toLocaleDateString('en-US', { dateStyle: 'long' }))}</p>` : ''}
         ${news.summary ? `<p>${escapeHtml(stripHtml(news.summary))}</p>` : ''}
-        ${news.content ? `<div>${escapeHtml(truncate(stripHtml(news.content), 1000))}</div>` : ''}
+        ${news.content ? `<div>${crawlerRichText(news.content)}</div>` : ''}
       </article>`
   };
 }
@@ -336,12 +337,12 @@ async function renderJobPage(supabaseClient, tenant, jobId, baseUrl) {
     ogUrl: `${baseUrl}/JobDetails?id=${job.id}`,
     bodyContent: `
       <article>
-        <h2>${escapeHtml(job.title)}</h2>
+        <h1>${escapeHtml(job.title)}</h1>
         ${job.company_name ? `<p><strong>Company:</strong> ${escapeHtml(job.company_name)}</p>` : ''}
         ${job.location ? `<p><strong>Location:</strong> ${escapeHtml(job.location)}</p>` : ''}
         ${job.job_type ? `<p><strong>Type:</strong> ${escapeHtml(job.job_type)}</p>` : ''}
         ${job.salary_range ? `<p><strong>Salary:</strong> ${escapeHtml(job.salary_range)}</p>` : ''}
-        ${job.description ? `<div>${escapeHtml(truncate(stripHtml(job.description), 1000))}</div>` : ''}
+        ${job.description ? `<div>${crawlerRichText(job.description)}</div>` : ''}
       </article>`
   };
 }
@@ -666,7 +667,7 @@ function renderCanvasBlockHtml(block, opts) {
       const text = stripHtml(c.html || '');
       if (!text || isPlaceholderText(text)) return '';
       if (lvl >= 1 && lvl <= 6) return `<h${lvl}>${escapeHtml(text)}</h${lvl}>`;
-      return `<p>${escapeHtml(text)}</p>`;
+      return crawlerRichText(c.html || '');
     }
     case 'image': {
       if (!c.src) return '';
@@ -816,7 +817,7 @@ function renderCanvasBlockHtml(block, opts) {
       const cols = [];
       for (const it of items) {
         const t = stripHtml(it?.html || '');
-        if (t && !isPlaceholderText(t)) cols.push(`<div>${escapeHtml(t)}</div>`);
+        if (t && !isPlaceholderText(t)) cols.push(`<div>${crawlerRichText(it.html)}</div>`);
       }
       return cols.length ? `<div class="cb-columns">${cols.join('')}</div>` : '';
     }
@@ -829,7 +830,7 @@ function renderCanvasBlockHtml(block, opts) {
       }
       const raw = typeof c.html === 'string' ? stripHtml(c.html) : '';
       if (!raw || isPlaceholderText(raw)) return '';
-      return `<div>${escapeHtml(raw)}</div>`;
+      return `<div>${crawlerRichText(c.html)}</div>`;
     }
     case 'section':
     case 'box':
@@ -1074,7 +1075,7 @@ async function renderCanvasDynamicBlock(supabaseClient, tenant, block, now) {
       const desc = campaign.public_description || campaign.description;
       if (desc) texts.push(stripHtml(desc));
       const html = `<section>
-  <h2>${escapeHtml(campaign.name || '')}</h2>
+  <h1>${escapeHtml(campaign.name || '')}</h1>
   ${desc ? `<p>${escapeHtml(truncate(stripHtml(desc), 300))}</p>` : ''}
   ${!campaign.hide_campaign_target && campaign.goal_amount ? `<p><strong>Goal:</strong> ${escapeHtml(String(campaign.goal_amount))} ${escapeHtml(campaign.currency || '')}</p>` : ''}
   <p><a href="/Campaign/${escapeHtml(campaign.slug)}">Donate now</a></p>
@@ -1366,7 +1367,7 @@ async function renderListPage(supabaseClient, tenant, pageType, baseUrl, now) {
     description: page.description,
     ogUrl: `${baseUrl}/${pageType}`,
     bodyContent: `
-      <h2>${escapeHtml(page.title)}</h2>
+      <h1>${escapeHtml(page.title)}</h1>
       <p>${escapeHtml(page.description)}</p>
       ${listItems ? `<ul>${listItems}</ul>` : ''}`
   };
@@ -1568,7 +1569,7 @@ return async function handler(req, res) {
         description: tenant.tagline || `Welcome to ${tenant.name}`,
         ogUrl: baseUrl,
         bodyContent: `
-          <h2>${escapeHtml(tenant.name)}</h2>
+          <h1>${escapeHtml(tenant.name)}</h1>
           ${tenant.tagline ? `<p>${escapeHtml(tenant.tagline)}</p>` : ''}`
       };
     }

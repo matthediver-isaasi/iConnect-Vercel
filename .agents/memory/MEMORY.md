@@ -156,3 +156,4 @@
 - [Private audit logging](private-audit-logging.md) — redact assertion failures too; deep-equality errors can expose entire private records.
 - [About-me Job Title](about-me-job-title.md) — never show a placeholder in the Job Title input.
 - [Homepage canonical authority](homepage-canonical-authority.md) — explicit clearing beats legacy fallback; mutable selections cannot create cached permanent aliases.
+- [Crawler semantic content](crawler-semantic-content.md) — unstyled crawler responses must retain complete public content and semantic headings, not flattened excerpts.
