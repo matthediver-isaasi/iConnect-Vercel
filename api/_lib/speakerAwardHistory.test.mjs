@@ -30,6 +30,8 @@ function fixture({ exclusions = [], role = true, member = true, memberId = id(2)
           let data;
           if (table === 'role') data = role ? { excluded_features: exclusions } : null;
           if (table === 'speaker') data = { id: id(5) };
+          if (table === 'member') data = filters.every(([key, value]) => ({ id: id(2), tenant_id: id(1) })[key] === value)
+            ? { id: id(2) } : null;
           if (table === 'speaker_award_history') data = [{
             id: id(3), event_type: 'event', event_id: id(4), event_title: 'Conference',
             status: 'active', certificate_status: 'error', certificate_available: false,
@@ -80,6 +82,61 @@ test('member history ignores forged identity; scopes both tenant and persisted r
   assert.equal(JSON.stringify(res.body).includes('must never appear'), false);
   assert.equal(res.body.awards[0].badge.evidence, 'existing_member_badge');
   assert.match(res.headers['Cache-Control'], /no-store/);
+});
+
+test('member-record administration loads history and certificate independent of member role', async () => {
+  const { dependencies, calls, response } = fixture({ member: false, role: false });
+  const deps = { ...dependencies, memberRecord: true,
+    tenantContext: async () => ({ isAuthenticated: true, tenantId: id(1) }),
+    adminAccess: async () => true };
+  const history = response();
+  await createSpeakerAwardHistoryHandler(deps)({
+    method: 'GET', query: { memberId: id(2), tenant_id: id(99), speaker_id: id(99) },
+  }, history);
+  assert.equal(history.code, 200);
+  assert.ok(calls.some(c => c.join() === ['eq', 'speaker_award_history', 'member_id', id(2)].join()));
+  assert.ok(calls.some(c => c.join() === ['eq', 'speaker_award_history', 'tenant_id', id(1)].join()));
+  const res = response();
+  await createSpeakerCertificateHandler(deps)({ method: 'GET', query: { memberId: id(2), id: id(3) } }, res);
+  assert.equal(res.code, 200);
+  assert.deepEqual(res.body, pdf);
+  assert.equal(calls.some(c => c[1] === 'role'), false);
+});
+
+test('member-record paths deny non-admin, wrong tenant/member, mismatch and malformed requests', async () => {
+  for (const option of ['non-admin', 'wrong-tenant', 'wrong-member', 'mismatch', 'bad-id', 'no-auth']) {
+    const { dependencies, calls, response } = fixture({ staff: true });
+    const deps = { ...dependencies, memberRecord: true,
+      tenantContext: async () => ({
+        isAuthenticated: option !== 'no-auth', tenantId: option === 'wrong-tenant' ? id(99) : id(1),
+        tenantMismatch: option === 'mismatch',
+      }), adminAccess: async () => option !== 'non-admin' };
+    const memberId = option === 'bad-id' ? ['bad'] : option === 'wrong-member' ? id(99) : id(2);
+    for (const handler of [createSpeakerAwardHistoryHandler(deps), createSpeakerCertificateHandler(deps)]) {
+      const res = response();
+      await handler({ method: 'GET', query: { memberId, id: id(3) } }, res);
+      assert.equal(res.code, 403, option);
+      assert.match(res.headers['Cache-Control'], /private, no-store/);
+    }
+    assert.equal(calls.some(c => c[0] === 'bucket'), false);
+  }
+});
+
+test('member-record certificate keeps recipient, revocation and integrity boundaries', async () => {
+  for (const [options, status] of [
+    [{ row: { member_id: id(99) } }, 404],
+    [{ row: { tenant_id: id(99) } }, 404],
+    [{ row: { status: 'revoked' } }, 409],
+    [{ row: { pdf_sha256: 'a'.repeat(64) } }, 503],
+    [{ revokeOnRead: true }, 409],
+  ]) {
+    const { dependencies, response } = fixture(options);
+    const res = response();
+    await createSpeakerCertificateHandler({ ...dependencies, memberRecord: true,
+      tenantContext: async () => ({ isAuthenticated: true, tenantId: id(1) }), adminAccess: async () => true,
+    })({ method: 'GET', query: { memberId: id(2), id: id(3) } }, res);
+    assert.equal(res.code, status);
+  }
 });
 
 test('member access fails closed for absent/dangling role and excluded CPD', async () => {

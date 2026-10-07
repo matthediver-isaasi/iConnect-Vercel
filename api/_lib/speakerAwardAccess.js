@@ -43,3 +43,18 @@ export async function speakerAwardMember(req, dependencies = {}) {
   return await roleAllows(db, tenantId, member.role_id, member.member_excluded_features, ['cpd.member_cpd'])
     ? { tenantId, memberId: member.id } : null;
 }
+
+// Staff member-record access mirrors the independent administration path used
+// by non-speaker CPD certificates, not the selected member's own role.
+export async function speakerAwardMemberRecord(req, dependencies = {}) {
+  const db = dependencies.db || supabase;
+  const ctx = await (dependencies.tenantContext || getTenantContext)(req);
+  if (!ctx?.isAuthenticated || !ctx.tenantId || ctx.tenantMismatch
+    || !await (dependencies.adminAccess || hasAdminAccess)(ctx)) return null;
+  const memberId = req.query?.memberId;
+  if (!speakerAwardUuid(memberId)) return null;
+  const { data, error } = await db.from('member').select('id')
+    .eq('tenant_id', ctx.tenantId).eq('id', memberId).maybeSingle();
+  if (error) throw error;
+  return data ? { tenantId: ctx.tenantId, memberId } : null;
+}

@@ -1,5 +1,5 @@
 import { supabase } from './database.js';
-import { privateSpeakerResponse, speakerAwardStaff, speakerAwardMember, speakerAwardUuid } from './speakerAwardAccess.js';
+import { privateSpeakerResponse, speakerAwardStaff, speakerAwardMember, speakerAwardMemberRecord, speakerAwardUuid } from './speakerAwardAccess.js';
 
 export function speakerHistoryPagination(query = {}) {
   const parse = (value, fallback, maximum) => {
@@ -42,19 +42,19 @@ export async function loadSpeakerAwardHistory(db, { tenantId, speakerId, memberI
   };
 }
 
-export function createSpeakerAwardHistoryHandler({ member = false, ...dependencies } = {}) {
+export function createSpeakerAwardHistoryHandler({ member = false, memberRecord = false, ...dependencies } = {}) {
   const db = dependencies.db || supabase;
   return async (req, res) => {
     privateSpeakerResponse(res);
     if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
     try {
-      const actor = await (member ? speakerAwardMember : speakerAwardStaff)(req, dependencies);
+      const actor = await (memberRecord ? speakerAwardMemberRecord : member ? speakerAwardMember : speakerAwardStaff)(req, dependencies);
       if (!actor) return res.status(403).json({ error: 'Forbidden' });
       let pagination;
       try { pagination = speakerHistoryPagination(req.query); }
       catch { return res.status(400).json({ error: 'Invalid pagination' }); }
-      const speakerId = member ? null : req.query.speaker_id;
-      if (!member) {
+      const speakerId = member || memberRecord ? null : req.query.speaker_id;
+      if (!member && !memberRecord) {
         if (!speakerAwardUuid(speakerId)) return res.status(400).json({ error: 'Valid speaker_id required' });
         const result = await db.from('speaker').select('id').eq('tenant_id', actor.tenantId).eq('id', speakerId).maybeSingle();
         if (result.error) throw result.error;

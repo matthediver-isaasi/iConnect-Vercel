@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { supabase } from '../_lib/database.js';
-import { speakerAwardStaff, speakerAwardMember, speakerAwardUuid, privateSpeakerResponse } from '../_lib/speakerAwardAccess.js';
+import { speakerAwardStaff, speakerAwardMember, speakerAwardMemberRecord, speakerAwardUuid, privateSpeakerResponse } from '../_lib/speakerAwardAccess.js';
 
 export function createSpeakerCertificateHandler(dependencies = {}) {
   const db = dependencies.db || supabase;
@@ -8,8 +8,10 @@ export function createSpeakerCertificateHandler(dependencies = {}) {
     privateSpeakerResponse(res);
     if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
     try {
-      const staff = await speakerAwardStaff(req, dependencies);
-      const actor = staff || await speakerAwardMember(req, dependencies);
+      const staff = dependencies.memberRecord ? null : await speakerAwardStaff(req, dependencies);
+      const actor = dependencies.memberRecord
+        ? await speakerAwardMemberRecord(req, dependencies)
+        : staff || await speakerAwardMember(req, dependencies);
       if (!actor) return res.status(403).json({ error: 'Forbidden' });
       const id = req.query.id;
       if (!speakerAwardUuid(id)) return res.status(400).json({ error: 'Valid award id required' });

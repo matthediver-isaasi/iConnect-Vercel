@@ -5,6 +5,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
 const PAGE_SIZE = 20;
+const DEFAULT_CERTIFICATE_ENDPOINT = "/api/speaker-awards/certificate";
+
+function certificateUrl(endpoint, id, download = false) {
+  return `${endpoint}${endpoint.includes("?") ? "&" : "?"}id=${encodeURIComponent(id)}${download ? "&download=1" : ""}`;
+}
 
 function formatDate(value) {
   if (!value) return "—";
@@ -44,11 +49,11 @@ async function openPrivateFile(url, filename, download) {
   setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
 }
 
-export function SpeakerAwardsHistoryView({ data, page, setPage, isFetching, onFile, error, member = false }) {
+export function SpeakerAwardsHistoryView({ data, page, setPage, isFetching, onFile, error, member = false, showEmpty = false, certificateEndpoint = DEFAULT_CERTIFICATE_ENDPOINT }) {
   const records = data?.awards || [];
   const total = Number(data?.pagination?.total || 0);
   const totalPages = Math.max(1, Number(data?.pagination?.total_pages || 1));
-  if (member && total === 0) return null;
+  if (member && total === 0 && !showEmpty) return null;
   return (
     <Card data-testid={member ? "member-speaker-awards" : "speaker-awards-history"}>
       <CardHeader>
@@ -83,10 +88,10 @@ export function SpeakerAwardsHistoryView({ data, page, setPage, isFetching, onFi
                   <span>Certificate: {record.certificate?.status || "Not issued"}{record.certificate?.error ? ` · ${record.certificate.error}` : ""}</span>
                   {record.certificate?.available && record.certificate.status !== "revoked" && record.status !== "revoked" && (
                     <>
-                      <Button variant="outline" size="sm" onClick={() => onFile(`/api/speaker-awards/certificate?id=${encodeURIComponent(record.id)}`, `speaker-certificate-${record.id}.pdf`, false)}>
+                      <Button variant="outline" size="sm" onClick={() => onFile(certificateUrl(certificateEndpoint, record.id), `speaker-certificate-${record.id}.pdf`, false)}>
                         <Eye className="h-4 w-4 mr-1" />Preview
                       </Button>
-                      <Button variant="outline" size="sm" onClick={() => onFile(`/api/speaker-awards/certificate?id=${encodeURIComponent(record.id)}&download=1`, `speaker-certificate-${record.id}.pdf`, true)}>
+                      <Button variant="outline" size="sm" onClick={() => onFile(certificateUrl(certificateEndpoint, record.id, true), `speaker-certificate-${record.id}.pdf`, true)}>
                         <Download className="h-4 w-4 mr-1" />Download
                       </Button>
                     </>
@@ -110,24 +115,36 @@ export function SpeakerAwardsHistoryView({ data, page, setPage, isFetching, onFi
   );
 }
 
-export default function SpeakerAwardsHistory({ endpoint, member = false }) {
+// Remount the query observer and local pagination/file state when identity changes.
+export default function SpeakerAwardsHistory(props) {
+  return <SpeakerAwardsHistoryContent key={`${props.endpoint}|${props.certificateEndpoint || DEFAULT_CERTIFICATE_ENDPOINT}`} {...props} />;
+}
+
+function SpeakerAwardsHistoryContent({ endpoint, member = false, enabled = true, showEmpty = false, certificateEndpoint = DEFAULT_CERTIFICATE_ENDPOINT }) {
   const [page, setPage] = useState(1);
   const [fileError, setFileError] = useState("");
   const query = useQuery({
     queryKey: ["speaker-awards-history", endpoint, page],
     queryFn: () => loadHistory(endpoint, page),
-    enabled: !!endpoint,
+    enabled: enabled && !!endpoint,
     placeholderData: previous => previous,
   });
-  if (query.isLoading) return member ? null : <p role="status" className="text-sm text-muted-foreground">Loading speaker awards…</p>;
+  if (!enabled || !endpoint || query.isLoading) return member && !showEmpty ? null : (
+    <Card>
+      <CardHeader><CardTitle className="flex items-center gap-2"><Award className="w-5 h-5" />Speaker Awards</CardTitle></CardHeader>
+      <CardContent><p role="status" className="text-sm text-muted-foreground">Loading speaker awards…</p></CardContent>
+    </Card>
+  );
   if (query.isError) return (
-    <Card><CardContent className="py-6">
-      <p role="alert" className="text-sm text-red-600">{query.error.message}</p>
+    <Card>
+      <CardHeader><CardTitle className="flex items-center gap-2"><Award className="w-5 h-5" />Speaker Awards</CardTitle></CardHeader>
+      <CardContent className="py-6">
+      <p role="alert" className="text-sm text-red-600">Could not load speaker awards: {query.error.message}</p>
       <Button variant="outline" size="sm" className="mt-3" onClick={() => query.refetch()}>Try again</Button>
     </CardContent></Card>
   );
   return <SpeakerAwardsHistoryView data={query.data} page={page} setPage={setPage} isFetching={query.isFetching}
-    member={member} error={fileError} onFile={async (...args) => {
+    member={member} showEmpty={showEmpty} certificateEndpoint={certificateEndpoint} error={fileError} onFile={async (...args) => {
       setFileError("");
       try { await openPrivateFile(...args); } catch (err) { setFileError(err.message); }
     }} />;

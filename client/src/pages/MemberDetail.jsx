@@ -9,6 +9,7 @@ import MemberActivityTimeline from "@/components/MemberActivityTimeline";
 import MemberMembershipTab from "@/components/MemberMembershipTab";
 import MemberBadgesTab from "@/components/MemberBadgesTab";
 import MemberCpdPointsTab from "@/components/MemberCpdPointsTab";
+import SpeakerAwardsHistory from "@/components/SpeakerAwardsHistory";
 import CrmTagInput from "@/components/crm/CrmTagInput";
 import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
@@ -2186,6 +2187,13 @@ export default function MemberDetail() {
             certificates
             enabled={isAccessReady && activeTab === 'cpd-points'}
             canCorrect={isAccessReady && isFeatureExcluded && !isFeatureExcluded('cpd.points-corrections')}
+          />
+          <SpeakerAwardsHistory
+            key={id}
+            endpoint={`/api/members/${encodeURIComponent(id)}/speaker-awards`}
+            certificateEndpoint={`/api/members/${encodeURIComponent(id)}/speaker-certificate`}
+            enabled={isAccessReady && activeTab === 'cpd-points'}
+            showEmpty
           />
         </TabsContent>
 
