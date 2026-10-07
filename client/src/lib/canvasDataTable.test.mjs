@@ -11,6 +11,8 @@ import {
   parseDelimitedTable,
   removeTableColumn,
   reorderTableColumns,
+  resolveTableColumnWidths,
+  setTableColumnWidth,
 } from './canvasDataTable.js';
 import {
   BLOCK_TYPES,
@@ -121,6 +123,90 @@ test('normalization repairs unsafe structures while preserving style selections'
   assert.equal(normalized.bodyTypographyStyleId, 'p');
 });
 
+test('optional column widths persist without adding defaults or rewriting author allocations', () => {
+  assert.deepEqual(normalizeTableContent(table).columns, table.columns);
+  const configured = { ...table, columns: [
+    { ...table.columns[0], widthPercent: 27.25 },
+    table.columns[1],
+  ] };
+  const reloaded = normalizeTableContent(JSON.parse(JSON.stringify(normalizeTableContent(configured))));
+  assert.deepEqual(reloaded.columns, configured.columns);
+  assert.equal(Object.hasOwn(reloaded.columns[1], 'widthPercent'), false);
+  for (const widthPercent of [undefined, null, '']) {
+    assert.equal(Object.hasOwn(normalizeTableContent({
+      ...table, columns: [{ ...table.columns[0], widthPercent }],
+    }).columns[0], 'widthPercent'), false);
+  }
+  // Invalid persisted intent is reported, not clamped or normalized.
+  const invalid = normalizeTableContent({ ...table, columns: [
+    { ...table.columns[0], widthPercent: 81 },
+    { ...table.columns[1], widthPercent: 42 },
+  ] });
+  assert.deepEqual(invalid.columns.map((column) => column.widthPercent), [81, 42]);
+  assert.equal(resolveTableColumnWidths(invalid.columns).widths, null);
+});
+
+test('column widths follow stable IDs through heading edits, reorder, delete and add', () => {
+  const configured = { ...table, columns: [
+    { ...table.columns[0], widthPercent: 27.25 },
+    { ...table.columns[1], widthPercent: 72.75 },
+  ] };
+  const reordered = reorderTableColumns(configured, 0, 1);
+  assert.deepEqual(reordered.columns.map((column) => [column.id, column.widthPercent]), [['b', 72.75], ['a', 27.25]]);
+  const added = addTableColumn(reordered, 'Country');
+  assert.equal(Object.hasOwn(added.columns.at(-1), 'widthPercent'), false);
+  assert.match(resolveTableColumnWidths(added.columns).error, /Auto/);
+  const removed = removeTableColumn(added, 'b');
+  assert.deepEqual(resolveTableColumnWidths(removed.columns).widths, [27.25, 72.75]);
+  assert.equal(removed.rows[0].cells.a, 'Ada');
+  assert.equal(Object.hasOwn(removed.rows[0].cells, 'b'), false);
+  const renamed = normalizeTableContent({ ...removed, columns: removed.columns.map((column) => ({ ...column, heading: 'Renamed' })) });
+  assert.equal(renamed.columns[0].widthPercent, 27.25);
+});
+
+test('blank width resets to Auto by removing the property; all-Auto keeps legacy layout', () => {
+  const explicit = setTableColumnWidth(table.columns[0], '31.75');
+  assert.equal(explicit.widthPercent, 31.75);
+  const cleared = setTableColumnWidth(explicit, '');
+  assert.deepEqual(cleared, table.columns[0]);
+  assert.deepEqual(resolveTableColumnWidths([cleared, table.columns[1]]), { widths: null, error: null });
+  assert.equal(explicit.widthPercent, 31.75, 'draft changes are immutable');
+});
+
+test('allocations share leftover space evenly and never silently rescale explicit percentages', () => {
+  const columns = [{ id: 'a', widthPercent: 31.75 }, { id: 'b' }, { id: 'c' }];
+  assert.deepEqual(resolveTableColumnWidths(columns), { widths: [31.75, 34.125, 34.125], error: null });
+  assert.deepEqual(resolveTableColumnWidths([{ widthPercent: 31.75 }, { widthPercent: 68.25 }]).widths, [31.75, 68.25]);
+  assert.deepEqual(resolveTableColumnWidths([{ widthPercent: 100 }]).widths, [100]);
+  assert.deepEqual(resolveTableColumnWidths([{ widthPercent: 25 }, { widthPercent: '' }]).widths, [25, 75]);
+  for (const widthPercent of [0, -5, 100.1, NaN, Infinity, '40', true]) {
+    const result = resolveTableColumnWidths([{ widthPercent }, {}]);
+    assert.equal(result.widths, null);
+    assert.match(result.error, /greater than 0/);
+  }
+  assert.match(resolveTableColumnWidths([{ widthPercent: 70 }, { widthPercent: 40 }]).error, /more than 100/);
+  assert.match(resolveTableColumnWidths([{ widthPercent: 100 }, {}]).error, /Auto/);
+  assert.match(resolveTableColumnWidths([{ widthPercent: 30 }, { widthPercent: 40 }]).error, /total must be 100/);
+  assert.match(resolveTableColumnWidths([{ widthPercent: 30 }]).error, /total must be 100/);
+});
+
+test('width edits save and reload without changing stored Canvas geometry', () => {
+  const block = createBlock(BLOCK_TYPES.DATA_TABLE);
+  const design = normalizeCanvasDesign({ version: 1, root: { sections: [{ id: 'root-section', children: [block] }] } });
+  const saved = design.root.sections[0].children[0];
+  const edited = { ...saved, content: {
+    ...saved.content,
+    columns: saved.content.columns.map((column, index) => index === 0 ? setTableColumnWidth(column, '24.5') : column),
+  } };
+  const reloaded = normalizeCanvasDesign(JSON.parse(JSON.stringify({
+    ...design, root: { ...design.root, sections: [{ ...design.root.sections[0], children: [edited] }] },
+  })));
+  const after = reloaded.root.sections[0].children[0];
+  assert.deepEqual({ ...after, content: null }, { ...saved, content: null });
+  assert.equal(after.content.columns[0].widthPercent, 24.5);
+  assert.equal(Object.hasOwn(after.content.columns[1], 'widthPercent'), false);
+});
+
 test('normalization does not silently truncate persisted oversize content', () => {
   const long = 'x'.repeat(TABLE_LIMITS.maxCellChars + 1);
   const normalized = normalizeTableContent({
@@ -165,6 +251,12 @@ test('shared renderer keeps semantic headers and width-constrained wrapping', ()
   assert.match(renderer, /<thead>/);
   assert.match(renderer, /<tbody>/);
   assert.match(renderer, /<th key=\{column\.id\} scope="col"/);
+  assert.match(renderer, /resolveTableColumnWidths\(c\.columns\)/);
+  assert.match(renderer, /\{widths && \(/);
+  assert.match(renderer, /<colgroup>/);
+  assert.match(renderer, /width: `\$\{widths\[index\]\}%`/);
+  assert.match(registrySource, /Editor: DataTableRender,\s+Renderer: DataTableRender/);
+  assert.match(registrySource, /renderOnlyAutoHeight: true/);
 });
 
 test('flow layout treats tables as measured auto-height leaves and pushes following content down', () => {
@@ -258,6 +350,27 @@ test('explicit newlines add lines even in a wide table; no scrollbar gutter is r
   const multiline = { ...single, rows: [{ id: 'r', cells: { a: 'B\r\nC\nD' } }] };
   assert.equal(estimateDataTableHeight(single), 83);
   assert.equal(estimateDataTableHeight(multiline) - estimateDataTableHeight(single), 48);
+});
+
+test('height estimates use effective widths for both headers and body and fall back for invalid allocations', () => {
+  for (const inHeader of [true, false]) {
+    const long = 'W'.repeat(100);
+    const content = {
+      columns: [{ id: 'a', heading: inHeader ? long : 'A' }, { id: 'b', heading: 'B' }],
+      rows: [{ id: 'r', cells: { a: inHeader ? 'A' : long, b: 'B' } }],
+    };
+    const height = (columns) => estimateDataTableHeight({ ...content, columns }, 'desktop', { contentWidth: 600 });
+    const legacy = height(content.columns);
+    const narrow = [{ ...content.columns[0], widthPercent: 18 }, content.columns[1]];
+    assert.ok(height(narrow) > legacy);
+    assert.equal(height(narrow), height([narrow[0], { ...content.columns[1], widthPercent: 82 }]));
+    assert.equal(height([{ ...content.columns[0], widthPercent: 50 }, { ...content.columns[1], widthPercent: 50 }]), legacy);
+    assert.equal(height([{ ...content.columns[0], widthPercent: 80 }, { ...content.columns[1], widthPercent: 30 }]), legacy);
+    assert.equal(height([{ ...content.columns[0], widthPercent: 30 }, { ...content.columns[1], widthPercent: 40 }]), legacy);
+    const before = JSON.stringify(content);
+    estimateDataTableHeight(content, 'mobile', { contentWidth: 0 });
+    assert.equal(JSON.stringify(content), before);
+  }
 });
 
 test('wrapping estimates use current responsive font size, line height and letter spacing without changing content', () => {

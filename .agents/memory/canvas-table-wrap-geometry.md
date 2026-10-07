@@ -3,6 +3,12 @@ name: Table wrapping without geometry repair
 description: Why wrapped Canvas tables must use read-time layout rather than bake historical no-wrap frames.
 ---
 
+Percentage column sizing is opt-in. Do not backfill widths or otherwise change existing table settings when introducing or extending sizing controls.
+
+**Why:** The user explicitly required existing tables to remain at their current settings.
+
+**How to apply:** Preserve the no-width rendering and measurement behavior; only an explicit author edit may introduce widths. Clearing widths must restore that original behavior.
+
 Keep table wrapping changes render-only for saved geometry, including after an
 author changes the table width. Reuse the existing render-only reflow contract
 in both editor and public views, preserving the usual grow-only authored-gap

@@ -53,7 +53,13 @@ export function normalizeTableContent(content = {}) {
     let id = typeof column?.id === 'string' && column.id.trim() ? column.id.trim() : `col-${index + 1}`;
     while (used.has(id)) id = `${id}-${index + 1}`;
     used.add(id);
-    return { id, heading: typeof column?.heading === 'string' ? column.heading : `Column ${index + 1}` };
+    const normalized = { id, heading: typeof column?.heading === 'string' ? column.heading : `Column ${index + 1}` };
+    // Optional author intent only: never invent defaults or rescale allocations.
+    // Keep invalid nonblank saved values so validation can report them.
+    if (column?.widthPercent !== undefined && column.widthPercent !== null && column.widthPercent !== '') {
+      normalized.widthPercent = column.widthPercent;
+    }
+    return normalized;
   });
   const rawRows = Array.isArray(content.rows) ? content.rows : [];
   const rowIds = new Set();
@@ -77,6 +83,41 @@ export function normalizeTableContent(content = {}) {
     headerTypographyStyleId: typeof content.headerTypographyStyleId === 'string' ? content.headerTypographyStyleId : '',
     bodyTypographyStyleId: typeof content.bodyTypographyStyleId === 'string' ? content.bodyTypographyStyleId : '',
   };
+}
+
+// Shared by the inspector, renderer and first-paint estimator. Null widths mean
+// use the exact legacy equal-width layout (no colgroup), including invalid data.
+export function resolveTableColumnWidths(columns = []) {
+  const hasExplicit = columns.some((column) => column.widthPercent !== undefined && column.widthPercent !== null && column.widthPercent !== '');
+  if (!hasExplicit) return { widths: null, error: null };
+  let total = 0;
+  let autoCount = 0;
+  for (const column of columns) {
+    const value = column.widthPercent;
+    if (value === undefined || value === null || value === '') { autoCount += 1; continue; }
+    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0 || value > 100) {
+      return { widths: null, error: 'Each column width must be greater than 0 and at most 100%.' };
+    }
+    total += value;
+  }
+  // Tolerance only for binary floating-point addition, never normalize input.
+  const tolerance = 1e-10;
+  if (total > 100) return { widths: null, error: 'Column widths cannot total more than 100%.' };
+  if (autoCount && total >= 100) return { widths: null, error: 'Leave some width available for Auto columns (total must be below 100%).' };
+  if (!autoCount && Math.abs(total - 100) > tolerance) return { widths: null, error: 'When every column has a width, the total must be 100%.' };
+  return {
+    widths: columns.map((column) => column.widthPercent === undefined || column.widthPercent === null || column.widthPercent === ''
+      ? (100 - total) / autoCount : column.widthPercent),
+    error: null,
+  };
+}
+
+// Accept inspector drafts without clamping. Clearing removes the property.
+export function setTableColumnWidth(column, raw) {
+  const { widthPercent: _, ...rest } = column;
+  return raw === '' || raw === null || raw === undefined
+    ? rest
+    : { ...rest, widthPercent: typeof raw === 'number' ? raw : Number(raw) };
 }
 
 function metricAtBreakpoint(metrics, key, breakpoint) {
@@ -115,18 +156,20 @@ function wrappedLineCount(value, width, fontSize, letterSpacing, transform) {
 }
 
 // Server-computable footprint used by Canvas v2's static first-paint CSS.
-// Fixed-layout tables share the available content width equally among columns.
+// Legacy fixed-layout tables share width equally. Valid opt-in allocations use
+// the same percentages as the renderer, with leftover width shared by Auto.
 // Width excludes the block wrapper's padding/border; cell padding is 12px/side.
 export function estimateDataTableHeight(content, breakpoint = 'desktop', styles = {}) {
   const table = normalizeTableContent(content);
   const width = Number.isFinite(styles.contentWidth) ? Math.max(0, styles.contentWidth) : 1200;
   const cellWidth = Math.max(1, width / Math.max(1, table.columns.length) - 24);
+  const { widths } = resolveTableColumnWidths(table.columns);
   const rowHeight = (values, metrics, style) => {
     const fontSize = Math.max(8, Number(metricAtBreakpoint(metrics, 'fontSize', breakpoint)) || 16);
     const lineHeight = Math.max(0.5, Number(metricAtBreakpoint(metrics, 'lineHeight', breakpoint)) || 1.5);
     const letterSpacing = Number(metricAtBreakpoint(metrics, 'letterSpacing', breakpoint)) || 0;
-    const lines = Math.max(1, ...values.map((value) =>
-      wrappedLineCount(value, cellWidth, fontSize, letterSpacing, style?.text_transform)));
+    const lines = Math.max(1, ...values.map((value, index) =>
+      wrappedLineCount(value, widths ? Math.max(1, width * widths[index] / 100 - 24) : cellWidth, fontSize, letterSpacing, style?.text_transform)));
     return Math.ceil(fontSize * lineHeight * lines) + 17; // 16px y-padding + border
   };
   const headerMetrics = makeTableTypographyMetrics(styles.headerStyle, 16);

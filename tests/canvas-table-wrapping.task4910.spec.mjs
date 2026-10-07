@@ -1,6 +1,53 @@
 import { test, expect } from '@playwright/test';
 import { mountTable, table, block, geometry, prose, token, plain, tableDesign, scheduleContent } from './fixtures/canvas-table-wrapping.task4910.fixture.mjs';
 
+test('optional percentage widths: draft validation, apply, save/reload and reset to legacy Auto', async ({ page, request }) => {
+  const { state } = await mountTable(page, request, { content: scheduleContent });
+  await expect(table(page).locator('colgroup')).toHaveCount(0);
+  await expect(page.getByTestId('fixture-save')).toBeDisabled();
+  await block(page, 'wrapping-table').click({ position: { x: 20, y: 20 } });
+  const first = page.getByTestId('table-column-width-time');
+  const second = page.getByTestId('table-column-width-session');
+  await first.fill('25');
+  await second.fill('80');
+  await expect(page.getByTestId('table-column-widths-apply')).toBeDisabled();
+  await expect(table(page).locator('colgroup')).toHaveCount(0);
+  await second.fill('75');
+  await page.getByTestId('table-column-widths-apply').click();
+  await expect(table(page).locator('col')).toHaveCount(2);
+  await expect.poll(async () => {
+    const g = await geometry(page);
+    return Math.round(g.headings[0].width / g.table.width * 100);
+  }).toBe(25);
+  await page.getByTestId('fixture-save').click();
+  await page.getByTestId('fixture-reload').click();
+  await expect(table(page).locator('col').first()).toHaveAttribute('style', /width: 25%/);
+  await block(page, 'wrapping-table').click({ position: { x: 20, y: 20 } });
+  await first.fill('');
+  await second.fill('');
+  await page.getByTestId('table-column-widths-apply').click();
+  await expect(table(page).locator('colgroup')).toHaveCount(0);
+  expect(state.errors).toEqual([]);
+  expect(state.denied).toEqual([]);
+});
+
+for (const version of [1, 2]) {
+  test(`v${version} public percentage widths retain proportions at mobile width`, async ({ page, request }) => {
+    const content = structuredClone(scheduleContent);
+    content.columns[0].widthPercent = 30;
+    const { state } = await mountTable(page, request, { version, surface: 'public', content });
+    for (const width of [1280, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect.poll(async () => {
+        const g = await geometry(page);
+        return Math.round(g.headings[0].width / g.table.width * 100);
+      }).toBe(30);
+    }
+    expect(state.errors).toEqual([]);
+    expect(state.denied).toEqual([]);
+  });
+}
+
 async function wrapping(page) {
   await expect.poll(async () => {
     const g = await geometry(page);

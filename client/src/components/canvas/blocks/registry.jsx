@@ -109,6 +109,8 @@ import {
   addTableColumn,
   removeTableColumn,
   reorderTableColumns,
+  resolveTableColumnWidths,
+  setTableColumnWidth,
   parseDelimitedTable,
   appendParsedTableRows,
 } from '@/lib/canvasDataTable';
@@ -10426,6 +10428,7 @@ function HeroCarouselMobileInspector(props) {
 
 function DataTableRender({ block, breakpoint, asEditor = false }) {
   const c = normalizeTableContent(block.content);
+  const { widths } = resolveTableColumnWidths(c.columns);
   const { styles: tenantStyles, resolved } = useTenantTypographyStylesState();
   const headerStyle = resolveTenantStyle(c.headerTypographyStyleId, tenantStyles);
   const bodyStyle = resolveTenantStyle(c.bodyTypographyStyleId, tenantStyles);
@@ -10456,6 +10459,11 @@ function DataTableRender({ block, breakpoint, asEditor = false }) {
       {responsiveCss && <style dangerouslySetInnerHTML={{ __html: responsiveCss }} />}
       <div ref={tableRef} className="w-full min-w-0" style={{ visibility: headerAwaiting || bodyAwaiting ? 'hidden' : undefined }}>
         <table className="w-full table-fixed border-collapse text-left" data-testid="canvas-data-table">
+          {widths && (
+            <colgroup>
+              {c.columns.map((column, index) => <col key={column.id} style={{ width: `${widths[index]}%` }} />)}
+            </colgroup>
+          )}
           <thead>
             <tr className="border-b-2 border-slate-300">
               {c.columns.map((column) => (
@@ -10487,10 +10495,30 @@ function DataTableInspector({ block, update }) {
   const [pasteText, setPasteText] = useState('');
   const [pastePreview, setPastePreview] = useState(null);
   const [treatHeader, setTreatHeader] = useState(true);
+  const [widthDraft, setWidthDraft] = useState(null);
   const setContent = (next) => update((b) => ({ ...b, content: next }));
   const set = (patch) => setContent({ ...c, ...patch });
   const columns = c.columns;
   const rows = c.rows;
+  // Stable-ID drafts survive heading edits and reorder; external width edits,
+  // add/delete and switching blocks discard stale drafts without writing data.
+  const widthSignature = JSON.stringify(columns.map(({ id, widthPercent }) => [id, widthPercent ?? null]).sort(([a], [b]) => a.localeCompare(b)));
+  const activeWidthDraft = widthDraft?.blockId === block.id && widthDraft?.signature === widthSignature ? widthDraft.values : null;
+  const draftColumns = columns.map((column) => activeWidthDraft && Object.hasOwn(activeWidthDraft, column.id)
+    ? setTableColumnWidth(column, activeWidthDraft[column.id]) : column);
+  const widthValidation = resolveTableColumnWidths(draftColumns);
+  const widthsChanged = JSON.stringify(draftColumns) !== JSON.stringify(columns);
+  const widthHelpId = `table-width-help-${block.id}`;
+  const changeWidth = (columnId, raw) => setWidthDraft({
+    blockId: block.id,
+    signature: widthSignature,
+    values: { ...activeWidthDraft, [columnId]: raw },
+  });
+  const applyWidths = () => {
+    if (widthValidation.error || !widthsChanged) return;
+    set({ columns: draftColumns });
+    setWidthDraft(null);
+  };
   const columnSignature = columns.map((column) => `${column.id}\u0000${column.heading}`).join('\u0001');
   useEffect(() => { setPastePreview(null); }, [columnSignature]);
   const parsePaste = () => {
@@ -10518,13 +10546,37 @@ function DataTableInspector({ block, update }) {
       <div className="space-y-2">
         <div className="flex items-center justify-between"><Label className="text-xs text-slate-600">Columns</Label><span className="text-xs text-slate-400">{columns.length}/{TABLE_LIMITS.maxColumns}</span></div>
         {columns.map((column, index) => (
-          <div key={column.id} className="flex gap-1 items-end">
-            <div className="flex-1"><Input value={column.heading} onChange={(e) => set({ columns: columns.map((item, i) => i === index ? { ...item, heading: e.target.value } : item) })} className="h-8" data-testid={`table-column-heading-${index}`} /></div>
-            <Button type="button" size="icon" variant="ghost" disabled={index === 0} onClick={() => setContent(reorderTableColumns(c, index, index - 1))} aria-label="Move column up"><ArrowUp className="w-4 h-4" /></Button>
-            <Button type="button" size="icon" variant="ghost" disabled={index === columns.length - 1} onClick={() => setContent(reorderTableColumns(c, index, index + 1))} aria-label="Move column down"><ArrowDown className="w-4 h-4" /></Button>
-            <Button type="button" size="icon" variant="ghost" disabled={columns.length <= 1} onClick={() => setContent(removeTableColumn(c, column.id))} aria-label="Remove column"><Trash2 className="w-4 h-4" /></Button>
+          <div key={column.id} className="space-y-1">
+            <div className="flex gap-1 items-end">
+              <div className="flex-1"><Input value={column.heading} onChange={(e) => set({ columns: columns.map((item, i) => i === index ? { ...item, heading: e.target.value } : item) })} className="h-8" data-testid={`table-column-heading-${index}`} /></div>
+              <Button type="button" size="icon" variant="ghost" disabled={index === 0} onClick={() => setContent(reorderTableColumns(c, index, index - 1))} aria-label="Move column up"><ArrowUp className="w-4 h-4" /></Button>
+              <Button type="button" size="icon" variant="ghost" disabled={index === columns.length - 1} onClick={() => setContent(reorderTableColumns(c, index, index + 1))} aria-label="Move column down"><ArrowDown className="w-4 h-4" /></Button>
+              <Button type="button" size="icon" variant="ghost" disabled={columns.length <= 1} onClick={() => setContent(removeTableColumn(c, column.id))} aria-label="Remove column"><Trash2 className="w-4 h-4" /></Button>
+            </div>
+            <div className="flex items-center gap-2">
+              <Label htmlFor={`table-column-width-${block.id}-${column.id}`} className="text-xs text-slate-600">Width (%)</Label>
+              <Input
+                id={`table-column-width-${block.id}-${column.id}`}
+                type="number" min="0" max="100" step="any" placeholder="Auto"
+                value={activeWidthDraft && Object.hasOwn(activeWidthDraft, column.id) ? activeWidthDraft[column.id] : column.widthPercent ?? ''}
+                onChange={(e) => changeWidth(column.id, e.target.value)}
+                aria-label={`Width (%) for column ${index + 1}: ${column.heading || 'Untitled'}`}
+                aria-describedby={widthHelpId}
+                aria-invalid={!!widthValidation.error}
+                className="h-8 w-24" data-testid={`table-column-width-${column.id}`}
+              />
+            </div>
           </div>
         ))}
+        <p id={widthHelpId} className={`text-xs ${widthValidation.error ? 'text-red-700' : 'text-slate-500'}`} aria-live="polite" data-testid="table-width-validation">
+          {widthValidation.error || 'Blank = Auto. Auto columns share remaining space evenly. If all widths are set, total must be 100%.'}
+        </p>
+        {activeWidthDraft && (
+          <div className="flex gap-1">
+            <Button type="button" size="sm" variant="outline" disabled={!!widthValidation.error || !widthsChanged} onClick={applyWidths} data-testid="table-column-widths-apply">Apply widths</Button>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setWidthDraft(null)} data-testid="table-width-cancel">Cancel</Button>
+          </div>
+        )}
         <Button type="button" size="sm" variant="outline" disabled={columns.length >= TABLE_LIMITS.maxColumns} onClick={() => setContent(addTableColumn(c, `Column ${columns.length + 1}`))} data-testid="table-column-add"><Plus className="w-4 h-4 mr-1" />Add column</Button>
       </div>
 
