@@ -18,6 +18,8 @@ import { cn } from "@/lib/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import { ROLE_ACCESS_MAP } from "@/lib/roleAccessMap";
+import { useTenantBranding } from "@/contexts/TenantBrandingContext";
+import { BNMS_TENANT_ID, NMC_REPORT_FEATURE, isNmcReportDestination } from "@/lib/nmcMembershipReport.mjs";
 import {
   getCustomObjectIdFromPortalListUrl,
   getCustomObjectPortalRoleAccessId,
@@ -63,6 +65,7 @@ const availableIcons = {
 
 // Pages whose Role Access ID should default to a specific RBAC key when selected.
 const PAGE_DEFAULT_FEATURES = {
+  NMCMembershipReport: NMC_REPORT_FEATURE,
   EventBudgetReport: "events.event-budget-report",
   OrganisationEngagementReport: "reports.org-engagement",
   OrganisationGroups: "crm.organisation-groups",
@@ -71,6 +74,7 @@ const PAGE_DEFAULT_FEATURES = {
 };
 
 const builtInPages = [
+  { value: "NMCMembershipReport", label: "NMC Membership Report" },
   { value: "AdminSetup", label: "Admin Setup" },
   { value: "Articles", label: "Articles" },
   { value: "ArticlesSettings", label: "Articles Settings" },
@@ -224,7 +228,9 @@ const builtInPages = [
 ];
 
 export default function PortalMenuManagementPage() {
-  const { isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
+  const { branding } = useTenantBranding();
+  const isBnmsTenant = branding?.id === BNMS_TENANT_ID && memberInfo?.tenant_id === BNMS_TENANT_ID;
   const [accessChecked, setAccessChecked] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [showDialog, setShowDialog] = useState(false);
@@ -244,11 +250,12 @@ export default function PortalMenuManagementPage() {
     }
   }, [isFeatureExcluded, isAccessReady]);
 
-  const { data: menuItems = [], isLoading } = useQuery({
+  const { data: allMenuItems = [], isLoading } = useQuery({
     queryKey: ['portal-menu'],
     queryFn: () => base44.entities.PortalMenu.list('display_order'),
     refetchOnMount: false
   });
+  const menuItems = useMemo(() => allMenuItems.filter(item => isBnmsTenant || !isNmcReportDestination(item)), [allMenuItems, isBnmsTenant]);
 
   // Fetch published IEdit pages from CMS
   const { data: ieditPages = [] } = useQuery({
@@ -304,6 +311,7 @@ export default function PortalMenuManagementPage() {
   const groupedRoleAccessOptions = useMemo(() => {
     const dynamicItems = roleAccessItems.filter(
       item => item.is_active && !staticRoleAccessOptions.allKeys.has(item.item_key)
+        && (isBnmsTenant || !isNmcReportDestination({ value: item.item_key }))
     );
     const dynamicGroups = [];
     if (dynamicItems.length > 0) {
@@ -328,24 +336,28 @@ export default function PortalMenuManagementPage() {
         })),
       });
     }
-    return [...staticRoleAccessOptions.groups, ...dynamicGroups].sort((a, b) => a.module.localeCompare(b.module));
-  }, [roleAccessItems, customObjectDestinations]);
+    const staticGroups = staticRoleAccessOptions.groups.map(group => ({
+      ...group,
+      items: group.items.filter(item => isBnmsTenant || !isNmcReportDestination(item)),
+    }));
+    return [...staticGroups, ...dynamicGroups].sort((a, b) => a.module.localeCompare(b.module));
+  }, [roleAccessItems, customObjectDestinations, isBnmsTenant]);
 
   // Combine built-in pages with dynamic CMS, directory and Custom Object pages.
   const availablePages = useMemo(() => {
     return [
       { value: "_none", label: "No Page (Parent Menu)" },
-      ...builtInPages,
+      ...builtInPages.filter(item => isBnmsTenant || !isNmcReportDestination(item)),
       ...ieditPages,
       ...dynamicDirectories,
       ...customObjectDestinations,
-    ].sort((a, b) => {
+    ].filter(item => isBnmsTenant || !isNmcReportDestination(item)).sort((a, b) => {
       // Keep "_none" at top
       if (a.value === "_none") return -1;
       if (b.value === "_none") return 1;
       return a.label.localeCompare(b.label);
     });
-  }, [ieditPages, dynamicDirectories, customObjectDestinations]);
+  }, [ieditPages, dynamicDirectories, customObjectDestinations, isBnmsTenant]);
 
   const createMutation = useMutation({
     mutationFn: (data) => base44.entities.PortalMenu.create(data),
@@ -425,6 +437,10 @@ export default function PortalMenuManagementPage() {
   };
 
   const handleSave = () => {
+    if (!isBnmsTenant && isNmcReportDestination(editingItem)) {
+      toast.error('This report is not available for this tenant');
+      return;
+    }
     const title = editingItem.title?.trim();
     if (!title) {
       toast.error('Title is required');
@@ -452,7 +468,7 @@ export default function PortalMenuManagementPage() {
     const customObjectId = linkType === PORTAL_MENU_LINK_TYPES.INTERNAL
       ? getCustomObjectIdFromPortalListUrl(url)
       : null;
-    let featureId = customObjectId
+    let featureId = isNmcReportDestination(editingItem) ? NMC_REPORT_FEATURE : customObjectId
       ? getCustomObjectPortalRoleAccessId(customObjectId)
       : editingItem.feature_id;
     if (!featureId) {

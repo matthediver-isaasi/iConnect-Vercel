@@ -1,0 +1,19 @@
+.nmc-report {
+  --nmc-ink: #243c48;
+  --nmc-muted: #526872;
+  --nmc-paper: #f3f7f7;
+  --nmc-line: #d9e4e6;
+  color: var(--nmc-ink);
+}
+.nmc-report .nmc-heading { color: var(--nmc-ink); letter-spacing: -.025em; }
+.nmc-report .nmc-panel { border-color: var(--nmc-line); box-shadow: none; }
+.nmc-report .nmc-summary { background: var(--nmc-paper); border: 1px solid var(--nmc-line); }
+.nmc-report .nmc-label { color: var(--nmc-muted); font-size: .75rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+.nmc-report .nmc-number { font-variant-numeric: tabular-nums; letter-spacing: -.035em; }
+.nmc-report .nmc-download { background: #27576a; color: #f5fafb; }
+.nmc-report .nmc-download:hover { background: #204858; }
+.nmc-report .nmc-sheet-head { background: var(--nmc-paper); color: var(--nmc-muted); }
+.nmc-report .nmc-rule { border-color: var(--nmc-line); }
+.nmc-report .nmc-review { background: #faf6ec; border-color: #e8dabc; color: #76551f; }
+.nmc-report details > summary { cursor: pointer; }
+.nmc-report details > summary:focus-visible { outline: 2px solid #27576a; outline-offset: 4px; }

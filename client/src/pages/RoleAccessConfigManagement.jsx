@@ -18,6 +18,9 @@ import {
   Layers, Sparkles, Check, ChevronsUpDown, Info
 } from 'lucide-react';
 import { ROLE_ACCESS_MAP } from '@/lib/roleAccessMap';
+import { useTenantBranding } from '@/contexts/TenantBrandingContext';
+import { filterNmcRoleAccessMap, filterNmcRoleAccessItems, isNmcRoleAccessItem } from '@/lib/nmcRoleAccessVisibility.mjs';
+import { BNMS_TENANT_ID } from '@/lib/nmcMembershipReport.mjs';
 
 const ICON_OPTIONS = [
   'Calendar', 'CreditCard', 'Users', 'FileText', 'Briefcase', 'Layout',
@@ -26,12 +29,12 @@ const ICON_OPTIONS = [
 ];
 
 // Extract all available keys from the default ROLE_ACCESS_MAP
-const extractDefaultKeys = () => {
+const extractDefaultKeys = (accessMap) => {
   const modules = [];
   const pages = [];
   const features = [];
   
-  for (const mod of ROLE_ACCESS_MAP) {
+  for (const mod of accessMap) {
     modules.push({ id: mod.id, label: mod.label });
     // Extract module-level features
     for (const feature of mod.features || []) {
@@ -48,7 +51,6 @@ const extractDefaultKeys = () => {
   return { modules, pages, features };
 };
 
-const DEFAULT_KEYS = extractDefaultKeys();
 
 // Keys that must be appended to every existing role's excluded_features
 // when the corresponding access items are seeded/synced, so that newly
@@ -85,6 +87,11 @@ const backfillRoleExclusionsForKeys = async (newKeys) => {
 
 // Combobox component for selecting item keys with autocomplete
 function ItemKeyCombobox({ type, value, onChange, existingKeys = [], dynamicPages = [] }) {
+  const { branding } = useTenantBranding();
+  const defaultKeys = useMemo(
+    () => extractDefaultKeys(filterNmcRoleAccessMap(ROLE_ACCESS_MAP, branding?.id)),
+    [branding?.id],
+  );
   const [open, setOpen] = useState(false);
   const [inputValue, setInputValue] = useState(value);
   
@@ -92,15 +99,16 @@ function ItemKeyCombobox({ type, value, onChange, existingKeys = [], dynamicPage
   const suggestions = useMemo(() => {
     let items = [];
     if (type === 'module') {
-      items = DEFAULT_KEYS.modules;
+      items = defaultKeys.modules;
     } else if (type === 'page') {
-      items = [...DEFAULT_KEYS.pages, ...dynamicPages];
+      items = [...defaultKeys.pages, ...dynamicPages];
     } else if (type === 'feature') {
-      items = DEFAULT_KEYS.features;
+      items = defaultKeys.features;
     }
     // Filter out already used keys
-    return items.filter(item => !existingKeys.includes(item.id) || item.id === value);
-  }, [type, existingKeys, value, dynamicPages]);
+    return items.filter(item => (branding?.id === BNMS_TENANT_ID || !isNmcRoleAccessItem(item))
+      && (!existingKeys.includes(item.id) || item.id === value));
+  }, [type, existingKeys, value, dynamicPages, defaultKeys, branding?.id]);
 
   const handleSelect = (selectedId) => {
     const item = suggestions.find(s => s.id === selectedId);
@@ -189,6 +197,11 @@ function ItemKeyCombobox({ type, value, onChange, existingKeys = [], dynamicPage
 }
 
 export default function RoleAccessConfigManagement() {
+  const { branding } = useTenantBranding();
+  const tenantDefaults = useMemo(
+    () => filterNmcRoleAccessMap(ROLE_ACCESS_MAP, branding?.id),
+    [branding?.id],
+  );
   const [showDialog, setShowDialog] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [expandedModules, setExpandedModules] = useState({});
@@ -200,6 +213,10 @@ export default function RoleAccessConfigManagement() {
     queryKey: ['role-access-items'],
     queryFn: () => base44.entities.RoleAccessItem.list(),
   });
+  const visibleAccessItems = useMemo(
+    () => filterNmcRoleAccessItems(accessItems, branding?.id),
+    [accessItems, branding?.id],
+  );
 
   const { data: dynamicDirectoryPages = [] } = useQuery({
     queryKey: ['dynamic-directories-for-role-access'],
@@ -279,31 +296,31 @@ export default function RoleAccessConfigManagement() {
   });
 
   const hierarchy = useMemo(() => {
-    const modules = accessItems.filter(item => item.item_type === 'module')
+    const modules = visibleAccessItems.filter(item => item.item_type === 'module')
       .sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
     
     return modules.map(mod => {
-      const pages = accessItems.filter(item => item.item_type === 'page' && item.parent_id === mod.id)
+      const pages = visibleAccessItems.filter(item => item.item_type === 'page' && item.parent_id === mod.id)
         .sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
       
       return {
         ...mod,
         pages: pages.map(page => {
-          const features = accessItems.filter(item => item.item_type === 'feature' && item.parent_id === page.id)
+          const features = visibleAccessItems.filter(item => item.item_type === 'feature' && item.parent_id === page.id)
             .sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
           return { ...page, features };
         })
       };
     });
-  }, [accessItems]);
+  }, [visibleAccessItems]);
 
   const moduleOptions = useMemo(() => {
-    return accessItems.filter(item => item.item_type === 'module');
-  }, [accessItems]);
+    return visibleAccessItems.filter(item => item.item_type === 'module');
+  }, [visibleAccessItems]);
 
   const pageOptions = useMemo(() => {
-    return accessItems.filter(item => item.item_type === 'page');
-  }, [accessItems]);
+    return visibleAccessItems.filter(item => item.item_type === 'page');
+  }, [visibleAccessItems]);
 
   const handleAdd = (type, parentId = null) => {
     const siblings = accessItems.filter(item => 
@@ -343,6 +360,10 @@ export default function RoleAccessConfigManagement() {
   };
 
   const handleSave = () => {
+    if (branding?.id !== BNMS_TENANT_ID && isNmcRoleAccessItem(editingItem)) {
+      toast.error('This report permission is not available for this tenant');
+      return;
+    }
     if (!editingItem.item_key || !editingItem.label) {
       toast.error('Item Key and Label are required');
       return;
@@ -435,7 +456,7 @@ export default function RoleAccessConfigManagement() {
     const items = [];
     let moduleOrder = 0;
 
-    for (const mod of ROLE_ACCESS_MAP) {
+    for (const mod of tenantDefaults) {
       const moduleItem = {
         item_type: 'module',
         item_key: mod.id,
@@ -453,7 +474,7 @@ export default function RoleAccessConfigManagement() {
     const createdModules = await base44.entities.RoleAccessItem.list();
 
     const pageItems = [];
-    for (const mod of ROLE_ACCESS_MAP) {
+    for (const mod of tenantDefaults) {
       const createdModule = createdModules.find(m => m.item_key === mod.id);
       if (!createdModule) continue;
 
@@ -478,7 +499,7 @@ export default function RoleAccessConfigManagement() {
     const createdPages = await base44.entities.RoleAccessItem.list();
 
     const featureItems = [];
-    for (const mod of ROLE_ACCESS_MAP) {
+    for (const mod of tenantDefaults) {
       for (const page of mod.pages) {
         const createdPage = createdPages.find(p => p.item_key === page.id);
         if (!createdPage || !page.features) continue;
@@ -533,7 +554,7 @@ export default function RoleAccessConfigManagement() {
     const existingKeys = new Set(accessItems.map(item => item.item_key));
     const itemsToCreate = [];
 
-    for (const mod of ROLE_ACCESS_MAP) {
+    for (const mod of tenantDefaults) {
       if (!existingKeys.has(mod.id)) {
         const siblings = accessItems.filter(item => item.item_type === 'module');
         const maxOrder = siblings.length > 0 ? Math.max(...siblings.map(s => s.display_order || 0)) : -1;
@@ -557,7 +578,7 @@ export default function RoleAccessConfigManagement() {
     const updatedKeys = new Set(updatedItems.map(item => item.item_key));
     const pageItemsToCreate = [];
 
-    for (const mod of ROLE_ACCESS_MAP) {
+    for (const mod of tenantDefaults) {
       const dbModule = updatedItems.find(i => i.item_key === mod.id);
       if (!dbModule) continue;
 
@@ -586,7 +607,7 @@ export default function RoleAccessConfigManagement() {
     const finalKeys = new Set(finalItems.map(item => item.item_key));
     const featureItemsToCreate = [];
 
-    for (const mod of ROLE_ACCESS_MAP) {
+    for (const mod of tenantDefaults) {
       for (const page of mod.pages) {
         const dbPage = finalItems.find(i => i.item_key === page.id);
         if (!dbPage || !page.features) continue;

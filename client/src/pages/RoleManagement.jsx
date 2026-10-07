@@ -25,6 +25,9 @@ import { isResourceExcluded, getModuleExclusionState, getPageExclusionState, tog
 import { SALES_DEFAULT_ROLE_EXCLUSIONS } from "@shared/salesContracts.js";
 import CopyRoleSettingsDialog from "@/components/CopyRoleSettingsDialog";
 import { publishRoleSettingsCopy, subscribeRoleSettingsCopy } from "@/lib/roleSettingsCopy";
+import { useTenantBranding } from "@/contexts/TenantBrandingContext";
+import { filterNmcRoleAccessMap } from "@/lib/nmcRoleAccessVisibility.mjs";
+import { BNMS_TENANT_ID, isNmcReportDestination } from "@/lib/nmcMembershipReport.mjs";
 
 // Helper: upload to Supabase Storage and return public URL
 async function uploadImageToSupabase(file, bucket, folderPrefix = "") {
@@ -68,6 +71,7 @@ const MODULE_ICONS = {
 
 export default function RoleManagementPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { branding } = useTenantBranding();
   const [editingRole, setEditingRole] = useState(null);
   // Task #3306: per-role resource category access edits, keyed by category id
   // (true = role can see the category). Applied to the categories' own
@@ -183,6 +187,11 @@ export default function RoleManagementPage() {
           }))
       }));
   }, [roleAccessItems]);
+  // Rendering only: toggles and exclusion normalization retain the full map.
+  const visibleAccessMap = React.useMemo(
+    () => filterNmcRoleAccessMap(accessMap, branding?.id),
+    [accessMap, branding?.id],
+  );
 
   // Fetch organization-scoped preference fields for segmentation options
   const { data: orgPreferenceFields = [] } = useQuery({
@@ -366,6 +375,7 @@ export default function RoleManagementPage() {
 
   // Generate BUILT_IN_PAGES dynamically from PAGE_NAMES registry
   const BUILT_IN_PAGES = PAGE_NAMES
+    .filter(name => branding?.id === BNMS_TENANT_ID || !isNmcReportDestination({ value: name }))
     .map(pageName => {
       const category = getPageCategory(pageName);
       if (!category) return null; // Skip internal pages
@@ -1402,7 +1412,7 @@ export default function RoleManagementPage() {
                   </div>
 
                   <div className="space-y-2 border rounded-lg p-3 bg-slate-50/50">
-                    {accessMap.map((module) => {
+                    {visibleAccessMap.map((module) => {
                       const ModuleIcon = MODULE_ICONS[module.id] || Shield;
                       const moduleExclusionState = getModuleExclusionState(editingRole.excluded_features || [], module.id, accessMap);
                       const isModuleExpanded = expandedModules[module.id];

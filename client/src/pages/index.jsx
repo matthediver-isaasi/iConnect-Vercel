@@ -66,6 +66,7 @@ const VoucherManagement = lazy(() => import("./VoucherManagement"));
 const MonthlyFinanceReport = lazy(() => import("./MonthlyFinanceReport"));
 
 const MembershipPaymentReport = lazy(() => import("./MembershipPaymentReport"));
+const NMCMembershipReport = lazy(() => import("./NMCMembershipReport"));
 
 const DirectDebitAdmin = lazy(() => import("./DirectDebitAdmin"));
 
@@ -563,6 +564,7 @@ const PAGES = {
     MonthlyFinanceReport: MonthlyFinanceReport,
 
     MembershipPaymentReport: MembershipPaymentReport,
+    NMCMembershipReport: NMCMembershipReport,
     
     DirectDebitAdmin: DirectDebitAdmin,
     
@@ -1060,6 +1062,7 @@ function PagesContent() {
                 <Route path="/MonthlyFinanceReport" element={<MonthlyFinanceReport />} />
 
                 <Route path="/MembershipPaymentReport" element={<MembershipPaymentReport />} />
+                <Route path="/NMCMembershipReport" element={<NMCMembershipReport />} />
                 
                 <Route path="/DirectDebitAdmin" element={<DirectDebitAdmin />} />
                 

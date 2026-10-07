@@ -37,6 +37,7 @@ import { isResourceExcluded, setDbRoleAccessOverlay } from "@/lib/roleVisibility
 import { migrateLegacyFeatureId } from "@/lib/roleAccessMap";
 import { buildPortalNavBackgroundStyle } from "@/lib/canvasBackground";
 import { SALES_DESTINATIONS } from "@/lib/salesNavigation";
+import { BNMS_TENANT_ID, NMC_REPORT_FEATURE, isNmcReportDestination } from "@/lib/nmcMembershipReport.mjs";
 import { InstalledFontsLoader } from "@/lib/installedFonts";
 import PortalNavLink from "@/components/navigation/PortalNavLink";
 import {
@@ -434,6 +435,12 @@ const adminNavigationItems = [
     url: createPageUrl("MembershipPaymentReport"),
     icon: CreditCard,
     featureId: "page_MembershipPaymentReport"
+  },
+  {
+    title: "NMC Membership Report",
+    url: createPageUrl("NMCMembershipReport"),
+    icon: BookOpen,
+    featureId: NMC_REPORT_FEATURE
   },
   {
     title: "Registration Report",
@@ -1657,6 +1664,7 @@ useEffect(() => {
   const adminPages = ["AdminSetup", "RoleManagement", "RoleAccessConfigManagement", "MemberRoleAssignment", "TeamMemberManagement", "CustomObjectsAdmin", "DiscountCodeManagement", "EventSettings", "CancellationRequests", "TicketSalesAnalytics", "PendingPurchaseOrdersReport", "MonthlyFinanceReport", "MembershipPaymentReport", "EventRegistrationReport", "EventBudgetReport", "SurveyReports", "AIReports", "AccessibilityAudits", "MembershipTierManagement", "MembershipSettings", "ResourceSettings", "ResourceManagement", "TagManagement", "ResourceAuthorSettings", "TourManagement", "FileManagement", "JobPostingManagement", "JobBoardSettings", "IEditPageManagement", "IEditTemplateManagement", "PageBannerManagement", "NavigationManagement", "MemberHandleManagement", "ButtonElements", "ButtonStyleManagement", "AwardManagement", "WallOfFameManagement", "TeamInviteSettings", "FormManagement", "FormSubmissions", "FloaterManagement", "MemberDirectorySettings", "SupportManagement", "PageVisibilitySettings", "CreateComplexEvent", "PhotoGalleries", "EventCheckIn", "EventCheckInDashboard", "CanvasLinksManager"];
 
   // Pages that should use the bare layout (no new header/footer)
+  adminPages.push("NMCMembershipReport");
   const bareLayoutPages = [];
 
   // Note: hasAdminNavAccess() removed - admin navigation visibility is now determined
@@ -1666,6 +1674,13 @@ useEffect(() => {
   // Helper function to check if a feature is excluded for the current member
   // Uses the new hierarchical role visibility system
   const isFeatureExcluded = React.useCallback((featureId) => {
+    if (migrateLegacyFeatureId(featureId) === NMC_REPORT_FEATURE
+      && (!isBnmsTenant || !sessionValidated || memberInfo?.tenant_id !== BNMS_TENANT_ID
+        || roleStatus !== 'ready'
+        || isResourceExcluded([
+          ...(memberRole?.excluded_features || []),
+          ...(memberInfo?.member_excluded_features || []),
+        ], 'admin.role-management'))) return true;
     if (!memberInfo || !featureId) return false;
     if (roleStatus !== 'ready') return true;
     const customObjectId = getCustomObjectIdFromPortalRoleAccessId(featureId);
@@ -1685,7 +1700,7 @@ useEffect(() => {
     
     // Use the new hierarchical checking that handles legacy IDs and module/page/feature hierarchy
     return isResourceExcluded(allExclusions, featureId);
-  }, [memberInfo, roleStatus, viewableCustomObjectIds, isCurrentMemberGroupAdmin, memberRole]);
+  }, [memberInfo, roleStatus, viewableCustomObjectIds, isCurrentMemberGroupAdmin, memberRole, isBnmsTenant, sessionValidated]);
 
   // Unread inbox summary for the nav bell badge AND the login popup. Only
   // fetched for members who can reach the inbox, so excluded members never hit a
@@ -1770,6 +1785,7 @@ useEffect(() => {
     'PendingPurchaseOrdersReport': 'page_admin_PendingPurchaseOrdersReport',
     'MonthlyFinanceReport': 'page_admin_MonthlyFinanceReport',
     'MembershipPaymentReport': 'page_admin_MembershipPaymentReport',
+    'NMCMembershipReport': NMC_REPORT_FEATURE,
     'EventRegistrationReport': 'page_admin_EventRegistrationReport',
     'EventBudgetReport': 'page_admin_EventBudgetReport',
     'SurveyReports': 'page_admin_SurveyReports',
@@ -2465,6 +2481,7 @@ useEffect(() => {
     // Helper to get or generate feature_id for a menu item
     // This ensures filtering works even if feature_id wasn't set in the database
     const getFeatureId = (item, itemSection) => {
+      if (isNmcReportDestination(item)) return NMC_REPORT_FEATURE;
       const customObjectId = item.link_type !== 'external'
         ? getCustomObjectIdFromPortalListUrl(item.url)
         : null;
@@ -2687,11 +2704,15 @@ useEffect(() => {
   }, [dynamicNavItems, isCustomSlug, articleDisplayName, urlSlug, getArticleListUrl, getMyArticlesUrl, isCustomMemberTerm, memberLabelPlural, getMemberListUrl]);
 
   // Filter navigation items based on member's excluded features
+  // Inspect destinations too: a saved custom menu may carry an unrelated grant.
+  const canDiscoverReportDestination = (item) => !isNmcReportDestination(item)
+    || !isFeatureExcluded(NMC_REPORT_FEATURE);
   const filteredNavigationItems = navigationItemsSource
+    .filter(canDiscoverReportDestination)
     .map(item => {
       if (item.subItems) {
         // If it has sub-items, filter them individually
-        const filteredSubItems = item.subItems.filter(subItem => !isFeatureExcluded(subItem.featureId));
+        const filteredSubItems = item.subItems.filter(subItem => canDiscoverReportDestination(subItem) && !isFeatureExcluded(subItem.featureId));
         // Only include the parent if it's not excluded and has at least one filtered sub-item
         if (filteredSubItems.length > 0 && !isFeatureExcluded(item.featureId)) {
           return { ...item, subItems: filteredSubItems };
@@ -2707,10 +2728,11 @@ useEffect(() => {
   // Filter admin navigation items based purely on feature exclusions
   // Admin section will render if any items remain after filtering (checked in JSX: filteredAdminNavigationItems.length > 0)
   const filteredAdminNavigationItems = adminNavigationItemsSource
+    .filter(canDiscoverReportDestination)
     .map(item => {
       if (item.subItems) {
         // If it has sub-items, filter them individually
-        const filteredSubItems = item.subItems.filter(subItem => !isFeatureExcluded(subItem.featureId));
+        const filteredSubItems = item.subItems.filter(subItem => canDiscoverReportDestination(subItem) && !isFeatureExcluded(subItem.featureId));
         // Only include the parent if it's not excluded and has at least one filtered sub-item
         if (filteredSubItems.length > 0 && !isFeatureExcluded(item.featureId)) {
           return { ...item, subItems: filteredSubItems };

@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -50,6 +51,7 @@ import {
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { createPageUrl } from "@/utils";
+import { canAccessNmcReport } from "@/lib/nmcMembershipReport.mjs";
 
 const STORAGE_KEY_PREFIX = 'reports_dashboard_';
 
@@ -2124,8 +2126,10 @@ function MemberOrgTypeReportCard({
 }
 
 export default function ReportsDashboard() {
-  const { memberInfo, isAccessReady, isFeatureExcluded } = useMemberAccess();
-  const { tenantSlug } = useTenantBranding() || {};
+  const access = useMemberAccess();
+  const { memberInfo, isAccessReady, isFeatureExcluded } = access;
+  const { tenantSlug, branding, loading: brandingLoading } = useTenantBranding() || {};
+  const canViewNmcReport = !brandingLoading && canAccessNmcReport({ ...access, brandingId: branding?.id });
   const [accessChecked, setAccessChecked] = useState(false);
   const [reportCards, setReportCards] = useState(DEFAULT_REPORT_CARDS);
   const [membersPeriod, setMembersPeriod] = useState('month');
@@ -2368,6 +2372,14 @@ export default function ReportsDashboard() {
   return (
     <div className="min-h-screen bg-background p-6">
       <div className="max-w-7xl mx-auto space-y-6">
+        {canViewNmcReport && (
+          <Card>
+            <CardContent className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div><p className="font-semibold">NMC Membership Report</p><p className="text-sm text-muted-foreground">BNMS journal fulfilment, review reasons and Excel workbook.</p></div>
+              <Link to={createPageUrl("NMCMembershipReport")} className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-testid="link-nmc-membership-report"><BookOpen className="h-4 w-4" aria-hidden="true" />Open report</Link>
+            </CardContent>
+          </Card>
+        )}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-lg bg-primary/10">

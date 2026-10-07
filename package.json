@@ -10,6 +10,7 @@
     "start": "NODE_ENV=production node dist/index.js",
     "check": "tsc",
     "test": "node scripts/run-regression-suite.mjs test",
+    "test:nmc-membership-report": "node scripts/run-isolated-tests.mjs node --test api/_lib/nmcMembershipReport.test.mjs client/src/lib/nmcMembershipReport.test.mjs client/src/lib/nmcRoleAccessVisibility.test.mjs client/src/pages/NMCMembershipReport.mounted.test.mjs",
     "test:stripe-membership-webhook": "node scripts/run-regression-suite.mjs stripe-membership-webhook",
     "test:ai-assistant": "node scripts/run-regression-suite.mjs ai-assistant-tests",
     "test:stripe-address-mappings": "node scripts/run-regression-suite.mjs stripe-address-mappings",

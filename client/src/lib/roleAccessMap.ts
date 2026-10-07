@@ -262,6 +262,10 @@ export const ROLE_ACCESS_MAP: Module[] = [
         label: "Member Group Assignment Report"
       },
       {
+        id: "membership.nmc-membership-report",
+        label: "NMC Membership Report (BNMS)"
+      },
+      {
         id: "membership.member-groups-invite-report",
         label: "Member Group Invite Report"
       },
@@ -1320,6 +1324,8 @@ export const LEGACY_TO_NEW_MAPPING: Record<string, string> = {
   "page_MonthlyFinanceReport": "commerce.monthly-finance-report",
   "page_admin_MonthlyFinanceReport": "commerce.monthly-finance-report",
   "page_MembershipPaymentReport": "commerce.membership-payment-report",
+  "page_NMCMembershipReport": "membership.nmc-membership-report",
+  "page_admin_NMCMembershipReport": "membership.nmc-membership-report",
   "page_admin_MembershipPaymentReport": "commerce.membership-payment-report",
   "page_DirectDebitAdmin": "commerce.gocardless-dd",
   "page_admin_DirectDebitAdmin": "commerce.gocardless-dd",

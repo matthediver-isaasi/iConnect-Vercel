@@ -1,4 +1,5 @@
 export const PAGE_NAMES = [
+  "NMCMembershipReport",
   "Events",
   "Home",
   "AdminSetup",
