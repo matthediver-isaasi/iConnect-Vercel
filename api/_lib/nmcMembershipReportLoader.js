@@ -29,12 +29,13 @@ export async function nmcReadAll(build, key = 'id') {
 export async function loadNmcReport(db, reportDate) {
   const read = (table, columns = '*', configure = q => q, key = 'id') =>
     nmcReadAll(() => configure(db.from(table).select(columns, { count: 'exact' }).eq('tenant_id', NMC_TENANT)), key);
-  const [members, fields, history, organizations, agreements, ...recognitionSets] = await Promise.all([
-    read('member', 'id,tenant_id,first_name,last_name,email,mobile,landline,organization_id,status,is_sample,is_guest'),
+  const [members, fields, history, organizations, agreements, roles, ...recognitionSets] = await Promise.all([
+    read('member', 'id,tenant_id,first_name,last_name,email,mobile,landline,organization_id,role_id,status,is_sample,is_guest'),
     read('preference_field', 'id,tenant_id,name,entity_scope,is_active,options', q => q.in('name', NMC_FIELDS).eq('entity_scope', 'member').eq('is_active', true)),
     read('member_membership_history'),
     read('organization', 'id,tenant_id,name'),
     read('membership_billing_agreements', 'id,tenant_id,member_id,organization_id,environment,status,provider'),
+    read('role', 'id,tenant_id,name'),
     ...MEMBERSHIP_RECOGNITION_TABLES.map(table => read(table, '*', q => q, 'history_id')),
   ]);
   const preferences = [], fieldIds = fields.map(f => f.id);
@@ -45,6 +46,6 @@ export async function loadNmcReport(db, reportDate) {
     if (values.some(v => !memberIds.includes(v.member_id) || !fieldIds.includes(v.field_id))) throw new Error('Preference ownership mismatch');
     preferences.push(...values);
   }
-  return projectNmcReport({ members, fields, preferences, history, organizations, agreements,
+  return projectNmcReport({ members, fields, preferences, history, organizations, agreements, roles,
     recognitions: recognitionSets.flat(), reportDate });
 }

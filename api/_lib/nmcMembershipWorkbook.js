@@ -10,7 +10,7 @@ export function nmcMembershipWorkbook(report) {
     // Explicit string cells: preserve leading zeroes/+ phone prefixes exactly.
     // No formula or hyperlink properties are ever derived from member data.
     rows.forEach((row, r) => row.cells.forEach((value, c) => {
-      if (c < 13) sheet[XLSX.utils.encode_cell({ r: r + 1, c })] = { t: 's', v: String(value ?? ''), z: '@' };
+      if (c !== 13) sheet[XLSX.utils.encode_cell({ r: r + 1, c })] = { t: 's', v: String(value ?? ''), z: '@' };
     }));
     sheet['!cols'] = NMC_HEADERS.map((_, i) => ({ wch: i === 10 ? 36 : i === 13 ? 25 : i === 0 ? 12 : 26 }));
     sheet['!autofilter'] = { ref: sheet['!ref'] };

@@ -9,6 +9,12 @@ Preserve the established Role Management model when integrating new reports; an 
 
 **How to apply:** Verify persisted exclusions and asynchronous permission readiness before proposing permission-model changes. Do not relax server-side enforcement to mask a premature browser redirect.
 
+Tenant-specific redirect decisions must wait for tenant branding as well as authenticated role readiness; an unresolved fail-closed permission result is not a settled denial.
+
+**Why:** The owner confirmed the NMC report worked after its premature redirect was corrected without changing the RBAC model.
+
+**How to apply:** Keep data access fail-closed while loading, defer irreversible navigation, and re-evaluate once all required authority has settled.
+
 Many RBAC resource ids nest under parents whose id does NOT match their dot-prefix (e.g. feature `content.guest-writers` under page `content.articles`, page `admin.canvas-links-manager` under module `site-builder`, page `dashboard.view` + `dashboard.*` widget features under module `system`).
 
 **Rule:** any code reasoning about parent/child exclusion (reads, sibling expansion, section counts, server gating) must resolve parents via the real map nesting — client: `getRoleAccessHierarchy()` / map-driven `getModuleForResource`/`getPageForResource`/`isModuleId`/`isPageId` in `roleAccessMap.ts`; server: `api/_lib/roleAccessHierarchy.generated.js` (regen with `npx tsx scripts/generate-role-access-hierarchy.mjs`). Dot-prefix splitting is only a fallback for ids absent from the map.

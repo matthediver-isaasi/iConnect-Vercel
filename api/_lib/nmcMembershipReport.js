@@ -7,7 +7,7 @@ export const NMC_FEATURE = 'membership.nmc-membership-report';
 export const NMC_SHEETS = ['Full and Full Junior', 'Associate Honorary Retired', 'Trainee and LMIC', 'Online-only'];
 export const NMC_ADDRESS_FIELDS = ['nmc_address_line_1', 'nmc_address_line_2', 'nmc_address_line_3', 'nmc_address_city', 'nmc_address_zip', 'nmc_address_country'];
 export const NMC_FIELDS = ['member_class', 'membership_status', 'ym_date_membership_expires', 'title', ...NMC_ADDRESS_FIELDS];
-export const NMC_HEADERS = ['Title', 'First name', 'Last name', 'Organisation', 'NMC address line 1', 'NMC address line 2', 'NMC address line 3', 'NMC address city', 'NMC address post/zip code', 'NMC address country', 'Email address', 'Phone number', 'Membership status', 'Number of months expired'];
+export const NMC_HEADERS = ['Title', 'First name', 'Last name', 'Organisation', 'NMC address line 1', 'NMC address line 2', 'NMC address line 3', 'NMC address city', 'NMC address post/zip code', 'NMC address country', 'Email address', 'Phone number', 'Membership status', 'Number of months expired', 'Member Class', 'RBAC Role'];
 const bases = ['Associate', 'Full', 'Full junior', 'Trainee', 'Student', 'Overseas Full', 'Overseas Full junior', 'Honorary', 'Retired', 'Former', 'Department contact', 'Patient representative', 'LMIC Full', 'LMIC Full junior', 'Overseas associate', 'CPD Guest'];
 const text = value => value == null ? '' : String(value);
 export function nmcDate(value) {
@@ -90,7 +90,7 @@ function membershipEvidence(history, agreements, recognitions, today) {
 }
 
 /** Read-only projection. No login, role, DD history or pricing is membership authority. */
-export function projectNmcReport({ members, fields, preferences, history, organizations, agreements = [], recognitions = [], reportDate }) {
+export function projectNmcReport({ members, fields, preferences, history, organizations, roles = [], agreements = [], recognitions = [], reportDate }) {
   if (!nmcDate(reportDate)) throw new Error('Invalid report date');
   const fieldMap = new Map();
   for (const name of NMC_FIELDS) {
@@ -101,6 +101,8 @@ export function projectNmcReport({ members, fields, preferences, history, organi
   const options = fieldMap.get('member_class').options;
   if (!Array.isArray(options) || !options.length) throw new Error('Class definitions unavailable');
   const allowed = new Set(options.map(o => typeof o === 'string' ? o : o.value));
+  const classLabels = new Map(options.map(o => typeof o === 'string' ? [o, o] : [o.value, text(o.label || o.value)]));
+  const roleNames = new Map(roles.filter(r => r.tenant_id === NMC_TENANT).map(r => [r.id, text(r.name)]));
   const prefs = new Map(), histories = new Map();
   for (const p of preferences) {
     const key = `${p.member_id}|${p.field_id}`;
@@ -149,6 +151,8 @@ export function projectNmcReport({ members, fields, preferences, history, organi
       value('title'), text(member.first_name), text(member.last_name),
       text(orgs.get(member.organization_id)?.name), ...NMC_ADDRESS_FIELDS.map(value),
       text(member.email), text(member.mobile || member.landline), evidence.status, evidence.months,
+      classLabels.get(klass) || klass,
+      member.role_id ? (roleNames.get(member.role_id) || 'Role unavailable') : 'No role assigned',
     ] });
   }
   rows.sort((a, b) => a.cells[2].localeCompare(b.cells[2], 'en-GB')

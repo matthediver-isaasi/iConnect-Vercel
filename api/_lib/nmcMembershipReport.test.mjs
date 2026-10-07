@@ -115,7 +115,25 @@ test('four-sheet workbook always retains exact headers and literal text, never f
   assert.equal(sheet.I2.v, '00120'); assert.equal(sheet.L2.v, '+440012300');
   assert.equal(sheet.F2.v, ''); assert.equal(sheet.N2.v, 0);
   const empty = XLSX.read(nmcMembershipWorkbook(report({ members: [] })), { type: 'buffer' });
-  for (const name of empty.SheetNames) assert.equal(empty.Sheets[name]['!ref'], 'A1:N1');
+  for (const name of empty.SheetNames) assert.equal(empty.Sheets[name]['!ref'], 'A1:P1');
+});
+
+test('class labels and tenant-scoped RBAC role names are literal text and do not affect eligibility', () => {
+  const result = report({
+    members: [{ ...member, role_id: 'role-id' }],
+    roles: [{ id: 'role-id', tenant_id, name: '=Super Admin' }],
+    fields: fields.map(f => f.name === 'member_class' ? { ...f, options: options.map(value => ({ value, label: value === 'Full with NMC' ? 'Full membership with journal' : value })) } : f),
+  });
+  assert.equal(result.total, 1);
+  assert.equal(result.rows[0].sheet, NMC_SHEETS[0]);
+  assert.deepEqual(result.rows[0].cells.slice(14), ['Full membership with journal', '=Super Admin']);
+  const sheet = XLSX.read(nmcMembershipWorkbook(result), { type: 'buffer' }).Sheets[NMC_SHEETS[0]];
+  for (const key of ['O2', 'P2']) { assert.equal(sheet[key].t, 's'); assert.equal(sheet[key].f, undefined); }
+  assert.equal(sheet.P2.v, '=Super Admin');
+  assert.equal(report().rows[0].cells[15], 'No role assigned');
+  const unavailable = report({ members: [{ ...member, role_id: 'foreign-role' }], roles: [{ id: 'foreign-role', tenant_id: 'foreign', name: 'Private name' }] });
+  assert.equal(unavailable.rows[0].cells[15], 'Role unavailable');
+  assert.equal(unavailable.total, 1);
 });
 
 function fakeDatabase(tables, { cap = 317, failTable, calls = [] } = {}) {
@@ -137,15 +155,17 @@ function fakeDatabase(tables, { cap = 317, failTable, calls = [] } = {}) {
   } };
 }
 test('full loader/export passes 1000-row limit and smaller provider caps, with unique rows and scoped preferences', async () => {
-  const members = Array.from({ length: 1207 }, (_, i) => ({ ...member, id: `m${String(i).padStart(5, '0')}` }));
+  const members = Array.from({ length: 1207 }, (_, i) => ({ ...member, role_id: 'report-role', id: `m${String(i).padStart(5, '0')}` }));
   const db = fakeDatabase({
     member: [...members, { ...member, id: 'foreign', tenant_id: 'foreign' }], preference_field: fields,
     member_membership_history: members.map(m => ({ ...term, id: `h-${m.id}`, member_id: m.id })),
     organization: fixture().organizations,
+    role: [{ id: 'report-role', tenant_id, name: 'Super Admin' }, { id: 'foreign-role', tenant_id: 'foreign', name: 'Other tenant' }],
     member_preference_value: members.flatMap(m => [pref('member_class', 'Full', m.id), pref('nmc_address_zip', '00001', m.id)]),
   });
   const result = await loadNmcReport(db, '2026-10-07');
   assert.equal(result.total, 1207); assert.equal(new Set(result.rows.map(r => r.memberId)).size, 1207);
+  assert.ok(result.rows.every(r => r.cells[14] === 'Full' && r.cells[15] === 'Super Admin'));
   const wb = XLSX.read(nmcMembershipWorkbook(result), { type: 'buffer' });
   assert.equal(XLSX.utils.sheet_to_json(wb.Sheets['Online-only']).length, 1207);
   await assert.rejects(loadNmcReport(fakeDatabase({}, { failTable: 'member' }), '2026-10-07'));
