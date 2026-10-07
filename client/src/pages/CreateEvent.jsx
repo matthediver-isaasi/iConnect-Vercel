@@ -1,4 +1,5 @@
 import PublicTicketMemberFields from "@/components/events/PublicTicketMemberFields";
+import { deriveTrainingAgendaBounds } from "@shared/trainingAgendaBounds.js";
 import { ticketMemberPolicy, updateTicketMemberField, validateTicketMemberPolicies } from "@/utils/publicTicketMembers";
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -708,17 +709,14 @@ export default function CreateEvent() {
   const hasZoomSelection = isOnline && (selectedWebinar || selectedMeeting);
 
   // Training events (Task #3436): overall start/end derive from the agenda.
+  const effectiveTimezone = activeZoomTimezone || formData.timezone || "Europe/London";
   const trainingDerivedDates = useMemo(() => {
     if (!isTraining || agendaLines.length === 0) return null;
-    const starts = agendaLines.map(agendaLineStartDateTime).filter(Boolean).sort();
-    const ends = agendaLines.map(agendaLineEndDateTime).filter(Boolean).sort();
-    if (starts.length === 0) return null;
-    return { start: starts[0], end: ends[ends.length - 1] };
-  }, [isTraining, agendaLines]);
+    return deriveTrainingAgendaBounds(agendaLines, effectiveTimezone);
+  }, [isTraining, agendaLines, effectiveTimezone]);
 
   // Effective timezone for datetime-local inputs: Zoom timezone takes precedence
   // when a Zoom selection is locked in, otherwise the user-selected event timezone.
-  const effectiveTimezone = activeZoomTimezone || formData.timezone || "Europe/London";
 
   useEffect(() => {
     if (selectedWebinar) {
@@ -982,6 +980,7 @@ export default function CreateEvent() {
     if (isTraining || agendaLines.length > 0) {
       errors.push(...validateAgendaLines(agendaLines, agendaItemTypes, attendancePolicy));
     }
+    if (isTraining && eventTiming !== 'tbc') errors.push(...(trainingDerivedDates?.errors || []));
 
     if (isTraining) {
       const zoomLine = agendaLines.find((line) => line.zoom_meeting_id || line.zoom_webinar_id);
@@ -1102,8 +1101,9 @@ export default function CreateEvent() {
     }
 
     // Validate registration_closes_at is not after end_date
-    if (formData.registration_closes_at && formData.end_date) {
-      if (new Date(formData.registration_closes_at) > new Date(formData.end_date)) {
+    const registrationEnd = isTraining ? trainingDerivedDates?.end : formData.end_date;
+    if (formData.registration_closes_at && registrationEnd) {
+      if (new Date(formData.registration_closes_at) > new Date(registrationEnd)) {
         errors.push('Registration close date cannot be after the event end date');
       }
     }
@@ -1131,12 +1131,8 @@ export default function CreateEvent() {
     let trainingStart = null;
     let trainingEnd = null;
     if (isTraining && agendaLines.length > 0) {
-      const starts = agendaLines.map(agendaLineStartDateTime).filter(Boolean).sort();
-      const ends = agendaLines.map(agendaLineEndDateTime).filter(Boolean).sort();
-      if (starts.length > 0) {
-        trainingStart = starts[0];
-        trainingEnd = ends[ends.length - 1];
-      }
+      trainingStart = trainingDerivedDates?.start;
+      trainingEnd = trainingDerivedDates?.end;
     }
 
     // Normalise status: never emit immediate from group-limited or when training
@@ -1163,7 +1159,7 @@ export default function CreateEvent() {
       start_date: suppressSchedule ? null : (isTraining && trainingStart ? trainingStart : (formData.start_date || null)),
       end_date: suppressSchedule ? null : (isTraining && trainingEnd ? trainingEnd : (formData.end_date || formData.start_date || null)),
       registration_closes_at: suppressSchedule ? null : (formData.registration_closes_at || null),
-      timezone: isImmediateSave ? null : (formData.timezone || null),
+      timezone: isImmediateSave ? null : (isTraining ? effectiveTimezone : (formData.timezone || null)),
       location: locationValue,
       image_url: formData.image_url || null,
       available_seats: unlimitedSeats ? null : (formData.available_seats ? parseInt(formData.available_seats) : null),
@@ -2460,6 +2456,9 @@ export default function CreateEvent() {
                   {isTraining && eventTiming !== 'tbc' && (
                     <p className="text-xs text-slate-500">Taken from the earliest agenda date</p>
                   )}
+                  {isTraining && eventTiming !== 'tbc' && trainingDerivedDates?.errors.map(error => (
+                    <p key={error} role="alert" className="text-sm text-destructive">{error}</p>
+                  ))}
                   {hasZoomSelection && (
                     <p className="text-xs text-slate-500">Timing is managed by Zoom</p>
                   )}

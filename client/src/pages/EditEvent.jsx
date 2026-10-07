@@ -1,4 +1,5 @@
 import PublicTicketMemberFields from "@/components/events/PublicTicketMemberFields";
+import { deriveTrainingAgendaBounds } from "@shared/trainingAgendaBounds.js";
 import PublicTicketMemberDiagnostics from "@/components/events/PublicTicketMemberDiagnostics";
 import { ticketMemberPolicy, updateTicketMemberField, validateTicketMemberPolicies } from "@/utils/publicTicketMembers";
 import { useState, useEffect, useMemo, useRef } from "react";
@@ -1553,11 +1554,8 @@ export default function EditEvent() {
   // agenda (earliest start → latest end), shown read-only in the date fields.
   const trainingDerivedDates = useMemo(() => {
     if (!isTraining || agendaLines.length === 0) return null;
-    const starts = agendaLines.map(agendaLineStartDateTime).filter(Boolean).sort();
-    const ends = agendaLines.map(agendaLineEndDateTime).filter(Boolean).sort();
-    if (starts.length === 0) return null;
-    return { start: starts[0], end: ends[ends.length - 1] };
-  }, [isTraining, agendaLines]);
+    return deriveTrainingAgendaBounds(agendaLines, eventTimezone);
+  }, [isTraining, agendaLines, eventTimezone]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -1609,6 +1607,7 @@ export default function EditEvent() {
     // validate only when lines exist.
     if (isTraining || agendaLines.length > 0) {
       const agendaErrors = validateAgendaLines(agendaLines, agendaItemTypes, attendancePolicy);
+      if (isTraining && eventTiming !== 'tbc') agendaErrors.push(...(trainingDerivedDates?.errors || []));
       if (agendaErrors.length > 0) {
         toast.error(agendaErrors[0]);
         return;
@@ -1780,8 +1779,9 @@ export default function EditEvent() {
     }
 
     // Validate registration_closes_at is not after end_date
-    if (formData.registration_closes_at && formData.end_date) {
-      if (new Date(formData.registration_closes_at) > new Date(formData.end_date)) {
+    const registrationEnd = isTraining ? trainingDerivedDates?.end : formData.end_date;
+    if (formData.registration_closes_at && registrationEnd) {
+      if (new Date(formData.registration_closes_at) > new Date(registrationEnd)) {
         toast.error('Registration close date cannot be after the event end date');
         return;
       }
@@ -1792,12 +1792,8 @@ export default function EditEvent() {
     let trainingStart = null;
     let trainingEnd = null;
     if (isTraining && agendaLines.length > 0) {
-      const starts = agendaLines.map(agendaLineStartDateTime).filter(Boolean).sort();
-      const ends = agendaLines.map(agendaLineEndDateTime).filter(Boolean).sort();
-      if (starts.length > 0) {
-        trainingStart = starts[0];
-        trainingEnd = ends[ends.length - 1];
-      }
+      trainingStart = trainingDerivedDates?.start;
+      trainingEnd = trainingDerivedDates?.end;
     }
     
     if (slugError || checkingSlug) {
@@ -3248,6 +3244,9 @@ export default function EditEvent() {
                   {isTraining && eventTiming !== 'tbc' && (
                     <p className="text-xs text-slate-500">Taken from the earliest agenda date</p>
                   )}
+                  {isTraining && eventTiming !== 'tbc' && trainingDerivedDates?.errors.map(error => (
+                    <p key={error} role="alert" className="text-sm text-destructive">{error}</p>
+                  ))}
                   {!isTraining && isOnlineEvent && !isGroupLimited && eventTiming !== 'tbc' && (
                     <p className="text-xs text-slate-500">Managed by Zoom {event?.zoom_meeting_id ? 'meeting' : 'webinar'}</p>
                   )}
