@@ -119,8 +119,11 @@ import {
   applyGuestWriterListQuery,
   parseGuestWriterListQuery,
 } from '../../_lib/guestWriterSearch.js';
+import { GROUP_FIELDS_KEY } from '../../../shared/memberGroupCustomFields.js';
+import { validateGroupValueWrite, projectGroupCustomFields } from '../../_lib/memberGroupCustomFields.js';
 
 const DEDICATED_ORGANISATION_DIRECTORY_SETTINGS = new Set([
+  GROUP_FIELDS_KEY,
   'org_directory_filterable_back_fields',
   'org_directory_allow_csv_download',
 ]);
@@ -465,6 +468,15 @@ export default async function handler(req, res) {
       || (tenantCtx.roleId && await hasFeatureAccess(tenantCtx.roleId, 'content.gallery.manage'));
     if (!canManageGallery) return res.status(403).json({ error: 'Gallery management access required' });
   }
+
+  // Alias/JSON-path selects must not bypass custom-field response projection.
+  if (req.method === 'GET' && (
+    /member_group|group_id|system_settings/i.test(String(req.query.expand || ''))
+    || (entityNorm === 'membergroup' && /custom_field_values/i.test(JSON.stringify([req.query.filter, req.query.sort])))
+  ) && !(tenantCtx.isAuthenticated && await hasAdminAccess(tenantCtx))) {
+    return res.status(403).json({ error: 'Private group fields cannot be queried through generic projections.' });
+  }
+  if (['membergroup', 'systemsettings'].includes(entityNorm) && req.method === 'GET') delete req.query.expand;
 
   if (entityNorm === 'role' && req.method !== 'GET') {
     const policyError = validateRoleMemberGroupPolicy(req.body);
@@ -879,7 +891,7 @@ export default async function handler(req, res) {
         query = query.or('entity_scope.is.null,entity_scope.neq.custom_object');
       }
       if (entityNorm === 'systemsettings') {
-        query = query.not('setting_key', 'like', 'relationship_columns_%');
+        query = query.not('setting_key', 'like', 'relationship_columns_%').neq('setting_key', GROUP_FIELDS_KEY);
       }
       
       // Apply tenant isolation filter (always applied for non-global entities)
@@ -1542,6 +1554,9 @@ export default async function handler(req, res) {
       if (entityNorm === 'formsubmission' || entityNorm === 'surveyanswer') {
         data = await withoutEnhancedSurveyAnswers(supabase, tenantCtx.tenantId, data || []);
       }
+      if (entityNorm === 'membergroup') {
+        data = await projectGroupCustomFields(supabase, tenantCtx, data || [], hasAdminAccess);
+      }
       if (wantsCount) {
         return res.json({ data: data || [], count: count ?? 0 });
       }
@@ -1552,7 +1567,7 @@ export default async function handler(req, res) {
       if (entityNorm === 'jobposting' && hasManagedJobProvenance(req.body)) {
         return res.status(403).json({ error: 'External job provenance is managed by the feed synchronizer' });
       }
-      console.log(`POST to ${tableName}:`, JSON.stringify(req.body));
+      console.log(`POST to ${tableName}`);
       
       // Sanitize empty strings to null for UUID fields to avoid "invalid input syntax for type uuid" errors
       // Only modify fields that are already present in the request body
@@ -2664,6 +2679,8 @@ export default async function handler(req, res) {
       }
 
       if (entityNorm === 'membergroup' && tenantCtx.tenantId) {
+        try { await validateGroupValueWrite(supabase, tenantCtx, sanitizedBody, hasAdminAccess); }
+        catch (error) { return res.status(error.status || 500).json({ error: error.message }); }
         const policyAuth = authorizeAutomaticMembershipPolicyWrite({
           body: sanitizedBody,
           isAdmin: await hasAdminAccess(tenantCtx),

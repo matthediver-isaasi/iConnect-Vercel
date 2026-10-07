@@ -121,7 +121,10 @@ import { validateFormWidthPayload } from '../../../shared/formWidth.js';
 import { isEventPaymentPolicyKey } from '../../../shared/eventPaymentPolicy.js';
 import { validateEventDisplayModePayload } from '../../../shared/eventDisplayMode.js';
 import { validateFormMutationAccessSave } from '../../../shared/formMutationContract.js';
+import { GROUP_FIELDS_KEY } from '../../../shared/memberGroupCustomFields.js';
+import { validateGroupValueWrite, projectGroupCustomFields } from '../../_lib/memberGroupCustomFields.js';
 const DEDICATED_ORGANISATION_DIRECTORY_SETTINGS = new Set([
+  GROUP_FIELDS_KEY,
   'org_directory_filterable_back_fields',
   'org_directory_allow_csv_download',
 ]);
@@ -319,6 +322,11 @@ export default async function handler(req, res, dependencies = {}) {
 
   // Get tenant context from session
   const tenantCtx = await (dependencies.getTenantContext || getTenantContext)(req);
+  if (req.method === 'GET' && /member_group|group_id|system_settings/i.test(String(req.query.expand || ''))
+      && !(tenantCtx.isAuthenticated && await hasAdminAccess(tenantCtx))) {
+    return res.status(403).json({ error: 'Private group fields cannot be queried through generic projections.' });
+  }
+  if (['membergroup', 'systemsettings'].includes(entityNorm) && req.method === 'GET') delete req.query.expand;
 
   const genericPreferenceAccessError = await authorizeGenericCommunicationPreferenceAccess(
     entity,
@@ -973,6 +981,10 @@ export default async function handler(req, res, dependencies = {}) {
       if (['formsubmission', 'surveyanswer'].includes(entityNorm)
         && !(await withoutEnhancedSurveyAnswers(supabase, tenantCtx.tenantId, [data])).length) {
         return res.status(403).json({ error: 'Anonymous survey answers are available only through threshold-protected Survey Reports' });
+      }
+      if (entityNorm === 'systemsettings' && data?.setting_key === GROUP_FIELDS_KEY) return res.status(404).json({ error: 'Not found' });
+      if (entityNorm === 'membergroup') {
+        return res.json((await projectGroupCustomFields(requestDatabase, tenantCtx, [data], hasAdminAccess))[0]);
       }
       return res.json(data);
 
@@ -2107,6 +2119,8 @@ export default async function handler(req, res, dependencies = {}) {
       }
 
       if (entityNormalized === 'membergroup' && tenantCtx.tenantId) {
+        try { await validateGroupValueWrite(supabase, tenantCtx, sanitizedBody, hasAdminAccess); }
+        catch (error) { return res.status(error.status || 500).json({ error: error.message }); }
         const policyAuth = authorizeAutomaticMembershipPolicyWrite({
           body: sanitizedBody,
           isAdmin: await hasAdminAccess(tenantCtx),
@@ -2795,6 +2809,9 @@ export default async function handler(req, res, dependencies = {}) {
         });
       }
 
+      if (entityNorm === 'membergroup') {
+        return res.json((await projectGroupCustomFields(requestDatabase, tenantCtx, [responseData], hasAdminAccess))[0]);
+      }
       return res.json(responseData);
 
     } else if (req.method === 'DELETE') {

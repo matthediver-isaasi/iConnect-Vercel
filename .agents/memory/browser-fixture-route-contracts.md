@@ -38,3 +38,9 @@ Mounted editor fixtures must load the application's utility CSS when testing tab
 **Why:** Without utility CSS, inactive panels remain visible and Radix select options can sit outside the viewport, producing fixture failures unrelated to the application behavior.
 
 **How to apply:** Compile and inject the real stylesheet, scope repeated editor text to the active panel, and click the visible label for visually hidden radio inputs.
+
+Scope modal assertions by accessible dialog name, not every dialog on the page.
+
+**Why:** Multiple unrelated dialogs may legitimately coexist; counting every dialog cannot establish whether a particular editor closed.
+
+**How to apply:** Select the editor's named dialog for reopen/close assertions; unrelated site notices should not decide whether a save succeeded.

@@ -101,6 +101,7 @@ import SimpleRichTextEditor from "@/components/SimpleRichTextEditor";
 import EventImageUpload from "@/components/events/EventImageUpload";
 import { sanitizeRichText } from "@/components/canvas/blocks/sanitize";
 import DOMPurify from "dompurify";
+import CustomFieldsDisplay from "@/components/member-groups/CustomFieldsDisplay";
 import VacancyCard, {
   formatCommitment,
   formatTerm,
@@ -2122,6 +2123,7 @@ export default function MemberGroupDetailPage() {
                 />
               </>
             )}
+            <CustomFieldsDisplay fields={group.custom_fields_display} />
             {group.linkedin_url && (
               <a
                 href={group.linkedin_url}

@@ -8,7 +8,7 @@
 - [Canvas rendering and layout](canvas-rendering-layout-index.md) — index of durable rules for V1/V2 geometry, reflow, block rendering, editor behavior, symbols, links, and footers.
 - [Canvas member personalisation](canvas-member-personalisation.md) — display-only TipTap tokens use a fresh viewer snapshot, never cached identity or design-wide replacement.
 - [Event operations](event-operations-index.md) — attendee flags, reminders, timing, deleted bookings, counts, CPD rewards, revenue and ticket releases.
-- [Group event booking audience](group-event-join-to-book.md) — public group events allow guest self-registration; historical universal group-membership booking policy is superseded.
+- [Member Group topics](member-group-index.md) — custom-field ownership, role naming, scoped lists, resource links, admin redaction and event access.
 - [PostgREST and pagination topics](postgrest-pagination-index.md) — index of durable rules for PostgREST caps, stable ranged pages, bounded exports, large filters, and exact totals.
 - [Membership invoice boundaries](membership-invoice-index.md) — duplicate prevention, override display, add-on lines and PO contracts.
 - [Background worker self-trigger](background-worker-self-trigger.md) — a self-re-triggering chunked worker needs a handoff bypass on its heartbeat lock, or the chain blocks itself and falls back to cron pace.
@@ -22,12 +22,9 @@
 - [Hybrid public/by-slug page registration](hybrid-byslug-page-registration.md) — a new /prefix/:slug hybrid page must be wired in 4 places (_getCurrentPage prefix + Route + PAGES map + Layout hybridPages) or it renders with wrong auth/chrome.
 - [Bearer-token (mobile) API auth](bearer-token-auth.md) — mobile clients send Authorization: Bearer <token>; token IS the unsigned session sid, reuses session table, gated by sess.authMethod==='bearer'; cookie path unchanged.
 - [Campaign send-time resolution & tracked-link entities](campaign-send-time-resolution.md) — campaign recipients are persisted+re-claimed, so booking/QR/scope must resolve at SEND time; tracked hrefs corrupt query strings via &amp; unless decoded before encodeURIComponent. [Event survey assignments](survey-event-assignments.md) covers reusable survey URL tokens, explicit event/assignment selection and delivery-time revalidation.
-- [Member group policies](member-group-policy-index.md) — role limits and names, resource subcategory links, and group-scoped list visibility.
-- [Group-event authz body aliasing](group-event-authz-body-aliasing.md) — entity PATCH clear+reassign of sanitizedBody empties the update for tenant admins because authz.body is the SAME object ref; empty update -> PGRST116 -> silent 404.
 - [tenant-branding secondaryBar sanitization](tenant-branding-secondarybar-sanitize.md) — branding PATCH rebuilds header_config.secondaryBar from scratch; new subfields silently dropped unless whitelisted in the sanitizer.
 - [Count-based ticket availability & oversell guard](ticket-capacity-count-based.md) — available_count is a fixed max; derive remaining from confirmed bookings; oversell needs a DB advisory-lock guard, not a stored decrement.
 - [getTenantIdFromSession only checks membership](tenant-session-admin-gate.md) — admin-only /api endpoints must use getTenantContext + hasAdminAccess; getTenantIdFromSession verifies tenant membership only, not admin role.
-- [Redacted group-admin data surfaces](redacted-group-admin-surfaces.md) — give group admins a tenant-wide signal (count/boolean) by branching the RESPONSE not just auth; redact every success branch so other groups private details never leak.
 - [Guest-rendering an auth-only page](guest-public-admin-page.md) — 4 moves: guest endpoint + gate every auth query (watch TDZ) + render-gate admin affordances + loading gate on authResolved to stop "Not Found" flash.
 - [Member inbox unread count](member-inbox-unread-count.md) — inbox "messages" are campaign recipients + sparse state table (no row = unread); badge count is delivered−archived−readNonArchived arithmetic; opening auto-reads so invalidate with exact keys or the body query loops.
 - [Inbox alert preferences](inbox-alert-preference-boundaries.md) — popup-only choices must never alter messages, badges, email or consent; login scope is server-owned.

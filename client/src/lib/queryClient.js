@@ -28,11 +28,12 @@ export function emitPlanQuotaExceeded(quota, errorMessage) {
   }
 }
 
-export async function apiRequest(method, url, data) {
+export async function apiRequest(method, url, data, requestOptions = {}) {
   const options = {
+    ...requestOptions,
     method,
     credentials: 'include',
-    headers: {}
+    headers: { ...requestOptions.headers }
   };
 
   if (data) {

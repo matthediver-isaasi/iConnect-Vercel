@@ -15,6 +15,7 @@ import {
   MEMBER_GROUP_SETTING_DEFAULTS,
 } from "@/hooks/useMemberGroupSettings";
 import SimpleRichTextEditor from "@/components/SimpleRichTextEditor";
+import CustomFieldSettingsCard from "@/components/member-groups/CustomFieldSettingsCard";
 
 const FEATURE_ID = "membership.member-group-settings";
 
@@ -312,6 +313,8 @@ export default function MemberGroupSettingsPage() {
             </div>
           </CardContent>
         </Card>
+
+        <CustomFieldSettingsCard enabled={accessChecked} />
 
         <div className="flex justify-end">
           <Button onClick={handleSave} disabled={isSaving || isLoading} data-testid="button-save">

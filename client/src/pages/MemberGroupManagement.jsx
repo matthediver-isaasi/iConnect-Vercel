@@ -39,6 +39,9 @@ import EventImageUpload from "@/components/events/EventImageUpload";
 import AllMembersDialog from "@/components/member-groups/AllMembersDialog";
 import { visibleGroupAssignments } from "@/lib/memberGroupAssignmentVisibility";
 import SimpleRichTextEditor from "@/components/SimpleRichTextEditor";
+import CustomFieldInputs from "@/components/member-groups/CustomFieldInputs";
+import { useMemberGroupCustomFields } from "@/hooks/useMemberGroupCustomFields";
+import { buildCustomFieldValues, copyCustomFieldValues } from "@/lib/memberGroupCustomFields.mjs";
 import { sanitizeRichText } from "@/components/canvas/blocks/sanitize";
 import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
 import {
@@ -80,6 +83,7 @@ export default function MemberGroupManagementPage() {
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const { featureName, allowGroupTermsOverride, defaultTermsOfReference } = useMemberGroupSettings();
   const [accessChecked, setAccessChecked] = useState(false);
+  const customFields = useMemberGroupCustomFields(accessChecked);
   const [showGroupDialog, setShowGroupDialog] = useState(false);
   const [showAssignDialog, setShowAssignDialog] = useState(false);
   const [editingAssignment, setEditingAssignment] = useState(null);
@@ -124,6 +128,7 @@ export default function MemberGroupManagementPage() {
   const [badgeConfirm, setBadgeConfirm] = useState(null);
   const [groupForm, setGroupForm] = useState({
     name: '',
+    custom_field_values: {},
     description: '',
     roles: [],
     leadership_roles: [],
@@ -174,6 +179,22 @@ export default function MemberGroupManagementPage() {
   const [automaticSyncByGroup, setAutomaticSyncByGroup] = useState({});
 
   const queryClient = useQueryClient();
+
+  // Never carry a tenant's draft into another tenant or authenticated identity.
+  useEffect(() => {
+    setShowGroupDialog(false);
+    setBadgeConfirm(null);
+    setGroupForm((current) => ({ ...current, custom_field_values: {} }));
+  }, [customFields.scopeKey]);
+
+  const withCustomFieldValues = (data) => {
+    if (!customFields.ready) throw new Error('Load custom field definitions successfully before saving this group.');
+    if (customFields.data.available === false) {
+      const { custom_field_values, ...legacyData } = data;
+      return legacyData;
+    }
+    return { ...data, custom_field_values: buildCustomFieldValues(customFields.data.fields, data.custom_field_values) };
+  };
 
   useEffect(() => {
     if (isAccessReady) {
@@ -445,7 +466,7 @@ export default function MemberGroupManagementPage() {
   };
 
   const createGroupMutation = useMutation({
-    mutationFn: (data) => base44.entities.MemberGroup.create(data),
+    mutationFn: (data) => base44.entities.MemberGroup.create(withCustomFieldValues(data)),
     onSuccess: (created, data) => {
       queryClient.invalidateQueries({ queryKey: ['member-groups'] });
       setShowGroupDialog(false);
@@ -467,7 +488,7 @@ export default function MemberGroupManagementPage() {
   });
 
   const updateGroupMutation = useMutation({
-    mutationFn: ({ id, data }) => base44.entities.MemberGroup.update(id, data),
+    mutationFn: ({ id, data }) => base44.entities.MemberGroup.update(id, withCustomFieldValues(data)),
     onSuccess: (_result, { id, data }) => {
       queryClient.invalidateQueries({ queryKey: ['member-groups'] });
       setShowGroupDialog(false);
@@ -719,6 +740,7 @@ export default function MemberGroupManagementPage() {
   const resetGroupForm = () => {
     setGroupForm({
       name: '',
+      custom_field_values: {},
       description: '',
       who_is_it_for: '',
       about_the_group: '',
@@ -765,6 +787,7 @@ export default function MemberGroupManagementPage() {
     setEditingGroup(group);
     setGroupForm({
       name: group.name,
+      custom_field_values: copyCustomFieldValues(group.custom_field_values),
       description: group.description || '',
       who_is_it_for: group.who_is_it_for || '',
       about_the_group: group.about_the_group || '',
@@ -809,6 +832,7 @@ export default function MemberGroupManagementPage() {
     setEditingGroup(null);
     setGroupForm({
       name: `${group.name} (Copy)`,
+      custom_field_values: copyCustomFieldValues(group.custom_field_values),
       description: group.description || '',
       who_is_it_for: group.who_is_it_for || '',
       about_the_group: group.about_the_group || '',
@@ -907,6 +931,17 @@ export default function MemberGroupManagementPage() {
   };
 
   const handleSaveGroup = () => {
+    if (!customFields.ready) {
+      toast.error('Load custom field definitions successfully before saving this group.');
+      return;
+    }
+    let customFieldValues;
+    try {
+      customFieldValues = buildCustomFieldValues(customFields.data.fields, groupForm.custom_field_values);
+    } catch (error) {
+      toast.error(error.message);
+      return;
+    }
     if (!groupForm.name.trim()) {
       toast.error('Group name is required');
       return;
@@ -1103,6 +1138,7 @@ export default function MemberGroupManagementPage() {
 
     const payload = {
       ...groupForm,
+      custom_field_values: customFieldValues,
       roles: dedupedRoles,
       description: sanitizedDescription,
       who_is_it_for: sanitizedWhoIsItFor,
@@ -2190,6 +2226,12 @@ export default function MemberGroupManagementPage() {
                   data-testid="input-group-about"
                 />
               </div>
+
+              <CustomFieldInputs
+                definitions={customFields}
+                values={groupForm.custom_field_values}
+                onChange={(values) => setGroupForm((current) => ({ ...current, custom_field_values: values }))}
+              />
 
               <Collapsible open={torOpen} onOpenChange={setTorOpen}>
                 <CollapsibleTrigger asChild>
@@ -3504,7 +3546,7 @@ export default function MemberGroupManagementPage() {
               </Button>
               <Button
                 onClick={handleSaveGroup}
-                disabled={createGroupMutation.isPending || updateGroupMutation.isPending}
+                disabled={!customFields.ready || createGroupMutation.isPending || updateGroupMutation.isPending}
                 className="bg-blue-600 hover:bg-blue-700"
               >
                 {editingGroup ? 'Update' : 'Create'} Group
