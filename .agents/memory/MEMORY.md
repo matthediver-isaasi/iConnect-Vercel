@@ -157,3 +157,4 @@
 - [About-me Job Title](about-me-job-title.md) — never show a placeholder in the Job Title input.
 - [Homepage canonical authority](homepage-canonical-authority.md) — explicit clearing beats legacy fallback; mutable selections cannot create cached permanent aliases.
 - [Crawler semantic content](crawler-semantic-content.md) — unstyled crawler responses must retain complete public content and semantic headings, not flattened excerpts.
+- [Git authentication authority](git-authentication-authority.md) — connection health and public reads do not prove push authentication; a successful bypass is not a permanent repair.
