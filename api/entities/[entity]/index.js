@@ -2403,6 +2403,8 @@ export default async function handler(req, res) {
         // submissions must never be able to forge the authorization proof
         // consumed by browser, webhook, or cron finalizers.
         for (const field of [
+          'source',
+          'submission_email_state',
           'payment_status',
           'payment_provider',
           'payment_reference',

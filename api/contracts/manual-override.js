@@ -296,6 +296,7 @@ export default async function handler(req, res) {
         form_id: contractFormId,
         organization_id: formSubmission.organization_id,
         contract_instance_id: contractInstance.id,
+        source: 'synthetic_contract_override',
         submission_data: fullSubmissionData,
         created_date: effectiveDateISO,
         status: 'submitted'

@@ -58,6 +58,8 @@ import ScoreField from "@/components/forms/ScoreField";
 import { validateScoreFieldConfig, validateSurveyForPublish, getScoreRange, getScoreWeight } from "../../../api/_lib/surveyScoring.js";
 import { listOrganizationsForAdmin } from '@/lib/adminOrgList';
 import SurveyEventAssignmentsPanel from "@/components/surveys/SurveyEventAssignmentsPanel";
+import FormSubmissionAlerts from "@/components/forms/FormSubmissionAlerts";
+import { useFormAlertTenant } from "@/hooks/useFormAlerts";
 import {
   getEligibleRelationshipParents,
   getRelationshipDependentFields,
@@ -10854,7 +10856,9 @@ function FieldCard({
 }
 
 export default function FormBuilderPage() {
-  const { isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady, memberInfo, memberRole } = useMemberAccess();
+  const alertTenantId = useFormAlertTenant();
+  const canManageFormAlerts = isAccessReady && (memberRole?.is_tenant_admin === true || memberRole?.is_admin === true);
   const [accessChecked, setAccessChecked] = useState(false);
   const [formData, setFormData] = useState({
     name: "",
@@ -12836,11 +12840,12 @@ export default function FormBuilderPage() {
 
         {/* Tabs for organizing form sections */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className={`grid w-full ${formData.form_type === 'survey' ? 'grid-cols-7' : 'grid-cols-5'} mb-6`} data-testid="formbuilder-tabs">
+          <TabsList className={`grid w-full ${formData.form_type === 'survey' ? 'grid-cols-8' : 'grid-cols-6'} mb-6`} data-testid="formbuilder-tabs">
             <TabsTrigger value="builder" data-testid="tab-builder">Builder</TabsTrigger>
             <TabsTrigger value="settings" data-testid="tab-settings">Form Settings</TabsTrigger>
             <TabsTrigger value="submission" data-testid="tab-submission">Submission Settings</TabsTrigger>
             <TabsTrigger value="emails" data-testid="tab-emails">Emails</TabsTrigger>
+            <TabsTrigger value="alerts" data-testid="tab-alerts">Alerts</TabsTrigger>
             <TabsTrigger value="logic" data-testid="tab-logic">Conditional Logic</TabsTrigger>
             {formData.form_type === 'survey' && (
               <TabsTrigger value="survey" data-testid="tab-survey">Survey Settings</TabsTrigger>
@@ -14323,6 +14328,14 @@ export default function FormBuilderPage() {
                 </div>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="alerts">
+            <FormSubmissionAlerts
+              formId={existingForm?.id || null}
+              tenantId={alertTenantId}
+              canManage={canManageFormAlerts}
+            />
           </TabsContent>
 
           {/* Emails Tab */}

@@ -282,7 +282,7 @@ export function mailgunSuccessMetadata(
 // domain and skip tenant-domain resolution entirely, regardless of tenantId.
 // Tenant→member messages (welcomes, reminders, campaigns, form notifications)
 // continue to resolve off tenantId as before.
-export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bcc, skipFooter = false, tenantId = null, contentWidth = null, enableTracking = false, disableTracking = false, unsubscribeUrl = null, campaignPreferences = null, attachments = null, testMode = false, systemEmail = false, inboxDelivery = null, deadlineAt = null, campaignDeadlineAt = null, resolveTransactionalPreferences = true, includeRenderedContent = false }, dependencies = {}) {
+export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bcc, skipFooter = false, tenantId = null, contentWidth = null, enableTracking = false, disableTracking = false, unsubscribeUrl = null, campaignPreferences = null, attachments = null, testMode = false, systemEmail = false, inboxDelivery = null, deadlineAt = null, campaignDeadlineAt = null, resolveTransactionalPreferences = true, includeRenderedContent = false, confidentialDiagnostics = false }, dependencies = {}) {
   if (deadlineAt && deadlineAt - Date.now() < MAILGUN_TIMEOUT_MS) {
     return { success: false, error: 'Worker deadline exhausted before Mailgun delivery' };
   }
@@ -510,7 +510,7 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
         if (campaignDeadlineAt != null && campaignDeadlineAt - Date.now() < campaignTimeout + 2000) {
           return { success: false, notSubmitted: true, error: 'Campaign deadline exhausted before fallback delivery' };
         }
-        console.warn(`[Email Service] Tenant domain ${domain} failed (${errorMsg}), falling back to ${fallbackDomain}`);
+        console.warn(`[Email Service] Tenant domain ${domain} failed (${confidentialDiagnostics ? 'provider rejected request' : errorMsg}), falling back to ${fallbackDomain}`);
         
         // Update from address to use fallback domain
         const fallbackFrom = from || defaultFrom;
@@ -535,7 +535,8 @@ export async function sendEmail({ to, subject, html, text, from, replyTo, cc, bc
     }
   } catch (error) {
     const status = error?.status || error?.statusCode || error?.response?.status;
-    const errMsg = error?.message || String(error) || 'Unknown error sending email';
+    const errMsg = confidentialDiagnostics ? 'Confidential email delivery failed'
+      : error?.message || String(error) || 'Unknown error sending email';
     console.error(
       `[Email Service] Failed to send email: status=${status || 'n/a'} domain=${domain} message="${errMsg}"`
     );

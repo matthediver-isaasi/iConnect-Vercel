@@ -40,6 +40,7 @@
 - [Billing, import, and evidence topics](billing-import-evidence-index.md) — index of durable rules for CSV imports, accounting/Xero invoices, BNMS reconciliation, and private report recovery.
 - [Job posting payment legacy pitfalls](job-posting-payment-legacy.md) — non-member postings have NULL tenant_id; legacy admin-notify filter mass-emails the whole tenant, use is_admin roles + hard cap.
 - [Form and submission topics](form-submission-index.md) — focused index of form, submission, mapping, validation, and payment-entry rules.
+- [Anonymous form alerts](anonymous-form-alert-policy.md) — owner-approved redacted alerts do not authorize identity-dependent emails or named completion-to-answer joins.
 - [Country name resolution & LMIC surfaces](country-name-resolution.md) — stored countries include WB-style names; always resolve via resolveCountryToIso2 (+aliases); LMIC needs element-level pruning on measure AND group-by paths.
 - [Membership payment topics](membership-payment-topics.md) — payment reconciliation, settlement, card plans, direct debit, arrears, and activation.
 - [RBAC map-driven parent resolution](rbac-parent-resolution.md) — parent lookups via map nesting, never dot-prefix; enforcement is a UNION of hardcoded map + role_access_item DB overlay; legacy mapping is generated, never hand-copied.

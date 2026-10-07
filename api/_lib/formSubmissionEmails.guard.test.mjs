@@ -170,6 +170,9 @@ test('configured email projects hidden row cells and metadata after raw chained 
     },
   };
   const result = await sendSubmissionEmails({
+    // The rendered-recipient fixture must not use the real transport even
+    // when this workspace happens to have delivery credentials configured.
+    sendEmailFn: async () => ({ success: true, messageId: 'isolated-fixture' }),
     supabase: db,
     form,
     formValues: {

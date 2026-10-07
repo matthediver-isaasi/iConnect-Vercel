@@ -99,6 +99,7 @@ export default async function handler(req, res) {
     const newFormValues = prepared.values;
 
     const newFormSubmission = {
+      source: 'synthetic_dd_swap',
       form_id: targetFormId,
       tenant_id: tenantCtx.tenantId,
       organization_id: organizationId,

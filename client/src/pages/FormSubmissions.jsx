@@ -53,6 +53,8 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { downloadSubmissionsDocx, resolveAwardType, sanitizeFileName } from "@/lib/formSubmissionWordExport";
 import SubmissionReplies from "@/components/forms/SubmissionReplies";
+import RevokeSubmissionAlert from "@/components/forms/RevokeSubmissionAlert";
+import { useFormAlertTenant } from "@/hooks/useFormAlerts";
 import { listAllOrganizationsForAdmin } from '@/lib/adminOrgList';
 import {
   collectRelationshipRecordIdsFromSubmissions,
@@ -167,7 +169,9 @@ function extractSubmissionEmail(submission, fields) {
 }
 
 export default function FormSubmissionsPage() {
-  const { memberInfo, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const { memberInfo, memberRole, isFeatureExcluded, isAccessReady } = useMemberAccess();
+  const alertTenantId = useFormAlertTenant();
+  const canRevokeFormAlerts = isAccessReady && (memberRole?.is_tenant_admin === true || memberRole?.is_admin === true);
   const [accessChecked, setAccessChecked] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
@@ -220,6 +224,9 @@ export default function FormSubmissionsPage() {
     setSearchParams(filterQueryString ? filterQueryString.slice(1) : '', { replace: true });
   }, [filterQueryString, setSearchParams]);
   const [viewingSubmission, setViewingSubmission] = useState(null);
+  useEffect(() => {
+    setViewingSubmission(null);
+  }, [alertTenantId]);
   const [submissionToDelete, setSubmissionToDelete] = useState(null);
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [exportFormat, setExportFormat] = useState('csv');
@@ -2561,6 +2568,15 @@ export default function FormSubmissionsPage() {
                             <RotateCcw className="w-4 h-4" />
                           )}
                         </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setViewingSubmission(submission)}
+                          data-testid={`button-preview-submission-${submission.id}`}
+                        >
+                          Quick view
+                        </Button>
                         <Link to={`/FormSubmission/${submission.id}?back=${encodeURIComponent(`${location.pathname}${filterQueryString}`)}`}>
                           <Button
                             variant="outline"
@@ -2941,6 +2957,14 @@ export default function FormSubmissionsPage() {
                   })}
                 </div>
               </div>
+              {canRevokeFormAlerts && alertTenantId && (
+                <RevokeSubmissionAlert
+                  key={`${alertTenantId}:${viewingSubmission.id}`}
+                  tenantId={alertTenantId}
+                  formId={viewingSubmission.form_id}
+                  submissionId={viewingSubmission.id}
+                />
+              )}
             </div>
           )}
         </DialogContent>

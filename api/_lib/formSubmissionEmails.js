@@ -544,6 +544,7 @@ export async function sendSubmissionEmails({
   createdOrganizationId = null,
   baseUrl = '',
   deadlineAt = null,
+  sendEmailFn = sendEmail,
 }) {
   if (await submissionUsesAnonymousCompletion(supabase, form, submissionId)) {
     return { success: true, skipped: true, reason: 'Anonymous completion survey', emails: [] };
@@ -996,7 +997,7 @@ export async function sendSubmissionEmails({
     }
 
     console.log('[SubmissionEmails] Sending email to:', toEmail, 'subject:', emailSubject);
-    const emailResult = await sendEmail({
+    const emailResult = await sendEmailFn({
       to: toEmail,
       subject: emailSubject,
       html: emailBody,

@@ -1,4 +1,8 @@
 const SERVER_OWNED_ENTITY_NAMES = new Set([
+  'formalertsettings',
+  'formalertdelivery',
+  'formalertreadlimit',
+  'formalertsubmissionsnapshot',
   'publicticketmemberpurchase',
   'publicticketmemberlink',
   'surveycompletion',
