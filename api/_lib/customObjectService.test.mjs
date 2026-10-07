@@ -362,7 +362,10 @@ function mockDb(seed = {}, rpcErrors = {}) {
                 && edge.relationship_definition_id === hop.relationship_definition_id
                 && edge.archived_at == null
                 && ids.includes(edge[routed]))
-                .map((edge) => edge[other]);
+                .map((edge) => edge[other])
+                .filter((id) => hop.endpoint_kind !== 'member' || !(tables.member || []).some(
+                  (member) => member.id === id && /^deleted_.+@deleted[.]local$/i.test(member.email || ''),
+                ));
             }
             return { record_id: recordId, count: new Set(ids).size };
           });
@@ -803,6 +806,166 @@ function relatedFilterFixture() {
     custom_object_relationship_definition: [relationship],
   } };
 }
+
+function indicatorFixture() {
+  const { relationship, seed, definition } = relatedFilterFixture();
+  const roots = ['zero', 'one', 'many', 'mixed', 'missing', 'null', 'other-department', 'deleted-only'];
+  seed.custom_object_record = roots.map((id) => ({
+    id, tenant_id: tenantId, custom_object_id: objectId, archived_at: null, data: { name: id },
+  }));
+  seed.preference_field = [field({ id: 'department-name', name: 'name', label: 'Department name', field_type: 'text' })];
+  seed.member = [
+    { id: 'shared', tenant_id: tenantId, first_name: 'Shared', email: 'shared@example.test' },
+    { id: 'second', tenant_id: tenantId, first_name: 'Second', email: 'second@example.test' },
+    { id: 'deleted', tenant_id: tenantId, first_name: 'Deleted', email: 'deleted_123@deleted.local' },
+  ];
+  const links = [
+    ['one', 'shared', true], ['many', 'shared', true], ['many', 'second', true],
+    ['mixed', 'shared', false], ['mixed', 'second', true], ['missing', 'shared', undefined],
+    ['null', 'shared', null], ['other-department', 'shared', false], ['deleted-only', 'deleted', true],
+  ];
+  seed.custom_object_relationship = links.map(([root, member, value], index) => ({
+    id: `edge-${index}`, tenant_id: tenantId, relationship_definition_id: relationship.id,
+    source_record_id: root, target_record_id: member, archived_at: null,
+    field_values: value === undefined ? {} : { responder: value },
+  }));
+  const orgLink = { ...relationship, id: 'department-organisation', target_kind: 'organization', configuration: {} };
+  seed.custom_object_relationship_definition.push(orgLink);
+  seed.organization = [{ id: 'org', tenant_id: tenantId, name: 'Hospital' }];
+  seed.custom_object_relationship.push({
+    id: 'org-edge', tenant_id: tenantId, relationship_definition_id: orgLink.id,
+    source_record_id: 'one', target_record_id: 'org', archived_at: null,
+  });
+  const filter = definition.filters[0];
+  definition.filters = [];
+  definition.columns = [
+    { kind: 'field', field_id: 'department-name', path: [], label: 'Department' },
+    { kind: 'field', field: 'name', path: [{ relationship_definition_id: orgLink.id, from_side: 'source' }], label: 'Organisation' },
+    { kind: 'count_distinct', path: filter.path, label: 'Members' },
+    { kind: 'exists_related', path: filter.path, conditions: filter.conditions, label: 'Has survey responder' },
+  ];
+  return { seed, definition, relationship };
+}
+
+test('indicator department report retains every department, independent counts and explicit preview/export booleans', async () => {
+  const { seed, definition } = indicatorFixture();
+  const original = structuredClone(definition);
+  const db = mockDb(seed);
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  const preview = await service.previewReport(objectId, { definition });
+  const values = Object.fromEntries(preview.data.map((row) => [row.values[0], row.values.slice(1)]));
+  assert.deepEqual(values, {
+    zero: ['', 0, 'False'], one: ['Hospital', 1, 'True'], many: ['', 2, 'True'],
+    mixed: ['', 2, 'True'], missing: ['', 1, 'False'], null: ['', 1, 'False'],
+    'other-department': ['', 1, 'False'], 'deleted-only': ['', 0, 'False'],
+  });
+  assert.deepEqual(definition, original);
+  let job = await service.exportReport(objectId, { action: 'start', definition });
+  assert.deepEqual(job.definition, original);
+  job = await service.exportReport(objectId, { action: 'process', job_id: job.id });
+  assert.equal(job.status, 'complete');
+  const csv = db.tables.custom_object_report_export_chunk.map((chunk) => chunk.csv_text).join('');
+  assert.match(csv, /one,Hospital,1,True/);
+  assert.match(csv, /zero,,0,False/);
+  assert.match(csv, /mixed,,2,True/);
+  assert.ok(!db.calls.some((call) => call.name === 'custom_object_report_filtered_summary_page'));
+});
+
+test('indicator conditions cannot combine matching siblings and use the final edge of multihop paths', async () => {
+  const { seed, definition, relationship } = indicatorFixture();
+  const indicator = definition.columns[3];
+  indicator.conditions.push({ kind: 'field', field: 'first_name', op: 'equals', value: 'Shared' });
+  const db = mockDb(seed);
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  let preview = await service.previewReport(objectId, { definition });
+  assert.equal(preview.data.find((row) => row.values[0] === 'mixed').values[3], 'False');
+  assert.equal(preview.data.find((row) => row.values[0] === 'many').values[3], 'True');
+  // Organisation -> Department -> Member, with conditions still on the Member edge.
+  definition.start_endpoint = { kind: 'organization' };
+  definition.columns = [{ ...indicator, path: [
+    { relationship_definition_id: 'department-organisation', from_side: 'target' },
+    { relationship_definition_id: relationship.id, from_side: 'source' },
+  ] }];
+  preview = await service.previewReport(objectId, { definition });
+  assert.deepEqual(preview.data.map((row) => row.values), [['True']]);
+});
+
+test('indicator traversal pages beyond provider limits without per-root reads or false negatives', async () => {
+  const { seed, definition, relationship } = indicatorFixture();
+  seed.member.push(...Array.from({ length: 1205 }, (_, index) => ({
+    id: `fan-${index}`, tenant_id: tenantId, first_name: 'Fan', email: `fan-${index}@example.test`,
+  })));
+  seed.custom_object_relationship.push(...Array.from({ length: 1205 }, (_, index) => ({
+    id: `fan-edge-${String(index).padStart(5, '0')}`, tenant_id: tenantId,
+    relationship_definition_id: relationship.id, source_record_id: 'zero',
+    target_record_id: `fan-${index}`, archived_at: null, field_values: { responder: index === 1204 },
+  })));
+  definition.columns = [definition.columns[0], definition.columns[3]];
+  const db = mockDb(seed, { __relationshipSelectCap: 1000 });
+  const preview = await createCustomObjectService({ db, context: context(), isAdmin: true })
+    .previewReport(objectId, { definition });
+  assert.equal(preview.data.find((row) => row.values[0] === 'zero').values[1], 'True');
+  assert.equal(db.calls.filter((call) => call.table === 'custom_object_relationship' && call.type === 'range').length, 2);
+});
+
+test('indicator metadata and malformed conditions fail closed even for empty reports', async () => {
+  for (const change of [
+    (r) => { r.columns[3].conditions[0].value = 'true'; },
+    (r) => { r.columns[3].conditions[0].relationship_field_id = 'missing'; },
+    (r) => { r.columns[3].conditions = null; },
+    (r) => { r.columns[3].path = []; },
+    (r) => { r.columns[3].path[0].relationship_definition_id = 'missing'; },
+    (_r, s) => { s.custom_object_relationship_definition[0].show_on_source = false; },
+    (_r, s) => { s.custom_object_relationship_definition[0].configuration.relationship_fields[0].display_on_source = false; },
+    (r) => { r.version = 1; },
+  ]) {
+    const { seed, definition } = indicatorFixture();
+    seed.custom_object_record = [];
+    change(definition, seed);
+    const db = mockDb(seed);
+    await assert.rejects(() => createCustomObjectService({ db, context: context(), isAdmin: true })
+      .previewReport(objectId, { definition }));
+    assert.equal(db.calls.some((call) => call.name === 'custom_object_report_summary_page'), false);
+  }
+});
+
+test('indicator execution errors fail preview/export rather than publishing False', async () => {
+  const { seed, definition } = indicatorFixture();
+  definition.columns = [definition.columns[0], definition.columns[3]];
+  const db = mockDb(seed);
+  const from = db.from.bind(db);
+  db.from = (table) => {
+    const query = from(table);
+    if (table === 'custom_object_relationship') {
+      query.execute = () => ({ data: null, error: { message: 'Fixture traversal unavailable' } });
+    }
+    return query;
+  };
+  const service = createCustomObjectService({ db, context: context(), isAdmin: true });
+  await assert.rejects(() => service.previewReport(objectId, { definition }), /Fixture traversal unavailable/);
+  const job = await service.exportReport(objectId, { action: 'start', definition });
+  // Export error is durable and must not commit a CSV chunk of invented negatives.
+  await assert.rejects(() => service.exportReport(objectId, { action: 'process', job_id: job.id }), /Fixture traversal unavailable/);
+  assert.equal(db.tables.custom_object_report_export_chunk?.length || 0, 0);
+});
+
+test('indicators obey endpoint access and final custom-field permissions before querying data', async () => {
+  const { seed, definition } = indicatorFixture();
+  const db = mockDb(seed);
+  await assert.rejects(() => createCustomObjectService({
+    db, context: context(), isAdmin: false, accessItems: ['data.custom-objects.view-records'],
+  }).previewReport(objectId, { definition }), (error) => error.status === 403);
+  const childId = '44444444-4444-4444-8444-444444444444';
+  seed.custom_object_definition.push(object({ id: childId, object_key: 'child' }));
+  seed.custom_object_relationship_definition[0].target_kind = 'custom_object';
+  seed.custom_object_relationship_definition[0].target_custom_object_id = childId;
+  definition.columns = [{ ...definition.columns[3], conditions: [
+    { kind: 'field', field_id: 'unknown-child-field', op: 'equals', value: 'x' },
+  ] }];
+  await assert.rejects(() => createCustomObjectService({
+    db: mockDb(seed), context: context(), isAdmin: true,
+  }).previewReport(objectId, { definition }), /Report filter field is unavailable/);
+});
 
 test('related filters normalize once per execution and survive preview and durable CSV export', async () => {
   const { definition, seed } = relatedFilterFixture();

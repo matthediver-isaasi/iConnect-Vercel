@@ -77,6 +77,31 @@ const RELATIONSHIP_FIELD_TYPES = new Set(['boolean']);
 const V2_REPORT_MAX_CELL_EXPANSION = 10_000;
 const V2_REPORT_MAX_PAGE_EXPANSION = 100_000;
 
+// Mirrors custom_object_report_filter_value: typed, literal comparisons and
+// all conditions on one endpoint/final-edge occurrence (never sibling values).
+function reportConditionMatches(occurrence, condition, endpoint) {
+  const { key, type, op, value: expected } = condition;
+  const record = occurrence.record;
+  const actual = condition.kind === 'relationship_field'
+    ? occurrence.edges.at(-1)?.field_values?.[key]
+    : endpoint.kind === 'custom_object' ? record.data?.[key]
+      : key === 'full_name' ? [record.first_name, record.last_name].filter((value) => value != null).join(' ').trim()
+        : record[key];
+  const empty = actual == null || actual === '';
+  if (op === 'is_empty') return empty;
+  if (op === 'is_not_empty') return !empty;
+  if (empty) return false;
+  if (['number', 'decimal'].includes(type)) {
+    if (typeof actual !== 'number' || !Number.isFinite(actual)) return false;
+    return { equals: () => actual === expected, gt: () => actual > expected,
+      gte: () => actual >= expected, lt: () => actual < expected,
+      lte: () => actual <= expected }[op]();
+  }
+  if (type === 'boolean') return typeof actual === 'boolean' && actual === expected;
+  if (typeof actual !== 'string') return false;
+  return op === 'contains' ? actual.toLowerCase().includes(expected.toLowerCase()) : actual === expected;
+}
+
 function relationshipFieldDefinitions(definition) {
   const configuration = definition?.configuration;
   if (!configuration || typeof configuration !== 'object' || Array.isArray(configuration)) return [];
@@ -4352,7 +4377,7 @@ export function createCustomObjectService({
       if (column.empty_label !== undefined && typeof column.empty_label !== 'string') {
         throw new CustomObjectHttpError(400, 'Report column empty_label must be a string');
       }
-      if (column.kind === 'count_distinct') {
+      if (['count_distinct', 'exists_related'].includes(column.kind)) {
         if (!Array.isArray(column.path) || !column.path.length) {
           throw new CustomObjectHttpError(
             400,
@@ -4364,14 +4389,15 @@ export function createCustomObjectService({
           ...column,
           path,
           label: column.label || 'Count',
-          countDistinct: true,
+          countDistinct: column.kind === 'count_distinct',
+          existsRelated: column.kind === 'exists_related',
         });
         continue;
       }
       if (!['field', 'relationship_field'].includes(column.kind)) {
         throw new CustomObjectHttpError(
           400,
-          'Report column kind must be field, relationship_field, or count_distinct',
+          'Report column kind must be field, relationship_field, count_distinct, or exists_related',
         );
       }
       const path = await resolvePath(column.path ?? [], 'Report column path', startEndpoint);
@@ -4428,7 +4454,16 @@ export function createCustomObjectService({
       throw new CustomObjectHttpError(400, 'Report filters must be an array of at most 10 filters');
     }
     const filters = [];
-    for (const filter of report.filters || []) {
+    // Indicators use exactly the same permission and condition validation as
+    // row filters, but never enter the summary query's row-filter list.
+    const indicatorColumns = resolvedColumns.filter((column) => column.existsRelated);
+    const predicates = [
+      ...(report.filters || []).map((filter) => ({ filter })),
+      ...indicatorColumns.map((column) => ({
+        column, filter: { mode: 'any', path: reportRpcPath(column.path.hops), conditions: column.conditions },
+      })),
+    ];
+    for (const { filter, column } of predicates) {
       if (!filter || !['any', 'none'].includes(filter.mode)
         || !Array.isArray(filter.path) || !filter.path.length
         || !Array.isArray(filter.conditions) || filter.conditions.length > 10) {
@@ -4487,7 +4522,8 @@ export function createCustomObjectService({
         }
         conditions.push({ ...condition, type, key });
       }
-      filters.push({ mode: filter.mode, path: reportRpcPath(path.hops), conditions });
+      if (column) column.conditions = conditions;
+      else filters.push({ mode: filter.mode, path: reportRpcPath(path.hops), conditions });
     }
     return {
       version: 2, report, startEndpoint, grain, columns: resolvedColumns, filters,
@@ -4558,6 +4594,7 @@ export function createCustomObjectService({
     const resolvedColumns = [];
     for (const column of columns) {
       if (!column || typeof column !== 'object') throw new CustomObjectHttpError(400, 'Report column is malformed');
+      if (column.kind === 'exists_related') throw new CustomObjectHttpError(400, 'Related-record indicators require an explicit version 2 report');
       const path = await resolvePath(column.path ?? [], 'Report column path');
       const fieldId = String(column.field_id ?? column.fieldId ?? '');
       const relationshipFieldId = String(column.relationship_field_id ?? column.relationshipFieldId ?? '');
@@ -4602,6 +4639,7 @@ export function createCustomObjectService({
       if (endpoint_.kind === 'custom_object') query = query.eq('custom_object_id', endpoint_.customObjectId).is('archived_at', null);
       const { data, error } = await query;
       throwDb(error);
+      if (!Array.isArray(data)) throw new CustomObjectHttpError(500, 'Report endpoint query returned a malformed result');
       for (const row of data || []) output.set(String(row.id), row);
     }
     return output;
@@ -4664,7 +4702,8 @@ export function createCustomObjectService({
         if (afterId) query = query.gt('id', afterId);
         const { data, error } = await query.range(0, 999);
         throwDb(error);
-        const page = data || [];
+        if (!Array.isArray(data)) throw new CustomObjectHttpError(500, 'Report traversal query returned a malformed result');
+        const page = data;
         for (const edge of page) {
           const routedId = String(edge[routed]);
           for (const [rootId, occurrences] of rootsByRoutedId.get(routedId) || []) {
@@ -4750,9 +4789,9 @@ export function createCustomObjectService({
       throw new CustomObjectHttpError(503, 'Related-record report filters require migration 20261011_custom_object_report_filters.sql on the destination database');
     }
     throwReportV2RpcDb(error);
-    if (validated.filters.length && (!summary || !Array.isArray(summary.rows)
+    if ((validated.filters.length || validated.columns.some((column) => column.existsRelated)) && (!summary || !Array.isArray(summary.rows)
       || typeof summary.has_more !== 'boolean')) {
-      throw new CustomObjectHttpError(503, 'Filtered report query returned a malformed result');
+      throw new CustomObjectHttpError(503, 'Report query returned a malformed result');
     }
     const summaryRows = Array.isArray(summary?.rows) ? summary.rows : [];
     const endpoints = [validated.startEndpoint, ...validated.grain.hops.map((hop) => hop.endpoint)];
@@ -4774,6 +4813,36 @@ export function createCustomObjectService({
       return item.record[column.coreField];
     };
     const countValues = new Map();
+    const indicatorValues = new Map();
+    const indicatorGroups = new Map();
+    for (const column of validated.columns.filter((item) => item.existsRelated)) {
+      const key = JSON.stringify(reportRpcPath(column.path.hops));
+      const group = indicatorGroups.get(key) || { path: column.path, columns: [] };
+      group.columns.push(column);
+      indicatorGroups.set(key, group);
+    }
+    const indicatorBudget = { expanded: 0 };
+    for (const group of indicatorGroups.values()) {
+      const roots = ancestryMaps[validated.grain.hops.length];
+      let occurrences = [...roots.values()]
+        .filter((record) => validated.grain.endpoint.kind !== 'member' || !isDeletedRelationshipMember(record))
+        .map((record) => ({ record, root: record, edges: [] }));
+      for (const hop of group.path.hops) {
+        occurrences = await reportFollowV2(occurrences, hop, indicatorBudget);
+        if (hop.endpoint.kind === 'member') {
+          occurrences = occurrences.filter((item) => !isDeletedRelationshipMember(item.record));
+        }
+      }
+      for (const column of group.columns) {
+        const matches = new Set();
+        for (const occurrence of occurrences) {
+          if (column.conditions.every((condition) => reportConditionMatches(occurrence, condition, group.path.endpoint))) {
+            matches.add(String(occurrence.root.id));
+          }
+        }
+        indicatorValues.set(column, matches);
+      }
+    }
     for (const column of validated.columns.filter((item) => item.countDistinct)) {
       const terminalIndex = validated.grain.hops.length;
       const startRecordIds = [...new Set(summaryRows.map((row) => row.record_ids?.[terminalIndex])
@@ -4817,7 +4886,7 @@ export function createCustomObjectService({
     }
     const fieldPlans = new Map();
     const fieldTraversalGroups = new Map();
-    for (const column of validated.columns.filter((item) => !item.countDistinct)) {
+    for (const column of validated.columns.filter((item) => !item.countDistinct && !item.existsRelated)) {
       let common = 0;
       while (common < column.path.hops.length
         && common < validated.grain.hops.length
@@ -4865,6 +4934,10 @@ export function createCustomObjectService({
         ancestryMaps[index].get(String(recordIds[index] || '')) || null);
       const row = { id: summaryRow.id, values: [] };
       for (const column of validated.columns) {
+        if (column.existsRelated) {
+          row.values.push(indicatorValues.get(column).has(String(recordIds[validated.grain.hops.length])) ? 'True' : 'False');
+          continue;
+        }
         if (column.countDistinct) {
           const startRecordId = recordIds[validated.grain.hops.length] || null;
           if (!startRecordId || !ancestry.at(-1)) {

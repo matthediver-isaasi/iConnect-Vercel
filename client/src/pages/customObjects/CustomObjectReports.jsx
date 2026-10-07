@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import "./ReportBuilder.css";
 import { useMutation, useQueries } from "@tanstack/react-query";
 import { Download, Loader2, Plus, Trash2, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
@@ -12,9 +13,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { loadCustomObjectFields, relationshipRequest } from "./relationshipApi";
 import { resolveRelationshipPickerPath } from "./relationshipHelpers";
 import { ReportRelationshipFilters } from "./ReportRelationshipFilters";
+import { ReportRelationshipSelector } from "./ReportRelationshipSelector";
+import { ReportIndicatorEditor } from "./ReportIndicatorEditor";
 import {
   endpointKey, endpointLabel, loadReportConfig, makeReportConfig, moveReportColumn,
-  reconcileReportConfig, reportPathLabel,
+  reconcileReportConfig, reportPathLabel, reportColumnSummary, reportReachableEndpoints,
 } from "./reportHelpers.mjs";
 
 const reportUrl = (objectId, action) => `/api/custom-objects/${objectId}/report-${action}`;
@@ -41,21 +44,6 @@ const CORE_FIELDS = {
     { id: "name", label: "Name" },
   ],
 };
-const allPaths = (definitions, start) => {
-  const result = [[]];
-  const visit = (path) => {
-    const resolved = resolveRelationshipPickerPath({
-      definitions, start, path, maxHops: 6,
-    });
-    resolved.options.forEach(({ definition, from_side }) => {
-      const next = [...path, { relationship_definition_id: String(definition.id), from_side }];
-      result.push(next);
-      visit(next);
-    });
-  };
-  visit([]);
-  return result;
-};
 
 export function CustomObjectReports({
   object,
@@ -76,6 +64,8 @@ export function CustomObjectReports({
   const [config, setConfig] = useState(() =>
     initialConfig ? loadReportConfig(objectId, initialConfig) : makeReportConfig(objectId));
   const [columnPath, setColumnPath] = useState([]);
+  const [addingColumn, setAddingColumn] = useState(false);
+  const [columnKind, setColumnKind] = useState("field");
   const [page, setPage] = useState(1);
   const [preview, setPreview] = useState(null);
   const [exportProgress, setExportProgress] = useState(null);
@@ -88,17 +78,7 @@ export function CustomObjectReports({
       column && typeof column === "object" && !Array.isArray(column))
     : [];
   const ownerEndpoint = useMemo(() => startEndpoint(objectId), [objectId]);
-  const ownerPaths = useMemo(() => allPaths(graph, ownerEndpoint), [graph, ownerEndpoint]);
-  const endpoints = useMemo(() => {
-    const unique = new Map();
-    ownerPaths.forEach((path) => {
-      const endpoint = resolveRelationshipPickerPath({
-        definitions: graph, start: ownerEndpoint, path, maxHops: 6,
-      }).endpoint;
-      unique.set(endpointKey(endpoint), endpoint);
-    });
-    return [...unique.values()];
-  }, [ownerPaths, graph, ownerEndpoint]);
+  const endpoints = useMemo(() => reportReachableEndpoints(graph, ownerEndpoint), [graph, ownerEndpoint]);
   const customEndpoints = endpoints.filter((item) => item.kind === "custom_object" && item.customObjectId);
   const fieldQueries = useQueries({
     queries: customEndpoints.map((endpoint) => ({
@@ -120,6 +100,8 @@ export function CustomObjectReports({
   const reconciled = useMemo(() => reconcileReportConfig({
     config, objectId, definitions: graph, fieldsByEndpoint, metadataLoading: graphLoading,
   }), [config, objectId, graph, fieldsByEndpoint, graphLoading]);
+  const executionBlocked = graphLoading || reconciled.stale.length > 0
+    || reconciled.filtersPending || reconciled.indicatorsPending || !renderedColumns.length;
 
   useEffect(() => {
     setConfig((current) => current == null || typeof current !== "object"
@@ -132,15 +114,19 @@ export function CustomObjectReports({
     onConfigChange?.(config);
   }, [config, onConfigChange]);
   const previewMutation = useMutation({
-    mutationFn: (requestedPage) => relationshipRequest(reportUrl(objectId, "preview"), {
+    mutationFn: (requestedPage) => {
+      if (executionBlocked) throw new Error("Resolve unavailable selections and wait for report metadata before preview.");
+      return relationshipRequest(reportUrl(objectId, "preview"), {
       method: "POST",
       body: JSON.stringify({ definition: reconciled.config, page: requestedPage, pageSize: 50 }),
-    }),
+      });
+    },
     onSuccess: (data, requestedPage) => { setPreview(data); setPage(requestedPage); },
-    onError: (error) => toast.error(error.message),
+    onError: (error) => { setPreview(null); toast.error(error.message); },
   });
   const exportMutation = useMutation({
     mutationFn: async () => {
+      if (executionBlocked) throw new Error("Resolve unavailable selections and wait for report metadata before export.");
       const storageKey = `custom-object-report-export:${objectId}`;
       const downloadCsv = (parts, name) => {
         const blob = new Blob(parts, { type: "text/csv;charset=utf-8;" });
@@ -193,11 +179,11 @@ export function CustomObjectReports({
     onError: (error) => toast.error(error.message),
   });
   useEffect(() => {
-    if (objectId && window.localStorage.getItem(`custom-object-report-export:${objectId}`)
+    if (!executionBlocked && objectId && window.localStorage.getItem(`custom-object-report-export:${objectId}`)
       && !exportMutation.isPending) exportMutation.mutate();
     // Resume a durable export once when this report screen mounts.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [objectId]);
+  }, [objectId, executionBlocked]);
   const apply = (report) => {
     setConfig(loadReportConfig(objectId, report.config));
     setColumnPath([]);
@@ -217,15 +203,10 @@ export function CustomObjectReports({
     && !Array.isArray(configView.start_endpoint)
     ? configView.start_endpoint
     : ownerEndpoint;
-  const paths = useMemo(() => allPaths(graph, selectedStart), [graph, selectedStart]);
-  const selectedPath = safePickerPath(configView.grain_path);
   const selectedEndpoint = reconciled.rowEndpoint;
-  const countPaths = useMemo(
-    () => allPaths(graph, selectedEndpoint).filter((path) => path.length),
-    [graph, selectedEndpoint],
-  );
+  const calculation = ["count_distinct", "exists_related"].includes(columnKind);
   const columnEndpoint = resolveRelationshipPickerPath({
-    definitions: graph, start: selectedStart, path: columnPath, maxHops: 6,
+    definitions: graph, start: calculation ? selectedEndpoint : selectedStart, path: columnPath, maxHops: 6,
   }).endpoint;
   const availableFields = columnEndpoint.kind === "custom_object"
     ? [{ id: "id", label: "ID", builtIn: true }, ...(fieldsByEndpoint[endpointKey(columnEndpoint)] || [])]
@@ -260,15 +241,23 @@ export function CustomObjectReports({
       label: `Distinct ${endpointLabel(endpoint, graphObjects, object)} count`,
     }]);
   };
+  const addIndicatorColumn = () => {
+    setColumns((current) => [...current, {
+      id: `indicator:${globalThis.crypto?.randomUUID?.() || Date.now()}`,
+      kind: "exists_related", path: columnPath, conditions: [],
+      label: `Has matching ${endpointLabel(columnEndpoint, graphObjects, object)}`,
+    }]);
+    setAddingColumn(false);
+  };
   const dirty = !saved.activeReport || JSON.stringify(saved.activeReport.config) !== JSON.stringify(config);
   const unsupportedVersion = ![1, 2].includes(configView.version);
   const rows = preview?.rows || preview?.data || [];
   const headers = preview?.headers || preview?.columns || renderedColumns.map((column) => column.label || column.field_id);
 
-  return <div className="space-y-5">
+  return <div className="custom-object-report-builder min-w-0 max-w-full space-y-5 [overflow-wrap:anywhere]">
     <Card>
       <CardHeader><CardTitle className="text-lg">Shared reports</CardTitle><CardDescription>Reports are shared with other authorised administrators. Paths and fields are checked again by the server before preview or export.</CardDescription></CardHeader>
-      <CardContent className="space-y-5">
+      <CardContent className="min-w-0 space-y-5">
         {canManage ? <ExportReportSwitcher reports={saved.reports} activeReportId={saved.activeReportId} isDirty={dirty} isSaving={saved.isSaving}
           onApplyReport={(report) => { saved.setActiveReportId(report.id); apply(report); }}
           onClearReport={() => saved.setActiveReportId(null)}
@@ -278,53 +267,93 @@ export function CustomObjectReports({
           onDeleteReport={(report) => saved.deleteReport(report.id)}
           testIdPrefix="custom-object-report" /> : <p className="text-sm text-slate-500">You can view report settings but need Custom Object management access to save shared reports.</p>}
         {reconciled.stale.length > 0 && <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"><TriangleAlert className="mr-2 inline h-4 w-4" />{reconciled.stale.join(" ")}{unsupportedVersion && canManage && <Button type="button" size="sm" variant="outline" className="ml-3" onClick={() => { setConfig(makeReportConfig(objectId)); setPreview(null); saved.setActiveReportId(null); }}>Start a current-version report</Button>}</div>}
-        {isV2 && <div data-testid="report-start-entity"><Label>Start entity</Label><Select disabled={!canManage} value={endpointKey(selectedStart)} onValueChange={(value) => {
+        {isV2 && <details className="min-w-0 rounded-md border p-3"><summary className="cursor-pointer text-sm font-medium">Advanced: starting entity <span title={endpointLabel(selectedStart, graphObjects, object)} className="mt-1 text-xs font-normal text-slate-500 line-clamp-2">{endpointLabel(selectedStart, graphObjects, object)}</span></summary><div className="mt-3" data-testid="report-start-entity"><Label>Start entity</Label><Select disabled={!canManage || graphLoading} value={endpointKey(selectedStart)} onValueChange={(value) => {
           const endpoint = endpoints.find((item) => endpointKey(item) === value);
           if (!endpoint) return;
           editConfig((current) => ({ ...current, start_endpoint: endpoint, grain_path: [], columns: [] }));
           setColumnPath([]);
-        }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>
+        }}><SelectTrigger aria-label="Advanced starting entity"><SelectValue /></SelectTrigger><SelectContent className="report-condition-options">
           {!endpoints.some((item) => endpointKey(item) === endpointKey(selectedStart)) && <SelectItem disabled value={endpointKey(selectedStart)}>Unavailable starting entity</SelectItem>}
           {endpoints.map((endpoint) => <SelectItem key={endpointKey(endpoint)} value={endpointKey(endpoint)}>{endpointLabel(endpoint, graphObjects, object)}</SelectItem>)}
-        </SelectContent></Select><p className="mt-1 text-xs text-slate-500">Choose the owner object or a connected entity as the root for row and field paths.</p></div>}
-        <div className="grid gap-3 md:grid-cols-[1fr_auto]">
-          <div data-testid="report-row-path"><Label>Related row path</Label><Select disabled={!canManage} value={JSON.stringify(selectedPath)} onValueChange={(value) => editConfig((current) => ({ ...current, grain_path: JSON.parse(value) }))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>
-            {!paths.some((path) => JSON.stringify(path) === JSON.stringify(selectedPath)) && <SelectItem disabled value={JSON.stringify(selectedPath)}>Unavailable saved row path</SelectItem>}
-            {paths.map((path) => <SelectItem key={JSON.stringify(path)} value={JSON.stringify(path)}>{reportPathLabel(path, graph, graphObjects, object, selectedStart)}</SelectItem>)}
-          </SelectContent></Select><p className="mt-1 text-xs text-slate-500">One row per {endpointLabel(selectedEndpoint, graphObjects, object)}. Values reached through to-many paths are joined with semicolons.</p>
+        </SelectContent></Select><p className="mt-1 text-xs text-slate-500">Choose the owner object or a connected entity as the root for row and field paths. Changing the start clears the row selection and columns; filters are retained for review.</p></div></details>}
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+          <div className="min-w-0" data-testid="report-row-path"><Label>One row per</Label>
+            <ReportRelationshipSelector value={configView.grain_path} disabled={!canManage} metadataLoading={graphLoading}
+              onChange={(grain_path) => editConfig((current) => ({ ...current, grain_path }))}
+              start={selectedStart} definitions={graph} objects={graphObjects} object={object} label="One row per" />
+            <p className="mt-1 text-xs text-slate-500">Values reached through to-many paths are joined with semicolons. Row-relative counts, indicators and filters follow this selection.</p>
           {isV2 && <label className="mt-3 flex items-center gap-2 text-sm"><input data-testid="report-include-empty" type="checkbox" disabled={!canManage} checked={configView.include_empty === true} onChange={(event) => editConfig((current) => ({ ...current, include_empty: event.target.checked }))} />Include starting records with no related row</label>}</div>
-          <Button className="self-end" disabled={!canManage || reconciled.stale.length > 0 || reconciled.filtersPending || !renderedColumns.length || previewMutation.isPending} onClick={() => previewMutation.mutate(1)}>{previewMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Preview</Button>
+          <Button className="self-end" disabled={!canManage || executionBlocked || previewMutation.isPending} onClick={() => previewMutation.mutate(1)}>{previewMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Preview</Button>
         </div>
-        {isV2 && <ReportRelationshipFilters filters={configView.filters}
-          onChange={(filters) => editConfig((current) => ({ ...current, filters }))}
-          canManage={canManage} paths={countPaths} start={selectedEndpoint}
-          definitions={graph} objects={graphObjects} object={object} fieldsByEndpoint={fieldsByEndpoint}
-          metadataLoading={graphLoading} metadataError={fieldQueries.some((query) => query.isError)}
-          onRetry={() => fieldQueries.filter((query) => query.isError).forEach((query) => query.refetch())} />}
         {configView.version === 1 && <div className="rounded-md border bg-slate-50/50 p-3 text-sm text-slate-600">
           This legacy V1 report is retained unchanged. Create a new current-version report to use relationship filters; existing reports are not automatically converted.
           {canManage && <Button type="button" size="sm" variant="outline" className="ml-3" onClick={() => {
             editConfig(makeReportConfig(objectId)); setColumnPath([]); saved.setActiveReportId(null);
           }}>Start a new current-version report</Button>}
         </div>}
-        <div className="grid gap-3 rounded-md border bg-slate-50/50 p-3">
-          <div><Label>Field path (from start entity)</Label><Select disabled={!canManage} value={JSON.stringify(columnPath)} onValueChange={(value) => setColumnPath(JSON.parse(value))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{paths.map((path) => <SelectItem key={JSON.stringify(path)} value={JSON.stringify(path)}>{reportPathLabel(path, graph, graphObjects, object, selectedStart)}</SelectItem>)}</SelectContent></Select><p className="mt-1 text-xs text-slate-500">Field paths are relative to the selected start entity.</p></div>
-          <div><Label>Add a field from this path</Label><div className="mt-2 flex flex-wrap gap-2">{availableFields.length ? availableFields.map((field) => <Button key={field.id} type="button" size="sm" variant="outline" disabled={!canManage} onClick={() => addColumn(field)}><Plus className="mr-1 h-3 w-3" />{field.label}</Button>) : <p className="text-sm text-slate-500">No selectable fields are available on this endpoint.</p>}</div></div>
-          {relationshipMetadata.length > 0 && <div><Label>Relationship fields</Label><div className="mt-2 flex flex-wrap gap-2">{relationshipMetadata.map((field) => <Button key={field.id || field.key} type="button" size="sm" variant="outline" disabled={!canManage} onClick={() => addRelationshipColumn(field)}><Plus className="mr-1 h-3 w-3" />{field.label}</Button>)}</div></div>}
-          {isV2 && <div data-testid="report-distinct-counts"><Label>Distinct counts (from row entity)</Label><p className="mt-1 text-xs text-slate-500">Count distinct related records reached from each actual row endpoint.</p><div className="mt-2 flex flex-wrap gap-2">{countPaths.map((path) => <Button data-testid={`add-count-${path[path.length - 1].relationship_definition_id}`} key={JSON.stringify(path)} type="button" size="sm" variant="outline" disabled={!canManage} onClick={() => addCountColumn(path)}><Plus className="mr-1 h-3 w-3" />{reportPathLabel(path, graph, graphObjects, object, selectedEndpoint)}</Button>)}</div></div>}
-        </div>
+        <section className="min-w-0 space-y-3" aria-label="Report columns">
+          <div className="flex flex-wrap items-center justify-between gap-2"><div><Label>Columns</Label><p className="mt-1 text-xs text-slate-500">Choose the values to show. Counts and indicators do not remove rows.</p></div>
+            <Button type="button" variant="outline" disabled={!canManage} aria-expanded={addingColumn} data-testid="add-report-column"
+              onClick={() => setAddingColumn(!addingColumn)}><Plus className="mr-1 h-4 w-4" />{addingColumn ? "Close column selector" : "Add column"}</Button></div>
+          {addingColumn && <div className="min-w-0 space-y-3 rounded-md border bg-slate-50/50 p-3">
+            <Label htmlFor="report-column-kind">What would you like to show?</Label>
+            <select id="report-column-kind" data-testid="report-column-kind" className="h-10 w-full min-w-0 rounded-md border bg-background px-3 text-sm"
+              value={columnKind} onChange={(event) => { setColumnKind(event.target.value); setColumnPath([]); }}>
+              <option value="field">{endpointLabel(selectedStart, graphObjects, object)} fields</option>
+              <option value="related_field">Related record and relationship fields</option>
+              {isV2 && <option value="count_distinct">Related record count</option>}
+              {isV2 && <option value="exists_related">Has matching related record · True / False</option>}
+            </select>
+            {columnKind !== "field" && <ReportRelationshipSelector value={columnPath} onChange={setColumnPath}
+              start={calculation ? selectedEndpoint : selectedStart} definitions={graph} objects={graphObjects} object={object}
+              disabled={!canManage} metadataLoading={graphLoading} allowRoot={false}
+              label={calculation ? "Related records from each row" : "Related records from starting entity"} />}
+            <p className="text-xs text-slate-500">{columnKind === "exists_related" ? "True when at least one related record meets every condition. Does not filter rows or change other columns." : calculation ? "Calculated for each row. All distinct linked records are counted, independently of indicator conditions." : "Field values are reached from the starting entity, not the row entity."}</p>
+            {!calculation && <div><Label>Add a field</Label><div className="mt-2 grid max-h-64 gap-2 overflow-y-auto sm:grid-cols-2">
+              {availableFields.map((field) => <Button key={field.id} type="button" size="sm" variant="outline"
+                className="h-auto min-h-9 whitespace-normal break-words [overflow-wrap:anywhere]" disabled={!canManage || graphLoading || (columnKind === "related_field" && !columnPath.length)}
+                onClick={() => addColumn(field)}><Plus className="mr-1 h-3 w-3 shrink-0" /><span title={field.label} className="min-w-0 line-clamp-2">{field.label}</span></Button>)}
+              {columnEndpoint.kind === "custom_object" && !Array.isArray(fieldsByEndpoint[endpointKey(columnEndpoint)]) && <p role="status" className="text-sm text-slate-500">Field metadata unavailable. Saved selections are preserved.</p>}
+            </div></div>}
+            {!calculation && relationshipMetadata.length > 0 && <div><Label>Relationship fields</Label><div className="mt-2 grid gap-2 sm:grid-cols-2">{relationshipMetadata.map((field) => <Button key={field.id || field.key} type="button" size="sm" variant="outline" className="h-auto min-h-9 whitespace-normal break-words" disabled={!canManage || graphLoading} onClick={() => addRelationshipColumn(field)}><Plus className="mr-1 h-3 w-3 shrink-0" /><span title={field.label} className="min-w-0 line-clamp-2">{field.label}</span></Button>)}</div></div>}
+            {calculation && <Button type="button" data-testid={columnKind === "exists_related" ? "add-report-indicator" : "add-report-count"}
+              disabled={!canManage || graphLoading || !columnPath.length || Boolean(resolveRelationshipPickerPath({ definitions: graph, start: selectedEndpoint, path: columnPath, maxHops: 6 }).error)}
+              onClick={() => { if (columnKind === "exists_related") addIndicatorColumn(); else { addCountColumn(columnPath); setAddingColumn(false); } }}>
+              Add {columnKind === "exists_related" ? "indicator" : "count"}
+            </Button>}
+          </div>}
+          {!renderedColumns.length && <p className="rounded-md border border-dashed p-4 text-sm text-slate-500">No columns yet. Add a field, count or indicator to begin.</p>}
         <div className="space-y-2">{renderedColumns.map((column, index) => {
-          const pathRoot = isV2 && column.kind === "count_distinct" ? selectedEndpoint : selectedStart;
+          const pathRoot = isV2 && ["count_distinct", "exists_related"].includes(column.kind) ? selectedEndpoint : selectedStart;
           const displayPath = safePickerPath(column?.path);
-          return <div key={column.id || index} className="grid gap-2 rounded border p-2 text-sm md:grid-cols-[minmax(10rem,1fr)_minmax(9rem,0.7fr)_auto]">
-            <div><Label className="text-xs">Column heading</Label><Input data-testid={`column-heading-${index}`} disabled={!canManage} value={column.label || ""} onChange={(event) => setColumns((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, label: event.target.value } : item))} /><p className="mt-1 truncate text-xs text-slate-400">{column.kind === "count_distinct" ? "Distinct count · row-relative: " : "Field · start-relative: "}{reportPathLabel(displayPath, graph, graphObjects, object, pathRoot)}</p></div>
-            {isV2 && column.kind !== "count_distinct" ? <div><Label className="text-xs">Empty label</Label><Input data-testid={`column-empty-label-${index}`} disabled={!canManage} value={column.empty_label || ""} placeholder="Only when endpoint is missing" onChange={(event) => setColumns((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, empty_label: event.target.value } : item))} /><p className="mt-1 text-xs text-slate-400">Does not replace a blank field value.</p></div> : <div />}
-            <div className="flex items-center"><Button type="button" size="sm" variant="ghost" disabled={!canManage || index === 0} onClick={() => setColumns((items) => moveReportColumn(items, index, -1))}>↑</Button><Button type="button" size="sm" variant="ghost" disabled={!canManage || index === renderedColumns.length - 1} onClick={() => setColumns((items) => moveReportColumn(items, index, 1))}>↓</Button><Button type="button" size="sm" variant="ghost" disabled={!canManage} onClick={() => setColumns((items) => items.filter((_, itemIndex) => itemIndex !== index))}><Trash2 className="h-4 w-4" /></Button></div>
+          const summary = reportColumnSummary(column, { start: selectedStart, row: isV2 ? selectedEndpoint : selectedStart, definitions: graph, objects: graphObjects, object });
+          return <div key={column.id || index} className="min-w-0 space-y-3 rounded border p-3 text-sm">
+            <div className="grid min-w-0 gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.7fr)_auto]">
+            <div className="min-w-0"><Label htmlFor={`column-heading-${index}`} className="text-xs">Column heading</Label><Input id={`column-heading-${index}`} data-testid={`column-heading-${index}`} disabled={!canManage} value={column.label || ""} onChange={(event) => setColumns((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, label: event.target.value } : item))} /><p title={summary} className="report-column-summary mt-1 break-words text-xs text-slate-500">{summary}</p>
+              <details className="mt-1 text-xs text-slate-500"><summary className="cursor-pointer">Technical details</summary><p className="break-words">{pathRoot === selectedEndpoint ? "Row-relative" : "Start-relative"} · {reportPathLabel(displayPath, graph, graphObjects, object, pathRoot)}</p></details></div>
+            {isV2 && !["count_distinct", "exists_related"].includes(column.kind) ? <div className="min-w-0"><Label htmlFor={`column-empty-label-${index}`} className="text-xs">Empty label</Label><Input id={`column-empty-label-${index}`} data-testid={`column-empty-label-${index}`} disabled={!canManage} value={column.empty_label || ""} placeholder="Only when endpoint is missing" onChange={(event) => setColumns((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, empty_label: event.target.value } : item))} /><p className="mt-1 text-xs text-slate-400">Does not replace a blank field value.</p></div> : <div />}
+            <div className="flex items-center"><Button type="button" size="sm" variant="ghost" aria-label={`Move column ${index + 1} up`} disabled={!canManage || index === 0} onClick={() => setColumns((items) => moveReportColumn(items, index, -1))}>↑</Button><Button type="button" size="sm" variant="ghost" aria-label={`Move column ${index + 1} down`} disabled={!canManage || index === renderedColumns.length - 1} onClick={() => setColumns((items) => moveReportColumn(items, index, 1))}>↓</Button><Button type="button" size="sm" variant="ghost" aria-label={`Remove column ${index + 1}`} disabled={!canManage} onClick={() => setColumns((items) => items.filter((_, itemIndex) => itemIndex !== index))}><Trash2 className="h-4 w-4" /></Button></div>
+            </div>
+            {isV2 && column.kind === "exists_related" && <ReportIndicatorEditor column={column} indicatorLabel={`Indicator column ${index + 1}`}
+                onChange={(change) => setColumns((items) => items.map((item, itemIndex) => itemIndex === index
+                  ? { ...item, ...change } : item))}
+                canManage={canManage} start={selectedEndpoint} definitions={graph} objects={graphObjects} object={object}
+                fieldsByEndpoint={fieldsByEndpoint} metadataLoading={graphLoading}
+                metadataError={fieldQueries.some((query) => query.isError)}
+                onRetry={() => fieldQueries.filter((query) => query.isError).forEach((query) => query.refetch())} />}
           </div>;
-        })}</div>
-        <div className="flex items-center justify-end gap-3">{exportMutation.isPending && <span className="text-sm text-slate-500">Preparing CSV… {exportProgress?.total ? `${exportProgress.processed} of ${exportProgress.total} rows` : "counting rows"}</span>}{exportMutation.isError && <span className="text-sm text-red-600">Export failed: {exportMutation.error?.message}</span>}<Button variant="outline" disabled={!canManage || reconciled.stale.length > 0 || reconciled.filtersPending || !renderedColumns.length || exportMutation.isPending} onClick={() => exportMutation.mutate()}>{exportMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}Export CSV</Button></div>
+        })}</div></section>
+        {isV2 && <ReportRelationshipFilters filters={configView.filters}
+          onChange={(filters) => editConfig((current) => ({ ...current, filters }))}
+          canManage={canManage} start={selectedEndpoint}
+          definitions={graph} objects={graphObjects} object={object} fieldsByEndpoint={fieldsByEndpoint}
+          metadataLoading={graphLoading} metadataError={fieldQueries.some((query) => query.isError)}
+          onRetry={() => fieldQueries.filter((query) => query.isError).forEach((query) => query.refetch())} />}
+        {(graphLoading || reconciled.indicatorsPending || reconciled.filtersPending) && <p role="status" className="rounded-md border p-3 text-sm text-slate-500">Waiting for authorised relationship or field metadata. Saved selections are preserved; preview and export are blocked.</p>}
+        {previewMutation.isError && <p role="alert" className="text-sm text-red-600">Preview failed: {previewMutation.error?.message}. Retry Preview after resolving the issue.</p>}
+        <div className="flex flex-wrap items-center justify-end gap-3">{exportMutation.isPending && <span className="text-sm text-slate-500">Preparing CSV… {exportProgress?.total ? `${exportProgress.processed} of ${exportProgress.total} rows` : "counting rows"}</span>}{exportMutation.isError && <span role="alert" className="text-sm text-red-600">Export failed: {exportMutation.error?.message}</span>}<Button variant="outline" disabled={!canManage || executionBlocked || exportMutation.isPending} onClick={() => exportMutation.mutate()}>{exportMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}Export CSV</Button></div>
       </CardContent>
     </Card>
-    {preview && <Card><CardHeader><CardTitle className="text-base">Preview</CardTitle><CardDescription>{preview.total ?? 0} matching row{preview.total === 1 ? "" : "s"} · page {page}</CardDescription></CardHeader><CardContent className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b text-left">{headers.map((header, index) => <th className="p-2 font-medium" key={index}>{typeof header === "string" ? header : header.label}</th>)}</tr></thead><tbody>{rows.map((row, rowIndex) => <tr className="border-b" key={row.id || row.row_id || rowIndex}>{(Array.isArray(row) ? row : (row.values || Object.values(row))).map((value, index) => <td className="p-2" key={index}>{Array.isArray(value) ? value.join(", ") : String(value ?? "")}</td>)}</tr>)}</tbody></table>{!rows.length && <p className="p-3 text-sm text-slate-500">No rows match this report.</p>}<div className="mt-3 flex justify-end gap-2"><Button size="sm" variant="outline" disabled={page <= 1 || previewMutation.isPending} onClick={() => previewMutation.mutate(page - 1)}>Previous</Button><Button size="sm" variant="outline" disabled={!preview.has_more && !(preview.total > page * 50) || previewMutation.isPending} onClick={() => previewMutation.mutate(page + 1)}>Next</Button></div></CardContent></Card>}
+    {preview && <Card className="min-w-0"><CardHeader><CardTitle className="text-base">Preview</CardTitle><CardDescription>{preview.total ?? 0} matching row{preview.total === 1 ? "" : "s"} · page {page}</CardDescription></CardHeader><CardContent className="min-w-0 overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b text-left">{headers.map((header, index) => <th className="p-2 font-medium" key={index}>{typeof header === "string" ? header : header.label}</th>)}</tr></thead><tbody>{rows.map((row, rowIndex) => <tr className="border-b" key={row.id || row.row_id || rowIndex}>{(Array.isArray(row) ? row : (row.values || Object.values(row))).map((value, index) => <td className="p-2" key={index}>{Array.isArray(value) ? value.join(", ") : renderedColumns[index]?.kind === "exists_related" && typeof value === "boolean" ? value ? "True" : "False" : String(value ?? "")}</td>)}</tr>)}</tbody></table>{!rows.length && <p className="p-3 text-sm text-slate-500">No rows match this report.</p>}<div className="mt-3 flex justify-end gap-2"><Button size="sm" variant="outline" disabled={executionBlocked || page <= 1 || previewMutation.isPending} onClick={() => previewMutation.mutate(page - 1)}>Previous</Button><Button size="sm" variant="outline" disabled={executionBlocked || (!preview.has_more && !(preview.total > page * 50)) || previewMutation.isPending} onClick={() => previewMutation.mutate(page + 1)}>Next</Button></div></CardContent></Card>}
   </div>;
 }

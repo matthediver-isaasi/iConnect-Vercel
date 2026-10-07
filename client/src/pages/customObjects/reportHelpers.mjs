@@ -34,6 +34,50 @@ export const endpointLabel = (endpoint = {}, objects = [], startObject) => {
   }[endpoint.kind] || "Unknown entity";
 };
 
+// Enumerate entity types, not every possible path through the graph. The
+// progressive selector resolves only the path the administrator is exploring.
+export const reportReachableEndpoints = (definitions, start) => {
+  const seen = new Map([[endpointKey(start), start]]);
+  const queue = [start];
+  while (queue.length) {
+    const endpoint = queue.shift();
+    for (const definition of definitions) {
+      if (definition.status !== "active") continue;
+      for (const side of ["source", "target"]) {
+        if (!relationshipEndpointsMatch(endpoint, relationshipEndpoint(definition, side))) continue;
+        const next = relationshipEndpoint(definition, side === "source" ? "target" : "source");
+        if (!seen.has(endpointKey(next))) {
+          seen.set(endpointKey(next), next);
+          queue.push(next);
+        }
+      }
+    }
+  }
+  return [...seen.values()];
+};
+
+export const reportColumnSummary = (column, { start, row, definitions, objects, object }) => {
+  const rowRelative = ["count_distinct", "exists_related"].includes(column.kind);
+  const path = isReportPath(column.path) ? column.path : [];
+  const resolved = resolveRelationshipPickerPath({ definitions, start: rowRelative ? row : start, path, maxHops: 6 });
+  if (resolved.error) return "Saved relationship unavailable — selection retained";
+  const destination = endpointLabel(resolved.endpoint, objects, object);
+  const origin = endpointLabel(rowRelative ? row : start, objects, object);
+  const via = path.slice(0, -1).map((_, index) => endpointLabel(resolveRelationshipPickerPath({
+    definitions, start: rowRelative ? row : start, path: path.slice(0, index + 1), maxHops: 6,
+  }).endpoint, objects, object)).join(" / ");
+  const final = definitions.find((item) => String(item.id) === String(path.at(-1)?.relationship_definition_id));
+  const relationship = path.at(-1)?.from_side === "source" ? final?.source_label : final?.target_label;
+  const route = (path.length <= 1 ? `linked directly to ${origin}` : `linked to ${origin} via ${via}`)
+    + (relationship ? ` · ${relationship}` : "");
+  if (column.kind === "count_distinct") return `Count distinct ${destination} ${route}`;
+  if (column.kind === "exists_related") {
+    const count = Array.isArray(column.conditions) ? column.conditions.length : "Invalid";
+    return `Has matching ${destination} ${route} · True / False · ${count} condition${count === 1 ? "" : "s"}`;
+  }
+  return `${column.kind === "relationship_field" ? "Relationship value" : destination + " field"}${path.length ? ` · ${route}` : " · starting records"}`;
+};
+
 export const reportPathLabel = (
   path = [], definitions = [], objects = [], startObject, rootEndpoint,
 ) => {
@@ -141,6 +185,7 @@ export const reconcileReportConfig = ({
     maxHops: 6,
   });
   const stale = [];
+  let indicatorsPending = false;
   if (!SUPPORTED_REPORT_CONFIG_VERSIONS.includes(version)) {
     stale.push(`Report version ${view.version ?? "unknown"} is not supported and must be repaired.`);
   }
@@ -159,18 +204,30 @@ export const reconcileReportConfig = ({
       stale.push("A report column is malformed.");
       continue;
     }
-    if (!["field", "relationship_field", "count_distinct"].includes(column.kind)) {
+    if (!["field", "relationship_field", "count_distinct", ...(version === 2 ? ["exists_related"] : [])].includes(column.kind)) {
       stale.push(`Column "${column.label || column.field_id || "unknown"}" has an unsupported kind.`);
     }
     const pathIsValid = isReportPath(column.path);
     const path = pathIsValid ? column.path : [];
     if (!pathIsValid) stale.push(`Column "${column.label || column.field_id || "unknown"}" has a malformed path.`);
-    const columnStart = version === 2 && column.kind === "count_distinct"
+    const columnStart = version === 2 && ["count_distinct", "exists_related"].includes(column.kind)
       ? pathCheck.endpoint
       : start;
     const result = resolveRelationshipPickerPath({
       definitions, start: columnStart, path, maxHops: 6,
     });
+    if (version === 2 && column.kind === "exists_related") {
+      // Indicators use exactly the related-filter condition semantics, always
+      // existential. Do not add mode to, or otherwise rewrite, saved columns.
+      const check = validateReportFilters({
+        filters: [{ path: column.path, conditions: column.conditions, mode: "any" }],
+        start: columnStart, definitions, fieldsByEndpoint, metadataLoading,
+      });
+      indicatorsPending ||= check.pending;
+      stale.push(...check.stale.map((message) => `Indicator "${column.label || "unknown"}": ${message}`));
+      if (Object.hasOwn(column, "mode")) stale.push(`Indicator "${column.label || "unknown"}" must not specify a match mode.`);
+      continue;
+    }
     if (result.error) {
       stale.push(`Column "${column.label || column.field_id || "unknown"}" has an unavailable path.`);
       continue;
@@ -205,6 +262,7 @@ export const reconcileReportConfig = ({
   return {
     config: normalized, stale, rowEndpoint: pathCheck.endpoint, rowPathError: pathCheck.error,
     filtersPending: filterCheck.pending,
+    indicatorsPending,
   };
 };
 

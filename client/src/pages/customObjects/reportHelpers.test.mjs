@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  endpointLabel, makeReportConfig, moveReportColumn, reconcileReportConfig, reportPathLabel,
+  endpointLabel, makeReportConfig, moveReportColumn, reconcileReportConfig, reportPathLabel, reportColumnSummary,
 } from "./reportHelpers.mjs";
 
 const department = { id: "department", plural_label: "Departments" };
@@ -174,4 +174,65 @@ test("V2 distinct counts require a nonempty row-relative path", () => {
     }),
   });
   assert.deepEqual(valid.stale, []);
+});
+
+test("indicators validate identical typed filter conditions and preserve the opaque V2 snapshot", () => {
+  const graph = [{
+    ...definitions[0], relationship_fields: [{ id: "responder", label: "Survey responder", type: "boolean" }],
+  }];
+  const path = [{ relationship_definition_id: "department-member", from_side: "source" }];
+  const indicator = { kind: "exists_related", path, label: "Has survey responder", conditions: [
+    { kind: "relationship_field", relationship_field_id: "responder", op: "equals", value: true },
+    { kind: "field", field: "email", op: "contains", value: "example.test" },
+  ] };
+  const inspect = (column, options = {}) => reconcileReportConfig({
+    objectId: "department", definitions: graph, fieldsByEndpoint: {},
+    config: makeReportConfig("department", { columns: [column] }), ...options,
+  });
+  const valid = inspect(indicator);
+  assert.deepEqual(valid.stale, []);
+  assert.equal(valid.indicatorsPending, false);
+  assert.deepEqual(valid.config.columns[0], indicator);
+  assert.match(inspect({ ...indicator, conditions: [{ ...indicator.conditions[0], value: "true" }] }).stale.join(" "), /boolean/);
+  assert.match(inspect({ ...indicator, mode: "none" }).stale.join(" "), /must not specify/);
+  for (const invalidPath of [[], [...path, ...path], Array.from({ length: 7 }, () => path[0]), [null], "bad"]) {
+    assert.ok(inspect({ ...indicator, path: invalidPath }).stale.length > 0);
+  }
+  for (const invalidConditions of [undefined, null, "bad", [null], Array.from({ length: 11 }, () => indicator.conditions[0])]) {
+    assert.ok(inspect({ ...indicator, conditions: invalidConditions }).stale.length > 0);
+  }
+  assert.equal(inspect(indicator, { metadataLoading: true }).indicatorsPending, true);
+  assert.match(inspect(indicator, { config: makeReportConfig("department", { version: 1, columns: [indicator] }) }).stale.join(" "), /unsupported kind/);
+});
+
+test("indicator paths are row-relative while fields remain start-relative; absent custom metadata never implies False", () => {
+  const graph = [
+    ...definitions,
+    { id: "member-project", status: "active", source_kind: "member", source_label: "Projects",
+      target_kind: "custom_object", target_custom_object_id: "project" },
+  ];
+  const config = makeReportConfig("department", {
+    grain_path: [{ relationship_definition_id: "department-member", from_side: "source" }],
+    columns: [
+      { kind: "field", path: [], field_id: "name", label: "Department" },
+      { kind: "exists_related", path: [{ relationship_definition_id: "member-project", from_side: "source" }],
+        label: "Has project", conditions: [] },
+    ],
+  });
+  const pending = reconcileReportConfig({
+    config, objectId: "department", definitions: graph, fieldsByEndpoint: { "custom_object:department": [{ id: "name" }] },
+  });
+  assert.deepEqual(pending.stale, []);
+  assert.equal(pending.indicatorsPending, true);
+  assert.equal(pending.config, config);
+  const loaded = reconcileReportConfig({
+    config, objectId: "department", definitions: graph,
+    fieldsByEndpoint: { "custom_object:department": [{ id: "name" }], "custom_object:project": [] },
+  });
+  assert.equal(loaded.indicatorsPending, false);
+  assert.deepEqual(loaded.stale, []);
+  assert.match(reportColumnSummary(config.columns[1], {
+    start: { kind: "custom_object", customObjectId: "department" }, row: { kind: "member" },
+    definitions: graph, objects: [{ id: "project", plural_label: "Projects" }], object: department,
+  }), /Has matching Projects linked directly to Member/);
 });

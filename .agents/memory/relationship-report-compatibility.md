@@ -21,6 +21,17 @@ Treat a relationship designation as evidence on the final relationship occurrenc
 
 **How to apply:** Combine a related-record filter's conditions against one endpoint and final edge together. None-match includes empty parents; never combine independently matching siblings or infer a submission from a designation.
 
+“Has survey responder” is a display-only existence indicator, independent of
+both optional row filters and the total linked-member count.
+
+**Why:** The requested department report must retain departments with no
+organisation or members, and count every eligible linked member, not only
+designated responders. A failed or incomplete traversal is unknown, not False.
+
+**How to apply:** Keep indicator predicates out of row-selection and count
+calculations. Preserve explicit failure at traversal safety limits; increasing
+capacity must not introduce truncated negative answers or change saved versions.
+
 The user says deleted members are rarely wanted on reports. The approved change
 is to exclude them from Department members and Organisation department summary,
 including member counts, while retaining historical relationship records.

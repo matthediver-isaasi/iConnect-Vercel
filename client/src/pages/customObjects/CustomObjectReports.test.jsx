@@ -1,6 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
+import { register } from "node:module";
+
+// The browser loads the real scoped stylesheet. Mounted Node tests exercise
+// behavior, not CSS, and must not attempt a network or stylesheet fetch.
+register(`data:text/javascript,${encodeURIComponent(`
+  export async function load(url, context, nextLoad) {
+    if (url.endsWith("/ReportBuilder.css")) return { format: "module", source: "", shortCircuit: true };
+    return nextLoad(url, context);
+  }
+`)}`, import.meta.url);
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {
   url: "https://example.test/CustomObjectsAdmin/department/reports",
@@ -134,6 +144,26 @@ const changeText = (input, value) => {
   input.dispatchEvent(new window.Event("input", { bubbles: true }));
 };
 
+const changeSelect = (select, value) => {
+  select.value = value;
+  select.dispatchEvent(new window.Event("change", { bubbles: true }));
+};
+
+const buttonNamed = (name) => [...document.querySelectorAll("button")].find((button) =>
+  button.textContent.trim() === name || button.getAttribute("aria-label") === name);
+
+async function chooseRelatedRecords(view, kind, steps) {
+  await act(async () => click(view.container.querySelector("[data-testid=add-report-column]")));
+  await act(async () => changeSelect(view.container.querySelector("[data-testid=report-column-kind]"), kind));
+  await act(async () => click(buttonNamed(kind === "related_field" ? "Related records from starting entity" : "Related records from each row")));
+  for (const relationship of steps) {
+    await act(async () => click([...document.querySelectorAll('[role="dialog"] button')].find((button) =>
+      button.textContent.includes(relationship))));
+  }
+  await act(async () => click([...document.querySelectorAll('[role="dialog"] button')].find((button) =>
+    button.textContent.startsWith("Use "))));
+}
+
 test("V2 builder edits include-empty, row-relative count, headings and empty labels and reloads them", async () => {
   const initial = makeReportConfig("department", {
     grain_path: departmentMemberPath,
@@ -150,7 +180,8 @@ test("V2 builder edits include-empty, row-relative count, headings and empty lab
   assert.ok(view.container.querySelector("[data-testid=report-start-entity]"));
   assert.match(view.container.querySelector("[data-testid=report-row-path]").textContent, /Member/);
   await act(async () => click(view.container.querySelector("[data-testid=report-include-empty]")));
-  await act(async () => click(view.container.querySelector("[data-testid=add-count-member-organization]")));
+  await chooseRelatedRecords(view, "count_distinct", ["member_organization"]);
+  await act(async () => click(view.container.querySelector("[data-testid=add-report-count]")));
   await act(async () => changeText(
     view.container.querySelector("[data-testid=column-heading-0]"), "Team",
   ));
@@ -327,6 +358,7 @@ test("explicit Add field repairs malformed persisted columns without mutating th
   const original = JSON.parse(JSON.stringify(persisted));
   const view = await mount(persisted);
   assert.equal(view.config, persisted);
+  await act(async () => click(view.container.querySelector("[data-testid=add-report-column]")));
 
   const addDepartmentName = [...view.container.querySelectorAll("button")]
     .find((button) => button.textContent.includes("Department name"));
@@ -505,4 +537,56 @@ test("editing filters marks a saved report dirty and Update saves the current ty
   assert.equal(updated.config.filters[0].conditions[0].value, "");
   assert.deepEqual(initial.filters[0].conditions, []);
   await view.cleanup();
+});
+
+test("guided indicator creation reuses conditions without mode and preserves fields, counts and rows on reload", async () => {
+  const initial = makeReportConfig("department", {
+    columns: [
+      { id: "name", kind: "field", path: [], field_id: "department_name", label: "Department" },
+      { id: "count", kind: "count_distinct", path: departmentMemberPath, label: "Members" },
+    ],
+  });
+  const view = await mount(initial);
+  await chooseRelatedRecords(view, "exists_related", ["department_member"]);
+  await act(async () => click(view.container.querySelector("[data-testid=add-report-indicator]")));
+  assert.equal(view.config.columns[2].kind, "exists_related");
+  assert.equal(Object.hasOwn(view.config.columns[2], "mode"), false);
+  assert.equal(view.container.querySelector('[data-testid=column-empty-label-2]'), null);
+  const editor = view.container.querySelector("[data-testid=report-indicator-conditions]");
+  assert.equal(editor.querySelector('[aria-label$="match mode"]'), null);
+  await act(async () => click(editor.querySelector("[data-testid=add-indicator-condition]")));
+  const value = editor.querySelector('[aria-label="Indicator column 3 condition 1 value"]');
+  await act(async () => changeText(value, "literal%_"));
+  assert.equal(view.config.columns[2].conditions[0].value, "literal%_");
+  await act(async () => changeText(view.container.querySelector("[data-testid=column-heading-2]"), "Has survey responder"));
+  assert.deepEqual(view.config.columns.slice(0, 2), initial.columns);
+  assert.deepEqual(view.config.grain_path, []);
+  assert.equal(Object.hasOwn(view.config, "filters"), false);
+  const snapshot = JSON.parse(JSON.stringify(view.config));
+  await view.cleanup();
+  const reloaded = await mount(snapshot);
+  assert.deepEqual(reloaded.config, snapshot);
+  assert.match(reloaded.container.textContent, /True \/ False/);
+  await act(async () => click(reloaded.container.querySelector('[aria-label="Move column 3 up"]')));
+  assert.equal(reloaded.config.columns[1].kind, "exists_related");
+  await act(async () => click(reloaded.container.querySelector('[aria-label="Remove column 2"]')));
+  assert.deepEqual(reloaded.config.columns, initial.columns);
+  await reloaded.cleanup();
+});
+
+test("unavailable saved indicator metadata blocks execution and is preserved until explicit repair", async () => {
+  for (const suppliedGraph of [undefined, []]) {
+    const initial = makeReportConfig("department", {
+      columns: [{ kind: "exists_related", path: departmentMemberPath, label: "Responder", conditions: [
+        { kind: "relationship_field", relationship_field_id: "missing", op: "equals", value: true },
+      ] }],
+    });
+    // Pass null explicitly: undefined uses mount's fixture default.
+    const view = await mount(initial, suppliedGraph === undefined ? null : suppliedGraph);
+    assert.equal(view.config, initial);
+    assert.equal(buttonNamed("Preview").disabled, true);
+    assert.equal(buttonNamed("Export CSV").disabled, true);
+    assert.match(view.container.textContent, /preserved|unavailable/i);
+    await view.cleanup();
+  }
 });

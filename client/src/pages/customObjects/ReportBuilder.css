@@ -1,0 +1,38 @@
+.custom-object-report-builder [role="combobox"] {
+  min-width: 0;
+  max-width: 100%;
+}
+.custom-object-report-builder [role="combobox"] > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.custom-object-report-builder [role="combobox"] > svg {
+  flex-shrink: 0;
+}
+.custom-object-report-builder input {
+  min-width: 0;
+}
+.report-condition-options {
+  width: var(--radix-select-trigger-width);
+  max-width: calc(100vw - 2rem);
+}
+.report-condition-options [role="option"] {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.report-condition-options [role="option"] > span:last-child {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+.custom-object-report-builder .report-column-summary {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+.custom-object-report-builder :is(p, summary, pre) {
+  overflow-wrap: anywhere;
+}
