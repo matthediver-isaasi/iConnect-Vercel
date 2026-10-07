@@ -67,12 +67,23 @@ export async function* renewalRows(queryFactory, {
       const nextCursor = tieBreaker
         ? { version: 1, key, value, tieBreaker, tieValue }
         : value;
+      if (control?.isQuarantined?.(nextCursor, row)) {
+        cursor = nextCursor;
+        await control.checkpoint(cursor);
+        continue;
+      }
       const errorsBefore = results?.errors || 0;
+      const detailsBefore = results?.details?.length || 0;
       yield row;
       if ((results?.errors || 0) > errorsBefore) {
-        const failure = new Error('Renewal row failed; its continuation was not advanced');
-        failure.code = 'RENEWAL_ROW_FAILED';
-        throw failure;
+        if (control?.quarantine) {
+          await control.quarantine(nextCursor, row, results.details?.slice(detailsBefore) || [],
+            results.errors - errorsBefore);
+        } else {
+          const failure = new Error('Renewal row failed; its continuation was not advanced');
+          failure.code = 'RENEWAL_ROW_FAILED';
+          throw failure;
+        }
       }
       cursor = nextCursor;
       await control?.checkpoint(cursor);

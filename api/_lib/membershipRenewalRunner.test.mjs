@@ -155,7 +155,8 @@ test('durable expiry review gates later invocations past the row until explicit 
     // Later valid records can complete, without revisiting the original row.
     return { ...complete(), examined: 3, enforced: 2 };
   } });
-  assert.equal(second.outcome, 'failed');
+  assert.equal(second.outcome, 'needs_review');
+  assert.equal(second.workerAvailable, true);
   assert.equal(second.healthy, false);
   assert.deepEqual(second.details.find(row => row.code === 'unresolved_expiry_policy_review').historyIds,
     ['history-review']);
@@ -199,7 +200,7 @@ test('unfinished prior-day stage resumes before a new daily opportunity', async 
   assert.equal(db.state.billing.a.done, true);
 });
 
-test('a failed row is retained while earlier stage and row checkpoints survive retry', async () => {
+test('a failed row remains under review while later rows finish without replaying earlier effects', async () => {
   const h = harness();
   const source = rowsQuery([{ id: '01' }, { id: '02' }, { id: '03' }], 1);
   const seen = [];
@@ -221,15 +222,16 @@ test('a failed row is retained while earlier stage and row checkpoints survive r
   ];
   const first = await h.run({ stages });
   assert.equal(first.healthy, false);
-  assert.equal(first.outcome, 'failed');
-  assert.equal(h.db.state.billing.a.stage, 1);
-  assert.equal(h.db.state.billing.a.cursor, '01');
-  assert.equal(h.db.state.billing.a.done, undefined);
+  assert.equal(first.outcome, 'needs_review');
+  assert.equal(h.db.state.billing.a.stage, 2);
+  assert.equal(h.db.state.billing.a.cursor, null);
+  assert.equal(h.db.state.billing.a.done, true);
   fail = false;
   const second = await h.run({ stages });
-  assert.equal(second.healthy, true);
+  assert.equal(second.healthy, false);
+  assert.equal(second.workerAvailable, true);
   assert.equal(activations, 1);
-  assert.deepEqual(seen, ['01', '02', '02', '03']);
+  assert.deepEqual(seen, ['01', '02', '03']);
   assert.equal(h.db.state.billing.a.done, true);
   assert.equal(Object.keys(second).includes('__renewalControl'), false);
 });
@@ -525,6 +527,138 @@ test('outcome classifier does not hide errors behind successful budget deferral'
   assert.equal(renewalOutcome({ errors: 0, deferred: 1, details: [] }), 'deferred');
   assert.equal(renewalOutcome({ errors: 0, deferred: 1, details: [{ error: 'stage failed' }] }), 'failed');
   assert.equal(renewalOutcome({ errors: 0, details: [{ status: 'error' }] }), 'failed');
+});
+
+test('failed member is journaled before advancing; independent rows and stages still run', async () => {
+  const h = harness({ db: database({ tenants: [tenant('a'), tenant('b')] }) });
+  const seen = [];
+  const stages = [['card-renewals', async (tenantId, results) => {
+    const source = rowsQuery([{ id: '1', member_id: 'bad' }, { id: '2', member_id: 'good' }]);
+    for await (const row of renewalRows(source.factory, { control: results.__renewalControl, results })) {
+      seen.push(`${tenantId}:${row.id}`);
+      if (tenantId === 'a' && row.id === '1') {
+        results.errors++;
+        results.details.push({ tenantId, status: 'error', reason: 'Uncertain provider outcome' });
+      }
+    }
+  }], ['reminders', async (tenantId, results) => {
+    const source = rowsQuery([{ id: '3', member_id: 'bad' }, { id: '4', member_id: 'good' }]);
+    for await (const row of renewalRows(source.factory, { control: results.__renewalControl, results })) {
+      seen.push(`${tenantId}:reminder:${row.member_id}`);
+    }
+  }]];
+  const first = await h.run({ stages });
+  assert.equal(first.outcome, 'needs_review');
+  assert.equal(first.healthy, false);
+  assert.equal(first.workerAvailable, true);
+  assert.equal(first.reviewCount, 1);
+  assert.deepEqual(seen, ['a:1', 'a:2', 'a:reminder:good', 'b:1', 'b:2', 'b:reminder:bad', 'b:reminder:good']);
+  const saves = h.db.writes.filter(w => w.type === 'save');
+  const reviewSave = saves.findIndex(w => w.p_state.reviews?.a?.['card-renewals']);
+  const cursorSave = saves.findIndex(w => w.p_state.billing.a?.cursor === '1');
+  assert.ok(reviewSave >= 0 && reviewSave < cursorSave);
+  const logs = h.db.writes.filter(w => w.type === 'log').flatMap(w => w.row);
+  assert.equal(JSON.parse(logs.find(l => l.tenant_id === 'a').details).reviewCount, 1);
+  const other = JSON.parse(logs.find(l => l.tenant_id === 'b').details);
+  assert.equal(other.outcome, 'completed');
+  assert.deepEqual(other.reviews, []);
+  assert.equal(other.reviewCount, 0);
+
+  seen.length = 0;
+  h.setTime('2026-09-19T06:00:00Z');
+  const later = await h.run({ stages });
+  assert.equal(later.outcome, 'needs_review');
+  assert.equal(later.workerAvailable, true);
+  assert.equal(later.healthy, false);
+  assert.ok(!seen.includes('a:1'), 'Uncertain financial operation must not be automatically retried');
+  assert.ok(seen.includes('a:2'), 'Independent record runs again normally');
+  const latest = h.db.writes.filter(w => w.type === 'log').at(-1).row;
+  assert.equal(JSON.parse(latest.find(l => l.tenant_id === 'a').details).reviews[0].ageHours, 24);
+});
+
+test('a failed review journal write cannot advance to another member', async () => {
+  let failJournal = true;
+  const db = database();
+  const rpc = db.rpc.bind(db);
+  db.rpc = (name, args) => {
+    if (name === 'save_membership_renewal_cron' && args.p_state.reviews?.a?.cards && failJournal) {
+      return Promise.resolve({ error: { message: 'Review persistence failed' } });
+    }
+    return rpc(name, args);
+  };
+  const h = harness({ db });
+  const seen = [];
+  const result = await h.run({ stages: [['cards', async (tenantId, results) => {
+    for await (const row of renewalRows(rowsQuery([{ id: '1' }, { id: '2' }]).factory, {
+      control: results.__renewalControl, results,
+    })) {
+      seen.push(row.id);
+      results.errors++;
+      results.details.push({ tenantId, status: 'error', reason: 'Member error' });
+    }
+  }]] });
+  assert.deepEqual(seen, ['1']);
+  assert.equal(result.workerAvailable, false);
+  assert.equal(result.healthy, false);
+  assert.equal(db.state.billing.a.cursor, null);
+  failJournal = false;
+});
+
+test('persistent reviews remain visible when a later run cannot reach billing', async () => {
+  const initialState = { reviews: { a: { cards: { '"1"': {
+    stage: 'cards', cursor: '1', recordId: '1', firstFailedAt: '2026-09-17T06:00:00Z',
+    reasons: ['Needs reconciliation'],
+  } } } } };
+  const h = harness({ db: database({ initialState }) });
+  const result = await h.run({ limits: { billingMs: 0 } });
+  assert.equal(result.outcome, 'needs_review');
+  assert.equal(result.workerAvailable, true);
+  assert.equal(result.healthy, false);
+  assert.equal(result.reviewCount, 1);
+});
+
+test('crash after durable review but before cursor save cannot replay the failed payment', async () => {
+  const db = database();
+  const rpc = db.rpc.bind(db);
+  let rejectCheckpoint = true;
+  db.rpc = (name, args) => {
+    if (name === 'save_membership_renewal_cron' && args.p_state.billing?.a?.cursor === '1' && rejectCheckpoint) {
+      return Promise.resolve({ error: { message: 'Connection lost after review save' } });
+    }
+    return rpc(name, args);
+  };
+  const stages = [['cards', async (tenantId, results) => {
+    for await (const row of renewalRows(rowsQuery([{ id: '1' }, { id: '2' }]).factory, {
+      control: results.__renewalControl, results,
+    })) {
+      seen.push(row.id);
+      if (row.id === '1') {
+        results.errors++;
+        results.details.push({ tenantId, status: 'error', reason: 'Provider result uncertain' });
+      }
+    }
+  }]];
+  const seen = [];
+  const h = harness({ db });
+  const first = await h.run({ stages });
+  assert.equal(first.workerAvailable, false);
+  assert.deepEqual(seen, ['1']);
+  assert.ok(db.state.reviews.a.cards['"1"']);
+  assert.equal(db.state.billing.a.cursor, null);
+  rejectCheckpoint = false;
+  const second = await h.run({ stages });
+  assert.equal(second.workerAvailable, true);
+  assert.equal(second.healthy, false);
+  assert.deepEqual(seen, ['1', '2']);
+});
+
+test('infrastructure failure remains unavailable even with an existing isolated review', async () => {
+  const h = harness({ db: database({ initialState: { reviews: { a: { cards: {
+    '"1"': { firstFailedAt: '2026-09-17T06:00:00Z', reasons: ['Review'] },
+  } } } } }) });
+  const result = await h.run({ stages: [['cards', async () => { throw new Error('Database unavailable'); }]] });
+  assert.equal(result.outcome, 'failed');
+  assert.equal(result.workerAvailable, false);
 });
 
 test('row iterator pages over server caps, checkpoints only consumed rows, and handles custom keys', async () => {

@@ -45,6 +45,8 @@ import {
   FileText
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
+import RenewalExecutionDetails from "@/components/admin/RenewalExecutionDetails";
+import { renewalExecutionLog } from "@/lib/renewalExecutionLog";
 
 export default function AdminScheduledTasks() {
   const navigate = useNavigate();
@@ -79,7 +81,7 @@ export default function AdminScheduledTasks() {
   }, [navigate]);
 
   const { data: logsData, isLoading: logsLoading, refetch: refetchLogs } = useQuery({
-    queryKey: ['/api/admin/scheduled-task-logs', taskFilter],
+    queryKey: ['/api/admin/scheduled-task-logs', tenant?.id, taskFilter],
     queryFn: async () => {
       const params = new URLSearchParams({ limit: '100' });
       if (taskFilter && taskFilter !== 'all') {
@@ -93,6 +95,17 @@ export default function AdminScheduledTasks() {
     },
     enabled: !loading && !!tenant
   });
+
+  const { data: renewalLogs, isError: renewalStatusError, refetch: refetchRenewals } = useQuery({
+    queryKey: ['/api/admin/scheduled-task-logs', tenant?.id, 'latest-renewal'],
+    queryFn: async () => {
+      const response = await adminFetch('/api/admin/scheduled-task-logs?task_name=membership_renewals&limit=1', { credentials: 'include' });
+      if (!response.ok) throw new Error('Failed to fetch renewal status');
+      return response.json();
+    },
+    enabled: !loading && !!tenant,
+  });
+  const latestRenewal = renewalExecutionLog(renewalLogs?.logs?.[0]);
 
   const { data: pendingData, isLoading: pendingLoading, refetch: refetchPending } = useQuery({
     queryKey: ['/api/admin/pending-scheduled-jobs'],
@@ -109,6 +122,7 @@ export default function AdminScheduledTasks() {
   const handleRefresh = () => {
     refetchLogs();
     refetchPending();
+    refetchRenewals();
     toast({
       title: "Refreshing",
       description: "Fetching latest scheduled task data..."
@@ -119,6 +133,7 @@ export default function AdminScheduledTasks() {
     switch (status) {
       case 'success':
         return <Badge variant="outline" className="text-green-600 border-green-300"><CheckCircle2 className="w-3 h-3 mr-1" />Success</Badge>;
+      case 'error':
       case 'failed':
         return <Badge variant="outline" className="text-red-600 border-red-300"><XCircle className="w-3 h-3 mr-1" />Failed</Badge>;
       case 'partial':
@@ -189,6 +204,13 @@ export default function AdminScheduledTasks() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {renewalStatusError && <p role="alert" className="mb-4 text-red-300">Renewal status could not be loaded. Refresh to try again; this is not confirmation that renewals are healthy.</p>}
+        {latestRenewal?.reviewCount > 0 && (
+          <div role="status" className="mb-4 rounded-lg border border-amber-600 bg-amber-950/30 p-4 text-amber-200">
+            <p className="font-semibold">Membership renewals need attention: {latestRenewal.reviewCount} unresolved reviews</p>
+            <p className="mt-1 text-sm">These reviews remain open even when the worker is running. See Execution History → Membership Renewals for records, reasons and age.</p>
+          </div>
+        )}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <TabsList className="bg-slate-800 border-slate-700" data-testid="tabs-scheduled-tasks">
             <TabsTrigger value="pending" className="data-[state=active]:bg-slate-700 data-[state=active]:text-white text-slate-400" data-testid="tab-pending">
@@ -360,6 +382,7 @@ export default function AdminScheduledTasks() {
                     </SelectTrigger>
                     <SelectContent className="bg-slate-800 border-slate-700">
                       <SelectItem value="all" className="text-slate-200 focus:bg-slate-700 focus:text-white">All Tasks</SelectItem>
+                      <SelectItem value="membership_renewals" className="text-slate-200 focus:bg-slate-700 focus:text-white">Membership Renewals</SelectItem>
                       <SelectItem value="contract_reminders" className="text-slate-200 focus:bg-slate-700 focus:text-white">Contract Reminders</SelectItem>
                       <SelectItem value="contract_timeout_notifications" className="text-slate-200 focus:bg-slate-700 focus:text-white">Timeout Notifications</SelectItem>
                     </SelectContent>
@@ -399,8 +422,8 @@ export default function AdminScheduledTasks() {
                             <TableCell>
                               {getStatusBadge(log.status)}
                             </TableCell>
-                            <TableCell className="max-w-xs truncate text-slate-400">
-                              {log.summary || '-'}
+                            <TableCell className="max-w-xs text-slate-400">
+                              <RenewalExecutionDetails log={log} />
                             </TableCell>
                             <TableCell>
                               <div className="flex items-center gap-2 text-sm">
@@ -418,7 +441,7 @@ export default function AdminScheduledTasks() {
                             <TableCell>
                               <div className="flex items-center gap-1 text-sm text-slate-400">
                                 <Timer className="w-3 h-3" />
-                                {formatDuration(log.duration_ms)}
+                                {formatDuration(log.duration_ms ?? renewalExecutionLog(log)?.durationMs)}
                               </div>
                             </TableCell>
                             <TableCell className="text-sm text-slate-400">

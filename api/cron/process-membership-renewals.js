@@ -83,10 +83,13 @@ export default async function handler(req, res) {
       ['reminders', processTenantReminders],
     ],
   });
-  const heartbeat = results.heartbeat ? await reportHeartbeat(results.healthy) : { sent: false, reason: 'busy' };
+  // Availability is not financial completion. Unresolved row reviews remain
+  // unhealthy processing and are reported persistently in tenant execution logs.
+  const heartbeat = results.heartbeat ? await reportHeartbeat(results.workerAvailable) : { sent: false, reason: 'busy' };
   console.log(JSON.stringify({ job: 'membership_renewals', stage: 'heartbeat', outcome: results.outcome, ...heartbeat }));
-  return res.status(results.outcome === 'busy' ? 202 : results.healthy ? 200 : 500).json({
-    success: results.healthy, outcome: results.outcome, duration_ms: results.duration_ms, results, heartbeat,
+  return res.status(results.outcome === 'busy' ? 202 : results.workerAvailable ? 200 : 500).json({
+    success: results.healthy, workerAvailable: results.workerAvailable,
+    outcome: results.outcome, duration_ms: results.duration_ms, results, heartbeat,
   });
 }
 

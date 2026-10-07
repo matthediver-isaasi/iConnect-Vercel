@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { RenewalBudgetExceeded } from './membershipRenewalBudget.js';
+import { renewalReviewControl, tenantRenewalReviews } from './membershipRenewalReviews.js';
 
 const PAGE_SIZE = 200;
 const MAX_EXPIRY_REVIEWS_PER_TENANT = 100;
@@ -9,8 +10,10 @@ export const RENEWAL_LIMITS = Object.freeze({
 });
 
 export function renewalOutcome(results) {
-  const failed = results.errors > 0 || results.details.some(d => d.error || d.status === 'error');
-  return failed ? 'failed' : results.stalled ? 'stalled' : results.deferred ? 'deferred' : 'completed';
+  const failed = results.errors > (results.isolatedErrors || 0)
+    || results.details.some(d => !d.isolated && (d.error || d.status === 'error'));
+  return failed ? 'failed' : results.stalled ? 'stalled'
+    : results.reviewCount ? 'needs_review' : results.deferred ? 'deferred' : 'completed';
 }
 
 async function readWithDeadline(query, timeoutMs, budgetLimited = false) {
@@ -188,8 +191,9 @@ export async function runMembershipRenewals({
         while (pending.stage < stages.length) {
           if (clock() >= started + limits.billingMs) throw new RenewalBudgetExceeded();
           const [name, fn] = stages[pending.stage];
-          const before = results.errors;
+          const before = results.errors - (results.isolatedErrors || 0);
           Object.defineProperty(results, '__renewalControl', { configurable: true, value: {
+            ...renewalReviewControl({ state, tenantId, stage: name, save, clock, results }),
             cursor: pending.cursor,
             shouldContinue: () => clock() < started + limits.billingMs,
             checkpoint: async cursor => {
@@ -200,7 +204,7 @@ export async function runMembershipRenewals({
           } });
           await runStage(name, tenantId, () => fn(tenantId, results));
           delete results.__renewalControl;
-          if (results.errors > before) throw new Error(`${name} reported row errors`);
+          if (results.errors - (results.isolatedErrors || 0) > before) throw new Error(`${name} reported row errors`);
           pending.cursor = null;
           // Persist next stage only after the whole stage succeeds.
           pending.stage++;
@@ -283,22 +287,37 @@ export async function runMembershipRenewals({
       for (const [tenantId, expiryState] of Object.entries(state?.expiry || {})) {
         const historyIds = expiryState.reviewHistoryIds || [];
         if (!historyIds.length) continue;
-        results.errors++;
         results.details.push({ tenantId, stage: 'annual-expiry', status: 'review_required',
           code: 'unresolved_expiry_policy_review', historyIds,
           reason: 'Historical expiry policies still require authoritative repair and successful revalidation.' });
       }
+      const reviewTenants = new Set([
+        ...tenants.map(t => t.tenant_id), ...Object.keys(state?.reviews || {}),
+        ...Object.keys(state?.expiry || {}),
+      ]);
+      results.reviewCount = [...reviewTenants].reduce((count, id) => count
+        + tenantRenewalReviews(state, id, clock()).length
+        + (state.expiry?.[id]?.reviewHistoryIds?.length || 0), 0);
       diagnostic('finalization', 'start');
       const logRows = [];
-      for (const tenantId of tenants.length ? tenants.map(t => t.tenant_id) : [null]) {
+      for (const tenantId of reviewTenants.size ? reviewTenants : [null]) {
           const details = results.details.filter(d => !d.tenantId || d.tenantId === tenantId);
-          const outcome = renewalOutcome(results);
+          const reviews = tenantRenewalReviews(state, tenantId, clock());
+          const reviewHistoryIds = state.expiry?.[tenantId]?.reviewHistoryIds || [];
+          const errors = details.filter(d => !d.isolated && (d.error || d.status === 'error')).length;
+          const reviewCount = reviews.length + reviewHistoryIds.length;
+          const deferred = state.billing?.[tenantId] && !state.billing[tenantId].done ? 1 : 0;
+          const outcome = renewalOutcome({ errors, details, reviewCount, deferred });
           logRows.push({
             tenant_id: tenantId, task_name: 'membership_renewals', task_display_name: 'Membership Renewals',
-            status: ['failed', 'stalled'].includes(outcome) ? 'error' : outcome === 'deferred' ? 'partial' : 'success',
+            status: ['failed', 'stalled'].includes(outcome) ? 'error' : ['deferred', 'needs_review'].includes(outcome) ? 'partial' : 'success',
             details: JSON.stringify({
-              outcome, duration_ms: clock() - started, errors: results.errors, deferred: results.deferred,
-              processed: results.processed, skipped: results.skipped, details,
+              outcome, duration_ms: clock() - started, errors, deferred, details,
+              reviewCount, reviews, reviewHistoryIds,
+              workerOutcome: renewalOutcome(results),
+              workerAvailable: !['failed', 'stalled'].includes(renewalOutcome(results)),
+              // These counters are whole-worker totals, not this tenant's totals.
+              workerTotals: { processed: results.processed, skipped: results.skipped },
               progress: results.progress.filter(p => p.tenantId === tenantId),
               billing: state?.billing?.[tenantId] || null,
             }),
@@ -322,5 +341,6 @@ export async function runMembershipRenewals({
   }
   const outcome = renewalOutcome(results);
   return { ...results, outcome, healthy: ['completed', 'deferred'].includes(outcome),
+    workerAvailable: !['failed', 'stalled'].includes(outcome),
     heartbeat: true, duration_ms: clock() - started };
 }

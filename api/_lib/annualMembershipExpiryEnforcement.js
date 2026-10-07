@@ -319,6 +319,11 @@ export async function processTenantAnnualExpirySweep(client, tenantId, results =
       await options.reviewRequired?.(history.id);
       if (results) {
         results.errors = (results.errors || 0) + 1;
+        if (options.reviewRequired) {
+          // Only a durably retained review can be separated from availability.
+          results.isolatedErrors = (results.isolatedErrors || 0) + 1;
+          detail.isolated = true;
+        }
         results.details?.push(detail);
       }
       trace({ stage: 'annual-expiry', status: 'blocked', reason: detail.reason });

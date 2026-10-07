@@ -11,11 +11,17 @@ Annual renewal settings belong to the dated tier configuration snapshot and must
 
 Renewal display windows use inclusive UTC date boundaries: fixed annual terms anchor at persisted expiry, rolling terms at the next-start/renewal date. Explicit zero days means only that anchor day, not an unlimited window. An attested expiry-only legacy row can support a read-only CTA using its uniquely resolved member structure, without inventing commencement or establishing a successor. Recurring reservations, overlapping/ambiguous evidence and missing policy settings must not enable the CTA.
 
-Legacy expiry-only attestation is not authority to apply today's login, role or grace policy. Review can permit unrelated work to advance, but an unresolved review must continue gating health across subsequent invocations until authoritative policy is assigned and successfully handled.
+Legacy expiry-only attestation is not authority to apply today's login, role or grace policy. Review can permit unrelated work to advance, but an unresolved review must continue gating processing health across subsequent invocations until authoritative policy is assigned and successfully handled. Worker availability is separate from processing health.
 
 **Why:** Advancing past a review row and resetting per-run errors can report a healthy continuation while the underlying access-policy decision remains unresolved.
 
 **How to apply:** Keep the review identity durable independently of traversal position; missing history or failed reads cannot count as resolution. Do not clear monitoring failures by inventing dates or attaching a current policy.
+
+Record-level renewal failures must be durably held for review before advancing to independent members. Do not automatically replay an uncertain financial operation; related billing/reminder work for that owner must remain held too. Preserve unresolved reviews across daily traversal resets and make them visible to the tenant even on deferred runs.
+
+**Why:** The user explicitly rejected one member's failure blocking other members, and treating every individual failure as a service outage. A provider timeout can still represent a completed charge, so continuation is not permission to retry.
+
+**How to apply:** Report worker availability separately from financial completion, keep infrastructure/persistence/stall failures unhealthy, and require reconciled evidence for recovery rather than deleting a review to make status green.
 
 An operator may explicitly approve a renewal/access policy for an expiry-only historical term without asserting that the member purchased that structure.
 
