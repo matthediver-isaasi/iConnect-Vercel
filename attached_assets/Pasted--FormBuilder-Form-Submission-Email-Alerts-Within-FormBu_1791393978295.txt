@@ -1,0 +1,60 @@
+# FormBuilder – Form Submission Email Alerts
+
+Within `/FormBuilder`, add a new tab titled **Alerts** to allow administrators to configure email notifications when a form receives a new submission.
+
+### 1. Alerts Configuration
+
+The new Alerts tab should allow administrators to:
+
+- Enable or disable submission alerts for the form.
+- Specify one or more email addresses that should receive notifications.
+- Add or remove recipient email addresses as required.
+- Save these settings against the individual form.
+
+Alerts should be configured **per form and per tenant**, ensuring complete tenant isolation.
+
+### 2. Email Notification
+
+When a form is successfully submitted, automatically send a basic email notification to all configured recipients, provided alerts are enabled.
+
+The email should include:
+
+- **Subject:** New Form Submission – [Form Name]
+- Form name
+- Date and time of submission
+- A link to securely view the submitted form data
+
+The email does not need to contain the submitted answers themselves.
+
+### 3. Tokenised Submission Access
+
+Each notification should contain a **secure, tokenised link** that allows the recipient to view the individual form submission without having to log in to iConnect.
+
+When the recipient clicks the link:
+
+- Open a read-only view of the submitted form.
+- Display the form name, submission date and all submitted answers.
+- Present the information in a clean, readable format, ideally reflecting the original form's field labels and structure.
+- Do not allow the recipient to edit or delete any submission data.
+- Do not provide access to other submissions or any administrative functionality.
+
+### 4. Security Requirements
+
+As these links bypass normal authentication, they must be implemented securely.
+
+- Generate a unique, cryptographically secure, unguessable access token for each submission.
+- Tokens must only grant read-only access to the specific submission they reference.
+- Tokens must be scoped to the correct tenant and form.
+- Store tokens securely rather than exposing internal submission identifiers as authentication credentials.
+- Support token expiry and revocation, with an appropriate default expiry period.
+- Ensure submission data is never accessible through an unprotected endpoint.
+
+### 5. Integration with Existing Functionality
+
+This should be implemented as an extension of the existing FormBuilder functionality, reusing the platform's current email infrastructure and submission storage wherever possible.
+
+Email notifications should be triggered only after a submission has been successfully saved.
+
+Failure to send an alert must not prevent or invalidate the original form submission.
+
+The new functionality must work for all supported forms without interfering with existing submission workflows, downstream actions or reporting.
