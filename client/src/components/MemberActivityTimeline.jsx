@@ -7,6 +7,7 @@ import { Loader2, ClipboardList, Calendar, UserCheck, UserPlus, UserMinus } from
 import { format } from "date-fns";
 import { useDateFormat } from "@/hooks/useDateFormat";
 import RelatedOpportunityActivity from "@/components/opportunities/RelatedOpportunityActivity";
+import ActivityInvoiceActions from "@/components/ActivityInvoiceActions";
 
 /**
  * Shared member Activity timeline.
@@ -228,6 +229,7 @@ export default function MemberActivityTimeline({
       const bookingDate = b.created_date || b.created_at || null;
       return {
         key: `simple-${b.id}`,
+        booking: b,
         id: b.id,
         source: 'simple',
         title: event?.title || 'Unknown Event',
@@ -249,6 +251,7 @@ export default function MemberActivityTimeline({
       const bookingDate = b.created_at || null;
       return {
         key: `complex-${b.id}`,
+        booking: b,
         id: b.id,
         source: 'complex',
         title: ev?.title || 'Unknown Event',
@@ -425,6 +428,7 @@ export default function MemberActivityTimeline({
                           Booked: {item.bookingDate ? formatDate(item.bookingDate) : '—'}
                         </span>
                       </div>
+                      <ActivityInvoiceActions booking={item.booking} />
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">

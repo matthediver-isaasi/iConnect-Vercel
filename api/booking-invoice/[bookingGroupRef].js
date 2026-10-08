@@ -1,6 +1,7 @@
 import { getSessionMember } from '../_lib/session.js';
 import { getAccountingProvider, getAccountingProviderByName } from '../_lib/accountingProvider.js';
 import { supabase } from '../_lib/database.js';
+import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -12,7 +13,13 @@ export default async function handler(req, res) {
   }
 
   const sessionMember = await getSessionMember(req);
-  if (!sessionMember) {
+  const context = await getTenantContext(req);
+  if (context?.tenantMismatch || (sessionMember?.tenant_id && context?.tenantId && sessionMember.tenant_id !== context.tenantId)) {
+    return res.status(403).json({ error: 'Tenant context mismatch' });
+  }
+  const isAdmin = context?.isAuthenticated && await hasAdminAccess(context);
+  const tenantId = sessionMember?.tenant_id || (isAdmin && context?.tenantId);
+  if (!tenantId || (!sessionMember && !isAdmin)) {
     return res.status(401).json({ error: 'Authentication required' });
   }
 
@@ -29,7 +36,7 @@ export default async function handler(req, res) {
       .from('booking')
       .select('xero_invoice_id, xero_invoice_number, accounting_provider, accounting_invoice_id, accounting_invoice_number, member_id, organization_id')
       .eq('booking_group_reference', bookingGroupRef)
-      .eq('tenant_id', sessionMember.tenant_id)
+      .eq('tenant_id', tenantId)
       .or('xero_invoice_id.not.is.null,accounting_invoice_id.not.is.null')
       .limit(1)
       .maybeSingle();
@@ -47,7 +54,7 @@ export default async function handler(req, res) {
         .from('complex_event_booking')
         .select('xero_invoice_id, xero_invoice_number, accounting_provider, accounting_invoice_id, accounting_invoice_number, member_id, organization_id')
         .eq('booking_group_reference', bookingGroupRef)
-        .eq('tenant_id', sessionMember.tenant_id)
+        .eq('tenant_id', tenantId)
         .or('xero_invoice_id.not.is.null,accounting_invoice_id.not.is.null')
         .limit(1)
         .maybeSingle();
@@ -65,14 +72,14 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Invoice not found for this booking' });
     }
 
-    const isSameMember = booking.member_id === sessionMember.id;
-    const isSameOrg = sessionMember.organization_id && booking.organization_id && sessionMember.organization_id === booking.organization_id;
+    const isSameMember = !!sessionMember && booking.member_id === sessionMember.id;
+    const isSameOrg = sessionMember?.organization_id && booking.organization_id && sessionMember.organization_id === booking.organization_id;
     
-    if (!isSameMember && !isSameOrg) {
+    if (!isAdmin && !isSameMember && !isSameOrg) {
       return res.status(403).json({ error: 'Not authorized to view this invoice' });
     }
 
-    const appTenantId = sessionMember.tenant_id;
+    const appTenantId = tenantId;
     if (!appTenantId) {
       console.error('[booking-invoice] Cannot determine tenant for Xero PDF fetch');
       return res.status(500).json({ error: 'Cannot determine tenant context for invoice' });

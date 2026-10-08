@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-async function serve({ source = 'booking', provider = 'xero', legacy = false, authorized = true }) {
+async function serve({ source = 'booking', provider = 'xero', legacy = false, authorized = true, admin = false, contextTenant = 'tenant' }) {
   let code = await readFile(new URL('./[bookingGroupRef].js', import.meta.url), 'utf8');
   code = code.replace(/^import .*;\r?$/gm, '').replace('export default async function handler', 'async function handler');
   const calls = [];
@@ -23,11 +23,13 @@ async function serve({ source = 'booking', provider = 'xero', legacy = false, au
     };
     return query;
   } };
-  const handler = new Function('supabase', 'getSessionMember', 'getAccountingProvider', 'getAccountingProviderByName', `${code}; return handler;`)(
+  const handler = new Function('supabase', 'getSessionMember', 'getAccountingProvider', 'getAccountingProviderByName', 'getTenantContext', 'hasAdminAccess', `${code}; return handler;`)(
     db,
     async () => ({ id: 'member', tenant_id: 'tenant' }),
     async () => { assert.fail('Must not use the tenant active provider for pinned or legacy linkage'); },
     name => ({ fetchInvoicePdf: async (id, tenant) => { calls.push({ provider: name, id, tenant }); return Buffer.from('%PDF fixture'); } }),
+    async () => ({ isAuthenticated: true, tenantId: contextTenant }),
+    async () => admin,
   );
   const res = {
     code: 200, headers: {}, status(code) { this.code = code; return this; },
@@ -58,4 +60,12 @@ test('PDF authorization is preserved before provider access', async () => {
   const result = await serve({ authorized: false });
   assert.equal(result.code, 403);
   assert.equal(result.calls.some(call => call.provider), false);
+});
+
+test('tenant administrators can view another member invoice but cannot cross tenant context', async () => {
+  const allowed = await serve({ authorized: false, admin: true });
+  assert.equal(allowed.code, 200);
+  const denied = await serve({ authorized: false, admin: true, contextTenant: 'other' });
+  assert.equal(denied.code, 403);
+  assert.equal(denied.calls.length, 0);
 });
