@@ -764,7 +764,6 @@ export default function FormManagementPage() {
           setDeletingForm(form);
           setDeleteDialogOpen(true);
         }}
-        title="Delete form"
         title={form.archived_at ? 'Restore form (keeps it inactive)' : 'Archive form'}
         data-testid={`button-${form.archived_at ? 'restore' : 'archive'}-${form.id}`}
       >
