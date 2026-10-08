@@ -10856,9 +10856,9 @@ function FieldCard({
 }
 
 export default function FormBuilderPage() {
-  const { isFeatureExcluded, isAccessReady, memberInfo, memberRole } = useMemberAccess();
+  const { isFeatureExcluded, isAccessReady, memberInfo } = useMemberAccess();
   const alertTenantId = useFormAlertTenant();
-  const canManageFormAlerts = isAccessReady && (memberRole?.is_tenant_admin === true || memberRole?.is_admin === true);
+  const canManageFormAlerts = isAccessReady && !isFeatureExcluded('page_FormBuilder');
   const [accessChecked, setAccessChecked] = useState(false);
   const [formData, setFormData] = useState({
     name: "",

@@ -1,5 +1,6 @@
 import { supabase } from '../_lib/database.js';
-import { getTenantContext, hasAdminAccess } from '../_lib/tenantContext.js';
+import { getTenantContext } from '../_lib/tenantContext.js';
+import { isResourceExcluded } from '../_lib/roleVisibility.js';
 import { normalizeFormAlertSettings, FORM_ALERT_EXPIRY_DAYS } from '../../shared/formAlertSettings.js';
 import { FORM_ALERTS_RELEASE_READY } from '../_lib/formAlertReleaseGate.js';
 
@@ -12,10 +13,23 @@ export default async function handler(req, res, deps = {}) {
   try {
     const context = await (deps.getTenantContext || getTenantContext)(req);
     if (!context?.isAuthenticated) return res.status(401).json({ error: 'Authentication required' });
-    if (!context.tenantId || !await (deps.hasAdminAccess || hasAdminAccess)(context)) {
-      return res.status(403).json({ error: 'Tenant administrator access required' });
-    }
     const db = deps.db || supabase;
+    if (!context.tenantId) return res.status(403).json({ error: 'FormBuilder access required' });
+    // Match FormBuilder's page permission, not unrelated administrator flags.
+    // Tenant dashboard sessions retain their normal access; member sessions
+    // must have a tenant-owned role and pass role + individual exclusions.
+    if (!context.tenantUserId) {
+      if (!context.roleId) return res.status(403).json({ error: 'FormBuilder access required' });
+      const { data: role, error: roleError } = await db.from('role')
+        .select('excluded_features').eq('id', context.roleId)
+        .eq('tenant_id', context.tenantId).maybeSingle();
+      if (roleError || !role || isResourceExcluded([
+        ...(Array.isArray(role.excluded_features) ? role.excluded_features : []),
+        ...(Array.isArray(context.memberExcludedFeatures) ? context.memberExcludedFeatures : []),
+      ], 'page_FormBuilder')) {
+        return res.status(403).json({ error: 'FormBuilder access required' });
+      }
+    }
     const formId = req.query?.form_id || req.body?.form_id;
     if (!uuid(formId)) return res.status(400).json({ error: 'A form ID is required' });
     const { data: form, error } = await db.from('form').select('id')

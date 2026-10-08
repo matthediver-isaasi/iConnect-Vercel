@@ -19,7 +19,7 @@ export default function FormSubmissionAlerts({ formId, tenantId, canManage }) {
       </CardHeader>
       <CardContent className="space-y-4">
         {!canManage ? (
-          <p className="text-sm text-slate-500">Only tenant administrators can manage submission alerts.</p>
+          <p className="text-sm text-slate-500">FormBuilder access is required to manage submission alerts.</p>
         ) : !formId ? (
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
             <p className="text-sm font-medium text-slate-800">Save this form first</p>

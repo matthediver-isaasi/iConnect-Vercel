@@ -20,7 +20,7 @@ function response() {
 const formId = '11111111-1111-4111-8111-111111111111';
 const tenantId = '22222222-2222-4222-8222-222222222222';
 const submissionId = '33333333-3333-4333-8333-333333333333';
-function fixture({ form = { id: formId }, stored = null, submission = { id: submissionId } } = {}) {
+function fixture({ form = { id: formId }, stored = null, submission = { id: submissionId }, role = { excluded_features: [] } } = {}) {
   const calls = [];
   const db = {
     from(table) {
@@ -30,7 +30,7 @@ function fixture({ form = { id: formId }, stored = null, submission = { id: subm
         eq(k,v) { filters[k]=v; return chain; },
         maybeSingle() {
           calls.push({ table, filters });
-          return Promise.resolve({ data: table === 'form' ? form : table === 'form_submission' ? submission : stored });
+          return Promise.resolve({ data: table === 'role' ? role : table === 'form' ? form : table === 'form_submission' ? submission : stored });
         },
         upsert(value, options) { calls.push({ table,value,options }); return Promise.resolve({ error: null }); },
       };
@@ -38,14 +38,45 @@ function fixture({ form = { id: formId }, stored = null, submission = { id: subm
     },
     rpc(name,args) { calls.push({ name,args }); return Promise.resolve({ error:null }); },
   };
-  return { calls, db, getTenantContext: async () => ({ tenantId,isAuthenticated:true }), hasAdminAccess: async () => true };
+  return { calls, db, getTenantContext: async () => ({ tenantId,isAuthenticated:true,tenantUserId:'dashboard-user' }) };
 }
-test('authentication and administrator authorization fail before any private read', async () => {
+test('authentication and missing-role authorization fail before any private read', async () => {
   for (const authenticated of [false,true]) {
     const deps=fixture(); deps.getTenantContext=async()=>({ tenantId,isAuthenticated:authenticated });
-    deps.hasAdminAccess=async()=>false;
     const res=response(); await handler({method:'GET',query:{form_id:formId}},res,deps);
     assert.equal(res.statusCode,authenticated ? 403 : 401); assert.equal(deps.calls.length,0);
+  }
+});
+test('non-admin FormBuilder members can read, save, enable and revoke alerts', async () => {
+  for (const method of ['GET','PUT','POST']) {
+    const deps=fixture();
+    deps.getTenantContext=async()=>({tenantId,isAuthenticated:true,roleId:'editor-role'});
+    const res=response();
+    await handler({method,query:{form_id:formId},body:{
+      enabled:true,recipients:['a@example.com'],action:'revoke',submission_id:submissionId,
+    }},res,deps);
+    assert.equal(res.statusCode,200);
+    assert.deepEqual(deps.calls[0].filters,{id:'editor-role',tenant_id:tenantId});
+  }
+});
+test('FormBuilder exclusions and unresolved roles deny every alert operation before reading settings',async()=>{
+  for (const method of ['GET','PUT','POST']) {
+    for (const exclusion of ['forms','forms.form-builder','page_FormBuilder']) {
+      for (const individual of [false,true]) {
+        const deps=fixture({role:{excluded_features:individual ? [] : [exclusion]}});
+        deps.getTenantContext=async()=>({tenantId,isAuthenticated:true,roleId:'editor-role',
+          memberExcludedFeatures:individual ? [exclusion] : []});
+        const res=response();
+        await handler({method,query:{form_id:formId}},res,deps);
+        assert.equal(res.statusCode,403);
+        assert.deepEqual(deps.calls.map(c=>c.table),['role']);
+      }
+    }
+    const deps=fixture({role:null});
+    deps.getTenantContext=async()=>({tenantId,isAuthenticated:true,roleId:'missing-role'});
+    const res=response(); await handler({method,query:{form_id:formId}},res,deps);
+    assert.equal(res.statusCode,403);
+    assert.equal(deps.calls.length,1);
   }
 });
 test('default-off reads and writes are scoped to the authenticated tenant and form', async () => {
