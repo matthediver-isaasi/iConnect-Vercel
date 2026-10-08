@@ -30,3 +30,9 @@ Existing guarded payment mirrors must not be updated through partial INSERT/UPSE
 **Why:** PostgreSQL runs BEFORE INSERT guards before ON CONFLICT resolves an existing row. Missing charge dates, amounts or currency can therefore reject a valid webhook even though the stored row has complete reservation evidence.
 
 **How to apply:** Update a tenant-validated existing payment directly, retaining its financial terms and all database guards. Recovery of already-issued collections must prohibit GoCardless mutations at the transport boundary, not merely rely on the intended processor path.
+
+Financial recovery runners need an exclusive execution lock and provider-rate-limit backoff before restarting.
+
+**Why:** A shell check anchored to `node` missed processes whose executable was an absolute Nix path, allowing overlapping recoveries. Xero then reported HTTP 429 while locally confirmed payments accumulated accounting failures.
+
+**How to apply:** Never infer runner absence from a bare-executable-name match. Use an exclusive lock, inspect the full command, stop on provider throttling, and reconcile any interrupted invoice operation before retrying it.
