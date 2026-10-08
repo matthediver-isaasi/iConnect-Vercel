@@ -4,15 +4,26 @@ let paused = false;
 let generation = 0;
 let originalFetch;
 let rejectionCheck;
+const generationListeners = new Set();
+export const getViewerProtectedWorkGeneration = () => generation;
+export const isViewerProtectedWorkPaused = () => paused;
+export function subscribeToViewerProtectedWork(listener) {
+  generationListeners.add(listener);
+  return () => generationListeners.delete(listener);
+}
+function advanceGeneration() {
+  generation += 1;
+  generationListeners.forEach(listener => listener());
+}
 
 export function setViewerProtectedWorkPaused(value) {
   if (paused === value) return;
   paused = value;
-  generation += 1;
+  advanceGeneration();
 }
 
 export function invalidateViewerProtectedWork() {
-  generation += 1;
+  advanceGeneration();
   rejectionCheck = undefined;
 }
 

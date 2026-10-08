@@ -3,6 +3,27 @@ name: Session role readiness
 description: Safe reuse of verified role data, terminal failures, and observer-driven loading loops.
 ---
 
+Portal features must not require the admin-dashboard tenant singleton as their
+only context, and successful portal browser fixtures must not seed it manually.
+
+**Why:** A direct FormBuilder visit authenticated correctly while Alerts waited
+forever; tests hid the defect by initializing dashboard state after portal login.
+
+**How to apply:** Use verified session identity plus tenant-intent and session
+generation guards. Test the normal cold authentication path without a tenant
+setter; reserve setter calls for explicit switch/removal isolation tests.
+
+Routine revalidation timestamps must not define the scope of editable drafts.
+
+**Why:** Dashboard verification on tab focus discarded unsaved alert settings
+and closed a submission dialog despite unchanged identity and tenancy.
+
+**How to apply:** Scope drafts to identity, tenant intent and session generation,
+not query completion times. Test unchanged revalidation and real context
+invalidation separately. Browser component harnesses must import the exact
+Vite-served dependency URLs, including their version query, or they create a
+second React Query context instead of testing the application context.
+
 Public metadata discovery must not probe protected endpoints before falling back to public ones.
 
 **Why:** A guest's expected 401 can trigger session invalidation and query-cache resets. Typography discovery then restarts repeatedly while blocks remain hidden awaiting styles; this was reproduced on a cold BNMS visit.

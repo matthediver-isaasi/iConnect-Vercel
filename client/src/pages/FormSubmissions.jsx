@@ -171,7 +171,7 @@ function extractSubmissionEmail(submission, fields) {
 export default function FormSubmissionsPage() {
   const { memberInfo, memberRole, isFeatureExcluded, isAccessReady } = useMemberAccess();
   const alertTenantId = useFormAlertTenant();
-  const canRevokeFormAlerts = isAccessReady && (memberRole?.is_tenant_admin === true || memberRole?.is_admin === true);
+  const canRevokeFormAlerts = isAccessReady && !isFeatureExcluded('page_FormBuilder');
   const [accessChecked, setAccessChecked] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
@@ -226,7 +226,7 @@ export default function FormSubmissionsPage() {
   const [viewingSubmission, setViewingSubmission] = useState(null);
   useEffect(() => {
     setViewingSubmission(null);
-  }, [alertTenantId]);
+  }, [alertTenantId.scopeKey]);
   const [submissionToDelete, setSubmissionToDelete] = useState(null);
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [exportFormat, setExportFormat] = useState('csv');
@@ -2957,9 +2957,9 @@ export default function FormSubmissionsPage() {
                   })}
                 </div>
               </div>
-              {canRevokeFormAlerts && alertTenantId && (
+              {canRevokeFormAlerts && alertTenantId.status === "ready" && (
                 <RevokeSubmissionAlert
-                  key={`${alertTenantId}:${viewingSubmission.id}`}
+                  key={`${alertTenantId.scopeKey}:${viewingSubmission.id}`}
                   tenantId={alertTenantId}
                   formId={viewingSubmission.form_id}
                   submissionId={viewingSubmission.id}

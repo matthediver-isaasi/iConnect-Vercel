@@ -25,10 +25,15 @@ export default function FormSubmissionAlerts({ formId, tenantId, canManage }) {
             <p className="text-sm font-medium text-slate-800">Save this form first</p>
             <p className="mt-1 text-sm text-slate-500">Alerts are disabled for new forms and copies. Save the form before configuring recipients.</p>
           </div>
-        ) : !tenantId ? (
+        ) : tenantId.status === "loading" ? (
           <p className="text-sm text-slate-500">Waiting for the active tenant. Alert settings are unavailable until your tenant is resolved.</p>
+        ) : tenantId.status !== "ready" ? (
+          <div role="alert" className="space-y-3">
+            <p className="text-sm text-red-600">{tenantId.error}</p>
+            <Button type="button" variant="outline" onClick={() => window.location.reload()}>Reload page</Button>
+          </div>
         ) : (
-          <AlertSettings key={`${tenantId}:${formId}`} formId={formId} tenantId={tenantId} />
+          <AlertSettings key={`${tenantId.scopeKey}:${formId}`} formId={formId} tenantId={tenantId} />
         )}
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 space-y-2">
           <p className="flex items-center gap-2 font-medium text-slate-800"><ShieldCheck className="w-4 h-4" /> Link confidentiality and survey privacy</p>

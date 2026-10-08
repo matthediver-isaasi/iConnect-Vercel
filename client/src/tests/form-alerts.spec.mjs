@@ -17,13 +17,17 @@ const FORM = {
   submission_emails: [],
 };
 
-async function fixture(page, { admin = true, available = true, getFailures = 0, putFailures = 0, revokeFailures = 0 } = {}) {
+async function fixture(page, { admin = true, allowed = true, dashboard = false, available = true, getFailures = 0, putFailures = 0, revokeFailures = 0, authDelay = 0 } = {}) {
+  await page.addInitScript(() => {
+    URL.parse ||= (input, base) => { try { return new URL(input, base); } catch { return null; } };
+  });
   const role = { id: MEMBER.role_id, tenant_id: TENANT, name: admin ? "Tenant administrator" : "Form owner",
-    excluded_features: [], is_tenant_admin: admin, is_admin: false };
+    excluded_features: allowed ? [] : ["forms.form-builder"], is_tenant_admin: admin, is_admin: false };
   const state = {
     forms: [structuredClone(FORM), { ...structuredClone(FORM), id: "alert-form-two", name: "Second form", slug: "alert-form-two" }],
     settings: new Map(), reads: [], writes: [], formSaves: [], revokes: [],
     unexpectedWrites: [], errors: [], getFailures, putFailures, revokeFailures,
+    denied: false, revokedSession: false, dashboardOnly: false, authReads: 0, holdRead: null, holdWrite: null,
   };
   page.on("pageerror", error => state.errors.push(error.message));
   await page.context().routeWebSocket("**/*", socket => socket.onMessage(() => {}));
@@ -39,16 +43,18 @@ async function fixture(page, { admin = true, available = true, getFailures = 0, 
     const method = request.method();
     if (path === "/api/admin/form-alerts") {
       const formId = url.searchParams.get("form_id");
-      if (!admin) return json({ error: "Tenant administrator access required." }, 403);
+      if (state.denied) return json({ error: "FormBuilder access required." }, 403);
       expect(request.headers()["x-tenant-id"]).toBe(TENANT);
       if (method === "GET") {
         state.reads.push(formId);
+        if (state.holdRead) await state.holdRead;
         if (state.getFailures-- > 0) return json({ error: "Fixture settings unavailable." }, 503);
         return json(state.settings.get(formId) || { enabled: false, recipients: [], expires_in_days: 7, available });
       }
       if (method === "PUT") {
         const body = request.postDataJSON();
         state.writes.push({ formId, body });
+        if (state.holdWrite) await state.holdWrite;
         if (state.putFailures-- > 0) return json({ error: "Fixture save failed." }, 503);
         const settings = { ...body, expires_in_days: 7, available };
         state.settings.set(formId, settings);
@@ -75,8 +81,14 @@ async function fixture(page, { admin = true, available = true, getFailures = 0, 
       state.unexpectedWrites.push(`${method} ${path}`);
       return json({ error: "Fixture forbids this mutation." }, 599);
     }
-    if (path === "/api/auth/me") return json(MEMBER);
-    if (path === "/api/auth/tenant-user-me") return json({ user: MEMBER, tenant: { id: TENANT, slug: "alerts-fixture" } });
+    if (path === "/api/auth/me") {
+      state.authReads++;
+      if (authDelay) await new Promise(resolve => setTimeout(resolve, authDelay));
+      return json(state.revokedSession || state.dashboardOnly ? null : MEMBER);
+    }
+    if (path === "/api/auth/tenant-user-me") return json(dashboard && !state.revokedSession
+      ? { authenticated: true, user: MEMBER, tenant: { id: TENANT, slug: "alerts-fixture" } }
+      : { authenticated: false });
     if (path === "/api/entities/Member") return json([MEMBER]);
     if (path === `/api/entities/Member/${MEMBER.id}`) return json(MEMBER);
     if (path === "/api/entities/Role") return json([role]);
@@ -97,17 +109,7 @@ async function fixture(page, { admin = true, available = true, getFailures = 0, 
 async function openAlerts(page, formId = FORM.id) {
   await page.goto(`/FormBuilder${formId ? `?formId=${formId}` : ""}`, { waitUntil: "domcontentloaded" });
   await expect(page.getByRole("button", { name: "Save Form", exact: true })).toBeVisible();
-  await setFixtureTenant(page);
   await page.getByTestId("tab-alerts").click();
-}
-
-async function setFixtureTenant(page) {
-  // The synthetic member portal shell does not run the administrator tenant
-  // bootstrap. Initialize its existing lifecycle explicitly, with fixture data.
-  await page.evaluate(async tenantId => {
-    const { setActiveTenantId } = await import("/src/api/base44Client.js");
-    setActiveTenantId(tenantId);
-  }, TENANT);
 }
 
 function clean(state) {
@@ -198,13 +200,9 @@ test("new forms require saving before fetching or changing alerts", async ({ pag
   clean(state);
 });
 
-test("alert controls wait for the active tenant and clear private settings when it is removed", async ({ page }) => {
-  const state = await fixture(page);
-  await page.goto(`/FormBuilder?formId=${FORM.id}`);
-  await page.getByTestId("tab-alerts").click();
-  await expect(page.getByTestId("form-submission-alerts")).toContainText("Waiting for the active tenant");
-  expect(state.reads).toEqual([]);
-  await setFixtureTenant(page);
+test("dashboard bootstrap resolves normally and tenant removal clears private drafts", async ({ page }) => {
+  const state = await fixture(page, { dashboard: true });
+  await openAlerts(page);
   await expect(page.getByTestId("input-submission-alert-recipients")).toBeVisible();
   await page.getByTestId("input-submission-alert-recipients").fill("private@example.org");
   await page.evaluate(async () => {
@@ -212,8 +210,8 @@ test("alert controls wait for the active tenant and clear private settings when 
     setActiveTenantId(null);
   });
   await expect(page.getByTestId("input-submission-alert-recipients")).toHaveCount(0);
-  await expect(page.getByTestId("form-submission-alerts")).toContainText("Waiting for the active tenant");
-  await setFixtureTenant(page);
+  await expect(page.getByTestId("form-submission-alerts")).toContainText("active tenant changed");
+  await openAlerts(page);
   await expect(page.getByTestId("input-submission-alert-recipients")).toHaveValue("");
   expect(state.writes).toEqual([]);
   clean(state);
@@ -249,7 +247,6 @@ test("load and save failures offer retry without losing the administrator draft"
 test("tenant administrator revokes with confirmation, retry and exact submission context", async ({ page }) => {
   const state = await fixture(page, { revokeFailures: 1 });
   await page.goto(`/FormSubmissions?form=${FORM.id}`);
-  await setFixtureTenant(page);
   await page.getByTestId("button-preview-submission-alert-submission").click();
   await page.getByTestId("button-revoke-submission-alert").click();
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
@@ -263,25 +260,150 @@ test("tenant administrator revokes with confirmation, retry and exact submission
   expect(state.revokes).toEqual(Array.from({ length: 2 }, () => ({
     action: "revoke", form_id: FORM.id, submission_id: "alert-submission",
   })));
-  await page.evaluate(async () => {
-    const { setActiveTenantId } = await import("/src/api/base44Client.js");
-    setActiveTenantId(null);
-  });
+  state.revokedSession = true;
+  await page.evaluate(() => window.dispatchEvent(new Event("viewer-session-rejected")));
   await expect(page.getByRole("dialog", { name: "Submission Details", exact: true })).toHaveCount(0);
   clean(state);
 });
 
-test("non-administrator form owners cannot read alert settings or see revoke controls", async ({ page }) => {
+test("authorized portal form owners need no administrator flag for settings or revocation", async ({ page }) => {
   const state = await fixture(page, { admin: false });
   await openAlerts(page);
-  await expect(page.getByText("Only tenant administrators can manage submission alerts.")).toBeVisible();
-  await expect(page.getByTestId("input-submission-alert-recipients")).toHaveCount(0);
-  expect(state.reads).toEqual([]);
+  await expect(page.getByTestId("input-submission-alert-recipients")).toBeVisible();
   await page.goto(`/FormSubmissions?form=${FORM.id}`);
-  await setFixtureTenant(page);
+  await page.getByTestId("button-preview-submission-alert-submission").click();
+  await expect(page.getByRole("dialog", { name: "Submission Details", exact: true })).toBeVisible();
+  await page.getByTestId("button-revoke-submission-alert").click();
+  await page.getByTestId("button-confirm-revoke-submission-alert").click();
+  await expect(page.getByTestId("button-revoke-submission-alert")).toHaveText("Links revoked");
+  expect(state.revokes).toHaveLength(1);
+  clean(state);
+});
+
+test("delayed verified portal identity sends no alert request before resolution", async ({ page }) => {
+  const state = await fixture(page, { authDelay: 1200 });
+  await page.goto(`/FormBuilder?formId=${FORM.id}`, { waitUntil: "domcontentloaded" });
+  await expect.poll(() => state.authReads).toBeGreaterThan(0);
+  expect(state.reads).toEqual([]);
+  await page.getByTestId("tab-alerts").click();
+  await expect(page.getByTestId("input-submission-alert-recipients")).toBeVisible();
+  clean(state);
+});
+
+test("server access denial is an error, not indefinite tenant waiting", async ({ page }) => {
+  const state = await fixture(page);
+  state.denied = true;
+  await openAlerts(page);
+  await expect(page.getByTestId("form-submission-alerts")).toContainText("FormBuilder access required");
+  await expect(page.getByRole("button", { name: "Retry", exact: true })).toBeVisible();
+  expect(state.writes).toEqual([]);
+  clean(state);
+});
+
+test("late alert response cannot restore private controls after session revocation", async ({ page }) => {
+  const state = await fixture(page);
+  let release;
+  state.holdRead = new Promise(resolve => { release = resolve; });
+  await openAlerts(page);
+  await expect.poll(() => state.reads.length).toBe(1);
+  state.revokedSession = true;
+  await page.evaluate(() => window.dispatchEvent(new Event("viewer-session-rejected")));
+  release();
+  await expect(page.getByTestId("input-submission-alert-recipients")).toHaveCount(0);
+  expect(state.writes).toEqual([]);
+  clean(state);
+});
+
+test("excluded members never receive alert controls or issue alert requests", async ({ page }) => {
+  const state = await fixture(page, { admin: false, allowed: false });
+  await page.goto(`/FormSubmissions?form=${FORM.id}`);
   await page.getByTestId("button-preview-submission-alert-submission").click();
   await expect(page.getByRole("dialog", { name: "Submission Details", exact: true })).toBeVisible();
   await expect(page.getByTestId("button-revoke-submission-alert")).toHaveCount(0);
+  expect(state.reads).toEqual([]);
   expect(state.revokes).toEqual([]);
+  clean(state);
+});
+
+test("dashboard-only context preserves unsaved settings and an open submission dialog on tab return", async ({ page, context, request }) => {
+  const state = await fixture(page, { dashboard: true });
+  state.dashboardOnly = true;
+  const source = await (await request.get('/src/hooks/useFormAlerts.js')).text();
+  const react = source.match(/"([^"]*\/react\.js\?[^"]*)"/)?.[1];
+  expect(react).toBeTruthy();
+  const dependency = name => react.replace(/react\.js\?/, `${name}.js?`);
+  // A component browser fixture for the dashboard-only branch (no portal member
+  // projection). Identity comes from the same intercepted authentication HTTP
+  // responses as the app; never seed the active-tenant singleton.
+  await page.route("**/dashboard-alert-fixture", route => route.fulfill({
+    contentType: "text/html",
+    body: `<html><body><div id="fixture"></div><script type="module">
+      import RefreshRuntime from '/@react-refresh';
+      RefreshRuntime.injectIntoGlobalHook(window);
+      window.$RefreshReg$ = () => {};
+      window.$RefreshSig$ = () => type => type;
+      window.__vite_plugin_react_preamble_installed__ = true;
+    </script><script type="module">
+      import React from '${react}';
+      import ReactDOM from '${dependency("react-dom_client")}';
+      import { QueryClient, QueryClientProvider } from '${dependency("@tanstack_react-query")}';
+      import '/src/index.css';
+      import { LayoutProvider, useLayoutContext } from '/src/contexts/LayoutContext.jsx';
+      import { installFetchInterceptor } from '/src/lib/fetchInterceptor.js';
+      import { useFormAlertTenant } from '/src/hooks/useFormAlerts.js';
+      import FormSubmissionAlerts from '/src/components/forms/FormSubmissionAlerts.jsx';
+      import RevokeSubmissionAlert from '/src/components/forms/RevokeSubmissionAlert.jsx';
+      import { Dialog, DialogContent, DialogTitle } from '/src/components/ui/dialog.jsx';
+      const h = React.createElement;
+      const client = new QueryClient();
+      installFetchInterceptor();
+      function Harness() {
+        const layout = useLayoutContext();
+        const tenant = useFormAlertTenant();
+        const [open, setOpen] = React.useState(false);
+        React.useEffect(() => {
+          Promise.all([
+            fetch('/api/auth/tenant-user-me', { credentials: 'include' }).then(r => r.json()),
+            fetch('/api/auth/me', { credentials: 'include' }).then(r => r.json()),
+          ]).then(([, member]) => {
+            if (member !== null) throw new Error('Dashboard fixture must not have a portal member');
+            layout.setAuthResolved(true);
+          });
+        }, []);
+        React.useEffect(() => setOpen(false), [tenant.scopeKey]);
+        return h(React.Fragment, null,
+          h(FormSubmissionAlerts, { formId: '${FORM.id}', tenantId: tenant, canManage: true }),
+          h('button', { onClick: () => setOpen(true) }, 'Open submission'),
+          h('button', { onClick: () => client.invalidateQueries({ queryKey: ['form-alert-dashboard-session'] }) }, 'Revalidate dashboard'),
+          h(Dialog, { open, onOpenChange: setOpen },
+            h(DialogContent, null, h(DialogTitle, null, 'Submission Details'),
+              h(RevokeSubmissionAlert, { formId: '${FORM.id}', submissionId: 'alert-submission', tenantId: tenant }))));
+      }
+      ReactDOM.createRoot(document.getElementById('fixture')).render(
+        h(QueryClientProvider, { client }, h(LayoutProvider, null, h(Harness))));
+    </script></body></html>`,
+  }));
+  await page.goto("/dashboard-alert-fixture");
+  const recipients = page.getByTestId("input-submission-alert-recipients");
+  await expect(recipients).toHaveValue("");
+  await recipients.fill("unsaved@example.invalid");
+  await page.getByTestId("switch-submission-alerts").click();
+  // Force an unchanged successful verification too, not just a focus event.
+  await page.getByRole("button", { name: "Revalidate dashboard", exact: true }).click();
+  await expect(recipients).toHaveValue("unsaved@example.invalid");
+  await page.getByRole("button", { name: "Open submission", exact: true }).click();
+  const otherTab = await context.newPage();
+  await otherTab.bringToFront();
+  await page.bringToFront();
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event("focus"));
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect(page.getByRole("dialog", { name: "Submission Details", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(recipients).toHaveValue("unsaved@example.invalid");
+  await expect(page.getByTestId("switch-submission-alerts")).toHaveAttribute("aria-checked", "true");
+  expect(state.writes).toEqual([]);
+  await otherTab.close();
   clean(state);
 });

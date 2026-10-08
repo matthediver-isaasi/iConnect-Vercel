@@ -22,8 +22,7 @@
 import { getActiveTenantId } from "@/api/base44Client";
 import { emitTenantContextChanged } from "@/lib/queryClient";
 
-export async function adminFetch(url, options = {}) {
-  const tenantId = getActiveTenantId();
+export async function adminFetch(url, options = {}, tenantId = getActiveTenantId()) {
 
   const headers = new Headers(options.headers || {});
   if (tenantId) {
