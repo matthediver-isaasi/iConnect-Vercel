@@ -1,0 +1,5 @@
+# Deployment-only exclusions. Keep tests in Git and available locally.
+# Do not broaden these patterns to runtime helpers or fixtures.
+api/**/*.test.mjs
+api/**/*.spec.mjs
+api/public/formSubmissionCompatibility.helpers.mjs

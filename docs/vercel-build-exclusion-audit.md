@@ -19,7 +19,7 @@ isolated exclusion commit to restore the previous packaging. For immediate
 service rollback, use the recorded production deployment after confirming it
 is still the appropriate recovery target.
 
-## Proposed exclusions (not yet applied)
+## Approved deployment exclusions
 
 - `api/**/*.test.mjs`
 - `api/**/*.spec.mjs`
@@ -49,4 +49,16 @@ runtime code, environment variables, routes or databases in this experiment.
 5. Use non-mutating checks for payment, webhook and accounting services.
 6. Get user approval before production promotion.
 
-No exclusion configuration or live deployment changes were made during this audit.
+The three exclusions above are applied in `.vercelignore` on the isolated branch.
+No live deployment changes have been made. Local verification does not establish
+Vercel backend build timing; that requires a subsequent approved preview build.
+
+## Local verification results
+
+- Exclusion manifest: 716 files (715 test/spec modules and one test-only helper).
+- Retained tracked API files: 1,396.
+- TypeScript-parser scan of relative string references in retained non-test
+  API/server/shared/client code: no references to excluded paths.
+- `npx vite build`: passed in 53.35 seconds. Existing chunk-size warnings remain.
+- This build does not reproduce Vercel's backend function packaging or confirm
+  live authenticated endpoints. Preview verification remains required.
