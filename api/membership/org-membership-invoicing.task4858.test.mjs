@@ -24,6 +24,7 @@ function database() {
         select() { return this; }, order() { return this; }, limit() { return this; },
         or() { return this; },
         eq(key, value) { filters.push(row => row[key] === value); return this; },
+        neq(key, value) { filters.push(row => row[key] !== value); return this; },
         in(key, values) { filters.push(row => values.includes(row[key])); return this; },
         insert(value) { operation = 'insert'; payload = value; return this; },
         update(value) { operation = 'update'; payload = value; return this; },
@@ -88,9 +89,9 @@ before(async () => {
       export const getConfigForOrganisation = (...args) => createMembershipConfigResolver(supabase).getConfigForOrganisation(...args);`,
     'upfrontRollingRenewal.js': 'export const upfrontRollingCommitment = () => ({});',
     'accountingProvider.js': `export const getAccountingProvider = async () => ({name:'xero', createMembershipInvoice: async data => {
-      globalThis.__task4858.state.invoices.push(data); return {invoice_id:'invoice', invoice_number:'TEST'}; }});
+      globalThis.__task4858.state.invoices.push(data); return globalThis.__task4858.state.invoiceResult || {invoice_id:'invoice', invoice_number:'TEST'}; }});
       export const buildInvoiceColumnUpdate = () => ({xero_invoice_id:'invoice'});`,
-    'membershipInvoiceEmail.js': 'export const sendMembershipInvoiceEmail = async () => {};',
+    'membershipInvoiceEmail.js': 'export const sendMembershipInvoiceEmail = async () => { globalThis.__task4858.state.emailCalls++; };',
     'membershipNominalCode.js': 'export const resolveMembershipNominalCode = async () => "200";',
     'membershipAddons.js': `export const loadAddonLines = async () => [];
       export const computeAddonTotals = () => ({totalWithVat:0});
@@ -113,7 +114,8 @@ after(async () => {
   if (root) await rm(root, { recursive: true, force: true });
 });
 function reset() {
-  Object.assign(state, { writes: [], invoices: [], duplicate: false, mismatch: false, previewOnly: false, authorized: true, admin: true });
+  Object.assign(state, { writes: [], invoices: [], duplicate: false, mismatch: false, previewOnly: false, authorized: true, admin: true,
+    invoiceResult: null, emailCalls: 0 });
   state.tables = {
     organization: [{ id: 'org', tenant_id: 'tenant', name: 'Isolated organisation' }],
     membership_tier_config: [{
@@ -142,6 +144,21 @@ const history = extra => ({
 });
 for (const advance of [false, true]) {
   const mode = advance ? 'advance' : 'manual';
+  for (const pending of [false, true]) {
+    test(`${mode}: queue ${pending ? 'pending' : 'complete'} never repeats legacy delivery or notes`, async () => {
+      reset();
+      state.invoiceResult = { accounting_request_id: 'request', accounting_pending: pending,
+        provider: 'quickbooks', id: 'invoice' };
+      const res = await request(advance);
+      assert.equal(res.statusCode, pending ? 202 : 200);
+      assert.equal(res.body.accounting_request_id, 'request');
+      assert.equal(state.emailCalls, 0);
+      assert.equal(state.writes.filter(write => write.table === 'organization_note').length, 0);
+      assert.equal(state.writes.filter(write => write.operation === 'delete').length, 0);
+      assert.equal(state.invoices.length, 1);
+      assert.ok(state.invoices[0].accountingSource.notification);
+    });
+  }
   test(`${mode}: prospective simulation cannot be recorded or invoiced`, async () => {
     reset(); state.previewOnly = true;
     const res = await request(advance);

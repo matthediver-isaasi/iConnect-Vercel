@@ -172,7 +172,8 @@ async function advance({ db, row, adapters, deadlineAt }) {
         ? accountingRetryAfterSeconds(error.retryAfter) : 0;
       const delay = Math.max(cooldown, Math.min(3600, 30 * 2 ** Math.min(row.attempts, 7)));
       return finish(error.permanent ? 'review' : safe ? 'retry' : 'unknown',
-        safe ? 'ACCOUNTING_STAGE_NOT_COMPLETED' : 'ACCOUNTING_WRITE_OUTCOME_UNKNOWN', delay, cooldown);
+        stage === 'link' && /^ACCOUNTING_NOTIFICATION_[A-Z_]+$/.test(error.code || '')
+          ? error.code : safe ? 'ACCOUNTING_STAGE_NOT_COMPLETED' : 'ACCOUNTING_WRITE_OUTCOME_UNKNOWN', delay, cooldown);
     }
     // Persistence failure after provider success deliberately leaves "writing";
     // an expired worker must discover, never repeat that financial write.

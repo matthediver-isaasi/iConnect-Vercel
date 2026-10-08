@@ -21,6 +21,18 @@ Preparing an invoice and completing its business effects are separate integratio
 
 **How to apply:** Explicitly distinguish prepared-invoice coverage from durable preparation and business continuation. Do not claim collection recovery or universal coverage until those paths have one durable owner and verified continuations.
 
+Membership invoice notifications require duplicate prevention even across uncertain email outcomes; do not apply the older at-least-once cron-email lease pattern to them.
+
+**Why:** A send lease expiring is not evidence of provider rejection. Retrying it can duplicate an invoice notification after a crash between acceptance and persistence.
+
+**How to apply:** Preserve per-recipient acceptance evidence, retry only definite rejections, and route uncertain sends to review. Never infer unsent from a missing final CRM note.
+
+Load completed notification receipts before spending a worker's provider-request budget.
+
+**Why:** Rechecking every already-delivered recipient against a fixed per-run budget can make a long recipient list retry the same prefix forever.
+
+**How to apply:** Skip durable completed recipients without transport-budget consumption; test progress with a recipient list larger than one invocation can process.
+
 A direct documented invoice/payment POST throttle rejection can be retried with the identical frozen request and original provider key; a throttle response during readback after successful creation cannot.
 
 **Why:** Xero applies limits before idempotency processing, and Intuit instructs retrying rejected 429 requests with the same request ID. Treating every 429 as an uncertain creation strands genuinely rejected invoices, while treating post-success readback throttles as rejection can duplicate them.

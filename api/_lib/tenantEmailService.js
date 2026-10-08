@@ -97,6 +97,7 @@ export async function sendTenantEmail({
     return {
       success: false,
       error: 'Email service not configured',
+      ambiguousEffect: false,
     };
   }
 
@@ -105,6 +106,7 @@ export async function sendTenantEmail({
     return {
       success: false,
       error: 'Failed to initialize email client',
+      ambiguousEffect: false,
     };
   }
 
@@ -126,6 +128,7 @@ export async function sendTenantEmail({
     console.log(`[Tenant Email] Using default domain: ${domain}`);
   }
 
+  let providerAttempted = false;
   try {
     let finalHtml = html || '';
     if (footer) {
@@ -161,6 +164,7 @@ export async function sendTenantEmail({
       messageData.bcc = Array.isArray(bcc) ? bcc : [bcc];
     }
 
+    providerAttempted = true;
     const response = await client.messages.create(domain, messageData);
 
     console.log(`[Tenant Email] Email sent successfully. Message ID: ${response.id}`);
@@ -198,7 +202,14 @@ export async function sendTenantEmail({
       // translating the thrown provider response into this wrapper result.
       ambiguousEffect: error?.ambiguousEffect === true
         || error?.ddAmbiguousEffect === true
-        || isAmbiguousDeliveryFailure(error),
+        || isAmbiguousDeliveryFailure(error)
+        // A server error (or an error with no authoritative HTTP response)
+        // after transport began cannot prove that Mailgun rejected the send.
+        || (providerAttempted && !(
+          Number(error?.status ?? error?.statusCode ?? error?.response?.status) >= 400
+          && Number(error?.status ?? error?.statusCode ?? error?.response?.status) < 500
+          && Number(error?.status ?? error?.statusCode ?? error?.response?.status) !== 408
+        )),
     };
   }
 }

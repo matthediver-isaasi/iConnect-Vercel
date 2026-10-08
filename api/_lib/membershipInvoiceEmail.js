@@ -103,6 +103,7 @@ export async function sendMembershipInvoiceEmail({
   send = sendTenantEmail,
   resolveRecipients = resolveTierRecipients,
   buildInbox = buildInboxDelivery,
+  skipNote = false,
 }) {
   if (!client) {
     console.error('[Invoice Email] Supabase not configured');
@@ -238,12 +239,14 @@ export async function sendMembershipInvoiceEmail({
     console.log(`[Invoice Email] Invoice email sent to ${recipientList} for ${organizationName} (${invoiceLabel})`);
 
     try {
-      await client.from('organization_note').insert({
-        organization_id: organizationId,
-        member_id: null,
-        content: `[Membership Invoice Email] Invoice ${invoiceLabel} notification sent to ${recipientList} for ${membershipYear}.`,
-        attachments: [],
-      });
+      if (!skipNote) {
+        await client.from('organization_note').insert({
+          organization_id: organizationId,
+          member_id: null,
+          content: `[Membership Invoice Email] Invoice ${invoiceLabel} notification sent to ${recipientList} for ${membershipYear}.`,
+          attachments: [],
+        });
+      }
     } catch {}
 
     return {

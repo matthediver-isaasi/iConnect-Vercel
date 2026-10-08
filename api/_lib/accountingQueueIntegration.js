@@ -2,6 +2,7 @@ import { enqueueAccountingRequest, processAccountingRequest } from './accounting
 import { createAccountingRequestProviders, prepareAccountingRequestEnvelope } from './accountingRequestProviders.js';
 import { linkAccountingProductSource } from './accountingQueueProductLinks.js';
 import { freezeMembershipPreparation, prepareMembershipSourceRequest } from './accountingSourcePreparation.js';
+import { freezeMembershipNotification, continueMembershipNotification } from './accountingMembershipContinuation.js';
 import {
   GO_CARDLESS_ACCOUNTING_SOURCE, assertGoCardlessAccountingSource,
   linkGoCardlessAccountingSource, prepareGoCardlessSourceRequest,
@@ -34,7 +35,10 @@ export async function assertAccountingSource({ db, row }) {
   if (memberTables.has(row.source_type)) {
     const source = await one(membershipQuery(db, row));
     // These have independent settlement/instalment ownership.
-    if (source.form_submission_id || source.instalment_plan_id) fail('ACCOUNTING_QUEUE_EXISTING_SETTLEMENT_OWNER');
+    if (source.form_submission_id || source.instalment_plan_id
+      || (source.payment_status === 'paid' && !row.invoice_result?.id)) {
+      fail('ACCOUNTING_QUEUE_EXISTING_SETTLEMENT_OWNER');
+    }
     const existing = source.accounting_invoice_id || source.xero_invoice_id;
     if (existing && (existing !== row.invoice_result?.id
       || (source.accounting_provider && source.accounting_provider !== row.provider))) {
@@ -175,9 +179,14 @@ export async function getAccountingQueueAdapter(row, controls = {}, dependencies
     linkSource: async candidate => {
     await beforeRequest(candidate, { kind: 'link', method: 'PATCH' });
     if (candidate.source_type === GO_CARDLESS_ACCOUNTING_SOURCE) return linkGoCardlessAccountingSource({ db, row: candidate });
-    return memberTables.has(candidate.source_type)
-      ? linkAccountingMembershipSource({ db, row: candidate })
-      : linkAccountingProductSource({ db, row: candidate });
+    if (memberTables.has(candidate.source_type)) {
+      const linked = await linkAccountingMembershipSource({ db, row: candidate });
+      await continueMembershipNotification({ db, row: candidate }, {
+        beforeSend: () => beforeRequest(candidate, { kind: 'link', method: 'PATCH' }),
+      });
+      return linked;
+    }
+    return linkAccountingProductSource({ db, row: candidate });
   } };
 }
 
@@ -302,16 +311,18 @@ export async function queueMembershipInvoice({ db, provider, args }) {
     source_type: sourceType, source_id: sourceId, snapshot: { linkage } } });
   const binding = await resolveAccountingQueueBinding({ db, tenantId: args.appTenantId, provider });
   const invoice = await freezeMembershipPreparation({ db, args, totalMinor });
+  const notification = await freezeMembershipNotification({ db, args });
   return submitUnpreparedAccountingRequest({
     db, tenantId: args.appTenantId, provider, connectionId: binding.connectionId, companyId: binding.companyId,
     sourceType, sourceId, snapshot: { version: 1, preparation: true, environment: binding.environment,
-      invoice, payment: null, linkage },
+      invoice, payment: null, linkage, notification },
   });
 }
 
 export function supportsPreparedMembershipSource(args) {
   return memberTables.has(args?.accountingSource?.sourceType)
     && !!args.accountingSource.sourceId && !!args.accountingSource.linkage?.ownerId
+    && !!args.accountingSource.notification
     && !args.markAsPaid && !args.deferStripeSettlement && !args.ddAccountingMigration
     && !args.stripePaymentIntentId && !args.extraLineItems?.length;
 }

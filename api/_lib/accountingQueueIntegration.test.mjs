@@ -44,7 +44,9 @@ function request(provider = 'xero') {
 }
 const args = () => ({ appTenantId: tenant, currency: 'GBP', finalCost: 10,
   accountingSource: { sourceType: 'member_membership_history', sourceId: 'record',
-    totalMinor: 1000, linkage: { recordId: 'record', ownerId: 'member' } } });
+    totalMinor: 1000, linkage: { recordId: 'record', ownerId: 'member' },
+    notification: { memberId: 'member', memberEmail: 'test@example.invalid',
+      membershipYear: '2026', note: 'Membership renewed.' } } });
 function envelope(provider = 'xero') {
   return prepareAccountingRequestEnvelope({ provider, operationKey: 'stable-operation', environment: provider === 'quickbooks' ? 'production' : undefined,
     payload: provider === 'xero' ? { Type: 'ACCREC', Reference: 'Membership' } : { PrivateNote: 'Membership' },

@@ -57,9 +57,11 @@ before migration; fresh sources without queue ownership retain the legacy path.
 Manual unpaid membership adoption requires the same enable flag plus
 `member_membership_history` or `organisation_membership_history` in the source
 allowlist. Other paid/form/card-instalment/add-on membership paths retain their
-existing owners. Manual membership contact/tax preparation still happens before
-its durable prepared request; the GoCardless source described above instead
-persists preparation evidence and recovers preparation rate limits. Renewals,
+existing owners. Manual membership contact/tax preparation is now persisted before
+provider calls. New manual membership adoption also requires frozen notification
+authority and the additional `202612050003_accounting_membership_notifications.sql`
+migration. See [membership continuation](accounting-membership-notification-continuation.md)
+for delivery receipts, crash handling and the unchanged rollout boundary. Renewals,
 workflows, training-fund purchases, existing event recovery and the independent
 BNMS/arrears owners have not been transferred wholesale. This stage must not be
 described as universal accounting recovery.

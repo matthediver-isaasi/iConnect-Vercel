@@ -340,7 +340,14 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
     xeroInvoice = await provider.createMembershipInvoice({
       accountingSource: { sourceType: 'member_membership_history', sourceId: record.id,
         totalMinor: Math.round(Number(record.total_with_vat) * 100),
-        linkage: { recordId: record.id, ownerId: memberId } },
+        linkage: { recordId: record.id, ownerId: memberId },
+        notification: {
+          memberId, memberName, memberEmail: member.email,
+          membershipYear: membershipYear.label, finalCost, currency, tierLabel,
+          vatAmount: simResult.vatAmount || 0, totalWithVat: simResult.totalWithVat || finalCost,
+          createdBy: tenantContext.memberId || tenantContext.tenantUserId || null,
+          note: `[Membership Renewal - Manual] Membership renewed for ${membershipYear.label}. Fee: ${currency} ${finalCost.toFixed(2)}.`,
+        } },
       appTenantId: tenantId,
       organizationName: memberName,
       invoicingEmail: member.email || null,
@@ -355,10 +362,13 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
       invoiceDescription: simResult.config?.invoice_description || null,
     });
 
-    if (xeroInvoice?.accounting_pending) {
-      return res.status(202).json({ success: true, record, accounting_pending: true,
+    if (xeroInvoice?.accounting_request_id) {
+      return res.status(xeroInvoice.accounting_pending ? 202 : 200).json({ success: true, record,
+        xeroInvoice, accounting_pending: xeroInvoice.accounting_pending,
         accounting_request_id: xeroInvoice.accounting_request_id,
-        message: 'Membership invoice accepted for accounting reconciliation. No invoice email has been sent.' });
+        message: xeroInvoice.accounting_pending
+          ? 'Membership invoice accepted for reconciliation; notification completion is pending.'
+          : 'Membership invoice created and notifications completed.' });
     }
     if (xeroInvoice) {
       const { error: linkError } = await supabase
@@ -373,6 +383,10 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
       }
     }
   } catch (xeroErr) {
+    if (xeroErr.accountingSourceRetained) {
+      return res.status(503).json({ success: false, record, accounting_reconciliation_required: true,
+        error: 'Accounting acceptance is unconfirmed. The membership record is retained; reconcile it before retrying.' });
+    }
     console.error(`[Member Invoicing] ${providerLabel} invoice creation failed (non-fatal):`, xeroErr.message);
   }
 
@@ -407,8 +421,8 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
     await supabase
       .from('member_note')
       .insert({
-        member_id: memberId,
-        created_by: noteCreatorId,
+        target_member_id: memberId,
+        author_member_id: noteCreatorId,
         content: `[Membership Renewal - Manual] Membership renewed for ${membershipYear.label}. Fee: ${currency} ${finalCost.toFixed(2)}.${invoiceNote}`,
       });
   } catch (noteErr) {
@@ -423,7 +437,7 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
   });
 }
 
-async function sendMemberInvoiceEmail({
+export async function sendMemberInvoiceEmail({
   tenantId,
   memberId,
   memberName,
@@ -438,6 +452,9 @@ async function sendMemberInvoiceEmail({
   vatAmount,
   totalWithVat,
   onlineInvoiceUrl,
+  client = supabase,
+  send = sendTenantEmail,
+  buildInbox = buildInboxDelivery,
 }) {
   if (!xeroInvoiceId) {
     console.log('[Member Invoice Email] No invoice id - skipping email');
@@ -455,7 +472,7 @@ async function sendMemberInvoiceEmail({
   const hasInvoiceNumber = !!xeroInvoiceNumber;
 
   try {
-    const { data: template } = await supabase
+    const { data: template } = await client
       .from('email_template')
       .select('*')
       .eq('tenant_id', tenantId)
@@ -476,7 +493,7 @@ async function sendMemberInvoiceEmail({
 
     // Fallback to public PDF token if no provider-hosted invoice link exists.
     let viewInvoiceUrl = onlineInvoiceUrl || null;
-    const { data: tenantBrand } = await supabase
+    const { data: tenantBrand } = await client
       .from('tenant')
       .select('name, slug, logo_url, primary_color')
       .eq('id', tenantId)
@@ -484,7 +501,7 @@ async function sendMemberInvoiceEmail({
     if (!viewInvoiceUrl && historyRecordId) {
       const { getOrCreateInvoicePdfToken, buildInvoicePdfUrl } = await import('../_lib/invoicePdfToken.js');
       const pdfToken = await getOrCreateInvoicePdfToken({
-        client: supabase,
+        client,
         tenantId,
         historyTable: 'member_membership_history',
         recordId: historyRecordId,
@@ -526,14 +543,14 @@ async function sendMemberInvoiceEmail({
       });
     }
 
-    const inboxDelivery = await buildInboxDelivery({
+    const inboxDelivery = await buildInbox({
       tenantId,
       memberId,
       email: memberEmail,
       labelKey: 'membership',
     });
 
-    await sendTenantEmail({
+    const result = await send({
       tenantId,
       to: memberEmail,
       subject,
@@ -541,11 +558,10 @@ async function sendMemberInvoiceEmail({
       inboxDelivery,
     });
 
-    console.log(`[Member Invoice Email] Sent invoice email to ${memberEmail} for ${membershipYear}`);
-    return { success: true };
+    return result;
   } catch (err) {
     console.error('[Member Invoice Email] Error:', err);
-    return { success: false, error: err.message };
+    return { success: false, error: err.message, ambiguousEffect: err?.ambiguousEffect === true };
   }
 }
 

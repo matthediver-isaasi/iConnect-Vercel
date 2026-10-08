@@ -431,7 +431,14 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
     xeroInvoice = await provider.createMembershipInvoice({
       accountingSource: { sourceType: 'organisation_membership_history', sourceId: record.id,
         totalMinor: Math.round(Number(record.total_with_vat) * 100),
-        linkage: { recordId: record.id, ownerId: organizationId } },
+        linkage: { recordId: record.id, ownerId: organizationId },
+        notification: {
+          organizationId, organizationName: org.name, tierConfig: simResult.config,
+          membershipYear: membershipYear.label, finalCost, currency, tierLabel,
+          vatAmount: simResult.vatAmount || 0, totalWithVat: simResult.totalWithVat || finalCost,
+          createdBy: tenantContext.memberId || tenantContext.tenantUserId || null,
+          note: `[Membership Renewal - Manual] Membership renewed for ${membershipYear.label}. Fee: ${currency} ${finalCost.toFixed(2)}.`,
+        } },
       appTenantId: tenantId,
       organizationName: org.name,
       invoicingEmail: org.invoicing_email || null,
@@ -447,10 +454,13 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
       extraLineItems: buildExtraLineItems(addonLines),
     });
 
-    if (xeroInvoice?.accounting_pending) {
-      return res.status(202).json({ success: true, record, accounting_pending: true,
+    if (xeroInvoice?.accounting_request_id) {
+      return res.status(xeroInvoice.accounting_pending ? 202 : 200).json({ success: true, record,
+        xeroInvoice, accounting_pending: xeroInvoice.accounting_pending,
         accounting_request_id: xeroInvoice.accounting_request_id,
-        message: 'Membership invoice accepted for accounting reconciliation. No invoice email has been sent.' });
+        message: xeroInvoice.accounting_pending
+          ? 'Membership invoice accepted for reconciliation; notification completion is pending.'
+          : 'Membership invoice created and notifications completed.' });
     }
     if (xeroInvoice) {
       const { error: linkError } = await supabase
@@ -477,6 +487,10 @@ async function handleManualRenewal(req, res, tenantId, tenantContext) {
       }
     }
   } catch (xeroErr) {
+    if (xeroErr.accountingSourceRetained) {
+      return res.status(503).json({ success: false, record, accounting_reconciliation_required: true,
+        error: 'Accounting acceptance is unconfirmed. The membership record is retained; reconcile it before retrying.' });
+    }
     console.error(`[Invoicing] ${providerLabel} invoice creation failed (non-fatal):`, xeroErr.message);
   }
 
@@ -750,7 +764,14 @@ async function handleAdvanceInvoice(req, res, tenantId, tenantContext) {
     xeroInvoice = await provider.createMembershipInvoice({
       accountingSource: { sourceType: 'organisation_membership_history', sourceId: record.id,
         totalMinor: Math.round(Number(record.total_with_vat) * 100),
-        linkage: { recordId: record.id, ownerId: organizationId } },
+        linkage: { recordId: record.id, ownerId: organizationId },
+        notification: {
+          organizationId, organizationName: org.name, tierConfig: simResult.config,
+          membershipYear: membershipYear.label, finalCost, currency, tierLabel,
+          vatAmount: simResult.vatAmount || 0, totalWithVat: simResult.totalWithVat || finalCost,
+          createdBy: tenantContext.memberId || tenantContext.tenantUserId || null,
+          note: `[Membership Renewal - Invoice Now] Advance invoice created for ${membershipYear.label}. Fee: ${currency} ${finalCost.toFixed(2)}. Membership will activate on ${activationDate}.`,
+        } },
       appTenantId: tenantId,
       organizationName: org.name,
       invoicingEmail: org.invoicing_email || null,
@@ -775,10 +796,13 @@ async function handleAdvanceInvoice(req, res, tenantId, tenantContext) {
   }
 
   // Strict: the whole point of "Invoice Now" is to send the invoice in advance.
-  if (xeroInvoice?.accounting_pending) {
-    return res.status(202).json({ success: true, record, accounting_pending: true,
+  if (xeroInvoice?.accounting_request_id) {
+    return res.status(xeroInvoice.accounting_pending ? 202 : 200).json({ success: true, record,
+      xeroInvoice, accounting_pending: xeroInvoice.accounting_pending,
       accounting_request_id: xeroInvoice.accounting_request_id,
-      message: 'Advance invoice accepted for accounting reconciliation; the scheduled history is retained.' });
+      message: xeroInvoice.accounting_pending
+        ? 'Advance invoice accepted for reconciliation; notification completion is pending and the scheduled history is retained.'
+        : 'Advance invoice created and notifications completed; the membership remains scheduled.' });
   }
   // If no invoice was produced we must NOT leave a 'scheduled' row behind — the
   // renewal cron would later flip it to 'active' and the org would have a paid
