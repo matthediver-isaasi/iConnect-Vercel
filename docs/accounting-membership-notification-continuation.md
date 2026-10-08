@@ -57,8 +57,11 @@ Previously completed requests are not automatically reopened or backfilled.
 
 Apply `supabase/migrations/202612050003_accounting_membership_notifications.sql`
 after the two accounting queue migrations, using the approved DEST-only migration
-process. This implementation applies it only in disposable test PostgreSQL:
-**neither SOURCE nor DEST was migrated; no production flags were changed.**
+process. Initially verified only in disposable test PostgreSQL.
+On 2026-10-08 the main agent applied it to pinned DEST Supabase with user
+approval, in the same verified transaction as the training-fund continuation
+migration. RLS, service execution grants and browser-role denial were checked
+before commit. SOURCE was not changed and no production flags were changed.
 Do not enable membership production sources until migration and separately
 approved rollout checks are complete.
 

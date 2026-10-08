@@ -1,7 +1,12 @@
 # Training-fund accounting recovery (staged)
 
-New adoption is **disabled by default**. No production database migration,
-provider call, charge or rollout setting was changed during implementation.
+New adoption is **disabled by default**. On 2026-10-08, with user approval,
+the continuation migration was applied to pinned DEST Supabase alongside the
+membership-notification migration. RLS, service execution grants, browser-role
+denial and the purchase guard trigger were verified before commit.
+The combined isolated continuation suites passed 41 tests. No provider call,
+charge or rollout setting was changed. Deployment, browser resume and real
+sandbox settlement verification are still required before activation.
 
 Apply through the approved DEST-only migration process, in order:
 
