@@ -1265,3 +1265,17 @@ mtime_ms = 1791455423476
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/84a8fe3e-faa1-4d42-a708-00148d511bef/b1a91765-9d31-4127-8c4e-fad5a7262e47"
 storage_version_token = "1791455437456011"
 content_type = "application/pdf"
+
+[[outputs]]
+id = "ig-seJaL0wTnGEg2Nw4Hi"
+uri = "file://.agents/outputs/BNMS-Direct-Debit-Status-2026-10-08-Final.pdf"
+type = "pdf"
+title = "BNMS Direct Debit Report — All Statuses Corrected"
+description = "Revised tenant report: 119 accounting complete, 231 queued, four failed payments correctly recorded, and one cancelled. Includes failure reasons and suggested member follow-up."
+logical_id = "3ecb2646-4e11-467d-bbac-a0d82645d580"
+content_hash = "sha256:0613dd973618b5106a5f7fa20476b029303bd795259ea66602d9eca1c42a7341"
+size = 72841
+mtime_ms = 1791455542586
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/3ecb2646-4e11-467d-bbac-a0d82645d580/56709b97-9b81-4ffa-8eff-8adbca647d8d"
+storage_version_token = "1791455557851092"
+content_type = "application/pdf"

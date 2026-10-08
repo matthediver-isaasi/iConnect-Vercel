@@ -18,12 +18,11 @@ footer{font-size:8pt;color:#677787;border-top:1px solid #dce3e9;margin-top:17px;
 <table aria-label="Payment status summary"><thead><tr><th>Status</th><th>Payments</th><th>What this means</th></tr></thead><tbody>
 <tr><td><strong>Accounting complete</strong></td><td class="count">119</td><td>Payment is confirmed and the accounting process is marked complete, with an invoice linked in iConnect.</td></tr>
 <tr><td><strong>Confirmed; awaiting accounting</strong></td><td class="count">231</td><td>The original 102 requests plus 129 newly recovered confirmations. All have saved accounting requests waiting for Xero.</td></tr>
-<tr><td><strong>Failed at GoCardless; local status outstanding</strong></td><td class="count">1</td><td>GoCardless confirms failure, but iConnect still shows “pending submission”. This record is not in the accounting queue.</td></tr>
-<tr><td><strong>Failed</strong></td><td class="count">3</td><td>Recorded as failed payments, separate from the accounting queue.</td></tr>
+<tr><td><strong>Failed</strong></td><td class="count">4</td><td>Confirmed as failed by GoCardless and recorded as failed in iConnect. Member follow-up is needed; these are not in the accounting queue.</td></tr>
 <tr><td><strong>Cancelled</strong></td><td class="count">1</td><td>Recorded as cancelled, separate from the accounting queue.</td></tr>
 </tbody></table>
 <h2>What has been resolved?</h2>
-<p>The software issue holding the first 102 accounting requests has been corrected. All 130 records previously awaiting status checks have now been checked directly against GoCardless: <strong>129 are confirmed and one failed</strong>. The 129 confirmed statuses have been saved in iConnect and their accounting work added to the queue.</p>
+<p>The software issue holding the first 102 accounting requests has been corrected. All 130 records previously awaiting status checks have now been checked directly against GoCardless: <strong>129 are confirmed and one failed</strong>. All 130 statuses have been corrected in iConnect, and accounting work for the 129 confirmed payments has been queued. <strong>No payment records in this batch remain awaiting a status correction.</strong></p>
 <h2>Why are the 231 payments queued?</h2>
 <p>Xero has reached its <strong>daily allowance for requests</strong> and is temporarily refusing further requests. This delays the accounting work; it does not mean these confirmed payments failed. Their original payment and invoice details are saved for processing when Xero permits it.</p>
 <h2>What happens next?</h2>
@@ -33,7 +32,7 @@ footer{font-size:8pt;color:#677787;border-top:1px solid #dce3e9;margin-top:17px;
 <section class="page-two">
 <div class="eyebrow">British Nuclear Medicine Society · Payment follow-up</div>
 <h1>Understanding the<br>failed payments</h1>
-<p>The three payments already marked “failed” in iConnect have the bank-reported reasons below. These are <strong>collection failures, not Xero invoice delays</strong>. GoCardless reports that it will not automatically retry these three payments.</p>
+<p>The four failed payments have the bank-reported reasons below. These are <strong>collection failures, not Xero invoice delays</strong>. All four are now correctly recorded in iConnect. GoCardless reports that it will not automatically retry these payments.</p>
 <div class="case"><h2>1. £10.66 — mandate cancelled</h2>
 <p class="payment-id">PM01XW45YJ2FKBK4JFG55489VX72</p>
 <p><strong>Reported reason:</strong> the member cancelled the Direct Debit mandate at their bank before the payment could be collected.</p>
@@ -46,10 +45,11 @@ footer{font-size:8pt;color:#677787;border-top:1px solid #dce3e9;margin-top:17px;
 <p class="payment-id">PM01XW45FSM0KCSYDE098GR7CR9S</p>
 <p><strong>Reported reason:</strong> the same bank response as payment 2. Insufficient funds is common, but the exact cause has not been established.</p>
 <p><strong>Suggested action:</strong> ask the member to check with their bank and agree a payment arrangement. Do not describe insufficient funds as certain or assume an automatic retry will take place.</p></div>
-<h2>One additional failure found during the status checks</h2>
+<h2>4. £13.00 — mandate cancelled</h2>
 <p class="payment-id">£13.00 · PM01XW45ZPT99HKM21A30YKT83TC</p>
-<p>GoCardless confirms that this member also cancelled their mandate at the bank, and it will not automatically retry the payment. iConnect still shows a stale “pending submission” status because this record was outside the latest update of the 129 confirmed payments. <strong>Its local status still needs correcting.</strong> It has not been added to the accounting queue.</p>
-<div class="notice"><strong>Overall:</strong> four payments are known to have failed at GoCardless: three already labelled “failed” in iConnect, plus the additional record above. There is also one separate cancelled payment. These are distinct from the 231 confirmed payments awaiting accounting.</div>
+<p><strong>Reported reason:</strong> the member cancelled their mandate at the bank before collection. This failure is now correctly recorded in iConnect and has not been added to the accounting queue.</p>
+<p><strong>Suggested action:</strong> contact the member to confirm their intentions. If they wish to continue, arrange an authorised new mandate or agree another payment method, as for payment 1.</p>
+<div class="notice"><strong>Overall:</strong> four failed payments need member follow-up: two cancelled mandates and two “refer to payer” responses. There is also one separate cancelled payment. These are distinct from the 231 confirmed payments awaiting accounting. All payment-status discrepancies in this batch have been resolved.</div>
 <footer>Failure reasons come from GoCardless’s bank notifications; payment statuses were also checked directly with GoCardless. Suggested follow-up is guidance only: no collection retries or member communications have been initiated by this report.</footer>
 </section>
 </body></html>
