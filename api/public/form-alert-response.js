@@ -21,7 +21,11 @@ export default async function handler(req,res,deps={}) {
     if(allowed!==true) return res.status(429).json({error:'Please try again later.'});
     // Capability links always use their trusted tenant host, never embed-style
     // query/body tenant overrides. Do not pass arbitrary query data to logging.
-    const tenant=await (deps.resolveTenantFromRequest||resolveTenantFromRequest)({...req,query:{},body:{}});
+    // Node IncomingMessage.headers is an inherited getter, not an enumerable
+    // property. Preserve it explicitly while excluding tenant overrides.
+    const tenant=await (deps.resolveTenantFromRequest||resolveTenantFromRequest)({
+      headers:req.headers,query:{},body:{},
+    });
     if(!tenant?.id) return unavailable();
     const result=await (deps.resolveCapability||resolveFormAlertCapability)(db,tenant.id,req.headers['x-form-alert-token']);
     if(!result) return unavailable();

@@ -1,7 +1,27 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { IncomingMessage } from 'node:http';
 import handler from './form-alert-response.js';
 const token='a'.repeat(43);
+test('preserves inherited Node request headers without accepting tenant overrides',async()=>{
+  const f=fixture({result:{form_name:'Fixture',answers:[],attachments:[]}});
+  const req=new IncomingMessage(null);
+  req.method='GET';
+  req.headers={...f.req.headers,host:'example.iconn.app'};
+  req.query={tenant:'attacker',domain:'attacker.example'};
+  req.body={tenant:'attacker'};
+  assert.equal({...req}.headers,undefined);
+  f.deps.resolveTenantFromRequest=async scoped=>{
+    assert.equal(scoped.headers,req.headers);
+    assert.equal(scoped.headers.host,'example.iconn.app');
+    assert.deepEqual(scoped.query,{});
+    assert.deepEqual(scoped.body,{});
+    return {id:'tenant'};
+  };
+  await handler(req,f.res,f.deps);
+  assert.equal(f.res.statusCode,200);
+  assert.equal(f.res.body.form_name,'Fixture');
+});
 function fixture(options={}){
   const calls=[];
   const deps={db:{async rpc(name,args){calls.push([name,args]);return {data:options.allowed??true,error:options.rateError||null};}},
