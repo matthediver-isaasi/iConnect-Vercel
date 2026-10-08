@@ -1,0 +1,368 @@
+20:40:30.864 Running build in Washington, D.C., USA (East) – iad1
+20:40:30.865 Build machine configuration: 4 cores, 8 GB
+20:40:31.046 Cloning github.com/matthediver-isaasi/iConnect-Vercel (Branch: sweep, Commit: c3a9b9b)
+20:40:43.414 Cloning completed: 12.368s
+20:40:44.217 Restored build cache from previous deployment (ADKD96FqRzGN8e15xX1UNkqkZMg1)
+20:40:44.999 Running "vercel build"
+20:40:45.023 Vercel CLI 62.1.0
+20:40:53.945 Running "install" command: `npm install`...
+20:40:56.215 npm warn ERESOLVE overriding peer dependency
+20:40:56.216 npm warn While resolving: react-codemirror2@7.3.0
+20:40:56.216 npm warn Found: react@18.3.1
+20:40:56.216 npm warn node_modules/react
+20:40:56.216 npm warn   react@"^18.3.1" from the root project
+20:40:56.216 npm warn   126 more (@arco-design/web-react, @dnd-kit/accessibility, ...)
+20:40:56.216 npm warn
+20:40:56.217 npm warn Could not resolve dependency:
+20:40:56.217 npm warn peer react@">=15.5 <=17.x" from react-codemirror2@7.3.0
+20:40:56.217 npm warn node_modules/react-codemirror2
+20:40:56.217 npm warn   react-codemirror2@"^7.2.1" from easy-email-extensions@4.16.5
+20:40:56.217 npm warn   node_modules/easy-email-extensions
+20:40:56.217 npm warn
+20:40:56.217 npm warn Conflicting peer dependency: react@17.0.2
+20:40:56.218 npm warn node_modules/react
+20:40:56.218 npm warn   peer react@">=15.5 <=17.x" from react-codemirror2@7.3.0
+20:40:56.218 npm warn   node_modules/react-codemirror2
+20:40:56.218 npm warn     react-codemirror2@"^7.2.1" from easy-email-extensions@4.16.5
+20:40:56.218 npm warn     node_modules/easy-email-extensions
+20:41:04.169 
+20:41:04.170 up to date, audited 1142 packages in 10s
+20:41:04.170 
+20:41:04.170 215 packages are looking for funding
+20:41:04.170   run `npm fund` for details
+20:41:04.308 
+20:41:04.308 64 vulnerabilities (3 low, 24 moderate, 36 high, 1 critical)
+20:41:04.308 
+20:41:04.308 To address issues that do not require attention, run:
+20:41:04.308   npm audit fix
+20:41:04.308 
+20:41:04.308 To address all issues possible (including breaking changes), run:
+20:41:04.308   npm audit fix --force
+20:41:04.308 
+20:41:04.308 Some issues need review, and may require choosing
+20:41:04.308 a different dependency.
+20:41:04.308 
+20:41:04.308 Run `npm audit` for details.
+20:41:04.310 npm warn install-scripts 6 packages have install scripts not yet covered by allowScripts:
+20:41:04.310 npm warn install-scripts   esbuild@0.18.20 (postinstall: node install.js)
+20:41:04.310 npm warn install-scripts   bufferutil@4.0.8 (install: node-gyp rebuild)
+20:41:04.310 npm warn install-scripts   core-js@3.48.0 (postinstall: node -e "try{require('./postinstall')}catch(e){}")
+20:41:04.310 npm warn install-scripts   esbuild@0.25.9 (postinstall: node install.js)
+20:41:04.310 npm warn install-scripts   sharp@0.34.5 (install: node install/check.js || npm run build)
+20:41:04.310 npm warn install-scripts   esbuild@0.21.5 (postinstall: node install.js)
+20:41:04.310 npm warn install-scripts
+20:41:04.310 npm warn install-scripts Run `npm install-scripts ls` to review, or `npm install-scripts approve <pkg>` to allow.
+20:41:05.207 vite v5.4.20 building for production...
+20:41:05.278 transforming...
+20:41:05.673 Browserslist: browsers data (caniuse-lite) is 12 months old. Please run:
+20:41:05.673   npx update-browserslist-db@latest
+20:41:05.673   Why you should do it regularly: https://github.com/browserslist/update-db#readme
+20:41:55.943 ✓ 4951 modules transformed.
+20:41:59.079 rendering chunks...
+20:42:01.710 [plugin:vite:reporter] [plugin vite:reporter] 
+20:42:01.710 (!) /vercel/path0/client/src/components/canvas/blocks/registry.jsx is dynamically imported by /vercel/path0/client/src/components/canvas/AicFunctionalComponent.jsx but also statically imported by /vercel/path0/client/src/components/canvas/AccordionReflowContext.jsx, /vercel/path0/client/src/components/canvas/CanvasBuilder.jsx, /vercel/path0/client/src/components/canvas/CanvasFlowEditorStage.jsx, /vercel/path0/client/src/components/canvas/CanvasFlowStage.jsx, /vercel/path0/client/src/components/canvas/CanvasInspector.jsx, /vercel/path0/client/src/components/canvas/CanvasPageRenderer.jsx, /vercel/path0/client/src/components/canvas/CanvasPalette.jsx, /vercel/path0/client/src/components/canvas/CanvasStage.jsx, /vercel/path0/client/src/components/canvas/blocks/AiCodeCompositionBlock.jsx, /vercel/path0/client/src/components/canvas/blocks/MembershipDataBlocks.jsx, /vercel/path0/client/src/components/canvas/blocks/dynamicBlocks.jsx, /vercel/path0/client/src/pages/ButtonElements.jsx, dynamic import will not move module into another chunk.
+20:42:01.711 
+20:42:04.093 [plugin:vite:reporter] [plugin vite:reporter] 
+20:42:04.093 (!) /vercel/path0/client/src/api/base44Client.js is dynamically imported by /vercel/path0/client/src/components/canvas/blocks/registry.jsx, /vercel/path0/client/src/components/iedit/TypographyStyleSelector.jsx, /vercel/path0/client/src/components/iedit/elements/IEditButtonBlockElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditCtaButtonElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditFiftyFiftyElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditFiftyFiftyElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditHeroElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditHeroElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditHeroElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditImagePanelElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditImagePanelElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditImagePanelElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditPageHeaderHeroElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditPageHeaderHeroElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditQuoteElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditTwoColumnElement.jsx but also statically imported by /vercel/path0/client/src/api/entities.js, /vercel/path0/client/src/components/CampaignEventSurveySettings.jsx, /vercel/path0/client/src/components/EmailCampaigns.jsx, /vercel/path0/client/src/components/GuestAccessControl.jsx, /vercel/path0/client/src/components/ImageSelector.jsx, /vercel/path0/client/src/components/InviteMemberDialog.jsx, /vercel/path0/client/src/components/MemberActivityTimeline.jsx, /vercel/path0/client/src/components/MemberDetailView.jsx, /vercel/path0/client/src/components/MemberEmails.jsx, /vercel/path0/client/src/components/MemberJoinLinkSection.jsx, /vercel/path0/client/src/components/MemberMembershipTab.jsx, /vercel/path0/client/src/components/MemberProfileModal.jsx, /vercel/path0/client/src/components/OrgMembershipTab.jsx, /vercel/path0/client/src/components/OrganisationDetailView.jsx, /vercel/path0/client/src/components/OrganisationGroupDetailView.jsx, /vercel/path0/client/src/components/TransferTicketDialog.jsx, /vercel/path0/client/src/components/analytics/OrganizationTransactionsModal.jsx, /vercel/path0/client/src/components/auth/LoginForm.jsx, /vercel/path0/client/src/components/balances/BuyFundsModal.jsx, /vercel/path0/client/src/components/blog/ArticleComments.jsx, /vercel/path0/client/src/components/blog/ArticleReactions.jsx, /vercel/path0/client/src/components/blog/TagInput.jsx, /vercel/path0/client/src/components/booking/AttendeeList.jsx, /vercel/path0/client/src/components/booking/PaymentOptions.jsx, /vercel/path0/client/src/components/booking/VoucherSelector.jsx, /vercel/path0/client/src/components/canvas/CreatePageWithAiDialog.jsx, /vercel/path0/client/src/components/canvas/PagePickerDialog.jsx, /vercel/path0/client/src/components/canvas/blocks/dynamicBlocks.jsx, /vercel/path0/client/src/components/crm/CrmTagInput.jsx, /vercel/path0/client/src/components/email-builder/BlockEditor.jsx, /vercel/path0/client/src/components/email-builder/BlockRenderer.jsx, /vercel/path0/client/src/components/events/EventBudgetPanel.jsx, /vercel/path0/client/src/components/events/EventCard.jsx, /vercel/path0/client/src/components/events/EventImageUpload.jsx, /vercel/path0/client/src/components/events/EventSponsorSelector.jsx, /vercel/path0/client/src/components/events/SpeakerAwardsSection.jsx, /vercel/path0/client/src/components/forms/ProtectedFormActionDialog.jsx, /vercel/path0/client/src/components/forms/SubmissionReplies.jsx, /vercel/path0/client/src/components/forum/ForumThreadList.jsx, /vercel/path0/client/src/components/group-email/GroupEmailManager.jsx, /vercel/path0/client/src/components/iedit/IEditElementEditor.jsx, /vercel/path0/client/src/components/iedit/IEditElementPalette.jsx, /vercel/path0/client/src/components/iedit/elements/IEditAccordionElement.jsx, /vercel/path0/client/src/compo
+20:42:04.094 
+20:42:04.094 [plugin:vite:reporter] [plugin vite:reporter] 
+20:42:04.094 (!) /vercel/path0/client/src/api/publicClient.js is dynamically imported by /vercel/path0/client/src/components/ui/AGCASButton.jsx but also statically imported by /vercel/path0/client/src/components/InviteMemberDialog.jsx, /vercel/path0/client/src/components/MemberDetailView.jsx, /vercel/path0/client/src/components/SingleFieldEditModal.jsx, /vercel/path0/client/src/components/auth/LoginForm.jsx, /vercel/path0/client/src/components/blog/ArticleComments.jsx, /vercel/path0/client/src/components/blog/ArticleReactions.jsx, /vercel/path0/client/src/components/booking/PaymentOptions.jsx, /vercel/path0/client/src/components/canvas/StyleReferencePicker.jsx, /vercel/path0/client/src/components/canvas/blocks/AiCodeCompositionBlock.jsx, /vercel/path0/client/src/components/canvas/blocks/AiCompositionBlock.jsx, /vercel/path0/client/src/components/canvas/blocks/AiCompositionEditPanel.jsx, /vercel/path0/client/src/components/canvas/blocks/FormPickerField.jsx, /vercel/path0/client/src/components/canvas/blocks/dynamicBlocks.jsx, /vercel/path0/client/src/components/canvas/blocks/registry.jsx, /vercel/path0/client/src/components/directory/OrganisationDirectoryGuest.jsx, /vercel/path0/client/src/components/events/ComplexEventSchedule.jsx, /vercel/path0/client/src/components/events/EventSponsorsCard.jsx, /vercel/path0/client/src/components/floaters/FloaterDisplay.jsx, /vercel/path0/client/src/components/forms/ApplicantContinuationLinkGenerator.jsx, /vercel/path0/client/src/components/forms/FormRenderer.jsx, /vercel/path0/client/src/components/iedit/elements/IEditCardDeckElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditEventSpotlightElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditFeaturedJobElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditFormElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditGalleryElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditOrganisationDirectoryElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditResourcesShowcaseElement.jsx, /vercel/path0/client/src/components/iedit/elements/IEditShowcaseElement.jsx, /vercel/path0/client/src/components/layouts/PublicHeader.jsx, /vercel/path0/client/src/components/layouts/PublicLayout.jsx, /vercel/path0/client/src/components/navigation/PublicPageNavigation.jsx, /vercel/path0/client/src/components/resources/SingleResourcePage.jsx, /vercel/path0/client/src/components/support/SupportTicketDialogs.jsx, /vercel/path0/client/src/components/walloffame/WallOfFameDisplay.jsx, /vercel/path0/client/src/contexts/ArticleUrlContext.jsx, /vercel/path0/client/src/contexts/MemberTerminologyContext.jsx, /vercel/path0/client/src/contexts/MicrositeContext.jsx, /vercel/path0/client/src/contexts/TenantBrandingContext.jsx, /vercel/path0/client/src/hooks/useAgendaItemTypes.js, /vercel/path0/client/src/hooks/useDateFormat.js, /vercel/path0/client/src/hooks/useEventTypes.js, /vercel/path0/client/src/hooks/useEventsData.js, /vercel/path0/client/src/hooks/useMemberGroupCards.js, /vercel/path0/client/src/hooks/useMemberGroupSettings.js, /vercel/path0/client/src/hooks/useNewsPostData.js, /vercel/path0/client/src/hooks/useSpeakerModuleName.js, /vercel/path0/client/src/hooks/useTrainingAgendaSummaries.js, /vercel/path0/client/src/lib/departmentCurrentSet.js, /vercel/path0/client/src/lib/searchResultTypes.js, /vercel/path0/client/src/lib/useFormFieldPrefill.js, /vercel/path0/client/src/lib/useFormOpenTransition.js, /vercel/path0/client/src/pages/ArticleView.jsx, /vercel/path0/client/src/pages/Articles.jsx, /vercel/path0/client/src/pages/BuyProgramTickets.jsx, /vercel/path0/client/src/pages/CampaignRegisterPage.jsx, /vercel/path0/client/src/pages/CampaignsPage.jsx, /vercel/path0/client/src/pages/ComplexEventDetail.jsx, /vercel/path0/client/src/pages/DynamicPage.jsx, /vercel/path0/client/src/pages/EmailPreferences.jsx, /vercel/path0/client/src/pages/EmbedAlternativeSigner.jsx, /vercel/path0/client/src/pages/EmbedForm.jsx, /vercel/path0/client/src/pages/EventDetails.jsx, /vercel/path0/client/src/pages/Events.
+20:42:04.094 
+20:42:04.149 [plugin:vite:reporter] [plugin vite:reporter] 
+20:42:04.149 (!) /vercel/path0/client/src/lib/queryClient.js is dynamically imported by /vercel/path0/client/src/api/base44Client.js, /vercel/path0/client/src/api/base44Client.js, /vercel/path0/client/src/lib/planQuotaError.js but also statically imported by /vercel/path0/client/src/components/EmailCampaigns.jsx, /vercel/path0/client/src/components/dashboard/DashboardWidgetBuilder.jsx, /vercel/path0/client/src/components/dashboard/GroupingFieldSettingsModal.jsx, /vercel/path0/client/src/components/due-diligence/ManualContractOverrideForm.jsx, /vercel/path0/client/src/components/due-diligence/MeetingRequestDetailModal.jsx, /vercel/path0/client/src/components/due-diligence/MeetingRequestsCard.jsx, /vercel/path0/client/src/components/due-diligence/SignatoriesCard.jsx, /vercel/path0/client/src/components/due-diligence/SignatoryDetailModal.jsx, /vercel/path0/client/src/components/group-email/GroupEmailManager.jsx, /vercel/path0/client/src/components/projects/CardAttachments.jsx, /vercel/path0/client/src/hooks/useMemberGroupCustomFields.js, /vercel/path0/client/src/lib/adminFetch.js, /vercel/path0/client/src/lib/fetchInterceptor.js, /vercel/path0/client/src/lib/refocusCheck.js, /vercel/path0/client/src/pages/AIReports.jsx, /vercel/path0/client/src/pages/AccessibilityAudits.jsx, /vercel/path0/client/src/pages/Articles.jsx, /vercel/path0/client/src/pages/CampaignEdit.jsx, /vercel/path0/client/src/pages/CanvasLinksManager.jsx, /vercel/path0/client/src/pages/DueDiligenceReports.jsx, /vercel/path0/client/src/pages/EmailCampaignEdit.jsx, /vercel/path0/client/src/pages/EventCheckIn.jsx, /vercel/path0/client/src/pages/EventCheckInDashboard.jsx, /vercel/path0/client/src/pages/FundraisingManagement.jsx, /vercel/path0/client/src/pages/MemberGroupGuestManagement.jsx, /vercel/path0/client/src/pages/MemberGroupInviteReport.jsx, /vercel/path0/client/src/pages/MemberGroupManagement.jsx, /vercel/path0/client/src/pages/MembersList.jsx, /vercel/path0/client/src/pages/ProjectBoard.jsx, /vercel/path0/client/src/pages/ProjectBoards.jsx, /vercel/path0/client/src/pages/ReportsDashboard.jsx, dynamic import will not move module into another chunk.
+20:42:04.149 
+20:42:05.470 computing gzip size...
+20:42:07.200 ../dist/public/index.html                                                                    4.20 kB │ gzip:     1.61 kB
+20:42:07.200 ../dist/public/assets/fa-regular-400-nyy7hhHF.woff2                                         18.92 kB
+20:42:07.201 ../dist/public/assets/fa-brands-400-BP5tdqmh.woff2                                         110.09 kB
+20:42:07.201 ../dist/public/assets/fa-solid-900-DRAAbZTg.woff2                                          114.74 kB
+20:42:07.201 ../dist/public/assets/pdf.worker.min-FHbmGBN0.mjs                                        1,244.25 kB
+20:42:07.201 ../dist/public/assets/ChatGPT_Image_Jul_4__2026__06_26_22_PM_1783182456658-BbZGOTDz.png  1,909.13 kB
+20:42:07.201 ../dist/public/assets/CustomObjectsAdmin-BT68e_Nm.css                                        0.82 kB │ gzip:     0.31 kB
+20:42:07.201 ../dist/public/assets/NMCMembershipReport-MwjB56Xc.css                                       0.99 kB │ gzip:     0.42 kB
+20:42:07.201 ../dist/public/assets/index-D8NGx3Mb.css                                                   339.92 kB │ gzip:    65.75 kB
+20:42:07.201 ../dist/public/assets/circle-minus-CMziN442.js                                               0.34 kB │ gzip:     0.27 kB
+20:42:07.201 ../dist/public/assets/chevrons-down-up-DNkMjDZX.js                                           0.34 kB │ gzip:     0.27 kB
+20:42:07.201 ../dist/public/assets/adminFetch-Ea2tZYhv.js                                                 0.34 kB │ gzip:     0.28 kB
+20:42:07.202 ../dist/public/assets/code-DtUkiLXk.js                                                       0.35 kB │ gzip:     0.27 kB
+20:42:07.202 ../dist/public/assets/columns-2-CHX9gtqp.js                                                  0.36 kB │ gzip:     0.28 kB
+20:42:07.202 ../dist/public/assets/panel-bottom-Cl8of6zw.js                                               0.36 kB │ gzip:     0.28 kB
+20:42:07.202 ../dist/public/assets/forward-Ckh77bZe.js                                                    0.36 kB │ gzip:     0.29 kB
+20:42:07.202 ../dist/public/assets/list-filter-CshhfbQo.js                                                0.37 kB │ gzip:     0.27 kB
+20:42:07.202 ../dist/public/assets/circle-plus-3hEfv_OG.js                                                0.38 kB │ gzip:     0.28 kB
+20:42:07.202 ../dist/public/assets/code-xml-COwR6pG1.js                                                   0.38 kB │ gzip:     0.28 kB
+20:42:07.202 ../dist/public/assets/move-horizontal-rnt0aKAs.js                                            0.38 kB │ gzip:     0.28 kB
+20:42:07.203 ../dist/public/assets/pause-XjGOIR8F.js                                                      0.38 kB │ gzip:     0.27 kB
+20:42:07.203 ../dist/public/assets/table-2-DFFib4Dl.js                                                    0.39 kB │ gzip:     0.29 kB
+20:42:07.203 ../dist/public/assets/rows-3-DYmdgRnh.js                                                     0.39 kB │ gzip:     0.29 kB
+20:42:07.203 ../dist/public/assets/columns-3-DLM1fC9D.js                                                  0.39 kB │ gzip:     0.29 kB
+20:42:07.203 ../dist/public/assets/git-merge-VIUhXk56.js                                                  0.40 kB │ gzip:     0.29 kB
+20:42:07.203 ../dist/public/assets/internalEventTypes-Bz_Y-Che.js                                         0.40 kB │ gzip:     0.27 kB
+20:42:07.203 ../dist/public/assets/useInternalEventTypes-BSOt4h9W.js                                      0.40 kB │ gzip:     0.29 kB
+20:42:07.203 ../dist/public/assets/panel-left-close-BVyEQ1xF.js                                           0.40 kB │ gzip:     0.31 kB
+20:42:07.203 ../dist/public/assets/pen-DQIqh1yV.js                                                        0.41 kB │ gzip:     0.31 kB
+20:42:07.203 ../dist/public/assets/timer-DBcXKzog.js                                                      0.41 kB │ gzip:     0.29 kB
+20:42:07.203 ../dist/public/assets/percent-Tf8GOkLz.js                                                    0.41 kB │ gzip:     0.29 kB
+20:42:07.203 ../dist/public/assets/circle-pause-BFLKn3HY.js                                               0.42 kB │ gzip:     0.29 kB
+20:42:07.203 ../dist/public/assets/arrow-left-right-BY7ZOlAc.js                                           0.42 kB │ gzip:     0.30 kB
+20:42:07.203 ../dist/public/assets/circle-dollar-sign-jqAUBYpR.js                                         0.42 kB │ gzip:     0.31 kB
+20:42:07.203 ../dist/public/assets/settings-2-BAxf8dl4.js                                                 0.42 kB │ gzip:     0.30 kB
+20:42:07.203 ../dist/public/assets/table-CoKBUQzk.js                                                      0.43 kB │ gzip:     0.30 kB
+20:42:07.203 ../dist/public/assets/plug-ch1UMwiF.js                                                       0.43 kB │ gzip:     0.30 kB
+20:42:07.204 ../dist/public/assets/circle-user-DDD8CIC7.js                                                0.43 kB │ gzip:     0.31 kB
+20:42:07.204 ../dist/public/assets/list-plus--PIasUMw.js                                                  0.44 kB │ gzip:     0.29 kB
+20:42:07.204 ../dist/public/assets/bookmark-plus-SzkI94SE.js                                              0.45 kB │ gzip:     0.32 kB
+20:42:07.204 ../dist/public/assets/list-checks-CK1uxf_q.js                                                0.45 kB │ gzip:     0.29 kB
+20:42:07.204 ../dist/public/assets/coins-C3YIv8ti.js                                                      0.45 kB │ gzip:     0.33 kB
+20:42:07.204 ../dist/public/assets/layout-template-C3r_3SqO.js                                            0.46 kB │ gzip:     0.30 kB
+20:42:07.204 ../dist/public/assets/link-2-off-CLb6Ir4F.js                                                 0.46 kB │ gzip:     0.32 kB
+20:42:07.204 ../dist/public/assets/hash-nva7CUGA.js                                                       0.47 kB │ gzip:     0.30 kB
+20:42:07.204 ../dist/public/assets/file-plus-8bpTVy06.js                                                  0.47 kB │ gzip:     0.31 kB
+20:42:07.204 ../dist/public/assets/star-off-Ytiw-Gfg.js                                                   0.47 kB │ gzip:     0.35 kB
+20:42:07.204 ../dist/public/assets/zoom-in-yPRtdFc4.js                                                    0.47 kB │ gzip:     0.31 kB
+20:42:07.204 ../dist/public/assets/gavel-CuJQgmid.js                                                      0.47 kB │ gzip:     0.32 kB
+20:42:07.204 ../dist/public/assets/file-down-B8vuUjQ6.js                                                  0.47 kB │ gzip:     0.32 kB
+20:42:07.204 ../dist/public/assets/clipboard-check-BAtYErI9.js                                            0.47 kB │ gzip:     0.34 kB
+20:42:07.204 ../dist/public/assets/mouse-pointer-Chc8nMWF.js                                              0.48 kB │ gzip:     0.35 kB
+20:42:07.204 ../dist/public/assets/flask-conical-usU_4AZ3.js                                              0.48 kB │ gzip:     0.34 kB
+20:42:07.204 ../dist/public/assets/pencil-line-DQMYAoS3.js                                                0.49 kB │ gzip:     0.34 kB
+20:42:07.204 ../dist/public/assets/contact-round-Cte8Lsss.js                                              0.50 kB │ gzip:     0.35 kB
+20:42:07.204 ../dist/public/assets/bot-CwbxGWeD.js                                                        0.50 kB │ gzip:     0.33 kB
+20:42:07.204 ../dist/public/assets/graduation-cap-Ds8mvo3G.js                                             0.50 kB │ gzip:     0.35 kB
+20:42:07.204 ../dist/public/assets/file-badge-C5PaVA-X.js                                                 0.50 kB │ gzip:     0.34 kB
+20:42:07.204 ../dist/public/assets/key-round-B3jFjgxG.js                                                  0.52 kB │ gzip:     0.36 kB
+20:42:07.204 ../dist/public/assets/shield-x-C_X77Kyc.js                                                   0.53 kB │ gzip:     0.36 kB
+20:42:07.204 ../dist/public/assets/layout-list-BnyjuT3k.js                                                0.53 kB │ gzip:     0.33 kB
+20:42:07.204 ../dist/public/assets/hourglass-BzoToZcg.js                                                  0.53 kB │ gzip:     0.34 kB
+20:42:07.205 ../dist/public/assets/file-output-VXOsX-Lu.js                                                0.53 kB │ gzip:     0.35 kB
+20:42:07.205 ../dist/public/assets/grip-horizontal-C2PFDTfc.js                                            0.54 kB │ gzip:     0.31 kB
+20:42:07.205 ../dist/public/assets/folder-heart-CpLOAGEX.js                                               0.55 kB │ gzip:     0.38 kB
+20:42:07.205 ../dist/public/assets/shuffle-CsUG3bx9.js                                                    0.55 kB │ gzip:     0.36 kB
+20:42:07.205 ../dist/public/assets/file-pen-line-r3E3xPsh.js                                              0.56 kB │ gzip:     0.37 kB
+20:42:07.205 ../dist/public/assets/nmcRoleAccessVisibility-B_AMiyDx.js                                    0.56 kB │ gzip:     0.33 kB
+20:42:07.205 ../dist/public/assets/film-B1vwsZhZ.js                                                       0.58 kB │ gzip:     0.35 kB
+20:42:07.205 ../dist/public/assets/csvExport-CocZ06UL.js                                                  0.60 kB │ gzip:     0.40 kB
+20:42:07.205 ../dist/public/assets/unplug-Dz4LCvZT.js                                                     0.61 kB │ gzip:     0.37 kB
+20:42:07.205 ../dist/public/assets/hand-heart-C4H5SOA1.js                                                 0.62 kB │ gzip:     0.42 kB
+20:42:07.205 ../dist/public/assets/keyboard-xPJe40D1.js                                                   0.62 kB │ gzip:     0.36 kB
+20:42:07.205 ../dist/public/assets/package-plus-Bp0wIhHX.js                                               0.63 kB │ gzip:     0.40 kB
+20:42:07.205 ../dist/public/assets/phone-call-C-r2Y4kq.js                                                 0.68 kB │ gzip:     0.41 kB
+20:42:07.205 ../dist/public/assets/panel-top-BS-L2UzN.js                                                  0.70 kB │ gzip:     0.33 kB
+20:42:07.205 ../dist/public/assets/cog-ClV3acdl.js                                                        0.88 kB │ gzip:     0.45 kB
+20:42:07.205 ../dist/public/assets/move-bi7jZQoi.js                                                       0.89 kB │ gzip:     0.41 kB
+20:42:07.205 ../dist/public/assets/FilterOperatorMenu-hkhY9HlQ.js                                         0.95 kB │ gzip:     0.56 kB
+20:42:07.205 ../dist/public/assets/boxes-UvSUsnSn.js                                                      1.02 kB │ gzip:     0.50 kB
+20:42:07.205 ../dist/public/assets/square-dashed-C-SpJV68.js                                              1.06 kB │ gzip:     0.45 kB
+20:42:07.205 ../dist/public/assets/useServerAdminAuth-Cz2fe41q.js                                         1.11 kB │ gzip:     0.64 kB
+20:42:07.205 ../dist/public/assets/widgetDrill-8DL2EDS6.js                                                1.29 kB │ gzip:     0.72 kB
+20:42:07.205 ../dist/public/assets/CpdPoints-C8JAPvMa.js                                                  1.30 kB │ gzip:     0.69 kB
+20:42:07.205 ../dist/public/assets/uploadFile-CB6DmrqI.js                                                 1.31 kB │ gzip:     0.74 kB
+20:42:07.205 ../dist/public/assets/DirectoryObjectSourcesGuidance-Ddz0MaEk.js                             1.43 kB │ gzip:     0.77 kB
+20:42:07.205 ../dist/public/assets/user-round-DniMfMrB.js                                                 1.56 kB │ gzip:     0.56 kB
+20:42:07.205 ../dist/public/assets/dueDiligenceReference-D-XgJPJM.js                                      1.59 kB │ gzip:     0.73 kB
+20:42:07.206 ../dist/public/assets/notebook-text-BTfRd0EB.js                                              1.63 kB │ gzip:     0.60 kB
+20:42:07.206 ../dist/public/assets/text-cursor-input-DtmBBtFb.js                                          1.66 kB │ gzip:     0.60 kB
+20:42:07.206 ../dist/public/assets/useMemberGroupCustomFields-j5diR-YI.js                                 1.71 kB │ gzip:     0.88 kB
+20:42:07.207 ../dist/public/assets/panel-right-open-CoSnEJXX.js                                           1.87 kB │ gzip:     0.57 kB
+20:42:07.207 ../dist/public/assets/salesContracts-B3rDVJ-U.js                                             1.96 kB │ gzip:     0.98 kB
+20:42:07.207 ../dist/public/assets/TimezoneAwareDateTimeInput-6wXqy_Ws.js                                 2.42 kB │ gzip:     1.17 kB
+20:42:07.207 ../dist/public/assets/sliders-vertical-D3GMX8we.js                                           2.51 kB │ gzip:     0.85 kB
+20:42:07.207 ../dist/public/assets/FileSaver.min-BNT9Rx-K.js                                              2.97 kB │ gzip:     1.45 kB
+20:42:07.207 ../dist/public/assets/cpdCertificateContract-jT7OIZ3Q.js                                     3.14 kB │ gzip:     1.32 kB
+20:42:07.207 ../dist/public/assets/LucideIconPicker-Qj2pnYmV.js                                           3.20 kB │ gzip:     1.49 kB
+20:42:07.207 ../dist/public/assets/useAdminBalancesRealtime-BYaUrSdH.js                                   3.20 kB │ gzip:     0.92 kB
+20:42:07.207 ../dist/public/assets/useFormAlerts-B5OmKmb1.js                                              3.45 kB │ gzip:     1.70 kB
+20:42:07.207 ../dist/public/assets/FontAwesomeIconPicker-CNoJmo40.js                                      3.46 kB │ gzip:     1.65 kB
+20:42:07.207 ../dist/public/assets/useOrgDetailLayout-CqI5ixfq.js                                         3.81 kB │ gzip:     1.41 kB
+20:42:07.207 ../dist/public/assets/PlatformSetup-DIpQ9upK.js                                              3.97 kB │ gzip:     1.51 kB
+20:42:07.207 ../dist/public/assets/zoom-out-D3u0S-Qu.js                                                   4.10 kB │ gzip:     1.07 kB
+20:42:07.207 ../dist/public/assets/CanvasFooterEditor-BNQ9pRGt.js                                         4.25 kB │ gzip:     2.02 kB
+20:42:07.208 ../dist/public/assets/formRoleValidationError-DfAV6A7w.js                                    4.59 kB │ gzip:     2.00 kB
+20:42:07.208 ../dist/public/assets/SEOSettings-CxE_uUbF.js                                                4.82 kB │ gzip:     1.93 kB
+20:42:07.208 ../dist/public/assets/useOrgFieldVisibilityRules-C0kpSMxc.js                                 5.03 kB │ gzip:     1.80 kB
+20:42:07.208 ../dist/public/assets/PageSeoSocialFields-Dh_KkVBe.js                                        5.18 kB │ gzip:     1.97 kB
+20:42:07.208 ../dist/public/assets/separator-vertical-CaTnoyUW.js                                         5.49 kB │ gzip:     1.32 kB
+20:42:07.208 ../dist/public/assets/UnfurlPreview-D4m2KnZk.js                                              5.66 kB │ gzip:     1.81 kB
+20:42:07.208 ../dist/public/assets/DataExport-18USu6Wl.js                                                 5.85 kB │ gzip:     2.01 kB
+20:42:07.208 ../dist/public/assets/CanvasFooterManagement-DW6MstZk.js                                     6.57 kB │ gzip:     2.59 kB
+20:42:07.208 ../dist/public/assets/PlanUsage-wLs12Twu.js                                                  6.68 kB │ gzip:     2.48 kB
+20:42:07.208 ../dist/public/assets/ExportReportSwitcher-wBQpiYvJ.js                                       7.29 kB │ gzip:     2.70 kB
+20:42:07.208 ../dist/public/assets/StatusSelector-B_rzXmis.js                                             7.39 kB │ gzip:     2.74 kB
+20:42:07.208 ../dist/public/assets/AdminEmailLogs-O0GAlJhg.js                                             8.11 kB │ gzip:     2.33 kB
+20:42:07.208 ../dist/public/assets/EventAllocationManager-BLXNq2rj.js                                     8.22 kB │ gzip:     2.69 kB
+20:42:07.208 ../dist/public/assets/MemberRoleAssignment-CiJyN4R4.js                                       8.36 kB │ gzip:     2.84 kB
+20:42:07.208 ../dist/public/assets/accordion-51QbV1OP.js                                                  8.48 kB │ gzip:     3.39 kB
+20:42:07.208 ../dist/public/assets/OnboardingWizard-DwHn4eg_.js                                           8.62 kB │ gzip:     2.96 kB
+20:42:07.208 ../dist/public/assets/TestSendDialog-gu8E-6hY.js                                             8.96 kB │ gzip:     3.24 kB
+20:42:07.208 ../dist/public/assets/AdminLmicCountries-DJ-X6Au0.js                                         9.22 kB │ gzip:     3.12 kB
+20:42:07.208 ../dist/public/assets/TeamMemberManagement-MD6hDY5O.js                                       9.23 kB │ gzip:     2.78 kB
+20:42:07.208 ../dist/public/assets/ButtonStyleManagement-DcN7gIlS.js                                      9.90 kB │ gzip:     2.90 kB
+20:42:07.208 ../dist/public/assets/AdminTeam-Bq_QrmEs.js                                                 10.75 kB │ gzip:     3.06 kB
+20:42:07.208 ../dist/public/assets/SavedViewSwitcher-CNzXSf1a.js                                         10.75 kB │ gzip:     3.90 kB
+20:42:07.208 ../dist/public/assets/AreaChart-D85kW998.js                                                 10.99 kB │ gzip:     4.07 kB
+20:42:07.208 ../dist/public/assets/IEditTemplateManagement-tlJ80bRe.js                                   11.62 kB │ gzip:     3.67 kB
+20:42:07.208 ../dist/public/assets/CanvasLinksManager-D9nU_YWS.js                                        11.63 kB │ gzip:     4.32 kB
+20:42:07.208 ../dist/public/assets/NMCMembershipReport-VdSE7CdK.js                                       11.84 kB │ gzip:     3.93 kB
+20:42:07.208 ../dist/public/assets/AiDesignStudio-XTSiDepL.js                                            11.88 kB │ gzip:     3.65 kB
+20:42:07.208 ../dist/public/assets/OrgDetailLayoutEditor-B4_hvDne.js                                     12.05 kB │ gzip:     3.78 kB
+20:42:07.208 ../dist/public/assets/AccessibilityAudits-FmesTot4.js                                       12.25 kB │ gzip:     3.88 kB
+20:42:07.209 ../dist/public/assets/AdminDashboard-D4ndEXV5.js                                            12.61 kB │ gzip:     3.89 kB
+20:42:07.209 ../dist/public/assets/ResourceSettings-DyJYNIAI.js                                          12.69 kB │ gzip:     3.49 kB
+20:42:07.209 ../dist/public/assets/FormConversionReport-0eumU66s.js                                      13.17 kB │ gzip:     4.28 kB
+20:42:07.209 ../dist/public/assets/MembershipPaymentReport-BqQLam-s.js                                   13.50 kB │ gzip:     4.28 kB
+20:42:07.209 ../dist/public/assets/BadgeManagement-DDTnvXnd.js                                           13.78 kB │ gzip:     4.96 kB
+20:42:07.209 ../dist/public/assets/MemberGroupSettings-BH03Y-p8.js                                       13.97 kB │ gzip:     4.46 kB
+20:42:07.209 ../dist/public/assets/MonthlyFinanceReport-BSuD9q5G.js                                      14.36 kB │ gzip:     3.90 kB
+20:42:07.209 ../dist/public/assets/ImageSelector-DPYHKcUq.js                                             14.36 kB │ gzip:     4.75 kB
+20:42:07.210 ../dist/public/assets/OrganisationEngagementReport-DvA3N7ve.js                              14.53 kB │ gzip:     4.18 kB
+20:42:07.210 ../dist/public/assets/SalesReportingWorkspace-D_195SfP.js                                   15.16 kB │ gzip:     5.13 kB
+20:42:07.210 ../dist/public/assets/AIReports-Csh5PQ2P.js                                                 15.44 kB │ gzip:     5.34 kB
+20:42:07.210 ../dist/public/assets/FormSettings-Drsyrbd7.js                                              15.45 kB │ gzip:     3.97 kB
+20:42:07.210 ../dist/public/assets/MemberCpdPointsTab-DIliOzLv.js                                        15.82 kB │ gzip:     4.95 kB
+20:42:07.210 ../dist/public/assets/TrainingAgendaEditor-BmJqN0Ro.js                                      15.91 kB │ gzip:     5.09 kB
+20:42:07.210 ../dist/public/assets/PortalNavigationManagement-DK725F9o.js                                15.91 kB │ gzip:     4.99 kB
+20:42:07.210 ../dist/public/assets/CardDeckManagement-Bh5K6OBm.js                                        16.08 kB │ gzip:     4.59 kB
+20:42:07.210 ../dist/public/assets/AdminScheduledTasks-B16En-bJ.js                                       16.45 kB │ gzip:     4.61 kB
+20:42:07.210 ../dist/public/assets/NewsEditor-CqBZVV6a.js                                                16.47 kB │ gzip:     5.31 kB
+20:42:07.210 ../dist/public/assets/AttendeeCpdCertificateDialog-BNL261MM.js                              16.49 kB │ gzip:     5.35 kB
+20:42:07.210 ../dist/public/assets/MembershipFees-CzyJSV_K.js                                            16.69 kB │ gzip:     4.36 kB
+20:42:07.210 ../dist/public/assets/JobBoardSettings-CAJeCj5r.js                                          16.93 kB │ gzip:     5.06 kB
+20:42:07.210 ../dist/public/assets/EventBudgetReport-BYl6Q34y.js                                         19.29 kB │ gzip:     5.83 kB
+20:42:07.211 ../dist/public/assets/memberCommunicationPreferences-Czl7QLvb.js                            19.32 kB │ gzip:     5.87 kB
+20:42:07.211 ../dist/public/assets/MembershipSettings-muVIyi-4.js                                        20.32 kB │ gzip:     5.68 kB
+20:42:07.211 ../dist/public/assets/FloaterManagement-BaGUXPE5.js                                         21.24 kB │ gzip:     5.24 kB
+20:42:07.211 ../dist/public/assets/CampaignEdit-BsKEszUm.js                                              21.26 kB │ gzip:     5.39 kB
+20:42:07.211 ../dist/public/assets/JobPostingManagement-DHUJ5zd9.js                                      21.30 kB │ gzip:     5.66 kB
+20:42:07.211 ../dist/public/assets/PageManagerItem-6XsuYYJa.js                                           21.39 kB │ gzip:     4.82 kB
+20:42:07.211 ../dist/public/assets/TicketSalesAnalytics-CbAtzJeA.js                                      21.85 kB │ gzip:     5.38 kB
+20:42:07.211 ../dist/public/assets/AdminDomains-C2nAD91v.js                                              22.39 kB │ gzip:     5.01 kB
+20:42:07.211 ../dist/public/assets/PreferenceSettings-2-pofcXd.js                                        22.81 kB │ gzip:     5.42 kB
+20:42:07.211 ../dist/public/assets/WallOfFameManagement-BzlV8F23.js                                      22.87 kB │ gzip:     5.43 kB
+20:42:07.211 ../dist/public/assets/AdminMemberEdit-CzSuI1T_.js                                           23.95 kB │ gzip:     5.93 kB
+20:42:07.211 ../dist/public/assets/DynamicDirectoryManagement-DZlFxfFD.js                                24.22 kB │ gzip:     6.87 kB
+20:42:07.211 ../dist/public/assets/CanvasPageRenderer-CMa57VJA.js                                        24.35 kB │ gzip:     8.30 kB
+20:42:07.211 ../dist/public/assets/RoleAccessConfigManagement-BpdGgBif.js                                24.81 kB │ gzip:     7.16 kB
+20:42:07.211 ../dist/public/assets/PortalMenuManagement-C2RvVtGs.js                                      25.21 kB │ gzip:     7.75 kB
+20:42:07.212 ../dist/public/assets/Balances-CDZzZaw8.js                                                  25.21 kB │ gzip:     6.74 kB
+20:42:07.212 ../dist/public/assets/PieChart-zBqADqRr.js                                                  26.01 kB │ gzip:     7.03 kB
+20:42:07.212 ../dist/public/assets/DiscountCodeManagement-CyrqTtH9.js                                    26.99 kB │ gzip:     6.83 kB
+20:42:07.212 ../dist/public/assets/PendingPurchaseOrdersReport-BdrVp3_s.js                               28.72 kB │ gzip:     8.10 kB
+20:42:07.213 ../dist/public/assets/ArticleEditor-DNY1IJWy.js                                             29.24 kB │ gzip:     8.39 kB
+20:42:07.213 ../dist/public/assets/SupportManagement-IaiXAH0C.js                                         29.88 kB │ gzip:     8.61 kB
+20:42:07.213 ../dist/public/assets/FileManagement-IemP6tcF.js                                            30.14 kB │ gzip:     9.12 kB
+20:42:07.213 ../dist/public/assets/SpeakerBadgeRemovalDialog-DcHtaFKn.js                                 31.19 kB │ gzip:     8.70 kB
+20:42:07.213 ../dist/public/assets/FormSubmissionView-DUwjqHX2.js                                        31.27 kB │ gzip:     8.73 kB
+20:42:07.213 ../dist/public/assets/CPDCertificateTemplates-MekkXv0K.js                                   31.33 kB │ gzip:    10.17 kB
+20:42:07.213 ../dist/public/assets/AdminSetup-DsEgCUtA.js                                                32.08 kB │ gzip:     7.53 kB
+20:42:07.213 ../dist/public/assets/SurveyReports-86Gffjbs.js                                             32.17 kB │ gzip:     7.94 kB
+20:42:07.213 ../dist/public/assets/PageBannerManagement-BS7k_x6q.js                                      33.05 kB │ gzip:     8.01 kB
+20:42:07.213 ../dist/public/assets/DueDiligenceDashboard-BDL6pubk.js                                     33.57 kB │ gzip:    10.01 kB
+20:42:07.213 ../dist/public/assets/FormManagement-BU0slsyv.js                                            35.02 kB │ gzip:     9.55 kB
+20:42:07.213 ../dist/public/assets/brandingShared-C_w9ns69.js                                            35.26 kB │ gzip:     7.50 kB
+20:42:07.214 ../dist/public/assets/ButtonElements-Bkn-vjko.js                                            37.40 kB │ gzip:     8.74 kB
+20:42:07.214 ../dist/public/assets/EmailPlaceholders-BYZDYB4A.js                                         37.45 kB │ gzip:    11.55 kB
+20:42:07.214 ../dist/public/assets/OrganisationDirectorySettings-BF3UuEfF.js                             38.14 kB │ gzip:     8.57 kB
+20:42:07.214 ../dist/public/assets/ImportManager-BM0f0TL2.js                                             38.61 kB │ gzip:     9.80 kB
+20:42:07.214 ../dist/public/assets/CustomFieldsAdmin-CjwnzQj0.js                                         40.85 kB │ gzip:     9.64 kB
+20:42:07.214 ../dist/public/assets/emailPlaceholders-Dn38YcDh.js                                         42.80 kB │ gzip:     8.77 kB
+20:42:07.215 ../dist/public/assets/IEditPageEditor-DFjAWwQb.js                                           42.95 kB │ gzip:    11.23 kB
+20:42:07.215 ../dist/public/assets/OrganisationGroups-fU86kPXW.js                                        43.88 kB │ gzip:    12.22 kB
+20:42:07.215 ../dist/public/assets/CustomObjectRecords-DNRLBGXo.js                                       44.76 kB │ gzip:    13.41 kB
+20:42:07.215 ../dist/public/assets/MembersList-BhBCFf1w.js                                               45.63 kB │ gzip:    13.18 kB
+20:42:07.215 ../dist/public/assets/FundraisingManagement-BbiuQIhO.js                                     46.17 kB │ gzip:    10.62 kB
+20:42:07.215 ../dist/public/assets/OrganisationsList-D1iZtrkN.js                                         46.76 kB │ gzip:    13.73 kB
+20:42:07.215 ../dist/public/assets/EmailTemplateManagement-D4vM2JtT.js                                   48.09 kB │ gzip:    13.13 kB
+20:42:07.215 ../dist/public/assets/NavigationManagement-B1v5W7Xx.js                                      49.62 kB │ gzip:    13.04 kB
+20:42:07.215 ../dist/public/assets/TrainingFundManagement-VA2zs6Hf.js                                    49.74 kB │ gzip:    12.22 kB
+20:42:07.215 ../dist/public/assets/RoleManagement-COQ4oQkM.js                                            49.80 kB │ gzip:    13.30 kB
+20:42:07.215 ../dist/public/assets/EmailCampaignEdit-BeeLaW8P.js                                         49.82 kB │ gzip:    12.78 kB
+20:42:07.215 ../dist/public/assets/VoucherManagement-CA8IFSCz.js                                         54.43 kB │ gzip:    14.37 kB
+20:42:07.216 ../dist/public/assets/IEditPageManagement-Cg0VScbY.js                                       54.78 kB │ gzip:    15.90 kB
+20:42:07.216 ../dist/public/assets/WidgetCard-CDxFCrp7.js                                                55.36 kB │ gzip:    17.24 kB
+20:42:07.216 ../dist/public/assets/RelatedRecordsPanel-tRaDZfHW.js                                       55.74 kB │ gzip:    16.45 kB
+20:42:07.216 ../dist/public/assets/ResourceManagement-WbahALFz.js                                        56.82 kB │ gzip:    13.86 kB
+20:42:07.217 ../dist/public/assets/DirectDebitAdmin-B2tHzaNe.js                                          57.91 kB │ gzip:    14.86 kB
+20:42:07.217 ../dist/public/assets/MicrositeManagement-DDF4i7GV.js                                       59.18 kB │ gzip:    14.74 kB
+20:42:07.217 ../dist/public/assets/customFilterUtils-B8BFI0Ry.js                                         60.51 kB │ gzip:    14.32 kB
+20:42:07.217 ../dist/public/assets/AdminSettings-DOVZryNa.js                                             61.41 kB │ gzip:    14.62 kB
+20:42:07.218 ../dist/public/assets/ReportsDashboard-DGle8rbK.js                                          68.62 kB │ gzip:    10.60 kB
+20:42:07.218 ../dist/public/assets/PlatformAdmin-Bd8hEv-Y.js                                             73.87 kB │ gzip:    18.22 kB
+20:42:07.218 ../dist/public/assets/formSubmissionPaymentReview-DPYWhH76.js                               74.64 kB │ gzip:    24.52 kB
+20:42:07.218 ../dist/public/assets/EmailBuilder-B7rnRgUZ.js                                              76.30 kB │ gzip:    18.11 kB
+20:42:07.218 ../dist/public/assets/AwardManagement-B8QmuZP6.js                                           76.86 kB │ gzip:    10.44 kB
+20:42:07.218 ../dist/public/assets/Dashboard-z_M1HeEx.js                                                 82.51 kB │ gzip:    21.97 kB
+20:42:07.218 ../dist/public/assets/CanvasPageEditor-CdD-3Vcd.js                                          83.73 kB │ gzip:    23.49 kB
+20:42:07.218 ../dist/public/assets/AdminZohoCrmSync-BCGIQTee.js                                          87.32 kB │ gzip:    20.05 kB
+20:42:07.219 ../dist/public/assets/CreateEvent-B8gvCi_K.js                                               89.56 kB │ gzip:    21.53 kB
+20:42:07.221 ../dist/public/assets/WorkflowManagement-B9jlzPyW.js                                        91.83 kB │ gzip:    19.90 kB
+20:42:07.221 ../dist/public/assets/DueDiligenceReports-BqMcP7XB.js                                       92.75 kB │ gzip:    21.02 kB
+20:42:07.221 ../dist/public/assets/canvasDesign-3qp_NGNq.js                                              99.17 kB │ gzip:    29.09 kB
+20:42:07.221 ../dist/public/assets/DueDiligenceConfig-C0tfB-0c.js                                       100.85 kB │ gzip:    21.23 kB
+20:42:07.222 ../dist/public/assets/EventPeopleDisplayModeField-Dcv99kZy.js                              104.11 kB │ gzip:    27.42 kB
+20:42:07.222 ../dist/public/assets/AdminIntegrations-BB2YuWZE.js                                        104.85 kB │ gzip:    20.12 kB
+20:42:07.222 ../dist/public/assets/memberMembershipVisibility-C0QgJRsR.js                               107.67 kB │ gzip:    26.83 kB
+20:42:07.222 ../dist/public/assets/EventSettings-B8hkIg4-.js                                            108.37 kB │ gzip:    18.79 kB
+20:42:07.222 ../dist/public/assets/EventRegistrationReport-CUPJIhUU.js                                  110.78 kB │ gzip:    28.61 kB
+20:42:07.222 ../dist/public/assets/MemberDetail-BHinPETH.js                                             116.68 kB │ gzip:    28.17 kB
+20:42:07.222 ../dist/public/assets/Sales-ab-wFF52.js                                                    117.05 kB │ gzip:    30.69 kB
+20:42:07.222 ../dist/public/assets/MemberGroupManagement-2yL1E1Tg.js                                    118.29 kB │ gzip:    27.75 kB
+20:42:07.223 ../dist/public/assets/CustomObjectsAdmin-Bcd3SedB.js                                       122.90 kB │ gzip:    32.40 kB
+20:42:07.223 ../dist/public/assets/MembershipTierManagement-rDLRzL4r.js                                 127.59 kB │ gzip:    27.32 kB
+20:42:07.223 ../dist/public/assets/AdminBranding-f1ciiNID.js                                            137.67 kB │ gzip:    22.86 kB
+20:42:07.223 ../dist/public/assets/CanvasBuilder-3koo4_Ql.js                                            138.58 kB │ gzip:    42.14 kB
+20:42:07.223 ../dist/public/assets/EditEvent-9NbWEO8x.js                                                141.31 kB │ gzip:    34.97 kB
+20:42:07.223 ../dist/public/assets/CreateComplexEvent-BuFM1QoH.js                                       141.68 kB │ gzip:    35.04 kB
+20:42:07.223 ../dist/public/assets/ReviewSubmission-BqWaqZnL.js                                         146.93 kB │ gzip:    35.23 kB
+20:42:07.224 ../dist/public/assets/OrganisationDetailView-DeoUIxrb.js                                   165.82 kB │ gzip:    39.16 kB
+20:42:07.224 ../dist/public/assets/CommunicationsManagement-DyLC1eKY.js                                 193.54 kB │ gzip:    47.16 kB
+20:42:07.224 ../dist/public/assets/faIcons-CUwjGnwj.js                                                  263.89 kB │ gzip:    69.44 kB
+20:42:07.224 ../dist/public/assets/BarChart-DFurO2tA.js                                                 366.05 kB │ gzip:    98.09 kB
+20:42:07.224 ../dist/public/assets/FormSubmissions-E9AM7PCT.js                                          450.83 kB │ gzip:   129.72 kB
+20:42:07.224 ../dist/public/assets/FormBuilder-CrC5Et2G.js                                              452.88 kB │ gzip:   103.55 kB
+20:42:07.224 ../dist/public/assets/pdf-CTZ9Q1jI.js                                                      453.46 kB │ gzip:   135.15 kB
+20:42:07.224 ../dist/public/assets/axe-9rIJkIGy.js                                                      583.57 kB │ gzip:   160.76 kB
+20:42:07.224 ../dist/public/assets/lucide-react-IXOiQLKM.js                                             657.36 kB │ gzip:   120.30 kB
+20:42:07.224 ../dist/public/assets/registry-C9JlTNwp.js                                                 785.92 kB │ gzip:   216.20 kB
+20:42:07.224 ../dist/public/assets/mjmlConverter-Bu4NmVef.js                                          1,193.36 kB │ gzip:   368.51 kB
+20:42:07.224 ../dist/public/assets/index-B-hqToq8.js                                                  6,497.98 kB │ gzip: 1,630.38 kB
+20:42:07.224 ✓ built in 1m 2s
+20:42:07.224 
+20:42:07.224 (!) Some chunks are larger than 500 kB after minification. Consider:
+20:42:07.224 - Using dynamic import() to code-split the application
+20:42:07.224 - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+20:42:07.224 - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+20:42:07.660 Installing dependencies...
+20:42:09.224 npm warn ERESOLVE overriding peer dependency
+20:42:09.225 npm warn While resolving: react-codemirror2@7.3.0
+20:42:09.225 npm warn Found: react@18.3.1
+20:42:09.226 npm warn node_modules/react
+20:42:09.226 npm warn   react@"^18.3.1" from the root project
+20:42:09.226 npm warn   126 more (@arco-design/web-react, @dnd-kit/accessibility, ...)
+20:42:09.226 npm warn
+20:42:09.226 npm warn Could not resolve dependency:
+20:42:09.226 npm warn peer react@">=15.5 <=17.x" from react-codemirror2@7.3.0
+20:42:09.227 npm warn node_modules/react-codemirror2
+20:42:09.227 npm warn   react-codemirror2@"^7.2.1" from easy-email-extensions@4.16.5
+20:42:09.227 npm warn   node_modules/easy-email-extensions
+20:42:09.227 npm warn
+20:42:09.227 npm warn Conflicting peer dependency: react@17.0.2
+20:42:09.227 npm warn node_modules/react
+20:42:09.227 npm warn   peer react@">=15.5 <=17.x" from react-codemirror2@7.3.0
+20:42:09.227 npm warn   node_modules/react-codemirror2
+20:42:09.227 npm warn     react-codemirror2@"^7.2.1" from easy-email-extensions@4.16.5
+20:42:09.227 npm warn     node_modules/easy-email-extensions
+20:42:09.940 
+20:42:09.941 up to date in 2s
+20:42:09.941 
+20:42:09.941 215 packages are looking for funding
+20:42:09.941   run `npm fund` for details
+20:42:09.943 npm warn install-scripts 6 packages have install scripts not yet covered by allowScripts:
+20:42:09.943 npm warn install-scripts   esbuild@0.18.20 (postinstall: node install.js)
+20:42:09.943 npm warn install-scripts   bufferutil@4.0.8 (install: node-gyp rebuild)
+20:42:09.943 npm warn install-scripts   core-js@3.48.0 (postinstall: node -e "try{require('./postinstall')}catch(e){}")
+20:42:09.943 npm warn install-scripts   esbuild@0.25.9 (postinstall: node install.js)
+20:42:09.943 npm warn install-scripts   sharp@0.34.5 (install: node install/check.js || npm run build)
+20:42:09.943 npm warn install-scripts   esbuild@0.21.5 (postinstall: node install.js)
+20:42:09.943 npm warn install-scripts
+20:42:09.943 npm warn install-scripts Run `npm install-scripts ls` to review, or `npm install-scripts approve <pkg>` to allow.
+20:56:22.425 Using TypeScript 5.6.3 (local user-provided)
