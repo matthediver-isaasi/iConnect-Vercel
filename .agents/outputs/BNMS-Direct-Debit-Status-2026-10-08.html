@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>BNMS Direct Debit and Accounting Update — 8 October 2026</title>
+<style>
+@page{size:A4;margin:13mm 16mm}
+*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#203044;font-size:9.5pt;line-height:1.32;margin:0}
+.eyebrow{font-size:9pt;color:#526879;letter-spacing:1px;text-transform:uppercase;font-weight:bold}
+h1{font-size:24pt;line-height:1.12;color:#153d51;margin:9px 0 10px}h2{font-size:12pt;color:#153d51;margin:13px 0 6px}
+.meta{font-size:9pt;color:#5b6878;margin-bottom:17px}.summary{background:#edf5f5;border-left:4px solid #267d83;padding:12px 15px;margin:0 0 17px}
+p{margin:6px 0}table{border-collapse:collapse;width:100%;font-size:9pt}th{text-align:left;background:#153d51;color:white;padding:8px}td{padding:8px;border-bottom:1px solid #dce3e9;vertical-align:top}td.count{font-size:15pt;font-weight:bold;width:52px;color:#153d51}tr:nth-child(even){background:#f6f8fa}
+ul{padding-left:18px;margin:6px 0}li{margin:4px 0}.notice{background:#fff7e9;border:1px solid #ecd6aa;padding:9px 12px;margin-top:13px;font-size:9pt}
+footer{font-size:8pt;color:#677787;border-top:1px solid #dce3e9;margin-top:17px;padding-top:8px}
+</style></head><body>
+<div class="eyebrow">British Nuclear Medicine Society · Administrator update</div>
+<h1>Direct Debit &amp;<br>accounting status</h1>
+<div class="meta">8 October 2026 · Status checked at 11:01am UK time<br>Scope: 355 payment records scheduled for collection on 6 October 2026.</div>
+<div class="summary"><strong>119 payments have completed accounting. A further 102 confirmed payments are safely queued for Xero.</strong><br>The queued work is to create and record the accounting entries for existing payments — not to collect money again.</div>
+<table aria-label="Payment status summary"><thead><tr><th>Status</th><th>Payments</th><th>What this means</th></tr></thead><tbody>
+<tr><td><strong>Accounting complete</strong></td><td class="count">119</td><td>Payment is confirmed and the accounting process is marked complete, with an invoice linked in iConnect.</td></tr>
+<tr><td><strong>Confirmed; awaiting accounting</strong></td><td class="count">102</td><td>Payment is confirmed. Its accounting request is saved and ready to retry once Xero permits further requests.</td></tr>
+<tr><td><strong>Payment status needs checking</strong></td><td class="count">130</td><td>iConnect still shows “pending submission”. These records need checking against GoCardless; this status alone does not establish whether money was collected.</td></tr>
+<tr><td><strong>Failed</strong></td><td class="count">3</td><td>Recorded as failed payments, separate from the accounting queue.</td></tr>
+<tr><td><strong>Cancelled</strong></td><td class="count">1</td><td>Recorded as cancelled, separate from the accounting queue.</td></tr>
+</tbody></table>
+<h2>Why are the 102 payments queued?</h2>
+<p>Xero has reached its <strong>daily allowance for requests</strong> and is temporarily refusing further requests. This delays the accounting work; it does not mean these 102 confirmed payments failed.</p>
+<p>A separate software check had incorrectly held these requests for review. That issue has been corrected. All 102 were checked again, their original payment details were verified, and they were returned to the automatic retry queue.</p>
+<h2>What happens next?</h2>
+<p>The 102 requests become eligible for automatic processing from <strong>2:14am UK time on Friday 9 October 2026</strong>, based on the reset time reported by Xero. Processing will run through the queue; this is a start time, not a promise that every invoice will be finished immediately.</p>
+<p>Completion still depends on Xero accepting the requests and the remaining checks passing. The 130 records with an unconfirmed local status require separate follow-up and are <strong>not included</strong> in these 102 queued requests.</p>
+<div class="notice"><strong>What should the administrator do?</strong><br>No manual action is needed for the 102 queued requests at present. Please do not create replacement invoices or request another collection for them solely because the invoice is delayed. No additional GoCardless collection instructions were sent as part of this recovery.</div>
+<footer>Figures are payment records, not a count of unique members. This is a point-in-time report from the live system; statuses may change after the time shown. “Confirmed” is a payment status and is not a statement that a payout has reached BNMS’s bank account.</footer>
+</body></html>

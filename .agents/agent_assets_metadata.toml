@@ -1237,3 +1237,17 @@ mtime_ms = 1791286965854
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/4a9a2c29-0762-40c9-9c1b-25269989757b/389949bb-384d-48d6-8759-c43a6b5377a1"
 storage_version_token = "1791286976613431"
 content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+[[outputs]]
+id = "eaCdsfILJfcmjU-F88cjd"
+uri = "file://.agents/outputs/BNMS-Direct-Debit-Status-2026-10-08.pdf"
+type = "pdf"
+title = "BNMS Direct Debit & Accounting Update"
+description = "One-page administrator report covering completed payments, the Xero accounting queue, why processing is delayed, and what happens next. Status checked 8 October 2026 at 11:01am UK time."
+logical_id = "4df2adee-6f2b-4f6a-9b20-430d8b8fad9f"
+content_hash = "sha256:00199dd301e40eced8179de21b29ed57c904ce2a60805e48efd9b0f79238b4f7"
+size = 47924
+mtime_ms = 1791453849955
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/4df2adee-6f2b-4f6a-9b20-430d8b8fad9f/a4892972-0b43-48bd-9a81-75419b0c19ef"
+storage_version_token = "1791453871555580"
+content_type = "application/pdf"
