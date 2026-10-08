@@ -1155,7 +1155,17 @@ async function processPaymentEvent({ event, action, links, db, gc, deps = {} }) 
     if (action === 'charged_back' || action === 'chargeback_settled') {
       mirror.charged_back_at = new Date().toISOString();
     }
-    await checkedUpsert(db, 'gocardless_payments', mirror, 'gocardless_payment_id');
+    if (existingMirror) {
+      // A partial UPSERT runs BEFORE INSERT guards before conflict resolution.
+      // Those guards legitimately require the existing charge date/amount and
+      // reservation. Update the known row instead; preserve its financial terms
+      // and run the same database safeguards against the complete stored row.
+      const { error: updateError } = await db.from('gocardless_payments')
+        .update(mirror).eq('gocardless_payment_id', paymentId).eq('tenant_id', tenantId);
+      if (updateError) throw new Error(`update gocardless_payments failed: ${updateError.message}`);
+    } else {
+      await checkedUpsert(db, 'gocardless_payments', mirror, 'gocardless_payment_id');
+    }
   }
   if (isMatchedCatchUpFailure) {
     return { handled: true, detail: `GoCardless catch-up payment ${action} recorded for retry` };
@@ -1177,7 +1187,7 @@ async function processPaymentEvent({ event, action, links, db, gc, deps = {} }) 
       );
       await recordDdPaymentProgress(initialPaymentAgreement, { db });
       if (actResult.activated) {
-        await safeDdEmail('membership_activated', initialPaymentAgreement, { db });
+        await safeDdEmail('membership_activated', initialPaymentAgreement, paymentEmailOptions);
       }
       if (agreementResult.applied) {
         await safeDdEmail('first_payment', initialPaymentAgreement, paymentEmailOptions);
@@ -1350,7 +1360,7 @@ async function processPaymentEvent({ event, action, links, db, gc, deps = {} }) 
             extraUpdate: { completed_at: new Date().toISOString() },
           }, { db });
           if (completion.applied) {
-            await safeDdEmail('plan_completed', agreement, { db });
+            await safeDdEmail('plan_completed', agreement, paymentEmailOptions);
           }
         }
         // Recovery: clear any arrears flag stamped on the agreement.
@@ -1371,7 +1381,7 @@ async function processPaymentEvent({ event, action, links, db, gc, deps = {} }) 
           }
         }
         if (actResult.activated) {
-          await safeDdEmail('membership_activated', agreement, { db });
+          await safeDdEmail('membership_activated', agreement, paymentEmailOptions);
         }
         if (isInitialPayment && !agreement.metadata?.gocardless_initial_payment?.finalized_at) {
           await safeDdEmail('first_payment', agreement, paymentEmailOptions);

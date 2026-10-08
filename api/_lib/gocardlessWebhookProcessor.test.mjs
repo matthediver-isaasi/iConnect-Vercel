@@ -1068,7 +1068,7 @@ test('a confirmed provider retry moves the same payment mirror from failed to co
   assert.equal(db.tables.membership_payment_plans[0].status, STATUS.ACTIVE);
 });
 
-test('sparse confirmed replay preserves payment provider identity and paid_out status', async () => {
+test('sparse confirmed replay updates guarded existing payments without a partial insert', async () => {
   const plan = {
     id: 'plan-sparse',
     tenant_id: TENANT,
@@ -1097,6 +1097,14 @@ test('sparse confirmed replay preserves payment provider identity and paid_out s
     membership_payment_status_history: [],
   });
 
+  const originalFrom = db.from.bind(db);
+  db.from = table => {
+    const query = originalFrom(table);
+    if (table === 'gocardless_payments') {
+      query.upsert = () => { throw new Error('BEFORE INSERT guard rejects partial payment'); };
+    }
+    return query;
+  };
   await processGocardlessEvent({
     id: 'EV_PM_SPARSE_REPLAY',
     resource_type: 'payments',

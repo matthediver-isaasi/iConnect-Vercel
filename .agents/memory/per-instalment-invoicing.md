@@ -24,3 +24,9 @@ Generic accounting references are not Stripe PaymentIntent identities. Keep the 
 **Why:** stricter accounting-provider PaymentIntent validation exposed monthly callers passing Stripe invoice IDs (and the shared Direct Debit caller passing GoCardless references). Replacing historical invoice keys with PaymentIntent keys would bypass duplicate protection on recovery.
 
 **How to apply:** distinguish descriptive payment references from verified PaymentIntent IDs across both create and existing-invoice payment paths; missing evidence must remain recoverable rather than imply successful accounting.
+
+Existing guarded payment mirrors must not be updated through partial INSERT/UPSERT payloads.
+
+**Why:** PostgreSQL runs BEFORE INSERT guards before ON CONFLICT resolves an existing row. Missing charge dates, amounts or currency can therefore reject a valid webhook even though the stored row has complete reservation evidence.
+
+**How to apply:** Update a tenant-validated existing payment directly, retaining its financial terms and all database guards. Recovery of already-issued collections must prohibit GoCardless mutations at the transport boundary, not merely rely on the intended processor path.
