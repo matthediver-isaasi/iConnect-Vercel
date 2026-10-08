@@ -6,6 +6,7 @@ import { fetchFormAccountingTransport, formAccountingTransport } from './formAcc
 import { BNMS_BETA_BANK, assertBnmsBetaAccountingContext } from './bnmsBetaAccounting.js';
 import { BNMS_ALPHA_BANK, assertBnmsAlphaAccountingContext } from './bnmsAlphaAccounting.js';
 import { MANUAL_BANK_SOURCE, assertManualAccountingContext } from './bnmsManualCohort.js';
+import { buildXeroCreditAmounts, assertXeroCreditTotal } from './xeroCreditNoteAmounts.js';
 
 const usesExactImportedContact = context =>
   [BNMS_ALPHA_BANK.source, MANUAL_BANK_SOURCE].includes(context?.snapshot?.source);
@@ -1851,6 +1852,9 @@ export async function createXeroCreditNote({ appTenantId, invoiceId, creditAmoun
     const existingCreditNotes = existingData?.CreditNotes || [];
     const matchingCN = existingCreditNotes.find(cn => cn.Status !== 'DELETED' && cn.Status !== 'VOIDED');
     if (matchingCN) {
+      if (!Number.isFinite(Number(matchingCN.Total)) || Number(matchingCN.Total) > Math.min(numericAmount, invoiceTotal) + 0.001) {
+        throw new Error('Existing credit note exceeds the intended gross credit; administrator review required');
+      }
       console.log(`[Xero] Credit note already exists for reference "${reference}": ${matchingCN.CreditNoteNumber}`);
       return {
         creditNoteId: matchingCN.CreditNoteID,
@@ -1871,19 +1875,7 @@ export async function createXeroCreditNote({ appTenantId, invoiceId, creditAmoun
     throw new Error(`Invoice ${invoiceId} has no associated contact in Xero`);
   }
 
-  const originalLineItem = invoice.LineItems?.[0];
-  const accountCode = originalLineItem?.AccountCode || '200';
-  const taxType = originalLineItem?.TaxType || null;
-
-  const lineItem = {
-    Description: description || `Credit note for cancelled booking`,
-    Quantity: 1,
-    UnitAmount: Number(effectiveAmount.toFixed(2)),
-    AccountCode: accountCode,
-  };
-  if (taxType) {
-    lineItem.TaxType = taxType;
-  }
+  const creditAmounts = buildXeroCreditAmounts(invoice, effectiveAmount, description);
 
   const creditNotePayload = {
     CreditNotes: [{
@@ -1892,7 +1884,7 @@ export async function createXeroCreditNote({ appTenantId, invoiceId, creditAmoun
       Date: new Date().toISOString().split('T')[0],
       Reference: reference || '',
       Status: 'AUTHORISED',
-      LineItems: [lineItem],
+      ...creditAmounts,
     }]
   };
 
@@ -1914,6 +1906,8 @@ export async function createXeroCreditNote({ appTenantId, invoiceId, creditAmoun
   if (!creditNote?.CreditNoteID) {
     throw new Error(`Failed to create Xero credit note: ${JSON.stringify(creditNoteData).substring(0, 500)}`);
   }
+  assertXeroCreditTotal(creditNote, effectiveAmount, invoice.CurrencyCode,
+    creditAmounts.LineItems.reduce((sum, line) => sum + line.TaxAmount, 0));
 
   console.log(`[Xero] Credit note created: ${creditNote.CreditNoteNumber} (${creditNote.CreditNoteID})`);
 

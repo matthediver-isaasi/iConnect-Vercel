@@ -25,3 +25,15 @@ Event Registration Report revenue is booked value less locally recorded post-boo
 **Why:** The user separates revenue from settlement. Ordinary local no-credit rows must no longer make revenue unavailable.
 
 **How to apply:** Retain standard/complex discount semantics; deduct the group credit once. Unknown local amounts and incompatible currency still prevent a definitive revenue total.
+
+Cancellation credit amounts are gross, including tax. Partial credits without
+original invoice-line allocation must not guess between different tax,
+accounting or tracking treatments; require review for those cases.
+
+**Why:** Treating the gross cancellation amount as a tax-exclusive credit line
+over-credited a VAT-bearing ticket. A single requested amount cannot establish
+which tax treatment applies to a partially cancelled mixed invoice.
+
+**How to apply:** Use the original provider invoice's tax evidence, preserve its
+lines for full credits, and validate returned gross/tax totals before allocation.
+Correcting future creation does not authorize editing existing credit notes.
