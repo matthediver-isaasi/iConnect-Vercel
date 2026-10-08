@@ -55,7 +55,7 @@ function FlowLeaf({ node, box, breakpoint, isSelected, measureRef, onSelect }) {
   // height:auto collapses to just its border/padding) from feeding a collapsed
   // height back into resolveFlowLayout and pulling the blocks below it upward.
   const isAuto =
-    AUTO_HEIGHT_LEAF_TYPES.has(node.type) &&
+    (AUTO_HEIGHT_LEAF_TYPES.has(node.type) || def.editorAutoHeight) &&
     (node.flow?.heightMode || 'auto') !== 'fixed';
   // absoluteFill leaves (Hero / Hero Carousel) own their internal padding and
   // paint via `absolute inset-0`, so wrapper padding is skipped for them and

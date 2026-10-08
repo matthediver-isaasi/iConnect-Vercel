@@ -8,7 +8,7 @@ import {
   useEffect,
   useLayoutEffect,
 } from 'react';
-import { getBlockDefinition } from './blocks/registry';
+import { getBlockDefinition as getDefinition } from './blocks/registry';
 import { BLOCK_TYPES, blockIsFullWidthLike, isAspectHeightCarousel, resolveAspectReflowReferenceHeight } from '../../lib/canvasDesign';
 import { computeCardReferenceHeight, normalizeMeasuredLength, updateReflowBaseline } from './autoHeightBake';
 import { readReflowFontKey, subscribeReflowFontMetrics, measureCollapsedReflowHeight, observeReflowStyleChanges } from './reflowFontMetrics';
@@ -304,6 +304,14 @@ export function useReportButtonBounds(blockId, measureKey) {
  *   resolveGeom – (block) => { x, y, w, h, hidden }  (breakpoint-resolved)
  */
 export function AccordionReflowProvider({ children, blocks, resolveGeom, editorMode = false, breakpoint, zoom = 1, onMeasure, onMeasureSize }) {
+  // Editor-only intrinsic leaves reuse read-time reflow, never public sizing or
+  // the auto-height bake path (their registry autoHeight remains unset).
+  const getBlockDefinition = useCallback((type) => {
+    const def = getDefinition(type);
+    return editorMode && def?.editorAutoHeight
+      ? { ...def, autoHeight: true, renderOnlyAutoHeight: true, signedAutoHeight: true }
+      : def;
+  }, [editorMode]);
   const [measuredHeights, setMeasuredHeights] = useState(() => new Map());
   // Smallest height ever measured per block = its collapsed (baseline) rendered
   // height. Accordions mount fully collapsed, so the first measurement is their

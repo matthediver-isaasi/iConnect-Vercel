@@ -13,6 +13,7 @@ import {
   Award, ChevronUp, ChevronDown, Lock, AlertTriangle, Search, Briefcase,
 } from 'lucide-react';
 import IEditFeaturedJobElement, { IEditFeaturedJobElementEditor } from '@/components/iedit/elements/IEditFeaturedJobElement';
+import { FEATURED_JOB_PREVIEW_UTILITIES } from '@/components/iedit/elements/featuredJobPreview';
 import { Sparkles } from 'lucide-react';
 import { AiCompositionRender, AiCompositionInspector } from './AiCompositionBlock';
 import { AiCodeCompositionRender, AiCodeCompositionInspector } from './AiCodeCompositionBlock';
@@ -8915,20 +8916,36 @@ function FeaturedJobRender({ block, asEditor }) {
   // anchor is set. The user-set anchor still wins, exactly like iEdit.
   const scopedAnchor = c.anchor || `fj-${String(block.id || 'block').replace(/[^a-zA-Z0-9_-]/g, '')}`;
   const content = { ...c, anchor: scopedAnchor };
-  const body = <IEditFeaturedJobElement content={content} settings={{ fullWidth: true }} />;
+  const body = <IEditFeaturedJobElement content={content} settings={{ fullWidth: true }} editorPreview={!!asEditor} />;
   if (asEditor) {
-    // In the builder, swallow clicks so the element's internal links (job
-    // card, View All Jobs button) don't navigate away from the editor.
-    return (
-      <div
-        onClickCapture={(e) => { e.preventDefault(); e.stopPropagation(); }}
-        data-testid="featured-job-editor-preview"
-      >
-        {body}
-      </div>
-    );
+    return <FeaturedJobEditorPreview block={block}>{body}</FeaturedJobEditorPreview>;
   }
   return body;
+}
+
+// Public Featured Job never mounts a measurement hook: it keeps its authored
+// fixed geometry, even when asynchronous content is taller/shorter than it.
+function FeaturedJobEditorPreview({ block, children }) {
+  const reflowRef = useReportReflowHeight(
+    block.id,
+    (block.style?.paddingTop || 0) + (block.style?.paddingBottom || 0),
+  );
+  return (
+    <div
+      ref={reflowRef}
+      style={{ containerType: 'inline-size', containerName: 'featured-job-preview', width: '100%' }}
+      data-featured-job-editor
+      onClickCapture={(e) => { e.preventDefault(); e.stopPropagation(); }}
+      data-testid="featured-job-editor-preview"
+    >
+      <style>{FEATURED_JOB_PREVIEW_UTILITIES}{`
+        [data-featured-job-editor] { overflow-wrap: anywhere; }
+        [data-featured-job-editor] .flex-1,
+        [data-featured-job-editor] .job-detail-row > span:last-child { min-width: 0; }
+      `}</style>
+      {children}
+    </div>
+  );
 }
 
 function FeaturedJobInspector({ block, update, breakpoint }) {
@@ -9587,6 +9604,7 @@ export const DYNAMIC_BLOCK_DEFINITIONS = {
     label: 'Featured job',
     icon: Briefcase,
     category: 'data',
+    editorAutoHeight: true,
     Editor: (props) => <FeaturedJobRender {...props} asEditor />,
     Renderer: FeaturedJobRender,
     Inspector: FeaturedJobInspector,

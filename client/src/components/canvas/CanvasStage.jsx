@@ -199,7 +199,7 @@ function CanvasBlockView({
   const { style, a11y } = block;
   const def = getBlockDefinition(block.type);
   const EditorComponent = def.Editor;
-  const isAutoHeight = !!def?.autoHeight;
+  const isAutoHeight = !!(def?.autoHeight || def?.editorAutoHeight);
   const fullWidth = blockIsFullWidthLike(block);
   const noResize = !!def?.noResize;
   // Task #2506: absoluteFill blocks (Hero, Hero Carousel) render their

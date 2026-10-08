@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { base44 } from "@/api/base44Client";
 import { publicClient } from "@/api/publicClient";
@@ -7,8 +8,11 @@ import { format, differenceInDays } from "date-fns";
 import { createPageUrl } from "@/utils";
 import { parseJobClosingDate, startOfLocalToday } from "@/lib/jobDate";
 import TypographyStyleSelector, { applyTypographyStyle, useTypographyStyles } from "../TypographyStyleSelector";
+import { featuredJobPreviewCss, featuredJobPreviewClasses } from "./featuredJobPreview";
 
-export default function IEditFeaturedJobElement({ content, variant, settings }) {
+export default function IEditFeaturedJobElement({ content, variant, settings, editorPreview = false }) {
+  const previewId = useId().replace(/[^a-zA-Z0-9_-]/g, '');
+  const responsiveClass = (classes) => featuredJobPreviewClasses(classes, editorPreview);
   const {
     // Left side static content
     header_label = 'JOBS',
@@ -172,7 +176,7 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
   };
 
   // Generate unique ID for CSS scoping (used by both layouts)
-  const elementId = `featured-job-${anchor || 'default'}`;
+  const elementId = editorPreview ? `featured-job-preview-${previewId}` : `featured-job-${anchor || 'default'}`;
   
   // Responsive CSS for typography and spacing (shared by both layouts)
   const responsiveStyles = `
@@ -229,8 +233,8 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
   if (layout_style === 'full-width') {
     return (
       <div id={anchor || undefined} className="w-full" style={gradientStyle}>
-        <style>{responsiveStyles}</style>
-        <style>{`
+        <style>{featuredJobPreviewCss(responsiveStyles, editorPreview)}</style>
+        <style>{featuredJobPreviewCss(`
           #${elementId}-fw-wrapper {
             padding: ${mobile_vertical_padding}px ${mobile_outer_padding}px;
           }
@@ -239,9 +243,9 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
               padding: ${vertical_padding}px 32px;
             }
           }
-        `}</style>
+        `, editorPreview)}</style>
         <div id={`${elementId}-fw-wrapper`} className="max-w-6xl mx-auto">
-          <div className="flex flex-col md:flex-row items-center gap-4 md:gap-8">
+          <div className={responsiveClass("flex flex-col md:flex-row items-center gap-4 md:gap-8")}>
             {/* Left - Static content */}
             <div className="flex-1">
               <StaticContent 
@@ -249,6 +253,7 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
                 textColorOverride="#FFFFFF"
                 underlineColorOverride="rgba(255,255,255,0.5)"
                 elementId={elementId}
+                editorPreview={editorPreview}
               />
             </div>
 
@@ -262,6 +267,7 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
                   formatClosingDate={formatClosingDate}
                   isClosingSoon={isClosingSoon}
                   elementId={elementId}
+                  editorPreview={editorPreview}
                 />
               </div>
             )}
@@ -280,10 +286,10 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
       className="relative w-full overflow-hidden"
     >
       {/* Shared responsive typography CSS */}
-      <style>{responsiveStyles}</style>
+      <style>{featuredJobPreviewCss(responsiveStyles, editorPreview)}</style>
       
       {/* CSS for spacing (split layout specific) */}
-      <style>{`
+      <style>{featuredJobPreviewCss(`
         /* Mobile spacing */
         #${elementId}-card-wrapper {
           padding: ${mobile_card_margin}px;
@@ -313,10 +319,10 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
             padding: ${card_inner_padding}px;
           }
         }
-      `}</style>
+      `, editorPreview)}</style>
       
       {/* MOBILE LAYOUT: Stacked sections with natural content flow (portrait phones only) */}
-      <div className="md:hidden">
+      <div className={responsiveClass("md:hidden")}>
         {/* Top section - Gradient background with card */}
         <div 
           id={`${elementId}-section-top`}
@@ -332,7 +338,7 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
                 className="shadow-xl flex flex-col justify-center w-full"
                 style={{ background: card_background }}
               >
-                <StaticContent content={content} elementId={elementId} />
+                <StaticContent content={content} elementId={elementId} editorPreview={editorPreview} />
               </div>
             </div>
           </div>
@@ -361,6 +367,7 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
                 formatClosingDate={formatClosingDate}
                 isClosingSoon={isClosingSoon}
                 elementId={elementId}
+                editorPreview={editorPreview}
               />
             ) : (
               <div style={{ color: job_detail_color, opacity: job_detail_opacity }}>
@@ -372,7 +379,7 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
       </div>
       
       {/* DESKTOP/TABLET LAYOUT: Side-by-side with absolute backgrounds (768px+) */}
-      <div id={`${elementId}-desktop-container`} className="hidden md:block relative w-full">
+      <div id={`${elementId}-desktop-container`} className={responsiveClass("hidden md:block relative w-full")}>
         {/* Absolute positioned split backgrounds */}
         <div className="absolute inset-0 flex flex-row">
           <div className="w-1/2" style={gradientStyle} />
@@ -395,7 +402,7 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
                 className="shadow-xl flex flex-col justify-center h-full"
                 style={{ background: card_background }}
               >
-                <StaticContent content={content} elementId={elementId} />
+                <StaticContent content={content} elementId={elementId} editorPreview={editorPreview} />
               </div>
             </div>
 
@@ -418,6 +425,7 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
                   formatClosingDate={formatClosingDate}
                   isClosingSoon={isClosingSoon}
                   elementId={elementId}
+                  editorPreview={editorPreview}
                 />
               ) : (
                 <div style={{ color: job_detail_color, opacity: job_detail_opacity }}>
@@ -432,7 +440,8 @@ export default function IEditFeaturedJobElement({ content, variant, settings }) 
   );
 }
 
-function StaticContent({ content, textColorOverride, underlineColorOverride, elementId }) {
+function StaticContent({ content, textColorOverride, underlineColorOverride, elementId, editorPreview }) {
+  const responsiveClass = (classes) => featuredJobPreviewClasses(classes, editorPreview);
   const {
     header_label = 'JOBS',
     header_label_font_family = 'Poppins',
@@ -477,7 +486,7 @@ function StaticContent({ content, textColorOverride, underlineColorOverride, ele
   return (
     <div>
       {/* Header label */}
-      <div className="mb-4 lg:mb-6">
+      <div className={responsiveClass("mb-4 lg:mb-6")}>
         <span 
           id={elementId ? `${elementId}-header-label` : undefined}
           className="font-bold uppercase"
@@ -505,7 +514,7 @@ function StaticContent({ content, textColorOverride, underlineColorOverride, ele
       {/* Main heading */}
       <h2 
         id={elementId ? `${elementId}-heading` : undefined}
-        className="font-medium whitespace-pre-line mb-4 lg:mb-6"
+        className={responsiveClass("font-medium whitespace-pre-line mb-4 lg:mb-6")}
         style={{ 
           fontFamily: heading_font_family,
           lineHeight: `${heading_line_height}em`,
@@ -520,7 +529,7 @@ function StaticContent({ content, textColorOverride, underlineColorOverride, ele
       {subheading && (
         <p
           id={elementId ? `${elementId}-subheading` : undefined}
-          className="mb-6 lg:mb-8"
+          className={responsiveClass("mb-6 lg:mb-8")}
           style={{
             fontFamily: subheading_font_family,
             letterSpacing: `${subheading_letter_spacing}px`,
@@ -534,15 +543,15 @@ function StaticContent({ content, textColorOverride, underlineColorOverride, ele
 
       {/* Button */}
       {button_text && (
-        <div className="mt-6 lg:mt-8">
+        <div className={responsiveClass("mt-6 lg:mt-8")}>
           <Link to={button_url}>
             <button 
               id={elementId ? `${elementId}-button` : undefined}
-              className={`inline-flex items-center gap-2 lg:gap-3 px-4 lg:px-6 py-2 lg:py-3 font-semibold transition-all ${
+              className={responsiveClass(`inline-flex items-center gap-2 lg:gap-3 px-4 lg:px-6 py-2 lg:py-3 font-semibold transition-all ${
                 button_style === 'filled' 
                   ? 'hover:opacity-90' 
                   : 'border-2 hover:bg-black/5'
-              }`}
+              }`)}
               style={{ 
                 borderColor: button_style === 'outline' ? buttonColorFinal : 'transparent',
                 color: button_style === 'filled' ? '#FFFFFF' : buttonColorFinal,
@@ -552,7 +561,7 @@ function StaticContent({ content, textColorOverride, underlineColorOverride, ele
               }}
             >
               {button_text}
-              <ArrowRight className="w-4 h-4 lg:w-5 lg:h-5" />
+              <ArrowRight className={responsiveClass("w-4 h-4 lg:w-5 lg:h-5")} />
             </button>
           </Link>
         </div>
@@ -609,7 +618,8 @@ function RightSideHeader({ content, colorOverride, elementId }) {
   );
 }
 
-function JobDetails({ job, content, formatClosingDate, isClosingSoon, elementId }) {
+function JobDetails({ job, content, formatClosingDate, isClosingSoon, elementId, editorPreview }) {
+  const responsiveClass = (classes) => featuredJobPreviewClasses(classes, editorPreview);
   const {
     job_title_font_family = 'Poppins',
     job_title_font_size = 32,
@@ -641,7 +651,7 @@ function JobDetails({ job, content, formatClosingDate, isClosingSoon, elementId 
       {/* Job title as header */}
       <h3 
         id={elementId ? `${elementId}-job-title` : undefined}
-        className="font-semibold mb-4 lg:mb-6 group-hover:underline"
+        className={responsiveClass("font-semibold mb-4 lg:mb-6 group-hover:underline")}
         style={{
           fontFamily: job_title_font_family,
           letterSpacing: `${job_title_letter_spacing}px`,
@@ -666,7 +676,7 @@ function JobDetails({ job, content, formatClosingDate, isClosingSoon, elementId 
             
             {/* Detail row */}
             <div 
-              className="job-detail-row flex items-center gap-2 lg:gap-3 py-3 lg:py-4"
+              className={responsiveClass("job-detail-row flex items-center gap-2 lg:gap-3 py-3 lg:py-4")}
               style={{
                 fontFamily: job_detail_font_family,
                 letterSpacing: `${job_detail_letter_spacing}px`,
@@ -675,8 +685,8 @@ function JobDetails({ job, content, formatClosingDate, isClosingSoon, elementId 
                 opacity: job_detail_opacity
               }}
             >
-              <detail.icon className="w-4 h-4 lg:w-5 lg:h-5 flex-shrink-0" />
-              <span className="font-medium min-w-[80px] lg:min-w-[120px]">{detail.label}:</span>
+              <detail.icon className={responsiveClass("w-4 h-4 lg:w-5 lg:h-5 flex-shrink-0")} />
+              <span className={responsiveClass("font-medium min-w-[80px] lg:min-w-[120px]")}>{detail.label}:</span>
               <span className="flex items-center gap-2 flex-wrap">
                 {detail.value}
                 {detail.isClosingSoon && (

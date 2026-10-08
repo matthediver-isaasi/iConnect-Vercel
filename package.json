@@ -4,6 +4,7 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
+    "test:featured-job-preview:browser": "playwright test --config=tests/featured-job-preview.config.mjs",
     "test:event-login-modal:browser": "playwright test --config=tests/event-login-modal.config.mjs",
     "dev": "NODE_ENV=development tsx server/index-dev.ts",
     "build": "vite build && esbuild server/index-prod.ts --platform=node --packages=external --bundle --format=esm --outfile=dist/index.js",
