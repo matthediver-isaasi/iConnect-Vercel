@@ -169,6 +169,14 @@ export default function AdminIntegrations() {
   const [qbMembershipItemSettingId, setQbMembershipItemSettingId] = useState(null);
   const [qbStripeBankSettingId, setQbStripeBankSettingId] = useState(null);
   const [qbSettingsSaving, setQbSettingsSaving] = useState(false);
+  const [qbEventItemId, setQbEventItemId] = useState('');
+  const [qbEventItemSettingId, setQbEventItemSettingId] = useState(null);
+  const [qbEventTaxCodeId, setQbEventTaxCodeId] = useState('');
+  const [qbEventTaxCodeSettingId, setQbEventTaxCodeSettingId] = useState(null);
+  const [qbEventStripeBankAccountId, setQbEventStripeBankAccountId] = useState('');
+  const [qbEventStripeBankSettingId, setQbEventStripeBankSettingId] = useState(null);
+  const [qbEventSettingsLoaded, setQbEventSettingsLoaded] = useState(false);
+  const [qbEventSettingsSaving, setQbEventSettingsSaving] = useState(false);
 
   const [stripeForm, setStripeForm] = useState({
     secret_key: '',
@@ -1167,6 +1175,16 @@ export default function AdminIntegrations() {
       );
       setQbDefaultTaxCodeId(taxCodeSetting?.setting_value || '');
       setQbDefaultTaxCodeSettingId(taxCodeSetting?.id || null);
+      const eventItemSetting = list.find((s) => s.setting_key === 'quickbooks_event_item_id');
+      const eventTaxCodeSetting = list.find((s) => s.setting_key === 'quickbooks_event_tax_code_id');
+      const eventBankSetting = list.find((s) => s.setting_key === 'quickbooks_event_stripe_bank_account_id');
+      setQbEventItemId(eventItemSetting?.setting_value ?? '');
+      setQbEventItemSettingId(eventItemSetting?.id ?? null);
+      setQbEventTaxCodeId(eventTaxCodeSetting?.setting_value ?? '');
+      setQbEventTaxCodeSettingId(eventTaxCodeSetting?.id ?? null);
+      setQbEventStripeBankAccountId(eventBankSetting?.setting_value ?? '');
+      setQbEventStripeBankSettingId(eventBankSetting?.id ?? null);
+      setQbEventSettingsLoaded(true);
     } catch (err) {
       console.error('Failed to load QuickBooks settings:', err);
     }
@@ -1274,6 +1292,39 @@ export default function AdminIntegrations() {
       }
     }
     setAccountingProvider(value);
+  };
+
+  const handleSaveQuickBooksEventSettings = async () => {
+    if (!qbEventSettingsLoaded) return;
+    setQbEventSettingsSaving(true);
+    try {
+      await upsertSystemSetting(
+        'quickbooks_event_item_id',
+        qbEventItemId,
+        'QuickBooks Online Item id used on event ticket invoice lines',
+        qbEventItemSettingId,
+        setQbEventItemSettingId,
+      );
+      await upsertSystemSetting(
+        'quickbooks_event_tax_code_id',
+        qbEventTaxCodeId,
+        'QuickBooks Online default TaxCode id used on event ticket invoice lines',
+        qbEventTaxCodeSettingId,
+        setQbEventTaxCodeSettingId,
+      );
+      await upsertSystemSetting(
+        'quickbooks_event_stripe_bank_account_id',
+        qbEventStripeBankAccountId,
+        'QuickBooks Online bank account id used for event Stripe payments',
+        qbEventStripeBankSettingId,
+        setQbEventStripeBankSettingId,
+      );
+      toast({ title: 'Saved', description: 'QuickBooks event settings saved. Historical bookings have not been replayed.' });
+    } catch (err) {
+      toast({ variant: 'destructive', title: 'Save failed', description: err.message || 'Failed to save QuickBooks event settings' });
+    } finally {
+      setQbEventSettingsSaving(false);
+    }
   };
 
   const handleDisconnectZoho = async () => {
@@ -2776,6 +2827,105 @@ export default function AdminIntegrations() {
                     >
                       <RefreshCw className={`h-4 w-4 mr-2 ${(qbItemsLoading || qbAccountsLoading || qbTaxCodesLoading) ? 'animate-spin' : ''}`} />
                       Refresh
+                    </Button>
+                  </div>
+                  <div className="space-y-4 pt-4 border-t border-slate-700">
+                    <div>
+                      <h4 className="text-sm font-medium text-white">Event invoicing settings</h4>
+                      <p className="text-xs text-slate-400">
+                        Dedicated mappings for event tickets and Stripe payments. These do not use membership settings.
+                        Missing event mappings pause new event invoice recovery until configured.
+                        Existing accepted requests retain their frozen mappings. Saving these settings does not replay historical bookings.
+                      </p>
+                    </div>
+                    {!qbEventSettingsLoaded && (
+                      <div className="text-xs text-slate-400 space-y-2">
+                        <p>Event settings have not loaded. Load them before editing or saving.</p>
+                        <Button variant="outline" onClick={loadQuickBooksSettings}>
+                          Load settings / Retry
+                        </Button>
+                      </div>
+                    )}
+                    {[
+                      {
+                        id: 'qb-event-item',
+                        testId: 'select-quickbooks-event-item',
+                        label: 'Event Ticket Item',
+                        value: qbEventItemId,
+                        setValue: setQbEventItemId,
+                        options: qbItems,
+                        loading: qbItemsLoading,
+                        loadingLabel: 'Loading items...',
+                        emptyLabel: 'No items found in QuickBooks',
+                        description: 'Dedicated QuickBooks Item for event ticket invoice lines.',
+                      },
+                      {
+                        id: 'qb-event-tax-code',
+                        testId: 'select-quickbooks-event-tax-code',
+                        label: 'Event Default VAT / Tax Code',
+                        value: qbEventTaxCodeId,
+                        setValue: setQbEventTaxCodeId,
+                        options: qbTaxCodes,
+                        loading: qbTaxCodesLoading,
+                        loadingLabel: 'Loading tax codes...',
+                        emptyLabel: 'No tax codes found',
+                        description: 'Dedicated default tax code for event ticket invoice lines.',
+                      },
+                      {
+                        id: 'qb-event-stripe-bank',
+                        testId: 'select-quickbooks-event-stripe-bank',
+                        label: 'Event Stripe Deposit Account',
+                        value: qbEventStripeBankAccountId,
+                        setValue: setQbEventStripeBankAccountId,
+                        options: qbAccounts,
+                        loading: qbAccountsLoading,
+                        loadingLabel: 'Loading accounts...',
+                        emptyLabel: 'No bank accounts found',
+                        description: 'Dedicated bank account for applying event Stripe payments in QuickBooks.',
+                      },
+                    ].map((field) => (
+                      <div key={field.id} className="space-y-2">
+                        <Label htmlFor={field.id} className="text-slate-300">{field.label}</Label>
+                        <Select
+                          value={field.value || '__none'}
+                          onValueChange={(value) => {
+                            // Radix may emit an empty value during hydration; clearing is explicit.
+                            if (!value) return;
+                            field.setValue(value === '__none' ? '' : value);
+                          }}
+                          disabled={!qbEventSettingsLoaded || field.loading || qbEventSettingsSaving}
+                        >
+                          <SelectTrigger
+                            id={field.id}
+                            className="bg-slate-900 border-slate-700 text-white"
+                            data-testid={field.testId}
+                          >
+                            <SelectValue placeholder={field.loading ? field.loadingLabel : 'Not configured'} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none">— Not configured / Clear mapping —</SelectItem>
+                            {field.value && !field.options.some((option) => option.id === field.value) && (
+                              <SelectItem value={field.value}>Saved mapping ({field.value})</SelectItem>
+                            )}
+                            {field.options.map((option) => (
+                              <SelectItem key={option.id} value={option.id}>
+                                {option.name}{option.type ? ` (${option.type})` : ''}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-slate-400">
+                          {field.description} {!field.loading && field.options.length === 0 && field.emptyLabel}
+                        </p>
+                      </div>
+                    ))}
+                    <Button
+                      onClick={handleSaveQuickBooksEventSettings}
+                      disabled={!qbEventSettingsLoaded || qbEventSettingsSaving}
+                      data-testid="button-save-quickbooks-event-settings"
+                    >
+                      {qbEventSettingsSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+                      Save QuickBooks Event Settings
                     </Button>
                   </div>
                 </div>

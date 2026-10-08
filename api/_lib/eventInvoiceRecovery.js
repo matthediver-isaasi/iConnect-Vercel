@@ -239,8 +239,12 @@ export async function processEventInvoiceRecovery({
 }
 
 export async function reconcileEventInvoices({ db, providerFactory, now = Date.now, maxItems = 8, budgetMs = 45_000,
-  includeHistorical = false } = {}) {
+  includeHistorical = false, reconcileQuickBooks = null } = {}) {
   const deadlineAt = now() + Math.min(45_000, Math.max(1000, budgetMs));
+  // Events have their own schedule, independent of membership queue rollout
+  // flags. Both workers share the queue's fenced claims when enabled together.
+  const qbo = reconcileQuickBooks || (await import('./accountingEventSource.js')).reconcileQuickBooksEventInvoices;
+  await qbo({ db, deadlineAt: Math.min(deadlineAt, now() + 20000) });
   await recoveryRpc(db, 'heartbeat', { p_success: false });
   // Current rollout is future checkout only. Historical discovery/reconstruction
   // remains an explicit administrative operation, never an implicit cron action.

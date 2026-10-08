@@ -66,3 +66,21 @@ Legacy ticket tax metadata can be incomplete without being invalid: exempt codes
 **Why:** Requiring an explicit stored percentage stranded otherwise valid no-VAT invoices; treating every blank as zero would instead misinvoice taxable tenants.
 
 **How to apply:** Preserve the checkout intent and amounts. Resolve provider evidence under the same retry/cooldown authority, freeze the result before any financial write, and reuse it on replay. Older workers must skip unresolved intents they cannot understand during mixed-version rollout.
+
+QuickBooks event revenue and Stripe deposit mappings must not be inferred from a configured membership item or Xero's default account.
+
+**Why:** A provider connection and a working membership item establish neither the event revenue classification nor where the original card receipt belongs. Reusing them silently would introduce financial policy, not merely recover an invoice.
+
+**How to apply:** Obtain explicit event item/revenue and deposit-account policy, freeze it with the checkout intent, and leave missing mappings visibly unresolved without replaying historical bookings.
+
+Missing QuickBooks event mappings are a configuration prerequisite, not a reason to stop implementing recovery.
+
+**Why:** The user explicitly asked to finish the remaining sweeps after an audit stopped at missing account choices.
+
+**How to apply:** Provide configurable mappings and visibly pause financial posting until supplied. Preserve all nonempty checkout mappings; only missing values may be resolved before the immutable prepared envelope is saved.
+
+Event ticket VAT keys belong to Xero, even when checkout runs for a QuickBooks tenant. Do not treat them as QuickBooks TaxCode IDs or gate QuickBooks eligibility on the Xero enable setting.
+
+**Why:** Cross-provider reuse otherwise silently excludes QuickBooks checkouts or resolves a wrong/nonexistent tax code.
+
+**How to apply:** Select the explicit QuickBooks tax mapping and compare its rate and calculated tax with frozen checkout evidence. A mismatched rate requires review rather than inferred substitution.

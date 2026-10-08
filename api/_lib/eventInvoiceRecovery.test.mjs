@@ -246,7 +246,7 @@ test('persisted invoice ID wins over renamed visible number; never search/create
   assert.deepEqual(calls, [['https://api.xero.com/api.xro/2.0/Invoices/known-id', 'GET']]);
 });
 
-function numberedXeroFixture({ method = 'invoice', failure = null } = {}) {
+function numberedXeroFixture({ method = 'invoice', failure = null, throttle = null } = {}) {
   const job = row();
   job.snapshot.invoice.Reference = 'CUSTOMER-PO-123';
   if (method === 'invoice') {
@@ -275,6 +275,12 @@ function numberedXeroFixture({ method = 'invoice', failure = null } = {}) {
   const fetchImpl = async (url, init) => {
     const parsed = new URL(url);
     calls.push({ url: decodeURIComponent(url), init });
+    if (!failed && ((throttle === 'invoice' && init.method === 'POST')
+      || (throttle === 'payment' && init.method === 'PUT')
+      || (throttle === 'bank' && parsed.pathname.endsWith('/Accounts')))) {
+      failed = true;
+      return { ok: false, status: 429, headers: new Headers({ 'retry-after': '600' }) };
+    }
     let data;
     if (init.method === 'POST') {
       const payload = JSON.parse(init.body).Invoices[0];
@@ -303,6 +309,45 @@ function numberedXeroFixture({ method = 'invoice', failure = null } = {}) {
     providerFactory: options => createEventInvoiceRecoveryXero({ ...options, fetchImpl }) });
   return { job, identity, db, calls, remote, run };
 }
+
+for (const throttle of ['invoice', 'payment', 'bank']) {
+  test(`Xero ${throttle} throttle retains invoice authority and original settlement date on retry`, async () => {
+    const f = numberedXeroFixture({ method: 'stripe', throttle });
+    const original = structuredClone(f.job.snapshot);
+    assert.equal((await f.run()).status, 'retry');
+    const retained = f.db.calls.at(-1)[1];
+    assert.equal(retained.p_reason, 'provider_rate_limited');
+    assert.ok(Date.parse(retained.p_cooldown) >= Date.now() + 899000);
+    assert.equal(retained.p_rejected_write, throttle === 'invoice' ? 'invoice' : 'payment');
+    // Model the existing SQL finish transition, which releases only the
+    // definitely rejected stage, retaining a successfully recorded invoice.
+    f.job[`${retained.p_rejected_write}_write_started_at`] = null;
+    if (throttle !== 'invoice') assert.equal(f.job.invoice_id, 'sequential-id');
+    assert.equal((await f.run()).status, 'complete');
+    assert.deepEqual(f.job.snapshot, original);
+    assert.equal(f.remote.payment.Date, original.settlement.paidAt.slice(0, 10));
+    assert.equal(f.remote.payment.Amount, original.settlement.amount);
+    assert.deepEqual(f.remote.payment.Account, { Code: original.settlement.accountCode });
+    assert.equal(f.calls.filter(call => call.init.method === 'POST').length, throttle === 'invoice' ? 2 : 1);
+    assert.equal(f.calls.filter(call => call.init.method === 'PUT').length, throttle === 'payment' ? 2 : 1);
+    for (const method of ['POST', 'PUT']) {
+      assert.equal(new Set(f.calls.filter(call => call.init.method === method)
+        .map(call => call.init.headers['Idempotency-Key'])).size, 1);
+    }
+  });
+}
+
+test('Stripe settlement survives failed booking linkage without another invoice or payment', async () => {
+  const f = numberedXeroFixture({ method: 'stripe', failure: 'link' });
+  const original = structuredClone(f.job.snapshot);
+  assert.equal((await f.run()).status, 'retry');
+  assert.equal(f.remote.invoice.Status, 'PAID');
+  assert.equal((await f.run()).status, 'complete');
+  assert.equal(f.calls.filter(call => call.init.method === 'POST').length, 1);
+  assert.equal(f.calls.filter(call => call.init.method === 'PUT').length, 1);
+  assert.deepEqual(f.job.snapshot, original);
+  assert.equal(f.db.calls.at(-1)[1].p_payment_id, 'settlement-id');
+});
 
 test('normal Xero auto-numbered creation journals INV number and links on retry without rewriting PO', async () => {
   const f = numberedXeroFixture({ failure: 'link' });

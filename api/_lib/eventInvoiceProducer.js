@@ -20,6 +20,10 @@ function freezeLineTax(line, ticket) {
   // Producer-only metadata is consumed before persisting/sending Xero lines.
   line._invoiceLineAmountType = policy;
   const percentage = ticket?.vat_rate_percentage;
+  if (percentage !== null && percentage !== undefined && percentage !== ''
+    && Number.isFinite(Number(percentage)) && Number(percentage) >= 0) {
+    line._checkoutTaxPercentage = Number(percentage);
+  }
   if (line.TaxType && percentage !== null && percentage !== undefined && percentage !== ''
     && Number.isFinite(Number(percentage)) && Number(percentage) >= 0) {
     line.TaxAmount = eventTicketTaxAmount(Number(line.Quantity) * Number(line.UnitAmount), percentage, policy);
@@ -156,14 +160,22 @@ export function capturedEventSettlement({ paymentIntent, paymentIntentId, amount
 async function loadContext(db, tenantId) {
   const settingsResult = await db.from('system_settings')
     .select('setting_key, setting_value').eq('tenant_id', tenantId)
-    .in('setting_key', ['xero_invoice_enabled', 'xero_sales_account_code', 'xero_invoice_status', 'xero_stripe_bank_account_code']);
+    .in('setting_key', ['xero_invoice_enabled', 'xero_sales_account_code', 'xero_invoice_status', 'xero_stripe_bank_account_code',
+      'quickbooks_event_item_id', 'quickbooks_event_tax_code_id', 'quickbooks_event_stripe_bank_account_id']);
   if (settingsResult.error) throw new Error('Invoice settings could not be snapshotted');
   const settings = Object.fromEntries((settingsResult.data || []).map(row => [row.setting_key, row.setting_value]));
-  if (settings.xero_invoice_enabled !== 'true') return { excluded: true };
   const activeResult = await db.from('tenant_accounting_settings').select('active_provider').eq('tenant_id', tenantId).maybeSingle();
   if (activeResult.error && activeResult.error.code !== '42P01') throw new Error('Accounting provider could not be snapshotted');
-  if (['none', 'quickbooks'].includes(activeResult.data?.active_provider)) return { excluded: true };
+  if (activeResult.data?.active_provider === 'none') return { excluded: true };
+  if (activeResult.data?.active_provider === 'quickbooks') {
+    const { data, error } = await db.from('quickbooks_token').select('id,realm_id,environment').eq('app_tenant_id', tenantId);
+    if (error || data?.length !== 1 || !data[0].id || !data[0].realm_id
+      || !['production', 'sandbox'].includes(data[0].environment)) throw new Error('A unique selected QuickBooks connection is required');
+    return { settings, provider: { name: 'quickbooks', connectionId: data[0].id,
+      realmId: data[0].realm_id, environment: data[0].environment } };
+  }
   if (activeResult.data?.active_provider && activeResult.data.active_provider !== 'xero') throw new Error('Unrecognized accounting provider');
+  if (settings.xero_invoice_enabled !== 'true') return { excluded: true };
   const tokenResult = await db.from('xero_token').select('id, tenant_id').eq('app_tenant_id', tenantId);
   if (tokenResult.error) throw new Error('Xero connection could not be snapshotted');
   const tokens = tokenResult.data || [];
@@ -201,6 +213,22 @@ export async function enqueueCheckoutEventInvoice({
     if (!tenantId || event?.tenant_id !== tenantId) throw new Error('Checkout tenant binding is missing or inconsistent');
     context = await loadContext(db, tenantId);
     if (context.excluded) return { status: 'not_applicable' };
+    if (context.provider?.name === 'quickbooks') {
+      try {
+        return await (await import('./accountingEventSource.js')).enqueueQuickBooksEventInvoice({
+          db, tenantId, source, bookingGroupReference, event, amount, currency,
+          paymentMethod, paymentIntentId, paymentIntent, contact, purchaseOrderNumber, poToFollow, buildLines, now,
+        }, context);
+      } catch (error) {
+        // Never hand accepted/uncertain QuickBooks work to the Xero writer.
+        logger.error('[Event invoice recovery] QuickBooks capture unavailable');
+        const { error: markerError } = await db.from(source).update({
+          invoice_recovery_status: 'needs_review', invoice_recovery_next_attempt_at: null,
+        }).eq('tenant_id', tenantId).eq('booking_group_reference', bookingGroupReference);
+        if (markerError) logger.error('[Event invoice recovery] QuickBooks review marker unavailable');
+        return { status: 'needs_review', queued: false, warning: 'Booking confirmed; invoice requires review.' };
+      }
+    }
     snapshot.provider = context.provider;
     const accountCode = event.xero_account_code?.trim() || context.settings.xero_sales_account_code || '200';
     const invoiceDate = new Date(now);
@@ -220,7 +248,7 @@ export async function enqueueCheckoutEventInvoice({
     };
     const builtLines = buildLines(accountCode);
     const policies = [...new Set(builtLines.filter(line => line._invoiceLineAmountType).map(line => line._invoiceLineAmountType))];
-    snapshot.invoice.LineItems = builtLines.map(({ _invoiceLineAmountType, ...line }) => line);
+    snapshot.invoice.LineItems = builtLines.map(({ _invoiceLineAmountType, _checkoutTaxPercentage, ...line }) => line);
     snapshot.invoiceLineAmountPolicies = policies;
     if (policies.length !== 1 || !['Exclusive', 'Inclusive'].includes(policies[0])) {
       throw new Error('Mixed ticket invoice line amount policies require review');

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { prepareAccountingEventSource } from './accountingEventSource.js';
 import { readFile } from 'node:fs/promises';
 import {
   enqueueCheckoutEventInvoice, eventInvoiceContact, simpleEventInvoiceLines,
@@ -16,6 +17,7 @@ function fixture({ provider = 'xero', enabled = 'true', invoiceStatus = 'AUTHORI
     ].map(([setting_key, setting_value]) => ({ setting_key, setting_value })),
     tenant_accounting_settings: { active_provider: provider },
     xero_token: tokens || [{ id: 'connection-a', tenant_id: 'xero-org-a' }],
+    quickbooks_token: [{ id: 'qb-connection', realm_id: 'qb-company', environment: 'production' }],
   };
   const db = {
     from(table) {
@@ -79,6 +81,51 @@ function paymentIntent(overrides = {}) {
     ...overrides,
   };
 }
+
+for (const enabled of [undefined, 'false']) test(`QuickBooks checkout ignores Xero enable flag (${enabled}) and maps Xero VAT evidence to explicit QBO code`, async () => {
+  const f = fixture({ enabled, provider: 'quickbooks' });
+  const originalFrom = f.input.db.from;
+  f.input.db.from = table => {
+    if (table !== 'system_settings') return originalFrom(table);
+    return {
+      select() { return this; }, eq() { return this; },
+      async in() { return { data: [
+        ...(enabled === undefined ? [] : [{ setting_key: 'xero_invoice_enabled', setting_value: enabled }]),
+        { setting_key: 'quickbooks_event_item_id', setting_value: '42' },
+        { setting_key: 'quickbooks_event_tax_code_id', setting_value: '7' },
+      ] }; },
+    };
+  };
+  const ticket = f.event.pricing_config.ticket_classes[0];
+  Object.assign(ticket, { vat_rate_key: 'OUTPUT2', vat_rate_percentage: 20, invoice_line_amount_type: 'Inclusive' });
+  let snapshot;
+  f.input.db.rpc = async (name, args) => {
+    assert.equal(name, 'accounting_event_capture');
+    assert.equal(args.p_company, 'qb-company');
+    snapshot = structuredClone(args.p_snapshot);
+    return { data: { id: 'queue-id', state: 'pending' } };
+  };
+  assert.deepEqual(await enqueueCheckoutEventInvoice(f.input, f.deps), { status: 'pending', queued: true });
+  assert.equal(f.queued.length, 0, 'Xero writer is never selected');
+  assert.equal(snapshot.invoice.lines[0].TaxType, 'OUTPUT2');
+  assert.equal(snapshot.invoice.lines[0]._checkoutTaxPercentage, 20);
+  const urls = [];
+  const transport = { async fetch(url) {
+    urls.push(url);
+    if (url.endsWith('/item/42')) return Response.json({ Item: { Id: '42', Type: 'Service' } });
+    if (url.endsWith('/taxcode/7')) return Response.json({ TaxCode: { Id: '7', SalesTaxRateList: { TaxRateDetail: [{ TaxRateRef: { value: '9' } }] } } });
+    if (url.endsWith('/taxrate/9')) return Response.json({ TaxRate: { Id: '9', RateValue: 20 } });
+    if (url.includes('/query?')) return Response.json({ QueryResponse: { Customer: [{ Id: 'buyer', PrimaryEmailAddr: { Address: 'purchaser@example.test' } }] } });
+    assert.fail('Unexpected provider request');
+  } };
+  const row = { tenant_id: 'tenant-a', source_type: 'booking', source_id: 'BOOK-A', company_id: 'qb-company', provider: 'quickbooks', snapshot };
+  const resolved = await prepareAccountingEventSource({ db: f.input.db, row, transport });
+  assert.equal(resolved.invoice.envelope.payload.Line[0].SalesItemLineDetail.TaxCodeRef.value, '7');
+  assert.equal(resolved.invoice.envelope.expected.totalMinor, 2500);
+  assert.ok(!urls.some(url => url.includes('OUTPUT2')));
+  snapshot.invoice.lines[0]._checkoutTaxPercentage = 5;
+  await assert.rejects(prepareAccountingEventSource({ db: f.input.db, row, transport }), { code: 'ACCOUNTING_EVENT_TAX_RATE_UNMAPPED' });
+});
 
 test('simple checkout captures historical purchaser, PO, dates, tax, tracking, account and currency without provider calls', async () => {
   const f = fixture();
@@ -305,7 +352,7 @@ test('free, fully funded, public invoice PO, disabled and non-Xero checkouts are
     assert.deepEqual(await enqueueCheckoutEventInvoice({ ...f.input, ...patch }, f.deps), { status: 'not_applicable' });
     assert.equal(f.calls.length, 0); assert.equal(f.queued.length, 0);
   }
-  for (const options of [{ enabled: 'false' }, { provider: 'none' }, { provider: 'quickbooks' }]) {
+  for (const options of [{ enabled: 'false' }, { provider: 'none' }]) {
     const f = fixture(options);
     assert.deepEqual(await enqueueCheckoutEventInvoice(f.input, f.deps), { status: 'not_applicable' });
     assert.equal(f.queued.length, 0);

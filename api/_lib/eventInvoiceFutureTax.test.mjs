@@ -136,7 +136,7 @@ for (const stripe of [false, true]) test(`worker resolves, persists, writes and 
 test('future runner never discovers or reconstructs historical bookings by default', async () => {
   const calls = [];
   const db = { async rpc(name) { calls.push(name); return { data: name.endsWith('_claim') ? null : true }; } };
-  assert.deepEqual(await reconcileEventInvoices({ db }), { swept: 0, hydrated: 0, complete: 0, retry: 0, needs_review: 0 });
+  assert.deepEqual(await reconcileEventInvoices({ db, reconcileQuickBooks: async () => {} }), { swept: 0, hydrated: 0, complete: 0, retry: 0, needs_review: 0 });
   assert.ok(!calls.some(name => /sweep|historical|automatic_candidates/.test(name)));
 });
 

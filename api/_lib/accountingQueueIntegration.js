@@ -3,6 +3,7 @@ import { createAccountingRequestProviders, prepareAccountingRequestEnvelope } fr
 import { linkAccountingProductSource } from './accountingQueueProductLinks.js';
 import { freezeMembershipPreparation, prepareMembershipSourceRequest } from './accountingSourcePreparation.js';
 import { freezeMembershipNotification, continueMembershipNotification } from './accountingMembershipContinuation.js';
+import { isAccountingEventSource, assertAccountingEventSource, prepareAccountingEventSource, linkAccountingEventSource } from './accountingEventSource.js';
 import {
   GO_CARDLESS_ACCOUNTING_SOURCE, assertGoCardlessAccountingSource,
   linkGoCardlessAccountingSource, prepareGoCardlessSourceRequest,
@@ -31,6 +32,7 @@ function membershipQuery(db, row) {
     .eq('tenant_id', row.tenant_id).eq(ownerColumn, link.ownerId);
 }
 export async function assertAccountingSource({ db, row }) {
+  if (isAccountingEventSource(row.source_type)) return assertAccountingEventSource({ db, row });
   if (row.source_type === GO_CARDLESS_ACCOUNTING_SOURCE) return assertGoCardlessAccountingSource({ db, row });
   if (memberTables.has(row.source_type)) {
     const source = await one(membershipQuery(db, row));
@@ -146,7 +148,7 @@ export async function getAccountingQueueAdapter(row, controls = {}, dependencies
   const adapter = createAccountingRequestProviders({ resolveConnection, beforeRequest, deadlineAt: controls.deadlineAt,
     ...(dependencies.fetchImpl ? { fetchImpl: dependencies.fetchImpl } : {}) });
   return { ...adapter,
-    ...((row.source_type === GO_CARDLESS_ACCOUNTING_SOURCE || memberTables.has(row.source_type)
+    ...((isAccountingEventSource(row.source_type) || row.source_type === GO_CARDLESS_ACCOUNTING_SOURCE || memberTables.has(row.source_type)
       || row.source_type === 'sales_commercial_sale' || row.source_type === 'training_fund_purchase') ? {
       prepare: async candidate => {
         // Provider transport constrains preparation to bound reads/contacts;
@@ -171,7 +173,7 @@ export async function getAccountingQueueAdapter(row, controls = {}, dependencies
         };
         let prepared;
         try {
-          const prepare = candidate.source_type === GO_CARDLESS_ACCOUNTING_SOURCE
+          const prepare = isAccountingEventSource(candidate.source_type) ? prepareAccountingEventSource : candidate.source_type === GO_CARDLESS_ACCOUNTING_SOURCE
             ? prepareGoCardlessSourceRequest : (memberTables.has(candidate.source_type) || candidate.source_type === 'training_fund_purchase')
               ? prepareMembershipSourceRequest
               : (await import('./salesAccounting.js')).prepareQueuedSalesRequest;
@@ -185,6 +187,7 @@ export async function getAccountingQueueAdapter(row, controls = {}, dependencies
     } : {}),
     linkSource: async candidate => {
     await beforeRequest(candidate, { kind: 'link', method: 'PATCH' });
+    if (isAccountingEventSource(candidate.source_type)) return linkAccountingEventSource({ db, row: candidate });
     if (candidate.source_type === GO_CARDLESS_ACCOUNTING_SOURCE) return linkGoCardlessAccountingSource({ db, row: candidate });
     if (memberTables.has(candidate.source_type)) {
       const linked = await linkAccountingMembershipSource({ db, row: candidate });
