@@ -653,7 +653,7 @@ function EventListRender({ block, breakpoint, asEditor }) {
                 ) : null}
                 {e.summary ? <p className="text-xs text-slate-600 line-clamp-3 mt-1">{e.summary}</p> : null}
                 <a
-                  href={asEditor ? undefined : `/Events/${encodeURIComponent(e.slug || e.id)}`}
+                  href={asEditor ? undefined : `/EventDetails?id=${encodeURIComponent(e.id)}`}
                   onClick={(ev) => { if (asEditor) ev.preventDefault(); }}
                   className="text-xs text-blue-600 hover:underline inline-flex items-center gap-1 mt-auto pt-2"
                   data-testid={`link-event-${e.id}`}
@@ -797,7 +797,7 @@ function EventTeaserRender({ block, asEditor }) {
       ) : null}
       {c.showCta !== false ? (
         <a
-          href={asEditor ? undefined : `/Events/${encodeURIComponent(event.slug || event.id)}`}
+          href={asEditor ? undefined : `/EventDetails?id=${encodeURIComponent(event.id)}`}
           onClick={(e) => { if (asEditor) e.preventDefault(); }}
           className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline mt-3"
           data-testid="link-event-teaser-cta"
@@ -1491,7 +1491,7 @@ function EventCarouselRender({ block, asEditor, breakpoint }) {
           ) : null}
           <div className="mt-1">
             <a
-              href={asEditor ? undefined : `/Events/${encodeURIComponent(event.slug || event.id)}`}
+              href={asEditor ? undefined : `/EventDetails?id=${encodeURIComponent(event.id)}`}
               onClick={(ev) => { if (asEditor) ev.preventDefault(); }}
               className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"
               data-testid={`link-event-carousel-${event.id}`}
