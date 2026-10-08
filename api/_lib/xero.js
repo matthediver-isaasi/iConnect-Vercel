@@ -312,10 +312,10 @@ export async function findOrCreateXeroContact(accessToken, xeroTenantId, contact
   throw new Error('Failed to create Xero contact');
 }
 
-export async function findXeroSalesCustomers(appTenantId, { name }) {
-  const { accessToken, tenantId } = await getValidXeroAccessToken(appTenantId);
+export async function findXeroSalesCustomers(appTenantId, { name }, dependencies = {}) {
+  const { accessToken, tenantId } = await (dependencies.getValidXeroAccessToken || getValidXeroAccessToken)(appTenantId);
   const escaped = String(name || '').replace(/"/g, '\\"');
-  const response = await fetch(`https://api.xero.com/api.xro/2.0/Contacts?where=${encodeURIComponent(`Name=="${escaped}"`)}`, {
+  const response = await (dependencies.fetch || fetch)(`https://api.xero.com/api.xro/2.0/Contacts?where=${encodeURIComponent(`Name=="${escaped}"`)}`, {
     headers: { Authorization: `Bearer ${accessToken}`, 'xero-tenant-id': tenantId, Accept: 'application/json' },
   });
   const data = await safeXeroJson(response, 'sales-contact-search');
@@ -324,9 +324,9 @@ export async function findXeroSalesCustomers(appTenantId, { name }) {
   }));
 }
 
-export async function createXeroSalesCustomer(appTenantId, customer) {
-  const { accessToken, tenantId } = await getValidXeroAccessToken(appTenantId);
-  return findOrCreateXeroContact(accessToken, tenantId, customer);
+export async function createXeroSalesCustomer(appTenantId, customer, dependencies = {}) {
+  const { accessToken, tenantId } = await (dependencies.getValidXeroAccessToken || getValidXeroAccessToken)(appTenantId);
+  return findOrCreateXeroContact(accessToken, tenantId, customer, dependencies);
 }
 
 export async function listXeroSalesTaxCodes(appTenantId) {

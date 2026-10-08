@@ -6,8 +6,9 @@ import {
 import { SalesHttpError } from './salesAccess.js';
 import { prepareSalesAccountingEnvelope, productAccountingQueueEnabled } from './accountingProductProducer.js';
 import {
-  resumeAccountingSource, resolveAccountingQueueBinding, submitPreparedAccountingRequest,
+  resumeAccountingSource, resolveAccountingQueueBinding, submitPreparedAccountingRequest, submitUnpreparedAccountingRequest,
 } from './accountingQueueIntegration.js';
+import { preparationTokenDependencies } from './accountingSourcePreparation.js';
 
 export function buildSalesProviderIdempotencyKey(tenantId, saleId, provider) {
   const digest = createHash('sha256').update(`${tenantId}:${saleId}:${provider}`).digest('hex');
@@ -387,12 +388,48 @@ export async function buildInvoice(db, tenantId, sale, version, lines, providerN
   };
 }
 
+export async function prepareQueuedSalesRequest({ row, db, transport }, dependencies = {}) {
+  const snapshot = structuredClone(row.snapshot);
+  const frozen = snapshot.invoice;
+  if (!snapshot.preparation || !frozen.customer || !frozen.payload?.idempotencyKey) {
+    throw Object.assign(new Error('ACCOUNTING_SALE_FROZEN_INPUTS_REQUIRED'), { permanent: true });
+  }
+  const providerDependencies = { ...transport, ...preparationTokenDependencies(transport) };
+  const provider = dependencies.provider || (row.provider === 'xero' ? {
+    name: 'xero',
+    findSalesCustomers: async (tenant, customer) =>
+      (await import('./xero.js')).findXeroSalesCustomers(tenant, customer, providerDependencies),
+    createSalesCustomer: async (tenant, customer) =>
+      (await import('./xero.js')).createXeroSalesCustomer(tenant, customer, providerDependencies),
+  } : {
+    name: 'quickbooks',
+    findSalesCustomers: async (tenant, customer) =>
+      (await import('./quickbooks.js')).findQuickBooksSalesCustomers(tenant, customer, providerDependencies),
+    createSalesCustomer: async (tenant, customer) =>
+      (await import('./quickbooks.js')).createQuickBooksSalesCustomer(tenant, customer, providerDependencies),
+  });
+  let customerId;
+  try {
+    customerId = await resolveCustomer(db, provider, row.tenant_id,
+      { actorId: snapshot.linkage.actorId }, frozen.customer, frozen.command);
+  } catch (error) {
+    if (error.code === 'ACCOUNTING_CUSTOMER_IN_PROGRESS') error.retry = true;
+    throw error;
+  }
+  snapshot.invoice = { envelope: prepareSalesAccountingEnvelope({
+    provider: row.provider, environment: snapshot.environment, payload: { ...frozen.payload, customerId },
+  }) };
+  delete snapshot.preparation;
+  return snapshot;
+}
+
 export async function createSalesInvoice(db, tenantId, actor, saleId, command = {}, dependencies = {}) {
   const queue = dependencies.accountingQueue || {
     enabled: productAccountingQueueEnabled,
     resume: resumeAccountingSource,
     resolveBinding: resolveAccountingQueueBinding,
     submit: submitPreparedAccountingRequest,
+    submitUnprepared: submitUnpreparedAccountingRequest,
   };
   const sourceType = 'sales_commercial_sale';
   const queued = queue.enabled(sourceType);
@@ -446,24 +483,29 @@ export async function createSalesInvoice(db, tenantId, actor, saleId, command = 
   let accountingAccepted = false;
   try {
     const customer = customerFrom(version);
+    if (queued) {
+      const binding = await queue.resolveBinding({ db, tenantId, provider: provider.name });
+      // This builder reads local accepted economics and tax/account mappings,
+      // never the provider. Freeze them before the first customer lookup.
+      const payload = await buildInvoice(db, tenantId, sale, version, lines || [], provider.name, null);
+      payload.idempotencyKey = claim.providerIdempotencyKey;
+      const result = await (queue.submitUnprepared || submitUnpreparedAccountingRequest)({
+        db, tenantId, provider: provider.name, connectionId: binding.connectionId, companyId: binding.companyId,
+        sourceType, sourceId: sale.id, snapshot: { version: 1, preparation: true, environment: binding.environment,
+          invoice: { customer, payload, command: {
+            providerCustomerId: command.providerCustomerId || null, confirmCustomerMatch: command.confirmCustomerMatch === true,
+          } },
+          payment: null, linkage: { saleId: sale.id, quoteVersionId: version.id, attemptId: attempt.id, actorId: actor.actorId },
+        },
+      });
+      accountingAccepted = true;
+      return await queueResult(result);
+    }
     const customerId = await resolveCustomer(db, provider, tenantId, actor, customer, command);
     const payload = await buildInvoice(db, tenantId, sale, version, lines || [], provider.name, customerId);
     // RPC owns the durable canonical key. This assignment deliberately
     // replaces the locally derived convenience key on retries/crash recovery.
     payload.idempotencyKey = claim.providerIdempotencyKey;
-    if (queued) {
-      const binding = await queue.resolveBinding({ db, tenantId, provider: provider.name });
-      const invoiceEnvelope = prepareSalesAccountingEnvelope({
-        provider: provider.name, payload, environment: binding.environment,
-      });
-      const result = await queue.submit({
-        db, tenantId, provider: provider.name, connectionId: binding.connectionId, companyId: binding.companyId,
-        sourceType, sourceId: sale.id, invoiceEnvelope, paymentEnvelope: null,
-        linkage: { saleId: sale.id, quoteVersionId: version.id, attemptId: attempt.id, actorId: actor.actorId },
-      });
-      accountingAccepted = true;
-      return await queueResult(result);
-    }
     const external = await provider.createSalesInvoice(tenantId, payload);
     const linkRow = {
       tenant_id: tenantId, sale_id: sale.id, quote_version_id: version.id, provider: provider.name,

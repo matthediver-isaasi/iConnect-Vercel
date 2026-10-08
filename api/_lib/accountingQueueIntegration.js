@@ -1,6 +1,7 @@
 import { enqueueAccountingRequest, processAccountingRequest } from './accountingRequestQueue.js';
 import { createAccountingRequestProviders, prepareAccountingRequestEnvelope } from './accountingRequestProviders.js';
 import { linkAccountingProductSource } from './accountingQueueProductLinks.js';
+import { freezeMembershipPreparation, prepareMembershipSourceRequest } from './accountingSourcePreparation.js';
 import {
   GO_CARDLESS_ACCOUNTING_SOURCE, assertGoCardlessAccountingSource,
   linkGoCardlessAccountingSource, prepareGoCardlessSourceRequest,
@@ -134,7 +135,8 @@ export async function getAccountingQueueAdapter(row, controls = {}, dependencies
   const adapter = createAccountingRequestProviders({ resolveConnection, beforeRequest, deadlineAt: controls.deadlineAt,
     ...(dependencies.fetchImpl ? { fetchImpl: dependencies.fetchImpl } : {}) });
   return { ...adapter,
-    ...(row.source_type === GO_CARDLESS_ACCOUNTING_SOURCE ? {
+    ...((row.source_type === GO_CARDLESS_ACCOUNTING_SOURCE || memberTables.has(row.source_type)
+      || row.source_type === 'sales_commercial_sale') ? {
       prepare: async candidate => {
         // Provider transport constrains preparation to bound reads/contacts;
         // financial writes cannot masquerade as an unfenced preparation call.
@@ -158,8 +160,11 @@ export async function getAccountingQueueAdapter(row, controls = {}, dependencies
         };
         let prepared;
         try {
-          prepared = await prepareGoCardlessSourceRequest({ row: candidate, db, providers: adapter, transport },
-            dependencies.preparation || {});
+          const prepare = candidate.source_type === GO_CARDLESS_ACCOUNTING_SOURCE
+            ? prepareGoCardlessSourceRequest : memberTables.has(candidate.source_type)
+              ? prepareMembershipSourceRequest
+              : (await import('./salesAccounting.js')).prepareQueuedSalesRequest;
+          prepared = await prepare({ row: candidate, db, providers: adapter, transport }, dependencies.preparation || {});
         } catch (error) { throw preparationFailure || error; }
         // Legacy contact/tax resolvers sometimes catch "non-fatal" reads. A
         // swallowed 429 must not lose its embargo or authorize further calls.
@@ -211,6 +216,26 @@ export async function submitPreparedAccountingRequest({
   let processed = null;
   try { processed = await processAccountingRequest({ db, requestId: row.id, ...(adapters ? { adapters } : {}) }); }
   catch { return { ...accountingQueueFacadeResult(row), accounting_pending: true, accounting_state: 'pending' }; }
+  return accountingQueueFacadeResult(processed || row);
+}
+
+// Enqueue before ALL provider preparation. A lost enqueue response retains the
+// source just like a lost financial write: never hand ownership to legacy code.
+export async function submitUnpreparedAccountingRequest({
+  db, tenantId, provider, connectionId, companyId, sourceType, sourceId, snapshot, adapters,
+}) {
+  let row;
+  try {
+    row = await enqueueAccountingRequest({ db, tenantId, provider, connectionId, companyId,
+      sourceType, sourceId, snapshot });
+  } catch (error) {
+    error.accountingSourceRetained = true;
+    throw error;
+  }
+  if (row.state === 'complete') return accountingQueueFacadeResult(row);
+  let processed;
+  try { processed = await processAccountingRequest({ db, requestId: row.id, ...(adapters ? { adapters } : {}) }); }
+  catch { return { ...accountingQueueFacadeResult(row), accounting_pending: true }; }
   return accountingQueueFacadeResult(processed || row);
 }
 
@@ -270,15 +295,18 @@ export async function queueMembershipInvoice({ db, provider, args }) {
   const resumed = await resumeAccountingSource({ db, tenantId: args.appTenantId, sourceType, sourceId,
     allowMissingQueue: !enabled });
   if (resumed) return resumed;
-  // This first rollout has no durable preparation/payment stage. Explicitly
-  // retain the existing owners for paid, form, instalment and add-on work.
+  // Retain separate settlement owners for paid, form, instalment and add-on work.
   // The resume above MUST precede this check so a queued identity never escapes.
   if (!enabled || !supportsPreparedMembershipSource(args)) return undefined;
   await assertAccountingSource({ db, row: { tenant_id: args.appTenantId, provider,
     source_type: sourceType, source_id: sourceId, snapshot: { linkage } } });
-  return submitPreparedAccountingRequest(await prepareMembershipAccountingRequest({
-    db, provider, args, sourceType, sourceId, totalMinor, linkage,
-  }));
+  const binding = await resolveAccountingQueueBinding({ db, tenantId: args.appTenantId, provider });
+  const invoice = await freezeMembershipPreparation({ db, args, totalMinor });
+  return submitUnpreparedAccountingRequest({
+    db, tenantId: args.appTenantId, provider, connectionId: binding.connectionId, companyId: binding.companyId,
+    sourceType, sourceId, snapshot: { version: 1, preparation: true, environment: binding.environment,
+      invoice, payment: null, linkage },
+  });
 }
 
 export function supportsPreparedMembershipSource(args) {

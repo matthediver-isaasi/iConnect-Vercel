@@ -433,18 +433,19 @@ export async function findOrCreateQuickBooksCustomer(appTenantId, contactInfo, c
   return created.Customer.Id;
 }
 
-export async function findQuickBooksSalesCustomers(appTenantId, { name }) {
-  const { accessToken, realmId, environment } = await getValidQuickBooksAccessToken(appTenantId);
+export async function findQuickBooksSalesCustomers(appTenantId, { name }, dependencies = {}) {
+  const { accessToken, realmId, environment } = await (dependencies.getValidQuickBooksAccessToken || getValidQuickBooksAccessToken)(appTenantId);
   const escaped = String(name || '').replace(/'/g, "\\'");
   const data = await qboQuery(accessToken, realmId, environment,
-    `SELECT * FROM Customer WHERE DisplayName = '${escaped}'`);
+    `SELECT * FROM Customer WHERE DisplayName = '${escaped}'`, dependencies);
   return (data?.QueryResponse?.Customer || []).map((item) => ({
     id: item.Id, name: item.DisplayName, email: item.PrimaryEmailAddr?.Address || null,
   }));
 }
 
-export async function createQuickBooksSalesCustomer(appTenantId, customer) {
-  return findOrCreateQuickBooksCustomer(appTenantId, customer);
+export async function createQuickBooksSalesCustomer(appTenantId, customer, dependencies = {}) {
+  const connection = await (dependencies.getValidQuickBooksAccessToken || getValidQuickBooksAccessToken)(appTenantId);
+  return findOrCreateQuickBooksCustomer(appTenantId, customer, { ...connection, transport: dependencies });
 }
 
 export async function listQuickBooksSalesTaxCodes(appTenantId) {

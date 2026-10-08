@@ -156,7 +156,7 @@ for (const providerName of ['xero', 'quickbooks']) {
         if (name === 'claim_sales_accounting_invoice_attempt') return { data: {
           state: 'claimed', attemptId: 'attempt', providerIdempotencyKey: 'original-claim',
         }, error: null };
-        if (name === 'claim_sales_accounting_customer_mapping') return { data: { state: 'mapped', customerId: 'customer' }, error: null };
+        if (name === 'claim_sales_accounting_customer_mapping') throw new Error('Customer lookup before enqueue forbidden');
         throw new Error('Unexpected RPC');
       },
     };
@@ -167,16 +167,17 @@ for (const providerName of ['xero', 'quickbooks']) {
       accountingQueue: {
         enabled: () => true, resume: async () => null,
         resolveBinding: async () => ({ connectionId: 'connection', companyId: 'company', environment: 'sandbox' }),
-        submit: async args => {
+        submitUnprepared: async args => {
           submitted = args;
           return { accounting_pending: true, accounting_request_id: 'request', accounting_state: 'pending' };
         },
       },
     }), error => error.code === 'ACCOUNTING_REQUEST_PENDING');
-    assert.equal(submitted.invoiceEnvelope.operationKey, 'original-claim');
-    assert.equal(submitted.invoiceEnvelope.expected.totalMinor, 1200);
-    assert.deepEqual(submitted.linkage, { saleId: 'sale', quoteVersionId: 'version', attemptId: 'attempt', actorId: 'actor' });
-    assert.equal(submitted.paymentEnvelope, null);
+    assert.equal(submitted.snapshot.preparation, true);
+    assert.equal(submitted.snapshot.invoice.payload.idempotencyKey, 'original-claim');
+    assert.equal(submitted.snapshot.invoice.payload.grossMinor, 1200);
+    assert.deepEqual(submitted.snapshot.linkage, { saleId: 'sale', quoteVersionId: 'version', attemptId: 'attempt', actorId: 'actor' });
+    assert.equal(submitted.snapshot.payment, null);
     assert.equal(writes.length, 0, 'accepted claim must not be failed or source deleted');
   });
 }
