@@ -1,6 +1,7 @@
 // Accounting-only continuation. This module never collects a Direct Debit,
 // activates membership, changes benefits, or replays a GoCardless webhook.
 import { enqueueAccountingRequest, processAccountingRequest } from './accountingRequestQueue.js';
+import { isDeepStrictEqual } from 'node:util';
 
 export const GO_CARDLESS_ACCOUNTING_SOURCE = 'gocardless_payment';
 export const goCardlessAccountingQueueEnabled = () =>
@@ -8,7 +9,9 @@ export const goCardlessAccountingQueueEnabled = () =>
   && (process.env.ACCOUNTING_REQUEST_QUEUE_SOURCES || '').split(',').map(x => x.trim())
     .includes(GO_CARDLESS_ACCOUNTING_SOURCE);
 const fail = code => { throw Object.assign(new Error(code), { code, permanent: true, definitelyNotWritten: true }); };
-const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+// JSONB can reorder object keys. Preserve exact values and array order without
+// mistaking serialization order for a change to frozen financial authority.
+const same = (a, b) => isDeepStrictEqual(a ?? null, b ?? null);
 async function one(query, code) {
   const { data, error } = await query.maybeSingle();
   if (error || !data) fail(code);

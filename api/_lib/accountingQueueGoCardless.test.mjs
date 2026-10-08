@@ -50,6 +50,36 @@ function fixture(provider = 'xero', mode = 'per_instalment') {
   return { db, row, tables, writes, agreement, payment, provider: { name: provider } };
 }
 
+test('JSONB object-key reordering preserves frozen GC authority', async () => {
+  const f = fixture();
+  f.agreement.metadata.dd.collection_policy = {
+    mode: 'monthly', details: { amount: 1200, currency: 'GBP' }, dates: ['2026-10-05', '2026-11-05'],
+  };
+  f.row.snapshot.evidence.agreement.metadata.dd.collection_policy = {
+    dates: ['2026-10-05', '2026-11-05'], details: { currency: 'GBP', amount: 1200 }, mode: 'monthly',
+  };
+  await assertGoCardlessAccountingSource({ db: f.db, row: f.row });
+  assert.equal(f.writes.length, 0);
+});
+
+for (const changed of [
+  { amount: 1300, currency: 'GBP', dates: ['2026-10-05', '2026-11-05'] },
+  { amount: '1200', currency: 'GBP', dates: ['2026-10-05', '2026-11-05'] },
+  { amount: 1200, currency: 'EUR', dates: ['2026-10-05', '2026-11-05'] },
+  { amount: 1200, currency: 'GBP', dates: ['2026-11-05', '2026-10-05'] },
+]) {
+  test(`GC authority still rejects changed values: ${JSON.stringify(changed)}`, async () => {
+    const f = fixture();
+    f.row.snapshot.evidence.agreement.metadata.dd.collection_policy = {
+      amount: 1200, currency: 'GBP', dates: ['2026-10-05', '2026-11-05'],
+    };
+    f.agreement.metadata.dd.collection_policy = changed;
+    await assert.rejects(assertGoCardlessAccountingSource({ db: f.db, row: f.row }),
+      { code: 'GC_QUEUE_AGREEMENT_ECONOMICS_CHANGED' });
+    assert.equal(f.writes.length, 0);
+  });
+}
+
 for (const provider of ['xero', 'quickbooks']) {
   test(`${provider}: original authority, preparation args and verified source linkage`, async () => {
     const f = fixture(provider);
