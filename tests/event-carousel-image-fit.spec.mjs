@@ -98,19 +98,26 @@ function json(route, body, status = 200) {
   return route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 }
 
-async function installFixtures(page, content = {}) {
+async function installFixtures(page, content = {}, { guest = false, delay = 0, artwork = false } = {}) {
   const fixture = fixturePage(content);
   const writes = [];
+  const bookmarkRequests = [];
+  let eventRequests = 0;
   await page.addInitScript(({ member, tenant }) => {
     localStorage.setItem("agcas_member", JSON.stringify(member));
     localStorage.setItem("tenant_slug", tenant);
-  }, { member: MEMBER, tenant: TENANT.slug });
-  await page.route("**/*", (route) => {
+  }, { member: guest ? null : MEMBER, tenant: TENANT.slug });
+  await page.route("**/*", async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
     const method = request.method();
     if (!path.startsWith("/api/")) return route.continue();
-    if (path === "/api/auth/me") return json(route, MEMBER);
+    if (path === "/api/auth/me") return json(route, guest ? null : MEMBER);
+    if (path.startsWith("/api/bookmarks")) {
+      bookmarkRequests.push(path);
+      return json(route, guest ? { error: "Unauthorized" } : { bookmarks: [] }, guest ? 401 : 200);
+    }
+    if (path === "/api/auth/tenant-user-me" && guest) return json(route, { authenticated: false });
     if (path === "/api/auth/tenant-user-me") return json(route, {
       authenticated: true,
       tenantUser: { id: "event-fit-tenant-user", email: MEMBER.email, role: ROLE, tenant: TENANT },
@@ -125,7 +132,12 @@ async function installFixtures(page, content = {}) {
     if (path === "/api/entities/Member") return json(route, [MEMBER]);
     if (path === "/api/entities/Organization") return json(route, [{ id: MEMBER.organization_id, name: "Event fit org" }]);
     if (path === "/api/entities/IEditPage") return json(route, [fixture]);
-    if (path === "/api/public/events") return json(route, EVENTS);
+    if (path === "/api/public/events") {
+      eventRequests++;
+      if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+      return json(route, [...EVENTS.map((event, i) => artwork ? { ...event, image_url: `/fixture-artwork-${i}.svg` } : event), { ...EVENTS[0], id: "fit-third", slug: "fit-third", title: "Third event", image_url: svgImage(600, 400, "THIRD") }]);
+    }
+    if (path === "/api/public/resources") return json(route, [{ id: "public-resource", title: "Public resource", is_public: true, resource_type: "document", status: "published" }]);
     if (path === `/api/public/page/${PAGE_SLUG}`) {
       return json(route, { success: true, page: fixture, elements: [], symbols: [] });
     }
@@ -142,12 +154,48 @@ async function installFixtures(page, content = {}) {
     writes.push({ path, body: request.postDataJSON?.() });
     return json(route, { error: "Unexpected fixture mutation" }, 405);
   });
-  return { fixture, writes };
+  return { fixture, writes, bookmarkRequests, eventRequests: () => eventRequests };
 }
+
+test("slow or failed artwork does not remove title or CTA", async ({ page }) => {
+  await installFixtures(page, {}, { guest: true, artwork: true });
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  await page.route("**/fixture-artwork-*.svg", async route => {
+    if (route.request().url().includes("-0.svg")) await pending;
+    return route.fulfill({ status: 404, body: "" });
+  });
+  try {
+    await page.goto(`/${PAGE_SLUG}`);
+    const carousel = page.getByTestId("event-carousel");
+    await expect(carousel.locator("h3")).toHaveText("Wide edge artwork");
+    await expect(carousel.locator("a")).toBeVisible();
+    await carousel.getByTestId("button-event-carousel-next").click();
+    await expect(carousel.locator("h3")).toHaveText("Portrait artwork");
+    await expect(carousel.locator("a")).toBeVisible();
+    await expect.poll(() => carousel.locator("img").evaluate(img => img.complete && img.naturalWidth === 0)).toBe(true);
+    await carousel.getByTestId("button-event-carousel-prev").click();
+    await expect(carousel.locator("h3")).toHaveText("Wide edge artwork");
+  } finally {
+    release();
+  }
+});
 
 function savedContent(state) {
   return state.writes.at(-1)?.body?.canvas_design?.root?.sections?.[0]?.children?.[0]?.content;
 }
+
+test("verified members still load bookmarks on public resource cards", async ({ page }) => {
+  const state = await installFixtures(page);
+  state.fixture.canvas_design.root.sections[0].children.push({
+    id: "member-resources", type: "resource-list", content: { limit: 1 }, style: {},
+    bp: { desktop: { x: 0, y: 500, w: 700, h: 400 } },
+  });
+  await page.goto(`/${PAGE_SLUG}`);
+  await expect(page.getByTestId("bookmark-toggle-resource-public-resource")).toBeVisible();
+  await expect.poll(() => [...new Set(state.bookmarkRequests)].sort()).toEqual(["/api/bookmarks", "/api/bookmarks/enriched"]);
+  await expect(page.getByTestId("event-carousel")).toBeVisible();
+});
 
 async function imageMetrics(carousel) {
   return carousel.locator("img").evaluate((img) => {
@@ -240,6 +288,68 @@ test("narrow public viewport stacks image first and retains aspect, fit and cont
   await expectImage(carousel, { fit: "contain", source: [300, 900], whole: true });
   expect(state.writes).toEqual([]);
 });
+
+for (const width of [1440, 390]) {
+  test(`guest public resources cannot blank repeated carousel cycles at ${width}px`, async ({ page }, testInfo) => {
+    const state = await installFixtures(page, { eventIds: ["fit-wide", "fit-portrait", "fit-third"], imageFit: "fill", autoplay: true, autoplayMs: 1500 }, { guest: true, delay: 350 });
+    const children = state.fixture.canvas_design.root.sections[0].children;
+    children[0].bp.desktop = { x: 0, y: 0, w: 1200, h: 392 };
+    children.push({ id: "resources", type: "resource-list", content: { limit: 1, columns: { desktop: 1 } }, style: {}, bp: { desktop: { x: 0, y: 500, w: 700, h: 400 }, mobile: { x: 0, y: 500, w: 375, h: 400 } } });
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto(`/${PAGE_SLUG}`);
+    const carousel = page.getByTestId("event-carousel");
+    await expect(carousel).toBeVisible();
+    await expect(page.getByText("Public resource", { exact: true })).toBeVisible();
+    const titles = ["Wide edge artwork", "Portrait artwork", "Third event"];
+    const check = async (i, label) => {
+      await expect(carousel.locator("h3")).toHaveText(titles[i]);
+      await expect(carousel.locator("a")).toHaveAttribute("href", `/Events/${["fit-wide", "fit-portrait", "fit-third"][i]}`);
+      await expect.poll(() => carousel.locator("img").evaluate(img => img.complete && img.naturalWidth > 0)).toBe(true);
+      const geometry = await carousel.evaluate(root => {
+        const clip = root.getBoundingClientRect();
+        return [...root.querySelectorAll("h3,a,img")].map(el => {
+          const r = el.getBoundingClientRect();
+          const x = Math.max(clip.left, r.left), y = Math.max(clip.top, r.top);
+          return Math.max(0, Math.min(clip.right, r.right) - x) * Math.max(0, Math.min(clip.bottom, r.bottom) - y);
+        });
+      });
+      geometry.forEach(area => expect(area).toBeGreaterThan(100));
+      await carousel.screenshot({ path: testInfo.outputPath(`${label}-${i}.png`) });
+    };
+    for (let cycle = 0; cycle < 2; cycle++) {
+      for (let i = 0; i < 3; i++) {
+        await check(i, `autoplay-${cycle}`);
+        await expect(carousel.locator("h3")).toHaveText(titles[(i + 1) % 3]);
+      }
+    }
+    children[0].content.autoplay = false;
+    await page.reload();
+    await expect(carousel).toBeVisible();
+    for (let cycle = 0; cycle < 2; cycle++) {
+      for (let i = 0; i < 3; i++) {
+        await check(i, `manual-${cycle}`);
+        await carousel.getByTestId("button-event-carousel-next").click();
+      }
+    }
+    await carousel.getByTestId("button-event-carousel-prev").click();
+    await check(2, "previous-wrap");
+    await carousel.getByTestId("button-event-carousel-indicator-1").click();
+    await check(1, "indicator");
+    await carousel.press("ArrowLeft");
+    await check(0, "keyboard");
+    await carousel.evaluate(el => {
+      for (const [type, field, x] of [["touchstart", "touches", 200], ["touchend", "changedTouches", 100]]) {
+        const event = new Event(type, { bubbles: true });
+        Object.defineProperty(event, field, { value: [{ clientX: x, clientY: 100 }] });
+        el.dispatchEvent(event);
+      }
+    });
+    await check(1, "swipe");
+    expect(state.bookmarkRequests).toEqual([]);
+    expect(state.eventRequests()).toBe(2);
+    expect(state.writes).toEqual([]);
+  });
+}
 
 test("editor inspector changes fit immediately, persists it, normalizes and reopens without touching aspect or navigation", async ({ page }) => {
   const state = await installFixtures(page, { imageFit: "unrecognized-legacy-fit", imageSide: "right", imageAspect: "3/2" });

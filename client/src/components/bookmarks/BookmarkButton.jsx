@@ -7,10 +7,10 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 
 export default function BookmarkButton({ entityType, entityId, size = "icon", className = "" }) {
   const { memberRole } = useMemberAccess();
-  const { isBookmarked, toggleBookmark } = useBookmarks();
+  const { enabled, isBookmarked, toggleBookmark } = useBookmarks();
   const [isToggling, setIsToggling] = useState(false);
 
-  if (memberRole?.show_bookmarks === false) return null;
+  if (!enabled || memberRole?.show_bookmarks === false) return null;
 
   const bookmarked = isBookmarked(entityType, entityId);
 

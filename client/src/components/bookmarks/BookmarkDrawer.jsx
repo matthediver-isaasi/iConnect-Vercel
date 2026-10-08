@@ -314,7 +314,7 @@ function SortableBookmarkItem({ item, section, onOpenChange, onRemoveBookmark })
 }
 
 export default function BookmarkDrawer({ open, onOpenChange }) {
-  const { grouped, categoryOrder, toggleBookmark, reorderCategories, reorderItems, refetchEnriched, isLoading, totalCount } = useBookmarks();
+  const { enabled, grouped, categoryOrder, toggleBookmark, reorderCategories, reorderItems, refetchEnriched, isLoading, totalCount } = useBookmarks();
   const tenantBranding = useTenantBranding();
   const basePortalFont = tenantBranding?.branding?.brandingConfig?.basePortalFont || '';
   const portalRootFont = basePortalFont
@@ -325,10 +325,10 @@ export default function BookmarkDrawer({ open, onOpenChange }) {
   );
 
   useEffect(() => {
-    if (open) {
+    if (open && enabled) {
       refetchEnriched();
     }
-  }, [open, refetchEnriched]);
+  }, [open, enabled, refetchEnriched]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),

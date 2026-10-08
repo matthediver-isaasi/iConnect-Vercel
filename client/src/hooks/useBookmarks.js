@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLayoutContext } from "@/contexts/LayoutContext";
 
 const API_BASE = "/api/bookmarks";
 
@@ -21,10 +22,15 @@ async function fetchMyBookmarkIds() {
 
 export function useBookmarks() {
   const queryClient = useQueryClient();
+  const { memberInfo, sessionValidated, authResolved } = useLayoutContext();
+  // Public cards also mount bookmark controls. A guest 401 can trigger session
+  // rejection and clear unrelated public queries, repeatedly blanking carousels.
+  const enabled = !!(memberInfo?.id && sessionValidated && authResolved);
 
   const { data: enrichedData = { bookmarks: [], categoryOrder: null }, isLoading, refetch: refetchEnriched } = useQuery({
     queryKey: ["bookmarks", "enriched"],
     queryFn: fetchBookmarks,
+    enabled,
     staleTime: 5000,
   });
 
@@ -34,6 +40,7 @@ export function useBookmarks() {
   const { data: rawBookmarks = [] } = useQuery({
     queryKey: ["bookmarks", "ids"],
     queryFn: fetchMyBookmarkIds,
+    enabled,
     staleTime: 5000,
   });
 
@@ -48,6 +55,7 @@ export function useBookmarks() {
 
   const toggleBookmark = useCallback(
     async (entityType, entityId) => {
+      if (!enabled) throw new Error("Sign in to manage bookmarks");
       const existing = isBookmarked(entityType, entityId);
       const method = existing ? "DELETE" : "POST";
 
@@ -63,7 +71,7 @@ export function useBookmarks() {
       await queryClient.invalidateQueries({ queryKey: ["bookmarks"] });
       return !existing;
     },
-    [isBookmarked, queryClient]
+    [enabled, isBookmarked, queryClient]
   );
 
   const reorderCategories = useCallback(
@@ -143,6 +151,7 @@ export function useBookmarks() {
   };
 
   return {
+    enabled,
     bookmarks: enrichedBookmarks,
     grouped,
     categoryOrder,
