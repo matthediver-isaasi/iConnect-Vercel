@@ -1251,3 +1251,17 @@ mtime_ms = 1791453849955
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/4df2adee-6f2b-4f6a-9b20-430d8b8fad9f/a4892972-0b43-48bd-9a81-75419b0c19ef"
 storage_version_token = "1791453871555580"
 content_type = "application/pdf"
+
+[[outputs]]
+id = "1-LeWPpA2k9VEVRPlB44S"
+uri = "file://.agents/outputs/BNMS-Direct-Debit-Status-2026-10-08-Updated.pdf"
+type = "pdf"
+title = "BNMS Direct Debit Update — Revised Report"
+description = "Updated two-page administrator report: 119 completed, 231 queued, bank-reported failure reasons, suggested member follow-up, and the additional failure awaiting local status correction."
+logical_id = "84a8fe3e-faa1-4d42-a708-00148d511bef"
+content_hash = "sha256:aeb73d3dad061d674ce6e5963b0cc8f1c2626eb394b3bbeed20a2f0fa885a911"
+size = 73985
+mtime_ms = 1791455423476
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/84a8fe3e-faa1-4d42-a708-00148d511bef/b1a91765-9d31-4127-8c4e-fad5a7262e47"
+storage_version_token = "1791455437456011"
+content_type = "application/pdf"
