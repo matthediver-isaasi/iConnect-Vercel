@@ -54,6 +54,13 @@ export async function assertAccountingSource({ db, row }) {
   if (row.source_type === 'training_fund_purchase' && link?.purchaseId === row.source_id && link.organizationId) {
     const purchase = await one(db.from('training_fund_purchase').select('*').eq('id', row.source_id)
       .eq('tenant_id', row.tenant_id).eq('organization_id', link.organizationId));
+    const authority = await one(db.from('training_fund_accounting_operation').select('*')
+      .eq('tenant_id', row.tenant_id).eq('purchase_id', row.source_id));
+    if (Number(purchase.amount) !== Number(authority.amount)
+      || purchase.payment_method !== authority.payment_method || purchase.status === 'cancelled'
+      || authority.authority.provider !== row.provider
+      || authority.authority.connectionId !== row.connection_id
+      || authority.authority.companyId !== row.company_id) fail('ACCOUNTING_QUEUE_PURCHASE_AUTHORITY_CHANGED');
     const existing = purchase.accounting_invoice_id || purchase.xero_invoice_id;
     if (existing && (existing !== row.invoice_result?.id
       || (purchase.accounting_provider && purchase.accounting_provider !== row.provider))) {
@@ -140,7 +147,7 @@ export async function getAccountingQueueAdapter(row, controls = {}, dependencies
     ...(dependencies.fetchImpl ? { fetchImpl: dependencies.fetchImpl } : {}) });
   return { ...adapter,
     ...((row.source_type === GO_CARDLESS_ACCOUNTING_SOURCE || memberTables.has(row.source_type)
-      || row.source_type === 'sales_commercial_sale') ? {
+      || row.source_type === 'sales_commercial_sale' || row.source_type === 'training_fund_purchase') ? {
       prepare: async candidate => {
         // Provider transport constrains preparation to bound reads/contacts;
         // financial writes cannot masquerade as an unfenced preparation call.
@@ -165,7 +172,7 @@ export async function getAccountingQueueAdapter(row, controls = {}, dependencies
         let prepared;
         try {
           const prepare = candidate.source_type === GO_CARDLESS_ACCOUNTING_SOURCE
-            ? prepareGoCardlessSourceRequest : memberTables.has(candidate.source_type)
+            ? prepareGoCardlessSourceRequest : (memberTables.has(candidate.source_type) || candidate.source_type === 'training_fund_purchase')
               ? prepareMembershipSourceRequest
               : (await import('./salesAccounting.js')).prepareQueuedSalesRequest;
           prepared = await prepare({ row: candidate, db, providers: adapter, transport }, dependencies.preparation || {});

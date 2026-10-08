@@ -639,6 +639,8 @@ export default function BalancesPage({ hasBanner }) {
       </div>
 
       <BuyFundsModal
+        key={`${memberInfo?.tenant_id}:${memberInfo?.id}:${organizationInfo?.id}`}
+        checkoutScope={`${memberInfo?.tenant_id}:${memberInfo?.id}:${organizationInfo?.id}`}
         open={buyFundsOpen}
         onOpenChange={setBuyFundsOpen}
         onCompleted={refreshOrganizationInfo}

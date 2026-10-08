@@ -8,8 +8,9 @@ async function single(query) {
   return data;
 }
 
-// Replay is accounting-only: never mutate Stripe, purchase status, available
-// funds, pending funds or accepted quote economics here.
+// Replay never charges Stripe, releases available funds, changes purchase status
+// or accepted quote economics. Adopted invoice purchases atomically record their
+// once-only pending funds alongside linkage.
 export async function linkAccountingProductSource({ db, row }) {
   const link = row?.snapshot?.linkage;
   const result = row?.invoice_result;
@@ -51,6 +52,22 @@ export async function linkAccountingProductSource({ db, row }) {
   }
   if (row.source_type === 'training_fund_purchase') {
     if (link.purchaseId !== row.source_id || !link.organizationId) fail('invalid purchase authority');
+    // Adopted purchases use an atomic link + pending continuation. Preserve the
+    // accounting-only adapter for historical unadopted rows.
+    const { data: operation, error: operationError } = await db.from('training_fund_accounting_operation')
+      .select('purchase_id').eq('tenant_id', row.tenant_id).eq('purchase_id', row.source_id).maybeSingle();
+    if (operationError && operationError.code !== '42P01'
+      && !(operationError.code === 'PGRST205' && operationError.message?.includes('training_fund_accounting_operation'))) throw operationError;
+    if (operation) {
+      const { data, error } = await db.rpc('link_training_fund_accounting', {
+        p_tenant: row.tenant_id, p_purchase: row.source_id, p_provider: row.provider,
+        p_invoice: result.id, p_number: result.invoiceNumber || result.number || null,
+        p_url: result.url || result.onlineInvoiceUrl || null,
+      });
+      if (error) throw error;
+      if (!data?.linked) fail('purchase continuation not persisted');
+      return data;
+    }
     const lookup = () => db.from('training_fund_purchase').select('*')
       .eq('tenant_id', row.tenant_id).eq('id', link.purchaseId).eq('organization_id', link.organizationId);
     const purchase = await single(lookup());

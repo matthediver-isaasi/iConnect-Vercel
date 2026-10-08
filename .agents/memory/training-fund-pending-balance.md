@@ -13,3 +13,24 @@ Org training-fund top-ups (the "Buy Funds" flow on /Balances) split balance into
 - Both UIs (/Balances card + /TrainingFundManagement) read pending straight off the org row; org realtime already exists — broaden its change-detection to fire on `training_fund_pending_balance` too, not just `training_fund_balance`.
 - Gated on RBAC key `commerce.balances.buy-funds` (server checks role.excluded_features; client uses isFeatureExcluded).
 - Ledger uses TrainingFundTransaction `type='purchase'`.
+
+For queued invoice purchases, publish invoice linkage and record pending funds in
+one transaction under the purchase lock; retrying linkage must not increment
+pending again. An invoice is never evidence authorizing available funds.
+
+**Why:** A paid-invoice reconciler can run as soon as linkage becomes visible.
+If pending is added later, it can be added after settlement and remain stranded;
+if it is replayed, it can inflate the organisation's pending balance.
+
+**How to apply:** Keep invoice recovery separate from the existing paid-credit
+authority. Treat late linkage, concurrent settlement and lost-link responses as
+one continuation boundary, not independent successful writes.
+
+Frozen purchase authority must not prevent fulfilment of “PO to follow”.
+
+**Why:** The original purchase is immutable accounting evidence, but supplying a
+missing PO later is an existing user promise, not a new purchase or repricing.
+
+**How to apply:** Allow a linked purchase's blank PO to become a supplied PO and
+clear the outstanding-PO flag without changing the original saved invoice inputs
+or checkout identity. Reject clearing/replacing a supplied PO through this path.

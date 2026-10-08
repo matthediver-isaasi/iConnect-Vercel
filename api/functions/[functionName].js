@@ -20,6 +20,7 @@ import { getZoomAccessTokenForTenant } from '../_lib/zoomClient.js';
 import { getXeroCredentials } from '../_lib/xeroCredentials.js';
 import { getAccountingProvider, getAccountingProviderByName, buildInvoiceColumnUpdate } from '../_lib/accountingProvider.js';
 import { creditTrainingFundForPurchase } from '../_lib/trainingFundPurchase.js';
+import { trainingFundQueueEnabled, findTrainingFundOperation, acceptTrainingFundOperation, continueTrainingFundOperation } from '../_lib/trainingFundAccountingContinuation.js';
 import { getMembershipAddonSettings } from '../_lib/membershipAddons.js';
 import { getStripeCredentials, findOrCreateStripeCustomer } from '../_lib/stripeCredentials.js';
 import { sendConfirmationEmailsFromTemplate as sharedSendConfirmationEmailsFromTemplate } from '../_lib/eventConfirmationEmail.js';
@@ -852,13 +853,12 @@ const functionHandlers = {
       paymentMethod,
       purchaseOrderNumber = null,
       poToFollow = false,
+      requestKey = null,
     } = params || {};
 
     const amt = Number(amount);
-    if (!amt || amt <= 0) throw new Error('Amount must be greater than zero');
-    if (paymentMethod !== 'card' && paymentMethod !== 'invoice') {
-      throw new Error('paymentMethod must be "card" or "invoice"');
-    }
+    const invalidAmount = !Number.isFinite(amt) || amt <= 0 || !Number.isSafeInteger(Math.round(amt * 100))
+      || Math.abs(amt * 100 - Math.round(amt * 100)) > 0.000001;
 
     // Resolve the buying member + their organisation + role.
     const { data: member, error: memberErr } = await supabase
@@ -893,6 +893,26 @@ const functionHandlers = {
       .eq('tenant_id', tenantId)
       .maybeSingle();
     if (orgErr || !org) throw new Error('Organisation not found');
+
+    const operation = await findTrainingFundOperation({ db: supabase, tenantId, memberId: member.id, requestKey });
+    if (invalidAmount || !['card', 'invoice'].includes(paymentMethod)) {
+      return { success: false, purchaseNotAccepted: !operation,
+        error: invalidAmount ? 'Amount must be positive with at most two decimal places'
+          : 'paymentMethod must be "card" or "invoice"' };
+    }
+    if (operation || trainingFundQueueEnabled()) {
+      if (operation && (operation.organization_id !== org.id || Number(operation.amount) !== amt
+        || operation.payment_method !== paymentMethod || (operation.purchase_order_number || null) !== (purchaseOrderNumber || null)
+        || operation.po_to_follow !== !!poToFollow)) throw new Error('Checkout request already has different purchase details');
+      const accepted = operation || await acceptTrainingFundOperation({
+        db: supabase, tenantId, member, org, requestKey, amount: amt, paymentMethod,
+        purchaseOrderNumber, poToFollow, provider: (await getAccountingProvider(tenantId))?.name,
+        addonSettings: await getMembershipAddonSettings(tenantId),
+      });
+      return continueTrainingFundOperation({ db: supabase, operation: accepted,
+        getStripe: id => getStripeClient(id, 'events'),
+        getPublishableKey: id => getStripePublishableKeyForTenant(id, 'events') });
+    }
 
     // Resolve accounting provider (Xero/QBO). Hard-fail if none connected.
     const provider = await getAccountingProvider(tenantId);
@@ -1090,7 +1110,12 @@ const functionHandlers = {
 
     const metadataMatch = String(paymentIntent.metadata?.purchase_id) === String(purchaseId);
     const storedMatch = purchase.stripe_payment_intent_id === paymentIntentId;
-    if (!metadataMatch && !storedMatch) {
+    if (purchase.payment_method !== 'card' || !metadataMatch || !storedMatch
+      || paymentIntent.metadata?.tenant_id !== purchase.tenant_id
+      || paymentIntent.metadata?.organization_id !== purchase.organization_id
+      || paymentIntent.metadata?.payment_type !== 'training_fund_purchase'
+      || paymentIntent.currency !== 'gbp' || paymentIntent.amount !== Math.round(Number(purchase.amount) * 100)
+      || paymentIntent.amount_received !== Math.round(Number(purchase.amount) * 100)) {
       return { success: false, error: 'Payment verification failed - purchase mismatch' };
     }
 
@@ -1112,6 +1137,7 @@ const functionHandlers = {
           xeroInvoiceId: invoiceId,
           invoiceId,
           stripePaymentIntentId: paymentIntentId,
+          idempotencyKey: `training-fund-payment:${purchase.tenant_id}:${purchase.id}:${paymentIntentId}`,
         });
       } catch (err) {
         console.error(`[confirmTrainingFundPurchasePayment] Failed to apply payment to invoice for purchase ${purchaseId}: ${err.message}`);

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { base44 } from "@/api/base44Client";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
@@ -88,24 +88,39 @@ function StripePaymentForm({ amount, onSuccess, onCancel, paymentIntentId }) {
   );
 }
 
-export default function BuyFundsModal({ open, onOpenChange, onCompleted }) {
-  const [amount, setAmount] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState("card");
-  const [poNumber, setPoNumber] = useState("");
-  const [poToFollow, setPoToFollow] = useState(false);
+export default function BuyFundsModal({ open, onOpenChange, onCompleted, checkoutScope }) {
+  const storageKey = checkoutScope ? `training-fund-checkout:${checkoutScope}` : null;
+  const [saved] = useState(() => {
+    try { return storageKey ? JSON.parse(sessionStorage.getItem(storageKey) || "null") : null; }
+    catch { return null; }
+  });
+  const [amount, setAmount] = useState(saved?.amount || "");
+  const [paymentMethod, setPaymentMethod] = useState(saved?.paymentMethod || "card");
+  const [poNumber, setPoNumber] = useState(saved?.poNumber || "");
+  const [poToFollow, setPoToFollow] = useState(saved?.poToFollow || false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
   // Card flow state
+  const requestKey = useRef(saved?.requestKey || null);
+  const inFlight = useRef(false);
+  const [attempted, setAttempted] = useState(!!saved?.requestKey);
+  const [queued, setQueued] = useState(saved?.requestKey ? "pending" : null);
   const [stripePromise, setStripePromise] = useState(null);
   const [clientSecret, setClientSecret] = useState(null);
   const [purchaseId, setPurchaseId] = useState(null);
   const [paymentIntentId, setPaymentIntentId] = useState(null);
 
-  const numericAmount = parseFloat(amount);
-  const amountValid = !isNaN(numericAmount) && numericAmount > 0;
+  const numericAmount = Number(amount);
+  const amountValid = Number.isFinite(numericAmount) && numericAmount > 0
+    && Number.isSafeInteger(Math.round(numericAmount * 100))
+    && Math.abs(numericAmount * 100 - Math.round(numericAmount * 100)) <= 0.000001;
 
   const resetState = () => {
+    if (storageKey) sessionStorage.removeItem(storageKey);
+    requestKey.current = null;
+    setAttempted(false);
+    setQueued(null);
     setAmount("");
     setPaymentMethod("card");
     setPoNumber("");
@@ -119,41 +134,78 @@ export default function BuyFundsModal({ open, onOpenChange, onCompleted }) {
   };
 
   const handleClose = (next) => {
-    if (!next) resetState();
+    // An uncertain/queued request must retain its identity when reopened.
+    if (!next && !requestKey.current) resetState();
     onOpenChange(next);
   };
 
   const handleCreate = async () => {
-    if (!amountValid) {
-      setError("Please enter an amount greater than zero.");
+    if (inFlight.current) return;
+    if (!amountValid && !attempted) {
+      setError("Please enter a positive amount with at most two decimal places.");
       return;
     }
     setSubmitting(true);
+    inFlight.current = true;
+    requestKey.current ||= crypto.randomUUID();
+    setAttempted(true);
     setError(null);
 
     try {
+      // Save only checkout inputs and a non-secret request identity, never a
+      // Stripe client secret. Refresh/reopen resumes the same server operation.
+      if (storageKey) sessionStorage.setItem(storageKey, JSON.stringify({
+        amount, paymentMethod, poNumber, poToFollow, requestKey: requestKey.current,
+      }));
       const response = await base44.functions.invoke("createTrainingFundPurchase", {
         amount: numericAmount,
         paymentMethod,
         purchaseOrderNumber: poToFollow ? null : (poNumber.trim() || null),
         poToFollow,
+        requestKey: requestKey.current,
       });
 
       const data = response?.data || response;
       if (!data?.success) {
+        // Only an explicit server response after checking durable ownership
+        // can unlock a sent request. A timeout or generic error cannot.
+        if (data?.purchaseNotAccepted === true) {
+          if (storageKey) sessionStorage.removeItem(storageKey);
+          requestKey.current = null;
+          setAttempted(false);
+          setQueued(null);
+        }
         throw new Error(data?.error || "Failed to create purchase");
       }
 
+      setPurchaseId(data.purchaseId);
+      if (data.queued) {
+        setQueued(data.accountingState || "pending");
+        return;
+      }
+      setQueued(null);
+      if (data.alreadyProcessed) {
+        toast.success("Purchase already processed");
+        if (onCompleted) onCompleted();
+        resetState();
+        onOpenChange(false);
+        return;
+      }
       if (paymentMethod === "invoice") {
         toast.success("Invoice created", {
           description: "These funds are pending and will become available once the invoice is paid.",
         });
         if (onCompleted) onCompleted();
-        handleClose(false);
+        resetState();
+        onOpenChange(false);
         return;
       }
 
       // Card flow — set up Stripe Elements.
+      if (data.paymentSucceeded) {
+        await handlePaymentSuccess(data.paymentIntentId, data.purchaseId);
+        return;
+      }
       if (!data.clientSecret || !data.publishableKey) {
         throw new Error("Payment could not be initialised");
       }
@@ -166,13 +218,16 @@ export default function BuyFundsModal({ open, onOpenChange, onCompleted }) {
       console.error("[BuyFundsModal] create error:", err);
       setError(err.message || "Something went wrong");
       setSubmitting(false);
+    } finally {
+      inFlight.current = false;
+      setSubmitting(false);
     }
   };
 
-  const handlePaymentSuccess = async (confirmedPaymentIntentId) => {
+  const handlePaymentSuccess = async (confirmedPaymentIntentId, confirmedPurchaseId = purchaseId) => {
     try {
       const response = await base44.functions.invoke("confirmTrainingFundPurchasePayment", {
-        purchaseId,
+        purchaseId: confirmedPurchaseId,
         paymentIntentId: confirmedPaymentIntentId || paymentIntentId,
       });
       const data = response?.data || response;
@@ -183,7 +238,8 @@ export default function BuyFundsModal({ open, onOpenChange, onCompleted }) {
         description: "Your training fund balance has been topped up.",
       });
       if (onCompleted) onCompleted();
-      handleClose(false);
+      resetState();
+      onOpenChange(false);
     } catch (err) {
       console.error("[BuyFundsModal] confirm error:", err);
       toast.error("Payment confirmation issue", {
@@ -215,6 +271,14 @@ export default function BuyFundsModal({ open, onOpenChange, onCompleted }) {
           </Elements>
         ) : (
           <div className="space-y-4">
+            {queued && (
+              <div role="status" className="rounded-md bg-muted p-3 text-sm" data-testid="buy-funds-queued">
+                {queued === "review"
+                  ? "This purchase needs an administrator to check its invoice or payment setup. Do not start another purchase."
+                  : "Your purchase is saved. The accounting service is still preparing its invoice. Check again to continue this same purchase."}
+                <p className="mt-2">No funds are available until payment is confirmed.</p>
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="buy-funds-amount">Amount (£)</Label>
               <Input
@@ -224,6 +288,7 @@ export default function BuyFundsModal({ open, onOpenChange, onCompleted }) {
                 step="0.01"
                 placeholder="0.00"
                 value={amount}
+                disabled={attempted}
                 onChange={(e) => setAmount(e.target.value)}
                 data-testid="input-buy-funds-amount"
               />
@@ -237,12 +302,13 @@ export default function BuyFundsModal({ open, onOpenChange, onCompleted }) {
                 placeholder="PO-12345"
                 value={poNumber}
                 onChange={(e) => setPoNumber(e.target.value)}
-                disabled={poToFollow}
+                disabled={poToFollow || attempted}
                 data-testid="input-buy-funds-po"
               />
               <label className="flex items-center gap-2 cursor-pointer pt-1">
                 <Checkbox
                   checked={poToFollow}
+                  disabled={attempted}
                   onCheckedChange={(v) => setPoToFollow(!!v)}
                   data-testid="checkbox-buy-funds-po-later"
                 />
@@ -252,7 +318,7 @@ export default function BuyFundsModal({ open, onOpenChange, onCompleted }) {
 
             <div className="space-y-2">
               <Label>Payment method</Label>
-              <RadioGroup value={paymentMethod} onValueChange={setPaymentMethod} className="gap-2">
+              <RadioGroup value={paymentMethod} onValueChange={setPaymentMethod} disabled={attempted} className="gap-2">
                 <label
                   className="flex items-center gap-3 rounded-md border p-3 cursor-pointer hover-elevate"
                   data-testid="radio-buy-funds-card"
@@ -299,12 +365,16 @@ export default function BuyFundsModal({ open, onOpenChange, onCompleted }) {
               <Button type="button" variant="outline" onClick={() => handleClose(false)} disabled={submitting} data-testid="button-buy-funds-cancel">
                 Cancel
               </Button>
-              <Button type="button" onClick={handleCreate} disabled={submitting || !amountValid} data-testid="button-buy-funds-continue">
+              <Button type="button" onClick={handleCreate} disabled={submitting || (!amountValid && !attempted)} data-testid="button-buy-funds-continue">
                 {submitting ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                     Processing...
                   </>
+                ) : queued ? (
+                  "Check purchase status"
+                ) : attempted ? (
+                  "Retry this purchase"
                 ) : paymentMethod === "card" ? (
                   "Continue to payment"
                 ) : (
