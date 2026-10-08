@@ -32,3 +32,9 @@ GoCardless recovery must freeze the dedicated bank setting before accepting the 
 **Why:** A rate-limit delay can span a bank-setting change. Replaying against the changed account misstates where an already collected payment was received, even when its amount and invoice are correct.
 
 **How to apply:** Preserve original collection amount, currency, date, reference and bank setting alongside invoice authority. Xero's configured bank code needs bound account lookup; it is not an AccountID. Keep arrears allocation and migration-managed accounting ownership intact rather than treating their aggregate collections as ordinary instalments.
+
+Compare persisted accounting authority structurally, not by JSON object-key order.
+
+**Why:** Live BNMS queued release evidence was semantically identical to reconstructed release evidence but JSONB reordered its keys. Stringified equality incorrectly placed the requests into permanent review before any provider call.
+
+**How to apply:** Preserve array order and exact scalar values while ignoring object-key order. Test a JSONB-style reordered snapshot, retain genuine financial/release change rejection, and separately recover already-stranded review rows after verifying they never reached a financial write.
