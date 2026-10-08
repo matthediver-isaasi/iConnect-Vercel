@@ -11,6 +11,7 @@ import { buildInvoiceColumnUpdate } from '../_lib/accountingProvider.js';
 import { resolveDdOffer } from '../_lib/gocardlessDirectDebit.js';
 import { getGocardlessCredentials } from '../_lib/gocardlessCredentials.js';
 import { loadFormMembershipRenewalContext } from '../_lib/formMembershipRenewalContext.js';
+import { resolveFormMembershipOrganizationId } from '../_lib/formMembershipOwner.js';
 import { reserveMembershipSuccessor } from '../_lib/membershipSuccessorElection.js';
 import { changeRenewalPaymentMethod, RenewalSwitchError, beginRenewalProviderWork, finishRenewalProviderWork } from '../_lib/renewalPaymentSwitch.js';
 import { buildExtraLineItems, computeAddonTotals, loadAddonLines } from '../_lib/membershipAddons.js';
@@ -73,11 +74,12 @@ async function getMemberById(memberId) {
   return member;
 }
 
-function renewalContext(tenantId, member) {
-  return loadFormMembershipRenewalContext(supabase, {
-    tenantId, memberId: member.id, organizationId: member.organization_id || null,
-    simulate: member.organization_id ? simulateMembershipForOrg : simulateMembershipForMember,
+async function renewalContext(tenantId, member, organizationId) {
+  const context = await loadFormMembershipRenewalContext(supabase, {
+    tenantId, memberId: member.id, organizationId,
+    simulate: organizationId ? simulateMembershipForOrg : simulateMembershipForMember,
   });
+  return { ...context, organizationId };
 }
 
 async function reserveFormSuccessor(context, tenantId, member, method, addonLines = []) {
@@ -95,8 +97,8 @@ async function reserveFormSuccessor(context, tenantId, member, method, addonLine
     throw new Error(context.renewal.message || 'Renewal is not currently available.');
   }
   return reserveMembershipSuccessor(supabase, {
-    tenantId, memberId: member.organization_id ? null : member.id,
-    organizationId: member.organization_id || null,
+    tenantId, memberId: context.organizationId ? null : member.id,
+    organizationId: context.organizationId || null,
     predecessorId: context.renewal.predecessorId,
     start: context.renewal.successorStart, end: context.renewal.successorEnd,
     paymentMethod: method, quote: { simulation: context.simulation, payerMemberId: member.id, addonLines },
@@ -239,7 +241,7 @@ async function handleGet(req, res, resolvedTenantId) {
   }
 
   const tenantId = member.tenant_id;
-  const organizationId = member.organization_id;
+  const organizationId = await resolveFormMembershipOrganizationId(supabase, tenantId, member);
   const isMemberScoped = !organizationId;
 
   let fieldOverrides = {};
@@ -251,7 +253,7 @@ async function handleGet(req, res, resolvedTenantId) {
   }
   if (req.query.configId) explicitConfigId = req.query.configId;
 
-  const context = await renewalContext(tenantId, member);
+  const context = await renewalContext(tenantId, member, organizationId);
   if (context.renewal.state !== 'joining' && !context.simulation) {
     return res.json({ renewal: context.renewal, memberScoped: isMemberScoped,
       stripeEnabled: false, directDebit: null, cardMonthly: null });
@@ -388,7 +390,11 @@ async function handlePost(req, res, resolvedTenantId) {
   }
 
   const tenantId = member.tenant_id;
-  const organizationId = member.organization_id;
+  // Confirmations and payment-method switches use their persisted payment /
+  // election ownership. Do not block those callbacks on fresh scope discovery.
+  const organizationId = ['confirm_payment', 'change_renewal_payment_method'].includes(action)
+    ? member.organization_id || null
+    : await resolveFormMembershipOrganizationId(supabase, tenantId, member);
   const isMemberScoped = !organizationId;
 
   if (action === 'change_renewal_payment_method') {
@@ -422,7 +428,7 @@ async function handlePost(req, res, resolvedTenantId) {
   }
 
   if (action === 'release_unused_renewal') {
-    const context = await renewalContext(tenantId, member);
+    const context = await renewalContext(tenantId, member, organizationId);
     if (!context.election) return res.status(409).json({ error: 'No pending renewal reservation exists.' });
     const result = await supabase.rpc('release_unused_membership_successor', {
       p_tenant_id: tenantId, p_election_id: context.election.id, p_payer_member_id: member.id,
@@ -445,7 +451,7 @@ async function handlePost(req, res, resolvedTenantId) {
   if (req.body.configId) explicitConfigId = req.body.configId;
 
   if (['start_direct_debit', 'start_monthly_card'].includes(action)) {
-    const context = await renewalContext(tenantId, member);
+    const context = await renewalContext(tenantId, member, organizationId);
     const method = action === 'start_direct_debit' ? 'direct_debit' : 'monthly_card';
     if (context.renewal.state !== 'joining') {
       const simulation = context.simulation;
@@ -476,7 +482,7 @@ async function handlePost(req, res, resolvedTenantId) {
   }
 
   if (action === 'create_payment') {
-    const context = req.membershipPaymentContext?.source === 'member-portal' ? null : await renewalContext(tenantId, member);
+    const context = req.membershipPaymentContext?.source === 'member-portal' ? null : await renewalContext(tenantId, member, organizationId);
     if (context && context.renewal.state !== 'joining' && !context.simulation) {
       return res.status(409).json({ error: 'Renewal is not currently available.', renewal: context.renewal });
     }

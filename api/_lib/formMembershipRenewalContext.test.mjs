@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadFormMembershipRenewalContext } from './formMembershipRenewalContext.js';
+import { resolveFormMembershipOrganizationId } from './formMembershipOwner.js';
 import { snapshotFormMembershipPayment, createReservedFormMembershipIntent,
   historyFromFormPaymentSnapshot, loadFormMembershipPaymentQuote } from './formMembershipPaymentQuote.js';
 import { buildAgreementSnapshot, buildMonthlyBillingRequest, computeSubscriptionCollectionDate, resolveDdOffer } from './gocardlessDirectDebit.js';
@@ -29,6 +30,7 @@ function fixture({ paused = false, election = null, now = '2026-11-01T00:00:00Z'
       return {
         select() { return this; }, order() { return this; },
         eq(k, v) { rows = rows.filter(row => row[k] === v); return this; },
+        async limit(count) { return { data: structuredClone(rows.slice(0, count)) }; },
         async range(first, last) { return { data: structuredClone(rows.slice(first, last + 1)) }; },
       };
     },
@@ -69,10 +71,11 @@ for (const method of ['monthly_card', 'direct_debit']) {
       let routed = false;
       class Clock extends Date { constructor(value) { super(value ?? `${date}T12:00:00Z`); } }
       const sandbox = vm.createContext({ Date: Clock,
+        resolveFormMembershipOrganizationId,
         supabase: f.db,
         beginRenewalProviderWork: async () => 'operation',
         finishRenewalProviderWork: async () => true,
-        getMemberById: async () => ({ id: 'member', tenant_id: 'tenant' }),
+        getMemberById: async () => ({ id: 'member', tenant_id: 'tenant', organization_id: 'affiliated-org' }),
         renewalContext: () => loadFormMembershipRenewalContext(f.db, options),
         resolveDirectDebitOption: async () => ({}), resolveCardMonthlyOption: async () => ({}),
         checkApproval: async () => ({ blocked: false }),
@@ -81,6 +84,7 @@ for (const method of ['monthly_card', 'direct_debit']) {
         },
         __import: async () => ({ default: async (req, res) => {
           routed = true;
+          assert.equal(req.body.organizationId, undefined);
           assert.equal(req.membershipPaymentContext.electionId, election.id);
            assert.deepEqual(JSON.parse(JSON.stringify(req.membershipPaymentContext.simulation)), JSON.parse(JSON.stringify(simulation)));
           return res.json({ resumed: true });
@@ -233,7 +237,7 @@ test('actual form create request charges the full successor while current paid h
     charged = { params, options };
     return { id: 'pi_successor', client_secret: 'fixture-only' };
   } } };
-  const db = { async rpc(name, args) {
+  const db = { from: f.db.from.bind(f.db), async rpc(name, args) {
     if (name === 'begin_membership_successor_provider_work') return { data: 'operation' };
     if (name === 'finish_membership_successor_provider_work') return { data: true };
     if (name === 'save_elected_form_membership_quote') {
@@ -249,8 +253,9 @@ test('actual form create request charges the full successor while current paid h
     prepareRequiredStripeCustomer: async () => ({ ok: true, customer: { id: 'customer' } }),
   };
   const context = vm.createContext({
+    resolveFormMembershipOrganizationId,
     console, Date, supabase: db, STRIPE_MIN_CENTS: { gbp: 30 },
-    getMemberById: async () => ({ id: 'member', tenant_id: 'tenant' }),
+    getMemberById: async () => ({ id: 'member', tenant_id: 'tenant', organization_id: 'affiliated-org' }),
     renewalContext: async () => resolved,
     snapshotFormMembershipPayment, saveFormMembershipPaymentQuote,
     createReservedFormMembershipIntent, incentiveFieldsFromSavedQuote,

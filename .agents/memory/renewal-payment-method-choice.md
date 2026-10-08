@@ -23,6 +23,18 @@ can incorrectly reject their personal renewal, or select the wrong owner lock.
 **How to apply:** Derive the lock and quote ownership from the persisted election;
 verify current organisation membership only for organisation-owned renewals.
 
+For form renewal discovery, existing personal membership history or a personal
+billing agreement takes precedence over CRM organisation affiliation. Keep
+paused, cancelled and uncertain personal evidence on the personal eligibility
+path rather than silently switching to an organisation purchase.
+
+**Why:** An organisation-linked BNMS member with a valid personal membership was
+sent to organisation pricing and received a false missing-tier error.
+
+**How to apply:** Share the resolved owner across quote, reservation, approval,
+payment initiation and invoice metadata. Payment confirmations continue to use
+their immutable saved ownership, not a newly inferred owner.
+
 Renewal wording must be friendly and useful to members, not written for admins.
 Keep attestation, provider-settlement provenance and unknown historical
 commencement explanations out of the member-facing renewal summary.
