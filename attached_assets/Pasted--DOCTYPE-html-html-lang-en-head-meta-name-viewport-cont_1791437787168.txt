@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Graduate Futures Institute | HE Careers &amp; Employability | Graduate Futures Institute</title>
+  <meta name="description" content="The UK and Ireland membership organisation for higher education careers and employability professionals and academics—training, research, events, resources and ..." />
+  <meta property="og:title" content="Graduate Futures Institute | HE Careers &amp; Employability | Graduate Futures Institute" />
+  <meta property="og:description" content="The UK and Ireland membership organisation for higher education careers and employability professionals and academics—training, research, events, resources and ..." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://www.graduatefutures.org/" />
+  <meta property="og:image" content="https://vault.iconn.app/storage/v1/object/public/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d/uploads/1784198457014-zah40uj-1782919254048-povilzq-mobconf.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Graduate Futures Institute | HE Careers &amp; Employability | Graduate Futures Institute" />
+  <meta name="twitter:description" content="The UK and Ireland membership organisation for higher education careers and employability professionals and academics—training, research, events, resources and ..." />
+  <meta name="twitter:image" content="https://vault.iconn.app/storage/v1/object/public/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d/uploads/1784198457014-zah40uj-1782919254048-povilzq-mobconf.png" />
+  <link rel="canonical" href="https://www.graduatefutures.org/" />
+  <link rel="icon" href="https://lvmzliemqnieeoruhkik.supabase.co/storage/v1/object/public/file-repository/uploads/1767909733211-xza2ojg-fgifavicon.png" />
+  <meta name="robots" content="index, follow" />
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebPage","name":"Graduate Futures Institute | HE Careers & Employability | Graduate Futures Institute","description":"The UK and Ireland membership organisation for higher education careers and employability professionals and academics—training, research, events, resources and ...","url":"https://www.graduatefutures.org/","image":"https://vault.iconn.app/storage/v1/object/public/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d/uploads/1784198457014-zah40uj-1782919254048-povilzq-mobconf.png","publisher":{"@type":"Organization","name":"Graduate Futures Institute"}}</script>
+</head>
+<body>
+  <header>
+    <p>Graduate Futures Institute</p>
+    <nav aria-label="Main navigation"><ul><li><a href="https://www.graduatefutures.org/about-us">About us</a></li><li><a href="https://www.graduatefutures.org/contact-us">Contact</a></li><li><a href="https://www.graduatefutures.org/leadership-conference-2027/agenda">Agenda</a></li><li><a href="https://www.graduatefutures.org/leadership-conference-2027/book">Book</a></li><li><a href="https://www.graduatefutures.org/Membership">Membership</a></li><li><a href="https://www.graduatefutures.org/PublicResources">Resources</a></li><li><a href="https://www.graduatefutures.org/leadership-conference-2027/speak">Speak</a></li><li><a href="https://www.graduatefutures.org/Membership">Join Us</a></li><li><a href="https://www.graduatefutures.org/PublicEvents">Learn &amp; connect</a></li><li><a href="https://www.graduatefutures.org/event-terms-and-conditions">Event terms &amp; conditions</a></li></ul></nav>
+  </header>
+  <main>
+    
+      <article>
+        <h1>Graduate Futures Institute | HE Careers &amp; Employability</h1>
+        <p>The UK and Ireland membership organisation for higher education careers and employability professionals and academics—training, research, events, resources and a supportive multinational community.</p>
+        <figure><img src="https://vault.iconn.app/storage/v1/object/public/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d/uploads/1784198457014-zah40uj-1782919254048-povilzq-mobconf.png" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" alt="" loading="eager" decoding="async" fetchpriority="high" /></figure>
+<figure><img src="https://vault.iconn.app/storage/v1/object/public/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d/uploads/1784198316012-kq3qxnn-1782917100584-94a5v9g-mobtopnew.png" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" alt="" loading="lazy" decoding="async" /></figure>
+<p><a href="/resources">Resources</a></p>
+<p><a href="/events">Events &amp; Training</a></p>
+<p><a href="/blog">Graduate Futures Blog</a></p>
+<h4>ABOUT US</h4>
+<h2>Welcome to the community for all who contribute to careers and employability in higher education. Through our 150+ member universities we are shaping graduate futures, together.</h2>
+<figure><a href="https://vault.iconn.app/storage/v1/object/public/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d/uploads/1784046685594-b46078v-QDB_Q3_2526.pdf"><img src="https://vault.iconn.app/storage/v1/object/public/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d/uploads/1787134829267-tunxykt-QDB_Q3_2526.png" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" alt="Quarterly Data Barometer Image" loading="lazy" decoding="async" /></a></figure>
+<p><a href="https://vault.iconn.app/storage/v1/object/public/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d/uploads/1784046685594-b46078v-QDB_Q3_2526.pdf">Read now</a></p>
+<figure><a href="https://vault.iconn.app/storage/v1/object/public/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d/uploads/1783433302903-p1kh54u-Issue_175_June_2026_International_Employability_and_Careers_25_.pdf"><img src="https://vault.iconn.app/storage/v1/object/public/public-assets/fd82da65-aab7-4a5c-85b8-b2febeb2003d/uploads/1790579138335-3hm9671-barry.png" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" alt="Annual Conference unpacked image" loading="lazy" decoding="async" /></a></figure>
+<p><a href="/leadership-conference-2027/welcome">Find out more</a></p>
+<h4>Graduate futures blog</h4>
+<h2>What&#39;s New</h2>
+<h4>resources</h4>
+<h2>Access Our Resources</h2>
+<p><span>Sign up to become a member to unlock all our resources.</span></p>
+<p><a href="/Membership">Explore Membership</a></p>
+<h2>Leadership Conference 2027</h2>
+<p>Further, Faster</p>
+<section><article>
+  <h3>Beyond peer observation: Exploring new ways to reflect on practice</h3>
+  <p><strong>Published:</strong> 7 October 2026</p>
+  <p>Amy Kinsman, Careers Adviser at University of St Andrews, profiles a recent guidance observation pilot and advocates for widening the toolkit for reflective practice within careers services.</p>
+  <p><a href="/Articles?slug=beyond-peer-observation-exploring-new-ways-to-reflect-on-practice">Read more</a></p>
+</article>
+<article>
+  <h3>Why graduate transitions are more complex than the headlines</h3>
+  <p><strong>Published:</strong> 5 October 2026</p>
+  <p>Chris Webb RCDP, Career Consultant at The University of Huddersfield and Co-Convenor for the Graduate Transitions Community of Practice, unpacks the headlines around graduate transitions and reflects on practice across the sector.</p>
+  <p><a href="/Articles?slug=why-graduate-transitions-are-more-complex-than-the-headlines">Read more</a></p>
+</article>
+<article>
+  <h3>Road trip: University of the Arts London</h3>
+  <p><strong>Published:</strong> 30 September 2026</p>
+  <p>The latest stop on the Graduate Futures Institute’s road trip took us to University of the Arts London in the heart of the capital. With a bespoke (and GRAFTA-winning!) offer built around developing entrepreneurial skills, the university su...</p>
+  <p><a href="/Articles?slug=road-trip-university-of-the-arts-london">Read more</a></p>
+</article></section>
+      </article>
+  </main>
+  <footer><p>© 2026 Graduate Futures Institute</p></footer>
+
+</body></html>
