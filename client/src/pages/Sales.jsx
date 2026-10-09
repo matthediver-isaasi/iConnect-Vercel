@@ -21,6 +21,7 @@ import {
 import Catalogue from "./sales/Catalogue";
 import OpportunitiesWorkspace from "@/components/sales/OpportunitiesWorkspace";
 import QuotesWorkspace from "@/components/sales/QuotesWorkspace";
+import SalesTasksWorkspace from "@/components/sales/SalesTasksWorkspace";
 import { SalesDashboard, SalesReports } from "@/components/sales/SalesReportingWorkspace";
 
 const ICONS = {
@@ -111,7 +112,7 @@ export default function Sales({ destination = "dashboard" }) {
         <main className="min-w-0">
           {getSalesCatalogueSection(current.key) ? (
             <Catalogue section={getSalesCatalogueSection(current.key)} />
-          ) : current.key === "dashboard" ? <SalesDashboard /> : current.key === "reports" ? <SalesReports /> : current.key === "quotes" ? <QuotesWorkspace /> : ["pipeline", "opportunities", "settings"].includes(current.key) ? (
+          ) : current.key === "tasks" ? <SalesTasksWorkspace /> : current.key === "dashboard" ? <SalesDashboard /> : current.key === "reports" ? <SalesReports /> : current.key === "quotes" ? <QuotesWorkspace /> : ["pipeline", "opportunities", "settings"].includes(current.key) ? (
             <OpportunitiesWorkspace destination={current.key} />
           ) : <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 text-blue-700">

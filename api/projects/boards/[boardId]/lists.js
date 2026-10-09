@@ -1,5 +1,6 @@
 import { supabase } from '../../../_lib/database.js';
 import { getSession } from '../../../_lib/session.js';
+import { guardSalesLinkedProject } from '../../../_lib/salesLinkedProjectGuard.js';
 
 async function getBoardMembership(boardId, identityId) {
   const { data } = await supabase
@@ -42,6 +43,8 @@ export default async function handler(req, res) {
     if (!membership) {
       return res.status(403).json({ error: 'Not a member of this board' });
     }
+    if (!await guardSalesLinkedProject(req, res, boardId,
+      req.method === 'POST' ? 'projects.board-view.create-lists' : 'projects.board-view')) return;
 
     if (req.method === 'GET') {
       const { data: lists, error } = await supabase

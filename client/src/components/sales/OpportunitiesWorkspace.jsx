@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle, ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Columns3,
@@ -25,6 +25,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/use-toast";
 import InvoiceStatusPanel from "@/components/sales/InvoiceStatusPanel";
+import OpportunityProjectTasksPanel from "@/components/sales/OpportunityProjectTasksPanel";
 
 const FALLBACK_STAGES = [];
 const opportunityValue = (value) => value?.value ?? (value?.value_minor == null ? 0 : Number(value.value_minor) / 100);
@@ -394,6 +395,7 @@ function DocumentsPanel({ opportunityId, items, canEdit, onChanged }) {
 
 function OpportunityDetail() {
   const { id } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -454,7 +456,7 @@ function OpportunityDetail() {
       <div className="flex flex-wrap gap-2"><Button asChild><Link to={`/sales/quotes/new?opportunityId=${id}`}><FileText className="mr-2 h-4 w-4" />Create quote</Link></Button>{opportunity.organization_id && <Button variant="outline" asChild><Link to={`/organisations/${opportunity.organization_id}`}>View organisation</Link></Button>}</div>
     </div>
     {isConfirmed && <InvoiceStatusPanel invoice={normalizedDetail.invoice} invoices={normalizedDetail.invoices} activeProvider={normalizedDetail.activeProvider} permissions={capabilities} error={update.error} onCreate={(command) => invoiceAction("create-invoice", command)} onRetry={(command) => invoiceAction("create-invoice", command)} onRefresh={normalizedDetail.invoice ? () => invoiceAction("refresh-invoice-status") : undefined} />}
-    <Tabs defaultValue="overview">
+    <Tabs value={searchParams.get("tab") || "overview"} onValueChange={(tab) => { const params = new URLSearchParams(searchParams); params.set("tab", tab); setSearchParams(params, { replace: true }); }}>
       <TabsList className="h-auto max-w-full flex-wrap justify-start">
         <TabsTrigger value="overview">Overview</TabsTrigger><TabsTrigger value="contacts">Contacts</TabsTrigger><TabsTrigger value="notes">Notes</TabsTrigger><TabsTrigger value="documents">Documents</TabsTrigger><TabsTrigger value="tasks">Tasks</TabsTrigger><TabsTrigger value="activity">Activity</TabsTrigger><TabsTrigger value="quotes">Quotes</TabsTrigger><TabsTrigger value="allocations">Allocations</TabsTrigger>
       </TabsList>
@@ -473,7 +475,7 @@ function OpportunityDetail() {
       <TabsContent value="contacts"><CollectionPanel opportunityId={id} organizationId={opportunity.organization_id} type="contacts" items={collections.contacts} canEdit={canEdit} onChanged={refresh} /></TabsContent>
       <TabsContent value="notes"><CollectionPanel opportunityId={id} type="notes" items={collections.notes} canEdit={canEdit} onChanged={refresh} /></TabsContent>
       <TabsContent value="documents"><DocumentsPanel opportunityId={id} items={collections.documents} canEdit={canEdit} onChanged={refresh} /></TabsContent>
-      <TabsContent value="tasks"><CollectionPanel opportunityId={id} type="tasks" items={collections.tasks} canEdit={canEdit} onChanged={refresh} /></TabsContent>
+      <TabsContent value="tasks"><OpportunityProjectTasksPanel opportunityId={id} standardTasks={<CollectionPanel opportunityId={id} type="tasks" items={collections.tasks} canEdit={canEdit} onChanged={refresh} />} /></TabsContent>
       <TabsContent value="activity"><div className="grid gap-4 lg:grid-cols-2"><Timeline title="Activity" items={collections.activity} /><Timeline title="Stage history" items={collections.stageHistory} /></div></TabsContent>
       <TabsContent value="quotes"><Card><CardContent className="p-10 text-center"><FileText className="mx-auto h-8 w-8 text-slate-300" /><h3 className="mt-3 font-semibold">Opportunity quotes</h3><p className="mt-1 text-sm text-slate-500">Create and manage immutable quote versions in the Quotes workspace.</p><Button className="mt-4" asChild><Link to={`/sales/quotes/new?opportunityId=${id}`}><Plus className="mr-2 h-4 w-4" />Create quote</Link></Button></CardContent></Card></TabsContent>
       <TabsContent value="allocations"><OpportunityAllocations opportunityId={id} /></TabsContent>

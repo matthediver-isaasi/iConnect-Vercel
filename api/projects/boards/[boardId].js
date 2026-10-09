@@ -1,5 +1,6 @@
 import { supabase } from '../../_lib/database.js';
 import { getSession } from '../../_lib/session.js';
+import { guardSalesLinkedProject } from '../../_lib/salesLinkedProjectGuard.js';
 
 async function getBoardMembership(boardId, identityId) {
   const { data } = await supabase
@@ -42,6 +43,9 @@ export default async function handler(req, res) {
     if (!membership) {
       return res.status(403).json({ error: 'Not a member of this board' });
     }
+    // Board owners still need to restore/delete an archived board. Its normal
+    // owner/admin checks below apply; archived cards remain read-only.
+    if (!await guardSalesLinkedProject(req, res, boardId, 'projects.board-view', { allowArchived: true })) return;
 
     if (req.method === 'GET') {
       const { data: board, error } = await supabase

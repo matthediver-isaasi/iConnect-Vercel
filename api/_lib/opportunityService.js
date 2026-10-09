@@ -72,7 +72,7 @@ export async function enrichOpportunities(db, tenantId, opportunities) {
     db.from('organization').select('id,name').eq('tenant_id', tenantId).in('id', orgIds),
     db.from('opportunity_stage').select('id,name,color,probability,is_won,is_lost').eq('tenant_id', tenantId).in('id', stageIds),
     memberOwnerIds.length ? db.from('member').select('id,first_name,last_name,email').eq('tenant_id', tenantId).in('id', memberOwnerIds) : Promise.resolve({ data: [], error: null }),
-    userOwnerIds.length ? db.from('tenant_user').select('id,name,email').eq('tenant_id', tenantId).in('id', userOwnerIds) : Promise.resolve({ data: [], error: null }),
+    userOwnerIds.length ? db.from('tenant_user').select('id,first_name,last_name,email').eq('tenant_id', tenantId).in('id', userOwnerIds) : Promise.resolve({ data: [], error: null }),
     db.from('opportunity_contact_role').select('opportunity_id,member_id,role,is_primary')
       .eq('tenant_id', tenantId).in('opportunity_id', ids).eq('is_primary', true),
   ]);
@@ -99,7 +99,8 @@ export async function enrichOpportunities(db, tenantId, opportunities) {
     const owner = opportunity.owner_kind === 'member'
       ? memberDisplay(members.get(opportunity.owner_id))
       : (users.get(opportunity.owner_id) && { id: opportunity.owner_id,
-        name: users.get(opportunity.owner_id).name || users.get(opportunity.owner_id).email,
+        name: [users.get(opportunity.owner_id).first_name, users.get(opportunity.owner_id).last_name]
+          .filter(Boolean).join(' ') || users.get(opportunity.owner_id).email,
         email: users.get(opportunity.owner_id).email });
     const contactRole = primaryByOpportunity.get(opportunity.id);
     return {

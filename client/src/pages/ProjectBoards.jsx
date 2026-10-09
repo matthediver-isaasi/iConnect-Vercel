@@ -14,6 +14,7 @@ import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { Link } from "react-router-dom";
 import { apiRequest } from "@/lib/queryClient";
+import ProjectsSalesTasksLink from "@/components/sales/ProjectsSalesTasksLink";
 
 const BOARD_COLORS = [
   { value: '#6366f1', label: 'Indigo' },
@@ -118,6 +119,7 @@ export default function ProjectBoardsPage() {
           <p className="text-muted-foreground">Manage your projects with Kanban-style boards</p>
         </div>
         <div className="flex items-center gap-2">
+          <ProjectsSalesTasksLink />
           <Button
             variant="outline"
             size="sm"

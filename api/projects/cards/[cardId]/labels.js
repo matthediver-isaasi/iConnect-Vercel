@@ -1,5 +1,6 @@
 import { supabase } from '../../../_lib/database.js';
 import { getSession } from '../../../_lib/session.js';
+import { guardSalesLinkedProject } from '../../../_lib/salesLinkedProjectGuard.js';
 
 async function getBoardMembershipForCard(cardId, identityId) {
   const { data: card } = await supabase
@@ -51,6 +52,7 @@ export default async function handler(req, res) {
     if (!access?.membership) {
       return res.status(403).json({ error: 'Not a member of this board' });
     }
+    if (!await guardSalesLinkedProject(req, res, access.card.board_id)) return;
 
     if (req.method === 'GET') {
       const { data: cardLabels, error } = await supabase

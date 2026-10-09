@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -13,18 +13,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { 
-  Plus, MoreHorizontal, Loader2, ArrowLeft, Calendar, Users, 
-  MessageSquare, CheckSquare, Tag, Trash2, Archive, Settings, Clock,
-  AlertCircle, X, Check, User, Paperclip, Pencil
+  Plus, MoreHorizontal, Loader2, ArrowLeft, Trash2, Settings, Clock,
+  AlertCircle, X, Check, Paperclip
 } from "lucide-react";
-import { CardAttachments, CardCoverSection } from "@/components/projects/CardAttachments";
+import CardDetailModal from "@/components/sales/ProjectCardDetailModal";
+import ProjectBoardOpportunityPanel from "@/components/sales/ProjectBoardOpportunityPanel";
+import ProjectBoardTaskDeepLink from "@/components/sales/ProjectBoardTaskDeepLink";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useProjectBoardRealtime } from "@/hooks/useProjectBoardRealtime";
 import { Link, useParams } from "react-router-dom";
 import { apiRequest } from "@/lib/queryClient";
-import { format, isPast, isToday, isTomorrow } from "date-fns";
+import { format, isPast, isToday } from "date-fns";
 
 const PRIORITY_COLORS = {
   none: 'bg-muted',
@@ -309,6 +310,8 @@ export default function ProjectBoardPage() {
   const lists = boardData?.lists || [];
   const canManage = ['owner', 'admin'].includes(board?.user_role);
   const canEdit = board?.user_role !== 'viewer';
+  const canAssign = canEdit && !isFeatureExcluded('projects.board-view.assign-cards');
+  const canManageLabels = canManage && canEdit && !isFeatureExcluded('projects.board-view.manage-labels');
 
   return (
     <div className="flex flex-col h-screen">
@@ -358,6 +361,9 @@ export default function ProjectBoardPage() {
           )}
         </div>
       </div>
+
+      <ProjectBoardOpportunityPanel boardId={boardId} />
+      <ProjectBoardTaskDeepLink boardId={boardId} />
 
       <ScrollArea className="flex-1">
         <div className="p-4">
@@ -697,7 +703,9 @@ export default function ProjectBoardPage() {
         lists={lists}
         canEdit={canEdit}
         canManage={canManage}
-        onUpdate={(data) => updateCardMutation.mutate({ cardId: selectedCard.id, data })}
+        canAssign={canAssign}
+        canManageLabels={canManageLabels}
+        onUpdate={async (data) => await updateCardMutation.mutateAsync({ cardId: selectedCard.id, data })}
         onDelete={() => deleteCardMutation.mutate(selectedCard.id)}
         getLabelById={getLabelById}
         getMemberById={getMemberById}
@@ -713,533 +721,6 @@ export default function ProjectBoardPage() {
         onMembersChange={() => queryClient.invalidateQueries({ queryKey: ['project-board', boardId] })}
       />
     </div>
-  );
-}
-
-const LABEL_COLORS = [
-  '#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16',
-  '#22c55e', '#14b8a6', '#06b6d4', '#3b82f6', '#6366f1',
-  '#8b5cf6', '#a855f7', '#ec4899', '#f43f5e', '#78716c'
-];
-
-function CardDetailModal({ 
-  card, open, onOpenChange, boardId, labels, members, lists, canEdit, canManage,
-  onUpdate, onDelete, getLabelById, getMemberById
-}) {
-  const [editedCard, setEditedCard] = useState({});
-  const [newComment, setNewComment] = useState('');
-  const [showLabelPicker, setShowLabelPicker] = useState(false);
-  const [showMemberPicker, setShowMemberPicker] = useState(false);
-  const [editingLabelId, setEditingLabelId] = useState(null);
-  const [editLabelName, setEditLabelName] = useState('');
-  const [editLabelColor, setEditLabelColor] = useState('');
-  const [localAppliedLabels, setLocalAppliedLabels] = useState(null);
-  const queryClient = useQueryClient();
-
-  useEffect(() => {
-    if (card) {
-      setEditedCard({
-        title: card.title,
-        description: card.description || '',
-        due_date: card.due_date ? card.due_date.split('T')[0] : '',
-        priority: card.priority || 'none',
-        is_complete: card.is_complete
-      });
-      setLocalAppliedLabels(card.project_card_label || []);
-    }
-  }, [card]);
-
-  useEffect(() => {
-    if (!open) {
-      setEditingLabelId(null);
-      setLocalAppliedLabels(null);
-    }
-  }, [open]);
-
-  const { data: cardDetails } = useQuery({
-    queryKey: ['card-detail', card?.id],
-    queryFn: async () => {
-      const response = await fetch(`/api/projects/cards/${card.id}`, {
-        credentials: 'include'
-      });
-      if (!response.ok) throw new Error('Failed to fetch card details');
-      return response.json();
-    },
-    enabled: !!card?.id && open
-  });
-
-  const addCommentMutation = useMutation({
-    mutationFn: async (content) => {
-      const response = await apiRequest('POST', `/api/projects/cards/${card.id}/comments`, { content });
-      return response;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['card-detail', card.id] });
-      setNewComment('');
-    }
-  });
-
-  const toggleLabelMutation = useMutation({
-    mutationFn: async ({ labelId, isApplied }) => {
-      if (isApplied) {
-        return apiRequest('DELETE', `/api/projects/cards/${card.id}/labels`, { label_id: labelId });
-      } else {
-        return apiRequest('POST', `/api/projects/cards/${card.id}/labels`, { label_id: labelId });
-      }
-    },
-    onMutate: async ({ labelId, isApplied }) => {
-      const prev = localAppliedLabels ?? card?.project_card_label ?? [];
-      if (isApplied) {
-        setLocalAppliedLabels(prev.filter(l => l.label_id !== labelId));
-      } else {
-        setLocalAppliedLabels([...prev, { label_id: labelId }]);
-      }
-      return { prev };
-    },
-    onError: (_err, _vars, context) => {
-      if (context?.prev !== undefined) setLocalAppliedLabels(context.prev);
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['project-board', boardId] });
-      queryClient.invalidateQueries({ queryKey: ['card-detail', card.id] });
-    }
-  });
-
-  const renameLabelMutation = useMutation({
-    mutationFn: async ({ id, name, color }) => {
-      return apiRequest('PATCH', `/api/projects/boards/${boardId}/labels`, { id, name, color });
-    },
-    onSuccess: () => {
-      setEditingLabelId(null);
-      queryClient.invalidateQueries({ queryKey: ['project-board', boardId] });
-    },
-    onError: () => {
-      toast.error('Failed to update label');
-    }
-  });
-
-  const toggleAssigneeMutation = useMutation({
-    mutationFn: async ({ identityId, isAssigned }) => {
-      if (isAssigned) {
-        return apiRequest('DELETE', `/api/projects/cards/${card.id}/assignees`, { identity_id: identityId });
-      } else {
-        return apiRequest('POST', `/api/projects/cards/${card.id}/assignees`, { identity_id: identityId });
-      }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['project-board'] });
-      queryClient.invalidateQueries({ queryKey: ['card-detail', card.id] });
-    }
-  });
-
-  const handleSave = () => {
-    onUpdate({
-      title: editedCard.title,
-      description: editedCard.description,
-      due_date: editedCard.due_date || null,
-      priority: editedCard.priority,
-      is_complete: editedCard.is_complete
-    });
-    onOpenChange(false);
-  };
-
-  const appliedLabels = localAppliedLabels || card?.project_card_label || [];
-  const isLabelApplied = (labelId) => {
-    return appliedLabels.some(l => l.label_id === labelId);
-  };
-
-  const isAssigned = (identityId) => {
-    return card?.project_card_assignee?.some(a => a.identity_id === identityId);
-  };
-
-  if (!card) return null;
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-0">
-        {card.cover_image && (
-          <div className="relative w-full h-40 bg-muted">
-            <img 
-              src={card.cover_image} 
-              alt=""
-              className="w-full h-full object-cover"
-            />
-          </div>
-        )}
-        <div className="p-6">
-          <DialogHeader>
-            <DialogTitle className="flex items-start gap-3">
-              <input
-                type="checkbox"
-                checked={editedCard.is_complete}
-                onChange={(e) => setEditedCard({ ...editedCard, is_complete: e.target.checked })}
-                className="mt-1 w-5 h-5"
-                disabled={!canEdit}
-              />
-              {canEdit ? (
-                <Input
-                  value={editedCard.title}
-                  onChange={(e) => setEditedCard({ ...editedCard, title: e.target.value })}
-                  className="text-lg font-semibold"
-                  data-testid="input-card-title"
-                />
-              ) : (
-                <span className={editedCard.is_complete ? 'line-through text-muted-foreground' : ''}>
-                  {card.title}
-                </span>
-              )}
-            </DialogTitle>
-          </DialogHeader>
-
-        <div className="grid grid-cols-3 gap-6 mt-4">
-          <div className="col-span-2 space-y-4">
-            <CardCoverSection
-              cardId={card.id}
-              coverImage={card.cover_image}
-              attachments={cardDetails?.attachments || []}
-              canEdit={canEdit}
-              onCoverChange={(newCover) => {
-                onUpdate({ cover_image: newCover });
-              }}
-            />
-
-            <div>
-              <Label>Description</Label>
-              {canEdit ? (
-                <Textarea
-                  value={editedCard.description}
-                  onChange={(e) => setEditedCard({ ...editedCard, description: e.target.value })}
-                  placeholder="Add a more detailed description..."
-                  rows={4}
-                  className="mt-1"
-                  data-testid="input-card-description"
-                />
-              ) : (
-                <p className="text-sm text-muted-foreground mt-1">
-                  {card.description || 'No description'}
-                </p>
-              )}
-            </div>
-
-            <CardAttachments
-              cardId={card.id}
-              attachments={cardDetails?.attachments || []}
-              coverImage={card.cover_image}
-              canEdit={canEdit}
-              onCoverChange={(newCover) => {
-                onUpdate({ cover_image: newCover });
-              }}
-            />
-
-            <div>
-              <Label className="flex items-center gap-2">
-                <MessageSquare className="w-4 h-4" />
-                Comments
-              </Label>
-              <div className="mt-2 space-y-3">
-                {cardDetails?.comments?.map((comment) => (
-                  <div key={comment.id} className="flex gap-3">
-                    <Avatar className="w-8 h-8">
-                      <AvatarImage src={comment.author?.avatar_url} />
-                      <AvatarFallback>
-                        {comment.author?.first_name?.[0]}{comment.author?.last_name?.[0]}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-sm">
-                          {comment.author?.first_name} {comment.author?.last_name}
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          {format(new Date(comment.created_at), 'MMM d, h:mm a')}
-                        </span>
-                      </div>
-                      <p className="text-sm mt-1">{comment.content}</p>
-                    </div>
-                  </div>
-                ))}
-
-                {canEdit && (
-                  <div className="flex gap-2">
-                    <Textarea
-                      value={newComment}
-                      onChange={(e) => setNewComment(e.target.value)}
-                      placeholder="Write a comment..."
-                      rows={2}
-                      className="flex-1"
-                      data-testid="input-new-comment"
-                    />
-                    <Button
-                      size="sm"
-                      onClick={() => addCommentMutation.mutate(newComment)}
-                      disabled={!newComment.trim() || addCommentMutation.isPending}
-                      data-testid="button-add-comment"
-                    >
-                      {addCommentMutation.isPending ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        'Submit'
-                      )}
-                    </Button>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <div>
-              <Label className="flex items-center gap-2">
-                <Calendar className="w-4 h-4" />
-                Due Date
-              </Label>
-              {canEdit ? (
-                <Input
-                  type="date"
-                  value={editedCard.due_date}
-                  onChange={(e) => setEditedCard({ ...editedCard, due_date: e.target.value })}
-                  className="mt-1"
-                  data-testid="input-due-date"
-                />
-              ) : (
-                <p className="text-sm mt-1">
-                  {card.due_date ? format(new Date(card.due_date), 'MMM d, yyyy') : 'Not set'}
-                </p>
-              )}
-            </div>
-
-            <div>
-              <Label>Priority</Label>
-              {canEdit ? (
-                <Select
-                  value={editedCard.priority}
-                  onValueChange={(value) => setEditedCard({ ...editedCard, priority: value })}
-                >
-                  <SelectTrigger className="mt-1" data-testid="select-priority">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">None</SelectItem>
-                    <SelectItem value="low">Low</SelectItem>
-                    <SelectItem value="medium">Medium</SelectItem>
-                    <SelectItem value="high">High</SelectItem>
-                    <SelectItem value="urgent">Urgent</SelectItem>
-                  </SelectContent>
-                </Select>
-              ) : (
-                <Badge className={`mt-1 ${PRIORITY_COLORS[card.priority]}`}>
-                  {card.priority}
-                </Badge>
-              )}
-            </div>
-
-            <div>
-              <Label className="flex items-center gap-2">
-                <Tag className="w-4 h-4" />
-                Labels
-              </Label>
-              <div className="flex flex-wrap gap-1 mt-2">
-                {appliedLabels.map((cl) => {
-                  const label = getLabelById(cl.label_id);
-                  if (!label) return null;
-                  return (
-                    <Badge
-                      key={cl.label_id}
-                      style={{ backgroundColor: label.color }}
-                      className="text-white cursor-pointer"
-                      onClick={() => canEdit && toggleLabelMutation.mutate({ labelId: label.id, isApplied: true })}
-                    >
-                      {label.name}
-                      {canEdit && <X className="w-3 h-3 ml-1" />}
-                    </Badge>
-                  );
-                })}
-                {canEdit && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowLabelPicker(!showLabelPicker)}
-                    data-testid="button-add-label"
-                  >
-                    <Plus className="w-4 h-4" />
-                  </Button>
-                )}
-              </div>
-              {showLabelPicker && (
-                <div className="mt-2 p-2 border rounded-md space-y-1">
-                  {labels.map((label) => (
-                    <div key={label.id}>
-                      {editingLabelId === label.id ? (
-                        <div className="flex flex-col gap-2 p-2 border rounded-md bg-muted/50">
-                          <Input
-                            value={editLabelName}
-                            onChange={(e) => setEditLabelName(e.target.value)}
-                            placeholder="Label name"
-                            className="h-8 text-sm"
-                            data-testid={`input-label-name-${label.id}`}
-                            autoFocus
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                if (editLabelName.trim()) {
-                                  renameLabelMutation.mutate({ id: label.id, name: editLabelName.trim(), color: editLabelColor });
-                                }
-                              }
-                              if (e.key === 'Escape') setEditingLabelId(null);
-                            }}
-                          />
-                          <div className="flex flex-wrap gap-1">
-                            {LABEL_COLORS.map((c) => (
-                              <button
-                                key={c}
-                                className="w-5 h-5 rounded-full border-2 transition-transform"
-                                style={{
-                                  backgroundColor: c,
-                                  borderColor: editLabelColor === c ? 'white' : 'transparent',
-                                  outline: editLabelColor === c ? `2px solid ${c}` : 'none'
-                                }}
-                                onClick={() => setEditLabelColor(c)}
-                                data-testid={`color-swatch-${c}`}
-                              />
-                            ))}
-                          </div>
-                          <div className="flex gap-1 justify-end">
-                            <Button size="sm" variant="ghost" onClick={() => setEditingLabelId(null)}>
-                              Cancel
-                            </Button>
-                            <Button
-                              size="sm"
-                              disabled={!editLabelName.trim() || renameLabelMutation.isPending}
-                              onClick={() => renameLabelMutation.mutate({ id: label.id, name: editLabelName.trim(), color: editLabelColor })}
-                              data-testid={`button-save-label-${label.id}`}
-                            >
-                              Save
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-2 p-1 rounded cursor-pointer hover:bg-muted">
-                          <div
-                            className="flex items-center gap-2 flex-1"
-                            onClick={() => toggleLabelMutation.mutate({ labelId: label.id, isApplied: isLabelApplied(label.id) })}
-                          >
-                            <div
-                              className="w-4 h-4 rounded"
-                              style={{ backgroundColor: label.color }}
-                            />
-                            <span className="text-sm flex-1">{label.name}</span>
-                            {isLabelApplied(label.id) && <Check className="w-4 h-4" />}
-                          </div>
-                          {canManage && (
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-6 w-6"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setEditingLabelId(label.id);
-                                setEditLabelName(label.name);
-                                setEditLabelColor(label.color);
-                              }}
-                              data-testid={`button-edit-label-${label.id}`}
-                            >
-                              <Pencil className="w-3 h-3" />
-                            </Button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div>
-              <Label className="flex items-center gap-2">
-                <Users className="w-4 h-4" />
-                Assignees
-              </Label>
-              <div className="flex flex-wrap gap-1 mt-2">
-                {card.project_card_assignee?.map((a) => {
-                  const member = getMemberById(a.identity_id);
-                  return (
-                    <div
-                      key={a.identity_id}
-                      className="flex items-center gap-1 bg-muted rounded-full pl-1 pr-2 py-1 cursor-pointer"
-                      onClick={() => canEdit && toggleAssigneeMutation.mutate({ identityId: a.identity_id, isAssigned: true })}
-                    >
-                      <Avatar className="w-5 h-5">
-                        <AvatarImage src={member?.avatar_url} />
-                        <AvatarFallback className="text-[10px]">
-                          {member?.first_name?.[0]}{member?.last_name?.[0]}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span className="text-xs">{member?.first_name}</span>
-                      {canEdit && <X className="w-3 h-3" />}
-                    </div>
-                  );
-                })}
-                {canEdit && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowMemberPicker(!showMemberPicker)}
-                    data-testid="button-add-assignee"
-                  >
-                    <Plus className="w-4 h-4" />
-                  </Button>
-                )}
-              </div>
-              {showMemberPicker && (
-                <div className="mt-2 p-2 border rounded-md space-y-1 max-h-40 overflow-y-auto">
-                  {members.map((member) => (
-                    <div
-                      key={member.identity_id}
-                      className="flex items-center gap-2 p-1 rounded cursor-pointer hover:bg-muted"
-                      onClick={() => toggleAssigneeMutation.mutate({ identityId: member.identity_id, isAssigned: isAssigned(member.identity_id) })}
-                    >
-                      <Avatar className="w-6 h-6">
-                        <AvatarImage src={member.avatar_url} />
-                        <AvatarFallback className="text-xs">
-                          {member.first_name?.[0]}{member.last_name?.[0]}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span className="text-sm flex-1">{member.first_name} {member.last_name}</span>
-                      {isAssigned(member.identity_id) && <Check className="w-4 h-4" />}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {canManage && (
-              <Button
-                variant="destructive"
-                size="sm"
-                className="w-full"
-                onClick={onDelete}
-                data-testid="button-delete-card"
-              >
-                <Trash2 className="w-4 h-4 mr-2" />
-                Delete Card
-              </Button>
-            )}
-          </div>
-        </div>
-
-        <DialogFooter className="mt-6">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          {canEdit && (
-            <Button onClick={handleSave} data-testid="button-save-card">
-              Save Changes
-            </Button>
-          )}
-        </DialogFooter>
-        </div>
-      </DialogContent>
-    </Dialog>
   );
 }
 

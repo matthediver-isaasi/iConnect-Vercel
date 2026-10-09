@@ -1,5 +1,6 @@
 import { supabase } from '../_lib/database.js';
 import { getSession } from '../_lib/session.js';
+import { guardSalesLinkedProject } from '../_lib/salesLinkedProjectGuard.js';
 
 async function getBoardMembershipForList(listId, identityId) {
   const { data: list } = await supabase
@@ -64,6 +65,7 @@ export default async function handler(req, res) {
     if (access.membership.role === 'viewer') {
       return res.status(403).json({ error: 'Viewers cannot create cards' });
     }
+    if (!await guardSalesLinkedProject(req, res, access.list.board_id, 'projects.board-view.create-cards')) return;
 
     let cardPosition = position;
     if (cardPosition === undefined) {
