@@ -1279,3 +1279,17 @@ mtime_ms = 1791455542586
 storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/3ecb2646-4e11-467d-bbac-a0d82645d580/56709b97-9b81-4ffa-8eff-8adbca647d8d"
 storage_version_token = "1791455557851092"
 content_type = "application/pdf"
+
+[[outputs]]
+id = "LXXN6RcyCpROJBzFuAMJx"
+uri = "file://private/bnms-cpd-guest-export/BNMS_CPD_Guests_Zero_Points_2026-10-09.xlsx"
+type = "table"
+title = "BNMS CPD Guests — Zero CPD Points"
+description = "Excel spreadsheet containing 780 members, with names, emails, organisations, RBAC role, status, all-time CPD points and member IDs. Includes report criteria and snapshot time."
+logical_id = "3555c489-ce90-4cb7-b0b5-1a3e88492dc2"
+content_hash = "sha256:eb8b3e262cacd638b6f73eb52305ab2df0eb1ca1333d4d2eaad5e9fadd603fc3"
+size = 70462
+mtime_ms = 1791536078057
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:51721687-13aa-4a89-b774-fd4b2602af8d/3555c489-ce90-4cb7-b0b5-1a3e88492dc2/4cca5690-52c8-4983-8cff-e88254e1af16"
+storage_version_token = "1791536085756000"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
