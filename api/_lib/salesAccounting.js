@@ -148,8 +148,8 @@ export async function getSalesAccountingConfiguration(db, tenantId, dependencies
     db.from('system_settings').select('setting_value').eq('tenant_id', tenantId)
       .eq('setting_key', 'quickbooks_sales_item_id').maybeSingle(),
     db.from('sales_settings').select('default_tax_rate_bps').eq('tenant_id', tenantId).maybeSingle(),
-    db.from('sales_commercial_sale').select('quote_version_id').eq('tenant_id', tenantId)
-      .order('created_at', { ascending: false }).limit(500),
+    dependencies.saleId ? db.from('sales_commercial_sale').select('quote_version_id').eq('tenant_id', tenantId)
+      .eq('id', dependencies.saleId).limit(1) : Promise.resolve({ data: [], error: null }),
     provider.listSalesTaxCodes(tenantId),
     provider.listSalesItems(tenantId),
   ]);
@@ -157,18 +157,17 @@ export async function getSalesAccountingConfiguration(db, tenantId, dependencies
   const versionIds = [...new Set((saleResult.data || []).map((sale) => sale.quote_version_id).filter(Boolean))];
   let acceptedRates = [];
   if (versionIds.length) {
-    const { data, error } = await db.from('sales_quote_line').select('tax_rate_bps')
+    const { data, error } = await db.from('sales_quote_line').select('tax_rate_bps,catalogue_snapshot')
       .eq('tenant_id', tenantId).in('quote_version_id', versionIds).limit(2000);
     if (error) throw error;
-    acceptedRates = (data || []).map((line) => Number(line.tax_rate_bps));
+    acceptedRates = (data || []).filter(line => !line.catalogue_snapshot?.tax_code).map((line) => Number(line.tax_rate_bps));
   }
   const mappings = (mappingResult.data || []).map((row) => ({
     taxRateBps: Number(row.tax_rate_bps), providerTaxCodeId: row.provider_tax_code,
     providerTaxCodeName: row.provider_tax_name,
   }));
   const requiredTaxRates = [...new Set([
-    0, Number(salesResult.data?.default_tax_rate_bps || 0),
-    ...mappings.map((mapping) => mapping.taxRateBps), ...acceptedRates,
+    ...acceptedRates,
   ])].filter((rate) => Number.isInteger(rate) && rate >= 0 && rate <= 100000).sort((a, b) => a - b);
   const mappedRates = new Set(mappings.map((mapping) => mapping.taxRateBps));
   const quickbooksSalesItemId = settingsResult.data?.setting_value || null;
@@ -342,7 +341,14 @@ export async function buildInvoice(db, tenantId, sale, version, lines, providerN
   for (const [column, expectedValue] of [['net_minor', expectedTotals.netMinor], ['tax_minor', expectedTotals.taxMinor], ['gross_minor', expectedTotals.grossMinor]]) {
     if (Number(version[column]) !== expectedValue) throw new SalesHttpError(422, `Accepted quote ${column} does not match immutable lines`);
   }
-  const rates = [...new Set(validatedLines.map((line) => Number(line.tax_rate_bps)))];
+  for (const line of validatedLines) {
+    const code = line.catalogue_snapshot?.tax_code;
+    if (code && (code.provider !== providerName || typeof code.id !== 'string' || !code.id
+      || code.rateBps !== Number(line.tax_rate_bps))) {
+      throw new SalesHttpError(422, 'Accepted quote tax code does not match its provider or frozen tax rate. Do not substitute another code.');
+    }
+  }
+  const rates = [...new Set(validatedLines.filter(line => !line.catalogue_snapshot?.tax_code).map((line) => Number(line.tax_rate_bps)))];
   const { data: taxes, error } = await db.from('sales_accounting_tax_mapping').select('*')
     .eq('tenant_id', tenantId).eq('provider', providerName)
     // Configuration is rate-to-provider-code. Zero/non-tax treatment is an
@@ -382,7 +388,7 @@ export async function buildInvoice(db, tenantId, sale, version, lines, providerN
       unitPriceMinor: Number(line.quoted_unit_price_minor), netMinor: Number(line.net_minor),
       taxMinor: Number(line.tax_minor), grossMinor: Number(line.gross_minor),
       discountBps: Number(line.discount_bps),
-      taxRateBps: Number(line.tax_rate_bps), taxCode: taxCodes.get(Number(line.tax_rate_bps)),
+      taxRateBps: Number(line.tax_rate_bps), taxCode: line.catalogue_snapshot?.tax_code?.id || taxCodes.get(Number(line.tax_rate_bps)),
       itemId, accountCode,
     })),
   };

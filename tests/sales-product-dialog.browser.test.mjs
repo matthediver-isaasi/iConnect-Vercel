@@ -14,9 +14,9 @@ const options = {
   provider: 'xero', syncedAt: '2026-10-09T00:00:00Z',
   items: [
     { id: 'OUTPUT2', name: '20% VAT on Income', rateBps: 2000, selectable: true },
-    { id: 'ZERO', name: 'Zero Rated Income', rateBps: 0, selectable: false, reason: 'Configure in Sales settings first' },
+    { id: 'ZERO', name: 'Zero Rated Income', rateBps: 0, selectable: true },
   ],
-  note: 'Sales uses one accounting tax code per tax rate.',
+  note: 'Choose a synced provider tax code.',
 };
 before(async () => {
   const output = await build({
@@ -102,9 +102,9 @@ for (const viewport of [{ width: 1280, height: 720 }, { width: 390, height: 640 
       await page.mouse.wheel(0, 1000);
       await page.waitForFunction(() => document.querySelector('form').scrollTop > 0);
       await page.getByLabel('Cost', { exact: true }).fill('0.29');
-      await page.getByLabel('Synced VAT code').selectOption('OUTPUT2');
+      await page.getByLabel('Synced VAT code').selectOption(JSON.stringify(['xero', 'OUTPUT2']));
       assert.equal(await page.getByLabel('VAT rate', { exact: true }).inputValue(), '20%');
-      assert.equal(await page.locator('option[value="ZERO"]').isDisabled(), true);
+      assert.equal(await page.getByRole('option', { name: /Zero Rated Income/ }).isDisabled(), false);
       await page.getByLabel('Event', { exact: true }).selectOption('event');
       await page.getByLabel('Ticket type', { exact: true }).selectOption('ticket');
       assert.match(await form.innerText(), /Delegates per selected ticket: 4/);
@@ -116,7 +116,8 @@ for (const viewport of [{ width: 1280, height: 720 }, { width: 390, height: 640 
       assert.equal(saved.standardPriceMinor, 12500);
       assert.equal(saved.minimumPriceMinor, null);
       assert.equal(saved.costMinor, 29);
-      assert.equal(saved.taxRateBps, 2000);
+      assert.deepEqual(saved.taxCode, { provider: 'xero', id: 'OUTPUT2' });
+      assert.equal(saved.taxRateBps, undefined);
       assert.deepEqual(saved.capacityMetadata, {});
       assert.equal(saved.eventReference.ticketTypeId, 'ticket');
     } finally { await page.close(); }
@@ -131,8 +132,9 @@ test('existing product retains money, tax and hidden metadata when tax lookup fa
     const saved = await page.evaluate(() => window.savedProduct);
     assert.equal(saved.standardPriceMinor, 12500);
     assert.equal(saved.costMinor, 0);
-    assert.equal(saved.taxRateBps, 2000);
-    assert.equal(saved.taxTreatment, 'standard');
+    assert.equal(saved.taxRateBps, undefined);
+    assert.equal(saved.taxTreatment, undefined);
+    assert.equal(saved.taxCode, undefined);
     assert.deepEqual(saved.capacityMetadata, { venueZone: 'Hall A', nested: { keep: true } });
   } finally { await page.close(); }
 });

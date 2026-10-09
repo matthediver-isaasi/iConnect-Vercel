@@ -14,7 +14,12 @@ export function createCatalogueTaxOptionsHandler(dependencies = {}) {
         return res.status(405).json({ error: 'Method not allowed' });
       }
       const context = await (dependencies.getTenantContext || getTenantContext)(req);
-      const actor = await requireSalesContext(context, SALES_CAPABILITIES.MANAGE_CATALOGUE_PRICES, dependencies);
+      let actor;
+      try { actor = await requireSalesContext(context, SALES_CAPABILITIES.MANAGE_CATALOGUE_PRICES, dependencies); }
+      catch (error) {
+        if (error.status !== 403) throw error;
+        actor = await requireSalesContext(context, SALES_CAPABILITIES.MANAGE_QUOTES, dependencies);
+      }
       if (!db) throw new SalesHttpError(503, 'Database not configured');
       return res.status(200).json(await listCatalogueTaxOptions(db, actor.tenantId, dependencies));
     } catch (error) {

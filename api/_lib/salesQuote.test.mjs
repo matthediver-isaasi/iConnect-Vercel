@@ -1,3 +1,15 @@
+test('saved draft line tax remains frozen despite catalogue changes or submitted rate changes', async () => {
+  const product = { id: uuid, is_active: true, currency: 'GBP', standard_price_minor: 1000,
+    minimum_price_minor: null, tax_rate_bps: 2000, tax_code: { provider: 'xero', id: 'OUTPUT2', rateBps: 2000 } };
+  const db = { from(table) { return { select() { return this; }, eq() { return this; },
+    maybeSingle: async () => ({ data: table === 'sales_catalogue_product' ? product : { default_terms: '' } }) }; } };
+  const previous = new Map([['saved', { catalogue_kind: 'product', catalogue_id: uuid, tax_rate_bps: 0,
+    catalogue_snapshot: { tax_code: { provider: 'xero', id: 'EXEMPT', rateBps: 0 } } }]]);
+  const result = await prepareQuoteDraft(db, 'tenant', { actorId: 'actor' }, { currency: 'GBP',
+    lines: [{ id: 'saved', kind: 'product', catalogueId: uuid, quantity: '1', taxRateBps: 2000 }] }, false, previous);
+  assert.equal(result.lines[0].taxRateBps, 0);
+  assert.equal(result.lines[0].catalogueSnapshot.tax_code.id, 'EXEMPT');
+});
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';

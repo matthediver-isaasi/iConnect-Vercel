@@ -1,3 +1,4 @@
+import { resolveSalesTaxCode } from './salesCatalogueTaxOptions.js';
 import { SalesHttpError } from './salesAccess.js';
 
 const TABLES = {
@@ -61,7 +62,7 @@ const mapProduct = (row) => ({
   standardPriceMinor: Number(row.standard_price_minor),
   minimumPriceMinor: row.minimum_price_minor == null ? null : Number(row.minimum_price_minor),
   costMinor: row.cost_minor == null ? null : Number(row.cost_minor),
-  taxTreatment: row.tax_treatment, taxRateBps: row.tax_rate_bps,
+  taxTreatment: row.tax_treatment, taxRateBps: row.tax_rate_bps, taxCode: row.tax_code || null,
   availableFrom: row.available_from, availableTo: row.available_to,
   capacityMetadata: row.capacity_metadata || {}, displayOrder: row.display_order,
   eventReference: row.event_reference_kind ? {
@@ -181,11 +182,12 @@ const categoryRow = (value) => ({
   ...(value.displayOrder !== undefined ? { display_order: value.displayOrder } : {}),
 });
 const productRow = (value) => ({
+  ...('taxCode' in value ? { tax_code: value.taxCode } : {}),
   code: value.code, sku: value.sku ?? null, name: value.name.trim(),
   short_description: value.shortDescription ?? null, description: value.description ?? null,
   category_id: value.categoryId ?? null, currency: value.currency,
   standard_price_minor: value.standardPriceMinor, minimum_price_minor: value.minimumPriceMinor ?? null,
-  cost_minor: value.costMinor ?? null, tax_treatment: value.taxTreatment,
+  cost_minor: value.costMinor ?? null, tax_treatment: value.taxCode ? 'standard' : value.taxTreatment,
   tax_rate_bps: value.taxRateBps ?? 0, available_from: value.availableFrom ?? null,
   available_to: value.availableTo ?? null, capacity_metadata: value.capacityMetadata ?? {},
   display_order: value.displayOrder ?? 0,
@@ -237,6 +239,8 @@ async function audit(db, tenantId, actor, action, type, id, before, after) {
 
 export async function createCatalogueRecord(db, tenantId, actor, type, value) {
   if (type === 'products') {
+    const taxCode = await resolveSalesTaxCode(db, tenantId, value.taxCode);
+    value = { ...value, taxCode, taxRateBps: taxCode.rateBps };
     await ensureCategory(db, tenantId, value.categoryId);
     await resolveEventTicketReference(db, tenantId, value.eventReference);
   }
@@ -265,6 +269,13 @@ export async function updateCatalogueRecord(db, tenantId, actor, type, id, value
   throwDb(current.error);
   if (!current.data) throw new SalesHttpError(404, 'Catalogue record not found');
   if (type === 'products') {
+    if ('taxCode' in value) {
+      const taxCode = await resolveSalesTaxCode(db, tenantId, value.taxCode);
+      value = { ...value, taxCode, taxRateBps: taxCode.rateBps };
+    } else if (('taxRateBps' in value && value.taxRateBps !== current.data.tax_rate_bps)
+      || ('taxTreatment' in value && value.taxTreatment !== current.data.tax_treatment)) {
+      throw new SalesHttpError(400, 'Select a synced tax code to change the tax treatment.');
+    }
     await ensureCategory(db, tenantId, value.categoryId);
     if ('eventReference' in value) await resolveEventTicketReference(db, tenantId, value.eventReference);
   }

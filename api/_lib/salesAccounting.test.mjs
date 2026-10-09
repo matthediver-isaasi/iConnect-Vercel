@@ -1,3 +1,18 @@
+test('direct codes preserve distinct zero treatments and reject provider/rate substitutions', async () => {
+  const version = { currency: 'GBP', net_minor: 200, tax_minor: 0, gross_minor: 200 };
+  const lines = ['ZERORATED', 'EXEMPT'].map(id => ({
+    description: id, quantity: '1', quoted_unit_price_minor: 100, discount_bps: 0,
+    tax_rate_bps: 0, net_minor: 100, tax_minor: 0, gross_minor: 100,
+    catalogue_snapshot: { tax_code: { provider: 'xero', id, name: id, rateBps: 0 } },
+  }));
+  const db = { from() { const q = { select: () => q, eq: () => q, in: () => q,
+    maybeSingle: async () => ({ data: null }), then: resolve => resolve({ data: [] }) }; return q; } };
+  const result = await buildInvoice(db, 'tenant', {}, version, lines, 'xero', 'customer');
+  assert.deepEqual(result.lines.map(line => line.taxCode), ['ZERORATED', 'EXEMPT']);
+  await assert.rejects(buildInvoice(db, 'tenant', {}, version, lines, 'quickbooks', 'customer'), /provider or frozen tax rate/);
+  lines[0].catalogue_snapshot.tax_code.rateBps = 2000;
+  await assert.rejects(buildInvoice(db, 'tenant', {}, version, lines, 'xero', 'customer'), /provider or frozen tax rate/);
+});
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
@@ -53,7 +68,7 @@ test('accounting configuration patch contract is strict', () => {
   assert.equal(validateSalesAccountingConfigurationPatch({
     provider: 'xero', mappings: [{ taxRateBps: 0, providerTaxCodeId: 'NONE' }],
   }).ok, false);
-  assert.equal(validateSalesAccountingConfigurationPatch({ mappings: [] }).ok, false);
+  assert.equal(validateSalesAccountingConfigurationPatch({ mappings: [] }).ok, true);
 });
 
 function configurationDb(state) {
@@ -105,8 +120,8 @@ test('fresh Xero configuration discovers required zero/default/accepted rates an
     }),
   };
   const fresh = await getSalesAccountingConfiguration(db, 'tenant', deps);
-  assert.deepEqual(fresh.requiredTaxRates, [0, 2000]);
-  assert.equal(fresh.isReady, false);
+  assert.deepEqual(fresh.requiredTaxRates, []);
+  assert.equal(fresh.isReady, true);
   const saved = await saveSalesAccountingConfiguration(db, 'tenant', {
     mappings: [
       { taxRateBps: 0, providerTaxCodeId: 'NONE' },

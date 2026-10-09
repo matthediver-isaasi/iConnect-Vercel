@@ -39,16 +39,21 @@ export function createSalesAccountingHandler(dependencies = {}) {
         ? SALES_CAPABILITIES.VIEW : SALES_CAPABILITIES.MANAGE_ACCOUNTING;
       const actor = await requireSalesContext(context, capability, dependencies);
       if (configuration) {
+        const scopedSaleId = new URL(req.url || '/', 'http://localhost').searchParams.get('saleId') || req.query?.saleId;
+        if (scopedSaleId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(scopedSaleId)) {
+          throw new SalesHttpError(400, 'Invalid sale ID');
+        }
+        const scopedDependencies = { ...dependencies, saleId: scopedSaleId || null };
         // The independent Manage Accounting capability above is authoritative
         // for portal members as well as dashboard tenant administrators.
         if (req.method === 'GET') {
-          return res.status(200).json(await getSalesAccountingConfiguration(db, actor.tenantId, dependencies));
+          return res.status(200).json(await getSalesAccountingConfiguration(db, actor.tenantId, scopedDependencies));
         }
         if (req.method === 'PATCH') {
           const validation = validateSalesAccountingConfigurationPatch(req.body || {});
           if (!validation.ok) return res.status(400).json({ error: 'Invalid accounting configuration', details: validation.errors });
           return res.status(200).json(await saveSalesAccountingConfiguration(
-            db, actor.tenantId, req.body, dependencies,
+            db, actor.tenantId, req.body, scopedDependencies,
           ));
         }
         res.setHeader('Allow', 'GET, PATCH');

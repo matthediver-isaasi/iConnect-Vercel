@@ -96,8 +96,8 @@ export function validateSalesAccountingConfigurationPatch(value) {
   if (!isObject(value)) return { ok: false, errors: ['Body must be an object'] };
   const errors = Object.keys(value).filter((key) => !['mappings', 'quickbooksSalesItemId'].includes(key))
     .map((key) => `Unknown accounting configuration field: ${key}`);
-  if (!Array.isArray(value.mappings) || value.mappings.length === 0) {
-    errors.push('mappings must be a non-empty array');
+  if (!Array.isArray(value.mappings)) {
+    errors.push('mappings must be an array');
   } else {
     const rates = new Set();
     value.mappings.forEach((mapping, index) => {
@@ -228,7 +228,8 @@ export function validateQuoteDraft(value, { existing = false } = {}) {
   if (!Array.isArray(value.lines) || value.lines.length === 0) errors.push('lines must be a non-empty array');
   else value.lines.forEach((line, index) => {
     if (!isObject(line)) return errors.push(`lines[${index}] must be an object`);
-    const lineAllowed = new Set(['kind', 'catalogueId', 'quantity', 'standardUnitPriceMinor', 'quotedUnitPriceMinor', 'discountBps', 'description', 'taxRateBps']);
+    const lineAllowed = new Set(['id', 'kind', 'catalogueId', 'quantity', 'standardUnitPriceMinor', 'quotedUnitPriceMinor', 'discountBps', 'description', 'taxRateBps', 'taxCode']);
+    if (line.id != null && !UUID_RE.test(line.id)) errors.push(`lines[${index}].id is invalid`);
     for (const key of Object.keys(line)) if (!lineAllowed.has(key)) errors.push(`Unknown lines[${index}] field: ${key}`);
     if (!['product', 'bundle', 'free_text'].includes(line.kind) || (line.kind !== 'free_text' && !UUID_RE.test(line.catalogueId || '')) || (line.kind === 'free_text' && line.catalogueId != null)) errors.push(`lines[${index}] must identify a product, bundle, or free_text item`);
     try { parseQuoteQuantity(line.quantity); } catch (error) { errors.push(`lines[${index}].quantity: ${error.message}`); }
@@ -251,10 +252,10 @@ export function normaliseQuoteInput(input) {
     taxTreatment: take('taxTreatment', 'tax_treatment'), paymentTerms: take('paymentTerms', 'payment_terms'), salespersonId: take('salespersonId', 'salesperson_id'),
     lines: (value.lines ?? value.lineItems ?? value.line_items ?? []).map((line) => {
       const kind = line.kind ?? line.type ?? line.line_type ?? (line.bundleId ?? line.bundle_id ? 'bundle' : line.productId ?? line.product_id ? 'product' : 'free_text');
-      const normalized = { kind, catalogueId: line.catalogueId ?? line.catalogue_id ?? (kind === 'bundle' ? line.bundleId ?? line.bundle_id : line.productId ?? line.product_id) ?? null,
+      const normalized = { id: line.id, kind, catalogueId: line.catalogueId ?? line.catalogue_id ?? (kind === 'bundle' ? line.bundleId ?? line.bundle_id : line.productId ?? line.product_id) ?? null,
         quantity: typeof line.quantity === 'number' ? String(line.quantity) : line.quantity, standardUnitPriceMinor: line.standardUnitPriceMinor ?? line.standard_unit_price_minor,
         quotedUnitPriceMinor: line.quotedUnitPriceMinor ?? line.quoted_unit_price_minor, discountBps: line.discountBps ?? line.discount_bps ?? 0,
-        taxRateBps: line.taxRateBps ?? line.tax_rate_bps, description: line.description };
+        taxRateBps: line.taxRateBps ?? line.tax_rate_bps, taxCode: line.taxCode, description: line.description };
       return Object.fromEntries(Object.entries(normalized).filter(([, fieldValue]) => fieldValue !== undefined));
     }),
   };
@@ -387,7 +388,7 @@ export function validateCatalogueProduct(value, { patch = false } = {}) {
   if (!isObject(value)) return { ok: false, errors: ['Body must be an object'] };
   const allowed = new Set([
     'code', 'sku', 'name', 'shortDescription', 'description', 'categoryId', 'currency', 'standardPriceMinor',
-    'minimumPriceMinor', 'costMinor', 'taxTreatment', 'taxRateBps', 'availableFrom',
+    'minimumPriceMinor', 'costMinor', 'taxTreatment', 'taxRateBps', 'taxCode', 'availableFrom',
     'availableTo', 'capacityMetadata', 'eventReference', 'displayOrder',
   ]);
   const errors = Object.keys(value).filter((key) => !allowed.has(key)).map((key) => `Unknown product field: ${key}`);
@@ -409,7 +410,7 @@ export function validateCatalogueProduct(value, { patch = false } = {}) {
       errors.push(`${key} must be a non-negative safe integer${key === 'standardPriceMinor' ? '' : ' or null'}`);
     }
   }
-  if ((!patch || 'taxTreatment' in value) && !SALES_TAX_TREATMENTS.includes(value.taxTreatment)) errors.push('taxTreatment is invalid');
+  if (((!patch && !value.taxCode) || 'taxTreatment' in value) && !SALES_TAX_TREATMENTS.includes(value.taxTreatment)) errors.push('taxTreatment is invalid');
   if ('taxRateBps' in value && (!Number.isInteger(value.taxRateBps) || value.taxRateBps < 0 || value.taxRateBps > 100000)) errors.push('taxRateBps must be an integer from 0 to 100000');
   if ('availableFrom' in value && !validDate(value.availableFrom)) errors.push('availableFrom must be an ISO date/time or null');
   if ('availableTo' in value && !validDate(value.availableTo)) errors.push('availableTo must be an ISO date/time or null');

@@ -13,7 +13,7 @@ const detailText = (value) => {
   return value.name || value.displayName || value.display_name || "";
 };
 
-export default function InvoiceStatusPanel({ invoice, invoices, activeProvider, permissions, error, onCreate, onRetry, onRefresh }) {
+export default function InvoiceStatusPanel({ saleId, invoice, invoices, activeProvider, permissions, error, onCreate, onRetry, onRefresh }) {
   const access = invoicePermissions(permissions);
   const normalized = normalizeInvoice(invoice);
   const history = access.canViewInvoice ? historicalInvoices(invoices, invoice) : [];
@@ -59,7 +59,7 @@ export default function InvoiceStatusPanel({ invoice, invoices, activeProvider, 
       </div>}
       {visibleInvoice?.creationDetail && <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600">{detailText(visibleInvoice.creationDetail) || String(visibleInvoice.creationDetail)}</p>}
       {(visibleInvoice?.error || effectiveError) && <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{effectiveError ? invoiceErrorText(effectiveError) : (detailText(visibleInvoice.error) || String(visibleInvoice.error))}</div>}
-      {configurationGuidance && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><p>{configurationGuidance.message}</p><Link className="mt-1 inline-block font-semibold text-blue-700 hover:underline" to={configurationGuidance.href}>Open Sales settings</Link></div>}
+      {configurationGuidance && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><p>{configurationGuidance.message}</p><Link className="mt-1 inline-block font-semibold text-blue-700 hover:underline" to={`${configurationGuidance.href}${saleId ? `?saleId=${encodeURIComponent(saleId)}` : ""}`}>Open Sales settings</Link></div>}
       {candidates.length > 0 && <fieldset className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">
         <legend className="px-1 font-medium text-amber-900">Choose the customer to use</legend>
         <p className="mb-2 text-amber-800">More than one customer matched. Confirm the intended customer before creating the invoice.</p>

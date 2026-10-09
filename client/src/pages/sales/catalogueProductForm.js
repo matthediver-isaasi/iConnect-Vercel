@@ -1,3 +1,5 @@
+import { selectedProviderTaxCode } from "../../lib/salesTaxCodes.js";
+
 const PRICE_FIELDS = ["standardPriceMinor", "minimumPriceMinor", "costMinor"];
 const MAX_MINOR = BigInt(Number.MAX_SAFE_INTEGER);
 
@@ -44,12 +46,9 @@ export function productPricesForSaving(form) {
 }
 
 export function productTaxForSaving(existing, selectedId, items, available = true) {
-  if (!selectedId && existing) {
-    return { taxRateBps: existing.taxRateBps, taxTreatment: existing.taxTreatment };
-  }
-  const code = available && items.find((item) => item.id === selectedId && item.selectable);
-  if (!code) throw new Error("Select a configured VAT code. Set up Sales tax mappings in Sales Settings if none are available.");
-  return { taxRateBps: code.rateBps, taxTreatment: "standard" };
+  if (!selectedId && existing) return {};
+  const code = selectedProviderTaxCode(selectedId, items, available);
+  return { taxCode: { provider: code.provider, id: code.id } };
 }
 
 export function taxPercent(rateBps) {

@@ -96,11 +96,28 @@ test("requires an explicit accounting-management capability", () => {
   assert.equal(hasAccountingManagementCapability(), false);
 });
 
+test("general settings need no mandatory zero or default percentage mapping", () => {
+  const configuration = normalizeSalesAccountingConfiguration({ activeProvider: "xero" });
+  assert.deepEqual(configuration.requiredTaxRates, []);
+  assert.deepEqual(serializeSalesAccountingConfiguration(configuration, { mappings: {} }), { mappings: [] });
+});
+
+test("QuickBooks item remains required without any legacy rates", () => {
+  const configuration = normalizeSalesAccountingConfiguration({ activeProvider: "quickbooks", requiredTaxRates: [] });
+  assert.throws(() => serializeSalesAccountingConfiguration(configuration, {}), /QuickBooks sales item/);
+  assert.deepEqual(serializeSalesAccountingConfiguration(configuration, { quickbooksSalesItemId: "sales-item" }), { mappings: [], quickbooksSalesItemId: "sales-item" });
+});
+
+test("small legacy basis-point rates display accurately", () => {
+  const configuration = normalizeSalesAccountingConfiguration({ requiredTaxRates: [0, 50, 100, 725] });
+  assert.deepEqual(configuration.requiredTaxRates.map((rate) => rate.label), ["0%", "0.5%", "1%", "7.25%"]);
+});
+
 test("returns actionable Sales settings guidance for accounting configuration errors", () => {
   const expected = {
     ACCOUNTING_TAX_MAPPING_REQUIRED: "Map every required tax rate in Sales settings, then try again.",
     ACCOUNTING_SALES_ITEM_REQUIRED: "Choose the QuickBooks sales item in Sales settings, then try again.",
-    ACCOUNTING_TAX_CODE_INVALID: "A mapped tax code is no longer available. Update the tax mappings in Sales settings, then try again.",
+    ACCOUNTING_TAX_CODE_INVALID: "A saved provider tax code is no longer available. Sync provider codes and explicitly select a replacement on the product or quote line.",
     ACCOUNTING_SALES_ITEM_INVALID: "The selected QuickBooks sales item is no longer available. Choose another item in Sales settings, then try again.",
   };
   for (const [code, message] of Object.entries(expected)) {

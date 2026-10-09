@@ -19,7 +19,7 @@ const option = (value, idKeys) => {
 export function formatRequiredTaxRate(rate) {
   const numeric = Number(rate);
   if (!Number.isFinite(numeric)) return String(rate);
-  const percentage = Math.abs(numeric) > 100 ? numeric / 100 : numeric;
+  const percentage = numeric / 100;
   return `${percentage.toLocaleString()}%`;
 }
 
@@ -82,7 +82,6 @@ export function missingPrerequisiteLabel(value) {
 
 export function serializeSalesAccountingConfiguration(configuration, draft) {
   const requiredRates = configuration?.requiredTaxRates || [];
-  if (!requiredRates.length) throw new Error("At least one required tax rate must be configured.");
   const missingRates = [];
   const mappings = requiredRates.map((rate) => {
     const taxRateBps = Number(rate.value);
@@ -113,7 +112,7 @@ export function accountingErrorGuidance(error) {
   const guidance = {
     ACCOUNTING_TAX_MAPPING_REQUIRED: "Map every required tax rate in Sales settings, then try again.",
     ACCOUNTING_SALES_ITEM_REQUIRED: "Choose the QuickBooks sales item in Sales settings, then try again.",
-    ACCOUNTING_TAX_CODE_INVALID: "A mapped tax code is no longer available. Update the tax mappings in Sales settings, then try again.",
+    ACCOUNTING_TAX_CODE_INVALID: "A saved provider tax code is no longer available. Sync provider codes and explicitly select a replacement on the product or quote line.",
     ACCOUNTING_SALES_ITEM_INVALID: "The selected QuickBooks sales item is no longer available. Choose another item in Sales settings, then try again.",
     // Retained for responses created by older API versions.
     ACCOUNTING_TAX_MAPPING_MISSING: "Map every required tax rate in Sales settings, then try again.",

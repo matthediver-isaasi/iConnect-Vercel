@@ -22,11 +22,6 @@ export async function listCatalogueTaxOptions(db, tenantId, dependencies = {}) {
   if (!snapshot || !Array.isArray(snapshot.rates) || (snapshot.provider || 'xero') !== provider) {
     throw new SalesHttpError(409, 'Sync VAT/tax codes for the active accounting provider first.');
   }
-  const { data: mappings, error: mappingError } = await db.from('sales_accounting_tax_mapping')
-    .select('tax_rate_bps,provider_tax_code').eq('tenant_id', tenantId)
-    .eq('provider', provider).eq('tax_treatment', 'standard');
-  if (mappingError) throw mappingError;
-  const mappingByRate = new Map((mappings || []).map(row => [Number(row.tax_rate_bps), String(row.provider_tax_code)]));
   const items = snapshot.rates.flatMap(rate => {
     if (rate.status !== 'ACTIVE' || rate.canApplyToRevenue !== true
       || !['number', 'string'].includes(typeof rate.effectiveRate) || String(rate.effectiveRate).trim() === ''
@@ -36,14 +31,24 @@ export async function listCatalogueTaxOptions(db, tenantId, dependencies = {}) {
     if (!Number.isFinite(percent) || percent < 0 || rateBps > 100000
       || Math.abs(percent * 100 - rateBps) > 0.000001) return [];
     const id = String(rate.taxType);
-    const selectable = mappingByRate.get(rateBps) === id;
     return [{
-      id, name: String(rate.name), rateBps, selectable,
-      reason: selectable ? null : 'Configure this code for its rate in Sales settings first.',
+      id, name: String(rate.name), rateBps, selectable: true, reason: null,
     }];
   }).sort((a, b) => a.rateBps - b.rateBps || a.name.localeCompare(b.name));
   return {
     provider, syncedAt: snapshot.syncedAt || null, items,
-    note: 'Sales uses one accounting tax code per tax rate. Configure the rate-to-code mappings in Sales settings. Selecting a code here sets the product tax rate; it does not change those mappings.',
+    note: 'Choose a synced sales tax code. Its rate is applied automatically and its accounting identity is preserved on quotes and invoices.',
   };
+}
+
+export async function resolveSalesTaxCode(db, tenantId, choice, dependencies = {}) {
+  if (!choice || typeof choice.id !== 'string' || !['xero', 'quickbooks'].includes(choice.provider)) {
+    throw new SalesHttpError(400, 'Select an accounting VAT/tax code.');
+  }
+  const options = await listCatalogueTaxOptions(db, tenantId, dependencies);
+  const code = options.items.find(item => item.id === choice.id);
+  if (choice.provider !== options.provider || !code) {
+    throw new SalesHttpError(409, 'The selected tax code is not available for the active accounting provider. Refresh the synced codes.');
+  }
+  return { provider: options.provider, id: code.id, name: code.name, rateBps: code.rateBps };
 }

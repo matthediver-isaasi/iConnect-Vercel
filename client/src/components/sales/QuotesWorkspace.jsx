@@ -19,6 +19,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/use-toast";
 import InvoiceStatusPanel from "@/components/sales/InvoiceStatusPanel";
 import { calculateQuoteLine } from "@shared/salesContracts.js";
+import { useCatalogueTaxOptions } from "@/pages/sales/useCatalogue";
+import { persistedQuoteLineId, providerTaxOptions, quoteLineIdentityForSaving, quoteLineTaxForSaving, savedLineTaxCode, taxCodeKey, taxCodeLabel } from "@/lib/salesTaxCodes";
 
 const list = (value) => Array.isArray(value) ? value : value?.items || value?.data || value?.results || value?.quotes || [];
 const idOf = (value) => value?.id || value?._id;
@@ -72,7 +74,8 @@ function openBlob(blob, filename, preview = false) {
 
 const emptyLine = () => ({
   key: crypto.randomUUID(), type: "free_text", productId: "", bundleId: "", description: "",
-  quantity: 1, standardUnitPriceMinor: 0, quotedUnitPriceMinor: 0, discountBps: 0, taxRateBps: 2000,
+  quantity: 1, standardUnitPriceMinor: 0, quotedUnitPriceMinor: 0, discountBps: 0, taxRateBps: 0,
+  taxCode: null, taxChanged: false, legacyTax: false, persistedLineId: null,
 });
 
 const blankQuote = (opportunityId = "") => ({
@@ -86,11 +89,13 @@ const blankQuote = (opportunityId = "") => ({
 function normalizeLine(line, index) {
   return {
     ...emptyLine(), ...line, key: idOf(line) || line.key || `line-${index}`,
+    persistedLineId: persistedQuoteLineId(line),
     type: line.kind || line.type || line.line_type || (line.catalogueId || line.catalogue_id ? "product" : "free_text"),
     productId: pick(line, "catalogueId", "catalogue_id", pick(line, "productId", "product_id")), bundleId: pick(line, "catalogueId", "catalogue_id", pick(line, "bundleId", "bundle_id")),
     standardUnitPriceMinor: pick(line, "standardUnitPriceMinor", "standard_unit_price_minor", 0),
     quotedUnitPriceMinor: pick(line, "quotedUnitPriceMinor", "quoted_unit_price_minor", 0),
     discountBps: pick(line, "discountBps", "discount_bps", 0), taxRateBps: pick(line, "taxRateBps", "tax_rate_bps", 0),
+    taxCode: savedLineTaxCode(line), taxChanged: false, legacyTax: !savedLineTaxCode(line),
   };
 }
 
@@ -188,12 +193,14 @@ function lineTotals(line) {
 }
 
 function LinesEditor({ form, setForm, products, bundles, readOnly, canOverride }) {
+  const taxOptions = useCatalogueTaxOptions(!readOnly);
+  const taxItems = providerTaxOptions(taxOptions.data);
   const patch = (index, changes) => setForm((old) => ({ ...old, lines: old.lines.map((line, i) => i === index ? { ...line, ...changes } : line) }));
   const add = (type) => setForm((old) => ({ ...old, lines: [...old.lines, { ...emptyLine(), type }] }));
   const choose = (index, type, id) => {
     const source = (type === "product" ? products : bundles).find((item) => String(idOf(item)) === String(id));
     const price = type === "product" ? pick(source, "standardPriceMinor", "standard_price_minor", 0) : pick(source, "sellingPriceMinor", "selling_price_minor", 0);
-    patch(index, { [`${type}Id`]: id, description: source?.name || "", standardUnitPriceMinor: price, quotedUnitPriceMinor: price, taxRateBps: pick(source, "taxRateBps", "tax_rate_bps", 2000) });
+    patch(index, { [`${type}Id`]: id, description: source?.name || "", standardUnitPriceMinor: price, quotedUnitPriceMinor: price, ...(type === "product" ? { taxRateBps: pick(source, "taxRateBps", "tax_rate_bps", 0), taxCode: source?.taxCode || null, legacyTax: false, taxChanged: false } : {}) });
   };
   const move = (index, direction) => setForm((old) => { const lines = [...old.lines]; [lines[index], lines[index + direction]] = [lines[index + direction], lines[index]]; return { ...old, lines }; });
   return <Card><CardHeader className="flex-row flex-wrap items-center justify-between gap-2"><div><CardTitle>Quote lines</CardTitle><p className="mt-1 text-sm text-slate-500">Add catalogue items, bundles or a custom line. Prices are entered in minor units.</p></div>{!readOnly && <div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => add("product")}><Plus className="mr-1 h-3.5 w-3.5" />Product</Button><Button size="sm" variant="outline" onClick={() => add("bundle")}><Plus className="mr-1 h-3.5 w-3.5" />Bundle</Button><Button size="sm" variant="outline" onClick={() => add("free_text")}><Plus className="mr-1 h-3.5 w-3.5" />Free text</Button></div>}</CardHeader><CardContent>
@@ -206,13 +213,32 @@ function LinesEditor({ form, setForm, products, bundles, readOnly, canOverride }
           <div><Label>Standard</Label><Input disabled={readOnly || line.type !== "free_text"} type="number" min="0" value={line.standardUnitPriceMinor} onChange={(e) => patch(index, { standardUnitPriceMinor: e.target.value, quotedUnitPriceMinor: e.target.value })} /></div>
           <div><Label>Quoted</Label><Input disabled={readOnly || !canOverride} title={!canOverride ? "You do not have permission to override prices" : ""} type="number" min="0" value={line.quotedUnitPriceMinor} onChange={(e) => patch(index, { quotedUnitPriceMinor: e.target.value })} /></div>
           <div><Label>Discount %</Label><Input disabled={readOnly || !canOverride} title={!canOverride ? "You do not have permission to apply discounts" : ""} type="number" min="0" max="100" step=".01" value={Number(line.discountBps || 0) / 100} onChange={(e) => patch(index, { discountBps: Math.round(Number(e.target.value) * 100) })} /></div>
-          <div><Label>Tax %</Label><Input disabled={readOnly} type="number" min="0" step=".01" value={Number(line.taxRateBps || 0) / 100} onChange={(e) => patch(index, { taxRateBps: Math.round(Number(e.target.value) * 100) })} /></div>
+          <div><Label>Tax %</Label><Input readOnly aria-label={`Line ${index + 1} tax rate`} value={Number(line.taxRateBps || 0) / 100} /></div>
           <div className="text-right"><Label>Gross</Label><p className="pt-2 font-semibold">{money(totals.gross, form.currency)}</p><p className="text-[11px] text-slate-500">net {money(totals.net, form.currency)} · tax {money(totals.tax, form.currency)}</p></div>
           {!readOnly && <div className="flex items-end gap-1"><Button variant="ghost" size="icon" disabled={!index} onClick={() => move(index, -1)}><ArrowUp className="h-4 w-4" /></Button><Button variant="ghost" size="icon" disabled={index === form.lines.length - 1} onClick={() => move(index, 1)}><ArrowDown className="h-4 w-4" /></Button><Button variant="ghost" size="icon" onClick={() => setForm((old) => ({ ...old, lines: old.lines.filter((_, i) => i !== index) }))}><Trash2 className="h-4 w-4 text-rose-600" /></Button></div>}
         </div>
         {line.type !== "free_text" && <Input disabled={readOnly} className="mt-2 bg-white" value={line.description} onChange={(e) => patch(index, { description: e.target.value })} aria-label="Line description" />}
+        <div className="mt-3">
+          <Label>Provider VAT code</Label>
+          {line.type === "product" || readOnly ? <p className="mt-1 text-xs text-slate-600">{line.taxCode ? taxCodeLabel(line.taxCode) : line.legacyTax ? "Legacy tax — no saved provider code. Existing tax is preserved." : "Uses the selected product’s provider code automatically."}</p> : <>
+            <select aria-label={`Line ${index + 1} provider VAT code`} className="mt-1 h-9 w-full rounded-md border border-input bg-white px-3 text-sm disabled:opacity-50" disabled={taxOptions.isPending || taxOptions.isError} value={line.taxChanged ? taxCodeKey(line.taxCode) : ""} onChange={(event) => {
+              if (!event.target.value) {
+                const saved = form.lines[index];
+                patch(index, { taxCode: saved.originalTaxCode || null, taxRateBps: saved.originalTaxRateBps ?? 0, legacyTax: saved.originalLegacyTax ?? false, taxChanged: false });
+                return;
+              }
+              const code = taxItems.find((item) => taxCodeKey(item) === event.target.value && item.selectable);
+              if (code) patch(index, { ...(!line.taxChanged ? { originalTaxCode: line.taxCode, originalTaxRateBps: line.taxRateBps, originalLegacyTax: line.legacyTax } : {}), taxCode: code, taxRateBps: code.rateBps, taxChanged: true });
+            }}>
+              <option value="">{line.taxChanged ? "Undo tax selection" : line.taxCode ? `Keep saved: ${taxCodeLabel(line.taxCode)}` : line.legacyTax ? "Keep legacy tax — no saved provider code" : "Choose a synced provider VAT code"}</option>
+              {taxItems.filter((code) => taxCodeKey(code)).map((code) => <option key={taxCodeKey(code)} value={taxCodeKey(code)} disabled={!code.selectable}>{taxCodeLabel(code)} · {Number(code.rateBps) / 100}%</option>)}
+            </select>
+            {!line.taxChanged && line.legacyTax && <p className="mt-1 text-xs text-slate-500">Existing tax is preserved until you explicitly choose a provider code.</p>}
+          </>}
+        </div>
       </div>;
     })}</div>}
+    {!readOnly && <div className="mt-3 text-xs text-slate-500">{taxOptions.isPending ? <p role="status" className="animate-pulse rounded bg-slate-100 p-3">Loading synced VAT codes…</p> : taxOptions.isError ? <p role="alert">{taxOptions.error?.message || "VAT codes could not be loaded."} <Button variant="link" className="h-auto p-0 text-xs" onClick={() => taxOptions.refetch()}>Retry</Button></p> : !taxItems.some((item) => item.selectable) ? <p>No synced provider VAT codes are available. Sync tax codes in your accounting integration settings. Existing saved tax can still be retained.</p> : <p>Choose provider codes directly. Tax rates are derived from the selected code; product lines use their catalogue code.</p>}</div>}
   </CardContent></Card>;
 }
 
@@ -296,6 +322,7 @@ function QuoteEditor() {
   const opportunity = useQuery({ queryKey: ["quote-opportunity", opportunityId], queryFn: () => request(`/api/opportunities/${opportunityId}`), enabled: isNew && Boolean(opportunityId) });
   const products = useQuery({ queryKey: ["quote-products"], queryFn: () => request("/api/sales/catalogue/products") });
   const bundles = useQuery({ queryKey: ["quote-bundles"], queryFn: () => request("/api/sales/catalogue/bundles") });
+  const taxOptions = useCatalogueTaxOptions(true);
   const [form, setForm] = useState(() => blankQuote(opportunityId));
   const [loadedId, setLoadedId] = useState(null);
   const [savedFingerprint, setSavedFingerprint] = useState("");
@@ -328,7 +355,7 @@ function QuoteEditor() {
     address: form.address, event: form.eventId ? { id: form.eventId, kind: form.eventKind || "simple" } : null, issueDate: form.issueDate || null, validUntil: form.validUntil || null,
     purchaseOrderReference: form.purchaseOrderReference || null, customerReference: form.customerReference || null, notes: form.notes,
     currency: form.currency, taxTreatment: form.taxTreatment, paymentTerms: form.paymentTerms, terms: form.paymentTerms, salespersonId: form.salespersonId || null,
-    lines: form.lines.map((line) => ({ kind: line.type, catalogueId: line.type === "product" ? line.productId || null : line.type === "bundle" ? line.bundleId || null : null, description: line.description, quantity: String(line.quantity || "0"), quotedUnitPriceMinor: minor(line.quotedUnitPriceMinor), ...(line.type === "free_text" ? { standardUnitPriceMinor: minor(line.standardUnitPriceMinor) } : {}), discountBps: minor(line.discountBps), taxRateBps: minor(line.taxRateBps) })),
+    lines: form.lines.map((line) => ({ ...quoteLineIdentityForSaving(line), kind: line.type, catalogueId: line.type === "product" ? line.productId || null : line.type === "bundle" ? line.bundleId || null : null, description: line.description, quantity: String(line.quantity || "0"), quotedUnitPriceMinor: minor(line.quotedUnitPriceMinor), ...(line.type === "free_text" ? { standardUnitPriceMinor: minor(line.standardUnitPriceMinor) } : {}), discountBps: minor(line.discountBps), ...quoteLineTaxForSaving(line, providerTaxOptions(taxOptions.data), !taxOptions.isPending && !taxOptions.isError) })),
     expectedVersion: quote.rowVersion,
   });
   const preview = useMutation({
@@ -387,7 +414,7 @@ function QuoteEditor() {
       {!isNew && status === "accepted" && allowed(["canTransition", "can_transition", "transition"], false) && <Button variant="outline" onClick={() => action.mutate({ action: "transition", extra: { status: "converted" } })}>Convert</Button>}
     </div></div>
     {!isNew && <SendQuoteDialog open={sendOpen} onOpenChange={setSendOpen} pending={deliveryAction.isPending} initialRecipient={quote.recipient || quote.customerEmail || quote.customer_email || ""} onSend={(extra) => deliveryAction.mutate({ action: "send", extra })} />}
-    {!isNew && (["accepted", "converted"].includes(status) || Boolean(quote.saleId)) && <InvoiceStatusPanel invoice={quote.invoice} invoices={quote.invoices} activeProvider={quote.activeProvider} permissions={permissions} error={action.error} onCreate={(command) => invoiceAction("create-invoice", command)} onRetry={(command) => invoiceAction("create-invoice", command)} onRefresh={quote.invoice ? () => invoiceAction("refresh-invoice-status") : undefined} />}
+    {!isNew && (["accepted", "converted"].includes(status) || Boolean(quote.saleId)) && <InvoiceStatusPanel saleId={quote.saleId} invoice={quote.invoice} invoices={quote.invoices} activeProvider={quote.activeProvider} permissions={permissions} error={action.error} onCreate={(command) => invoiceAction("create-invoice", command)} onRetry={(command) => invoiceAction("create-invoice", command)} onRefresh={quote.invoice ? () => invoiceAction("refresh-invoice-status") : undefined} />}
     {isNew && !opportunityId && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><AlertTriangle className="mr-2 inline h-4 w-4" />A quote must be linked to an opportunity. Enter its ID below or start from an opportunity detail page.</div>}
     <Tabs defaultValue="quote"><TabsList><TabsTrigger value="quote">Quote</TabsTrigger>{!isNew && <><TabsTrigger value="delivery">Delivery</TabsTrigger><TabsTrigger value="history">History & compare</TabsTrigger></>}</TabsList>
       <TabsContent value="quote" className="space-y-5">

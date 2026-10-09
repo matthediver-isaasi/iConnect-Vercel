@@ -1,6 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { listCatalogueTaxOptions } from './salesCatalogueTaxOptions.js';
+import { listCatalogueTaxOptions, resolveSalesTaxCode } from './salesCatalogueTaxOptions.js';
+test('selected code resolves tenant rate/name server-side and rejects invalid identities', async () => {
+  const f = fixture();
+  assert.deepEqual(await resolveSalesTaxCode(f.db, 'tenant-a', { provider: 'xero', id: 'OUTPUT2', rateBps: 0, name: 'Forged' }, f),
+    { provider: 'xero', id: 'OUTPUT2', name: '20% VAT on Income', rateBps: 2000 });
+  for (const choice of [null, { provider: 'quickbooks', id: 'OUTPUT2' }, { provider: 'xero', id: 'NOT-A-CODE' }]) {
+    await assert.rejects(resolveSalesTaxCode(f.db, 'tenant-a', choice, f), e => [400, 409].includes(e.status));
+  }
+});
 import { createCatalogueTaxOptionsHandler } from '../sales/catalogue/tax-options.js';
 
 const rate = (taxType, effectiveRate, name = taxType, extra = {}) => ({
@@ -31,16 +39,16 @@ function fixture({ provider = 'xero', snapshot = { rates: [
     hasFeatureAccess: async () => authorized };
 }
 
-test('reads synced revenue codes only and allows only exact configured Sales mappings', async () => {
+test('reads synced revenue codes directly, retaining different codes at the same rate', async () => {
   const f = fixture();
   const result = await listCatalogueTaxOptions(f.db, 'tenant-a', f);
   assert.equal(result.items.length, 3);
   assert.equal(result.items.find(r => r.id === 'OUTPUT2').rateBps, 2000);
   assert.equal(result.items.find(r => r.id === 'OUTPUT2').selectable, true);
   assert.equal(result.items.find(r => r.id === 'ZERORATED').selectable, true);
-  assert.equal(result.items.find(r => r.id === 'EXEMPT').selectable, false);
+  assert.equal(result.items.find(r => r.id === 'EXEMPT').selectable, true);
   for (const read of f.reads) assert.ok(read.filters.some(([key, value]) => key === 'tenant_id' && value === 'tenant-a'));
-  assert.ok(f.reads[1].filters.some(([key, value]) => key === 'provider' && value === 'xero'));
+  assert.equal(f.reads.length, 1, 'No percentage mapping read is needed');
 });
 test('rejects missing, malformed or wrong-provider snapshots instead of falling back to zero tax', async () => {
   for (const options of [{ provider: 'none' }, { snapshot: null }, { snapshot: '{bad' },

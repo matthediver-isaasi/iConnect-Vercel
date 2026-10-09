@@ -13,6 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useCatalogue, useCatalogueTaxOptions, useEventOptions } from "./useCatalogue";
 import { productPricesForEditing, productPricesForSaving, productTaxForSaving, taxPercent } from "./catalogueProductForm";
+import { providerTaxOptions, taxCodeKey, taxCodeLabel } from "@/lib/salesTaxCodes";
 import { getSalesCataloguePath } from "@/lib/salesNavigation";
 import { catalogueCodeError, normaliseCatalogueCode, suggestedCatalogueCategoryCode } from "../../../../shared/salesContracts.js";
 
@@ -122,12 +123,12 @@ export function EditDialog({ config, categories, categoriesLoading, products, ev
   const submit = (event) => {
     event.preventDefault();
     if (categoryError) return;
-    const numeric = ["standardPriceMinor", "minimumPriceMinor", "costMinor", "taxRateBps", "sellingPriceMinor"];
-    const allowed = type === "categories" ? ["name", "code", "description"] : type === "products" ? ["name", "code", "sku", "categoryId", "currency", "standardPriceMinor", "minimumPriceMinor", "costMinor", "shortDescription", "description", "taxTreatment", "taxRateBps", "availableFrom", "availableTo", "eventReference", "capacityMetadata"] : ["name", "code", "currency", "sellingPriceMinor", "minimumPriceMinor", "presentationMode", "availableFrom", "availableTo", "description", "items"];
+    const numeric = ["standardPriceMinor", "minimumPriceMinor", "costMinor", "sellingPriceMinor"];
+    const allowed = type === "categories" ? ["name", "code", "description"] : type === "products" ? ["name", "code", "sku", "categoryId", "currency", "standardPriceMinor", "minimumPriceMinor", "costMinor", "shortDescription", "description", "availableFrom", "availableTo", "eventReference", "capacityMetadata"] : ["name", "code", "currency", "sellingPriceMinor", "minimumPriceMinor", "presentationMode", "availableFrom", "availableTo", "description", "items"];
     const data = Object.fromEntries(allowed.map((key) => [key, numeric.includes(key) && form[key] !== "" ? Number(form[key]) : form[key] === "" ? null : form[key]]));
     if (type === "products") {
       try {
-        Object.assign(data, productPricesForSaving(form), productTaxForSaving(config.row, selectedTaxId, taxOptions.data?.items || [], !taxOptions.isError && !taxOptions.isPending));
+        Object.assign(data, productPricesForSaving(form), productTaxForSaving(config.row, selectedTaxId, providerTaxOptions(taxOptions.data), !taxOptions.isError && !taxOptions.isPending));
       } catch (error) {
         setFormError(error.message);
         return;
@@ -160,9 +161,9 @@ function ProductFields({ form, update, categories, events, existing, taxOptions,
   const ref = form.eventReference || {};
   const selected = eventList.find((item) => String(item.id) === String(ref.eventId));
   const ticket = selected?.ticketOptions?.find((item) => String(item.id) === String(ref.ticketTypeId));
-  const taxItems = taxOptions.data?.items || [];
-  const selectedCode = taxItems.find((item) => item.id === selectedTaxId && item.selectable);
-  const savedMatch = existing?.taxTreatment === "standard" && taxItems.find((item) => item.selectable && item.rateBps === existing.taxRateBps);
+  const taxItems = providerTaxOptions(taxOptions.data);
+  const selectedCode = taxItems.find((item) => taxCodeKey(item) === selectedTaxId && item.selectable);
+  const savedCode = existing?.taxCode;
   const patchEvent = (eventId) => {
     const event = eventList.find((item) => String(item.id) === String(eventId));
     update("eventReference", { kind: event?.kind || "", eventId, ticketTypeId: "" });
@@ -177,19 +178,19 @@ function ProductFields({ form, update, categories, events, existing, taxOptions,
     <Field label={`Cost (${form.currency || "GBP"}, excl. VAT)`}><Input aria-label="Cost" type="text" inputMode="decimal" value={form.costMinor ?? ""} onChange={(e) => update("costMinor", e.target.value)} /></Field>
     <Field label="Synced VAT code">
       <ProductSelect aria-label="Synced VAT code" value={selectedTaxId} onChange={(e) => onTaxChange(e.target.value)} disabled={taxOptions.isPending || taxOptions.isError}>
-        <option value="">{existing ? `Keep saved: ${savedMatch ? savedMatch.name : existing.taxTreatment || "tax treatment"} (${taxPercent(existing.taxRateBps)})` : "Select a configured VAT code"}</option>
-        {taxItems.map((item) => <option key={item.id} value={item.id} disabled={!item.selectable}>{item.name} ({taxPercent(item.rateBps)}){!item.selectable ? ` — ${item.reason || "Not mapped in Sales Settings"}` : ""}</option>)}
+        <option value="">{existing ? `Keep saved: ${savedCode ? taxCodeLabel(savedCode) : "Legacy tax — no saved code"} (${taxPercent(existing.taxRateBps)})` : "Select a synced provider VAT code"}</option>
+        {taxItems.filter((item) => taxCodeKey(item)).map((item) => <option key={taxCodeKey(item)} value={taxCodeKey(item)} disabled={!item.selectable}>{taxCodeLabel(item)} · {taxPercent(item.rateBps)}{!item.selectable ? ` — ${item.reason || "Unavailable"}` : ""}</option>)}
       </ProductSelect>
     </Field>
     <Field label="VAT rate"><Input aria-label="VAT rate" readOnly value={selectedCode ? taxPercent(selectedCode.rateBps) : existing && !selectedTaxId ? taxPercent(existing.taxRateBps) : "Select a VAT code"} /></Field>
     <div className="space-y-2 text-xs text-slate-600 sm:col-span-2">
       {taxOptions.isPending ? <div role="status" className="animate-pulse rounded bg-slate-100 p-3">Loading synced VAT codes…</div> : taxOptions.isError ? <p role="alert" className="text-red-600">{taxOptions.error?.message || "VAT codes could not be loaded."} <Button type="button" variant="link" className="h-auto p-0 text-xs" onClick={() => taxOptions.refetch()}>Retry</Button></p> : <>
         {taxOptions.data?.note && <p>{taxOptions.data.note}</p>}
-        {!taxItems.some((item) => item.selectable) && <p className="text-amber-700">No configured VAT codes are available.</p>}
+        {!taxItems.some((item) => item.selectable) && <p className="text-amber-700">No synced provider VAT codes are available.</p>}
       </>}
-      {existing && !selectedTaxId && (taxOptions.isError || !savedMatch) && <p className="text-amber-700">Saved tax: {taxPercent(existing.taxRateBps)} ({existing.taxTreatment}). No available mapped code matches this treatment and rate. Saving without a new selection preserves it.</p>}
-      <p>Missing a code? Sync VAT/tax codes in your accounting integration settings, then choose which code Sales should use for each rate.</p>
-      <a className="font-medium text-blue-700 underline" href="/sales/settings">Configure VAT code mappings in Sales Settings.</a>
+      {existing && !selectedTaxId && <p className="text-slate-600">Saved tax: {savedCode ? taxCodeLabel(savedCode) : `Legacy ${existing.taxTreatment || "tax"} — no saved code`} · {taxPercent(existing.taxRateBps)}. Saving without a new selection preserves it, even if the code is unavailable.</p>}
+      <p>Missing a code? Sync VAT/tax codes in your accounting integration settings. Sales uses your selected provider code directly, without percentage mappings.</p>
+      <a className="font-medium text-blue-700 underline" href="/sales/settings">View accounting settings.</a>
     </div>
     <Field label="Available from"><Input type="date" value={form.availableFrom || ""} onChange={(e) => update("availableFrom", e.target.value)} /></Field>
     <Field label="Available to"><Input type="date" value={form.availableTo || ""} onChange={(e) => update("availableTo", e.target.value)} /></Field>
