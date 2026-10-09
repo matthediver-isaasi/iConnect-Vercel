@@ -1,3 +1,4 @@
+- [RLS review boundaries](rls-review-boundaries.md) — retained read-only review; remediation awaits owner approval and preview is not database isolation.
 - [Portal build display](portal-build-display.md) — shared portal build identifier must never show descriptive release labels or tenant-specific comments.
 - [Better Stack subhourly timezone](better-stack-subhourly-timezone.md) — a server-timezone adjustment must be cleared with approval before setting a subhourly interval.
 - [BNMS membership topics](bnms-membership-index.md) — owner-approved membership evidence, historical test cohorts and NMC fulfilment eligibility.
