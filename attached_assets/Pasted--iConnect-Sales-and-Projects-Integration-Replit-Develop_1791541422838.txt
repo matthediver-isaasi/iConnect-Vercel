@@ -1,0 +1,371 @@
+# iConnect – Sales and Projects Integration
+## Replit Development Scope
+
+### 1. Objective
+
+We want to integrate the existing `/sales` module with iConnect's Projects functionality, allowing sales opportunities to use the existing Trello-style project boards for task and activity management.
+
+The intention is to reuse the existing Projects architecture rather than build a separate task management solution within Sales.
+
+The integration should provide:
+
+- One optional project board per sales opportunity.
+- Direct navigation between a sales opportunity and its associated project board.
+- Visibility and management of project tasks from the `/sales` Tasks tab.
+- The ability to update the sales opportunity's pipeline stage from its associated project board.
+- A consolidated view of tasks across all sales opportunities.
+- Full reuse of existing project board functionality, permissions and task management features wherever possible.
+
+**Important:** Sales remains the source of truth for opportunity details and pipeline stages. Projects remains the source of truth for task management.
+
+---
+
+### 2. Linking Sales Opportunities to Projects
+
+#### 2.1 Board creation
+
+A project board should not automatically be created when a new sales opportunity is created.
+
+Instead, within the sales opportunity interface, provide the following options:
+
+- **Create Project Board** – Creates a new project board linked to the opportunity.
+- **Link Existing Project Board** – Allows the user to associate an existing board with the opportunity, subject to permissions and tenant ownership.
+- **Open Project Board** – Displayed once a board has been associated.
+
+When creating a new board:
+
+- Default the board name to the opportunity name.
+- Associate the board with the sales opportunity.
+- Where supported, inherit the linked organisation/customer and assigned salesperson.
+- Use the existing project board creation functionality and defaults.
+- Allow users to subsequently rename and configure the board.
+
+#### 2.2 Board relationship
+
+For this initial implementation:
+
+- One sales opportunity can be linked to a maximum of one project board.
+- A project board can be associated with a maximum of one sales opportunity.
+- Project boards not associated with Sales must continue to operate normally.
+- The relationship must be tenant-isolated.
+- Store the relationship using the existing database architecture where practical.
+
+Users must be able to unlink a project board without deleting the board or its tasks.
+
+Linking an existing project board must not overwrite existing tasks or project settings.
+
+---
+
+### 3. Sales Opportunity Tasks Tab
+
+Update the existing Tasks tab within `/sales` to use tasks associated with the linked project board.
+
+#### 3.1 No board linked
+
+Where an opportunity does not yet have a project board, display an appropriate empty state offering:
+
+- Create Project Board
+- Link Existing Project Board
+
+Do not create unnecessary project records automatically.
+
+#### 3.2 Board linked
+
+Where a project board exists, show a task summary within the opportunity's Tasks tab.
+
+The summary should include:
+
+| Field | Requirement |
+|---|---|
+| Task | Task title, with link to the task |
+| Status | Current status from Projects |
+| Assigned To | Assigned user(s) |
+| Due Date | Task due date |
+| Priority | Where supported by Projects |
+| Overdue | Clearly identify overdue tasks |
+| Completion | Completed or outstanding |
+
+Provide summary indicators for:
+
+- Total tasks.
+- Outstanding tasks.
+- Completed tasks.
+- Overdue tasks.
+
+#### 3.3 Task actions
+
+Where supported by the existing Projects functionality, users should be able to:
+
+- Create a new task.
+- Edit an existing task.
+- Change task status.
+- Assign or reassign a task.
+- Mark a task as complete.
+- Open the task in its project board.
+
+Prefer reusing existing task forms, modals and components rather than implementing alternative task editing functionality.
+
+All task changes must update the original Projects records immediately.
+
+**There must not be a second, independently maintained set of Sales tasks.**
+
+If the existing Sales Tasks feature already stores tasks separately, assess how these can be safely migrated or associated with project boards without losing existing records.
+
+---
+
+### 4. Sales Opportunity Information Within Projects
+
+When a project board is linked to a sales opportunity, display an opportunity information panel within the board interface.
+
+This should show:
+
+- Opportunity name.
+- Organisation/customer.
+- Opportunity value and currency.
+- Assigned salesperson.
+- Current sales pipeline stage.
+- Expected close date.
+- Opportunity status, where applicable.
+- Link to open the original opportunity in `/sales`.
+
+The panel should make it immediately clear that the project board belongs to a sales opportunity.
+
+This information must be retrieved from the linked opportunity, not duplicated as independent project data.
+
+Changes to opportunity details within Sales must be reflected in Projects.
+
+Normal project boards without a sales opportunity association should remain unchanged.
+
+---
+
+### 5. Managing Sales Pipeline Stages from Projects
+
+A key requirement is the ability to update a sales opportunity's pipeline stage directly from its associated project board.
+
+#### 5.1 Stage selection
+
+Within the linked opportunity panel or opportunity card, provide a dropdown displaying the valid sales pipeline stages.
+
+Users should be able to change the current stage without navigating back to `/sales`.
+
+When the stage is changed:
+
+1. Validate that the user has permission to update the opportunity.
+2. Apply the existing Sales stage transition rules.
+3. Update the original opportunity record.
+4. Preserve existing pipeline history, audit logging and automation behaviour.
+5. Refresh the displayed stage within the project board.
+6. Ensure the change is reflected in the Sales pipeline.
+
+Use the existing Sales update services and business logic rather than creating an alternative update mechanism.
+
+#### 5.2 Distinguish tasks from sales stages
+
+Project task statuses and sales pipeline stages are separate concepts.
+
+For example:
+
+- Project task status: To Do, In Progress, Completed.
+- Sales pipeline stage: Qualification, Proposal, Negotiation, Won, Lost.
+
+Moving a task between project board columns must **not** automatically change the sales opportunity stage.
+
+Pipeline stages should be changed through the dedicated opportunity stage control.
+
+Do not introduce automatic stage transitions based on task activity in this initial implementation.
+
+---
+
+### 6. Consolidated Sales Task Management
+
+We also want salespeople to see their tasks across multiple opportunities without opening each opportunity individually.
+
+#### 6.1 Sales task overview
+
+Within `/sales`, provide a consolidated view of tasks from all project boards linked to sales opportunities.
+
+This should reuse the existing task management interface wherever practical.
+
+Include:
+
+- Task title.
+- Linked opportunity.
+- Linked organisation/customer.
+- Assigned user.
+- Task status.
+- Due date.
+- Priority, where available.
+- Link to the project board or task.
+
+Provide filters for:
+
+- My Tasks.
+- All Sales Tasks (subject to permissions).
+- Opportunity.
+- Task status.
+- Overdue tasks.
+- Due date.
+
+Allow sorting by due date, priority and opportunity.
+
+#### 6.2 Task interactions
+
+Users should be able to open a task directly from the consolidated view.
+
+Where existing Projects functionality supports editing, the same functionality should be available here.
+
+Changes must update the original project task rather than maintaining a separate Sales task record.
+
+#### 6.3 Projects integration
+
+Where practical, also provide a saved or filtered view within the Projects module showing tasks associated with sales opportunities.
+
+This will allow users who primarily work within Projects to access their sales-related activities without moving into `/sales`.
+
+The same underlying task records must be used in both areas.
+
+---
+
+### 7. Permissions and Tenant Isolation
+
+The integration must respect iConnect's existing multi-tenant architecture and RBAC controls.
+
+Requirements:
+
+- Users must not access project boards or sales opportunities belonging to another tenant.
+- Creating or linking a project board requires the appropriate permissions.
+- Viewing sales opportunity information within Projects requires permission to view that opportunity.
+- Changing a sales pipeline stage requires permission to edit that opportunity.
+- Task creation and editing must respect existing Projects permissions.
+- Consolidated task lists must show only records the user is authorised to access.
+
+A user who can access a project board must not automatically gain permission to edit the associated sales opportunity.
+
+Where users have project access but restricted Sales access, ensure sensitive opportunity details such as monetary values are not exposed.
+
+Use existing RBAC permissions wherever possible rather than introducing unnecessary new permission structures.
+
+---
+
+### 8. Existing Data and Backwards Compatibility
+
+Before implementation, inspect the current database structure and determine whether Sales tasks and Projects tasks are already stored using common entities or separate tables.
+
+If Sales tasks currently exist independently:
+
+- Preserve all existing Sales task records.
+- Identify whether they can be migrated to the Projects task structure.
+- Avoid creating duplicate tasks.
+- Preserve task ownership, dates, completion state and relevant history.
+- Avoid destructive migrations.
+- Ensure existing opportunities without project boards continue functioning correctly during migration.
+
+Any migration should be repeatable and should not produce duplicates if executed more than once.
+
+Existing Projects functionality must remain unaffected for non-sales projects.
+
+---
+
+### 9. User Interface Requirements
+
+Keep the integration consistent with iConnect's existing design system.
+
+#### Within Sales
+
+- Display project board association clearly.
+- Offer Create, Link, Open and Unlink actions.
+- Display task summaries and relevant task actions.
+- Provide a consolidated sales task view.
+- Use clear navigation between opportunities and project boards.
+
+#### Within Projects
+
+- Identify boards linked to sales opportunities.
+- Show opportunity information.
+- Provide direct navigation back to Sales.
+- Allow permitted users to update the opportunity's pipeline stage.
+- Optionally provide filters to show sales-related project boards and tasks.
+
+Avoid unnecessary duplication of opportunity editing functionality inside Projects.
+
+---
+
+### 10. Technical and Performance Requirements
+
+- Reuse existing Projects components, APIs and database structures.
+- Reuse existing Sales services for opportunity updates.
+- Avoid creating parallel task management logic.
+- Use tenant-scoped queries and enforce authorisation server-side.
+- Prevent duplicate boards or invalid opportunity associations.
+- Ensure project/task changes are reflected consistently across both modules.
+- Avoid excessive database calls when loading consolidated task lists.
+- Use pagination or appropriate query limits for tenants with large numbers of opportunities and tasks.
+- Preserve existing audit logging where supported.
+- Ensure errors in Projects do not corrupt opportunity data, and vice versa.
+
+Where a linked board or opportunity is deleted, archived or becomes inaccessible, handle the association gracefully.
+
+---
+
+### 11. Acceptance Criteria
+
+The development will be considered complete when:
+
+1. A sales opportunity can exist without an associated project board.
+2. A user can create a project board from an opportunity.
+3. A user can link an eligible existing board.
+4. An opportunity can have only one associated board.
+5. Users can open the project board directly from Sales.
+6. Sales displays tasks from the linked project board.
+7. Users can create and update tasks using existing Projects functionality.
+8. Task changes remain synchronised across Sales and Projects.
+9. Linked project boards display relevant sales opportunity information.
+10. A permitted user can change the sales pipeline stage from Projects.
+11. Pipeline stage changes are reflected in Sales and respect existing business logic.
+12. Changing project task status does not unintentionally change the sales pipeline stage.
+13. Users can view tasks across multiple sales opportunities in one consolidated view.
+14. Task filters and assignments respect RBAC and tenant isolation.
+15. Project boards can be unlinked without deleting project data.
+16. Existing Sales tasks are preserved and appropriately migrated or integrated.
+17. Normal Projects functionality remains unaffected.
+18. The integration does not introduce duplicate task records or independent pipeline stage values.
+
+---
+
+### 12. Development Approach
+
+Please implement this in logical phases.
+
+**Phase 1 – Architecture and data assessment**
+
+Review the existing Sales and Projects implementation, identify reusable functionality, assess existing Sales task data and confirm the proposed database relationships.
+
+**Phase 2 – Opportunity/project board linking**
+
+Implement optional board creation, linking, unlinking and navigation.
+
+**Phase 3 – Sales task integration**
+
+Connect the opportunity Tasks tab to the linked project board, including task summaries and supported task actions. Address existing Sales task records safely.
+
+**Phase 4 – Opportunity controls within Projects**
+
+Add opportunity information and pipeline stage management to linked project boards.
+
+**Phase 5 – Consolidated sales tasks**
+
+Introduce the cross-opportunity task overview and associated filtering.
+
+**Phase 6 – Testing and refinement**
+
+Validate permissions, synchronisation, existing data migration, performance and regression behaviour.
+
+### Final Instruction
+
+Before changing the architecture, inspect the existing implementation of both modules and identify any conflicts with this scope.
+
+Reuse existing infrastructure wherever possible and avoid unnecessary database entities, duplicated React components or parallel business logic.
+
+The end result should feel like **one unified Sales and Projects workflow**, not two separate systems connected by basic hyperlinks.
+
+Proceed with the phased implementation once the architecture has been assessed, highlighting any significant design decisions or existing functionality that may need to change.
