@@ -2,6 +2,7 @@ import { supabase } from '../_lib/database.js';
 import { getTenantContext } from '../_lib/tenantContext.js';
 import { requireSalesContext } from '../_lib/salesAccess.js';
 import { SALES_CAPABILITIES } from '../../shared/salesContracts.js';
+import { collaboratorOptions, validateCollaborator } from '../_lib/opportunityCollaborators.js';
 import { getSalesInvoicePresentation, salesInvoicePermissions } from '../_lib/salesAccounting.js';
 import {
   OpportunityHttpError, assertExpectedVersion, assertPrivateDocumentPath, validatePriority,
@@ -33,6 +34,17 @@ async function fullDetail(db, access, accountingAccess, dependencies = {}) {
   }));
   const [opportunity] = await enrichOpportunities(db, access.opportunity.tenant_id, [access.opportunity]);
   const children = Object.fromEntries(entries);
+  const collaboratorIds = [...new Set((children.collaborators || [])
+    .filter(item => item.principal_kind === 'member').map(item => item.principal_id))];
+  if (collaboratorIds.length) {
+    const { data: people, error } = await db.from('member').select('id,first_name,last_name,email')
+      .eq('tenant_id', access.opportunity.tenant_id).in('id', collaboratorIds);
+    if (error) throw error;
+    const byId = new Map((people || []).map(person => [person.id, person]));
+    children.collaborators = children.collaborators.map(item => ({
+      ...item, member: item.principal_kind === 'member' ? byId.get(item.principal_id) : undefined,
+    }));
+  }
   const contactIds = [...new Set((children['contact-roles'] || []).map((item) => item.member_id))];
   if (contactIds.length) {
     const { data: contacts, error } = await db.from('member')
@@ -91,6 +103,11 @@ export function createOpportunityDetailHandler(dependencies = {}) {
       const resource = req.query.resource;
 
       if (req.method === 'GET') {
+        if (resource === 'collaborator-options') {
+          if (!access.permissions.canManage) throw new OpportunityHttpError(403, 'Opportunity management access required');
+          res.setHeader('Cache-Control', 'private, no-store');
+          return res.status(200).json(await collaboratorOptions(db, context.tenantId, access, req.query.offset));
+        }
         if (!resource) {
           let canManageAccounting = false;
           try {
@@ -190,7 +207,7 @@ export function createOpportunityDetailHandler(dependencies = {}) {
       if (req.method === 'POST') {
         let row = { tenant_id: context.tenantId, opportunity_id: id };
         if (resource === 'collaborators') {
-          await validatePrincipal(db, context.tenantId, body.principal);
+          await validateCollaborator(db, context.tenantId, access, body.principal);
           row = { ...row, principal_kind: body.principal.kind, principal_id: body.principal.id,
             ...actorFields(access.principal, 'added_by') };
         } else if (resource === 'contact-roles') {

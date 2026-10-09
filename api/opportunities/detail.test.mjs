@@ -12,6 +12,7 @@ function response() {
     statusCode: null, body: null,
     status(code) { this.statusCode = code; return this; },
     json(body) { this.body = body; return this; },
+    setHeader() {},
   };
 }
 
@@ -29,9 +30,11 @@ function fakeDb(principalId) {
       const call = { table }; calls.push(call);
       const chain = {
         select() { return chain; }, eq() { return chain; },
+        or() { return chain; },
         update(value) { call.update = value; return chain; },
         insert(value) { call.insert = value; return chain; },
         maybeSingle() {
+          if (table === 'organization') return Promise.resolve({ data: { id: 'primary-org' }, error: null });
           if (table === 'opportunity') {
             return Promise.resolve({ data: { ...baseOpportunity, ...(call.update || {}) }, error: null });
           }

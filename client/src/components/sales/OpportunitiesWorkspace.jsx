@@ -26,6 +26,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/use-toast";
 import InvoiceStatusPanel from "@/components/sales/InvoiceStatusPanel";
 import OpportunityProjectTasksPanel from "@/components/sales/OpportunityProjectTasksPanel";
+import CollaboratorPicker from "@/components/sales/CollaboratorPicker";
 
 const FALLBACK_STAGES = [];
 const opportunityValue = (value) => value?.value ?? (value?.value_minor == null ? 0 : Number(value.value_minor) / 100);
@@ -350,7 +351,7 @@ function CollectionPanel({ opportunityId, organizationId, type, items, canEdit, 
   const [people, setPeople] = useState([]);
   const resource = type === "contacts" ? "contact-roles" : type;
   useEffect(() => {
-    if (!canEdit || !["contacts", "collaborators"].includes(type)) return;
+    if (!canEdit || type !== "contacts") return;
     const organization = type === "contacts" && organizationId ? `&organization_id=${encodeURIComponent(organizationId)}` : "";
     fetch(`/api/members/search?q=&limit=100${organization}`, { credentials: "include" })
       .then((response) => response.ok ? response.json() : Promise.reject())
@@ -358,7 +359,7 @@ function CollectionPanel({ opportunityId, organizationId, type, items, canEdit, 
       .catch(() => setPeople([]));
   }, [canEdit, organizationId, type]);
   const create = useMutation({
-    mutationFn: () => request(`/api/opportunities/${opportunityId}?resource=${resource}`, { method: "POST", body: JSON.stringify(type === "tasks" ? { title: text, dueAt: dueDate || null } : type === "notes" ? { body: text } : type === "collaborators" ? { principal: { kind: "member", id: text } } : { memberId: text, role }) }),
+    mutationFn: (memberId) => request(`/api/opportunities/${opportunityId}?resource=${resource}`, { method: "POST", body: JSON.stringify(type === "tasks" ? { title: text, dueAt: dueDate || null } : type === "notes" ? { body: text } : type === "collaborators" ? { principal: { kind: "member", id: memberId } } : { memberId: text, role }) }),
     onSuccess: () => { setText(""); setDueDate(""); setRole(""); onChanged(); },
     onError: (error) => toast({ title: `Could not add ${type.slice(0, -1)}`, description: error.message, variant: "destructive" }),
   });
@@ -369,7 +370,8 @@ function CollectionPanel({ opportunityId, organizationId, type, items, canEdit, 
   });
   const placeholder = type === "notes" ? "Write a note…" : type === "tasks" ? "Task title…" : type === "contacts" ? "Existing contact ID…" : "Existing team member ID…";
   return <Card><CardContent className="p-5">
-    {canEdit && <div className="mb-5 flex flex-wrap gap-2">{type === "notes" ? <Textarea className="min-w-full" value={text} placeholder={placeholder} onChange={(e) => setText(e.target.value)} /> : ["contacts", "collaborators"].includes(type) ? <Select value={text} onValueChange={setText}><SelectTrigger className="min-w-[240px] flex-1"><SelectValue placeholder={people.length ? `Select existing ${type === "contacts" ? "organisation contact" : "team member"}` : "No available people"} /></SelectTrigger><SelectContent>{people.filter((person) => !items.some((item) => idOf(item.contact || item.member || item) === idOf(person))).map((person) => <SelectItem key={idOf(person)} value={idOf(person)}>{nameOf(person)}{person.email ? ` · ${person.email}` : ""}</SelectItem>)}</SelectContent></Select> : <Input className="min-w-[220px] flex-1" value={text} placeholder={placeholder} onChange={(e) => setText(e.target.value)} />}{type === "contacts" && <Input className="w-44" value={role} placeholder="Contact role" onChange={(e) => setRole(e.target.value)} />}{type === "tasks" && <Input className="w-44" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />}<Button disabled={!text.trim() || create.isPending} onClick={() => create.mutate()}><Plus className="mr-2 h-4 w-4" />Add</Button></div>}
+    {canEdit && type === "collaborators" && <CollaboratorPicker key={opportunityId} opportunityId={opportunityId} items={items} request={request} onAdd={memberId => create.mutateAsync(memberId)} pending={create.isPending} />}
+    {canEdit && type !== "collaborators" && <div className="mb-5 flex flex-wrap gap-2">{type === "notes" ? <Textarea className="min-w-full" value={text} placeholder={placeholder} onChange={(e) => setText(e.target.value)} /> : type === "contacts" ? <Select value={text} onValueChange={setText}><SelectTrigger className="min-w-[240px] flex-1"><SelectValue placeholder={people.length ? "Select existing organisation contact" : "No available people"} /></SelectTrigger><SelectContent>{people.filter((person) => !items.some((item) => idOf(item.contact || item.member || item) === idOf(person))).map((person) => <SelectItem key={idOf(person)} value={idOf(person)}>{nameOf(person)}{person.email ? ` · ${person.email}` : ""}</SelectItem>)}</SelectContent></Select> : <Input className="min-w-[220px] flex-1" value={text} placeholder={placeholder} onChange={(e) => setText(e.target.value)} />}{type === "contacts" && <Input className="w-44" value={role} placeholder="Contact role" onChange={(e) => setRole(e.target.value)} />}{type === "tasks" && <Input className="w-44" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />}<Button disabled={!text.trim() || create.isPending} onClick={() => create.mutate()}><Plus className="mr-2 h-4 w-4" />Add</Button></div>}
     {!items.length ? <p className="py-8 text-center text-sm text-slate-500">No {type} yet.</p> : <div className="divide-y">{items.map((item, index) => <div key={idOf(item) || index} className="flex items-start justify-between gap-3 py-3"><div><p className="whitespace-pre-wrap text-sm font-medium text-slate-900">{item.body || item.content || item.title || nameOf(item.contact || item.member || item)}</p>{(item.due_date || item.created_at || item.role) && <p className="mt-1 text-xs text-slate-500">{item.role || (item.due_date ? `Due ${date(item.due_date)}` : `Added ${date(item.created_at)}`)}</p>}</div>{canEdit && <Button variant="ghost" size="icon" aria-label="Remove" disabled={remove.isPending} onClick={() => { if (window.confirm("Remove this item?")) remove.mutate(item); }}><Trash2 className="h-4 w-4 text-rose-600" /></Button>}</div>)}</div>}
   </CardContent></Card>;
 }
