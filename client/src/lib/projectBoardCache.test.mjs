@@ -1,7 +1,42 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { QueryClient, QueryObserver } from '@tanstack/react-query';
-import { publishCreatedProjectCard, publishProjectCardUpdate } from './projectBoardCache.js';
+import { publishCreatedProjectCard, publishProjectCardUpdate, publishProjectCardComment } from './projectBoardCache.js';
+test('confirmed comments immediately update counts, deduplicate and preserve relationships', async () => {
+  const client = new QueryClient();
+  const card = { id: 'card', project_card_comment: [{ count: 2 }], project_card_label: [{ label_id: 'label' }], project_card_attachment: [{ id: 'file' }] };
+  const key = ['project-board', 'board'];
+  client.setQueryData(key, { cards: [card, { id: 'other' }], labels: ['label'] });
+  client.setQueryData(['project-board', 'other'], { cards: [{ id: 'unrelated' }] });
+  client.setQueryData(['card-detail', 'card'], { card, comments: [{ id: 'one' }, { id: 'two' }], activity: ['activity'] });
+  const comment = { id: 'three', content: 'Ready' };
+  await publishProjectCardComment(client, 'board', 'card', comment);
+  assert.equal(client.getQueryData(key).cards[0].project_card_comment[0].count, 3);
+  assert.deepEqual(client.getQueryData(key).cards[0].project_card_attachment, [{ id: 'file' }]);
+  assert.deepEqual(client.getQueryData(key).cards[0].project_card_label, [{ label_id: 'label' }]);
+  assert.deepEqual(client.getQueryData(key).cards[1], { id: 'other' });
+  assert.deepEqual(client.getQueryData(['card-detail', 'card']).activity, ['activity']);
+  await publishProjectCardComment(client, 'board', 'card', comment);
+  assert.equal(client.getQueryData(key).cards[0].project_card_comment[0].count, 3);
+  assert.equal(client.getQueryData(['card-detail', 'card']).comments.length, 3);
+  assert.deepEqual(client.getQueryData(['project-board', 'other']).cards, [{ id: 'unrelated' }]);
+  await publishProjectCardComment(client, 'missing', 'missing', comment);
+  assert.equal(client.getQueryData(['project-board', 'missing']), undefined);
+  client.clear();
+});
+
+test('comment publication cancels an older board read and handles absent aggregate counts', async () => {
+  const client = new QueryClient();
+  const key = ['project-board', 'board'];
+  client.setQueryData(key, { cards: [{ id: 'card' }] });
+  let finish;
+  const pending = client.fetchQuery({ queryKey: key, queryFn: () => new Promise(resolve => { finish = resolve; }) }).catch(() => {});
+  await publishProjectCardComment(client, 'board', 'card', { id: 'comment' });
+  finish({ cards: [{ id: 'card', project_card_comment: [{ count: 0 }] }] });
+  await pending;
+  assert.equal(client.getQueryData(key).cards[0].project_card_comment[0].count, 1);
+  client.clear();
+});
 test('uploads and covers publish to both caches without dropping card relationships', async () => {
   const client = new QueryClient();
   const key = ['project-board', 'board'];

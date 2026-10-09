@@ -21,7 +21,7 @@ test('mention creation is atomic, board-scoped, deduplicated and service-only', 
     const args=['-h',socket,'-p','55449','-U','postgres','-d','postgres','-v','ON_ERROR_STOP=1','-q'];
     run('psql',args,`
       CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;
-      CREATE TABLE tenant_identity(id uuid PRIMARY KEY, first_name text,last_name text,email text);
+      CREATE TABLE tenant_identity(id varchar PRIMARY KEY, first_name text,last_name text,email text);
       CREATE TABLE project_board(id uuid PRIMARY KEY,is_archived boolean DEFAULT false);
       CREATE TABLE project_board_member(id uuid DEFAULT gen_random_uuid() PRIMARY KEY,board_id uuid,identity_id uuid,role text,UNIQUE(board_id,identity_id));
       CREATE TABLE project_card(id uuid PRIMARY KEY,board_id uuid,is_archived boolean DEFAULT false);
@@ -34,6 +34,7 @@ test('mention creation is atomic, board-scoped, deduplicated and service-only', 
     `);
     run('psql',args,await readFile('supabase/migrations/202610090002_project_mention_inbox.sql','utf8'));
     run('psql',args,await readFile('supabase/migrations/202610090003_project_mentions_main_inbox.sql','utf8'));
+    run('psql',args,await readFile('supabase/migrations/202610090004_project_comment_identity_types.sql','utf8'));
     run('psql',args,`
       INSERT INTO tenant_identity VALUES
         ('00000000-0000-0000-0000-000000000001','Alex','Author','author@example.invalid'),

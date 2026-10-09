@@ -74,6 +74,6 @@ export default function SalesProjectCardEditor({ boardId, cardId, open, onOpenCh
   return <CardDetailModal card={card} open={open} onOpenChange={onOpenChange} boardId={boardId}
     labels={board.data?.labels} members={board.data?.members} lists={board.data?.lists}
     canEdit={board.canEdit && !readOnly} canManage={board.canManage && !readOnly} canManageLabels={board.canManageLabels && !readOnly} canAssign={board.canAssign && !readOnly}
-    onUpdate={update.mutateAsync} onDelete={() => remove.mutate()}
+    onUpdate={update.mutateAsync} onDelete={() => remove.mutateAsync()}
   />;
 }

@@ -1,3 +1,34 @@
+// Publish a confirmed comment before the background refresh. Cancel pre-write
+// reads, deduplicate by ID, and preserve every other card relationship.
+export async function publishProjectCardComment(queryClient, boardId, cardId, comment) {
+  if (!comment?.id) return;
+  const detailKey = ['card-detail', cardId];
+  const boardKey = ['project-board', boardId];
+  await Promise.all([
+    queryClient.cancelQueries({ queryKey: detailKey, exact: true }),
+    queryClient.cancelQueries({ queryKey: boardKey, exact: true }),
+  ]);
+  const detail = queryClient.getQueryData(detailKey);
+  const alreadyPublished = detail?.comments?.some(item => item.id === comment.id);
+  const comments = detail?.comments
+    ? [...detail.comments.filter(item => item.id !== comment.id), comment]
+    : undefined;
+  const increment = alreadyPublished ? 0 : 1;
+  const withCount = (card) => ({
+    ...card,
+    project_card_comment: [{ count: Math.max(
+      (Number(card.project_card_comment?.[0]?.count) || 0) + increment,
+      comments?.length || 0,
+    ) }],
+  });
+  queryClient.setQueryData(boardKey, old => old ? {
+    ...old, cards: old.cards?.map(card => card.id === cardId ? withCount(card) : card),
+  } : old);
+  queryClient.setQueryData(detailKey, old => old ? {
+    ...old, comments: comments || [comment], card: old.card ? withCount(old.card) : old.card,
+  } : old);
+}
+
 // Merge confirmed edits into both consumers without waiting for a GET.
 export async function publishProjectCardUpdate(queryClient, cardId, patch = {}, {
   attachment, removedAttachmentId,

@@ -48,7 +48,7 @@ export default async function handler(req, res) {
 
   const session = sessionResult.data;
   const { cardId } = req.query;
-  const { uploadToken, setAsCover } = req.body;
+  const { uploadToken, setAsCover } = req.body || {};
 
   if (!cardId || !uploadToken) {
     return res.status(400).json({ error: 'Missing required fields: cardId and uploadToken' });
@@ -96,6 +96,33 @@ export default async function handler(req, res) {
     }
 
     const { storagePath, publicUrl, fileName, fileSize, mimeType } = tokenData;
+
+    // Purpose is signed at upload preparation: a caller cannot turn an ordinary
+    // attachment upload into a hidden cover by changing the confirmation body.
+    if (tokenData.purpose === 'cover') {
+      if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(mimeType)
+        || tokenData.boardId !== access.card.board_id) {
+        return res.status(400).json({ error: 'Invalid cover upload' });
+      }
+      const { data: card, error: coverError } = await supabase
+        .from('project_card')
+        .update({ cover_image: publicUrl })
+        .eq('id', cardId)
+        .eq('board_id', tokenData.boardId)
+        .select('id, cover_image')
+        .single();
+      if (coverError || !card) {
+        return res.status(500).json({ error: 'Failed to save cover image' });
+      }
+      const { error: activityError } = await supabase.from('project_card_activity').insert({
+        card_id: cardId,
+        identity_id: session.identityId,
+        action_type: 'cover_set',
+        action_data: { fileName }
+      });
+      if (activityError) console.error('[Attachments] Cover activity error:', activityError.code);
+      return res.json({ coverImage: card.cover_image });
+    }
 
     const { data: attachment, error: insertError } = await supabase
       .from('project_card_attachment')

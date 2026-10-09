@@ -20,7 +20,7 @@ await build({
   stdin: {
     contents: `
       export { useInbox, fetchInboxMessageBody, useInboxUnreadSummary } from "./hooks/useInbox.js";
-      export { useBoardInbox } from "./components/projects/useBoardInbox.js";
+      export { useBoardInbox, useBoardInboxSummary } from "./components/projects/useBoardInbox.js";
       export { useInboxCardDeepLink } from "./components/projects/useInboxCardDeepLink.js";
     `,
     resolveDir: path.resolve("client/src"),
@@ -37,7 +37,7 @@ await build({
     },
   }],
 });
-const { useInbox, useBoardInbox, useInboxCardDeepLink, fetchInboxMessageBody, useInboxUnreadSummary } = await import(pathToFileURL(bundlePath).href);
+const { useInbox, useBoardInbox, useBoardInboxSummary, useInboxCardDeepLink, fetchInboxMessageBody, useInboxUnreadSummary } = await import(pathToFileURL(bundlePath).href);
 const originalFetch = globalThis.fetch;
 after(async () => {
   globalThis.fetch = originalFetch;
@@ -117,6 +117,37 @@ test("main single/mixed actions and board actions mutually invalidate, archive s
     assert.ok(!requests.some((request) => request.method === "DELETE"));
     assert.equal(mounted.client.getQueryCache().find({ queryKey: ["inbox"], exact: true }).options.refetchInterval, 30000);
     assert.equal(mounted.client.getQueryCache().find({ queryKey: ["inbox"], exact: true }).options.refetchIntervalInBackground, false);
+  } finally { await mounted.close(); }
+});
+
+test("board summary is complete, polls with inbox cadence, and refreshes after main inbox actions without reading cards", async () => {
+  const ids = Array.from({ length: 47 }, (_, index) => `card-${index}`);
+  const requests = [];
+  globalThis.fetch = async (url, options = {}) => {
+    requests.push({ url, method: options.method || "GET" });
+    assert.equal(options.credentials, "include");
+    if (url === "/api/projects/boards/b/inbox?summary=true") return json({ unreadCardIds: ids });
+    if (url === "/api/communication/inbox") return json(options.method ? { success: true } : { messages: [], folders: [] });
+    throw new Error(`Unexpected request: ${url}`);
+  };
+  let summary, main;
+  function Harness() {
+    summary = useBoardInboxSummary("b");
+    main = useInbox();
+    return null;
+  }
+  const mounted = await mount(Harness);
+  try {
+    assert.deepEqual(summary.data.unreadCardIds, ids);
+    const query = mounted.client.getQueryCache().find({ queryKey: ["board-inbox", "b", "summary"], exact: true });
+    assert.equal(query.options.refetchInterval, 30000);
+    assert.equal(query.options.refetchIntervalInBackground, false);
+    assert.equal(query.options.refetchOnWindowFocus, true);
+    const before = requests.filter(({ url }) => url.includes("?summary=true")).length;
+    await React.act(async () => main.act("m", "read", undefined, "project"));
+    await React.act(wait);
+    assert.ok(requests.filter(({ url }) => url.includes("?summary=true")).length > before);
+    assert.equal(requests.some(({ method }) => method === "PATCH"), false, "summary never auto-reads");
   } finally { await mounted.close(); }
 });
 

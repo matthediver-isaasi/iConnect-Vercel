@@ -102,13 +102,20 @@ export default async function handler(req, res) {
         return res.status(403).json({ error: 'Viewers cannot upload attachments' });
       }
 
-      const { fileName, fileSize, mimeType } = req.body;
+      const { fileName, fileSize, mimeType, purpose = 'attachment' } = req.body || {};
+
+      if (!['attachment', 'cover'].includes(purpose)) {
+        return res.status(400).json({ error: 'Invalid upload purpose' });
+      }
+      if (purpose === 'cover' && !['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(mimeType)) {
+        return res.status(400).json({ error: 'Choose a JPEG, PNG, GIF or WebP cover image' });
+      }
 
       if (!fileName) {
         return res.status(400).json({ error: 'fileName is required' });
       }
 
-      if (!fileSize || typeof fileSize !== 'number') {
+      if (!Number.isSafeInteger(fileSize) || fileSize <= 0) {
         return res.status(400).json({ error: 'fileSize is required and must be a number' });
       }
 
@@ -134,7 +141,9 @@ export default async function handler(req, res) {
 
       const sanitizedName = sanitizeFileName(fileName);
       const uniqueId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-      const storagePath = `project-attachments/${access.board.tenant_id}/${access.card.board_id}/${cardId}/${uniqueId}-${sanitizedName}`;
+      // Keep both upload types under the tenant prefix included in storage-quota
+      // reconciliation. Cover-only files do not need attachment table records.
+      const storagePath = `project-attachments/${access.board.tenant_id}/${access.card.board_id}/${cardId}/${purpose === 'cover' ? 'covers/' : ''}${uniqueId}-${sanitizedName}`;
 
       const { data: signedData, error: signedError } = await supabase.storage
         .from(STORAGE_BUCKET)
@@ -152,6 +161,7 @@ export default async function handler(req, res) {
         .getPublicUrl(storagePath);
 
       const tokenPayload = {
+        purpose,
         storagePath,
         publicUrl: publicUrlData.publicUrl,
         cardId,

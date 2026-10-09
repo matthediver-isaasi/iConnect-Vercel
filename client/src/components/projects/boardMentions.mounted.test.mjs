@@ -215,6 +215,10 @@ test("shared comment modal sends picked IDs only, invalidates board inbox, prese
   const writes = [], invalidated = [];
   const props = { card: { id: "card-1", board_id: "board-1", list_id: "list-1", title: "Review checklist" }, open: true, onOpenChange: () => {}, boardId: "board-1", members, lists: [{ id: "list-1", name: "Review" }], canEdit: true, canManage: false, onUpdate: () => {}, onDelete: () => {} };
   const transport = async (url, options = {}) => {
+    if (String(url) === "/api/projects/boards/board-1/inbox" && options.method === "PATCH") {
+      assert.deepEqual(JSON.parse(options.body), { cardId: "card-1", read: true });
+      return json({ success: true });
+    }
     if (String(url).endsWith("/comments") && options.method === "POST") {
       const body = JSON.parse(options.body); writes.push(body);
       return json({ comment: { id: `new-${writes.length}`, content: body.content, identity_id: "mia", created_at: "2026-03-12T10:23:00Z" } });
@@ -223,6 +227,11 @@ test("shared comment modal sends picked IDs only, invalidates board inbox, prese
     throw new Error(`Blocked unknown fixture request ${url}`);
   };
   const { client } = await mount(h(Modal, props), transport);
+  client.setQueryDefaults(["project-board", "board-1"], { gcTime: Infinity });
+  client.setQueryData(["project-board", "board-1"], { cards: [
+    { ...props.card, project_card_comment: [{ count: 0 }] },
+    { id: "untouched", title: "Other task" },
+  ] });
   const invalidate = client.invalidateQueries.bind(client);
   client.invalidateQueries = (options) => { invalidated.push(options); return invalidate(options); };
   await waitFor(() => document.querySelector('[data-testid="input-new-comment"]'), "comment input");
@@ -232,6 +241,8 @@ test("shared comment modal sends picked IDs only, invalidates board inbox, prese
   await click(document.querySelector('[data-testid="button-add-comment"]'));
   await waitFor(() => writes.length === 1 && !document.querySelector('[data-testid="button-add-comment"]').textContent.includes("Posting"), "picked comment posted");
   assert.deepEqual(writes[0], { content: "Thanks @Mia Chen ", mentionIdentityIds: ["mia"] });
+  assert.equal(client.getQueryData(["project-board", "board-1"]).cards[0].project_card_comment[0].count, 1);
+  assert.deepEqual(client.getQueryData(["project-board", "board-1"]).cards[1], { id: "untouched", title: "Other task" });
   assert.ok(invalidated.some((options) => JSON.stringify(options.queryKey) === JSON.stringify(["board-inbox", "board-1"])));
   assert.ok(invalidated.some((options) => options.exact && JSON.stringify(options.queryKey) === JSON.stringify(["inbox"])));
   assert.ok(invalidated.some((options) => JSON.stringify(options.queryKey) === JSON.stringify(["inbox", "unread"])));
@@ -239,6 +250,7 @@ test("shared comment modal sends picked IDs only, invalidates board inbox, prese
   await click(document.querySelector('[data-testid="button-add-comment"]'));
   await waitFor(() => writes.length === 2 && input.value === "", "ordinary comment posted");
   assert.deepEqual(writes[1].mentionIdentityIds, []);
+  assert.equal(client.getQueryData(["project-board", "board-1"]).cards[0].project_card_comment[0].count, 2);
   const root = mounts.at(-1).root;
   await act(async () => root.render(h(QueryClientProvider, { client }, h(Modal, { ...props, canEdit: false }))));
   assert.equal(document.querySelector('[data-testid="input-new-comment"]'), null);

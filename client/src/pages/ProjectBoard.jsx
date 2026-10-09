@@ -13,11 +13,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { 
-  Plus, MoreHorizontal, Loader2, ArrowLeft, Trash2, Settings, Clock,
-  AlertCircle, X, Check, Paperclip
+  Plus, MoreHorizontal, Loader2, ArrowLeft, Trash2, Settings,
+  AlertCircle, X, Check
 } from "lucide-react";
 import CardDetailModal from "@/components/sales/ProjectCardDetailModal";
 import ProjectBoardInbox from "@/components/projects/ProjectBoardInbox";
+import ProjectCardTileSummary from "@/components/projects/ProjectCardTileSummary";
+import ProjectBoardCalendar from "@/components/projects/ProjectBoardCalendar";
+import { useBoardInboxSummary } from "@/components/projects/useBoardInbox";
 import { useInboxCardDeepLink } from "@/components/projects/useInboxCardDeepLink";
 import ProjectBoardOpportunityPanel from "@/components/sales/ProjectBoardOpportunityPanel";
 import ProjectBoardTaskDeepLink from "@/components/sales/ProjectBoardTaskDeepLink";
@@ -28,7 +31,6 @@ import { useProjectBoardRealtime } from "@/hooks/useProjectBoardRealtime";
 import { Link, useParams, useLocation } from "react-router-dom";
 import { apiRequest } from "@/lib/queryClient";
 import { publishCreatedProjectCard, publishProjectCardUpdate } from "@/lib/projectBoardCache";
-import { format, isPast, isToday } from "date-fns";
 
 const PRIORITY_COLORS = {
   none: 'bg-muted',
@@ -54,6 +56,7 @@ export default function ProjectBoardPage() {
   const [editingListId, setEditingListId] = useState(null);
   const [editingListName, setEditingListName] = useState('');
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [boardView, setBoardView] = useState('board');
 
   const queryClient = useQueryClient();
   useEffect(() => {
@@ -88,6 +91,8 @@ export default function ProjectBoardPage() {
   });
 
   useProjectBoardRealtime(boardId);
+  const inboxSummary = useBoardInboxSummary(boardId, accessChecked && !error && Boolean(boardData?.board));
+  const unreadCardIds = new Set(inboxSummary.data?.unreadCardIds || []);
   const cardDeepLink = useInboxCardDeepLink({
     boardId,
     search: location.search,
@@ -333,7 +338,7 @@ export default function ProjectBoardPage() {
   return (
     <div className="flex flex-col h-screen">
       <div
-        className="px-4 py-3 border-b flex items-center justify-between gap-4"
+        className="px-4 py-3 border-b flex flex-wrap items-center justify-between gap-4"
         style={{ backgroundColor: `${board?.color}15` }}
       >
         <div className="flex items-center gap-3">
@@ -350,6 +355,10 @@ export default function ProjectBoardPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <div role="group" aria-label="Board view" className="flex rounded-md border p-0.5">
+            <Button size="sm" variant={boardView === 'board' ? 'secondary' : 'ghost'} aria-pressed={boardView === 'board'} onClick={() => setBoardView('board')}>Board</Button>
+            <Button size="sm" variant={boardView === 'calendar' ? 'secondary' : 'ghost'} aria-pressed={boardView === 'calendar'} onClick={() => setBoardView('calendar')}>Calendar</Button>
+          </div>
           <div className="flex -space-x-2">
             {boardData?.members?.slice(0, 5).map((member) => (
               <Avatar key={member.identity_id} className="w-8 h-8 border-2 border-background">
@@ -393,7 +402,11 @@ export default function ProjectBoardPage() {
 
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
       <ProjectBoardInbox boardId={boardId} onOpenCard={openCardDetail} />
-      <ScrollArea className="min-w-0 flex-1">
+      <div className={`min-w-0 flex-1 overflow-y-auto ${boardView === 'board' ? 'hidden' : ''}`}>
+        <ProjectBoardCalendar key={boardId} cards={boardData?.cards || []} labels={boardData?.labels || []}
+          lists={lists} unreadCardIds={unreadCardIds} onOpenCard={openCardDetail} />
+      </div>
+      <ScrollArea className={`min-w-0 flex-1 ${boardView === 'calendar' ? 'hidden' : ''}`}>
         <div className="p-4">
           <DragDropContext onDragEnd={handleDragEnd}>
             <div className="flex gap-4 items-start min-w-max">
@@ -529,31 +542,15 @@ export default function ProjectBoardPage() {
                                         })}
                                       </div>
                                     )}
-                                    <p className="text-sm font-medium">{card.title}</p>
-                                    <div className="flex items-center gap-2 mt-2 flex-wrap">
-                                      {card.due_date && (
-                                        <Badge 
-                                          variant="secondary" 
-                                          className={`text-xs ${
-                                            card.is_complete 
-                                              ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                                              : isPast(new Date(card.due_date)) && !isToday(new Date(card.due_date))
-                                                ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-                                                : ''
-                                          }`}
-                                        >
-                                          <Clock className="w-3 h-3 mr-1" />
-                                          {format(new Date(card.due_date), 'MMM d')}
-                                        </Badge>
-                                      )}
-                                      {card.priority !== 'none' && (
+                                    <ProjectCardTileSummary card={card} hasUnreadMention={unreadCardIds.has(card.id)}>
+                                      {card.priority && card.priority !== 'none' && (
                                         <Badge className={`text-xs ${PRIORITY_COLORS[card.priority]}`}>
                                           {card.priority}
                                         </Badge>
                                       )}
-                                    </div>
-                                    <div className="flex items-center justify-between mt-2">
-                                      {card.project_card_assignee?.length > 0 && (
+                                    </ProjectCardTileSummary>
+                                    {card.project_card_assignee?.length > 0 && (
+                                      <div className="flex items-center justify-between mt-2">
                                         <div className="flex -space-x-1">
                                           {card.project_card_assignee.slice(0, 3).map((a) => {
                                             const member = getMemberById(a.identity_id);
@@ -572,14 +569,8 @@ export default function ProjectBoardPage() {
                                             </div>
                                           )}
                                         </div>
-                                      )}
-                                      {card.project_card_attachment?.length > 0 && (
-                                        <div className="flex items-center gap-1 text-muted-foreground">
-                                          <Paperclip className="w-3 h-3" />
-                                          <span className="text-xs">{card.project_card_attachment.length}</span>
-                                        </div>
-                                      )}
-                                    </div>
+                                      </div>
+                                    )}
                                     {!card.cover_image && card.project_card_attachment?.some(a => a.file_type?.startsWith('image/')) && (
                                       <div className="mt-2 h-16 rounded overflow-hidden bg-muted">
                                         <img 
@@ -738,7 +729,7 @@ export default function ProjectBoardPage() {
         canAssign={canAssign}
         canManageLabels={canManageLabels}
         onUpdate={async (data) => await updateCardMutation.mutateAsync({ cardId: selectedCard.id, data })}
-        onDelete={() => deleteCardMutation.mutate(selectedCard.id)}
+        onDelete={() => deleteCardMutation.mutateAsync(selectedCard.id)}
         getLabelById={getLabelById}
         getMemberById={getMemberById}
       />

@@ -1,14 +1,17 @@
 import { invalidateInboxViews } from "@/lib/inboxSources.mjs";
+import { boardInboxSummaryKey } from "@/components/projects/useBoardInbox";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Calendar, Check, History, MessageSquare, Pencil, Plus, Tag, Trash2, Users, X } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { apiRequest } from "@/lib/queryClient";
+import { publishProjectCardComment } from "@/lib/projectBoardCache";
 import { CardAttachments, CardCoverSection } from "@/components/projects/CardAttachments";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -64,6 +67,14 @@ export default function CardDetailModal({
   const [labelOverrides, setLabelOverrides] = useState({});
   const [showActivity, setShowActivity] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+  const deletePending = useRef(false);
+  useEffect(() => {
+    setConfirmDelete(false);
+    setDeleteError("");
+  }, [card?.id, open]);
   const initialized = useRef(null);
   const dirtyFields = useRef(new Set());
   const queryClient = useQueryClient();
@@ -72,6 +83,61 @@ export default function CardDetailModal({
     queryFn: ({ signal }) => projectTaskRequest(`/api/projects/cards/${card.id}`, { signal }),
     enabled: Boolean(card?.id && open), refetchOnWindowFocus: true,
   });
+  const mentionOpening = useRef(null);
+  const mentionsMounted = useRef(false);
+  useEffect(() => {
+    mentionsMounted.current = true;
+    return () => { mentionsMounted.current = false; };
+  }, []);
+  const markMentionsRead = useMutation({
+    retry: false,
+    mutationFn: ({ cardId, cardBoardId }) => apiRequest("PATCH",
+      `/api/projects/boards/${encodeURIComponent(cardBoardId)}/inbox`, { cardId, read: true }),
+    onSuccess: async (_, { cardId, cardBoardId, opening }) => {
+      opening.status = "read";
+      // Do not let an in-flight summary overwrite the confirmed removal.
+      await queryClient.cancelQueries({ queryKey: boardInboxSummaryKey(cardBoardId), exact: true });
+      queryClient.setQueryData(boardInboxSummaryKey(cardBoardId), (old) => old
+        ? { ...old, unreadCardIds: (old.unreadCardIds || []).filter((id) => id !== cardId) } : old);
+      void invalidateInboxViews(queryClient, cardBoardId);
+    },
+    onError: (_, variables) => {
+      const { opening } = variables;
+      opening.status = "failed";
+      if (!mentionsMounted.current || mentionOpening.current !== opening) return;
+      toast.error("Could not mark this card's mentions as read. They remain unread in both inboxes.", {
+        action: {
+          label: "Retry",
+          onClick: () => {
+            if (!mentionsMounted.current || mentionOpening.current !== opening || opening.status !== "failed") return;
+            opening.status = "pending";
+            markMentionsRead.mutate(variables);
+          },
+        },
+      });
+    },
+  });
+  const markMentionsReadRef = useRef(markMentionsRead.mutate);
+  markMentionsReadRef.current = markMentionsRead.mutate;
+  useEffect(() => {
+    if (!open || !card?.id) {
+      mentionOpening.current = null;
+      return;
+    }
+    if (mentionOpening.current?.cardId !== card.id) {
+      mentionOpening.current = { cardId: card.id, status: "waiting" };
+    }
+    const loadedCard = details.data?.card;
+    const opening = mentionOpening.current;
+    // List props, prefetches of another card, placeholder data and failed GETs
+    // are not evidence that the currently opened card has loaded.
+    if (opening.status !== "waiting" || !details.isSuccess || details.isFetching || !details.isFetchedAfterMount ||
+      details.isPlaceholderData || loadedCard?.id !== card.id || loadedCard.is_archived) return;
+    const cardBoardId = loadedCard.board_id || boardId;
+    if (!cardBoardId) return;
+    opening.status = "pending";
+    markMentionsReadRef.current({ cardId: loadedCard.id, cardBoardId, opening });
+  }, [open, card?.id, boardId, details.isSuccess, details.isFetching, details.isFetchedAfterMount, details.isPlaceholderData, details.data?.card]);
   useEffect(() => {
     if (!open) {
       initialized.current = null;
@@ -134,16 +200,16 @@ export default function CardDetailModal({
     }
     void refresh();
   };
+  const publishComment = async (result) => {
+    await publishProjectCardComment(queryClient, boardId, card.id, result.comment);
+    setNewComment("");
+    setCommentMentions([]);
+    void invalidateInboxViews(queryClient, boardId);
+    void refresh();
+  };
   const addComment = useMutation({
     mutationFn: ({ content, mentionIdentityIds: ids }) => apiRequest("POST", `/api/projects/cards/${card.id}/comments`, { content, mentionIdentityIds: ids }),
-    onSuccess: (result) => {
-      setNewComment("");
-      setCommentMentions([]);
-      void invalidateInboxViews(queryClient, boardId);
-      if (result.comment) queryClient.setQueryData(["card-detail", card.id], (old) =>
-        old ? { ...old, comments: [...(old.comments || []), result.comment] } : old);
-      void refresh();
-    }, onError: reportError,
+    onSuccess: publishComment, onError: reportError,
   });
   const toggleLabel = useMutation({
     mutationFn: ({ id, applied }) => apiRequest(applied ? "DELETE" : "POST", `/api/projects/cards/${card.id}/labels`, { label_id: id }),
@@ -208,7 +274,26 @@ export default function CardDetailModal({
       onOpenChange(false);
     } catch (error) { reportError(error); } finally { setSaving(false); }
   };
-  return <Dialog open={open} onOpenChange={onOpenChange}>
+  const deleteCard = async () => {
+    if (!canManage || saving || deletePending.current) return;
+    deletePending.current = true;
+    setDeleting(true);
+    setDeleteError("");
+    try {
+      // Callers must return the deletion promise (mutateAsync, not mutate).
+      await onDelete();
+      setConfirmDelete(false);
+      onOpenChange(false);
+    } catch (error) {
+      setDeleteError(error?.message || "Could not delete card. Please try again.");
+    } finally {
+      deletePending.current = false;
+      setDeleting(false);
+    }
+  };
+  return <><Dialog open={open} onOpenChange={(nextOpen) => {
+    if (!deletePending.current && !confirmDelete) onOpenChange(nextOpen);
+  }}>
     <DialogContent data-testid="card-detail-modal" className="flex max-h-[92dvh] w-[calc(100%-1.5rem)] max-w-[1180px] flex-col gap-0 overflow-hidden rounded-xl p-0">
       <CardCoverSection presentation="header" cardId={card.id} coverImage={liveCard.cover_image} attachments={cardDetails?.attachments || []} canEdit={canEdit} onCoverChange={updateCover} />
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:grid md:grid-cols-[minmax(0,1.45fr)_minmax(320px,1fr)] md:overflow-hidden">
@@ -333,14 +418,37 @@ export default function CardDetailModal({
         </aside>
       </div>
       <DialogFooter className="shrink-0 gap-2 border-t bg-background px-5 py-4 sm:items-center md:px-8">
-        {canManage && <Button variant="ghost" size="sm" data-testid="button-delete-card" className="text-destructive sm:mr-auto" disabled={saving} onClick={async () => {
-          if (window.confirm("Delete this card? This cannot be undone.")) {
-            try { await onDelete(); } catch (error) { reportError(error); }
-          }
+        {canManage && <Button variant="ghost" size="sm" data-testid="button-delete-card" className="text-destructive sm:mr-auto" disabled={saving || deleting} onClick={() => {
+          setDeleteError("");
+          setConfirmDelete(true);
         }}><Trash2 className="mr-2 h-4 w-4" />Delete card</Button>}
-        <Button variant="outline" disabled={saving} onClick={() => onOpenChange(false)}>{canEdit ? "Cancel" : "Close"}</Button>
-        {canEdit && <Button data-testid="button-save-card" disabled={!editedCard.title?.trim() || saving} onClick={save}>{saving ? "Saving…" : "Save changes"}</Button>}
+        <Button variant="outline" disabled={saving || deleting} onClick={() => onOpenChange(false)}>{canEdit ? "Cancel" : "Close"}</Button>
+        {canEdit && <Button data-testid="button-save-card" disabled={!editedCard.title?.trim() || saving || deleting} onClick={save}>{saving ? "Saving…" : "Save changes"}</Button>}
       </DialogFooter>
     </DialogContent>
-  </Dialog>;
+  </Dialog>
+    <AlertDialog open={open && confirmDelete} onOpenChange={(nextOpen) => {
+      if (!deletePending.current) setConfirmDelete(nextOpen);
+    }}>
+      <AlertDialogContent data-testid="card-delete-confirmation" className="w-[calc(100%-2rem)]" onEscapeKeyDown={(event) => {
+        if (deletePending.current) event.preventDefault();
+      }}>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete card?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Delete “{liveCard.title}”? This cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        {deleteError && <p role="alert" className="text-sm text-destructive">{deleteError}</p>}
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={deleting} data-testid="button-cancel-delete-card">Cancel</AlertDialogCancel>
+          <AlertDialogAction disabled={deleting} data-testid="button-confirm-delete-card" className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={(event) => {
+            // Radix actions close automatically unless default is prevented.
+            event.preventDefault();
+            void deleteCard();
+          }}>{deleting ? "Deleting…" : "Delete"}</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  </>;
 }

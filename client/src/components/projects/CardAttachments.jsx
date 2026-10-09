@@ -493,6 +493,10 @@ export function CardCoverSection({
   presentation = "section"
 }) {
   const [showCoverPicker, setShowCoverPicker] = useState(false);
+  const [isUploadingCover, setIsUploadingCover] = useState(false);
+  const [coverUploadError, setCoverUploadError] = useState("");
+  const coverFileInputRef = useRef(null);
+  const coverUploadBusyRef = useRef(false);
   const queryClient = useQueryClient();
   
   const imageAttachments = attachments.filter(a => a.file_type?.startsWith('image/'));
@@ -536,9 +540,62 @@ export function CardCoverSection({
     }
   });
 
+  const uploadCover = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || !canEdit || coverUploadBusyRef.current ||
+        setCoverMutation.isPending || removeCoverMutation.isPending) return;
+    setCoverUploadError("");
+    if (!["image/jpeg", "image/png", "image/gif", "image/webp"].includes(file.type)) {
+      setCoverUploadError("Choose a JPEG, PNG, GIF or WebP image.");
+      return;
+    }
+    if (file.size > 100 * 1024 * 1024) {
+      setCoverUploadError("Cover images must be 100 MB or smaller.");
+      return;
+    }
+    coverUploadBusyRef.current = true;
+    setIsUploadingCover(true);
+    try {
+      const response = await fetch(`/api/projects/cards/${cardId}/attachments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          fileName: file.name, fileSize: file.size, mimeType: file.type, purpose: "cover"
+        })
+      });
+      if (!response.ok) await throwUploadHttpError(response, "Failed to get cover upload URL");
+      const { signedUrl, uploadToken } = await response.json();
+      if (!signedUrl || !uploadToken) throw new Error("Failed to get cover upload URL");
+      const uploadResponse = await fetch(signedUrl, {
+        method: "PUT", headers: { "Content-Type": file.type }, body: file
+      });
+      if (!uploadResponse.ok) throw new Error("Failed to upload cover image to storage");
+      const confirmResponse = await fetch(`/api/projects/cards/${cardId}/attachments/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ uploadToken })
+      });
+      if (!confirmResponse.ok) await throwUploadHttpError(confirmResponse, "Failed to confirm cover upload");
+      const { coverImage: uploadedCoverImage } = await confirmResponse.json();
+      if (!uploadedCoverImage) throw new Error("Failed to confirm cover upload");
+      await publishProjectCardUpdate(queryClient, cardId, { cover_image: uploadedCoverImage });
+      toast.success("Cover image uploaded");
+      setShowCoverPicker(false);
+    } catch (error) {
+      setCoverUploadError(error.message || "Failed to upload cover image. Please try again.");
+      showUploadErrorToast(error, "Failed to upload cover image");
+    } finally {
+      coverUploadBusyRef.current = false;
+      setIsUploadingCover(false);
+    }
+  };
+
   if (!canEdit && !coverImage) return null;
   const isHeader = presentation === "header";
-  const isPending = setCoverMutation.isPending || removeCoverMutation.isPending;
+  const isPending = isUploadingCover || setCoverMutation.isPending || removeCoverMutation.isPending;
 
   return (
     <div data-testid={isHeader ? "card-cover-header" : "card-cover-section"} className={isHeader ? "shrink-0" : "mb-4"}>
@@ -595,12 +652,43 @@ export function CardCoverSection({
         </Button></div>
       ) : null}
 
-      <Dialog open={showCoverPicker} onOpenChange={setShowCoverPicker}>
+      <Dialog open={canEdit && showCoverPicker} onOpenChange={(open) => {
+        if (isPending) return;
+        setCoverUploadError("");
+        setShowCoverPicker(open);
+      }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Choose cover image</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
+            <div className="space-y-2">
+              <input
+                ref={coverFileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/gif,image/webp"
+                aria-label="Upload cover image"
+                className="hidden"
+                disabled={!canEdit || isPending}
+                onChange={uploadCover}
+                data-testid="input-cover-upload"
+              />
+              <Button
+                variant="outline"
+                className="w-full"
+                disabled={!canEdit || isPending}
+                onClick={() => coverFileInputRef.current?.click()}
+                data-testid="button-upload-cover"
+              >
+                <Upload className="w-4 h-4 mr-2" />
+                {isUploadingCover ? "Uploading cover…" : "Upload cover image"}
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                JPEG, PNG, GIF or WebP, up to 100 MB. Cover uploads are not added to attachments.
+              </p>
+              {isUploadingCover && <p role="status" className="text-sm text-muted-foreground">Uploading and saving your cover…</p>}
+              {coverUploadError && <p role="alert" className="text-sm text-destructive">{coverUploadError}</p>}
+            </div>
             {imageAttachments.length > 0 ? (
               <div>
                 <p className="text-sm text-muted-foreground mb-2">Select from attachments:</p>
@@ -643,7 +731,7 @@ export function CardCoverSection({
               <div className="text-center py-6 text-muted-foreground">
                 <Image className="w-12 h-12 mx-auto mb-2 opacity-50" />
                 <p>No image attachments yet.</p>
-                <p className="text-sm">Upload an image in the Attachments section below to use as a cover.</p>
+                <p className="text-sm">Upload a cover image above, or add an image attachment to choose here.</p>
               </div>
             )}
             

@@ -7,3 +7,4 @@ description: Function permissions, pooled locks, nullable JSON and legacy schema
 - [Transaction-pool advisory locks](transaction-pool-advisory-locks.md) — explicit transactions and transaction-scoped locks prevent pooled-session lock leakage.
 - [Nullable JSONB migration merges](nullable-jsonb-migration-merges.md) — coalesce nullable JSON before idempotent merges.
 - [Legacy transition-row types](legacy-transition-row-types.md) — dropped attributes can break whole transition-row composites only on the real long-lived schema.
+- [RPC fixture schema parity](rpc-fixture-schema-parity.md) — verify deployed key types; UUID-looking identity values may be stored as text.

@@ -21,6 +21,23 @@ export function createProjectInboxHandler({ db = supabase, sessionFor = getSessi
       if (board.error) throw board.error;
       if (!board.data || board.data.is_archived) return res.status(404).json({ error: 'Board unavailable' });
       if (req.method === 'GET') {
+        // Card badges must include mentions beyond the inbox's current page.
+        if (req.query.summary === 'true') {
+          const cardIds = new Set();
+          const pageSize = 500;
+          for (let offset = 0; ; offset += pageSize) {
+            const rows = await db.from('project_mention_inbox')
+              .select('id,card_id,card:project_card!inner(is_archived)')
+              .eq('board_id',boardId).eq('recipient_id',identityId)
+              .eq('is_archived',false).is('read_at',null)
+              .eq('card.is_archived',false).eq('card.board_id',boardId)
+              .order('id',{ascending:true}).range(offset,offset+pageSize-1);
+            if (rows.error) throw rows.error;
+            for (const row of rows.data || []) cardIds.add(row.card_id);
+            if ((rows.data || []).length < pageSize) break;
+          }
+          return res.json({unreadCardIds:[...cardIds]});
+        }
         const page = Number(req.query.page || 1), pageSize = Number(req.query.pageSize || 30);
         if (!Number.isSafeInteger(page) || page < 1 || page > 100000
           || !Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) {
@@ -49,14 +66,25 @@ export function createProjectInboxHandler({ db = supabase, sessionFor = getSessi
         return res.status(400).json({error:'Choose a read or pin action'});
       }
       const all = body.all === true;
+      const byCard = Object.hasOwn(body,'cardId');
+      if (byCard && (!uuid(body.cardId) || all || Object.hasOwn(body,'ids') || !hasRead || body.read !== true)) {
+        return res.status(400).json({error:'Choose a valid card to mark read'});
+      }
       if (all && (!hasRead || body.read !== true)) return res.status(400).json({error:'Only mark-all-read is supported'});
-      if (!all && (!Array.isArray(body.ids) || !body.ids.length || body.ids.length > 100 || body.ids.some(id=>!uuid(id)))) {
+      if (!all && !byCard && (!Array.isArray(body.ids) || !body.ids.length || body.ids.length > 100 || body.ids.some(id=>!uuid(id)))) {
         return res.status(400).json({error:'Select up to 100 inbox messages'});
+      }
+      if (byCard) {
+        const card = await db.from('project_card').select('id')
+          .eq('id',body.cardId).eq('board_id',boardId).eq('is_archived',false).maybeSingle();
+        if (card.error) throw card.error;
+        if (!card.data) return res.status(404).json({error:'Card unavailable'});
       }
       const value = (hasRead ? body.read : body.pinned) ? new Date().toISOString() : null;
       let update = db.from('project_mention_inbox').update({[hasRead?'read_at':'pinned_at']:value})
         .eq('board_id',boardId).eq('recipient_id',identityId).eq('is_archived',false);
-      if (!all) update = update.in('id',[...new Set(body.ids)]);
+      if (byCard) update = update.eq('card_id',body.cardId).is('read_at',null);
+      else if (!all) update = update.in('id',[...new Set(body.ids)]);
       const result = await update;
       if (result.error) throw result.error;
       return res.json({updated:true});

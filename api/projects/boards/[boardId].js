@@ -71,7 +71,8 @@ export default async function handler(req, res) {
         .select(`
           *,
           project_card_label(label_id),
-          project_card_assignee(identity_id)
+          project_card_assignee(identity_id),
+          project_card_comment(count)
         `)
         .eq('board_id', boardId)
         .eq('is_archived', false)
@@ -79,23 +80,32 @@ export default async function handler(req, res) {
 
       if (cardsError) {
         console.error('[Board] Cards query error:', cardsError);
+        return res.status(500).json({ error: 'Failed to load board cards' });
       }
 
       // Fetch attachments separately and merge with cards
       const cardIds = cards?.map(c => c.id) || [];
       let attachmentsByCard = {};
       if (cardIds.length > 0) {
-        const { data: attachments } = await supabase
-          .from('project_card_attachment')
-          .select('id, card_id, name, url, file_type, file_size, created_at')
-          .in('card_id', cardIds)
-          .order('created_at', { ascending: false });
-
-        attachmentsByCard = (attachments || []).reduce((acc, att) => {
-          if (!acc[att.card_id]) acc[att.card_id] = [];
-          acc[att.card_id].push(att);
-          return acc;
-        }, {});
+        for (let offset = 0; offset < cardIds.length; offset += 100) {
+          for (let start = 0; ; start += 500) {
+            const { data: attachments, error: attachmentError } = await supabase
+              .from('project_card_attachment')
+              .select('id, card_id, name, url, file_type, file_size, uploaded_at')
+              .in('card_id', cardIds.slice(offset, offset + 100))
+              .order('uploaded_at', { ascending: false })
+              .order('id', { ascending: false })
+              .range(start, start + 499);
+            if (attachmentError) {
+              console.error('[Board] Attachments query error:', attachmentError.code);
+              return res.status(500).json({ error: 'Failed to load card attachments' });
+            }
+            for (const att of attachments || []) {
+              (attachmentsByCard[att.card_id] ||= []).push(att);
+            }
+            if (!attachments || attachments.length < 500) break;
+          }
+        }
       }
 
       const cardsWithAttachments = (cards || []).map(card => ({
