@@ -25,6 +25,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useProjectBoardRealtime } from "@/hooks/useProjectBoardRealtime";
 import { Link, useParams } from "react-router-dom";
 import { apiRequest } from "@/lib/queryClient";
+import { publishCreatedProjectCard } from "@/lib/projectBoardCache";
 import { format, isPast, isToday } from "date-fns";
 
 const PRIORITY_COLORS = {
@@ -65,9 +66,10 @@ export default function ProjectBoardPage() {
 
   const { data: boardData, isLoading, error } = useQuery({
     queryKey: ['project-board', boardId],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const response = await fetch(`/api/projects/boards/${boardId}`, {
-        credentials: 'include'
+        credentials: 'include',
+        signal,
       });
       if (!response.ok) {
         if (response.status === 403) throw new Error('Not authorized to view this board');
@@ -123,8 +125,8 @@ export default function ProjectBoardPage() {
       const response = await apiRequest('POST', '/api/projects/cards', { list_id, title });
       return response;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['project-board', boardId] });
+    onSuccess: async (data, variables) => {
+      await publishCreatedProjectCard(queryClient, variables.boardId, data.card);
       setNewCardTitle('');
       setAddingCardToList(null);
       toast.success('Card created');
@@ -261,7 +263,7 @@ export default function ProjectBoardPage() {
 
   const handleCreateCard = (listId) => {
     if (!newCardTitle.trim()) return;
-    createCardMutation.mutate({ list_id: listId, title: newCardTitle });
+    createCardMutation.mutate({ boardId, list_id: listId, title: newCardTitle });
   };
 
   const openCardDetail = async (card) => {
