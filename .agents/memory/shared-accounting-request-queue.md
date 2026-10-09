@@ -50,3 +50,9 @@ Compare persisted accounting authority structurally, not by JSON object-key orde
 **Why:** Live BNMS queued release evidence was semantically identical to reconstructed release evidence but JSONB reordered its keys. Stringified equality incorrectly placed the requests into permanent review before any provider call.
 
 **How to apply:** Preserve array order and exact scalar values while ignoring object-key order. Test a JSONB-style reordered snapshot, retain genuine financial/release change rejection, and separately recover already-stranded review rows after verifying they never reached a financial write.
+
+The accounting sweep is for invoices that should have been created by application transactions, not retrospective invoice creation for imported historical records. The user's stated priority is October GoCardless webhook-triggered invoicing.
+
+**Why:** The user said historical imported invoices will be obtained through another route and must not be included merely because imported records exist.
+
+**How to apply:** Establish the payment transaction's provenance and invoice ownership separately from the membership agreement's import provenance. Resolve any overlap with the other invoicing route before releasing recovery; never send additional GoCardless collection instructions.
