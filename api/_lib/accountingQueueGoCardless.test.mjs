@@ -11,7 +11,7 @@ import { processAccountingRequest } from './accountingRequestQueue.js';
 import { reconcileAccounting } from './directDebitReconciliationPipeline.js';
 
 const tenant = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-function fixture(provider = 'xero', mode = 'per_instalment') {
+function fixture(provider = 'xero', mode = 'per_instalment', persist = value => value) {
   const agreement = { id: 'agreement', tenant_id: tenant, member_id: 'member', provider: 'gocardless',
     environment: 'live', gocardless_mandate_id: 'MD1', metadata: { dd: { invoicing_mode: mode, currency: 'GBP' } } };
   const payment = { id: 'payment', tenant_id: tenant, plan_id: 'plan', gocardless_payment_id: 'PM1',
@@ -42,13 +42,37 @@ function fixture(provider = 'xero', mode = 'per_instalment') {
     };
     function execute(single) {
       const rows = (tables[table] || []).filter(x => filters.every(f => f(x)));
-      if (patch) { writes.push({ table, patch }); rows.forEach(x => Object.assign(x, patch)); }
+      if (patch) { writes.push({ table, patch }); rows.forEach(x => Object.assign(x, persist(patch))); }
       return { data: structuredClone(single ? rows[0] || null : rows), error: null };
     }
     return query;
   } };
   return { db, row, tables, writes, agreement, payment, provider: { name: provider } };
 }
+
+test('source linkage accepts PostgreSQL timestamp formatting but rejects missing or changed timestamps', async () => {
+  for (const provider of ['xero', 'quickbooks']) {
+    for (const variant of ['equivalent', 'changed', 'invalid', 'missing', 'wrongInvoice']) {
+      const f = fixture(provider, 'per_instalment', patch => ({
+        ...patch,
+        accounting_synced_at: variant === 'changed'
+          ? new Date(Date.parse(patch.accounting_synced_at) + 1000).toISOString()
+          : variant === 'invalid' ? 'invalid'
+          : variant === 'missing' ? null
+          : patch.accounting_synced_at.replace('Z', '+00:00'),
+        ...(variant === 'wrongInvoice' ? { accounting_invoice_id: 'OTHER' } : {}),
+      }));
+      Object.assign(f.row, { invoice_status: 'done', invoice_result: { id: 'INV1', invoiceNumber: '1' },
+        payment_status: 'done', payment_result: { id: 'PAY1', payment_recorded: true } });
+      if (variant === 'equivalent') {
+        assert.equal((await linkGoCardlessAccountingSource({ db: f.db, row: f.row })).linked, true);
+        assert.equal((await linkGoCardlessAccountingSource({ db: f.db, row: f.row })).linked, true);
+      } else {
+        await assert.rejects(linkGoCardlessAccountingSource({ db: f.db, row: f.row }), /SOURCE_LINK_NOT_PERSISTED/);
+      }
+    }
+  }
+});
 
 test('JSONB object-key reordering preserves frozen GC authority', async () => {
   const f = fixture();

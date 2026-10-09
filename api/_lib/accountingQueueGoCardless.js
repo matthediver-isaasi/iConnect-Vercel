@@ -147,7 +147,10 @@ export async function linkGoCardlessAccountingSource({ db, row }) {
   const { data, error } = await update.select('id');
   if (error || data?.length !== 1) fail('GC_QUEUE_SOURCE_LINK_FAILED');
   const saved = await one(scope(db, 'gocardless_payments', row.source_id, row.tenant_id), 'GC_QUEUE_SOURCE_LINK_UNAVAILABLE');
-  if (Object.entries(patch).some(([key, value]) => !same(saved[key], value))) fail('GC_QUEUE_SOURCE_LINK_NOT_PERSISTED');
+  if (Object.entries(patch).some(([key, value]) => key === 'accounting_synced_at'
+    ? typeof saved[key] !== 'string' || !Number.isFinite(Date.parse(saved[key]))
+      || Date.parse(saved[key]) !== Date.parse(value)
+    : !same(saved[key], value))) fail('GC_QUEUE_SOURCE_LINK_NOT_PERSISTED');
   return { linked: true, paymentId: row.source_id, invoiceId: row.invoice_result.id, providerPaymentId: row.payment_result.id };
 }
 

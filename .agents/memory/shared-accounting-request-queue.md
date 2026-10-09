@@ -68,3 +68,9 @@ For an approved imported-agreement continuation, the release's pinned bank/conta
 **Why:** The original imported invoice writer used that approved mapping; switching to the generic setting during recovery would change the accounting destination.
 
 **How to apply:** Revalidate the pinned provider accounts and live release. Retain the original non-expiring invoice ledger, record the actual queue provider keys in its ownership identity, and never treat a pre-existing legacy claim as permission for a fresh POST.
+
+Database timestamp round-trips must be compared by instant, not literal ISO spelling, when verifying accounting source linkage.
+
+**Why:** PostgreSQL returned an equivalent `+00:00` timestamp instead of `Z`, causing the final queue check to report review despite a verified invoice, recorded payment and successfully saved source link.
+
+**How to apply:** Keep exact comparisons for invoice/provider identities and other non-date fields; reject absent, invalid or genuinely changed timestamps. Recover affected finalization holds without resetting completed financial stages.
