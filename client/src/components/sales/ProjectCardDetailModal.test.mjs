@@ -1,0 +1,206 @@
+import test, { after } from "node:test";
+import assert from "node:assert/strict";
+import { JSDOM } from "jsdom";
+import { build } from "esbuild";
+import { unlink } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
+import path from "node:path";
+
+// Local fixtures only: unexpected network calls fail the test.
+const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "https://fixture.invalid" });
+Object.assign(globalThis, {
+  window: dom.window, document: dom.window.document, navigator: dom.window.navigator,
+  HTMLElement: dom.window.HTMLElement, Element: dom.window.Element, Node: dom.window.Node,
+  Event: dom.window.Event, MouseEvent: dom.window.MouseEvent, MutationObserver: dom.window.MutationObserver,
+  getComputedStyle: dom.window.getComputedStyle, IS_REACT_ACT_ENVIRONMENT: true,
+});
+const React = (await import("react")).default;
+globalThis.React = React;
+const { act } = React;
+const { createRoot } = await import("react-dom/client");
+const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+const bundlePath = path.resolve(`client/src/components/sales/.card-modal-fixture-${process.pid}.mjs`);
+await build({
+  entryPoints: ["client/src/components/sales/ProjectCardDetailModal.jsx"], outfile: bundlePath,
+  bundle: true, format: "esm", platform: "node", packages: "external", jsx: "transform",
+  alias: { "@": path.resolve("client/src") }, define: { "import.meta.env": "{}" }, logLevel: "silent",
+  plugins: [{
+    name: "modal-boundary-fixtures",
+    setup(builder) {
+      builder.onResolve({ filter: /^@\/components\/(ui\/dialog|ui\/select|projects\/CardAttachments)$/ },
+        ({ path: entry }) => ({ path: entry, namespace: "fixture" }));
+      builder.onLoad({ filter: /.*/, namespace: "fixture" }, ({ path: entry }) => {
+        if (entry.endsWith("CardAttachments")) return { loader: "jsx", contents: `
+          export const CardCoverSection = ({ coverImage, onCoverChange }) => <button data-testid="fixture-cover" data-cover={coverImage || ""} onClick={() => onCoverChange("new-cover").catch(error => { globalThis.coverError = error.message; })}>Change cover</button>;
+          export const CardAttachments = ({ coverImage }) => <div data-testid="fixture-attachments" data-cover={coverImage || ""} />;
+        ` };
+        if (entry.endsWith("dialog")) return { loader: "jsx", contents: `
+          export const Dialog = ({ open, children }) => open ? <div>{children}</div> : null;
+          export const DialogContent = ({ children, ...props }) => <div {...props}>{children}</div>;
+          export const DialogHeader = ({ children, ...props }) => <header {...props}>{children}</header>;
+          export const DialogTitle = ({ children, ...props }) => <h1 {...props}>{children}</h1>;
+          export const DialogDescription = ({ children, ...props }) => <p {...props}>{children}</p>;
+          export const DialogFooter = ({ children, ...props }) => <footer {...props}>{children}</footer>;
+        ` };
+        return { loader: "jsx", contents: `
+          export const Select = ({ value, disabled, onValueChange, children }) => <div><select aria-label="fixture-select" value={value} disabled={disabled} onChange={e => onValueChange(e.target.value)}><option value="list-a">Planning</option><option value="none">none</option><option value="high">high</option></select>{children}</div>;
+          export const SelectTrigger = ({ children, ...props }) => <div {...props}>{children}</div>;
+          export const SelectValue = () => null;
+          export const SelectContent = () => null;
+          export const SelectItem = () => null;
+        ` };
+      });
+    },
+  }],
+});
+const { default: Modal } = await import(pathToFileURL(bundlePath).href);
+const originalFetch = globalThis.fetch;
+after(async () => { globalThis.fetch = originalFetch; dom.window.close(); await unlink(bundlePath); });
+const fixtureCard = { id: "card-a", board_id: "board-a", title: "Plan launch", description: "", list_id: "list-a", start_date: "2026-10-08", due_date: "2026-10-12", cover_image: "stale-cover", project_card_label: [] };
+const fixtureLabels = [{ id: "label-a", name: "Review", color: "#14b8a6" }];
+async function settle() { await act(async () => { await new Promise((resolve) => setTimeout(resolve, 15)); }); }
+async function mount(overrides = {}) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false, gcTime: Infinity } } });
+  const detail = { card: { ...fixtureCard, cover_image: "live-cover" }, comments: [{ id: "comment-a", identity_id: "member-a", content: "Ready for review", created_at: "2026-10-09T12:30:00Z" }], activity: [{ id: "activity-a", identity_id: "member-a", action_type: "moved", action_data: { to_list: "list-a" }, created_at: "2026-10-09T12:30:00Z" }], attachments: [] };
+  const calls = [], updates = [];
+  const props = {
+    card: fixtureCard, open: true, onOpenChange: () => {}, boardId: "board-a", labels: fixtureLabels,
+    members: [{ identity_id: "member-a", first_name: "Maya", last_name: "Stone" }],
+    lists: [{ id: "list-a", name: "Planning" }], canEdit: true, canManage: true,
+    canManageLabels: true, onUpdate: async (patch) => { updates.push(patch); }, onDelete: async () => {},
+    ...overrides,
+  };
+  globalThis.fetch = async (url, options = {}) => {
+    const method = options.method || "GET", body = options.body ? JSON.parse(options.body) : null;
+    calls.push({ url, method, body, credentials: options.credentials });
+    let result;
+    if (url === "/api/projects/cards/card-a" && method === "GET") result = detail;
+    else if (url === "/api/projects/boards/board-a/labels") result = method === "DELETE" ? { success: true } : { label: { ...body, id: body.id || "label-new", board_id: "board-a" } };
+    else if (url === "/api/projects/cards/card-a/labels") {
+      const remaining = detail.card.project_card_label.filter((entry) => entry.label_id !== body.label_id);
+      detail.card.project_card_label = method === "POST" ? [...remaining, { label_id: body.label_id }] : remaining;
+      result = { success: true };
+    }
+    else throw new Error(`Unexpected fixture request: ${method} ${url}`);
+    return { ok: true, status: 200, json: async () => structuredClone(result) };
+  };
+  client.setQueryData(["project-board", "board-a"], { labels: fixtureLabels, cards: [fixtureCard] });
+  client.setQueryData(["card-detail", "other-card"], { card: { ...fixtureCard, id: "other-card", project_card_label: [{ label_id: "label-a" }] } });
+  const container = document.createElement("div"); document.body.append(container);
+  const root = createRoot(container);
+  const render = async () => { await act(async () => { root.render(React.createElement(QueryClientProvider, { client }, React.createElement(Modal, props))); }); await settle(); };
+  await render();
+  return {
+    container, client, calls, updates, props, detail, render,
+    close: async () => { await act(async () => root.unmount()); client.clear(); container.remove(); },
+  };
+}
+async function click(container, selector) {
+  const button = container.querySelector(selector); assert.ok(button, selector);
+  await act(async () => button.click()); await settle();
+}
+async function type(container, selector, value) {
+  const input = container.querySelector(selector); assert.ok(input, selector);
+  const prototype = input.tagName === "TEXTAREA" ? dom.window.HTMLTextAreaElement.prototype : dom.window.HTMLInputElement.prototype;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(prototype, "value").set.call(input, value);
+    input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    input.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  });
+}
+
+test("wide two-pane modal resolves raw comment/activity identities and uses the live detail cover", async () => {
+  const app = await mount();
+  try {
+    const modal = app.container.querySelector('[data-testid="card-detail-modal"]');
+    assert.match(modal.className, /max-w-\[1180px\]/);
+    assert.ok([...modal.querySelectorAll("div")].some((element) => element.className.includes("md:grid-cols")));
+    assert.ok(app.container.querySelector('section[aria-label="Card details"]'));
+    assert.ok(app.container.querySelector('aside[aria-label="Comments and activity"]'));
+    assert.match(app.container.textContent, /Maya Stone moved this card to Planning/);
+    assert.match(app.container.textContent, /Ready for review/);
+    assert.equal(app.container.querySelector('[data-testid="fixture-cover"]').dataset.cover, "live-cover");
+    assert.equal(app.container.querySelector('[data-testid="fixture-attachments"]').dataset.cover, "live-cover");
+    await click(app.container, 'aside button');
+    assert.equal(app.container.querySelector('[data-testid="card-activity-entry"]'), null);
+  } finally { await app.close(); }
+});
+
+test("dirty title survives detail refresh; untouched dates refresh and cleared dates save as null", async () => {
+  const app = await mount();
+  try {
+    await type(app.container, '[data-testid="input-card-title"]', "My unsaved title");
+    await type(app.container, '[data-testid="input-start-date"]', "");
+    await act(async () => app.client.setQueryData(["card-detail", "card-a"], {
+      ...app.detail, card: { ...app.detail.card, title: "Remote title", start_date: "2026-11-02", due_date: "2026-11-04", description: "Remote description" },
+    }));
+    await settle();
+    assert.equal(app.container.querySelector('[data-testid="input-card-title"]').value, "My unsaved title");
+    assert.equal(app.container.querySelector('[data-testid="input-start-date"]').value, "");
+    assert.equal(app.container.querySelector('[data-testid="input-due-date"]').value, "2026-11-04");
+    assert.equal(app.container.querySelector('[data-testid="input-card-description"]').value, "Remote description");
+    await type(app.container, '[data-testid="input-due-date"]', "");
+    await click(app.container, '[data-testid="button-save-card"]');
+    assert.deepEqual(app.updates, [{ title: "My unsaved title", start_date: null, due_date: null }]);
+  } finally { await app.close(); }
+});
+
+test("create, edit, attach, detach and delete board labels publish confirmed data without new parent props", async () => {
+  const app = await mount();
+  const confirmations = [], oldConfirm = window.confirm;
+  window.confirm = (message) => { confirmations.push(message); return false; };
+  try {
+    await click(app.container, '[data-testid="button-add-label"]');
+    await click(app.container, '[data-testid="button-create-label"]');
+    await type(app.container, '[aria-label="Label name"]', "Editorial");
+    await click(app.container, '[data-testid="button-save-label"]');
+    assert.match(app.container.textContent, /Editorial/);
+    assert.ok(app.client.getQueryData(["project-board", "board-a"]).labels.some((label) => label.name === "Editorial"));
+    await click(app.container, '[aria-label="Edit Editorial"]');
+    await type(app.container, '[aria-label="Label name"]', "Final review");
+    await click(app.container, '[data-testid="button-save-label"]');
+    assert.ok(app.client.getQueryData(["project-board", "board-a"]).labels.some((label) => label.name === "Final review"));
+    const toggle = [...app.container.querySelectorAll('button[aria-pressed]')].find((button) => button.textContent === "Final review");
+    await act(async () => toggle.click());
+    await settle();
+    assert.equal(app.calls.find((call) => call.url.endsWith("/card-a/labels")).method, "POST");
+    await click(app.container, '[aria-label="Remove label Final review"]');
+    await settle();
+    assert.ok(app.calls.some((call) => call.url.endsWith("/card-a/labels") && call.method === "DELETE"));
+    await click(app.container, '[aria-label="Delete label Review"]');
+    assert.match(confirmations[0], /removed from all cards on this board/);
+    assert.equal(app.calls.some((call) => call.method === "DELETE" && call.url.endsWith("/board-a/labels")), false);
+    window.confirm = (message) => { confirmations.push(message); return true; };
+    await click(app.container, '[aria-label="Delete label Review"]');
+    assert.equal(app.container.querySelector('[aria-label="Edit Review"]'), null);
+    assert.deepEqual(app.client.getQueryData(["card-detail", "other-card"]).card.project_card_label, []);
+    assert.ok(app.calls.every((call) => call.credentials === "include"));
+  } finally { window.confirm = oldConfirm; await app.close(); }
+});
+
+test("label management is independent of attachment permission; members cannot manage board labels", async () => {
+  const manager = await mount({ canEdit: false, canManageLabels: true });
+  try {
+    await click(manager.container, '[data-testid="button-add-label"]');
+    assert.ok(manager.container.querySelector('[data-testid="button-create-label"]'));
+    assert.equal(manager.container.querySelector('button[aria-pressed]').disabled, true);
+    assert.equal(manager.container.querySelector('[data-testid="button-save-card"]'), null);
+  } finally { await manager.close(); }
+  const member = await mount({ canManageLabels: false, canManage: false });
+  try {
+    await click(member.container, '[data-testid="button-add-label"]');
+    assert.equal(member.container.querySelector('[data-testid="button-create-label"]'), null);
+    assert.equal(member.container.querySelector('[aria-label="Edit Review"]'), null);
+    assert.equal(member.container.querySelector('button[aria-pressed]').disabled, false);
+  } finally { await member.close(); }
+});
+
+test("cover callback propagates PATCH rejection to attachments instead of swallowing it", async () => {
+  globalThis.coverError = null;
+  const app = await mount({ onUpdate: async () => { throw new Error("Cover permission denied"); } });
+  try {
+    await click(app.container, '[data-testid="fixture-cover"]');
+    assert.equal(globalThis.coverError, "Cover permission denied");
+    assert.equal(app.container.querySelector('[data-testid="fixture-cover"]').dataset.cover, "live-cover");
+  } finally { await app.close(); delete globalThis.coverError; }
+});

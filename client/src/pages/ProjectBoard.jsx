@@ -25,7 +25,7 @@ import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useProjectBoardRealtime } from "@/hooks/useProjectBoardRealtime";
 import { Link, useParams } from "react-router-dom";
 import { apiRequest } from "@/lib/queryClient";
-import { publishCreatedProjectCard } from "@/lib/projectBoardCache";
+import { publishCreatedProjectCard, publishProjectCardUpdate } from "@/lib/projectBoardCache";
 import { format, isPast, isToday } from "date-fns";
 
 const PRIORITY_COLORS = {
@@ -220,11 +220,9 @@ export default function ProjectBoardPage() {
       const response = await apiRequest('PATCH', `/api/projects/cards/${cardId}`, data);
       return response;
     },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['project-board', boardId] });
-      if (selectedCard) {
-        setSelectedCard({ ...selectedCard, ...data.card });
-      }
+    onSuccess: async (data, variables) => {
+      await publishProjectCardUpdate(queryClient, variables.cardId, data.card);
+      setSelectedCard(current => current?.id === variables.cardId ? { ...current, ...data.card } : current);
     }
   });
 

@@ -108,10 +108,11 @@ export default async function handler(req, res) {
       const { setAsCover, clearCover } = req.body;
 
       if (setAsCover && attachment.file_type?.startsWith('image/')) {
-        await supabase
+        const { error: coverError } = await supabase
           .from('project_card')
           .update({ cover_image: attachment.url })
           .eq('id', cardId);
+        if (coverError) return res.status(500).json({ error: 'Failed to set cover image' });
 
         await supabase.from('project_card_activity').insert({
           card_id: cardId,
@@ -124,10 +125,11 @@ export default async function handler(req, res) {
       }
 
       if (clearCover) {
-        await supabase
+        const { error: coverError } = await supabase
           .from('project_card')
           .update({ cover_image: null })
           .eq('id', cardId);
+        if (coverError) return res.status(500).json({ error: 'Failed to remove cover image' });
 
         await supabase.from('project_card_activity').insert({
           card_id: cardId,

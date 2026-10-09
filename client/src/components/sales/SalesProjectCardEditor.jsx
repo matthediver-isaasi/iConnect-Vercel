@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useProjectBoardRealtime } from "@/hooks/useProjectBoardRealtime";
 import { apiRequest } from "@/lib/queryClient";
+import { publishProjectCardUpdate } from "@/lib/projectBoardCache";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import CardDetailModal from "./ProjectCardDetailModal";
@@ -47,7 +48,10 @@ export default function SalesProjectCardEditor({ boardId, cardId, open, onOpenCh
   }, [board.dataUpdatedAt, queryClient]);
   const update = useMutation({
     mutationFn: (data) => apiRequest("PATCH", `/api/projects/cards/${cardId}`, data),
-    onSuccess: () => refreshSalesProjects(queryClient),
+    onSuccess: async (data) => {
+      await publishProjectCardUpdate(queryClient, cardId, data.card);
+      void refreshSalesProjects(queryClient);
+    },
   });
   const remove = useMutation({
     mutationFn: () => apiRequest("DELETE", `/api/projects/cards/${cardId}`),

@@ -1,7 +1,26 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { QueryClient, QueryObserver } from '@tanstack/react-query';
-import { publishCreatedProjectCard } from './projectBoardCache.js';
+import { publishCreatedProjectCard, publishProjectCardUpdate } from './projectBoardCache.js';
+test('uploads and covers publish to both caches without dropping card relationships', async () => {
+  const client = new QueryClient();
+  const key = ['project-board', 'board'];
+  const card = { id: 'card', board_id: 'board', cover_image: null, project_card_label: [{ label_id: 'label' }] };
+  client.setQueryData(key, { cards: [card, { id: 'other' }], labels: ['label'] });
+  client.setQueryData(['card-detail', 'card'], { card, attachments: [], comments: ['comment'] });
+  const attachment = { id: 'image', url: '/image.png', file_type: 'image/png' };
+  await publishProjectCardUpdate(client, 'card', {}, { attachment });
+  await publishProjectCardUpdate(client, 'card', { cover_image: attachment.url });
+  assert.equal(client.getQueryData(key).cards[0].cover_image, '/image.png');
+  assert.deepEqual(client.getQueryData(key).cards[0].project_card_label, [{ label_id: 'label' }]);
+  assert.deepEqual(client.getQueryData(['card-detail', 'card']).attachments, [attachment]);
+  assert.deepEqual(client.getQueryData(['card-detail', 'card']).comments, ['comment']);
+  await publishProjectCardUpdate(client, 'card', { cover_image: null }, { removedAttachmentId: 'image' });
+  assert.deepEqual(client.getQueryData(['card-detail', 'card']).attachments, []);
+  assert.equal(client.getQueryData(key).cards[0].cover_image, null);
+  assert.deepEqual(client.getQueryData(key).cards[1], { id: 'other' });
+  client.clear();
+});
 
 test('confirmed card is visible while the background board request is still pending', async () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

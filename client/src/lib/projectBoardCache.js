@@ -1,3 +1,32 @@
+// Merge confirmed edits into both consumers without waiting for a GET.
+export async function publishProjectCardUpdate(queryClient, cardId, patch = {}, {
+  attachment, removedAttachmentId,
+} = {}) {
+  const predicate = query =>
+    (query.queryKey[0] === 'card-detail' && query.queryKey[1] === cardId) ||
+    (query.queryKey[0] === 'project-board' && query.state.data?.cards?.some(card => card.id === cardId));
+  await queryClient.cancelQueries({ predicate });
+  const mergeAttachments = (items = []) => {
+    const remaining = items.filter(item => item.id !== removedAttachmentId);
+    return attachment
+      ? [...remaining.filter(item => item.id !== attachment.id), attachment]
+      : remaining;
+  };
+  const mergeCard = card => ({
+    ...card, ...patch,
+    ...(attachment || removedAttachmentId ? {
+      project_card_attachment: mergeAttachments(card.project_card_attachment),
+    } : {}),
+  });
+  queryClient.setQueriesData({ predicate }, old => {
+    if (!old) return old;
+    if (old.cards) return { ...old, cards: old.cards.map(card => card.id === cardId ? mergeCard(card) : card) };
+    return { ...old, card: old.card ? mergeCard(old.card) : old.card,
+      ...(attachment || removedAttachmentId ? { attachments: mergeAttachments(old.attachments) } : {}) };
+  });
+  void queryClient.invalidateQueries({ predicate });
+}
+
 // Publish the server-confirmed card before the slower board refresh completes.
 export async function publishCreatedProjectCard(queryClient, boardId, card) {
   if (!card?.id || card.board_id !== boardId) return;

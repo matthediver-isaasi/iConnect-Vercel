@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { publishProjectCardUpdate } from "@/lib/projectBoardCache";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -50,7 +51,8 @@ export function CardAttachments({
   canEdit = false,
   onCoverChange
 }) {
-  const [isUploading, setIsUploading] = useState(false);
+  const [uploadCount, setUploadCount] = useState(0);
+  const isUploading = uploadCount > 0;
   const [uploadProgress, setUploadProgress] = useState(0);
   const [dragOver, setDragOver] = useState(false);
   const [previewFile, setPreviewFile] = useState(null);
@@ -58,7 +60,7 @@ export function CardAttachments({
   const queryClient = useQueryClient();
 
   const uploadFile = async (file) => {
-    setIsUploading(true);
+    setUploadCount(count => count + 1);
     setUploadProgress(0);
 
     try {
@@ -107,14 +109,15 @@ export function CardAttachments({
         throw new Error(error.error || 'Failed to confirm upload');
       }
 
+      const confirmed = await confirmResponse.json();
+      await publishProjectCardUpdate(queryClient, cardId, {}, { attachment: confirmed.attachment });
       setUploadProgress(100);
       toast.success('File uploaded successfully');
-      queryClient.invalidateQueries({ queryKey: ['card-detail', cardId] });
     } catch (error) {
       console.error('Upload error:', error);
       showUploadErrorToast(error, 'Failed to upload file');
     } finally {
-      setIsUploading(false);
+      setUploadCount(count => count - 1);
       setUploadProgress(0);
     }
   };
@@ -152,9 +155,12 @@ export function CardAttachments({
       const response = await apiRequest('DELETE', `/api/projects/cards/${cardId}/attachments/${attachmentId}`);
       return response;
     },
-    onSuccess: () => {
+    onSuccess: async (_data, attachmentId) => {
+      const removed = attachments.find(item => item.id === attachmentId);
+      await publishProjectCardUpdate(queryClient, cardId,
+        removed?.url === coverImage ? { cover_image: null } : {},
+        { removedAttachmentId: attachmentId });
       toast.success('Attachment deleted');
-      queryClient.invalidateQueries({ queryKey: ['card-detail', cardId] });
     },
     onError: (error) => {
       toast.error(error.message || 'Failed to delete attachment');
@@ -169,16 +175,12 @@ export function CardAttachments({
       });
       return response;
     },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
+      await publishProjectCardUpdate(queryClient, cardId, { cover_image: data.coverImage });
       if (data.coverImage) {
         toast.success('Cover image set');
       } else {
         toast.success('Cover image removed');
-      }
-      queryClient.invalidateQueries({ queryKey: ['card-detail', cardId] });
-      queryClient.invalidateQueries({ queryKey: ['project-board'] });
-      if (onCoverChange) {
-        onCoverChange(data.coverImage);
       }
     },
     onError: (error) => {
@@ -502,16 +504,12 @@ export function CardCoverSection({
       });
       return response;
     },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
+      await publishProjectCardUpdate(queryClient, cardId, { cover_image: data.coverImage });
       if (data.coverImage) {
         toast.success('Cover image set');
       } else {
         toast.success('Cover image removed');
-      }
-      queryClient.invalidateQueries({ queryKey: ['card-detail', cardId] });
-      queryClient.invalidateQueries({ queryKey: ['project-board'] });
-      if (onCoverChange) {
-        onCoverChange(data.coverImage);
       }
       setShowCoverPicker(false);
     },
@@ -527,13 +525,9 @@ export function CardCoverSection({
       });
       return response;
     },
-    onSuccess: () => {
+    onSuccess: async () => {
+      await publishProjectCardUpdate(queryClient, cardId, { cover_image: null });
       toast.success('Cover removed');
-      queryClient.invalidateQueries({ queryKey: ['card-detail', cardId] });
-      queryClient.invalidateQueries({ queryKey: ['project-board'] });
-      if (onCoverChange) {
-        onCoverChange(null);
-      }
       setShowCoverPicker(false);
     },
     onError: (error) => {
