@@ -12,6 +12,7 @@ import {
 export function createOpportunitiesHandler(dependencies = {}) {
   const db = dependencies.db || supabase;
   const getContext = dependencies.getTenantContext || getTenantContext;
+  const checkAdminAccess = dependencies.hasAdminAccess || hasAdminAccess;
   return async function handler(req, res) {
     try {
       if (!['GET', 'POST'].includes(req.method)) {
@@ -26,9 +27,14 @@ export function createOpportunitiesHandler(dependencies = {}) {
 
       if (req.method === 'GET') {
         const pagination = parsePagination(req.query);
-        const admin = await hasAdminAccess(context);
-        let query = db.from('opportunity').select('*', { count: 'exact' })
+        const admin = await checkAdminAccess(context);
+        const activeOnly = req.query.active === 'true';
+        let query = db.from('opportunity').select(
+          activeOnly ? '*,active_stage:opportunity_stage!inner(id)' : '*', { count: 'exact' })
           .eq('tenant_id', context.tenantId);
+        // Apply before counting/paging, not to an already paginated client list.
+        if (activeOnly) query = query.eq('active_stage.is_active', true)
+          .eq('active_stage.is_won', false).eq('active_stage.is_lost', false);
 
         const mine = req.query.mine === 'true';
         if (!admin || mine) {
@@ -62,7 +68,7 @@ export function createOpportunitiesHandler(dependencies = {}) {
           const search = String(req.query.search).replace(/[%_,()]/g, '');
           if (search) query = query.ilike('name', `%${search}%`);
         }
-        const { data, error, count } = await query.order('updated_at', { ascending: false })
+        const { data, error, count } = await query.order('updated_at', { ascending: false }).order('id', { ascending: true })
           .range(pagination.from, pagination.to);
         if (error) throw error;
         return res.status(200).json({

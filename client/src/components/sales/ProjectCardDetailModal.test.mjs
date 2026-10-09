@@ -31,7 +31,7 @@ await build({
         ({ path: entry }) => ({ path: entry, namespace: "fixture" }));
       builder.onLoad({ filter: /.*/, namespace: "fixture" }, ({ path: entry }) => {
         if (entry.endsWith("CardAttachments")) return { loader: "jsx", contents: `
-          export const CardCoverSection = ({ coverImage, onCoverChange }) => <button data-testid="fixture-cover" data-cover={coverImage || ""} onClick={() => onCoverChange("new-cover").catch(error => { globalThis.coverError = error.message; })}>Change cover</button>;
+          export const CardCoverSection = ({ coverImage, onCoverChange, presentation, canEdit }) => <button data-testid="fixture-cover" data-presentation={presentation} data-cover={coverImage || ""} disabled={!canEdit} onClick={() => onCoverChange("new-cover").catch(error => { globalThis.coverError = error.message; })}>Change cover</button>;
           export const CardAttachments = ({ coverImage }) => <div data-testid="fixture-attachments" data-cover={coverImage || ""} />;
         ` };
         if (entry.endsWith("dialog")) return { loader: "jsx", contents: `
@@ -121,6 +121,9 @@ test("wide two-pane modal resolves raw comment/activity identities and uses the 
     assert.match(app.container.textContent, /Ready for review/);
     assert.equal(app.container.querySelector('[data-testid="fixture-cover"]').dataset.cover, "live-cover");
     assert.equal(app.container.querySelector('[data-testid="fixture-attachments"]').dataset.cover, "live-cover");
+    assert.equal(app.container.querySelectorAll('[data-testid="fixture-cover"]').length, 1);
+    assert.equal(app.container.querySelector('[data-testid="fixture-cover"]').dataset.presentation, "header");
+    assert.equal(app.container.querySelector('section [data-testid="fixture-cover"]'), null);
     await click(app.container, 'aside button');
     assert.equal(app.container.querySelector('[data-testid="card-activity-entry"]'), null);
   } finally { await app.close(); }
@@ -203,4 +206,57 @@ test("cover callback propagates PATCH rejection to attachments instead of swallo
     assert.equal(globalThis.coverError, "Cover permission denied");
     assert.equal(app.container.querySelector('[data-testid="fixture-cover"]').dataset.cover, "live-cover");
   } finally { await app.close(); delete globalThis.coverError; }
+});
+
+test("completion circle and due date pill follow reversible drafts without writing until save", async () => {
+  const app = await mount();
+  try {
+    const toggle = app.container.querySelector('[data-testid="button-toggle-card-complete"]');
+    assert.equal(toggle.getAttribute("role"), "checkbox");
+    assert.equal(toggle.getAttribute("aria-checked"), "false");
+    assert.equal(app.container.querySelector('[data-testid="card-complete-pill"]'), null);
+    await click(app.container, '[data-testid="button-toggle-card-complete"]');
+    assert.equal(toggle.getAttribute("aria-checked"), "true");
+    assert.match(toggle.className, /bg-\[#5a7f23\]/);
+    assert.ok(toggle.querySelector("svg"));
+    assert.equal(app.container.querySelector('[data-testid="card-complete-pill"]').textContent, "Complete");
+    assert.deepEqual(app.updates, []);
+    // Remote refresh cannot overwrite the completion draft.
+    await act(async () => app.client.setQueryData(["card-detail", "card-a"], {
+      ...app.detail, card: { ...app.detail.card, is_complete: false },
+    }));
+    await settle();
+    assert.equal(toggle.getAttribute("aria-checked"), "true");
+    await click(app.container, '[data-testid="button-toggle-card-complete"]');
+    assert.equal(toggle.getAttribute("aria-checked"), "false");
+    assert.equal(app.container.querySelector('[data-testid="card-complete-pill"]'), null);
+    await click(app.container, '[data-testid="button-toggle-card-complete"]');
+    await click(app.container, '[data-testid="button-save-card"]');
+    assert.deepEqual(app.updates, [{ is_complete: true }]);
+  } finally { await app.close(); }
+});
+
+test("completed read-only cards show the tick and Complete pill but cannot toggle or change cover", async () => {
+  const app = await mount({ card: { ...fixtureCard, is_complete: true }, canEdit: false, canManage: false, canManageLabels: false });
+  try {
+    const toggle = app.container.querySelector('[data-testid="button-toggle-card-complete"]');
+    assert.equal(toggle.disabled, true);
+    assert.equal(toggle.getAttribute("aria-checked"), "true");
+    assert.ok(toggle.querySelector("svg"));
+    assert.equal(app.container.querySelector('[data-testid="card-complete-pill"]').textContent, "Complete");
+    assert.equal(app.container.querySelector('[data-testid="fixture-cover"]').disabled, true);
+    await click(app.container, '[data-testid="button-toggle-card-complete"]');
+    assert.equal(toggle.getAttribute("aria-checked"), "true");
+    assert.deepEqual(app.updates, []);
+  } finally { await app.close(); }
+});
+
+test("a completed card can be reopened as a draft and saves false", async () => {
+  const app = await mount({ card: { ...fixtureCard, is_complete: true } });
+  try {
+    await click(app.container, '[data-testid="button-toggle-card-complete"]');
+    assert.equal(app.container.querySelector('[data-testid="card-complete-pill"]'), null);
+    await click(app.container, '[data-testid="button-save-card"]');
+    assert.deepEqual(app.updates, [{ is_complete: false }]);
+  } finally { await app.close(); }
 });

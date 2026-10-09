@@ -202,12 +202,14 @@ export default function CardDetailModal({
   };
   return <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent data-testid="card-detail-modal" className="flex max-h-[92dvh] w-[calc(100%-1.5rem)] max-w-[1180px] flex-col gap-0 overflow-hidden rounded-xl p-0">
-      {liveCard.cover_image && <img src={liveCard.cover_image} alt="" className="h-32 w-full shrink-0 object-cover sm:h-40" />}
+      <CardCoverSection presentation="header" cardId={card.id} coverImage={liveCard.cover_image} attachments={cardDetails?.attachments || []} canEdit={canEdit} onCoverChange={updateCover} />
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:grid md:grid-cols-[minmax(0,1.45fr)_minmax(320px,1fr)] md:overflow-hidden">
         <section aria-label="Card details" className="min-w-0 px-5 pb-6 pt-8 md:overflow-y-auto md:px-8">
           <DialogHeader className="text-left">
             <DialogTitle className="flex items-start gap-3">
-              <input aria-label="Mark card complete" type="checkbox" checked={Boolean(editedCard.is_complete)} disabled={!canEdit || saving} onChange={(event) => editField("is_complete", event.target.checked)} className="mt-3 h-5 w-5 shrink-0 accent-primary" />
+              <button type="button" role="checkbox" aria-label="Mark card complete" aria-checked={Boolean(editedCard.is_complete)} data-testid="button-toggle-card-complete" disabled={!canEdit || saving} onClick={() => editField("is_complete", !editedCard.is_complete)} className={`mt-2 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default ${editedCard.is_complete ? "border-[#5a7f23] bg-[#5a7f23] text-white" : "border-muted-foreground/50 bg-background text-muted-foreground hover:border-[#5a7f23]"}`}>
+                {editedCard.is_complete && <Check aria-hidden="true" className="h-4 w-4" strokeWidth={3} />}
+              </button>
               {canEdit ? <Textarea aria-label="Card title" data-testid="input-card-title" value={editedCard.title || ""} disabled={saving} onChange={(event) => editField("title", event.target.value)} rows={2} className={`min-h-[72px] resize-none border-transparent bg-transparent px-2 text-xl md:text-xl font-semibold leading-snug shadow-none focus-visible:border-input ${editedCard.is_complete ? "line-through text-muted-foreground" : ""}`} />
                 : <span className={`py-2 text-xl leading-snug ${liveCard.is_complete ? "line-through text-muted-foreground" : ""}`}>{liveCard.title}</span>}
             </DialogTitle>
@@ -221,7 +223,10 @@ export default function CardDetailModal({
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               {["start_date", "due_date"].map((key) => <div key={key} className="space-y-2">
-                <Label htmlFor={`card-${key}`} className="flex items-center gap-2"><Calendar className="h-4 w-4 text-muted-foreground" />{key === "start_date" ? "Start date" : "Due date"}</Label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Label htmlFor={`card-${key}`} className="flex items-center gap-2"><Calendar className="h-4 w-4 text-muted-foreground" />{key === "start_date" ? "Start date" : "Due date"}</Label>
+                  {key === "due_date" && editedCard.is_complete && <span data-testid="card-complete-pill" className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-semibold text-white bg-[#5a7f23]"><Check aria-hidden="true" className="h-3 w-3" />Complete</span>}
+                </div>
                 {canEdit ? <Input id={`card-${key}`} type="date" data-testid={`input-${key.replace("_", "-")}`} value={editedCard[key] || ""} disabled={saving} onChange={(event) => editField(key, event.target.value)} />
                   : <p className="text-sm">{dateText(liveCard[key], "MMM d, yyyy") || "Not set"}</p>}
               </div>)}
@@ -281,7 +286,6 @@ export default function CardDetailModal({
               {canEdit ? <Textarea id="card-description" data-testid="input-card-description" disabled={saving} value={editedCard.description || ""} onChange={(event) => editField("description", event.target.value)} placeholder="Add a more detailed description..." rows={5} className="mt-2" />
                 : <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{liveCard.description || "No description"}</p>}
             </div>
-            <CardCoverSection cardId={card.id} coverImage={liveCard.cover_image} attachments={cardDetails?.attachments || []} canEdit={canEdit} onCoverChange={updateCover} />
             <CardAttachments cardId={card.id} attachments={cardDetails?.attachments || []} coverImage={liveCard.cover_image} canEdit={canEdit} onCoverChange={updateCover} />
           </div>
         </section>

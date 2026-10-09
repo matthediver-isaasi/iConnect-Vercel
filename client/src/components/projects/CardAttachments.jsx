@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { 
   Paperclip, Upload, X, Loader2, Image, FileText, Video, 
-  Music, File, MoreHorizontal, Trash2, ImagePlus, Download, Eye
+  Music, File, MoreHorizontal, Trash2, ImagePlus, Download, Eye, Check
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -489,7 +489,8 @@ export function CardCoverSection({
   coverImage, 
   attachments = [], 
   canEdit = false,
-  onCoverChange 
+  onCoverChange,
+  presentation = "section"
 }) {
   const [showCoverPicker, setShowCoverPicker] = useState(false);
   const queryClient = useQueryClient();
@@ -536,55 +537,62 @@ export function CardCoverSection({
   });
 
   if (!canEdit && !coverImage) return null;
+  const isHeader = presentation === "header";
+  const isPending = setCoverMutation.isPending || removeCoverMutation.isPending;
 
   return (
-    <div className="mb-4">
-      <Label className="flex items-center gap-2 mb-2">
+    <div data-testid={isHeader ? "card-cover-header" : "card-cover-section"} className={isHeader ? "shrink-0" : "mb-4"}>
+      {!isHeader && <Label className="flex items-center gap-2 mb-2">
         <ImagePlus className="w-4 h-4" />
         Cover
-      </Label>
+      </Label>}
       
       {coverImage ? (
         <div className="relative group">
-          <div className="h-24 rounded-lg overflow-hidden bg-muted">
+          <div className={isHeader ? "h-40 overflow-hidden border-b bg-muted/50 sm:h-48" : "h-24 rounded-lg overflow-hidden bg-muted"}>
             <img 
               src={coverImage} 
               alt="Card cover"
-              className="w-full h-full object-cover"
+              className={isHeader ? "h-full w-full object-contain" : "w-full h-full object-cover"}
             />
           </div>
           {canEdit && (
-            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center gap-2">
+            <div className={isHeader ? "absolute bottom-3 right-3 flex flex-wrap justify-end gap-2 pl-3" : "absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center gap-2"}>
               <Button
                 variant="secondary"
                 size="sm"
+                className={isHeader ? "border bg-background text-foreground shadow-sm hover:bg-muted" : undefined}
                 onClick={() => setShowCoverPicker(true)}
+                disabled={isPending}
                 data-testid="button-change-cover"
               >
-                Change
+                {isHeader ? "Change cover" : "Change"}
               </Button>
               <Button
                 variant="secondary"
                 size="sm"
+                className={isHeader ? "border bg-background text-foreground shadow-sm hover:bg-muted" : undefined}
                 onClick={() => removeCoverMutation.mutate()}
-                disabled={removeCoverMutation.isPending}
+                disabled={isPending}
                 data-testid="button-remove-cover"
               >
-                {removeCoverMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Remove'}
+                {removeCoverMutation.isPending ? 'Removing…' : isHeader ? 'Remove cover' : 'Remove'}
               </Button>
             </div>
           )}
         </div>
       ) : canEdit ? (
-        <Button
+        <div className={isHeader ? "px-5 pb-1 pt-4 pr-14 md:px-8 md:pr-14" : undefined}><Button
           variant="outline"
-          className="w-full h-20 border-dashed"
+          className={isHeader ? "h-8" : "w-full h-20 border-dashed"}
+          size={isHeader ? "sm" : "default"}
+          disabled={isPending}
           onClick={() => setShowCoverPicker(true)}
           data-testid="button-add-cover"
         >
           <ImagePlus className="w-5 h-5 mr-2" />
-          Add cover image
-        </Button>
+          {isHeader ? "Add cover" : "Add cover image"}
+        </Button></div>
       ) : null}
 
       <Dialog open={showCoverPicker} onOpenChange={setShowCoverPicker}>
@@ -598,8 +606,12 @@ export function CardCoverSection({
                 <p className="text-sm text-muted-foreground mb-2">Select from attachments:</p>
                 <div className="grid grid-cols-3 gap-2">
                   {imageAttachments.map((attachment) => (
-                    <div
+                    <button
+                      type="button"
                       key={attachment.id}
+                      aria-label={`Use ${attachment.name} as cover`}
+                      aria-pressed={coverImage === attachment.url}
+                      disabled={isPending}
                       className={`relative cursor-pointer rounded-lg overflow-hidden h-20 border-2 transition-colors ${
                         coverImage === attachment.url 
                           ? 'border-primary' 
@@ -619,11 +631,11 @@ export function CardCoverSection({
                       {coverImage === attachment.url && (
                         <div className="absolute inset-0 bg-primary/20 flex items-center justify-center">
                           <div className="w-5 h-5 rounded-full bg-primary text-primary-foreground flex items-center justify-center">
-                            ✓
+                            <Check aria-hidden="true" className="h-4 w-4" />
                           </div>
                         </div>
                       )}
-                    </div>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -640,7 +652,7 @@ export function CardCoverSection({
                 variant="outline"
                 className="w-full"
                 onClick={() => removeCoverMutation.mutate()}
-                disabled={removeCoverMutation.isPending}
+                disabled={isPending}
               >
                 {removeCoverMutation.isPending ? (
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />

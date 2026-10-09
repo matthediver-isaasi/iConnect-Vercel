@@ -18,6 +18,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/use-toast";
 import InvoiceStatusPanel from "@/components/sales/InvoiceStatusPanel";
+import QuoteOpportunitySelect from "./QuoteOpportunitySelect";
+import { clearOpportunityContacts, opportunityContacts, useQuoteOpportunity } from "./useQuoteOpportunity";
 import { calculateQuoteLine } from "@shared/salesContracts.js";
 import { useCatalogueTaxOptions } from "@/pages/sales/useCatalogue";
 import { persistedQuoteLineId, providerTaxOptions, quoteLineIdentityForSaving, quoteLineTaxForSaving, savedLineTaxCode, taxCodeKey, taxCodeLabel } from "@/lib/salesTaxCodes";
@@ -319,11 +321,11 @@ function QuoteEditor() {
   const opportunityId = new URLSearchParams(location.search).get("opportunityId") || "";
   const isNew = !id || id === "new";
   const detail = useQuery({ queryKey: ["sales-quote", id], queryFn: () => request(`/api/sales/quotes/${id}`), enabled: !isNew });
-  const opportunity = useQuery({ queryKey: ["quote-opportunity", opportunityId], queryFn: () => request(`/api/opportunities/${opportunityId}`), enabled: isNew && Boolean(opportunityId) });
   const products = useQuery({ queryKey: ["quote-products"], queryFn: () => request("/api/sales/catalogue/products") });
   const bundles = useQuery({ queryKey: ["quote-bundles"], queryFn: () => request("/api/sales/catalogue/bundles") });
   const taxOptions = useCatalogueTaxOptions(true);
   const [form, setForm] = useState(() => blankQuote(opportunityId));
+  const opportunity = useQuoteOpportunity({ opportunityId: form.opportunityId, isNew, setForm, request });
   const [loadedId, setLoadedId] = useState(null);
   const [savedFingerprint, setSavedFingerprint] = useState("");
   const [sendOpen, setSendOpen] = useState(false);
@@ -331,13 +333,8 @@ function QuoteEditor() {
     if (!isNew && detail.data && loadedId !== id) { const next = normalizeQuote(detail.data); setForm(next); setSavedFingerprint(JSON.stringify(next)); setLoadedId(id); }
   }, [detail.data, id, isNew, loadedId]);
   useEffect(() => {
-    if (!isNew || !opportunity.data) return;
-    const opp = opportunity.data?.opportunity || opportunity.data?.data?.opportunity || opportunity.data?.data || opportunity.data;
-    const contactRoles = list(opportunity.data?.contactRoles || opportunity.data?.contact_roles || opportunity.data?.contacts || opp.contactRoles || opp.contact_roles);
-    const primary = contactRoles.find((item) => item.is_primary || item.isPrimary || String(item.role || "").toLowerCase().includes("primary")) || contactRoles[0];
-    const contactId = idOf(primary?.member) || primary?.memberId || primary?.member_id || idOf(primary);
-    setForm((old) => ({ ...old, opportunityId, organizationId: opp.organization_id || opp.organizationId || old.organizationId, currency: opp.currency || old.currency, customerContactId: contactId || old.customerContactId, billingContactId: contactId || old.billingContactId }));
-  }, [isNew, opportunity.data, opportunityId]);
+    if (isNew) setForm((old) => old.opportunityId === opportunityId ? old : clearOpportunityContacts(old, opportunityId));
+  }, [isNew, opportunityId]);
   const quote = !isNew ? normalizeQuote(detail.data) : {};
   const status = quote.status || "draft";
   const permissions = quote.permissions || {};
@@ -348,7 +345,10 @@ function QuoteEditor() {
   const readOnly = !isNew && (status !== "draft" || !allowed(["canEdit", "can_edit", "edit"], false));
   // Price overrides are sensitive: absence of an explicit capability is denial.
   const canOverride = allowed(["canOverridePrices", "canOverridePrice", "can_override_prices", "can_override_price", "canDiscount", "can_discount", "override"], false);
-  const contacts = list(opportunity.data?.contactRoles || opportunity.data?.contact_roles || opportunity.data?.contacts || detail.data?.contacts || detail.data?.opportunity?.contacts);
+  const savedContacts = opportunityContacts(detail.data?.opportunity || { contacts: detail.data?.contacts || [] });
+  const contacts = isNew ? (opportunity.ready ? opportunity.contacts : []) : savedContacts.length ? savedContacts : opportunity.contacts;
+  const contactsDisabled = readOnly || (isNew && !opportunity.ready);
+  const opportunityName = opportunity.data?.name || nameOf(quote.opportunity || quote.opportunity_snapshot) || quote.opportunity_name || "";
   const totals = useMemo(() => form.lines.reduce((sum, line) => { const values = lineTotals(line); return { net: sum.net + values.net, tax: sum.tax + values.tax, gross: sum.gross + values.gross }; }, { net: 0, tax: 0, gross: 0 }), [form.lines]);
   const payload = () => ({
     opportunityId: form.opportunityId, customerContactId: form.customerContactId || null, billingContactId: form.billingContactId || null,
@@ -404,8 +404,8 @@ function QuoteEditor() {
   const patch = (key, value) => setForm((old) => ({ ...old, [key]: value }));
   return <div className="space-y-5">
     <div className="flex flex-wrap items-start justify-between gap-3"><div className="flex items-start gap-3"><Button variant="outline" size="icon" onClick={() => navigate("/sales/quotes")}><ArrowLeft className="h-4 w-4" /></Button><div><div className="flex flex-wrap items-center gap-2"><h2 className="text-2xl font-bold">{isNew ? "Create quote" : quote.number || quote.quoteNumber || quote.quote_number || "Quote"}</h2>{statusBadge(status)}{!isNew && <Badge variant="outline">Version {quote.versionNumber || quote.version_number || quote.version || 1}</Badge>}</div><p className="mt-1 text-sm text-slate-500">{readOnly ? "Issued versions are immutable. Create an amendment to make changes." : "Build and save a customer-ready quote."}</p></div></div><div className="flex flex-wrap gap-2">
-      {!readOnly && <Button variant="outline" disabled={preview.isPending || !form.lines.length} onClick={() => preview.mutate()}>{preview.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Recalculate</Button>}
-      {!readOnly && <Button variant="outline" disabled={save.isPending || !form.opportunityId || !form.lines.length} onClick={() => save.mutate()}>{save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save draft</Button>}
+      {!readOnly && <Button variant="outline" disabled={preview.isPending || (isNew && !opportunity.ready) || !form.lines.length} onClick={() => preview.mutate()}>{preview.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Recalculate</Button>}
+      {!readOnly && <Button variant="outline" disabled={save.isPending || !form.opportunityId || (isNew && !opportunity.ready) || !form.lines.length} onClick={() => save.mutate()}>{save.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save draft</Button>}
       {!isNew && status === "draft" && allowed(["canIssue", "can_issue", "issue"], false) && <Button disabled={action.isPending || !form.lines.length || isDirty} title={isDirty ? "Save the latest draft before issuing" : ""} onClick={() => action.mutate({ action: "issue" })}><Send className="mr-2 h-4 w-4" />Issue</Button>}
       {!isNew && status !== "draft" && <><Button variant="outline" disabled={pdf.isPending} onClick={() => pdf.mutate({ preview: true })}><Eye className="mr-2 h-4 w-4" />Preview PDF</Button><Button variant="outline" disabled={pdf.isPending} onClick={() => pdf.mutate({ preview: false })}><Download className="mr-2 h-4 w-4" />Download</Button></>}
       {!isNew && ["issued", "sent"].includes(status) && <Button disabled={deliveryAction.isPending} onClick={() => setSendOpen(true)}><Send className="mr-2 h-4 w-4" />Send</Button>}
@@ -415,13 +415,15 @@ function QuoteEditor() {
     </div></div>
     {!isNew && <SendQuoteDialog open={sendOpen} onOpenChange={setSendOpen} pending={deliveryAction.isPending} initialRecipient={quote.recipient || quote.customerEmail || quote.customer_email || ""} onSend={(extra) => deliveryAction.mutate({ action: "send", extra })} />}
     {!isNew && (["accepted", "converted"].includes(status) || Boolean(quote.saleId)) && <InvoiceStatusPanel saleId={quote.saleId} invoice={quote.invoice} invoices={quote.invoices} activeProvider={quote.activeProvider} permissions={permissions} error={action.error} onCreate={(command) => invoiceAction("create-invoice", command)} onRetry={(command) => invoiceAction("create-invoice", command)} onRefresh={quote.invoice ? () => invoiceAction("refresh-invoice-status") : undefined} />}
-    {isNew && !opportunityId && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><AlertTriangle className="mr-2 inline h-4 w-4" />A quote must be linked to an opportunity. Enter its ID below or start from an opportunity detail page.</div>}
+    {isNew && !form.opportunityId && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Choose an active opportunity below. Its organisation, currency and primary contact will be used for this quote.</div>}
+    {form.opportunityId && opportunity.isError && <Failure error={opportunity.error} retry={opportunity.refetch} />}
+    {isNew && form.opportunityId && !opportunity.ready && !opportunity.isError && <p role="status" className="animate-pulse rounded-lg bg-slate-100 p-3 text-sm text-slate-500">Loading the selected opportunity’s customer details…</p>}
     <Tabs defaultValue="quote"><TabsList><TabsTrigger value="quote">Quote</TabsTrigger>{!isNew && <><TabsTrigger value="delivery">Delivery</TabsTrigger><TabsTrigger value="history">History & compare</TabsTrigger></>}</TabsList>
       <TabsContent value="quote" className="space-y-5">
         <Card><CardHeader><CardTitle>Customer & commercial details</CardTitle></CardHeader><CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <Field label="Opportunity"><Input disabled={!isNew || readOnly} value={form.opportunityId} onChange={(e) => patch("opportunityId", e.target.value)} placeholder="Opportunity ID" /></Field>
-          <Field label="Customer contact">{contacts.length ? <Select disabled={readOnly} value={String(form.customerContactId || "none")} onValueChange={(value) => patch("customerContactId", value === "none" ? "" : value)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">Not selected</SelectItem>{contacts.map((contact) => <SelectItem value={String(idOf(contact.member || contact))} key={idOf(contact)}>{nameOf(contact.member || contact)}</SelectItem>)}</SelectContent></Select> : <Input disabled={readOnly} value={form.customerContactId} onChange={(e) => patch("customerContactId", e.target.value)} placeholder="Contact ID" />}</Field>
-          <Field label="Billing contact">{contacts.length ? <Select disabled={readOnly} value={String(form.billingContactId || "none")} onValueChange={(value) => patch("billingContactId", value === "none" ? "" : value)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">Same as customer</SelectItem>{contacts.map((contact) => <SelectItem value={String(idOf(contact.member || contact))} key={idOf(contact)}>{nameOf(contact.member || contact)}</SelectItem>)}</SelectContent></Select> : <Input disabled={readOnly} value={form.billingContactId} onChange={(e) => patch("billingContactId", e.target.value)} placeholder="Contact ID" />}</Field>
+          <Field label="Opportunity">{isNew ? <QuoteOpportunitySelect value={form.opportunityId} name={opportunityName} request={request} onChange={(value) => setForm((old) => old.opportunityId === value ? old : clearOpportunityContacts(old, value))} /> : <p className="rounded-md border bg-slate-50 px-3 py-2 text-sm">{opportunityName || (opportunity.isError ? "Opportunity unavailable" : "Loading opportunity…")}</p>}{opportunity.ready && opportunity.data?.organization?.name && <p className="mt-1 text-xs text-slate-500">{opportunity.data.organization.name}</p>}</Field>
+          <Field label="Customer contact">{contacts.length ? <Select disabled={contactsDisabled} value={String(form.customerContactId || "none")} onValueChange={(value) => patch("customerContactId", value === "none" ? "" : value)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">Not selected</SelectItem>{contacts.map((contact) => <SelectItem value={String(contact.id)} key={contact.id}>{contact.name}</SelectItem>)}</SelectContent></Select> : <Input disabled={contactsDisabled} value={form.customerContactId} onChange={(e) => patch("customerContactId", e.target.value)} placeholder="Contact ID" />}</Field>
+          <Field label="Billing contact">{contacts.length ? <Select disabled={contactsDisabled} value={String(form.billingContactId || "none")} onValueChange={(value) => patch("billingContactId", value === "none" ? "" : value)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">Same as customer</SelectItem>{contacts.map((contact) => <SelectItem value={String(contact.id)} key={contact.id}>{contact.name}</SelectItem>)}</SelectContent></Select> : <Input disabled={contactsDisabled} value={form.billingContactId} onChange={(e) => patch("billingContactId", e.target.value)} placeholder="Contact ID" />}</Field>
           <Field label="Event"><Input disabled={readOnly} value={form.eventId} onChange={(e) => patch("eventId", e.target.value)} placeholder="Optional event ID" /></Field>
           <Field label="Issue date"><Input disabled={readOnly} type="date" value={form.issueDate} onChange={(e) => patch("issueDate", e.target.value)} /></Field>
           <Field label="Valid until"><Input disabled={readOnly} type="date" value={form.validUntil} onChange={(e) => patch("validUntil", e.target.value)} /></Field>
