@@ -2,6 +2,7 @@
 // activates membership, changes benefits, or replays a GoCardless webhook.
 import { enqueueAccountingRequest, processAccountingRequest } from './accountingRequestQueue.js';
 import { isDeepStrictEqual } from 'node:util';
+import { assertBnmsOctoberPreparation } from './accountingBnmsOctoberRecovery.js';
 
 export const GO_CARDLESS_ACCOUNTING_SOURCE = 'gocardless_payment';
 export const goCardlessAccountingQueueEnabled = () =>
@@ -49,6 +50,7 @@ export async function resumeGoCardlessAccountingRequest({ db, row, adapters }) {
 
 // Check original authority on EVERY provider/auth request, not just enqueue.
 export async function assertGoCardlessAccountingSource({ db, row }) {
+  let approvedMigration = null;
   const link = row.snapshot?.linkage;
   const evidence = row.snapshot?.evidence;
   if (row.source_type !== GO_CARDLESS_ACCOUNTING_SOURCE || link?.paymentId !== row.source_id
@@ -89,6 +91,7 @@ export async function assertGoCardlessAccountingSource({ db, row }) {
       } : null);
     if (!current || !same(current, evidence.ddAccountingMigration)) fail('GC_QUEUE_BNMS_RELEASE_CHANGED');
     assertBnmsAccountingContext(row.tenant_id, current);
+    approvedMigration = current;
   }
   const plan = await one(scope(db, 'membership_payment_plans', payment.plan_id, row.tenant_id), 'GC_QUEUE_PLAN_UNAVAILABLE');
   if (plan.billing_agreement_id !== agreement.id) fail('GC_QUEUE_PLAN_AGREEMENT_MISMATCH');
@@ -121,7 +124,7 @@ export async function assertGoCardlessAccountingSource({ db, row }) {
       || (agreement.member_id && history.member_id !== agreement.member_id)
       || (agreement.organization_id && history.organization_id !== agreement.organization_id)) fail('GC_QUEUE_HISTORY_AUTHORITY_CHANGED');
   }
-  return { payment, agreement };
+  return { payment, agreement, approvedMigration };
 }
 
 export async function linkGoCardlessAccountingSource({ db, row }) {
@@ -149,14 +152,14 @@ export async function linkGoCardlessAccountingSource({ db, row }) {
 }
 
 export async function prepareGoCardlessSourceRequest({ row, db, providers, transport }, dependencies = {}) {
-  await assertGoCardlessAccountingSource({ db, row });
+  const { approvedMigration } = await assertGoCardlessAccountingSource({ db, row });
   const evidence = row.snapshot.evidence;
   if (evidence.preparationError) fail(evidence.preparationError);
-  if (evidence.legacyWriteUncertain) fail('GC_QUEUE_LEGACY_WRITE_REQUIRES_REVIEW');
-  // Imported BNMS accounting has a separate invoice-operation ledger (and
-  // pinned bank/contact/revenue authority). Never evade that ledger by using
-  // the generic existing-invoice payment path; retain a durable review hold.
-  if (evidence.ddAccountingMigration) fail('GC_QUEUE_BNMS_EXISTING_SETTLEMENT_OWNER');
+  const importedRecovery = evidence.ddAccountingMigration
+    ? await assertBnmsOctoberPreparation({ db, row }) : null;
+  if (evidence.legacyWriteUncertain && !importedRecovery) fail('GC_QUEUE_LEGACY_WRITE_REQUIRES_REVIEW');
+  // The October bridge retains the imported ledger and pinned accounting
+  // authority. Unsupported imports and existing legacy claims remain held.
   let args = row.snapshot.invoice.args;
   if (row.operation !== 'payment') {
     const context = evidence.context ? structuredClone(evidence.context) : null;
@@ -175,7 +178,8 @@ export async function prepareGoCardlessSourceRequest({ row, db, providers, trans
   const prepare = dependencies.prepare || (await import('./accountingGoCardlessPreparation.js')).prepareGoCardlessAccountingRequest;
   // Provider bank/contact reads are fenced on the ORIGINAL row. The provider
   // preparer resolves only its original frozen bank setting, never today's.
-  return prepare({ row, args, db, providers, transport }, dependencies);
+  return prepare({ row, args, db, providers, transport }, { ...dependencies,
+    importedOctoberRecovery: !!importedRecovery, approvedImportedContext: approvedMigration });
 }
 
 export async function queueGoCardlessAccountingPayment({

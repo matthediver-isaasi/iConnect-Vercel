@@ -56,3 +56,15 @@ The accounting sweep is for invoices that should have been created by applicatio
 **Why:** The user said historical imported invoices will be obtained through another route and must not be included merely because imported records exist.
 
 **How to apply:** Establish the payment transaction's provenance and invoice ownership separately from the membership agreement's import provenance. Resolve any overlap with the other invoicing route before releasing recovery; never send additional GoCardless collection instructions.
+
+The user confirmed that the October 2026 collections against imported BNMS agreements belong in the sweep; the alternative invoice route is not for those collections.
+
+**Why:** Agreement import provenance was being confused with historical invoice backfill.
+
+**How to apply:** Keep original imported accounting ownership and approval guards while recovering the new transactions. A persisted snapshot retains evidence, not the runtime authority of a branded approval context: re-resolve and compare live approval before passing that exact context to provider preparation.
+
+For an approved imported-agreement continuation, the release's pinned bank/contact/revenue authority takes precedence over the ordinary tenant bank-code setting.
+
+**Why:** The original imported invoice writer used that approved mapping; switching to the generic setting during recovery would change the accounting destination.
+
+**How to apply:** Revalidate the pinned provider accounts and live release. Retain the original non-expiring invoice ledger, record the actual queue provider keys in its ownership identity, and never treat a pre-existing legacy claim as permission for a fresh POST.

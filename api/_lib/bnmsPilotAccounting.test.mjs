@@ -132,6 +132,22 @@ function alphaFixture(revenue = '200') {
   return { agreement, a, r, records, db };
 }
 
+test('queue preparation validates imported authority but never claims, invoices or settles', async () => {
+  const authority = alphaFixture();
+  const context = await resolveAlphaAccountingContext(authority.agreement, authority.db);
+  const f = fixture({ alphaContext: context });
+  const rpc = f.deps.supabase.rpc;
+  f.deps.supabase.rpc = async () => { throw new Error('Preparation cannot claim invoice ownership'); };
+  const prepared = await createXeroMembershipInvoice(f.args, {
+    ...f.deps, prepareOnly: true, importedOctoberRecovery: true,
+  });
+  assert.equal(prepared.bankAccountId, context.snapshot.bank_account_id);
+  assert.equal(prepared.contactId, context.contactId);
+  assert.equal(prepared.payload.LineItems[0].AccountCode, context.snapshot.revenue_account_code);
+  assert.equal(f.calls.some(call => call.method === 'POST' || call.method === 'PUT'), false);
+  f.deps.supabase.rpc = rpc;
+});
+
 test('alpha contexts require immutable released ownership, economics and cannot be forged or mutated', async () => {
   const f = alphaFixture();
   f.records.bnms_dd_alpha_release = null;

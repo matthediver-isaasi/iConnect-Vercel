@@ -1,4 +1,5 @@
 import { enqueueAccountingRequest, processAccountingRequest } from './accountingRequestQueue.js';
+import { runBnmsOctoberInvoice } from './accountingBnmsOctoberRecovery.js';
 import { createAccountingRequestProviders, prepareAccountingRequestEnvelope } from './accountingRequestProviders.js';
 import { linkAccountingProductSource } from './accountingQueueProductLinks.js';
 import { freezeMembershipPreparation, prepareMembershipSourceRequest } from './accountingSourcePreparation.js';
@@ -148,6 +149,10 @@ export async function getAccountingQueueAdapter(row, controls = {}, dependencies
   const adapter = createAccountingRequestProviders({ resolveConnection, beforeRequest, deadlineAt: controls.deadlineAt,
     ...(dependencies.fetchImpl ? { fetchImpl: dependencies.fetchImpl } : {}) });
   return { ...adapter,
+    ...(row.source_type === GO_CARDLESS_ACCOUNTING_SOURCE && row.snapshot?.evidence?.ddAccountingMigration ? {
+      createInvoice: candidate => runBnmsOctoberInvoice({ db, row: candidate, adapter }),
+      discoverInvoice: candidate => runBnmsOctoberInvoice({ db, row: candidate, adapter, discover: true }),
+    } : {}),
     ...((isAccountingEventSource(row.source_type) || row.source_type === GO_CARDLESS_ACCOUNTING_SOURCE || memberTables.has(row.source_type)
       || row.source_type === 'sales_commercial_sale' || row.source_type === 'training_fund_purchase') ? {
       prepare: async candidate => {

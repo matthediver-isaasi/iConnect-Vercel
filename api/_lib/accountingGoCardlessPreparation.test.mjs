@@ -53,6 +53,33 @@ for (const provider of ['xero', 'quickbooks']) {
 test('durable row required before any contact/tax dependency', async () => {
   await assert.rejects(prepareGoCardlessAccountingRequest({ row: {} }), /DURABLE/);
 });
+test('approved imported preparation uses the validated original bank, not the generic bank setting', async () => {
+  const row = structuredClone(rowFor('xero'));
+  row.operation = 'invoice';
+  delete row.snapshot.existingInvoice;
+  delete row.snapshot.payment.collection.bankAccountId;
+  row.snapshot.payment.bankSetting = { key: 'xero_gocardless_bank_account_code', value: 'different' };
+  row.snapshot.invoice.args = { appTenantId: row.tenant_id, currency: 'GBP', ddAccountingMigration: { pinned: true } };
+  const original = structuredClone(row);
+  const resolved = await prepareGoCardlessAccountingRequest({ row, providers: {
+    assertBinding: async () => {},
+    preparationTransport: () => ({ fetch: async () => { throw new Error('Generic bank lookup forbidden'); } }),
+  } }, {
+    importedOctoberRecovery: true,
+    approvedImportedContext: row.snapshot.invoice.args.ddAccountingMigration,
+    prepareMembership: async (args, dependencies) => {
+      assert.equal(dependencies.prepareOnly, true);
+      assert.equal(dependencies.importedOctoberRecovery, true);
+      assert.deepEqual(args.ddAccountingMigration, { pinned: true });
+      return { companyId: 'company', contactId: 'customer', bankAccountId: 'approved-bank',
+        payload: { Type: 'ACCREC', Status: 'AUTHORISED', CurrencyCode: 'GBP',
+          LineItems: [{ UnitAmount: 12.34, Quantity: 1, AccountCode: '200' }] } };
+    },
+  });
+  assert.equal(resolved.payment.envelope.expected.accountId, 'approved-bank');
+  assert.equal(resolved.importedOctoberRecovery, true);
+  assert.deepEqual(row, original);
+});
 test('frozen Xero code resolves exact active bank ID without reading current settings', async () => {
   const row = rowFor('xero');
   row.snapshot.payment.bankSetting = { key: 'xero_gocardless_bank_account_code', value: '090' };

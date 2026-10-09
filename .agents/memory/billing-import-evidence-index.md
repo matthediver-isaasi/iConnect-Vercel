@@ -12,3 +12,7 @@
 - [Resource import audit evidence](resource-import-audit-evidence.md) — terminal execution IDs supersede proposal holds and URL-only matching; absence and execution failure are separate findings.
 - [Event credit policy transitions](event-credit-policy-transitions.md) — paid recovery preserves original credits for verified compensation; visibility tests alone miss overcharges.
 - [Financial dry-run boundaries](financial-dry-run-boundaries.md) — shared orchestration, no fabricated claim success, and transitive capability isolation are required for financial previews.
+- [Shared accounting request queue](shared-accounting-request-queue.md) — Xero/QuickBooks recovery ownership, imported-agreement October scope, and safe retry boundaries.
+- [Post-booking credit authority](post-booking-credit-authority.md) — refunds and credit notes need actual reversal evidence and durable linkage.
+- [Annual membership value](annual-membership-value-semantics.md) — allocate net commitments by applied structure, not settlement or term dates.
+- [Commercial sale invoice conversion](commercial-sale-invoice-conversion.md) — accepted quote snapshots own invoice arithmetic and provider claims.

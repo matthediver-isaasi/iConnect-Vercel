@@ -80,6 +80,9 @@ export async function prepareGoCardlessAccountingRequest({
     || row.source_type !== 'gocardless_payment' || row.snapshot?.preparation !== true
     || !providers?.preparationTransport || !providers?.assertBinding) fail('GC_DURABLE_PREPARATION_REQUIRED');
   if (row.resolved_snapshot) return clone(row.resolved_snapshot);
+  if (dependencies.importedOctoberRecovery && !dependencies.approvedImportedContext) {
+    fail('GC_IMPORTED_CONTEXT_REQUIRED');
+  }
   const snapshot = clone(row.snapshot);
   if (resolvedCollection && ['amountMinor', 'currency', 'date', 'reference'].some(
     key => resolvedCollection[key] !== row.snapshot.payment?.collection?.[key])) fail('GC_COLLECTION_OVERRIDE_FORBIDDEN');
@@ -97,10 +100,10 @@ export async function prepareGoCardlessAccountingRequest({
   await providers.assertBinding(row);
   const transport = boundTransport || ((!snapshot.existingInvoice || snapshot.payment.bankSetting
     || !text(row.snapshot.payment?.collection?.bankAccountId)) ? providers.preparationTransport(row) : null);
-  if (snapshot.payment.bankSetting || !text(row.snapshot.payment?.collection?.bankAccountId)) {
+  if (!dependencies.importedOctoberRecovery && (snapshot.payment.bankSetting || !text(row.snapshot.payment?.collection?.bankAccountId))) {
     collection.bankAccountId = await resolveGoCardlessFrozenBank({ row, transport, currency: collection.currency });
   }
-  if (!text(collection.bankAccountId)) fail('GC_FROZEN_BANK_SETTING_REQUIRED');
+  if (!dependencies.importedOctoberRecovery && !text(collection.bankAccountId)) fail('GC_FROZEN_BANK_SETTING_REQUIRED');
   const operationKey = `${row.tenant_id}:gocardless_payment:${row.source_id}:${row.operation || 'invoice'}`;
   let contactId, invoiceId;
   if (snapshot.existingInvoice) {
@@ -117,7 +120,7 @@ export async function prepareGoCardlessAccountingRequest({
   } else {
     const args = snapshot.invoice?.args;
     if (!args || args.appTenantId !== row.tenant_id || args.currency !== collection.currency
-      || args.ddAccountingMigration || args.deferStripeSettlement || args.stripePaymentIntentId) {
+      || (args.ddAccountingMigration && !dependencies.importedOctoberRecovery) || args.deferStripeSettlement || args.stripePaymentIntentId) {
       fail('GC_INVALID_FROZEN_MEMBERSHIP_INPUTS');
     }
     const prepare = dependencies.prepareMembership || (row.provider === 'xero'
@@ -134,15 +137,26 @@ export async function prepareGoCardlessAccountingRequest({
       },
     } : {};
     const prepared = await prepare({ ...args, markAsPaid: true,
+      // The imported resolver brands a validated live context. JSON snapshots
+      // preserve its evidence, not that runtime authority; never clone the
+      // branded context before handing it to the guarded Xero preparer.
+      ...(dependencies.importedOctoberRecovery
+        ? { ddAccountingMigration: dependencies.approvedImportedContext } : {}),
       transportTimeoutMs: transport.timeoutMs, deadlineAt: transport.deadlineAt,
       expectedProviderContext: row.provider === 'xero' ? { xero_tenant_id: row.company_id }
         : { quickbooks_realm_id: row.company_id, environment: snapshot.environment },
     }, {
       supabase: db, ...transport, ...tokenDependencies, prepareOnly: true,
+      importedOctoberRecovery: dependencies.importedOctoberRecovery === true,
     });
     if (prepared.companyId !== row.company_id
       || (row.provider === 'quickbooks' && prepared.environment !== snapshot.environment)) fail('GC_PREPARATION_BINDING_CHANGED');
     const payload = clone(prepared.payload);
+    if (dependencies.importedOctoberRecovery) {
+      if (!text(prepared.bankAccountId)) fail('GC_IMPORTED_BANK_REQUIRED');
+      collection.bankAccountId = prepared.bankAccountId;
+      snapshot.importedOctoberRecovery = true;
+    }
     if (row.provider === 'xero') {
       payload.LineItems = payload.LineItems.map(line => ({ ...line, UnitAmount: Number(line.UnitAmount) }));
     }
