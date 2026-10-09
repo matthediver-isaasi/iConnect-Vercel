@@ -170,7 +170,7 @@ test('conversion reports actionable missing tax and QBO item configuration', asy
   );
 });
 
-test('configuration rejects no provider and member-only access', async () => {
+test('configuration rejects no provider and members without accounting access', async () => {
   await assert.rejects(() => getSalesAccountingConfiguration({}, 'tenant', {
     getActiveAccountingProvider: async () => 'none',
   }), (error) => error.code === 'ACCOUNTING_PROVIDER_NONE');
@@ -179,7 +179,7 @@ test('configuration rejects no provider and member-only access', async () => {
     getTenantContext: async () => ({
       isAuthenticated: true, tenantId: 'tenant', memberId: 'member', roleId: 'role',
     }),
-    hasFeatureAccess: async () => true,
+    hasFeatureAccess: async () => false,
   });
   const response = { statusCode: null, body: null, status(code) { this.statusCode = code; return this; },
     json(body) { this.body = body; return this; }, setHeader() {} };
@@ -208,12 +208,31 @@ test('settings GET and PATCH work without catch-all query params and preserve ac
     const res = response();
     await createSalesAccountingHandler(dependencies)(req, res);
     assert.equal(res.statusCode, 200);
-    const denied = response();
+    const portalContext = { isAuthenticated: true, tenantId: 'tenant', memberId: 'member', roleId: 'role' };
+    const granted = response();
     await createSalesAccountingHandler({ ...dependencies,
-      getTenantContext: async () => ({ isAuthenticated: true, tenantId: 'tenant', memberId: 'member', roleId: 'role' }),
+      getTenantContext: async () => portalContext,
       hasFeatureAccess: async () => true,
-    })(req, denied);
-    assert.equal(denied.statusCode, 403);
+    })(req, granted);
+    assert.equal(granted.statusCode, 200, `${method}: role-authorised portal member`);
+    for (const [label, context, access, status] of [
+      ['view only', portalContext, (role, feature) => feature === 'sales.view', 403],
+      ['no baseline', portalContext, (role, feature) => feature === 'sales.accounting.manage', 403],
+      ['individual exclusion', { ...portalContext, memberExcludedFeatures: ['sales.accounting.manage'] }, () => true, 403],
+      ['missing role', { ...portalContext, roleId: null }, () => true, 403],
+      ['unauthenticated', { ...portalContext, isAuthenticated: false }, () => true, 401],
+      ['tenant mismatch', { ...portalContext, tenantMismatch: true }, () => true, 409],
+    ]) {
+      const denied = response();
+      const writesBefore = db.rpcCalls.length;
+      await createSalesAccountingHandler({ ...dependencies,
+        getTenantContext: async () => context,
+        hasFeatureAccess: async (...args) => access(...args),
+        getActiveAccountingProvider: async () => { throw new Error('Denied access must not reach accounting'); },
+      })(req, denied);
+      assert.equal(denied.statusCode, status, `${method}: ${label}`);
+      assert.equal(db.rpcCalls.length, writesBefore, `${method}: ${label} must not write mappings`);
+    }
   }
 });
 

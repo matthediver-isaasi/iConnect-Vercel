@@ -39,7 +39,8 @@ export function createSalesAccountingHandler(dependencies = {}) {
         ? SALES_CAPABILITIES.VIEW : SALES_CAPABILITIES.MANAGE_ACCOUNTING;
       const actor = await requireSalesContext(context, capability, dependencies);
       if (configuration) {
-        if (actor.actorType !== 'tenant_user') throw new SalesHttpError(403, 'Tenant user accounting access required');
+        // The independent Manage Accounting capability above is authoritative
+        // for portal members as well as dashboard tenant administrators.
         if (req.method === 'GET') {
           return res.status(200).json(await getSalesAccountingConfiguration(db, actor.tenantId, dependencies));
         }
