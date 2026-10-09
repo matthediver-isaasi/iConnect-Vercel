@@ -7,7 +7,7 @@ import { build } from "esbuild";
 import { JSDOM } from "jsdom";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "https://calendar.test/" });
-for (const key of ["window", "document", "navigator", "HTMLElement", "Element", "Node", "Event", "MouseEvent", "HTMLInputElement"]) {
+for (const key of ["window", "document", "navigator", "HTMLElement", "Element", "Node", "Event", "MouseEvent", "HTMLInputElement", "HTMLSelectElement", "CustomEvent", "KeyboardEvent", "DocumentFragment", "MutationObserver", "NodeFilter", "getComputedStyle", "DOMRect"]) {
   Object.defineProperty(globalThis, key, { configurable: true, value: key === "window" ? dom.window : dom.window[key] });
 }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -57,6 +57,139 @@ afterEach(async () => {
   for (const { root, host } of mounts.splice(0)) { await act(async () => root.unmount()); host.remove(); }
 });
 after(() => dom.window.close());
+
+const creationProps = {
+  boardId: "membership-events",
+  canEdit: true,
+  lists: [{ id: "planning", name: "Planning" }, { id: "review", name: "Review" }],
+  onCreateCard: async () => {},
+};
+async function context(node, clientX = 0) {
+  await act(async () => {
+    node.dispatchEvent(new dom.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX, clientY: 40, button: 2 }));
+  });
+}
+async function chooseAdd() {
+  const item = document.querySelector('[role="menuitem"]');
+  assert.ok(item, "Add card context item");
+  await act(async () => item.click());
+}
+async function setField(selector, value) {
+  const input = document.querySelector(selector);
+  assert.ok(input, selector);
+  await act(async () => {
+    const prototype = input.tagName === "SELECT" ? dom.window.HTMLSelectElement.prototype : dom.window.HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(prototype, "value").set.call(input, value);
+    input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    input.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  });
+}
+async function submitDialog() {
+  await act(async () => document.querySelector('[role="dialog"] form').dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })));
+}
+
+test("month and week blank bodies resolve the pointer column, including adjacent-month days", async () => {
+  for (const initialMode of ["month", "week"]) {
+    const host = await mount({ ...creationProps, initialMode, initialDate: "2026-10-01" });
+    const week = host.querySelector(".calendar-week");
+    week.getBoundingClientRect = () => ({ left: 100, width: 700, right: 800, top: 0, bottom: 200, height: 200 });
+    // Blank spanning-grid area belongs to Tuesday, not the selected Thursday.
+    await context(week.querySelector(".calendar-spans"), 255);
+    await chooseAdd();
+    assert.equal(document.querySelector("#calendar-card-due").value, "2026-09-29");
+    assert.equal(document.querySelector("#calendar-card-list").value, "");
+    await act(async () => document.querySelector('[role="dialog"] button[type="button"]').click());
+    assert.equal(document.querySelector('[role="dialog"]'), null);
+  }
+});
+
+test("heading context, day agenda and keyboard/touch Add card use the selected local day", async () => {
+  const host = await mount(creationProps);
+  await context(host.querySelector('[data-calendar-day="2026-10-14"]'));
+  await chooseAdd();
+  assert.equal(document.querySelector("#calendar-card-due").value, "2026-10-14");
+  await act(async () => document.querySelector('[role="dialog"] button[type="button"]').click());
+  await click(host, ".calendar-create button");
+  assert.equal(document.querySelector("#calendar-card-due").value, "2026-10-14");
+  await act(async () => document.querySelector('[role="dialog"] button[type="button"]').click());
+  await click(host, '[aria-label="View Friday, 9 October 2026"]');
+  await context(host.querySelector(".calendar-agenda"));
+  await chooseAdd();
+  assert.equal(document.querySelector("#calendar-card-due").value, "2026-10-09");
+});
+
+test("existing cards never open day creation, and viewers have no creation controls", async () => {
+  const host = await mount({ ...creationProps, initialMode: "week" });
+  await context(host.querySelector('[data-testid="calendar-card-range"]'), 500);
+  assert.equal(document.querySelector('[role="menu"]'), null);
+  assert.equal(document.querySelector('[role="dialog"]'), null);
+  const viewer = await mount({ ...creationProps, canEdit: false, initialMode: "day" });
+  assert.equal(viewer.querySelector(".calendar-create"), null);
+  await context(viewer.querySelector(".calendar-agenda"));
+  assert.equal(document.querySelector('[role="menu"]'), null);
+});
+
+test("no lists explains disabled creation without silently selecting a target", async () => {
+  const host = await mount({ ...creationProps, lists: [] });
+  assert.equal(host.querySelector(".calendar-create button").disabled, true);
+  assert.match(host.querySelector(".calendar-create").textContent, /Create a list/);
+  await context(host.querySelector('[data-calendar-day="2026-10-08"]'));
+  assert.equal(document.querySelector('[role="menuitem"]').getAttribute("aria-disabled"), "true");
+  assert.match(document.querySelector('[role="menu"]').textContent, /Create a list/);
+});
+
+test("creation requires title and list, preserves errors, retries edited dates and blocks pending dismissal/duplicates", async () => {
+  const payloads = [];
+  let resolveSave;
+  const host = await mount({ ...creationProps, onCreateCard: async payload => {
+    payloads.push(payload);
+    if (payloads.length === 1) throw new Error("Connection interrupted");
+    await new Promise(resolve => { resolveSave = resolve; });
+  } });
+  await click(host, ".calendar-create button");
+  await submitDialog();
+  assert.equal(payloads.length, 0);
+  await setField("#calendar-card-title", "  Confirm venue access  ");
+  await submitDialog();
+  assert.equal(payloads.length, 0);
+  await setField("#calendar-card-list", "review");
+  await setField("#calendar-card-due", "2026-10-12");
+  await submitDialog();
+  assert.match(document.querySelector('[role="alert"]').textContent, /Connection interrupted/);
+  assert.equal(document.querySelector("#calendar-card-title").value, "  Confirm venue access  ");
+  assert.equal(document.querySelector("#calendar-card-list").value, "review");
+  assert.deepEqual(payloads[0], { boardId: "membership-events", list_id: "review", title: "Confirm venue access", due_date: "2026-10-12" });
+  await setField("#calendar-card-due", "2026-10-13");
+  await submitDialog();
+  await submitDialog();
+  assert.equal(payloads.length, 2);
+  assert.equal(document.querySelector("#calendar-card-title").disabled, true);
+  assert.equal(document.querySelector('[role="dialog"] button[type="button"]').disabled, true);
+  await act(async () => document.querySelector('[role="dialog"]').dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+  assert.ok(document.querySelector('[role="dialog"]'));
+  await act(async () => resolveSave());
+  assert.equal(document.querySelector('[role="dialog"]'), null);
+  await click(host, ".calendar-create button");
+  assert.equal(document.querySelector("#calendar-card-title").value, "");
+  assert.equal(document.querySelector("#calendar-card-list").value, "");
+  assert.equal(document.querySelector("#calendar-card-due").value, "2026-10-08");
+});
+
+test("board changes reset drafts and late saves do not dismiss another board's dialog", async () => {
+  let resolveSave;
+  const host = await mount({ ...creationProps, onCreateCard: async () => new Promise(resolve => { resolveSave = resolve; }) });
+  await click(host, ".calendar-create button");
+  await setField("#calendar-card-title", "Old board task");
+  await setField("#calendar-card-list", "planning");
+  await submitDialog();
+  const { root } = mounts.find(item => item.host === host);
+  await act(async () => root.render(h(Calendar, { ...creationProps, boardId: "another-board", onOpenCard: () => {}, initialDate: "2026-10-08" })));
+  assert.equal(document.querySelector('[role="dialog"]'), null);
+  await click(host, ".calendar-create button");
+  assert.equal(document.querySelector("#calendar-card-title").value, "");
+  await act(async () => resolveSave());
+  assert.ok(document.querySelector('[role="dialog"]'));
+});
 
 test("mounted calendar changes modes, dates, and month boundaries", async () => {
   const host = await mount({ initialDate: "2026-01-31" });

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { Card, CardContent } from "@/components/ui/card";
@@ -45,6 +45,8 @@ const PRIORITY_COLORS = {
 
 export default function ProjectBoardPage() {
   const { id: boardId } = useParams();
+  const currentBoardId = useRef(boardId);
+  currentBoardId.current = boardId;
   const location = useLocation();
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
@@ -146,14 +148,18 @@ export default function ProjectBoardPage() {
   });
 
   const createCardMutation = useMutation({
-    mutationFn: async ({ list_id, title }) => {
-      const response = await apiRequest('POST', '/api/projects/cards', { list_id, title });
+    mutationFn: async ({ list_id, title, due_date }) => {
+      const response = await apiRequest('POST', '/api/projects/cards', {
+        list_id, title, ...(due_date !== undefined ? { due_date } : {}),
+      });
       return response;
     },
     onSuccess: async (data, variables) => {
       await publishCreatedProjectCard(queryClient, variables.boardId, data.card);
-      setNewCardTitle('');
-      setAddingCardToList(null);
+      if (currentBoardId.current === variables.boardId) {
+        setNewCardTitle('');
+        setAddingCardToList(null);
+      }
       toast.success('Card created');
     },
     onError: (error) => {
@@ -413,7 +419,9 @@ export default function ProjectBoardPage() {
       <ProjectBoardInbox boardId={boardId} onOpenCard={openCardDetail} />
       <div className={`min-w-0 flex-1 overflow-y-auto ${boardView === 'board' ? 'hidden' : ''}`}>
         <ProjectBoardCalendar key={boardId} cards={boardFilters.filteredCards} labels={boardData?.labels || []}
-          lists={lists} unreadCardIds={unreadCardIds} onOpenCard={openCardDetail} />
+          lists={lists} unreadCardIds={unreadCardIds} onOpenCard={openCardDetail}
+          boardId={boardId} canEdit={canEdit && !isFeatureExcluded('projects.board-view.create-cards')}
+          onCreateCard={createCardMutation.mutateAsync} />
       </div>
       <ScrollArea className={`min-w-0 flex-1 ${boardView === 'calendar' ? 'hidden' : ''}`}>
         <div className="p-4">

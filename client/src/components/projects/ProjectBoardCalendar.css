@@ -3,6 +3,10 @@
 .calendar-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: .65rem; padding: 1rem; border-bottom: 1px solid hsl(var(--border)); }
 .calendar-control { display: inline-flex; align-items: center; justify-content: center; gap: .35rem; min-height: 36px; border: 1px solid hsl(var(--border)); border-radius: .375rem; padding: .35rem .65rem; font-size: .8rem; background: hsl(var(--background)); }
 .calendar-control:hover { background: hsl(var(--muted)); }
+.calendar-control:disabled { opacity: .5; cursor: not-allowed; }
+.calendar-create { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; padding: .65rem 1rem; border-bottom: 1px solid hsl(var(--border)); background: hsl(var(--muted) / .2); }
+.calendar-create button { color: hsl(var(--primary)); }
+.calendar-create p { font-size: .75rem; color: hsl(var(--muted-foreground)); }
 .calendar-modes { display: inline-flex; gap: .15rem; padding: .2rem; background: hsl(var(--muted) / .6); border-radius: .5rem; }
 .calendar-modes .calendar-control { border-color: transparent; background: transparent; }
 .calendar-modes .calendar-control[aria-pressed="true"] { background: hsl(var(--background)); border-color: hsl(var(--border)); color: hsl(var(--primary)); }
