@@ -32,7 +32,7 @@
 - [Inbox alert preferences](inbox-alert-preference-boundaries.md) — popup-only choices must never alter messages, badges, email or consent; login scope is server-owned.
 - [Help Center RBAC gating](help-center-rbac.md) — /Help articles gated presentation-only by required_feature + {{feature: KEY}} section markers using canonical roleAccessMap keys; content in scripts/seed-help-articles.mjs.
 - [Help AI Q&A retrieval boundary](help-ai-qa-retrieval-boundary.md) — AI help answers use retrieval AS security: per-chunk feature_gates must mirror the HelpArticleContent DSL exactly, resolved server-side, fail-closed; backfill/embeddings need OpenAI key (Vercel/CI only).
-- [Transactional inbox delivery](transactional-inbox-delivery.md) — /inbox unions two backends (campaign state-table vs transactional co-located-state row); every inbox endpoint must branch on a `source` discriminator or one kind silently disappears.
+- [Transactional inbox delivery](transactional-inbox-delivery.md) — source-aware inbox reads/writes; project mentions must share message state between the main and board inboxes.
 - [Canvas AI generation](canvas-ai-index.md) — source fidelity, editing proposals, style references, design-first gates, and retry carry-forward.
 - [Microsite path-prefix surfaces](microsite-prefix-surfaces.md) — rows with microsite_id serve only at /{prefix}/{slug}; page-by-slug, nav, branding, entityMeta, sitemap must all exclude them from the default site.
 - [Serverless chunk time budget](serverless-chunk-time-budget.md) — record-count chunking still 504s when matches drive cost; budget wall-clock per invocation with an exact per-record resume cursor.

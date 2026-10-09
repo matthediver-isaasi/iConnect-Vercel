@@ -17,13 +17,15 @@ import {
   AlertCircle, X, Check, Paperclip
 } from "lucide-react";
 import CardDetailModal from "@/components/sales/ProjectCardDetailModal";
+import ProjectBoardInbox from "@/components/projects/ProjectBoardInbox";
+import { useInboxCardDeepLink } from "@/components/projects/useInboxCardDeepLink";
 import ProjectBoardOpportunityPanel from "@/components/sales/ProjectBoardOpportunityPanel";
 import ProjectBoardTaskDeepLink from "@/components/sales/ProjectBoardTaskDeepLink";
 import { toast } from "sonner";
 import { createPageUrl } from "@/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useProjectBoardRealtime } from "@/hooks/useProjectBoardRealtime";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useLocation } from "react-router-dom";
 import { apiRequest } from "@/lib/queryClient";
 import { publishCreatedProjectCard, publishProjectCardUpdate } from "@/lib/projectBoardCache";
 import { format, isPast, isToday } from "date-fns";
@@ -38,6 +40,7 @@ const PRIORITY_COLORS = {
 
 export default function ProjectBoardPage() {
   const { id: boardId } = useParams();
+  const location = useLocation();
   const { isFeatureExcluded, isAccessReady } = useMemberAccess();
   const [accessChecked, setAccessChecked] = useState(false);
   const [addingListId, setAddingListId] = useState(null);
@@ -53,6 +56,10 @@ export default function ProjectBoardPage() {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
 
   const queryClient = useQueryClient();
+  useEffect(() => {
+    setSelectedCard(null);
+    setShowCardDetail(false);
+  }, [boardId]);
 
   useEffect(() => {
     if (isAccessReady) {
@@ -81,6 +88,15 @@ export default function ProjectBoardPage() {
   });
 
   useProjectBoardRealtime(boardId);
+  const cardDeepLink = useInboxCardDeepLink({
+    boardId,
+    search: location.search,
+    ready: accessChecked && !isFeatureExcluded('projects.board-view') && String(boardData?.board?.id) === String(boardId) && !error && !isLoading,
+    onOpenCard: (card) => {
+      setSelectedCard(card);
+      setShowCardDetail(true);
+    },
+  });
 
   const createListMutation = useMutation({
     mutationFn: async (name) => {
@@ -265,6 +281,7 @@ export default function ProjectBoardPage() {
   };
 
   const openCardDetail = async (card) => {
+    cardDeepLink.cancel();
     setSelectedCard(card);
     setShowCardDetail(true);
   };
@@ -364,8 +381,19 @@ export default function ProjectBoardPage() {
 
       <ProjectBoardOpportunityPanel boardId={boardId} />
       <ProjectBoardTaskDeepLink boardId={boardId} />
+      {cardDeepLink.loading && <div role="status" className="border-b px-4 py-3 text-sm text-muted-foreground animate-pulse">Opening card…</div>}
+      {cardDeepLink.error && (
+        <div role="alert" className="flex flex-wrap items-center gap-3 border-b px-4 py-3 text-sm">
+          <AlertCircle className="h-4 w-4 text-destructive" />
+          <span className="text-destructive">{cardDeepLink.error}</span>
+          <Button variant="outline" size="sm" onClick={cardDeepLink.retry}>Try again</Button>
+          <Button variant="ghost" size="sm" onClick={cardDeepLink.cancel}>Dismiss</Button>
+        </div>
+      )}
 
-      <ScrollArea className="flex-1">
+      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+      <ProjectBoardInbox boardId={boardId} onOpenCard={openCardDetail} />
+      <ScrollArea className="min-w-0 flex-1">
         <div className="p-4">
           <DragDropContext onDragEnd={handleDragEnd}>
             <div className="flex gap-4 items-start min-w-max">
@@ -692,11 +720,15 @@ export default function ProjectBoardPage() {
         </div>
         <ScrollBar orientation="horizontal" />
       </ScrollArea>
+      </div>
 
       <CardDetailModal
         card={selectedCard}
         open={showCardDetail}
-        onOpenChange={setShowCardDetail}
+        onOpenChange={(open) => {
+          if (!open) cardDeepLink.cancel();
+          setShowCardDetail(open);
+        }}
         boardId={boardId}
         labels={boardData?.labels || []}
         members={boardData?.members || []}

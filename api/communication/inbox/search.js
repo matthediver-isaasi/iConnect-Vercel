@@ -1,6 +1,7 @@
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, hasFeatureAccess } from '../../_lib/tenantContext.js';
 import { stripHiddenDynamicRegions, applyDynamicSlotValues } from '../../_lib/campaignService.js';
+import { fetchProjectMessages } from '../../_lib/projectMainInbox.js';
 
 const INBOX_FEATURE = 'communication.inbox';
 
@@ -175,6 +176,10 @@ export default async function handler(req, res) {
       if (text.includes(q)) recipientIds.push(t.id);
     }
 
+    const projectMessages = await fetchProjectMessages(supabase, ctx);
+    for (const message of projectMessages) {
+      if (`${message.subject} ${message.preheader}`.toLowerCase().includes(q)) recipientIds.push(message.recipient_id);
+    }
     return res.json({ recipientIds });
   } catch (error) {
     console.error('[Inbox] search Error:', error);

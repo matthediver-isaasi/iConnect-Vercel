@@ -13,6 +13,7 @@ import loadConfig from 'tailwindcss/loadConfig.js';
 let browser, server, origin;
 async function setup() {
   const output = await build({
+    outfile: '/tmp/card-modal-fixture.js',
     stdin: { contents: `
       import React from 'react'; import {createRoot} from 'react-dom/client';
       import {QueryClient,QueryClientProvider,useQuery} from '@tanstack/react-query';
@@ -50,7 +51,8 @@ async function setup() {
     './client/src/components/sales/ProjectCardDetailModal.jsx',
     './client/src/components/projects/CardAttachments.jsx',
     './client/src/components/ui/**/*.{jsx,tsx}',
-  ]})]).process(await readFile('client/src/index.css','utf8'),{from:'client/src/index.css'})).css;
+  ]})]).process(await readFile('client/src/index.css','utf8'),{from:'client/src/index.css'})).css
+    + (output.outputFiles.find(file => file.path.endsWith('.css'))?.text || '');
   server = createServer((req, res) => {
     if (req.url === '/fixture.js') { res.setHeader('Content-Type', 'text/javascript'); return res.end(output.outputFiles[0].text); }
     if (req.url === '/fixture.css') { res.setHeader('Content-Type', 'text/css'); return res.end(css); }
@@ -136,9 +138,11 @@ for (const width of [1280,390]) test(`upload and header cover appear before slow
     assert.ok(await change.isVisible());
     assert.ok(await remove.isVisible());
     assert.equal(await change.evaluate(el=>getComputedStyle(el.parentElement).opacity),'1');
-    const closeBox=await page.getByRole('button',{name:'Close',exact:true}).boundingBox();
+    // The nested cover picker can still be exiting; measure this modal's close
+    // button, not the transient picker's identically labelled control.
+    const closeBox=await page.getByTestId('card-detail-modal').getByRole('button',{name:'Close',exact:true}).boundingBox();
     const changeBox=await change.boundingBox();
-    assert.ok(changeBox.y>=closeBox.y+closeBox.height,'cover controls do not overlap modal close');
+    assert.ok(changeBox.y>=closeBox.y+closeBox.height,`cover controls do not overlap modal close: ${JSON.stringify({changeBox,closeBox})}`);
     let directWrites=0;
     await page.route('**/api/projects/cards/card',route=>{
       if(route.request().method()==='PATCH'){directWrites++;return json(route,{card:{id:'card',cover_image:null}});}

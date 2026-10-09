@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Inbox as InboxIcon,
@@ -61,6 +61,8 @@ import { useToast } from "@/components/ui/use-toast";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { useInbox, fetchInboxMessageBody, useInboxBodyMatches } from "@/hooks/useInbox";
 import InboxAlertPreferences from "@/components/inbox/InboxAlertPreferences";
+import { Link } from "react-router-dom";
+import { inboxMessageKey, splitInboxSelection, projectInboxCardUrl, invalidateInboxViews } from "@/lib/inboxSources.mjs";
 
 function formatDate(value) {
   if (!value) return "";
@@ -134,21 +136,28 @@ export default function InboxPage() {
   const [dragOverFolderId, setDragOverFolderId] = useState(null);
 
   const queryClient = useQueryClient();
-  const { data: openMessage, isLoading: isBodyLoading } = useQuery({
+  const msgById = useMemo(
+    () => new Map(messages.map((m) => [inboxMessageKey(m), m])),
+    [messages]
+  );
+  const { data: openMessage, isLoading: isBodyLoading, error: bodyError, refetch: retryBody } = useQuery({
     queryKey: ["inbox", "message", selectedId],
-    queryFn: () => fetchInboxMessageBody(selectedId, msgById.get(selectedId)?.source),
+    queryFn: () => {
+      const message = msgById.get(selectedId);
+      if (!message) throw new Error("This message is no longer available. Refresh your inbox.");
+      return fetchInboxMessageBody(message.recipient_id, message.source);
+    },
     enabled: !!selectedId,
     staleTime: 30000,
+    refetchOnWindowFocus: false,
   });
 
-  // Opening a message auto-marks it read server-side; refresh the list + badge
-  // so the unread indicator clears. Use exact keys to avoid re-triggering the
-  // message-body query (which shares the ["inbox", ...] prefix).
+  // Opening auto-marks read. Refresh both inboxes, search and the badge,
+  // but never the body query (a refetch could undo an explicit "Mark unread").
   useEffect(() => {
     if (!openMessage?.recipient_id) return;
-    queryClient.invalidateQueries({ queryKey: ["inbox"], exact: true });
-    queryClient.invalidateQueries({ queryKey: ["inbox", "unread"], exact: true });
-  }, [openMessage?.recipient_id, queryClient]);
+    void invalidateInboxViews(queryClient);
+  }, [openMessage, queryClient]);
 
   const filteredMessages = useMemo(() => {
     let list = messages;
@@ -179,7 +188,7 @@ export default function InboxPage() {
           (m.subject || "").toLowerCase().includes(q) ||
           (m.from_name || "").toLowerCase().includes(q) ||
           (m.name || "").toLowerCase().includes(q) ||
-          (bodyMatchSet ? bodyMatchSet.has(m.recipient_id) : false)
+           (bodyMatchSet ? bodyMatchSet.has(inboxMessageKey(m)) : false)
       );
     }
 
@@ -222,18 +231,10 @@ export default function InboxPage() {
   }, [messages]);
 
   const selectedMessage =
-    messages.find((m) => m.recipient_id === selectedId) || openMessage || null;
-
-  // Map every message by its client-facing id so actions can look up which table
-  // (campaign vs transactional) a given id belongs to via its `source`.
-  const msgById = useMemo(
-    () => new Map(messages.map((m) => [m.recipient_id, m])),
-    [messages]
-  );
-  const sourceOf = useCallback((id) => msgById.get(id)?.source, [msgById]);
+    msgById.get(selectedId) || openMessage || null;
 
   const filteredIds = useMemo(
-    () => filteredMessages.map((m) => m.recipient_id),
+    () => filteredMessages.map(inboxMessageKey),
     [filteredMessages]
   );
 
@@ -271,7 +272,9 @@ export default function InboxPage() {
 
   async function handleAction(recipientId, action, folderId) {
     try {
-      await act(recipientId, action, folderId, sourceOf(recipientId));
+      const message = msgById.get(recipientId) || (openMessage && inboxMessageKey(openMessage) === recipientId ? openMessage : null);
+      if (!message) throw new Error("This message is no longer available. Refresh your inbox.");
+      await act(message.recipient_id, action, folderId, message.source);
     } catch (err) {
       toast({
         title: "Something went wrong",
@@ -284,12 +287,9 @@ export default function InboxPage() {
   async function handleBulkAction(action, folderId) {
     const ids = selectedInView;
     if (ids.length === 0) return;
-    // Split the selection by source so campaign and transactional messages are
-    // routed to their respective tables server-side.
-    const campaignIds = ids.filter((id) => sourceOf(id) !== "transactional");
-    const transactionalIds = ids.filter((id) => sourceOf(id) === "transactional");
+    const { campaign, transactional, project } = splitInboxSelection(ids, msgById);
     try {
-      await actBulk(campaignIds, transactionalIds, action, folderId);
+      await actBulk(campaign, transactional, action, folderId, project);
       clearSelection();
       toast({
         title: `${ids.length} message${ids.length === 1 ? "" : "s"} updated`,
@@ -399,7 +399,7 @@ export default function InboxPage() {
       <Button
         size="sm"
         variant="outline"
-        onClick={() => handleAction(msg.recipient_id, msg.is_read ? "unread" : "read")}
+        onClick={() => handleAction(inboxMessageKey(msg), msg.is_read ? "unread" : "read")}
         data-testid="button-toggle-read"
       >
         {msg.is_read ? (
@@ -415,7 +415,7 @@ export default function InboxPage() {
       <Button
         size="sm"
         variant="outline"
-        onClick={() => handleAction(msg.recipient_id, msg.is_pinned ? "unpin" : "pin")}
+        onClick={() => handleAction(inboxMessageKey(msg), msg.is_pinned ? "unpin" : "pin")}
         data-testid="button-toggle-pin"
       >
         {msg.is_pinned ? (
@@ -431,7 +431,7 @@ export default function InboxPage() {
       <Button
         size="sm"
         variant="outline"
-        onClick={() => handleAction(msg.recipient_id, msg.is_favourite ? "unfavourite" : "favourite")}
+        onClick={() => handleAction(inboxMessageKey(msg), msg.is_favourite ? "unfavourite" : "favourite")}
         data-testid="button-toggle-favourite"
       >
         <Star className={`w-4 h-4 mr-2 ${msg.is_favourite ? "fill-current" : ""}`} />
@@ -440,7 +440,7 @@ export default function InboxPage() {
       <Button
         size="sm"
         variant="outline"
-        onClick={() => handleAction(msg.recipient_id, msg.is_archived ? "unarchive" : "archive")}
+        onClick={() => handleAction(inboxMessageKey(msg), msg.is_archived ? "unarchive" : "archive")}
         data-testid="button-toggle-archive"
       >
         {msg.is_archived ? (
@@ -469,7 +469,7 @@ export default function InboxPage() {
           {folders.map((f) => (
             <DropdownMenuItem
               key={f.id}
-              onClick={() => handleAction(msg.recipient_id, "move", f.id)}
+                onClick={() => handleAction(inboxMessageKey(msg), "move", f.id)}
             >
               <Folder className="w-4 h-4 mr-2" />
               {f.name}
@@ -479,7 +479,7 @@ export default function InboxPage() {
             <>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                onClick={() => handleAction(msg.recipient_id, "move", null)}
+                  onClick={() => handleAction(inboxMessageKey(msg), "move", null)}
               >
                 Remove from folder
               </DropdownMenuItem>
@@ -487,12 +487,22 @@ export default function InboxPage() {
           )}
         </DropdownMenuContent>
       </DropdownMenu>
+      {projectInboxCardUrl(msg) && (
+        <Button size="sm" variant="outline" asChild>
+          <Link to={projectInboxCardUrl(msg)} data-testid="button-open-project-card">Open card</Link>
+        </Button>
+      )}
     </div>
   );
 
   const renderReadingBody = () => (
     <div className="flex-1 overflow-hidden bg-white">
-      {isBodyLoading || !openMessage ? (
+      {bodyError ? (
+        <div role="alert" className="p-6 text-sm text-destructive">
+          <p>{bodyError.message || "Could not load this message."}</p>
+          <Button variant="outline" size="sm" className="mt-3" onClick={() => retryBody()}>Try again</Button>
+        </div>
+      ) : isBodyLoading || !openMessage ? (
         <div className="p-6 text-sm text-muted-foreground">Loading message…</div>
       ) : (
         <iframe
@@ -768,25 +778,26 @@ export default function InboxPage() {
             ) : (
               <ul>
                 {filteredMessages.map((m) => {
-                  const active = m.recipient_id === selectedId;
+                  const messageKey = inboxMessageKey(m);
+                  const active = messageKey === selectedId;
                   let bgClass = "";
                   if (!m.is_read) {
                     bgClass = "bg-[hsl(var(--inbox-unread-bg))]";
                   } else if (m.is_pinned) {
                     bgClass = "bg-[hsl(var(--inbox-pinned-bg))]";
                   }
-                  const isSelected = selectedIds.has(m.recipient_id);
+                  const isSelected = selectedIds.has(messageKey);
                   return (
                     <li
-                      key={m.recipient_id}
+                      key={messageKey}
                       className={`flex items-stretch border-b border-border ${bgClass} ${
-                        draggingId === m.recipient_id ? "opacity-50" : ""
+                        draggingId === messageKey ? "opacity-50" : ""
                       }`}
                     >
                       <div className="flex items-center pl-4">
                         <Checkbox
                           checked={isSelected}
-                          onCheckedChange={() => toggleSelect(m.recipient_id)}
+                          onCheckedChange={() => toggleSelect(messageKey)}
                           aria-label="Select message"
                           data-testid={`checkbox-message-${m.recipient_id}`}
                         />
@@ -796,14 +807,14 @@ export default function InboxPage() {
                         draggable
                         onDragStart={(e) => {
                           e.dataTransfer.effectAllowed = "move";
-                          e.dataTransfer.setData("text/plain", m.recipient_id);
-                          setDraggingId(m.recipient_id);
+                          e.dataTransfer.setData("text/plain", messageKey);
+                          setDraggingId(messageKey);
                         }}
                         onDragEnd={() => {
                           setDraggingId(null);
                           setDragOverFolderId(null);
                         }}
-                        onClick={() => setSelectedId(m.recipient_id)}
+                        onClick={() => setSelectedId(messageKey)}
                         data-testid={`message-${m.recipient_id}`}
                         aria-current={active ? "true" : undefined}
                         className={`flex-1 min-w-0 text-left px-3 py-3 hover-elevate ${
@@ -843,7 +854,7 @@ export default function InboxPage() {
                         </div>
                         <div className="mt-1 flex items-center gap-2">
                           <Badge variant="secondary" data-testid={`label-${m.recipient_id}`}>
-                            {m.label || (m.source === "group" ? "Group" : "Announcement")}
+                            {m.label || (m.source === "project" ? "Project mentions" : m.source === "group" ? "Group" : "Announcement")}
                           </Badge>
                           {m.preheader && (
                             <span className="text-xs text-muted-foreground truncate">

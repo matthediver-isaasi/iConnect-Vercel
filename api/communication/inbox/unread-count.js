@@ -1,5 +1,6 @@
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, hasFeatureAccess } from '../../_lib/tenantContext.js';
+import { projectUnreadSummary } from '../../_lib/projectMainInbox.js';
 
 const INBOX_FEATURE = 'communication.inbox';
 
@@ -167,7 +168,8 @@ export default async function handler(req, res) {
     const readNonArchived = readNonArchivedRes.count || 0;
     const campaignUnread = Math.max(0, delivered - archived - readNonArchived);
     const txnUnread = txnUnreadRes.count || 0;
-    const unreadCount = campaignUnread + txnUnread;
+    const projectUnread = await projectUnreadSummary(supabase, ctx);
+    const unreadCount = campaignUnread + txnUnread + projectUnread.count;
 
     // When there is at least one unread message, resolve the most recent one so
     // the login popup can preview its subject and use its sent_at as a
@@ -178,6 +180,9 @@ export default async function handler(req, res) {
     let latest = null;
     if (unreadCount > 0) {
       latest = await resolveLatestUnread(memberId, tenantId);
+    }
+    if (projectUnread.latest && (!latest || new Date(projectUnread.latest.sentAt) > new Date(latest.sentAt))) {
+      latest = projectUnread.latest;
     }
 
     return res.json({

@@ -8,6 +8,12 @@ Wait for a dialog's opening animations to finish before comparing bounding boxes
 
 **How to apply:** Await the element's active animation promises before taking the baseline, while retaining real overflow and viewport assertions.
 
+Scope dialog controls to the intended dialog before measuring them.
+
+**Why:** A nested picker's exiting Close button can still match a global accessible-name locator, producing false overlap failures against the parent dialog's controls.
+
+**How to apply:** Locate Close within the specific parent dialog, or await the nested dialog's removal before measuring.
+
 Scroll-to-top geometry assertions need sufficient trailing document content.
 
 **Why:** Browsers clamp scrollTop to the document's maximum; a shorter final page can make exact top alignment physically impossible even when the correct element was targeted.

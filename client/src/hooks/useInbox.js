@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { base44 } from "../api/base44Client";
+import { inboxActionBody, inboxBulkBody, inboxDetailPath, inboxSearchKeys, invalidateInboxViews } from "../lib/inboxSources.mjs";
 
 const API_BASE = "/api/communication/inbox";
 
@@ -23,6 +24,7 @@ async function fetchUnreadSummary() {
     unreadCount: data.unreadCount || 0,
     latestSubject: data.latestSubject || null,
     latestMessageId: data.latestMessageId || null,
+    latestSource: data.latestSource || data.latestMessageSource || null,
     latestSentAt: data.latestSentAt || null,
   };
 }
@@ -31,12 +33,12 @@ const EMPTY_UNREAD_SUMMARY = {
   unreadCount: 0,
   latestSubject: null,
   latestMessageId: null,
+  latestSource: null,
   latestSentAt: null,
 };
 
 export async function fetchInboxMessageBody(recipientId, source) {
-  const qs = source === "transactional" ? "?source=transactional" : "";
-  const res = await fetch(`${API_BASE}/${recipientId}${qs}`, { credentials: "include" });
+  const res = await fetch(inboxDetailPath(recipientId, source), { credentials: "include" });
   if (!res.ok) throw new Error("Failed to load message");
   const data = await res.json();
   return data.message;
@@ -48,7 +50,7 @@ async function fetchInboxBodyMatches(query) {
   });
   if (!res.ok) throw new Error("Failed to search messages");
   const data = await res.json();
-  return Array.isArray(data.recipientIds) ? data.recipientIds : [];
+  return data;
 }
 
 async function postAction(body) {
@@ -69,37 +71,29 @@ export function useInbox() {
     queryKey: ["inbox"],
     queryFn: fetchInbox,
     staleTime: 5000,
+    refetchInterval: 30000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
   });
 
   const invalidate = useCallback(async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["inbox"] }),
-      queryClient.invalidateQueries({ queryKey: ["inbox", "unread"] }),
-    ]);
+    await invalidateInboxViews(queryClient);
   }, [queryClient]);
 
   const act = useCallback(
     async (recipientId, action, folderId, source) => {
-      const body = { action, folder_id: folderId };
-      if (source === "transactional") body.transactional_id = recipientId;
-      else body.recipient_id = recipientId;
+      const body = inboxActionBody(recipientId, action, folderId, source);
       await postAction(body);
       await invalidate();
     },
     [invalidate]
   );
 
-  // Bulk actions can span both message sources; pass campaign recipient ids and
-  // transactional message ids separately so the endpoint routes each to the
-  // right table.
+  // The optional fifth argument adds project mentions without breaking callers.
   const actBulk = useCallback(
-    async (campaignIds, transactionalIds, action, folderId) => {
-      const cIds = Array.isArray(campaignIds) ? campaignIds.filter(Boolean) : [];
-      const tIds = Array.isArray(transactionalIds) ? transactionalIds.filter(Boolean) : [];
-      if (cIds.length === 0 && tIds.length === 0) return;
-      const body = { action, folder_id: folderId };
-      if (cIds.length > 0) body.recipient_ids = cIds;
-      if (tIds.length > 0) body.transactional_ids = tIds;
+    async (campaignIds, transactionalIds, action, folderId, projectIds = []) => {
+      const body = inboxBulkBody(campaignIds, transactionalIds, action, folderId, projectIds);
+      if (!body) return;
       await postAction(body);
       await invalidate();
     },
@@ -154,7 +148,9 @@ export function useInboxUnreadSummary({ enabled = true } = {}) {
     queryFn: fetchUnreadSummary,
     enabled,
     staleTime: 30000,
-    refetchInterval: 60000,
+    refetchInterval: 30000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
   });
   return data || EMPTY_UNREAD_SUMMARY;
 }
@@ -163,11 +159,10 @@ export function useInboxUnreadCount({ enabled = true } = {}) {
   return useInboxUnreadSummary({ enabled }).unreadCount;
 }
 
-// Server-side body search: returns the set of recipient ids (this member's own
-// messages) whose rendered email body matches the query. Matching happens on the
-// server against the same plain text the reading pane shows, so no bodies are
-// fetched client-side.
+// Server-side body search; expose source-qualified identities to the list.
+// Resolve legacy bare IDs against the current list without fetching bodies.
 export function useInboxBodyMatches(query) {
+  const queryClient = useQueryClient();
   const q = (query || "").trim();
   const enabled = q.length >= 2;
   const { data, isFetching } = useQuery({
@@ -177,7 +172,7 @@ export function useInboxBodyMatches(query) {
     staleTime: 30000,
   });
   return {
-    matchingRecipientIds: enabled ? data || null : null,
+    matchingRecipientIds: enabled && data ? inboxSearchKeys(data, queryClient.getQueryData(["inbox"])?.messages || []) : null,
     isSearching: enabled && isFetching && !data,
   };
 }

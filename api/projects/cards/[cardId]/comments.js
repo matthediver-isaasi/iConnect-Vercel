@@ -95,24 +95,27 @@ export default async function handler(req, res) {
         return res.status(403).json({ error: 'Viewers cannot comment' });
       }
 
-      const { content } = req.body;
+      const { content, mentionIdentityIds = [] } = req.body || {};
 
-      if (!content?.trim()) {
+      if (typeof content !== 'string' || !content.trim() || content.length > 20000) {
         return res.status(400).json({ error: 'Comment content is required' });
+      }
+      if (!Array.isArray(mentionIdentityIds) || mentionIdentityIds.length > 50
+        || mentionIdentityIds.some(id => typeof id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))) {
+        return res.status(400).json({ error: 'Invalid mention recipients' });
       }
 
       const { data: comment, error } = await supabase
-        .from('project_card_comment')
-        .insert({
-          card_id: cardId,
-          identity_id: session.identityId,
-          content: content.trim()
-        })
-        .select()
-        .single();
+        .rpc('create_project_comment_with_mentions', {
+          p_card_id: cardId, p_actor_id: session.identityId,
+          p_content: content.trim(), p_recipient_ids: [...new Set(mentionIdentityIds)]
+        });
 
       if (error) {
-        console.error('[Comments] Error creating:', error);
+        if (error.code === '22023') return res.status(400).json({ error: error.message });
+        if (error.code === '42501') return res.status(403).json({ error: 'Not allowed to comment on this board' });
+        if (error.code === 'P0002') return res.status(404).json({ error: 'Card or board unavailable' });
+        console.error('[Comments] Error creating:', error.code);
         return res.status(500).json({ error: 'Failed to create comment' });
       }
 
@@ -121,13 +124,6 @@ export default async function handler(req, res) {
         .select('id, email, first_name, last_name, avatar_url')
         .eq('id', session.identityId)
         .single();
-
-      await supabase.from('project_card_activity').insert({
-        card_id: cardId,
-        identity_id: session.identityId,
-        action_type: 'commented',
-        action_data: { comment_id: comment.id }
-      });
 
       return res.status(201).json({
         comment: {

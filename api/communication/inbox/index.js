@@ -1,6 +1,7 @@
 import { supabase } from '../../_lib/database.js';
 import { getTenantContext, hasFeatureAccess } from '../../_lib/tenantContext.js';
 import { resolveTransactionalInboxLabel } from '../../_lib/transactionalInbox.js';
+import { fetchProjectMessages, projectInboxScope, verifyProjectMessages, updateProjectMessages } from '../../_lib/projectMainInbox.js';
 
 const INBOX_FEATURE = 'communication.inbox';
 
@@ -187,7 +188,7 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'GET') {
-      const [recipients, stateMap, foldersRes, transactional] = await Promise.all([
+      const [recipients, stateMap, foldersRes, transactional, projectMessages] = await Promise.all([
         fetchAllRecipients(memberId, tenantId),
         fetchAllStates(memberId, tenantId),
         supabase
@@ -197,6 +198,7 @@ export default async function handler(req, res) {
           .eq('member_id', memberId)
           .order('name', { ascending: true }),
         fetchAllTransactional(memberId, tenantId),
+        fetchProjectMessages(supabase, ctx),
       ]);
 
       const deliveredRecipients = recipients.filter(recipientIsDelivered);
@@ -216,6 +218,7 @@ export default async function handler(req, res) {
       const messages = [
         ...deliveredRecipients.map((r) => toMessage(r, stateMap.get(r.id), catMap)),
         ...transactional.map((t) => toTransactionalMessage(t, catMap)),
+        ...projectMessages,
       ].sort((a, b) => {
         const at = a.sent_at ? new Date(a.sent_at).getTime() : 0;
         const bt = b.sent_at ? new Date(b.sent_at).getTime() : 0;
@@ -237,6 +240,8 @@ export default async function handler(req, res) {
         recipient_ids,
         transactional_id,
         transactional_ids,
+        project_id,
+        project_ids,
         action,
       } = req.body || {};
       let { folder_id } = req.body || {};
@@ -258,16 +263,22 @@ export default async function handler(req, res) {
           : [];
       const ids = [...new Set(rawCampaignIds.filter(Boolean))];
       const txnIds = [...new Set(rawTxnIds.filter(Boolean))];
-      const isBulk = Array.isArray(recipient_ids) || Array.isArray(transactional_ids);
+      const projectIds = [...new Set((Array.isArray(project_ids) ? project_ids : project_id ? [project_id] : []).filter(Boolean))];
+      const isBulk = Array.isArray(recipient_ids) || Array.isArray(transactional_ids) || Array.isArray(project_ids);
 
-      if (ids.length + txnIds.length === 0 || !action) {
+      if (ids.length + txnIds.length + projectIds.length === 0 || !action) {
         return res
           .status(400)
-          .json({ error: 'recipient_id(s)/transactional_id(s) and action are required' });
+          .json({ error: 'Message IDs and action are required' });
       }
       if (!ACTIONS.has(action)) {
         return res.status(400).json({ error: `action must be one of: ${[...ACTIONS].join(', ')}` });
       }
+      if (projectIds.length > 10000 || projectIds.some(id => typeof id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))) {
+        return res.status(400).json({ error: 'Invalid project message IDs' });
+      }
+      const projectScope = projectIds.length ? await projectInboxScope(supabase, ctx) : null;
+      if (projectIds.length) await verifyProjectMessages(projectScope, projectIds);
 
       // Confirm every campaign recipient row belongs to this member/tenant.
       let ownedIds = [];
@@ -398,7 +409,9 @@ export default async function handler(req, res) {
         txnStates = (updated || []).map((r) => ({ ...r, recipient_id: r.id }));
       }
 
-      const allStates = [...states, ...txnStates];
+      const projectStates = projectIds.length
+        ? await updateProjectMessages(supabase, projectScope, projectIds, action, folder_id) : [];
+      const allStates = [...states, ...txnStates, ...projectStates];
       if (isBulk) {
         return res.json({ states: allStates, updated: allStates.length });
       }
@@ -408,6 +421,6 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (error) {
     console.error('[Inbox] Error:', error);
-    return res.status(500).json({ error: error.message });
+    return res.status(error.status || 500).json({ error: error.status ? error.message : 'Unable to load or update inbox' });
   }
 }

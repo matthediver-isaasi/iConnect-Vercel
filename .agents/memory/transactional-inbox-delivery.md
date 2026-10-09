@@ -1,9 +1,9 @@
 ---
 name: Transactional inbox delivery
-description: How transactional emails land in a member's /inbox alongside campaign messages, and the two-backend union every inbox endpoint must respect.
+description: Inbox source boundaries and the requirement to share project-mention state between both inboxes.
 ---
 
-The member `/inbox` now unions TWO different backends, distinguished by a
+The member `/inbox` unions different message backends, distinguished by a
 `source` field on each message:
 
 - **Campaign messages** (`source: 'group'` / `'admin'`): per-member read/pin/
@@ -19,7 +19,7 @@ The member `/inbox` now unions TWO different backends, distinguished by a
 separate state table would be redundant; campaigns fan out to many members so
 they need one.
 
-**How to apply:** ANY inbox surface must handle both sources or one kind of
+**How to apply:** ANY inbox surface must handle every supported source or one kind of
 message silently disappears. The endpoints (`api/communication/inbox/`) fetch
 both, tag each with `source`, and merge sorted by `sent_at`. Mutations (POST,
 `[id].js` detail via `?source=transactional`) branch on source to hit the right
@@ -35,3 +35,13 @@ Communication Category name, else a built-in key label, else "Notifications").
 an `inboxDelivery` descriptor. Auth/system emails omit it and are therefore
 never delivered to any inbox. Recording never throws and never affects the send
 return contract. Wiring which specific email families opt in is downstream work.
+
+Project mentions must share one authoritative message state between the main
+inbox and the project-board inbox; do not copy them into transactional email rows.
+
+**Why:** The user explicitly requires reading or removing a mention in the main
+inbox to be reflected in the board inbox. Independent copies would drift.
+
+**How to apply:** Preserve source-specific ownership checks and shared read/pin/archive
+state. Main-inbox removal uses its existing reversible Archive behaviour:
+archive hides the board notification, and restoration makes it visible again.

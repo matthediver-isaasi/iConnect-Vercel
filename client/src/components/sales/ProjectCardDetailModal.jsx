@@ -1,3 +1,4 @@
+import { invalidateInboxViews } from "@/lib/inboxSources.mjs";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Calendar, Check, History, MessageSquare, Pencil, Plus, Tag, Trash2, Users, X } from "lucide-react";
@@ -13,6 +14,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import BoardMentionTextarea from "@/components/projects/BoardMentionTextarea";
+import { mentionIdentityIds } from "@/components/projects/boardMentionHelpers.mjs";
 import { projectTaskRequest, refreshSalesProjects } from "./useSalesProjectTasks";
 import { TaskError } from "./SalesProjectTaskStates";
 
@@ -54,6 +57,7 @@ export default function CardDetailModal({
 }) {
   const [editedCard, setEditedCard] = useState({});
   const [newComment, setNewComment] = useState("");
+  const [commentMentions, setCommentMentions] = useState([]);
   const [showLabelPicker, setShowLabelPicker] = useState(false);
   const [showMemberPicker, setShowMemberPicker] = useState(false);
   const [editingLabel, setEditingLabel] = useState(null);
@@ -71,6 +75,7 @@ export default function CardDetailModal({
   useEffect(() => {
     if (!open) {
       initialized.current = null;
+      setCommentMentions([]);
       dirtyFields.current.clear();
       setEditingLabel(null); setShowMemberPicker(false); setShowLabelPicker(false);
       return;
@@ -81,6 +86,7 @@ export default function CardDetailModal({
       initialized.current = card.id;
       dirtyFields.current.clear();
       setEditedCard(values); setNewComment("");
+      setCommentMentions([]);
       setEditingLabel(null); setShowMemberPicker(false); setShowLabelPicker(false);
     } else {
       setEditedCard((draft) => {
@@ -129,9 +135,11 @@ export default function CardDetailModal({
     void refresh();
   };
   const addComment = useMutation({
-    mutationFn: (content) => apiRequest("POST", `/api/projects/cards/${card.id}/comments`, { content }),
+    mutationFn: ({ content, mentionIdentityIds: ids }) => apiRequest("POST", `/api/projects/cards/${card.id}/comments`, { content, mentionIdentityIds: ids }),
     onSuccess: (result) => {
       setNewComment("");
+      setCommentMentions([]);
+      void invalidateInboxViews(queryClient, boardId);
       if (result.comment) queryClient.setQueryData(["card-detail", card.id], (old) =>
         old ? { ...old, comments: [...(old.comments || []), result.comment] } : old);
       void refresh();
@@ -295,8 +303,8 @@ export default function CardDetailModal({
             <Button variant="outline" size="sm" aria-expanded={showActivity} onClick={() => setShowActivity(!showActivity)}>{showActivity ? "Hide activity" : "Show activity"}</Button>
           </div>
           {canEdit && <div className="mb-6 space-y-2">
-            <Textarea aria-label="Write a comment" data-testid="input-new-comment" value={newComment} disabled={addComment.isPending} onChange={(event) => setNewComment(event.target.value)} placeholder="Write a comment..." rows={3} className="bg-background" />
-            <div className="flex justify-end"><Button size="sm" data-testid="button-add-comment" disabled={!newComment.trim() || addComment.isPending} onClick={() => addComment.mutate(newComment)}>{addComment.isPending ? "Posting…" : "Submit"}</Button></div>
+            <BoardMentionTextarea aria-label="Write a comment" data-testid="input-new-comment" value={newComment} disabled={addComment.isPending} onChange={setNewComment} mentions={commentMentions} onMentionsChange={setCommentMentions} members={members} placeholder="Write a comment..." rows={3} className="bg-background" />
+            <div className="flex justify-end"><Button size="sm" data-testid="button-add-comment" disabled={!newComment.trim() || addComment.isPending} onClick={() => addComment.mutate({ content: newComment, mentionIdentityIds: mentionIdentityIds(newComment, commentMentions, members) })}>{addComment.isPending ? "Posting…" : "Submit"}</Button></div>
           </div>}
           {details.isLoading ? <div role="status" aria-label="Loading comments and activity" className="space-y-4">{[0, 1, 2].map((index) => <div key={index} className="h-20 animate-pulse rounded-lg bg-muted" />)}</div>
             : <div className="space-y-5">

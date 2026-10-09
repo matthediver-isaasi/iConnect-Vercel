@@ -55,7 +55,11 @@ await build({
 });
 const { default: Modal } = await import(pathToFileURL(bundlePath).href);
 const originalFetch = globalThis.fetch;
-after(async () => { globalThis.fetch = originalFetch; dom.window.close(); await unlink(bundlePath); });
+after(async () => {
+  globalThis.fetch = originalFetch; dom.window.close();
+  await unlink(bundlePath);
+  await unlink(bundlePath.replace(/\.mjs$/, ".css")).catch(error => { if (error.code !== "ENOENT") throw error; });
+});
 const fixtureCard = { id: "card-a", board_id: "board-a", title: "Plan launch", description: "", list_id: "list-a", start_date: "2026-10-08", due_date: "2026-10-12", cover_image: "stale-cover", project_card_label: [] };
 const fixtureLabels = [{ id: "label-a", name: "Review", color: "#14b8a6" }];
 async function settle() { await act(async () => { await new Promise((resolve) => setTimeout(resolve, 15)); }); }

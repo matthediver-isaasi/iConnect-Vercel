@@ -2,6 +2,7 @@ import { supabase } from '../../_lib/database.js';
 import { getTenantContext, hasFeatureAccess } from '../../_lib/tenantContext.js';
 import { stripHiddenDynamicRegions, applyDynamicSlotValues } from '../../_lib/campaignService.js';
 import { resolveTransactionalInboxLabel } from '../../_lib/transactionalInbox.js';
+import { projectInboxScope, projectMessage, projectMessageHtml, updateProjectMessages } from '../../_lib/projectMainInbox.js';
 
 const INBOX_FEATURE = 'communication.inbox';
 
@@ -80,6 +81,16 @@ export default async function handler(req, res) {
     const recipientId = req.query.id;
     if (!recipientId) {
       return res.status(400).json({ error: 'Message id is required' });
+    }
+
+    if (req.query.source === 'project') {
+      const scope = await projectInboxScope(supabase, ctx);
+      if (!scope) return res.status(404).json({ error: 'Message not found' });
+      const { data: row, error } = await scope.query().eq('id', recipientId).maybeSingle();
+      if (error) throw error;
+      if (!row) return res.status(404).json({ error: 'Message not found' });
+      await updateProjectMessages(supabase, scope, [row.id], 'read');
+      return res.json({ message: { ...projectMessage(row), is_read: true, html: projectMessageHtml(row.content) } });
     }
 
     // Transactional messages store their fully rendered HTML on the row itself.
