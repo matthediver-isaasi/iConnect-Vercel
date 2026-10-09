@@ -11,7 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useCatalogue, useEventOptions } from "./useCatalogue";
+import { useCatalogue, useCatalogueTaxOptions, useEventOptions } from "./useCatalogue";
+import { productPricesForEditing, productPricesForSaving, productTaxForSaving, taxPercent } from "./catalogueProductForm";
 import { getSalesCataloguePath } from "@/lib/salesNavigation";
 import { catalogueCodeError, normaliseCatalogueCode, suggestedCatalogueCategoryCode } from "../../../../shared/salesContracts.js";
 
@@ -75,13 +76,33 @@ function CatalogueTable({ rows, type, categories, products, onEdit, onArchive, o
   return <Table className="min-w-[680px]"><TableHeader><TableRow className="bg-slate-50 hover:bg-slate-50"><TableHead>{type === "categories" ? "Category" : type === "products" ? "Product" : "Bundle"}</TableHead><TableHead>{type === "categories" ? "Description" : type === "products" ? "Category / code" : "Included items"}</TableHead><TableHead>{type === "products" || type === "bundles" ? "Price / capacity" : "Status"}</TableHead><TableHead className="w-28 text-right">Actions</TableHead></TableRow></TableHeader><TableBody>{rows.map((row, index) => { const archived = row.isActive === false || row.archivedAt; const reference = row.eventReference || {}; return <TableRow key={row.id} className={archived ? "bg-slate-50/70 text-slate-500" : ""}><TableCell><div className="font-semibold text-slate-900">{row.name}</div>{row.code && <div className="mt-0.5 font-mono text-[11px] text-slate-500">{row.code}</div>}</TableCell><TableCell className="max-w-[280px] text-xs text-slate-600">{type === "products" ? <><span className="font-medium text-blue-700">{categoryName(row.categoryId)}</span>{row.sku && <span className="ml-2 font-mono text-slate-500">SKU {row.sku}</span>}</> : type === "bundles" ? <span>{(row.items || []).map((item) => `${item.quantity} × ${productName(item.productId)}`).join(" · ") || "No products selected"}</span> : row.description || "—"}</TableCell><TableCell>{type === "products" ? <><div className="font-medium text-slate-800">{money(row.standardPriceMinor, row.currency)}</div><div className="text-[11px] text-slate-500">minimum {money(row.minimumPriceMinor, row.currency)}{reference.eventId ? ` · ${row.delegateCapacity ?? "Unavailable"} delegate${row.delegateCapacity === 1 ? "" : "s"}` : " · general"}</div></> : type === "bundles" ? <><div className="font-medium text-slate-800">{money(row.sellingPriceMinor, row.currency)}</div><div className="text-[11px] text-slate-500">{(row.items || []).length} products</div></> : <Badge variant="outline" className={archived ? "border-slate-300 bg-slate-100 text-slate-600" : "border-blue-200 bg-blue-50 text-blue-700"}>{archived ? "Archived" : "Active"}</Badge>}</TableCell><TableCell><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" aria-label={`Edit ${row.name}`} onClick={() => onEdit(row)} className="h-8 w-8 text-slate-600 hover:bg-blue-50 hover:text-blue-700"><Pencil className="h-3.5 w-3.5" /></Button>{type === "categories" && <div className="hidden sm:flex"><Button variant="ghost" size="icon" disabled={index === 0} onClick={() => onMove(index, -1)} className="h-8 w-6"><ChevronUp className="h-3.5 w-3.5" /></Button><Button variant="ghost" size="icon" disabled={index === rows.length - 1} onClick={() => onMove(index, 1)} className="h-8 w-6"><ChevronDown className="h-3.5 w-3.5" /></Button></div>}<Button variant="ghost" size="icon" aria-label={`${archived ? "Restore" : "Archive"} ${row.name}`} onClick={() => onArchive(row)} className="h-8 w-8 text-slate-500 hover:bg-amber-50 hover:text-amber-700">{archived ? <RotateCcw className="h-3.5 w-3.5" /> : <Archive className="h-3.5 w-3.5" />}</Button></div></TableCell></TableRow>; })}</TableBody></Table>;
 }
 
-function EditDialog({ config, categories, categoriesLoading, products, events, onClose, onSave, saving }) {
+export function EditDialog({ config, categories, categoriesLoading, products, events, onClose, onSave, saving }) {
   const type = config?.type; const [form, setForm] = useState(blank[type] || blank.categories);
   const [categoryCodeEdited, setCategoryCodeEdited] = useState(false);
+  const [selectedTaxId, setSelectedTaxId] = useState("");
+  const [formError, setFormError] = useState("");
+  const [viewport, setViewport] = useState(null);
+  const taxOptions = useCatalogueTaxOptions(Boolean(config && type === "products"));
+  useEffect(() => {
+    if (!config || type !== "products") return;
+    const visual = window.visualViewport;
+    const measure = () => setViewport({ height: visual?.height || window.innerHeight, top: visual?.offsetTop || 0 });
+    measure();
+    visual?.addEventListener("resize", measure);
+    visual?.addEventListener("scroll", measure);
+    window.addEventListener("resize", measure);
+    return () => {
+      visual?.removeEventListener("resize", measure);
+      visual?.removeEventListener("scroll", measure);
+      window.removeEventListener("resize", measure);
+    };
+  }, [config, type]);
   useEffect(() => {
     if (config) {
-      setForm({ ...blank[config.type], ...config.row, items: config.row?.items || [] });
+      setForm({ ...blank[config.type], ...config.row, ...(config.type === "products" ? productPricesForEditing(config.row) : {}), items: config.row?.items || [] });
       setCategoryCodeEdited(Boolean(config.row));
+      setSelectedTaxId("");
+      setFormError("");
     }
   }, [config]);
   if (!config) return null;
@@ -105,52 +126,84 @@ function EditDialog({ config, categories, categoriesLoading, products, events, o
     const allowed = type === "categories" ? ["name", "code", "description"] : type === "products" ? ["name", "code", "sku", "categoryId", "currency", "standardPriceMinor", "minimumPriceMinor", "costMinor", "shortDescription", "description", "taxTreatment", "taxRateBps", "availableFrom", "availableTo", "eventReference", "capacityMetadata"] : ["name", "code", "currency", "sellingPriceMinor", "minimumPriceMinor", "presentationMode", "availableFrom", "availableTo", "description", "items"];
     const data = Object.fromEntries(allowed.map((key) => [key, numeric.includes(key) && form[key] !== "" ? Number(form[key]) : form[key] === "" ? null : form[key]]));
     if (type === "products") {
+      try {
+        Object.assign(data, productPricesForSaving(form), productTaxForSaving(config.row, selectedTaxId, taxOptions.data?.items || [], !taxOptions.isError && !taxOptions.isPending));
+      } catch (error) {
+        setFormError(error.message);
+        return;
+      }
       const reference = form.eventReference || {};
       const hasReference = reference.kind && reference.eventId && reference.ticketTypeId;
       data.eventReference = hasReference ? reference : null;
-      try { data.capacityMetadata = form.capacityMetadata ? (typeof form.capacityMetadata === "string" ? JSON.parse(form.capacityMetadata) : form.capacityMetadata) : {}; } catch { toast({ variant: "destructive", title: "Invalid capacity metadata", description: "Enter valid JSON before saving this product." }); return; }
+      data.capacityMetadata = config.row?.capacityMetadata ?? {};
     }
     if (type === "bundles") data.items = (form.items || []).filter((item) => item.productId).map((item) => ({ productId: item.productId, quantity: Number(item.quantity) }));
     onSave(data);
   };
-  return <Dialog open onOpenChange={(open) => !open && onClose()}><DialogContent className="max-h-[90dvh] w-[calc(100vw-2rem)] max-w-2xl overflow-y-auto border-slate-200 bg-white"><form onSubmit={submit}><DialogHeader><DialogTitle className="text-2xl font-semibold text-slate-950">{config.row ? "Edit" : "Add"} {singular[type]}</DialogTitle><DialogDescription>{type === "products" ? "Prices are stored as minor currency units; £125.00 is entered as 12500." : type === "bundles" ? "Set the included products and their display order." : "Organise how your sales catalogue is browsed."}</DialogDescription></DialogHeader><div className="mt-6 grid gap-4 sm:grid-cols-2">
+  const productDialog = type === "products";
+  const margin = viewport ? Math.max(12, viewport.height * 0.05) : 12;
+  // Scroll inside the Radix content boundary, with no nested Select portals.
+  // Visual viewport sizing keeps the form reachable when a mobile keyboard opens.
+  return <Dialog open onOpenChange={(open) => !open && onClose()}><DialogContent className={`max-h-[90dvh] w-[calc(100vw-2rem)] max-w-2xl border-slate-200 bg-white ${productDialog ? "top-[5dvh] translate-y-0 overflow-hidden p-0" : "overflow-y-auto"}`} style={productDialog && viewport ? { top: viewport.top + margin, maxHeight: Math.max(1, viewport.height - margin * 2) } : undefined}><form onSubmit={submit} className={productDialog ? "min-h-0 overflow-y-auto overscroll-contain p-6" : undefined} style={productDialog ? { maxHeight: "inherit", WebkitOverflowScrolling: "touch", touchAction: "pan-y" } : undefined}><DialogHeader><DialogTitle className="text-2xl font-semibold text-slate-950">{config.row ? "Edit" : "Add"} {singular[type]}</DialogTitle><DialogDescription>{type === "products" ? "Enter decimal amounts, e.g. 125.00. All prices exclude VAT." : type === "bundles" ? "Set the included products and their display order." : "Organise how your sales catalogue is browsed."}</DialogDescription></DialogHeader><div className="mt-6 grid gap-4 sm:grid-cols-2">
     <Field label="Name"><Input required value={form.name || ""} onChange={(e) => updateName(e.target.value)} /></Field>
      {type !== "categories" && <Field label="Internal code"><Input required value={form.code || ""} onChange={(e) => update("code", e.target.value)} /></Field>}
      {type === "categories" && <><Field label="Category code"><Input required maxLength={64} aria-invalid={Boolean(categoryError)} aria-describedby="category-code-help category-code-error" value={form.code || ""} onChange={(e) => updateCategoryCode(e.target.value)} /><p id="category-code-help" className="mt-1 text-xs text-slate-500">1–64 uppercase letters, numbers, underscores, or hyphens. Codes must be unique.</p>{categoryError && <p id="category-code-error" className="mt-1 text-xs font-medium text-red-600">{categoryError}</p>}</Field><Field label="Description" wide><Textarea value={form.description || ""} onChange={(e) => update("description", e.target.value)} /></Field></>}
-    {type === "products" && <ProductFields form={form} update={update} categories={categories} events={events} />}
+    {type === "products" && <ProductFields form={form} update={update} categories={categories} events={events} existing={config.row} taxOptions={taxOptions} selectedTaxId={selectedTaxId} onTaxChange={setSelectedTaxId} />}
      {type === "bundles" && <BundleFields form={form} update={update} />}
      {type === "bundles" && <BundleItems form={form} update={update} products={products} />}
     {type === "bundles" && <Field label="Description" wide><Textarea value={form.description || ""} onChange={(e) => update("description", e.target.value)} /></Field>}
-  </div><DialogFooter className="mt-7"><Button type="button" variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={saving || Boolean(categoryError) || (type === "categories" && categoriesLoading)} type="submit" className="bg-blue-600 text-white hover:bg-blue-700">{saving ? "Saving…" : categoriesLoading && type === "categories" ? "Checking codes…" : "Save catalogue item"}</Button></DialogFooter></form></DialogContent></Dialog>;
+  </div>{formError && <p role="alert" className="mt-4 text-sm font-medium text-red-600">{formError}</p>}<DialogFooter className="mt-7"><Button type="button" variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={saving || Boolean(categoryError) || (type === "categories" && categoriesLoading)} type="submit" className="bg-blue-600 text-white hover:bg-blue-700">{saving ? "Saving…" : categoriesLoading && type === "categories" ? "Checking codes…" : "Save catalogue item"}</Button></DialogFooter></form></DialogContent></Dialog>;
 }
 
-function ProductFields({ form, update, categories, events }) {
+function ProductFields({ form, update, categories, events, existing, taxOptions, selectedTaxId, onTaxChange }) {
   const eventList = Array.isArray(events.items) ? events.items : [];
   const ref = form.eventReference || {};
   const selected = eventList.find((item) => String(item.id) === String(ref.eventId));
+  const ticket = selected?.ticketOptions?.find((item) => String(item.id) === String(ref.ticketTypeId));
+  const taxItems = taxOptions.data?.items || [];
+  const selectedCode = taxItems.find((item) => item.id === selectedTaxId && item.selectable);
+  const savedMatch = existing?.taxTreatment === "standard" && taxItems.find((item) => item.selectable && item.rateBps === existing.taxRateBps);
   const patchEvent = (eventId) => {
     const event = eventList.find((item) => String(item.id) === String(eventId));
     update("eventReference", { kind: event?.kind || "", eventId, ticketTypeId: "" });
   };
   const patchRef = (key, value) => update("eventReference", { ...ref, [key]: value });
   return <>
-    <Field label="Category"><Select value={String(form.categoryId || "")} onValueChange={(v) => update("categoryId", v)}><SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger><SelectContent>{categories.filter((item) => item.isActive !== false).map((item) => <SelectItem key={item.id} value={String(item.id)}>{item.name}</SelectItem>)}</SelectContent></Select></Field>
+    <Field label="Category"><ProductSelect aria-label="Category" value={String(form.categoryId || "")} onChange={(e) => update("categoryId", e.target.value)}><option value="">Uncategorised</option>{form.categoryId && !categories.some((item) => String(item.id) === String(form.categoryId)) && <option value={String(form.categoryId)}>Saved category (unavailable)</option>}{categories.filter((item) => item.isActive !== false || String(item.id) === String(form.categoryId)).map((item) => <option key={item.id} value={String(item.id)}>{item.name}{item.isActive === false ? " (archived)" : ""}</option>)}</ProductSelect></Field>
     <Field label="SKU"><Input value={form.sku || ""} onChange={(e) => update("sku", e.target.value)} /></Field>
     <Field label="Currency"><Input required maxLength="3" value={form.currency || "GBP"} onChange={(e) => update("currency", e.target.value.toUpperCase())} /></Field>
-    <Field label="Standard price (minor units)"><Input required type="number" min="0" value={form.standardPriceMinor ?? ""} onChange={(e) => update("standardPriceMinor", e.target.value)} /></Field>
-    <Field label="Minimum price (minor units)"><Input type="number" min="0" value={form.minimumPriceMinor ?? ""} onChange={(e) => update("minimumPriceMinor", e.target.value)} /></Field>
-    <Field label="Cost (minor units)"><Input type="number" min="0" value={form.costMinor ?? ""} onChange={(e) => update("costMinor", e.target.value)} /></Field>
-    <Field label="Tax treatment"><Select value={form.taxTreatment || "standard"} onValueChange={(v) => update("taxTreatment", v)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="standard">Standard</SelectItem><SelectItem value="zero_rated">Zero rated</SelectItem><SelectItem value="exempt">Exempt</SelectItem><SelectItem value="outside_scope">Outside scope</SelectItem></SelectContent></Select></Field>
-    <Field label="Tax rate (basis points)"><Input type="number" min="0" value={form.taxRateBps ?? ""} onChange={(e) => update("taxRateBps", e.target.value)} /></Field>
+    <Field label={`Standard price (${form.currency || "GBP"}, excl. VAT)`}><Input aria-label="Standard price" required type="text" inputMode="decimal" placeholder="125.00" value={form.standardPriceMinor ?? ""} onChange={(e) => update("standardPriceMinor", e.target.value)} /></Field>
+    <Field label={`Minimum price (${form.currency || "GBP"}, excl. VAT)`}><Input aria-label="Minimum price" type="text" inputMode="decimal" value={form.minimumPriceMinor ?? ""} onChange={(e) => update("minimumPriceMinor", e.target.value)} /></Field>
+    <Field label={`Cost (${form.currency || "GBP"}, excl. VAT)`}><Input aria-label="Cost" type="text" inputMode="decimal" value={form.costMinor ?? ""} onChange={(e) => update("costMinor", e.target.value)} /></Field>
+    <Field label="Synced VAT code">
+      <ProductSelect aria-label="Synced VAT code" value={selectedTaxId} onChange={(e) => onTaxChange(e.target.value)} disabled={taxOptions.isPending || taxOptions.isError}>
+        <option value="">{existing ? `Keep saved: ${savedMatch ? savedMatch.name : existing.taxTreatment || "tax treatment"} (${taxPercent(existing.taxRateBps)})` : "Select a configured VAT code"}</option>
+        {taxItems.map((item) => <option key={item.id} value={item.id} disabled={!item.selectable}>{item.name} ({taxPercent(item.rateBps)}){!item.selectable ? ` — ${item.reason || "Not mapped in Sales Settings"}` : ""}</option>)}
+      </ProductSelect>
+    </Field>
+    <Field label="VAT rate"><Input aria-label="VAT rate" readOnly value={selectedCode ? taxPercent(selectedCode.rateBps) : existing && !selectedTaxId ? taxPercent(existing.taxRateBps) : "Select a VAT code"} /></Field>
+    <div className="space-y-2 text-xs text-slate-600 sm:col-span-2">
+      {taxOptions.isPending ? <div role="status" className="animate-pulse rounded bg-slate-100 p-3">Loading synced VAT codes…</div> : taxOptions.isError ? <p role="alert" className="text-red-600">{taxOptions.error?.message || "VAT codes could not be loaded."} <Button type="button" variant="link" className="h-auto p-0 text-xs" onClick={() => taxOptions.refetch()}>Retry</Button></p> : <>
+        {taxOptions.data?.note && <p>{taxOptions.data.note}</p>}
+        {!taxItems.some((item) => item.selectable) && <p className="text-amber-700">No configured VAT codes are available.</p>}
+      </>}
+      {existing && !selectedTaxId && (taxOptions.isError || !savedMatch) && <p className="text-amber-700">Saved tax: {taxPercent(existing.taxRateBps)} ({existing.taxTreatment}). No available mapped code matches this treatment and rate. Saving without a new selection preserves it.</p>}
+      <p>Missing a code? Sync VAT/tax codes in your accounting integration settings, then choose which code Sales should use for each rate.</p>
+      <a className="font-medium text-blue-700 underline" href="/sales/settings">Configure VAT code mappings in Sales Settings.</a>
+    </div>
     <Field label="Available from"><Input type="date" value={form.availableFrom || ""} onChange={(e) => update("availableFrom", e.target.value)} /></Field>
     <Field label="Available to"><Input type="date" value={form.availableTo || ""} onChange={(e) => update("availableTo", e.target.value)} /></Field>
-    <Field label="Event"><Select value={String(ref.eventId || "")} onValueChange={patchEvent}><SelectTrigger><SelectValue placeholder="Optional event" /></SelectTrigger><SelectContent>{eventList.map((event) => <SelectItem key={event.id} value={String(event.id)}>{event.name}</SelectItem>)}</SelectContent></Select>{ref.eventId && <Button type="button" variant="link" className="h-auto px-0 pt-1 text-xs" onClick={() => update("eventReference", null)}>Remove event link</Button>}</Field>
+    <Field label="Event"><ProductSelect aria-label="Event" value={String(ref.eventId || "")} onChange={(e) => patchEvent(e.target.value)}><option value="">Optional event</option>{ref.eventId && !selected && <option value={String(ref.eventId)}>Saved event (unavailable)</option>}{eventList.map((event) => <option key={event.id} value={String(event.id)}>{event.name}</option>)}</ProductSelect>{ref.eventId && <Button type="button" variant="link" className="h-auto px-0 pt-1 text-xs" onClick={() => update("eventReference", null)}>Remove event link</Button>}</Field>
     <Field label="Event kind"><Input readOnly value={ref.kind || ""} /></Field>
-    <Field label="Ticket type"><Select value={String(ref.ticketTypeId || "")} onValueChange={(v) => patchRef("ticketTypeId", v)} disabled={!selected}><SelectTrigger><SelectValue placeholder="Optional ticket type" /></SelectTrigger><SelectContent>{(selected?.ticketOptions || []).map((ticket) => <SelectItem key={ticket.id} value={String(ticket.id)}>{ticket.name} ({ticket.delegateCapacity} delegate{ticket.delegateCapacity === 1 ? "" : "s"})</SelectItem>)}</SelectContent></Select></Field>
+    <Field label="Ticket type"><ProductSelect aria-label="Ticket type" value={String(ref.ticketTypeId || "")} onChange={(e) => patchRef("ticketTypeId", e.target.value)} disabled={!selected}><option value="">Optional ticket type</option>{ref.ticketTypeId && !ticket && <option value={String(ref.ticketTypeId)}>Saved ticket (unavailable)</option>}{(selected?.ticketOptions || []).map((ticket) => <option key={ticket.id} value={String(ticket.id)}>{ticket.name} ({ticket.delegateCapacity ?? "Unavailable"} delegate{ticket.delegateCapacity === 1 ? "" : "s"})</option>)}</ProductSelect></Field>
     <Field label="Short description" wide><Input value={form.shortDescription || ""} onChange={(e) => update("shortDescription", e.target.value)} /></Field>
     <Field label="Description" wide><Textarea value={form.description || ""} onChange={(e) => update("description", e.target.value)} /></Field>
-    <Field label="Capacity metadata" wide><Textarea placeholder='e.g. {"venueZone":"Hall A"}' value={typeof form.capacityMetadata === "string" ? form.capacityMetadata : JSON.stringify(form.capacityMetadata || {})} onChange={(e) => update("capacityMetadata", e.target.value)} />{form.delegateCapacity && <p className="mt-1 text-xs text-blue-700">Delegate capacity is derived from the linked ticket: {form.delegateCapacity}</p>}</Field>
+    <Field label="Availability and capacity" wide><p className="text-sm text-slate-600">Availability dates describe when this product is offered. General products have no stock enforcement. For event-linked products, the linked ticket controls event capacity.</p>{ref.ticketTypeId && <p className="mt-2 text-xs text-blue-700">Delegates per selected ticket: {ticket?.delegateCapacity ?? "Unavailable"}. This is not a product stock limit.</p>}</Field>
   </>;
+}
+
+function ProductSelect(props) {
+  return <select className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50" {...props} />;
 }
 
 function BundleFields({ form, update }) { return <><Field label="Currency"><Input required maxLength="3" value={form.currency || "GBP"} onChange={(e) => update("currency", e.target.value.toUpperCase())} /></Field><Field label="Selling price (minor units)"><Input required type="number" min="0" value={form.sellingPriceMinor ?? ""} onChange={(e) => update("sellingPriceMinor", e.target.value)} /></Field><Field label="Minimum price (minor units)"><Input type="number" min="0" value={form.minimumPriceMinor ?? ""} onChange={(e) => update("minimumPriceMinor", e.target.value)} /></Field><Field label="Presentation mode"><Select value={form.presentationMode || "bundle"} onValueChange={(v) => update("presentationMode", v)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="bundle">Single bundle line</SelectItem><SelectItem value="itemised">Itemised products</SelectItem></SelectContent></Select></Field><Field label="Available from"><Input type="date" value={form.availableFrom || ""} onChange={(e) => update("availableFrom", e.target.value)} /></Field><Field label="Available to"><Input type="date" value={form.availableTo || ""} onChange={(e) => update("availableTo", e.target.value)} /></Field></>; }

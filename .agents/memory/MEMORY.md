@@ -74,6 +74,7 @@
 - [Member security and lifecycle topics](member-security-lifecycle-index.md) — tenant-scoped deletion, reset authorization, access revocation, and member-only context.
 - [Controlled composite pending state](controlled-composite-pending-state.md) — queued sibling edits must drive rendering as well as mutations until the parent acknowledges them.
 - [Catalogue event references](catalogue-event-references.md) — derive ticket delegate capacity live; revalidate links on restore, and replace bundle composition atomically.
+- [Catalogue tax-code authority](catalogue-tax-authority.md) — product choices must agree with Sales invoice mappings, never silently change tenant-wide mappings.
 - [Deactivating referenced workflow states](workflow-state-deactivation-races.md) — assignment and deactivation must serialize on the same database row; an existence check is raceable.
 - [Immutable child re-parenting](immutable-child-reparenting.md) — child immutability triggers must validate both OLD and NEW parents or updates can move data out of locked snapshots.
 - [Custom Object cardinality migrations](custom-object-cardinality-migrations.md) — widen with a new pinned migration; preserve definition history and global legacy-trigger behavior.

@@ -27,3 +27,11 @@ export function useCatalogue(resource, search = "") {
 export function useEventOptions() {
   return useQuery({ queryKey: ["sales-catalogue", "event-options"], queryFn: async () => unwrap(await request("/event-options")) });
 }
+
+export function useCatalogueTaxOptions(enabled = false) {
+  return useQuery({
+    queryKey: ["sales-catalogue", "tax-options"],
+    queryFn: async () => unwrap(await request("/tax-options")),
+    enabled,
+  });
+}
