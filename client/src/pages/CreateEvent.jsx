@@ -1,5 +1,6 @@
 import PublicTicketMemberFields from "@/components/events/PublicTicketMemberFields";
 import { deriveTrainingAgendaBounds } from "@shared/trainingAgendaBounds.js";
+import { getZoomWebinarEndTime } from "@shared/zoomWebinarTiming.js";
 import { ticketMemberPolicy, updateTicketMemberField, validateTicketMemberPolicies } from "@/utils/publicTicketMembers";
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -721,14 +722,14 @@ export default function CreateEvent() {
   useEffect(() => {
     if (selectedWebinar) {
       const startTime = new Date(selectedWebinar.start_time);
-      const endTime = new Date(startTime.getTime() + (selectedWebinar.duration || 60) * 60000);
+      const endTime = getZoomWebinarEndTime(selectedWebinar);
       
       setFormData(prev => ({
         ...prev,
         title: selectedWebinar.topic || prev.title,
         description: selectedWebinar.agenda || prev.description,
         start_date: startTime.toISOString(),
-        end_date: endTime.toISOString(),
+        end_date: endTime,
         zoom_webinar_id: selectedWebinar.id,
         zoom_meeting_id: null,
         online_url: selectedWebinar.join_url || "",
