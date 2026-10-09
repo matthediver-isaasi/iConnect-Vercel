@@ -10,6 +10,7 @@ import { base44 } from "@/api/base44Client";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { getOpportunityUiCapabilities } from "@/lib/opportunityCapabilities";
 import { normalizeOpportunityDetail } from "@/lib/opportunityDetail";
+import { loadOpportunityContacts } from "@/lib/opportunityContacts";
 import { hasAccountingManagementCapability } from "@/lib/salesAccountingConfiguration";
 import SalesAccountingSettingsPanel from "@/components/sales/SalesAccountingSettingsPanel";
 import { OpportunityAllocations } from "@/components/sales/EventAllocationManager";
@@ -73,7 +74,12 @@ function OpportunityDialog({ open, onOpenChange, stages, onCreated }) {
   const { toast } = useToast();
   const [form, setForm] = useState({ name: "", organizationId: "", contactId: "", contactRole: "Primary contact", stageId: "", value: "", currency: "GBP", priority: "medium", expectedCloseDate: "" });
   const [organizations, setOrganizations] = useState([]);
-  const [contacts, setContacts] = useState([]);
+  const [contactOptions, setContactOptions] = useState({ organizationId: "", items: [], loading: false, error: null });
+  const [contactRetry, setContactRetry] = useState(0);
+  const contacts = contactOptions.organizationId === form.organizationId ? contactOptions.items : [];
+  const contactsLoading = Boolean(open && form.organizationId
+    && (contactOptions.organizationId !== form.organizationId || contactOptions.loading));
+  const contactsError = contactOptions.organizationId === form.organizationId ? contactOptions.error : null;
   const [loadingOptions, setLoadingOptions] = useState(false);
   useEffect(() => {
     if (!open) return;
@@ -83,12 +89,17 @@ function OpportunityDialog({ open, onOpenChange, stages, onCreated }) {
       .finally(() => setLoadingOptions(false));
   }, [open]);
   useEffect(() => {
-    setContacts([]);
+    if (!open || !form.organizationId) return;
+    const organizationId = form.organizationId;
+    const controller = new AbortController();
+    let active = true;
     setForm((old) => ({ ...old, contactId: "" }));
-    if (!form.organizationId) return;
-    fetch(`/api/members/search?q=&limit=100&organization_id=${encodeURIComponent(form.organizationId)}`, { credentials: "include" })
-      .then((r) => r.ok ? r.json() : Promise.reject()).then((data) => setContacts(arr(data))).catch(() => setContacts([]));
-  }, [form.organizationId]);
+    setContactOptions({ organizationId, items: [], loading: true, error: null });
+    loadOpportunityContacts(organizationId, { signal: controller.signal })
+      .then((items) => { if (active) setContactOptions({ organizationId, items, loading: false, error: null }); })
+      .catch((error) => { if (active) setContactOptions({ organizationId, items: [], loading: false, error: error.message }); });
+    return () => { active = false; controller.abort(); };
+  }, [open, form.organizationId, contactRetry]);
   useEffect(() => {
     if (open && !form.stageId && stages[0]) setForm((old) => ({ ...old, stageId: idOf(stages[0]) }));
   }, [open, stages, form.stageId]);
@@ -111,15 +122,18 @@ function OpportunityDialog({ open, onOpenChange, stages, onCreated }) {
     <DialogHeader><DialogTitle>New opportunity</DialogTitle><DialogDescription>Create an opportunity against an existing organisation and, optionally, one of its contacts.</DialogDescription></DialogHeader>
     <div className="grid gap-4 sm:grid-cols-2">
       <div className="sm:col-span-2"><Label htmlFor="opp-name">Name</Label><Input id="opp-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
-      <div><Label>Organisation *</Label><Select value={form.organizationId} onValueChange={(organizationId) => setForm({ ...form, organizationId })}><SelectTrigger><SelectValue placeholder={loadingOptions ? "Loading…" : "Select organisation"} /></SelectTrigger><SelectContent>{organizations.map((item) => <SelectItem key={idOf(item)} value={idOf(item)}>{nameOf(item)}</SelectItem>)}</SelectContent></Select></div>
-      <div><Label>Primary contact</Label><Select value={form.contactId || "none"} onValueChange={(contactId) => setForm({ ...form, contactId: contactId === "none" ? "" : contactId })}><SelectTrigger><SelectValue placeholder="Select contact" /></SelectTrigger><SelectContent><SelectItem value="none">No primary contact</SelectItem>{contacts.map((item) => <SelectItem key={idOf(item)} value={idOf(item)}>{nameOf(item)}</SelectItem>)}</SelectContent></Select></div>
+      <div><Label>Organisation *</Label><Select value={form.organizationId} onValueChange={(organizationId) => setForm({ ...form, organizationId, contactId: "" })}><SelectTrigger><SelectValue placeholder={loadingOptions ? "Loading…" : "Select organisation"} /></SelectTrigger><SelectContent>{organizations.map((item) => <SelectItem key={idOf(item)} value={idOf(item)}>{nameOf(item)}</SelectItem>)}</SelectContent></Select></div>
+      <div><Label>Primary contact</Label><Select disabled={!form.organizationId || contactsLoading || Boolean(contactsError)} value={form.contactId || "none"} onValueChange={(contactId) => { if (contactId) setForm({ ...form, contactId: contactId === "none" ? "" : contactId }); }}><SelectTrigger aria-busy={contactsLoading}><SelectValue placeholder="Select contact" /></SelectTrigger><SelectContent><SelectItem value="none">{contactsLoading ? "Loading contacts…" : !form.organizationId ? "Select an organisation first" : "No primary contact"}</SelectItem>{contacts.map((item) => <SelectItem key={idOf(item)} value={idOf(item)}>{nameOf(item)}{item.email ? ` · ${item.email}` : ""}</SelectItem>)}</SelectContent></Select>
+        {contactsError ? <p role="alert" className="mt-1 text-sm text-rose-700">{contactsError} <button type="button" className="underline" onClick={() => setContactRetry(value => value + 1)}>Retry</button></p>
+          : form.organizationId && !contactsLoading && !contacts.length && <p className="mt-1 text-sm text-slate-500">No contacts are linked to this organisation. A primary contact is optional.</p>}
+      </div>
       <div><Label>Contact role</Label><Input value={form.contactRole} onChange={(e) => setForm({ ...form, contactRole: e.target.value })} disabled={!form.contactId} /></div>
       <div><Label>Stage</Label><Select value={form.stageId} onValueChange={(stageId) => setForm({ ...form, stageId })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{stages.map((stage) => <SelectItem key={idOf(stage)} value={idOf(stage)}>{nameOf(stage)}</SelectItem>)}</SelectContent></Select></div>
       <div><Label>Priority</Label><Select value={form.priority} onValueChange={(priority) => setForm({ ...form, priority })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{["low", "medium", "high", "urgent"].map((p) => <SelectItem key={p} value={p}>{p[0].toUpperCase() + p.slice(1)}</SelectItem>)}</SelectContent></Select></div>
       <div><Label>Value</Label><Input type="number" min="0" step="0.01" value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} /></div>
       <div><Label>Expected close</Label><Input type="date" value={form.expectedCloseDate} onChange={(e) => setForm({ ...form, expectedCloseDate: e.target.value })} /></div>
     </div>
-    <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button disabled={!form.name.trim() || !form.organizationId || !form.stageId || create.isPending} onClick={() => create.mutate()}>{create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create</Button></DialogFooter>
+    <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button disabled={!form.name.trim() || !form.organizationId || !form.stageId || contactsLoading || create.isPending} onClick={() => create.mutate()}>{create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create</Button></DialogFooter>
   </DialogContent></Dialog>;
 }
 
