@@ -18,7 +18,22 @@ import {
 import { SalesHttpError } from './salesAccess.js';
 import { salesQuoteErrorBody } from '../sales/quotes/[...path].js';
 import { validateSalesAccountingConfigurationPatch } from '../../shared/salesContracts.js';
-import { createSalesAccountingHandler } from '../sales/accounting/[...path].js';
+import { createSalesAccountingHandler, salesAccountingPathParts } from '../sales/accounting/[...path].js';
+
+test('accounting routes resolve serverless URLs and legacy catch-all parameters', () => {
+  for (const path of ['configuration', 'sale/invoices', 'sale/invoice', 'sale/refresh/xero', 'sale/refresh/quickbooks']) {
+    const expected = path.split('/');
+    assert.deepEqual(salesAccountingPathParts({ url: `/api/sales/accounting/${path}?other=1` }), expected);
+    assert.deepEqual(salesAccountingPathParts({ query: { path } }), expected);
+    assert.deepEqual(salesAccountingPathParts({ query: { path: expected } }), expected);
+  }
+  assert.deepEqual(salesAccountingPathParts({
+    url: 'https://example.com/api/sales/accounting/configuration/',
+    query: { path: ['sale', 'invoices'] },
+  }), ['configuration']);
+  assert.deepEqual(salesAccountingPathParts({ url: '/api/sales/accounting' }), []);
+  assert.throws(() => salesAccountingPathParts({ url: '/api/sales/accounting/%xx' }), /Invalid Sales accounting path/);
+});
 
 test('commercial invoice command cannot override accepted quote values', () => {
   assert.deepEqual(validateSalesInvoiceCommand({}), { ok: true, errors: [] });
@@ -170,6 +185,36 @@ test('configuration rejects no provider and member-only access', async () => {
     json(body) { this.body = body; return this; }, setHeader() {} };
   await handler({ method: 'GET', query: { path: ['configuration'] } }, response);
   assert.equal(response.statusCode, 403);
+});
+
+test('settings GET and PATCH work without catch-all query params and preserve access checks', async () => {
+  const state = { mappings: [], lines: [], defaultRate: 0, itemId: null };
+  const db = configurationDb(state);
+  const dependencies = {
+    db,
+    getTenantContext: async () => ({ isAuthenticated: true, tenantId: 'tenant', tenantUserId: 'admin' }),
+    getActiveAccountingProvider: async () => 'xero',
+    getAccountingProviderByName: () => ({
+      listSalesTaxCodes: async () => [{ id: 'NONE', name: 'No Tax' }],
+      listSalesItems: async () => [],
+    }),
+  };
+  const response = () => ({ statusCode: null, body: null,
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; }, setHeader() {} });
+  for (const method of ['GET', 'PATCH']) {
+    const req = { method, url: '/api/sales/accounting/configuration',
+      body: { mappings: [{ taxRateBps: 0, providerTaxCodeId: 'NONE' }] } };
+    const res = response();
+    await createSalesAccountingHandler(dependencies)(req, res);
+    assert.equal(res.statusCode, 200);
+    const denied = response();
+    await createSalesAccountingHandler({ ...dependencies,
+      getTenantContext: async () => ({ isAuthenticated: true, tenantId: 'tenant', memberId: 'member', roleId: 'role' }),
+      hasFeatureAccess: async () => true,
+    })(req, denied);
+    assert.equal(denied.statusCode, 403);
+  }
 });
 
 test('provider statuses normalize without exposing provider vocabulary', () => {

@@ -3,6 +3,7 @@
 - [Better Stack subhourly timezone](better-stack-subhourly-timezone.md) — a server-timezone adjustment must be cleared with approval before setting a subhourly interval.
 - [BNMS membership topics](bnms-membership-index.md) — owner-approved membership evidence, historical test cohorts and NMC fulfilment eligibility.
 - [Router consistency in client/](router-consistency.md) — app uses react-router-dom; new pages built with wouter look like they navigate but break SPA routing.
+- [Serverless catch-all routing](serverless-catchall-routing.md) — test URL-only requests as well as locally injected route parameters; query strings must not override operations.
 - [Supabase realtime publication](supabase-realtime-publication.md) — realtime subscriptions silently get no events until the table is added to the supabase_realtime publication.
 - [Membership tier scheduling](membership-tier-scheduling.md) — a config is "in effect" by date range, not just effective_to IS NULL; switch-over caps the old config to newStart-1.
 - [base44 new field needs a DB column](base44-new-field-migration.md) — adding a new property to an existing base44 entity requires a migration; the column-per-field table does not auto-create columns.

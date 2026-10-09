@@ -9,7 +9,20 @@ import {
   refreshSalesInvoiceStatus, saveSalesAccountingConfiguration,
 } from '../../_lib/salesAccounting.js';
 
-const parts = (req) => {
+export const salesAccountingPathParts = (req) => {
+  // Serverless requests may omit catch-all query params. The URL also keeps
+  // caller-supplied ?path= values from changing the requested operation.
+  if (req.url) {
+    try {
+      const pathname = new URL(req.url, 'http://localhost').pathname;
+      const prefix = '/api/sales/accounting';
+      if (pathname === prefix || pathname.startsWith(`${prefix}/`)) {
+        return pathname.slice(prefix.length).split('/').filter(Boolean).map(decodeURIComponent);
+      }
+    } catch {
+      throw new SalesHttpError(400, 'Invalid Sales accounting path');
+    }
+  }
   const path = req.query?.path;
   return Array.isArray(path) ? path : String(path || '').split('/').filter(Boolean);
 };
@@ -19,7 +32,7 @@ export function createSalesAccountingHandler(dependencies = {}) {
   return async (req, res) => {
     try {
       if (!db) throw new SalesHttpError(503, 'Database not configured');
-      const [saleId, action, provider] = parts(req);
+      const [saleId, action, provider] = salesAccountingPathParts(req);
       const context = await contextFor(req);
       const configuration = saleId === 'configuration';
       const capability = !configuration && req.method === 'GET' && action !== 'refresh'
