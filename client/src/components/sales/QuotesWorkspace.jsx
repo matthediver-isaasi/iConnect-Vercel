@@ -194,7 +194,7 @@ function lineTotals(line) {
   }
 }
 
-function LinesEditor({ form, setForm, products, bundles, readOnly, canOverride }) {
+export function LinesEditor({ form, setForm, products, bundles, readOnly, canOverride }) {
   const taxOptions = useCatalogueTaxOptions(!readOnly);
   const taxItems = providerTaxOptions(taxOptions.data);
   const patch = (index, changes) => setForm((old) => ({ ...old, lines: old.lines.map((line, i) => i === index ? { ...line, ...changes } : line) }));
@@ -208,16 +208,16 @@ function LinesEditor({ form, setForm, products, bundles, readOnly, canOverride }
   return <Card><CardHeader className="flex-row flex-wrap items-center justify-between gap-2"><div><CardTitle>Quote lines</CardTitle><p className="mt-1 text-sm text-slate-500">Add catalogue items, bundles or a custom line. Prices are entered in minor units.</p></div>{!readOnly && <div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => add("product")}><Plus className="mr-1 h-3.5 w-3.5" />Product</Button><Button size="sm" variant="outline" onClick={() => add("bundle")}><Plus className="mr-1 h-3.5 w-3.5" />Bundle</Button><Button size="sm" variant="outline" onClick={() => add("free_text")}><Plus className="mr-1 h-3.5 w-3.5" />Free text</Button></div>}</CardHeader><CardContent>
     {!form.lines.length ? <p className="rounded-lg border border-dashed py-10 text-center text-sm text-slate-500">No lines yet.</p> : <div className="space-y-3">{form.lines.map((line, index) => {
       const totals = lineTotals(line);
-      return <div key={line.key} className="rounded-xl border bg-slate-50/50 p-3">
-        <div className="grid gap-3 lg:grid-cols-[minmax(180px,1.4fr)_90px_120px_120px_100px_90px_105px_auto]">
+      return <div key={line.key} className="min-w-0 rounded-xl border bg-slate-50/50 p-3">
+        <div className="grid gap-3 [&>div]:min-w-0" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 180px), 1fr))" }}>
           <div><Label>Description / item</Label>{line.type === "product" || line.type === "bundle" ? <Select disabled={readOnly} value={String(line[`${line.type}Id`] || "")} onValueChange={(id) => choose(index, line.type, id)}><SelectTrigger className="bg-white"><SelectValue placeholder={`Choose ${line.type}`} /></SelectTrigger><SelectContent>{(line.type === "product" ? products : bundles).map((item) => <SelectItem key={idOf(item)} value={String(idOf(item))}>{nameOf(item)}</SelectItem>)}</SelectContent></Select> : <Input disabled={readOnly} value={line.description} onChange={(e) => patch(index, { description: e.target.value })} placeholder="Description" />}</div>
           <div><Label>Quantity</Label><Input disabled={readOnly} type="number" min="0" step="0.01" value={line.quantity} onChange={(e) => patch(index, { quantity: e.target.value })} /></div>
           <div><Label>Standard</Label><Input disabled={readOnly || line.type !== "free_text"} type="number" min="0" value={line.standardUnitPriceMinor} onChange={(e) => patch(index, { standardUnitPriceMinor: e.target.value, quotedUnitPriceMinor: e.target.value })} /></div>
           <div><Label>Quoted</Label><Input disabled={readOnly || !canOverride} title={!canOverride ? "You do not have permission to override prices" : ""} type="number" min="0" value={line.quotedUnitPriceMinor} onChange={(e) => patch(index, { quotedUnitPriceMinor: e.target.value })} /></div>
           <div><Label>Discount %</Label><Input disabled={readOnly || !canOverride} title={!canOverride ? "You do not have permission to apply discounts" : ""} type="number" min="0" max="100" step=".01" value={Number(line.discountBps || 0) / 100} onChange={(e) => patch(index, { discountBps: Math.round(Number(e.target.value) * 100) })} /></div>
           <div><Label>Tax %</Label><Input readOnly aria-label={`Line ${index + 1} tax rate`} value={Number(line.taxRateBps || 0) / 100} /></div>
-          <div className="text-right"><Label>Gross</Label><p className="pt-2 font-semibold">{money(totals.gross, form.currency)}</p><p className="text-[11px] text-slate-500">net {money(totals.net, form.currency)} · tax {money(totals.tax, form.currency)}</p></div>
-          {!readOnly && <div className="flex items-end gap-1"><Button variant="ghost" size="icon" disabled={!index} onClick={() => move(index, -1)}><ArrowUp className="h-4 w-4" /></Button><Button variant="ghost" size="icon" disabled={index === form.lines.length - 1} onClick={() => move(index, 1)}><ArrowDown className="h-4 w-4" /></Button><Button variant="ghost" size="icon" onClick={() => setForm((old) => ({ ...old, lines: old.lines.filter((_, i) => i !== index) }))}><Trash2 className="h-4 w-4 text-rose-600" /></Button></div>}
+          <div className="break-words text-right"><Label>Gross</Label><p className="pt-2 font-semibold">{money(totals.gross, form.currency)}</p><p className="text-[11px] text-slate-500">net {money(totals.net, form.currency)} · tax {money(totals.tax, form.currency)}</p></div>
+          {!readOnly && <div className="flex flex-wrap items-end justify-end gap-1"><Button variant="ghost" size="icon" aria-label={`Move line ${index + 1} up`} disabled={!index} onClick={() => move(index, -1)}><ArrowUp className="h-4 w-4" /></Button><Button variant="ghost" size="icon" aria-label={`Move line ${index + 1} down`} disabled={index === form.lines.length - 1} onClick={() => move(index, 1)}><ArrowDown className="h-4 w-4" /></Button><Button variant="ghost" size="icon" aria-label={`Delete line ${index + 1}`} onClick={() => setForm((old) => ({ ...old, lines: old.lines.filter((_, i) => i !== index) }))}><Trash2 className="h-4 w-4 text-rose-600" /></Button></div>}
         </div>
         {line.type !== "free_text" && <Input disabled={readOnly} className="mt-2 bg-white" value={line.description} onChange={(e) => patch(index, { description: e.target.value })} aria-label="Line description" />}
         <div className="mt-3">

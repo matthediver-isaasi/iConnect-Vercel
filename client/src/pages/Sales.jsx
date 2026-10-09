@@ -1,4 +1,4 @@
-import { Navigate, NavLink } from "react-router-dom";
+import { Navigate } from "react-router-dom";
 import {
   BarChart3,
   Boxes,
@@ -15,7 +15,6 @@ import NavigationRoleState from "@/components/navigation/NavigationRoleState";
 import {
   getSalesDestination,
   getSalesCatalogueSection,
-  getVisibleSalesDestinations,
   SALES_BASE_PERMISSION,
 } from "@/lib/salesNavigation";
 import Catalogue from "./sales/Catalogue";
@@ -58,7 +57,6 @@ export default function Sales({ destination = "dashboard" }) {
   if (roleStatus !== "ready") {
     return <NavigationRoleState status={roleStatus} error={roleError} onRetry={retryRole} />;
   }
-  const visibleDestinations = getVisibleSalesDestinations(isFeatureExcluded);
 
   if (
     !current
@@ -73,7 +71,7 @@ export default function Sales({ destination = "dashboard" }) {
   return (
     <div className="min-h-full bg-slate-50/70">
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+        <div className="px-4 py-6 sm:px-6 lg:px-8">
           <p className="text-sm font-semibold uppercase tracking-wider text-blue-600">Sales</p>
           <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">
             {current.label}
@@ -84,31 +82,7 @@ export default function Sales({ destination = "dashboard" }) {
         </div>
       </header>
 
-      <div className="mx-auto grid max-w-7xl gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[220px_minmax(0,1fr)] lg:px-8">
-        <nav
-          aria-label="Sales navigation"
-          className="flex gap-2 overflow-x-auto pb-2 lg:block lg:space-y-1 lg:overflow-visible lg:pb-0"
-        >
-          {visibleDestinations.map((item) => {
-            const Icon = ICONS[item.key];
-            return (
-              <NavLink
-                key={item.key}
-                to={item.path}
-                className={({ isActive }) => [
-                  "flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                  isActive
-                    ? "bg-blue-600 text-white shadow-sm"
-                    : "bg-white text-slate-700 hover:bg-blue-50 hover:text-blue-700 lg:bg-transparent",
-                ].join(" ")}
-              >
-                <Icon className="h-4 w-4" aria-hidden="true" />
-                {item.label}
-              </NavLink>
-            );
-          })}
-        </nav>
-
+      <div className="min-w-0 px-4 py-6 sm:px-6 lg:px-8">
         <main className="min-w-0">
           {getSalesCatalogueSection(current.key) ? (
             <Catalogue section={getSalesCatalogueSection(current.key)} />

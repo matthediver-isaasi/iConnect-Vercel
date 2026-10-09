@@ -6,6 +6,8 @@ import {
   getSalesCatalogueSection,
   getVisibleSalesDestinations,
   SALES_DESTINATIONS,
+  SALES_PORTAL_PAGES,
+  getSalesPortalPermission,
 } from './salesNavigation.js';
 
 test('each Sales destination has its own page permission and route', () => {
@@ -40,8 +42,33 @@ test('catalogue destinations remain part of the shared Sales shell', async () =>
 
   assert.match(salesSource, /<Catalogue section=\{getSalesCatalogueSection\(current\.key\)\}/);
   assert.doesNotMatch(salesSource, /return <Catalogue/);
-  assert.match(salesSource, /aria-label="Sales navigation"/);
-  assert.match(salesSource, /max-w-7xl/);
+  assert.doesNotMatch(salesSource, /aria-label="Sales navigation"/);
+  assert.doesNotMatch(salesSource, /lg:grid-cols-\[220px/);
+});
+
+test('all Sales destinations are selectable portal pages with their canonical route and RBAC key', () => {
+  assert.equal(SALES_PORTAL_PAGES.length, SALES_DESTINATIONS.length);
+  for (const destination of SALES_DESTINATIONS) {
+    const page = SALES_PORTAL_PAGES.find(item => item.value === destination.path);
+    assert.equal(page.route, destination.path);
+    assert.equal(page.featureId, destination.permissionId);
+    assert.equal(page.label, `Sales — ${destination.label}`);
+    assert.equal(getSalesPortalPermission(page.route), destination.permissionId);
+    assert.equal(getSalesPortalPermission(page.route, id => id === 'sales.view'), 'sales.view');
+  }
+  assert.equal(getSalesPortalPermission('/sales'), 'sales.dashboard');
+  assert.equal(getSalesPortalPermission('/sales/quotes/?page=2'), 'sales.quotes');
+  assert.equal(getSalesPortalPermission('https://elsewhere.example/sales/quotes'), null);
+  assert.equal(getSalesPortalPermission('/Resources'), null);
+});
+
+test('portal management offers Sales pages and applies their permission even when changing an existing item', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../pages/PortalMenuManagement.jsx', import.meta.url), 'utf8');
+  assert.match(source, /\.\.\.SALES_PORTAL_PAGES/);
+  assert.match(source, /if \(page\?\.featureId\) \{\s*next\.feature_id = page\.featureId;/);
+  const layout = await readFile(new URL('../pages/Layout.jsx', import.meta.url), 'utf8');
+  assert.match(layout, /getSalesPortalPermission\(item\.url, isFeatureExcluded\)/);
 });
 
 test('Reports navigation uses the same capability enforced by the API', () => {

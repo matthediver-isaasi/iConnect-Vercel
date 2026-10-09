@@ -8,6 +8,7 @@ import { useLayoutContext } from "@/contexts/LayoutContext";
 import { useTenantAiAssistant } from "@/hooks/useTenantAiAssistant";
 import { resolveMemberAiLauncherStyle } from "@shared/memberAiLauncherColors.js";
 import { createViewerRequestLease } from "@/lib/canvasViewerValues";
+import { getSalesPortalPermission } from "@/lib/salesNavigation";
 import {
   acquireViewerSessionRequest,
   getViewerSessionScope,
@@ -2492,6 +2493,9 @@ useEffect(() => {
     // Helper to get or generate feature_id for a menu item
     // This ensures filtering works even if feature_id wasn't set in the database
     const getFeatureId = (item, itemSection) => {
+      const salesPermission = item.link_type !== 'external'
+        ? getSalesPortalPermission(item.url, isFeatureExcluded) : null;
+      if (salesPermission) return salesPermission;
       if (isNmcReportDestination(item)) return NMC_REPORT_FEATURE;
       const customObjectId = item.link_type !== 'external'
         ? getCustomObjectIdFromPortalListUrl(item.url)
@@ -2658,7 +2662,7 @@ useEffect(() => {
       
       return processedItem;
     });
-  }, [dynamicNavItems, isCustomSlug, articleDisplayName, urlSlug, getArticleListUrl, getMyArticlesUrl, isCustomMemberTerm, memberLabelPlural, getMemberListUrl]);
+  }, [dynamicNavItems, isCustomSlug, articleDisplayName, urlSlug, getArticleListUrl, getMyArticlesUrl, isCustomMemberTerm, memberLabelPlural, getMemberListUrl, isFeatureExcluded]);
   
   const adminNavigationItemsSource = useMemo(() => {
     // Get base items (from DB or hardcoded)
@@ -2712,7 +2716,7 @@ useEffect(() => {
       
       return processedItem;
     });
-  }, [dynamicNavItems, isCustomSlug, articleDisplayName, urlSlug, getArticleListUrl, getMyArticlesUrl, isCustomMemberTerm, memberLabelPlural, getMemberListUrl]);
+  }, [dynamicNavItems, isCustomSlug, articleDisplayName, urlSlug, getArticleListUrl, getMyArticlesUrl, isCustomMemberTerm, memberLabelPlural, getMemberListUrl, isFeatureExcluded]);
 
   // Filter navigation items based on member's excluded features
   // Inspect destinations too: a saved custom menu may carry an unrelated grant.

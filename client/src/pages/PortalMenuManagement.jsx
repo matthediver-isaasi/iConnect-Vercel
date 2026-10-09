@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { useMemberAccess } from "@/hooks/useMemberAccess";
 import { createPageUrl } from "@/utils";
 import { ROLE_ACCESS_MAP } from "@/lib/roleAccessMap";
+import { SALES_PORTAL_PAGES } from "@/lib/salesNavigation";
 import { useTenantBranding } from "@/contexts/TenantBrandingContext";
 import { BNMS_TENANT_ID, NMC_REPORT_FEATURE, isNmcReportDestination } from "@/lib/nmcMembershipReport.mjs";
 import {
@@ -348,6 +349,7 @@ export default function PortalMenuManagementPage() {
     return [
       { value: "_none", label: "No Page (Parent Menu)" },
       ...builtInPages.filter(item => isBnmsTenant || !isNmcReportDestination(item)),
+      ...SALES_PORTAL_PAGES,
       ...ieditPages,
       ...dynamicDirectories,
       ...customObjectDestinations,
@@ -803,7 +805,9 @@ export default function PortalMenuManagementPage() {
                         const url = value === "_none" ? "" : (page?.route || value);
                         const next = { ...editingItem, url };
                         const selectedDestination = customObjectDestinations.find(page => page.value === url);
-                        if (selectedDestination) {
+                        if (page?.featureId) {
+                          next.feature_id = page.featureId;
+                        } else if (selectedDestination) {
                           // This identifier is interpreted against the same
                           // custom_object_role_permission view grant as direct access.
                           next.feature_id = selectedDestination.featureId;

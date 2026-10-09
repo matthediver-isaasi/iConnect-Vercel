@@ -16,6 +16,22 @@ export const SALES_DESTINATIONS = Object.freeze([
 
 export const SALES_BASE_PERMISSION = 'sales.view';
 
+// Portal menu destinations use real routes, not generated /SalesQuotes aliases.
+export const SALES_PORTAL_PAGES = Object.freeze(SALES_DESTINATIONS.map(item => ({
+  value: item.path,
+  route: item.path,
+  label: `Sales — ${item.label}`,
+  featureId: item.permissionId,
+})));
+
+export function getSalesPortalPermission(url, isExcluded = () => false) {
+  const path = String(url || '').split(/[?#]/)[0].replace(/\/+$/, '');
+  const destination = getSalesDestination(path === '/sales' ? 'dashboard'
+    : path.startsWith('/sales/') ? path.slice('/sales/'.length) : '');
+  if (!destination) return null;
+  return isExcluded(SALES_BASE_PERMISSION) ? SALES_BASE_PERMISSION : destination.permissionId;
+}
+
 export const SALES_CATALOGUE_SECTIONS = Object.freeze({
   catalogue: 'categories',
   products: 'products',
