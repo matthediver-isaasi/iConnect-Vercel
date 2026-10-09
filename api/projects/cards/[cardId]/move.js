@@ -73,14 +73,6 @@ export default async function handler(req, res) {
 
     if (sameList) {
       if (position > oldPosition) {
-        await supabase
-          .from('project_card')
-          .update({ position: supabase.rpc ? position : position })
-          .gt('position', oldPosition)
-          .lte('position', position)
-          .eq('list_id', list_id)
-          .neq('id', cardId);
-
         const { data: cardsToUpdate } = await supabase
           .from('project_card')
           .select('id, position')

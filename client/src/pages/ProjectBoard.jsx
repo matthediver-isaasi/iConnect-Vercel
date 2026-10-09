@@ -20,6 +20,9 @@ import CardDetailModal from "@/components/sales/ProjectCardDetailModal";
 import ProjectBoardInbox from "@/components/projects/ProjectBoardInbox";
 import ProjectCardTileSummary from "@/components/projects/ProjectCardTileSummary";
 import ProjectBoardCalendar from "@/components/projects/ProjectBoardCalendar";
+import ProjectBoardFilters from "@/components/projects/ProjectBoardFilters";
+import { useProjectBoardFilters } from "@/components/projects/useProjectBoardFilters";
+import { filteredInsertionPosition } from "@/components/projects/projectBoardFilters.mjs";
 import { useBoardInboxSummary } from "@/components/projects/useBoardInbox";
 import { useInboxCardDeepLink } from "@/components/projects/useInboxCardDeepLink";
 import ProjectBoardOpportunityPanel from "@/components/sales/ProjectBoardOpportunityPanel";
@@ -91,6 +94,7 @@ export default function ProjectBoardPage() {
   });
 
   useProjectBoardRealtime(boardId);
+  const boardFilters = useProjectBoardFilters(boardId, boardData, accessChecked && !error && Boolean(boardData?.board));
   const inboxSummary = useBoardInboxSummary(boardId, accessChecked && !error && Boolean(boardData?.board));
   const unreadCardIds = new Set(inboxSummary.data?.unreadCardIds || []);
   const cardDeepLink = useInboxCardDeepLink({
@@ -270,10 +274,14 @@ export default function ProjectBoardPage() {
       moveCardMutation.mutate({
         cardId: draggableId,
         list_id: destination.droppableId,
-        position: destination.index
+        position: filteredInsertionPosition(
+          boardFilters.cardsByList.get(String(destination.droppableId)) || [],
+          boardFilters.filteredByList.get(String(destination.droppableId)) || [],
+          draggableId, destination.index,
+        )
       });
     }
-  }, [moveCardMutation]);
+  }, [moveCardMutation, boardFilters.cardsByList, boardFilters.filteredByList]);
 
   const handleCreateList = () => {
     if (!newListName.trim()) return;
@@ -292,9 +300,7 @@ export default function ProjectBoardPage() {
   };
 
   const getCardsByList = (listId) => {
-    return (boardData?.cards || [])
-      .filter(card => card.list_id === listId)
-      .sort((a, b) => a.position - b.position);
+    return boardFilters.filteredByList.get(String(listId)) || [];
   };
 
   const getLabelById = (labelId) => {
@@ -336,7 +342,7 @@ export default function ProjectBoardPage() {
   const canManageLabels = canManage && canEdit && !isFeatureExcluded('projects.board-view.manage-labels');
 
   return (
-    <div className="flex flex-col h-screen">
+    <div className="flex min-h-[100dvh] flex-col h-[100dvh]">
       <div
         className="px-4 py-3 border-b flex flex-wrap items-center justify-between gap-4"
         style={{ backgroundColor: `${board?.color}15` }}
@@ -400,10 +406,13 @@ export default function ProjectBoardPage() {
         </div>
       )}
 
+      <ProjectBoardFilters controller={boardFilters} labels={boardData?.labels || []}
+        members={boardData?.members || []} viewerIdentityId={boardData?.viewerIdentityId}
+        totalCount={boardData?.cards?.length || 0} />
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
       <ProjectBoardInbox boardId={boardId} onOpenCard={openCardDetail} />
       <div className={`min-w-0 flex-1 overflow-y-auto ${boardView === 'board' ? 'hidden' : ''}`}>
-        <ProjectBoardCalendar key={boardId} cards={boardData?.cards || []} labels={boardData?.labels || []}
+        <ProjectBoardCalendar key={boardId} cards={boardFilters.filteredCards} labels={boardData?.labels || []}
           lists={lists} unreadCardIds={unreadCardIds} onOpenCard={openCardDetail} />
       </div>
       <ScrollArea className={`min-w-0 flex-1 ${boardView === 'calendar' ? 'hidden' : ''}`}>
@@ -453,6 +462,10 @@ export default function ProjectBoardPage() {
                           data-testid={`text-list-name-${list.id}`}
                         >
                           {list.name}
+                           <span className="ml-2 text-xs font-normal text-muted-foreground" data-testid={`list-count-${list.id}`}>
+                             {boardFilters.active ? `${getCardsByList(list.id).length} / ` : ""}
+                             {boardFilters.cardsByList.get(String(list.id))?.length || 0}
+                           </span>
                         </h3>
                         {canManage && (
                           <DropdownMenu>

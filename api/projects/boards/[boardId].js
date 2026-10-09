@@ -1,6 +1,7 @@
 import { supabase } from '../../_lib/database.js';
 import { getSession } from '../../_lib/session.js';
 import { guardSalesLinkedProject } from '../../_lib/salesLinkedProjectGuard.js';
+import { buildProjectBoardSearchIndex } from '../../_lib/projectBoardSearch.js';
 
 async function getBoardMembership(boardId, identityId) {
   const { data } = await supabase
@@ -13,6 +14,7 @@ async function getBoardMembership(boardId, identityId) {
 }
 
 export default async function handler(req, res) {
+  res.setHeader('Cache-Control', 'private, no-store');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, PATCH, DELETE, OPTIONS');
@@ -66,27 +68,34 @@ export default async function handler(req, res) {
         .eq('is_archived', false)
         .order('position', { ascending: true });
 
-      const { data: cards, error: cardsError } = await supabase
-        .from('project_card')
-        .select(`
+      const cards = [];
+      for (let start = 0; ; start += 500) {
+        const { data: page, error: cardsError } = await supabase
+          .from('project_card')
+          .select(`
           *,
           project_card_label(label_id),
           project_card_assignee(identity_id),
           project_card_comment(count)
         `)
-        .eq('board_id', boardId)
-        .eq('is_archived', false)
-        .order('position', { ascending: true });
+          .eq('board_id', boardId)
+          .eq('is_archived', false)
+          .order('position', { ascending: true })
+          .order('id', { ascending: true })
+          .range(start, start + 499);
 
-      if (cardsError) {
-        console.error('[Board] Cards query error:', cardsError);
-        return res.status(500).json({ error: 'Failed to load board cards' });
+        if (cardsError) {
+          console.error('[Board] Cards query error:', cardsError.code);
+          return res.status(500).json({ error: 'Failed to load board cards' });
+        }
+        cards.push(...(page || []));
+        if (!page || page.length < 500) break;
       }
 
       // Fetch attachments separately and merge with cards
       const cardIds = cards?.map(c => c.id) || [];
       let attachmentsByCard = {};
-      if (cardIds.length > 0) {
+      if (cardIds.length > 0 && req.query.searchIndex !== 'true') {
         for (let offset = 0; offset < cardIds.length; offset += 100) {
           for (let start = 0; ; start += 500) {
             const { data: attachments, error: attachmentError } = await supabase
@@ -144,7 +153,11 @@ export default async function handler(req, res) {
         };
       }) || [];
 
+      if (req.query.searchIndex === 'true') {
+        return res.json(await buildProjectBoardSearchIndex(supabase, cards, lists || [], enrichedMembers));
+      }
       return res.json({
+        viewerIdentityId: session.identityId,
         board: { ...board, user_role: membership.role },
         lists: lists || [],
         cards: cardsWithAttachments,
@@ -205,7 +218,7 @@ export default async function handler(req, res) {
 
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (err) {
-    console.error('[Board] Error:', err);
+    console.error('[Board] Error:', err.code || 'request_failed');
     return res.status(500).json({ error: 'Server error' });
   }
 }

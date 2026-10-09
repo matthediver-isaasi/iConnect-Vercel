@@ -1,0 +1,58 @@
+## Project Boards – Filtering and Search Enhancements
+
+The recent project board changes are now implemented and working well. We'd like to introduce some additional filtering and search functionality to make it easier for users to locate and manage cards, particularly on larger boards.
+
+### 1. Filter by Label
+- Add the ability to filter cards by their assigned labels.
+- Allow users to select one or multiple labels.
+- Only display cards matching the selected labels.
+
+### 2. Show/Hide Completed Cards
+- Add a simple toggle to hide or show completed cards.
+- When enabled, completed cards should be hidden from the board without affecting their status or data.
+- The toggle should work alongside other active filters.
+
+### 3. Type-Ahead Card Search
+Introduce a search field above the board that dynamically filters cards as the user types.
+
+The search should ideally cover:
+- Card title
+- Card description
+- Comments
+- Activity history, including relevant text-based activity entries
+
+Search should be case-insensitive, support partial matches and update results dynamically without requiring the user to press Enter.
+
+**Important:** When a match is found in a card's comments, description or activity, the corresponding card should appear in the results even if the search term does not appear in its title.
+
+### 4. Filter by Assignee
+- Add a dropdown allowing users to filter cards by one or more assignees.
+- Include a convenient **"Assigned to Me"** option that displays only cards where the currently logged-in user is an assignee.
+- Support cards with multiple assignees.
+- Ideally, include an "Unassigned" option to identify cards without an assignee.
+
+### 5. Combined Filtering Behaviour
+All filters and search options should work together.
+
+For example, a user should be able to:
+- Select "Assigned to Me".
+- Filter by a particular label.
+- Hide completed cards.
+- Search for a keyword within the remaining cards.
+
+The board should update immediately as filters change, without requiring a full page reload.
+
+### 6. UI and Usability
+- Keep the filtering controls compact and positioned above the existing project board.
+- Display active filters clearly.
+- Provide a **"Clear Filters"** option to reset all filters and search criteria.
+- Show an appropriate empty-state message when no cards match the selected criteria.
+- Preserve the existing board layout and drag-and-drop functionality.
+- Filtering must be display-only and must never change card data, status or assignments.
+
+### 7. Implementation Considerations
+Please reuse existing project board components and data structures wherever possible.
+
+Ensure filtering and search remain responsive on boards containing large numbers of cards. If necessary, use debounced search input to avoid excessive processing or API requests.
+
+**Acceptance Criteria:** Users can quickly locate cards by label, assignee, completion status or keyword, either individually or in combination, without disrupting any existing project board functionality.

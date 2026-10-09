@@ -56,6 +56,10 @@ export async function publishProjectCardUpdate(queryClient, cardId, patch = {}, 
       ...(attachment || removedAttachmentId ? { attachments: mergeAttachments(old.attachments) } : {}) };
   });
   void queryClient.invalidateQueries({ predicate });
+  void queryClient.invalidateQueries({ predicate: query =>
+    query.queryKey[0] === 'project-board' && query.queryKey[2] === 'search-index' &&
+    query.state.data?.documents?.some(document => document.cardId === cardId),
+  });
 }
 
 // Publish the server-confirmed card before the slower board refresh completes.
@@ -80,4 +84,5 @@ export async function publishCreatedProjectCard(queryClient, boardId, card) {
   });
   // Do not keep the create spinner waiting for this round trip.
   void queryClient.invalidateQueries({ queryKey, exact: true });
+  void queryClient.invalidateQueries({ queryKey: [...queryKey, 'search-index'], exact: true });
 }
