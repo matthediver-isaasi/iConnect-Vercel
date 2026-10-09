@@ -20,7 +20,10 @@ export default function BoardMentionTextarea({ value, onChange, mentions, onMent
     document.getElementById(`${listId}-${activeIndex}`)?.scrollIntoView?.({ block: "nearest" });
   }, [expanded, listId, activeIndex, matches.length]);
 
-  const updateTrigger = (content, caret) => { setTrigger(mentionTrigger(content, caret)); setActive(0); };
+  const updateTrigger = (content, caret) => {
+    setTrigger(mentionTrigger(content, caret, retainedMentions(content, mentions, members)));
+    setActive(0);
+  };
   const pick = (member) => {
     if (!trigger) return;
     const next = insertMention(value, trigger, member);

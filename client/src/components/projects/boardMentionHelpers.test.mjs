@@ -30,6 +30,16 @@ test("autocomplete at caret supports full names, avoids emails, and preserves su
   assert.equal(result.caret, 13);
   assert.equal(mentionTrigger("Hi @Mia\nNext line", 17), null);
 });
+test("completed mentions do not reopen while typing, but new and edited searches work", () => {
+  const picked = [{ id: "jules", label: "Jules Le Roy" }];
+  for (const text of ["@Jules Le Roy ", "@Jules Le Roy t", "@Jules Le Roy thanks for checking"]) {
+    assert.equal(mentionTrigger(text, text.length, picked), null);
+  }
+  for (const text of ["@Jules Le", "@Jules Le Roy thanks @Mi", "@Jules Le Royal"]) {
+    assert.ok(mentionTrigger(text, text.length, picked));
+  }
+  assert.ok(mentionTrigger("@Jules Le Roy", 13), "unselected names still allow explicit selection");
+});
 test("card opening rejects unavailable and moved cards; API permission errors are clear", () => {
   const card = { id: "card", board_id: "board" };
   assert.equal(availableInboxCard({ card }, "board"), card);

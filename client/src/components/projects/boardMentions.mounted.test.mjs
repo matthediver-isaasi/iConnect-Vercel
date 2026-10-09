@@ -97,6 +97,15 @@ test("keyboard and pointer mentions: explicit selection, deduplication, exact la
   await key(input, "Enter");
   assert.equal(input.value, "@Jules Le Roy ");
   assert.deepEqual(picked, [{ id: "jules", label: "Jules Le Roy" }]);
+  await type(input, "@Jules Le Roy t");
+  assert.equal(host.querySelector('[role="listbox"]'), null, "typing after a chosen mention keeps the picker closed");
+  await click(input);
+  assert.equal(host.querySelector('[role="listbox"]'), null, "clicking after a chosen mention keeps the picker closed");
+  await type(input, "@Jules Le Roy thanks @Mi");
+  assert.equal(host.querySelectorAll('[role="option"]').length, 1, "a fresh @ still opens the picker");
+  await click(host.querySelector('[role="option"]'));
+  await type(input, "@Jules Le Roy thanks @Mia Chen please review");
+  assert.equal(host.querySelector('[role="listbox"]'), null, "pointer-selected mentions also stay closed");
   await type(input, "@Jules Le Roy @Ju");
   await click(host.querySelector('[role="option"]'));
   assert.equal(picked.length, 1);

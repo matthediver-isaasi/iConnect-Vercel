@@ -27,10 +27,15 @@ export function mentionIdentityIds(content, picked, members) {
   return retainedMentions(content, picked, members).map((mention) => mention.id);
 }
 
-export function mentionTrigger(content, caret) {
+export function mentionTrigger(content, caret, picked = []) {
   const before = content.slice(0, caret);
   // A whitespace boundary avoids turning email addresses into a picker.
   const match = before.match(/(?:^|\s)@([^@\n\r]*)$/);
+  // Spaces are allowed while searching full names, but must not keep a
+  // previously selected mention open as the user continues their comment.
+  if (match && picked.some(({ label }) =>
+    match[1] === label || (match[1].startsWith(label) && /^\s/.test(match[1].slice(label.length)))
+  )) return null;
   return match ? { start: caret - match[1].length - 1, end: caret, query: match[1] } : null;
 }
 
